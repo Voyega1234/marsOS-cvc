@@ -1,0 +1,33 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { getSession } from "@/lib/auth";
+import { runKeywordResearch, toUserMessage } from "@/services/ai";
+
+export async function POST(req: NextRequest) {
+  const session = await getSession();
+  
+
+  if (!session!.user.organizationId) {
+    return NextResponse.json({ error: "No organization" }, { status: 403 });
+  }
+
+  try {
+    const { projectId, seedKeyword } = await req.json();
+    if (!projectId || !seedKeyword) {
+      return NextResponse.json({ error: "Missing projectId or seedKeyword" }, { status: 400 });
+    }
+
+    const result = await runKeywordResearch({
+      organizationId: session!.user.organizationId,
+      userId:         session!.user.id,
+      userRole:       session!.user.role,
+      projectId,
+      seedKeyword,
+    });
+
+    return NextResponse.json(result);
+  } catch (err) {
+    console.error("[keyword-research]", err);
+    return NextResponse.json({ error: toUserMessage(err) }, { status: 500 });
+  }
+}

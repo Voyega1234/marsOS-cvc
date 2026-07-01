@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Jarvis OS — Design tokens (Mercy-style oklch) ─────────────────────────── */
+@layer base {
+  :root {
+    --background:          oklch(1 0 0);
+    --foreground:          oklch(0.145 0 0);
+    --card:                oklch(1 0 0);
+    --card-foreground:     oklch(0.145 0 0);
+    --popover:             oklch(1 0 0);
+    --popover-foreground:  oklch(0.145 0 0);
+    --primary:             oklch(0.205 0 0);
+    --primary-foreground:  oklch(0.985 0 0);
+    --secondary:           oklch(0.97 0 0);
+    --secondary-foreground:oklch(0.205 0 0);
+    --muted:               oklch(0.97 0 0);
+    --muted-foreground:    oklch(0.556 0 0);
+    --accent:              oklch(0.97 0 0);
+    --accent-foreground:   oklch(0.205 0 0);
+    --destructive:         oklch(0.577 0.245 27.325);
+    --border:              oklch(0.945 0 0);
+    --input:               oklch(0.922 0 0);
+    --ring:                oklch(0.708 0 0);
+    --radius:              0.625rem;
+
+    /* Sidebar — light, matches reference screenshots */
+    --sidebar:                     oklch(0.985 0 0);
+    --sidebar-foreground:          oklch(0.145 0 0);
+    --sidebar-primary:             oklch(0.205 0 0);
+    --sidebar-primary-foreground:  oklch(0.985 0 0);
+    --sidebar-accent:              oklch(0.93 0 0);
+    --sidebar-accent-foreground:   oklch(0.205 0 0);
+    --sidebar-border:              oklch(0.91 0 0);
+    --sidebar-ring:                oklch(0.708 0 0);
+
+    /* Charts */
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body {
+    @apply bg-background text-foreground;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /* Global heading scale — size/weight only, no color lock (components set their own color) */
+  h1 { @apply text-xl font-bold leading-tight; }
+  h2 { @apply text-base font-semibold; }
+  h3 { @apply text-sm font-semibold; }
+
+  /* Input / select base — consistent focus ring */
+  input, select, textarea {
+    @apply text-sm;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.08);
+  }
+}
+
+/* ── Jarvis Design System — component utilities ──────────────────────────────── */
+@layer components {
+  /* Primary action button — dark, used everywhere */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-gray-700
+           text-white text-sm font-semibold rounded-xl transition-colors
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  /* Secondary outlined button */
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 border border-gray-200
+           text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50
+           transition-colors disabled:opacity-40;
+  }
+  /* Danger button */
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500
+           text-white text-sm font-semibold rounded-xl transition-colors
+           disabled:opacity-40;
+  }
+  /* Standard card */
+  .card {
+    @apply bg-white rounded-xl border border-gray-100 shadow-sm;
+  }
+  /* Page header consistent */
+  .page-header {
+    @apply flex items-center justify-between gap-4 mb-5;
+  }
+  .page-title {
+    @apply text-xl font-bold text-gray-900;
+  }
+  .page-subtitle {
+    @apply text-sm text-gray-500 mt-0.5;
+  }
+  /* Section label */
+  .section-label {
+    @apply text-xs font-semibold text-gray-500 uppercase tracking-wide;
+  }
+  /* Standard form field */
+  .field-input {
+    @apply w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm
+           text-gray-900 placeholder-gray-400 bg-white
+           focus:outline-none focus:ring-2 focus:ring-gray-900/8
+           focus:border-gray-400 transition-colors;
+  }
+}
+
+/* ── Pinterest-style status badge utilities ──────────────────────────────────── */
+.badge-done     { background:#EDFAF4; color:#1A6A46; border:1px solid #B8E8D0; }
+.badge-review   { background:#FFF7ED; color:#9A4A00; border:1px solid #F5C896; }
+.badge-error    { background:#FFF0F0; color:#9B2525; border:1px solid #F5B8B8; }
+.badge-draft    { background:#F0F4FF; color:#2840A0; border:1px solid #BAC8F5; }
+.badge-neutral  { background:#F5F5F5; color:#555555; border:1px solid #E0E0E0; }
+
+/* ── Animations ──────────────────────────────────────────────────────────────── */
+@keyframes pulse-ring {
+  0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(22,163,74,0.7); }
+  70%  { transform: scale(1);    box-shadow: 0 0 0 8px rgba(22,163,74,0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+}
+.animate-pulse-ring { animation: pulse-ring 2s infinite; }
+
+@keyframes ping-once {
+  0%   { transform: scale(1); opacity: 1; }
+  50%  { transform: scale(1.8); opacity: 0.4; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-ping-once { animation: ping-once 0.5s ease-out 2; }
+
+/* ── Jarvis Chat prose output ──────────────────────────────────────────────── */
+.jarvis-prose { font-size: 14px; line-height: 1.75; color: oklch(0.25 0 0); }
+.jarvis-prose strong { font-weight: 600; }
+.jarvis-prose h3 { font-size: 13px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: oklch(0.5 0 0); margin: 1.2em 0 0.5em; }
+.jarvis-prose ul { list-style: none; padding: 0; }
+.jarvis-prose ul li { padding: 2px 0 2px 1.25em; position: relative; }
+.jarvis-prose ul li::before { content: "—"; position: absolute; left: 0; color: oklch(0.65 0 0); }
+.jarvis-prose ol { padding-left: 1.5em; }
+.jarvis-prose ol li { padding: 2px 0; }
+.jarvis-prose code { font-family: ui-monospace, monospace; font-size: 12px; background: oklch(0.95 0 0); border-radius: 3px; padding: 1px 5px; }
+.jarvis-prose pre { background: oklch(0.13 0 0); color: oklch(0.85 0 0); border-radius: 8px; padding: 14px 16px; font-size: 12px; overflow-x: auto; margin: 0.75em 0; }
+.jarvis-prose blockquote { border-left: 3px solid oklch(0.85 0 0); padding-left: 1em; color: oklch(0.5 0 0); margin: 0.75em 0; }
+.jarvis-prose table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0.75em 0; }
+.jarvis-prose th { background: oklch(0.96 0 0); padding: 7px 12px; text-align: left; font-weight: 600; border: 1px solid oklch(0.91 0 0); }
+.jarvis-prose td { padding: 7px 12px; border: 1px solid oklch(0.91 0 0); }
+.jarvis-prose tr:nth-child(even) td { background: oklch(0.985 0 0); }
+
+/* ── Article preview ─────────────────────────────────────────────────────────── */
+.article-preview { font-family: var(--font-sarabun), 'Sarabun', sans-serif; line-height: 1.8; }
+.article-preview h1 { font-size: 1.6em; font-weight: 700; margin: 0 0 0.75em; }
+.article-preview h2 { font-size: 1.3em; font-weight: 700; margin: 1.5em 0 0.5em; }
+.article-preview h3 { font-size: 1.1em; font-weight: 600; margin: 1.2em 0 0.4em; }
+.article-preview table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+.article-preview th, .article-preview td { border: 1px solid oklch(0.85 0 0); padding: 8px 12px; }
+.article-preview th { background: oklch(0.95 0 0); }
