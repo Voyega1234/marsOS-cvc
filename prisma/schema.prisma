@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  schemas   = ["plans_seo_pipeline"]
 }
 
 // ─── Auth (NextAuth) ──────────────────────────────────────────────────────────
@@ -26,6 +28,7 @@ model Account {
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@schema("plans_seo_pipeline")
 }
 
 model Session {
@@ -34,6 +37,7 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@schema("plans_seo_pipeline")
 }
 
 model VerificationToken {
@@ -42,6 +46,7 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Users & Orgs ─────────────────────────────────────────────────────────────
@@ -86,6 +91,7 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 model Organization {
@@ -115,6 +121,7 @@ model Organization {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── AI Provider Keys ─────────────────────────────────────────────────────────
@@ -136,6 +143,7 @@ model AIProviderKey {
   updatedAt DateTime @updatedAt
 
   @@unique([organizationId, provider, displayName])
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Projects & Keywords ──────────────────────────────────────────────────────
@@ -210,6 +218,7 @@ model Project {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // funnelStage: TOFU | MOFU | BOFU
@@ -233,6 +242,7 @@ model Keyword {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Articles ─────────────────────────────────────────────────────────────────
@@ -294,6 +304,7 @@ model Article {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 model ArticleVersion {
@@ -313,6 +324,7 @@ model ArticleVersion {
   changedBy User    @relation(fields: [changedById], references: [id])
 
   createdAt DateTime @default(now())
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Prompts & Templates ─────────────────────────────────────────────────────
@@ -345,6 +357,7 @@ model PromptTemplate {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // Snapshots created before every save — never delete, used to restore
@@ -368,6 +381,7 @@ model PromptVersion {
   createdBy      User           @relation(fields: [createdById], references: [id])
 
   createdAt DateTime @default(now())
+  @@schema("plans_seo_pipeline")
 }
 
 model BrandTemplate {
@@ -392,6 +406,7 @@ model BrandTemplate {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── AI Jobs ─────────────────────────────────────────────────────────────────
@@ -424,6 +439,7 @@ model AIJob {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Logs & Collaboration ─────────────────────────────────────────────────────
@@ -442,6 +458,7 @@ model ActivityLog {
   user         User         @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
+  @@schema("plans_seo_pipeline")
 }
 
 model WordPressConnection {
@@ -458,6 +475,7 @@ model WordPressConnection {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 model MediaAsset {
@@ -478,6 +496,7 @@ model MediaAsset {
   createdBy    User         @relation(fields: [createdById], references: [id])
 
   createdAt DateTime @default(now())
+  @@schema("plans_seo_pipeline")
 }
 
 model Comment {
@@ -491,6 +510,7 @@ model Comment {
   user    User    @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
+  @@schema("plans_seo_pipeline")
 }
 
 model Review {
@@ -508,6 +528,7 @@ model Review {
   reviewer User    @relation(fields: [reviewerId], references: [id])
 
   createdAt DateTime @default(now())
+  @@schema("plans_seo_pipeline")
 }
 
 model ProjectMember {
@@ -519,6 +540,7 @@ model ProjectMember {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   @@unique([projectId, userId])
+  @@schema("plans_seo_pipeline")
 }
 
 // CLIENT role: which projects a CLIENT user can view
@@ -530,6 +552,7 @@ model ClientProjectAccess {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   @@unique([userId, projectId])
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -550,6 +573,7 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Backlink Tracker ─────────────────────────────────────────────────────────
@@ -574,6 +598,7 @@ model SiteConnection {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── External Tasks (Slack / Asana) ──────────────────────────────────────────
@@ -602,6 +627,7 @@ model ExternalTask {
   updatedAt DateTime @updatedAt
 
   @@unique([organizationId, source, externalId])
+  @@schema("plans_seo_pipeline")
 }
 
 model ContentRefreshItem {
@@ -630,6 +656,7 @@ model ContentRefreshItem {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 model BacklinkEntry {
@@ -651,6 +678,7 @@ model BacklinkEntry {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Data Sources ─────────────────────────────────────────────────────────────
@@ -673,6 +701,7 @@ model DataSource {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Rank Snapshots ───────────────────────────────────────────────────────────
@@ -690,6 +719,7 @@ model RankSnapshot {
   snapshotAt DateTime @default(now())
 
   article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Batch Jobs ───────────────────────────────────────────────────────────────
@@ -714,6 +744,7 @@ model BatchJob {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Data Brain Files ─────────────────────────────────────────────────────────
@@ -739,4 +770,5 @@ model DataBrainFile {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@schema("plans_seo_pipeline")
 }
