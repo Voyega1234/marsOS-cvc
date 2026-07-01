@@ -1,28 +1,15 @@
 "use client";
 
-import { useUIMode } from "@/contexts/UIModeContext";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { AppSidebar, SidebarProvider, SidebarTrigger } from "./AppSidebar";
-import { TopNav } from "./TopNav";
+import { AppSidebar, SidebarProvider } from "./AppSidebar";
 import { ProTopBar } from "./ProTopBar";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { mode: uiMode } = useUIMode();
   const pathname = usePathname();
   const { data: session } = useSession();
   const isChat = pathname === "/chat";
   const isClient = session?.user?.role === 'CLIENT';
-
-  // Simple mode (wizard)
-  if (uiMode === "simple") {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-50/60 to-slate-50">
-        <TopNav />
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">{children}</main>
-      </div>
-    );
-  }
 
   // CLIENT — no sidebar, minimal top bar
   if (isClient) {
@@ -34,7 +21,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Professional — single unified layout (sidebar + content)
+  // Default — sidebar layout
   return (
     <SidebarProvider>
       <AppSidebar />

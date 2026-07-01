@@ -8,10 +8,10 @@ interface UIModeContextValue {
   setMode: (mode: UIMode) => void;
 }
 
-const UIModeContext = createContext<UIModeContextValue>({ mode: "simple", setMode: () => {} });
+const UIModeContext = createContext<UIModeContextValue>({ mode: "professional", setMode: () => {} });
 
 export function UIModeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeState] = useState<UIMode>("simple");
+  const [mode, setModeState] = useState<UIMode>("professional");
 
   useEffect(() => {
     const saved = localStorage.getItem("ui-mode") as UIMode | null;
