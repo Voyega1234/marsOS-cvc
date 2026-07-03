@@ -38,6 +38,14 @@ const PROVIDERS = [
     note: "Structured content, summarization",
   },
   {
+    id: "gemini",
+    label: "Gemini (Google)",
+    models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+    placeholder: "AIza...",
+    getKeyUrl: "https://aistudio.google.com/app/apikey",
+    note: "Context ยาว, multimodal",
+  },
+  {
     id: "groq",
     label: "Groq",
     models: ["llama-3.3-70b-versatile", "mixtral-8x7b-32768"],

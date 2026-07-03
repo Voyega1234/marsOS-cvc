@@ -16,7 +16,7 @@ An AI-powered SEO article production platform for content teams. Manage projects
 - Next.js 14 (App Router)
 - TypeScript
 - Tailwind CSS + shadcn/ui
-- Prisma ORM + Supabase Postgres
+- Prisma ORM + SQLite (PostgreSQL-ready)
 - NextAuth v4 (Credentials)
 
 ## Local Setup
@@ -32,8 +32,7 @@ npm install
 Create `.env.local` in the project root:
 
 ```env
-DATABASE_URL="postgresql://your-supabase-pooler-url"
-DIRECT_URL="postgresql://your-supabase-direct-url"
+DATABASE_URL="file:./dev.db"
 NEXTAUTH_SECRET="your-secret-here"
 NEXTAUTH_URL="http://localhost:3000"
 ```
@@ -43,13 +42,13 @@ Generate a secret with: `openssl rand -base64 32`
 ### 3. Set up the database
 
 ```bash
-DATABASE_URL="postgresql://your-supabase-pooler-url" DIRECT_URL="postgresql://your-supabase-direct-url" npm run db:push
-DATABASE_URL="postgresql://your-supabase-pooler-url" DIRECT_URL="postgresql://your-supabase-direct-url" npm run db:seed
+npm run db:push
+npm run db:seed
 ```
 
 > **Note**: Prisma CLI reads `DATABASE_URL` from `.env`, not `.env.local`. If you get a missing database URL error when running Prisma commands directly, prefix with the variable:
 > ```bash
-> DATABASE_URL="postgresql://your-supabase-pooler-url" DIRECT_URL="postgresql://your-supabase-direct-url" npx prisma db push
+> DATABASE_URL="file:./dev.db" npx prisma db push
 > ```
 
 ### 4. Start the dev server
@@ -84,9 +83,11 @@ Open [http://localhost:3000](http://localhost:3000).
 
 The app ships with mock AI responses. To connect real AI providers, edit `src/services/ai/provider.ts` and replace the mock logic with your Claude or OpenAI API calls. Prompt templates are managed in the **Prompts** section of the app.
 
-## Supabase SQL
+## Switching to PostgreSQL
 
-The app schema is in `prisma/schema.prisma`. Prefer `npm run db:push` for setup, or use `supabase/schema.sql` in Supabase SQL Editor if you need a manual SQL install.
+1. Change `provider = "sqlite"` to `provider = "postgresql"` in `prisma/schema.prisma`
+2. Update `DATABASE_URL` to a PostgreSQL connection string
+3. Run `npm run db:push`
 
 ## Project Structure
 
@@ -114,5 +115,3 @@ src/
 │   └── ai/             # AI service layer + compiler
 └── types/              # TypeScript type aliases
 ```
-
-# marsOS-cvc

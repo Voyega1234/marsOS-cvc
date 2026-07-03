@@ -1,96 +1,107 @@
 # Deploy to Vercel
 
-## สิ่งที่ต้องเตรียม (Dev ทำ)
+โปรเจกต์นี้ใช้ PostgreSQL, NextAuth และ Vertex AI ผ่าน Vercel OIDC โดยไม่ต้องใช้ `GEMINI_API_KEY`
 
-### 1. สร้าง Supabase PostgreSQL Database
-เปิด **https://supabase.com/dashboard** → New Project → Project Settings → Database → Copy connection strings 2 อัน:
-- **Pooled URL** (port `6543`, host เป็น `pooler.supabase.com`) → ใส่ใน `DATABASE_URL`
-- **Direct URL** (host เป็น `db.PROJECT_REF.supabase.co`, port `5432`) → ใส่ใน `DIRECT_URL`
+## 1. เตรียม PostgreSQL
 
----
+สร้างฐานข้อมูล PostgreSQL (เช่น Neon) แล้วเก็บ connection string สองค่า:
 
-### 2. แก้ `prisma/schema.prisma`
+- `DATABASE_URL`: pooled connection
+- `DIRECT_URL`: direct connection สำหรับ Prisma schema operations
 
-เปลี่ยน datasource block เป็น:
-
-```prisma
-datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
-}
-```
-
----
-
-### 3. Run Migration
+รัน schema และ seed ก่อน deploy:
 
 ```bash
-# ตั้ง env ก่อน แล้วรัน
 DATABASE_URL="postgresql://..." DIRECT_URL="postgresql://..." npx prisma db push
 DATABASE_URL="postgresql://..." DIRECT_URL="postgresql://..." npx tsx prisma/seed.ts
 ```
 
-ถ้าต้องการใช้ Supabase SQL Editor แทน Prisma CLI ให้ใช้ไฟล์ `supabase/schema.sql` ใน repo นี้ ซึ่ง generate มาจาก `prisma/schema.prisma`
+## 2. เปิด Vercel OIDC
 
----
+ใน Vercel ไปที่ **Project > Settings > Security > Secure backend access with OIDC federation** แล้วเลือก **Team issuer mode**
 
-### 4. เตรียม Google Vertex AI ผ่าน Vercel OIDC
+จดค่า:
 
-ไม่ต้องใช้ `GEMINI_API_KEY` แล้ว ให้ตั้งค่า Google Cloud Workload Identity Federation ให้ Vercel impersonate service account ได้ แล้วใส่ env เหล่านี้ใน Vercel:
+- Vercel team slug
+- Vercel project name
+- environment ที่อนุญาต: `production` และ/หรือ `preview`
 
-| Key | Value |
-|-----|-------|
+## 3. ตั้ง Google Cloud Workload Identity Federation
+
+1. เปิด API ต่อไปนี้ใน GCP project:
+   - Vertex AI API
+   - IAM Service Account Credentials API
+   - Security Token Service API
+2. ไปที่ **IAM & Admin > Workload Identity Federation** แล้วสร้าง pool เช่น ID `vercel`
+3. เพิ่ม OIDC provider เช่น ID `vercel`
+4. ตั้ง Issuer URL เป็น `https://oidc.vercel.com/TEAM_SLUG`
+5. เลือก **Default audience** (รูปแบบ `https://iam.googleapis.com/projects/.../providers/...`)
+6. ตั้ง attribute mapping: `google.subject` = `assertion.sub`
+7. สร้าง service account สำหรับ Vercel และให้ role `Vertex AI User` (`roles/aiplatform.user`)
+8. ให้ principal ของ deployment มี role `Workload Identity User` บน service account โดย subject มีรูปแบบ:
+
+```text
+owner:TEAM_SLUG:project:VERCEL_PROJECT_NAME:environment:production
+```
+
+ถ้าใช้ Preview ให้เพิ่ม principal อีกตัวที่ลงท้ายด้วย `environment:preview`
+
+## 4. Environment Variables บน Vercel
+
+ตั้งค่าจาก `.env.production.example` อย่างน้อยดังนี้:
+
+| Variable | ใช้สำหรับ |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL pooled connection |
+| `DIRECT_URL` | PostgreSQL direct connection |
+| `NEXTAUTH_SECRET` | session signing secret |
+| `NEXTAUTH_URL` | production URL |
+| `ANTHROPIC_API_KEY` | article generation ที่ยังใช้ Claude |
 | `GCP_PROJECT_ID` | Google Cloud project ID |
-| `GCP_PROJECT_NUMBER` | Google Cloud project number |
-| `GCP_SERVICE_ACCOUNT_EMAIL` | Service account ที่ให้ Vertex AI access |
-| `GCP_WORKLOAD_IDENTITY_POOL_ID` | Workload Identity Pool ID |
-| `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID` | Workload Identity Provider ID |
-| `GCP_LOCATION` | เช่น `us-central1` |
-| `GEMINI_MODEL` | เช่น `gemini-2.5-flash` |
-| `VERTEX_GEMINI_IMAGE_MODEL` | เช่น `gemini-2.5-flash-image` |
+| `GCP_PROJECT_NUMBER` | Google Cloud numeric project number |
+| `GCP_SERVICE_ACCOUNT_EMAIL` | service account ที่ OIDC impersonate |
+| `GCP_WORKLOAD_IDENTITY_POOL_ID` | เช่น `vercel` |
+| `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID` | เช่น `vercel` |
+| `GCP_VERTEX_LOCATION` | ค่าเริ่มต้น `us-central1` |
+| `VERTEX_TEXT_MODEL` | ค่าเริ่มต้น `gemini-2.5-flash` |
+| `VERTEX_IMAGE_MODEL` | ค่าเริ่มต้น `gemini-3.1-flash-image-preview` |
 
----
+อย่าตั้ง `GEMINI_API_KEY` หรือ `GOOGLE_AI_API_KEY` ใน Vercel อีก หลังย้ายแล้วให้ลบค่าทั้ง Production, Preview และ Development
 
-### 5. ตั้งค่า Vercel
+`GOOGLE_SERVICE_ACCOUNT_JSON` ยังเป็นคนละส่วนกับ Vertex AI: โปรเจกต์เดิมใช้ค่านี้สำหรับ GSC/GA4 หากต้องใช้ report เหล่านั้นยังต้องตั้งค่าต่อไป
 
-**Vercel Dashboard → Project → Settings → Environment Variables**  
-ใส่ค่าทุกอย่างจากไฟล์ `.env.production` (แนบมาด้วยกัน)
+## 5. Vercel Build Settings
 
-**Build Settings:**
 | Setting | Value |
-|---------|-------|
-| Build Command | `npm run vercel-build` |
+| --- | --- |
+| Framework Preset | Next.js |
+| Build Command | `npm run build` |
 | Output Directory | `.next` |
+| Install Command | `npm install` |
 | Node.js Version | 20.x |
 
----
+`postinstall` จะรัน `prisma generate` ให้อัตโนมัติ
 
-### 6. หลัง Deploy — อัปเดต NEXTAUTH_URL
+## 6. Local development ที่ใช้ OIDC
 
-เมื่อได้ URL จาก Vercel แล้ว:
-- แก้ `NEXTAUTH_URL` ใน Environment Variables ให้ตรงกับ URL จริง เช่น `https://myapp.vercel.app`
-- Redeploy 1 ครั้ง
+```bash
+vercel link
+vercel env pull .env.local
+npm run dev
+```
 
----
+`vercel env pull` จะนำ OIDC token สำหรับ development มาไว้ใน `.env.local` ชั่วคราว ห้าม commit ไฟล์นี้
 
-### 7. Checklist ก่อน Go Live
+## 7. Checklist ก่อน Go Live
 
-- [ ] PostgreSQL สร้างแล้ว และ `prisma db push` ผ่าน
-- [ ] `npm run db:seed` รันแล้ว (ได้ admin user)
-- [ ] `NEXTAUTH_URL` ตรงกับ domain จริง
-- [ ] `ANTHROPIC_API_KEY` ใส่แล้ว
-- [ ] Google Vertex AI OIDC env ครบ (`GCP_*`, `GEMINI_MODEL`, `VERTEX_GEMINI_IMAGE_MODEL`)
-- [ ] ทดสอบ login ได้
-- [ ] ทดสอบ Report page ดึง GSC/GA4 ได้
+- [ ] `npm run build` ผ่าน
+- [ ] PostgreSQL schema และ seed เสร็จแล้ว
+- [ ] Vercel OIDC เปิดใช้งานและ issuer ตรงกับ GCP provider
+- [ ] GCP principal subject ตรงกับ team, project และ environment จริงทุกตัวอักษร
+- [ ] service account มี `roles/aiplatform.user`
+- [ ] ตั้งค่า GCP OIDC variables ครบ 5 ค่า
+- [ ] ลบ `GEMINI_API_KEY` และ `GOOGLE_AI_API_KEY` จากทุก Vercel environment
+- [ ] `NEXTAUTH_URL` ตรงกับ production domain แล้ว redeploy
+- [ ] ทดสอบ keyword research, cover image และ article image ใน deployment จริง
 
----
-
-### ปัญหาที่พบบ่อย
-
-| อาการ | วิธีแก้ |
-|-------|---------|
-| Build fail: prisma client not found | ตรวจ Build Command ว่ามี `prisma generate &&` |
-| Vertex/Gemini ไม่ทำงาน | ตรวจว่า Vercel OIDC env ครบ และ service account มีสิทธิ์ Vertex AI User |
-| NextAuth error | `NEXTAUTH_URL` ต้องตรงกับ URL จริง รวมถึง `https://` |
-| DB connection timeout | ใช้ Supabase pooled URL ใน `DATABASE_URL` และ direct URL ใน `DIRECT_URL` |
+เอกสารอ้างอิง: [Vercel OIDC for GCP](https://vercel.com/docs/oidc/gcp), [Vercel OIDC reference](https://vercel.com/docs/oidc/reference)

@@ -17,10 +17,8 @@ import * as https from 'https'
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 
-const MARS_DATA_ROOT = path.join(
-  os.homedir(), 'Desktop', 'Mars',
-  'mars-seo-intelligence-free-trends', 'data', 'reports', 'json'
-)
+const MARS_DATA_ROOT = process.env.MARS_DATA_ROOT
+  ?? path.join(os.tmpdir(), 'mars-seo-intelligence', 'data', 'reports', 'json')
 
 const HIGH_RISK = new Set([
   'health', 'financial_services', 'fintech', 'travel_transportation', 'baby_kids_maternity'

@@ -3,7 +3,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 
-const MARS_DATA_ROOT = path.join(os.homedir(), 'Desktop', 'Mars', 'mars-seo-intelligence-free-trends', 'data', 'reports', 'json')
+const MARS_DATA_ROOT = process.env.MARS_DATA_ROOT
+  ?? path.join(os.tmpdir(), 'mars-seo-intelligence', 'data', 'reports', 'json')
 
 function getAvailableDates(): string[] {
   try {

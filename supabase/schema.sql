@@ -1,8 +1,7 @@
--- Keep all application objects isolated from Supabase's public schema.
-CREATE SCHEMA IF NOT EXISTS "plans_seo_pipeline";
+-- Create all application objects in Supabase's public schema.
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Account" (
+CREATE TABLE "public"."Account" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
@@ -20,7 +19,7 @@ CREATE TABLE "plans_seo_pipeline"."Account" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Session" (
+CREATE TABLE "public"."Session" (
     "id" TEXT NOT NULL,
     "sessionToken" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -30,14 +29,14 @@ CREATE TABLE "plans_seo_pipeline"."Session" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."VerificationToken" (
+CREATE TABLE "public"."VerificationToken" (
     "identifier" TEXT NOT NULL,
     "token" TEXT NOT NULL,
     "expires" TIMESTAMP(3) NOT NULL
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."User" (
+CREATE TABLE "public"."User" (
     "id" TEXT NOT NULL,
     "name" TEXT,
     "email" TEXT NOT NULL,
@@ -55,7 +54,7 @@ CREATE TABLE "plans_seo_pipeline"."User" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Organization" (
+CREATE TABLE "public"."Organization" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
@@ -68,7 +67,7 @@ CREATE TABLE "plans_seo_pipeline"."Organization" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."AIProviderKey" (
+CREATE TABLE "public"."AIProviderKey" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "provider" TEXT NOT NULL,
@@ -84,7 +83,7 @@ CREATE TABLE "plans_seo_pipeline"."AIProviderKey" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Project" (
+CREATE TABLE "public"."Project" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -144,7 +143,7 @@ CREATE TABLE "plans_seo_pipeline"."Project" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Keyword" (
+CREATE TABLE "public"."Keyword" (
     "id" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
     "seedKeyword" TEXT NOT NULL,
@@ -163,7 +162,7 @@ CREATE TABLE "plans_seo_pipeline"."Keyword" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Article" (
+CREATE TABLE "public"."Article" (
     "id" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
     "keywordId" TEXT,
@@ -203,7 +202,7 @@ CREATE TABLE "plans_seo_pipeline"."Article" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."ArticleVersion" (
+CREATE TABLE "public"."ArticleVersion" (
     "id" TEXT NOT NULL,
     "articleId" TEXT NOT NULL,
     "versionNumber" INTEGER NOT NULL,
@@ -221,7 +220,7 @@ CREATE TABLE "plans_seo_pipeline"."ArticleVersion" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."PromptTemplate" (
+CREATE TABLE "public"."PromptTemplate" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -244,7 +243,7 @@ CREATE TABLE "plans_seo_pipeline"."PromptTemplate" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."PromptVersion" (
+CREATE TABLE "public"."PromptVersion" (
     "id" TEXT NOT NULL,
     "promptTemplateId" TEXT NOT NULL,
     "versionNumber" INTEGER NOT NULL,
@@ -265,7 +264,7 @@ CREATE TABLE "plans_seo_pipeline"."PromptVersion" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."BrandTemplate" (
+CREATE TABLE "public"."BrandTemplate" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -288,7 +287,7 @@ CREATE TABLE "plans_seo_pipeline"."BrandTemplate" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."AIJob" (
+CREATE TABLE "public"."AIJob" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "projectId" TEXT,
@@ -313,7 +312,7 @@ CREATE TABLE "plans_seo_pipeline"."AIJob" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."ActivityLog" (
+CREATE TABLE "public"."ActivityLog" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -328,7 +327,7 @@ CREATE TABLE "plans_seo_pipeline"."ActivityLog" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."WordPressConnection" (
+CREATE TABLE "public"."WordPressConnection" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -343,7 +342,7 @@ CREATE TABLE "plans_seo_pipeline"."WordPressConnection" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."MediaAsset" (
+CREATE TABLE "public"."MediaAsset" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "projectId" TEXT,
@@ -360,7 +359,7 @@ CREATE TABLE "plans_seo_pipeline"."MediaAsset" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Comment" (
+CREATE TABLE "public"."Comment" (
     "id" TEXT NOT NULL,
     "articleId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -372,7 +371,7 @@ CREATE TABLE "plans_seo_pipeline"."Comment" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Review" (
+CREATE TABLE "public"."Review" (
     "id" TEXT NOT NULL,
     "articleId" TEXT NOT NULL,
     "reviewerId" TEXT NOT NULL,
@@ -388,7 +387,7 @@ CREATE TABLE "plans_seo_pipeline"."Review" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."ProjectMember" (
+CREATE TABLE "public"."ProjectMember" (
     "id" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -399,7 +398,7 @@ CREATE TABLE "plans_seo_pipeline"."ProjectMember" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."ClientProjectAccess" (
+CREATE TABLE "public"."ClientProjectAccess" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
@@ -409,7 +408,7 @@ CREATE TABLE "plans_seo_pipeline"."ClientProjectAccess" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."Notification" (
+CREATE TABLE "public"."Notification" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
@@ -426,7 +425,7 @@ CREATE TABLE "plans_seo_pipeline"."Notification" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."SiteConnection" (
+CREATE TABLE "public"."SiteConnection" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -443,7 +442,7 @@ CREATE TABLE "plans_seo_pipeline"."SiteConnection" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."ExternalTask" (
+CREATE TABLE "public"."ExternalTask" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "source" TEXT NOT NULL,
@@ -463,7 +462,7 @@ CREATE TABLE "plans_seo_pipeline"."ExternalTask" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."ContentRefreshItem" (
+CREATE TABLE "public"."ContentRefreshItem" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "projectId" TEXT,
@@ -489,7 +488,7 @@ CREATE TABLE "plans_seo_pipeline"."ContentRefreshItem" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."BacklinkEntry" (
+CREATE TABLE "public"."BacklinkEntry" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
@@ -508,7 +507,7 @@ CREATE TABLE "plans_seo_pipeline"."BacklinkEntry" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."DataSource" (
+CREATE TABLE "public"."DataSource" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "projectId" TEXT,
@@ -526,7 +525,7 @@ CREATE TABLE "plans_seo_pipeline"."DataSource" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."RankSnapshot" (
+CREATE TABLE "public"."RankSnapshot" (
     "id" TEXT NOT NULL,
     "articleId" TEXT NOT NULL,
     "keyword" TEXT NOT NULL,
@@ -541,7 +540,7 @@ CREATE TABLE "plans_seo_pipeline"."RankSnapshot" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."BatchJob" (
+CREATE TABLE "public"."BatchJob" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
@@ -562,7 +561,7 @@ CREATE TABLE "plans_seo_pipeline"."BatchJob" (
 );
 
 -- CreateTable
-CREATE TABLE "plans_seo_pipeline"."DataBrainFile" (
+CREATE TABLE "public"."DataBrainFile" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "projectId" TEXT,
@@ -583,202 +582,202 @@ CREATE TABLE "plans_seo_pipeline"."DataBrainFile" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Account_provider_providerAccountId_key" ON "plans_seo_pipeline"."Account"("provider", "providerAccountId");
+CREATE UNIQUE INDEX "Account_provider_providerAccountId_key" ON "public"."Account"("provider", "providerAccountId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Session_sessionToken_key" ON "plans_seo_pipeline"."Session"("sessionToken");
+CREATE UNIQUE INDEX "Session_sessionToken_key" ON "public"."Session"("sessionToken");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "VerificationToken_token_key" ON "plans_seo_pipeline"."VerificationToken"("token");
+CREATE UNIQUE INDEX "VerificationToken_token_key" ON "public"."VerificationToken"("token");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "VerificationToken_identifier_token_key" ON "plans_seo_pipeline"."VerificationToken"("identifier", "token");
+CREATE UNIQUE INDEX "VerificationToken_identifier_token_key" ON "public"."VerificationToken"("identifier", "token");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "User_email_key" ON "plans_seo_pipeline"."User"("email");
+CREATE UNIQUE INDEX "User_email_key" ON "public"."User"("email");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Organization_slug_key" ON "plans_seo_pipeline"."Organization"("slug");
+CREATE UNIQUE INDEX "Organization_slug_key" ON "public"."Organization"("slug");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AIProviderKey_organizationId_provider_displayName_key" ON "plans_seo_pipeline"."AIProviderKey"("organizationId", "provider", "displayName");
+CREATE UNIQUE INDEX "AIProviderKey_organizationId_provider_displayName_key" ON "public"."AIProviderKey"("organizationId", "provider", "displayName");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ProjectMember_projectId_userId_key" ON "plans_seo_pipeline"."ProjectMember"("projectId", "userId");
+CREATE UNIQUE INDEX "ProjectMember_projectId_userId_key" ON "public"."ProjectMember"("projectId", "userId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ClientProjectAccess_userId_projectId_key" ON "plans_seo_pipeline"."ClientProjectAccess"("userId", "projectId");
+CREATE UNIQUE INDEX "ClientProjectAccess_userId_projectId_key" ON "public"."ClientProjectAccess"("userId", "projectId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ExternalTask_organizationId_source_externalId_key" ON "plans_seo_pipeline"."ExternalTask"("organizationId", "source", "externalId");
+CREATE UNIQUE INDEX "ExternalTask_organizationId_source_externalId_key" ON "public"."ExternalTask"("organizationId", "source", "externalId");
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."User" ADD CONSTRAINT "User_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."User" ADD CONSTRAINT "User_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."AIProviderKey" ADD CONSTRAINT "AIProviderKey_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."AIProviderKey" ADD CONSTRAINT "AIProviderKey_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Project" ADD CONSTRAINT "Project_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."Project" ADD CONSTRAINT "Project_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Project" ADD CONSTRAINT "Project_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."Project" ADD CONSTRAINT "Project_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Project" ADD CONSTRAINT "Project_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."Project" ADD CONSTRAINT "Project_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Project" ADD CONSTRAINT "Project_defaultTemplateId_fkey" FOREIGN KEY ("defaultTemplateId") REFERENCES "plans_seo_pipeline"."BrandTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."Project" ADD CONSTRAINT "Project_defaultTemplateId_fkey" FOREIGN KEY ("defaultTemplateId") REFERENCES "public"."BrandTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Project" ADD CONSTRAINT "Project_wordpressConnectionId_fkey" FOREIGN KEY ("wordpressConnectionId") REFERENCES "plans_seo_pipeline"."WordPressConnection"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."Project" ADD CONSTRAINT "Project_wordpressConnectionId_fkey" FOREIGN KEY ("wordpressConnectionId") REFERENCES "public"."WordPressConnection"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Keyword" ADD CONSTRAINT "Keyword_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "plans_seo_pipeline"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."Keyword" ADD CONSTRAINT "Keyword_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "public"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Article" ADD CONSTRAINT "Article_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "plans_seo_pipeline"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."Article" ADD CONSTRAINT "Article_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "public"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Article" ADD CONSTRAINT "Article_keywordId_fkey" FOREIGN KEY ("keywordId") REFERENCES "plans_seo_pipeline"."Keyword"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."Article" ADD CONSTRAINT "Article_keywordId_fkey" FOREIGN KEY ("keywordId") REFERENCES "public"."Keyword"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Article" ADD CONSTRAINT "Article_assignedToId_fkey" FOREIGN KEY ("assignedToId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."Article" ADD CONSTRAINT "Article_assignedToId_fkey" FOREIGN KEY ("assignedToId") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Article" ADD CONSTRAINT "Article_reviewerId_fkey" FOREIGN KEY ("reviewerId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."Article" ADD CONSTRAINT "Article_reviewerId_fkey" FOREIGN KEY ("reviewerId") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Article" ADD CONSTRAINT "Article_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."Article" ADD CONSTRAINT "Article_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ArticleVersion" ADD CONSTRAINT "ArticleVersion_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "plans_seo_pipeline"."Article"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."ArticleVersion" ADD CONSTRAINT "ArticleVersion_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "public"."Article"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ArticleVersion" ADD CONSTRAINT "ArticleVersion_changedById_fkey" FOREIGN KEY ("changedById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."ArticleVersion" ADD CONSTRAINT "ArticleVersion_changedById_fkey" FOREIGN KEY ("changedById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."PromptTemplate" ADD CONSTRAINT "PromptTemplate_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."PromptTemplate" ADD CONSTRAINT "PromptTemplate_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."PromptTemplate" ADD CONSTRAINT "PromptTemplate_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."PromptTemplate" ADD CONSTRAINT "PromptTemplate_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."PromptTemplate" ADD CONSTRAINT "PromptTemplate_updatedById_fkey" FOREIGN KEY ("updatedById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."PromptTemplate" ADD CONSTRAINT "PromptTemplate_updatedById_fkey" FOREIGN KEY ("updatedById") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."PromptVersion" ADD CONSTRAINT "PromptVersion_promptTemplateId_fkey" FOREIGN KEY ("promptTemplateId") REFERENCES "plans_seo_pipeline"."PromptTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."PromptVersion" ADD CONSTRAINT "PromptVersion_promptTemplateId_fkey" FOREIGN KEY ("promptTemplateId") REFERENCES "public"."PromptTemplate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."PromptVersion" ADD CONSTRAINT "PromptVersion_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."PromptVersion" ADD CONSTRAINT "PromptVersion_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."BrandTemplate" ADD CONSTRAINT "BrandTemplate_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."BrandTemplate" ADD CONSTRAINT "BrandTemplate_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."AIJob" ADD CONSTRAINT "AIJob_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."AIJob" ADD CONSTRAINT "AIJob_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."AIJob" ADD CONSTRAINT "AIJob_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "plans_seo_pipeline"."Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."AIJob" ADD CONSTRAINT "AIJob_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "public"."Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."AIJob" ADD CONSTRAINT "AIJob_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "plans_seo_pipeline"."Article"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."AIJob" ADD CONSTRAINT "AIJob_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "public"."Article"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."AIJob" ADD CONSTRAINT "AIJob_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."AIJob" ADD CONSTRAINT "AIJob_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ActivityLog" ADD CONSTRAINT "ActivityLog_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."ActivityLog" ADD CONSTRAINT "ActivityLog_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ActivityLog" ADD CONSTRAINT "ActivityLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."ActivityLog" ADD CONSTRAINT "ActivityLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."WordPressConnection" ADD CONSTRAINT "WordPressConnection_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."WordPressConnection" ADD CONSTRAINT "WordPressConnection_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."MediaAsset" ADD CONSTRAINT "MediaAsset_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."MediaAsset" ADD CONSTRAINT "MediaAsset_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."MediaAsset" ADD CONSTRAINT "MediaAsset_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "plans_seo_pipeline"."Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."MediaAsset" ADD CONSTRAINT "MediaAsset_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "public"."Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."MediaAsset" ADD CONSTRAINT "MediaAsset_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "plans_seo_pipeline"."Article"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."MediaAsset" ADD CONSTRAINT "MediaAsset_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "public"."Article"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."MediaAsset" ADD CONSTRAINT "MediaAsset_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."MediaAsset" ADD CONSTRAINT "MediaAsset_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Comment" ADD CONSTRAINT "Comment_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "plans_seo_pipeline"."Article"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."Comment" ADD CONSTRAINT "Comment_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "public"."Article"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Comment" ADD CONSTRAINT "Comment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."Comment" ADD CONSTRAINT "Comment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Review" ADD CONSTRAINT "Review_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "plans_seo_pipeline"."Article"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."Review" ADD CONSTRAINT "Review_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "public"."Article"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Review" ADD CONSTRAINT "Review_reviewerId_fkey" FOREIGN KEY ("reviewerId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."Review" ADD CONSTRAINT "Review_reviewerId_fkey" FOREIGN KEY ("reviewerId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ProjectMember" ADD CONSTRAINT "ProjectMember_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "plans_seo_pipeline"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."ProjectMember" ADD CONSTRAINT "ProjectMember_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "public"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ProjectMember" ADD CONSTRAINT "ProjectMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."ProjectMember" ADD CONSTRAINT "ProjectMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ClientProjectAccess" ADD CONSTRAINT "ClientProjectAccess_userId_fkey" FOREIGN KEY ("userId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."ClientProjectAccess" ADD CONSTRAINT "ClientProjectAccess_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ClientProjectAccess" ADD CONSTRAINT "ClientProjectAccess_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "plans_seo_pipeline"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."ClientProjectAccess" ADD CONSTRAINT "ClientProjectAccess_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "public"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."SiteConnection" ADD CONSTRAINT "SiteConnection_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."SiteConnection" ADD CONSTRAINT "SiteConnection_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ExternalTask" ADD CONSTRAINT "ExternalTask_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."ExternalTask" ADD CONSTRAINT "ExternalTask_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ExternalTask" ADD CONSTRAINT "ExternalTask_assignedToId_fkey" FOREIGN KEY ("assignedToId") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."ExternalTask" ADD CONSTRAINT "ExternalTask_assignedToId_fkey" FOREIGN KEY ("assignedToId") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ExternalTask" ADD CONSTRAINT "ExternalTask_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "plans_seo_pipeline"."Article"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."ExternalTask" ADD CONSTRAINT "ExternalTask_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "public"."Article"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ContentRefreshItem" ADD CONSTRAINT "ContentRefreshItem_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."ContentRefreshItem" ADD CONSTRAINT "ContentRefreshItem_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ContentRefreshItem" ADD CONSTRAINT "ContentRefreshItem_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "plans_seo_pipeline"."Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."ContentRefreshItem" ADD CONSTRAINT "ContentRefreshItem_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "public"."Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."ContentRefreshItem" ADD CONSTRAINT "ContentRefreshItem_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."ContentRefreshItem" ADD CONSTRAINT "ContentRefreshItem_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."BacklinkEntry" ADD CONSTRAINT "BacklinkEntry_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."BacklinkEntry" ADD CONSTRAINT "BacklinkEntry_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."BacklinkEntry" ADD CONSTRAINT "BacklinkEntry_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "plans_seo_pipeline"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."BacklinkEntry" ADD CONSTRAINT "BacklinkEntry_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "public"."Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."BacklinkEntry" ADD CONSTRAINT "BacklinkEntry_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "plans_seo_pipeline"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."BacklinkEntry" ADD CONSTRAINT "BacklinkEntry_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."DataSource" ADD CONSTRAINT "DataSource_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."DataSource" ADD CONSTRAINT "DataSource_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."RankSnapshot" ADD CONSTRAINT "RankSnapshot_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "plans_seo_pipeline"."Article"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."RankSnapshot" ADD CONSTRAINT "RankSnapshot_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "public"."Article"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."BatchJob" ADD CONSTRAINT "BatchJob_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."BatchJob" ADD CONSTRAINT "BatchJob_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plans_seo_pipeline"."DataBrainFile" ADD CONSTRAINT "DataBrainFile_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "plans_seo_pipeline"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."DataBrainFile" ADD CONSTRAINT "DataBrainFile_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "public"."Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;

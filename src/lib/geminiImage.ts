@@ -4,8 +4,9 @@
  * Avoids internal HTTP fetches that would be blocked by auth middleware.
  */
 import Anthropic from '@anthropic-ai/sdk'
+import { generateImage } from 'ai'
 import sharp from 'sharp'
-import { generateVertexContent, getVertexInlineImage, getVertexText } from '@/lib/googleVertex'
+import { getVertex, VERTEX_IMAGE_MODEL } from '@/lib/vertex'
 
 const GEMINI_TEXT_INPUT_COST_PER_TOKEN   = 0.10 / 1_000_000
 const GEMINI_IMAGE_OUTPUT_COST_PER_IMAGE = 0.039
@@ -324,25 +325,19 @@ export async function callGeminiImage(params: {
     ? buildMidPrompt(keyword, title, accentColor, width, height)
     : await buildCoverPrompt(keyword, title, siteName, brandTone, accentColor, width, height)
 
-  const model = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image'
-  const data = await generateVertexContent({
-    model,
+  const vertex = getVertex()
+  const { image } = await generateImage({
+    model: vertex.image(VERTEX_IMAGE_MODEL),
     prompt,
-    generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    aspectRatio: width === height ? '1:1' : '16:9',
   })
 
-  const imagePart = getVertexInlineImage(data)
-  if (!imagePart) {
-    throw new Error(`Gemini returned no image. Response: ${getVertexText(data).slice(0, 200)}`)
-  }
-
-  const usage = data?.usageMetadata ?? {}
-  const promptTokens: number = usage.promptTokenCount ?? 0
-  const totalTokens = promptTokens + (usage.candidatesTokenCount ?? 0)
+  const promptTokens = 0
+  const totalTokens = 0
   const costUsd = Number(((promptTokens * GEMINI_TEXT_INPUT_COST_PER_TOKEN) + GEMINI_IMAGE_OUTPUT_COST_PER_IMAGE).toFixed(6))
 
   const { base64, mimeType, originalKB, compressedKB } =
-    await compressToWebP(imagePart.data, imagePart.mimeType || 'image/jpeg', type)
+    await compressToWebP(image.base64, image.mediaType || 'image/png', type)
 
   console.log(`[geminiImage] ${type} ${originalKB}KB → ${compressedKB}KB (${Math.round((1 - compressedKB / originalKB) * 100)}% saved)`)
 

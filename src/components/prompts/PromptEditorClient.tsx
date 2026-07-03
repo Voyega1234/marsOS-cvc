@@ -87,7 +87,7 @@ const PROMPT_TYPES = [
 const MODEL_OPTIONS: Record<string, string[]> = {
   CLAUDE: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
   OPENAI: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-  GEMINI: ["gemini-2.5-pro", "gemini-2.5-flash"],
+  GEMINI: ["gemini-1.5-pro", "gemini-1.5-flash"],
   CUSTOM: [],
 };
 

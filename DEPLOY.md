@@ -22,7 +22,7 @@ Use this if you just want friends to try it right now. Your computer must stay o
 # In the project folder:
 # First, set up the database (one-time)
 npm install
-# Set DATABASE_URL and DIRECT_URL in .env.local to your Supabase URLs (see Option B Step 1)
+# Set DATABASE_URL in .env.local to your Neon URL (see Option B Step 1)
 npx prisma db push
 npm run db:seed
 
@@ -40,33 +40,27 @@ ngrok will give you a URL like `https://abc123.ngrok.io` — share that with fri
 
 ---
 
-## Option B — Deploy to Vercel + Supabase (permanent URL, free tier)
+## Option B — Deploy to Vercel + Neon (permanent URL, free tier)
 
-### Step 1 — Create a Supabase PostgreSQL database
+### Step 1 — Create a Neon PostgreSQL database (FREE)
 
-1. Go to **https://supabase.com/dashboard** → Sign up or log in
+1. Go to **https://console.neon.tech** → Sign up (free)
 2. Create a new project: name it `plans-seo-pipeline`
-3. Go to **Project Settings → Database → Connection string**
-4. Copy the **pooled** connection string for `DATABASE_URL`  
-   Format: `postgresql://postgres.PROJECT_REF:pass@aws-0-region.pooler.supabase.com:6543/postgres?pgbouncer=true`
-5. Copy the **direct** connection string for `DIRECT_URL`  
-   Format: `postgresql://postgres:pass@db.PROJECT_REF.supabase.co:5432/postgres`
-6. Update `.env.local`:
+3. Click **"Connection string"** → Copy the URL  
+   Format: `postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require`
+4. Update `.env.local`:
    ```
-   DATABASE_URL="postgresql://your-supabase-pooler-url"
-   DIRECT_URL="postgresql://your-supabase-direct-url"
+   DATABASE_URL="postgresql://your-neon-url-here"
    ```
 
 ### Step 2 — Push schema & seed demo data
 
 ```bash
-DATABASE_URL="postgresql://your-supabase-pooler-url" DIRECT_URL="postgresql://your-supabase-direct-url" npx prisma db push
-DATABASE_URL="postgresql://your-supabase-pooler-url" DIRECT_URL="postgresql://your-supabase-direct-url" npm run db:seed
+npx prisma db push
+npm run db:seed
 ```
 
 You should see: `✅ Seed complete!`
-
-If you prefer Supabase SQL Editor, this repo also includes `supabase/schema.sql`, generated from `prisma/schema.prisma`. Use Prisma `db push` when possible because it keeps the database in sync with the app schema.
 
 ### Step 3 — Push to GitHub
 
@@ -84,37 +78,28 @@ git push -u origin main
 
 | Key | Value |
 |---|---|
-| `DATABASE_URL` | Your Supabase pooled connection string |
-| `DIRECT_URL` | Your Supabase direct connection string |
+| `DATABASE_URL` | Your Neon connection string |
 | `NEXTAUTH_SECRET` | Run `openssl rand -base64 32` to generate |
 | `NEXTAUTH_URL` | Your Vercel URL e.g. `https://plans-seo.vercel.app` |
 | `WP_ENCRYPTION_KEY` | Run `openssl rand -hex 32` to generate |
 | `ANTHROPIC_API_KEY` | Optional — AI features work in mock mode without it |
 | `OPENAI_API_KEY` | Optional |
-| `GCP_PROJECT_ID` | Google Cloud project ID for Vertex AI |
-| `GCP_PROJECT_NUMBER` | Google Cloud project number |
-| `GCP_SERVICE_ACCOUNT_EMAIL` | Service account Vercel will impersonate |
-| `GCP_WORKLOAD_IDENTITY_POOL_ID` | Workload Identity Pool ID |
-| `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID` | Workload Identity Provider ID |
-| `GCP_LOCATION` | Vertex region, e.g. `us-central1` |
-| `GEMINI_MODEL` | Text model, e.g. `gemini-2.5-flash` |
-| `VERTEX_GEMINI_IMAGE_MODEL` | Image model, e.g. `gemini-2.5-flash-image` |
 
-4. Click **Deploy** — this repo's `vercel.json` runs `npm run vercel-build`, which regenerates Prisma Client and builds Next.js with a larger Node heap.
+4. Click **Deploy** — Vercel runs `npm install` → `prisma generate` → `next build` automatically
 
 ### Step 5 — Seed the production database
 
 After the first deploy, run the seed from your local machine (pointing at the production DB):
 
 ```bash
-# Temporarily set DATABASE_URL and DIRECT_URL to your Supabase production URLs:
-DATABASE_URL="postgresql://your-supabase-pooler-url" DIRECT_URL="postgresql://your-supabase-direct-url" npm run db:seed
+# Temporarily set DATABASE_URL to your Neon production URL:
+DATABASE_URL="postgresql://your-neon-url" npm run db:seed
 ```
 
 Or pull Vercel env vars locally then seed:
 ```bash
 npx vercel env pull .env.vercel.local
-# Then copy DATABASE_URL and DIRECT_URL from .env.vercel.local into .env.local and run:
+# Then copy DATABASE_URL from .env.vercel.local into .env.local and run:
 npm run db:seed
 ```
 
@@ -143,7 +128,7 @@ openssl rand -hex 32
 ## Troubleshooting
 
 **`PrismaClientInitializationError`** — DATABASE_URL is not set or wrong format  
-→ Check that `DATABASE_URL` is the Supabase pooled URL and `DIRECT_URL` is the direct URL.
+→ Check the Neon URL includes `?sslmode=require` at the end
 
 **`next build` fails on Vercel** — Environment variables not set  
 → Check all required env vars are in Vercel project settings
