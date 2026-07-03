@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
+    "vercel-build": "prisma generate && npm run build",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
