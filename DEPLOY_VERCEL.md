@@ -1,107 +1,89 @@
 # Deploy to Vercel
 
-โปรเจกต์นี้ใช้ PostgreSQL, NextAuth และ Vertex AI ผ่าน Vercel OIDC โดยไม่ต้องใช้ `GEMINI_API_KEY`
+## สิ่งที่ต้องเตรียม (Dev ทำ)
 
-## 1. เตรียม PostgreSQL
+### 1. สร้าง PostgreSQL Database
+สมัคร **https://neon.tech** (free) → New Project → Copy connection strings 2 อัน:
+- **Pooled URL** → ใส่ใน `DATABASE_URL`
+- **Direct URL** (host ไม่มี `-pooler`) → ใส่ใน `DIRECT_URL`
 
-สร้างฐานข้อมูล PostgreSQL (เช่น Neon) แล้วเก็บ connection string สองค่า:
+---
 
-- `DATABASE_URL`: pooled connection
-- `DIRECT_URL`: direct connection สำหรับ Prisma schema operations
+### 2. แก้ `prisma/schema.prisma`
 
-รัน schema และ seed ก่อน deploy:
+เปลี่ยน datasource block เป็น:
+
+```prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+```
+
+---
+
+### 3. Run Migration
 
 ```bash
+# ตั้ง env ก่อน แล้วรัน
 DATABASE_URL="postgresql://..." DIRECT_URL="postgresql://..." npx prisma db push
 DATABASE_URL="postgresql://..." DIRECT_URL="postgresql://..." npx tsx prisma/seed.ts
 ```
 
-## 2. เปิด Vercel OIDC
+---
 
-ใน Vercel ไปที่ **Project > Settings > Security > Secure backend access with OIDC federation** แล้วเลือก **Team issuer mode**
+### 4. เตรียม `GOOGLE_SERVICE_ACCOUNT_JSON`
 
-จดค่า:
-
-- Vercel team slug
-- Vercel project name
-- environment ที่อนุญาต: `production` และ/หรือ `preview`
-
-## 3. ตั้ง Google Cloud Workload Identity Federation
-
-1. เปิด API ต่อไปนี้ใน GCP project:
-   - Vertex AI API
-   - IAM Service Account Credentials API
-   - Security Token Service API
-2. ไปที่ **IAM & Admin > Workload Identity Federation** แล้วสร้าง pool เช่น ID `vercel`
-3. เพิ่ม OIDC provider เช่น ID `vercel`
-4. ตั้ง Issuer URL เป็น `https://oidc.vercel.com/TEAM_SLUG`
-5. เลือก **Default audience** (รูปแบบ `https://iam.googleapis.com/projects/.../providers/...`)
-6. ตั้ง attribute mapping: `google.subject` = `assertion.sub`
-7. สร้าง service account สำหรับ Vercel และให้ role `Vertex AI User` (`roles/aiplatform.user`)
-8. ให้ principal ของ deployment มี role `Workload Identity User` บน service account โดย subject มีรูปแบบ:
-
-```text
-owner:TEAM_SLUG:project:VERCEL_PROJECT_NAME:environment:production
-```
-
-ถ้าใช้ Preview ให้เพิ่ม principal อีกตัวที่ลงท้ายด้วย `environment:preview`
-
-## 4. Environment Variables บน Vercel
-
-ตั้งค่าจาก `.env.production.example` อย่างน้อยดังนี้:
-
-| Variable | ใช้สำหรับ |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL pooled connection |
-| `DIRECT_URL` | PostgreSQL direct connection |
-| `NEXTAUTH_SECRET` | session signing secret |
-| `NEXTAUTH_URL` | production URL |
-| `ANTHROPIC_API_KEY` | article generation ที่ยังใช้ Claude |
-| `GCP_PROJECT_ID` | Google Cloud project ID |
-| `GCP_PROJECT_NUMBER` | Google Cloud numeric project number |
-| `GCP_SERVICE_ACCOUNT_EMAIL` | service account ที่ OIDC impersonate |
-| `GCP_WORKLOAD_IDENTITY_POOL_ID` | เช่น `vercel` |
-| `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID` | เช่น `vercel` |
-| `GCP_VERTEX_LOCATION` | ค่าเริ่มต้น `us-central1` |
-| `VERTEX_TEXT_MODEL` | ค่าเริ่มต้น `gemini-2.5-flash` |
-| `VERTEX_IMAGE_MODEL` | ค่าเริ่มต้น `gemini-3.1-flash-image-preview` |
-
-อย่าตั้ง `GEMINI_API_KEY` หรือ `GOOGLE_AI_API_KEY` ใน Vercel อีก หลังย้ายแล้วให้ลบค่าทั้ง Production, Preview และ Development
-
-`GOOGLE_SERVICE_ACCOUNT_JSON` ยังเป็นคนละส่วนกับ Vertex AI: โปรเจกต์เดิมใช้ค่านี้สำหรับ GSC/GA4 หากต้องใช้ report เหล่านั้นยังต้องตั้งค่าต่อไป
-
-## 5. Vercel Build Settings
-
-| Setting | Value |
-| --- | --- |
-| Framework Preset | Next.js |
-| Build Command | `npm run build` |
-| Output Directory | `.next` |
-| Install Command | `npm install` |
-| Node.js Version | 20.x |
-
-`postinstall` จะรัน `prisma generate` ให้อัตโนมัติ
-
-## 6. Local development ที่ใช้ OIDC
+รันคำสั่งนี้ใน terminal บนเครื่อง Mac ของทีม แล้ว copy output ทั้งหมด:
 
 ```bash
-vercel link
-vercel env pull .env.local
-npm run dev
+cat credentials/service-account.json | python3 -m json.tool --compact
 ```
 
-`vercel env pull` จะนำ OIDC token สำหรับ development มาไว้ใน `.env.local` ชั่วคราว ห้าม commit ไฟล์นี้
+นำ output (single-line JSON) ไปใส่ใน env var `GOOGLE_SERVICE_ACCOUNT_JSON` บน Vercel
 
-## 7. Checklist ก่อน Go Live
+---
 
-- [ ] `npm run build` ผ่าน
-- [ ] PostgreSQL schema และ seed เสร็จแล้ว
-- [ ] Vercel OIDC เปิดใช้งานและ issuer ตรงกับ GCP provider
-- [ ] GCP principal subject ตรงกับ team, project และ environment จริงทุกตัวอักษร
-- [ ] service account มี `roles/aiplatform.user`
-- [ ] ตั้งค่า GCP OIDC variables ครบ 5 ค่า
-- [ ] ลบ `GEMINI_API_KEY` และ `GOOGLE_AI_API_KEY` จากทุก Vercel environment
-- [ ] `NEXTAUTH_URL` ตรงกับ production domain แล้ว redeploy
-- [ ] ทดสอบ keyword research, cover image และ article image ใน deployment จริง
+### 5. ตั้งค่า Vercel
 
-เอกสารอ้างอิง: [Vercel OIDC for GCP](https://vercel.com/docs/oidc/gcp), [Vercel OIDC reference](https://vercel.com/docs/oidc/reference)
+**Vercel Dashboard → Project → Settings → Environment Variables**  
+ใส่ค่าทุกอย่างจากไฟล์ `.env.production` (แนบมาด้วยกัน)
+
+**Build Settings:**
+| Setting | Value |
+|---------|-------|
+| Build Command | `prisma generate && next build` |
+| Output Directory | `.next` |
+| Node.js Version | 20.x |
+
+---
+
+### 6. หลัง Deploy — อัปเดต NEXTAUTH_URL
+
+เมื่อได้ URL จาก Vercel แล้ว:
+- แก้ `NEXTAUTH_URL` ใน Environment Variables ให้ตรงกับ URL จริง เช่น `https://myapp.vercel.app`
+- Redeploy 1 ครั้ง
+
+---
+
+### 7. Checklist ก่อน Go Live
+
+- [ ] PostgreSQL สร้างแล้ว และ `prisma db push` ผ่าน
+- [ ] `npm run db:seed` รันแล้ว (ได้ admin user)
+- [ ] `NEXTAUTH_URL` ตรงกับ domain จริง
+- [ ] `GOOGLE_SERVICE_ACCOUNT_JSON` ใส่แล้ว (valid JSON)
+- [ ] `ANTHROPIC_API_KEY` ใส่แล้ว
+- [ ] ทดสอบ login ได้
+- [ ] ทดสอบ Report page ดึง GSC/GA4 ได้
+
+---
+
+### ปัญหาที่พบบ่อย
+
+| อาการ | วิธีแก้ |
+|-------|---------|
+| Build fail: prisma client not found | ตรวจ Build Command ว่ามี `prisma generate &&` |
+| GSC/GA4 ไม่ทำงาน | ตรวจ `GOOGLE_SERVICE_ACCOUNT_JSON` วาง JSON ใน browser console แล้ว `JSON.parse(...)` ต้องไม่ error |
+| NextAuth error | `NEXTAUTH_URL` ต้องตรงกับ URL จริง รวมถึง `https://` |
+| DB connection timeout | เพิ่ม `?connect_timeout=30` ต่อท้าย `DATABASE_URL` |

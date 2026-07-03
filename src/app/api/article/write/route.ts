@@ -6,7 +6,6 @@ import * as os from 'os'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
-import { VERTEX_IMAGE_MODEL } from '@/lib/vertex'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -573,7 +572,7 @@ export async function POST(req: NextRequest) {
 
     // Log Gemini image costs
     if (orgId && userId) {
-      const geminiModel = VERTEX_IMAGE_MODEL
+      const geminiModel = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image'
       if (coverResult.totalTokens || coverResult.costUsd) {
         await prisma.aIJob.create({ data: {
           organizationId: orgId, createdById: userId,
@@ -684,7 +683,7 @@ export async function POST(req: NextRequest) {
 
       // Log Gemini image costs (streaming path)
       if (orgId && userId) {
-        const geminiModel = VERTEX_IMAGE_MODEL
+        const geminiModel = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image'
         if (coverResult.totalTokens || coverResult.costUsd) {
           prisma.aIJob.create({ data: {
             organizationId: orgId, createdById: userId,

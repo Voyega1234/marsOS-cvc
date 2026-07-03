@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
-import { getMissingVertexEnvVars, VERTEX_IMAGE_MODEL } from '@/lib/vertex'
+import { isVertexOidcConfigured } from '@/lib/vertex'
 
 export const maxDuration = 120
 
@@ -32,9 +32,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'keyword and title are required' }, { status: 400 })
   }
 
-  const missingVertexConfig = getMissingVertexEnvVars()
-  if (missingVertexConfig.length > 0) {
-    return NextResponse.json({ error: `Vertex AI OIDC configuration is incomplete: ${missingVertexConfig.join(', ')}` }, { status: 500 })
+  if (!isVertexOidcConfigured()) {
+    return NextResponse.json({ error: 'Vertex OIDC is not configured' }, { status: 500 })
   }
 
   try {
@@ -53,7 +52,7 @@ export async function POST(req: NextRequest) {
             jobType: type === 'mid' ? 'IMAGE_MID' : 'IMAGE_COVER',
             status: 'COMPLETED',
             modelProvider: 'GEMINI',
-            modelName: VERTEX_IMAGE_MODEL,
+            modelName: process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image',
             tokenUsed: result.totalTokens,
             estimatedCost: result.costUsd,
           },

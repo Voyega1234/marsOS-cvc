@@ -5,14 +5,12 @@
 export const maxDuration = 800 // Vercel Pro max — supports 3000 keyword runs
 
 import { NextRequest, NextResponse } from 'next/server'
-import { generateText } from 'ai'
 import { getSession } from '@/lib/auth'
 import { logAIJob, estimateGeminiCost } from '@/lib/logAIJob'
 import { logActivity } from '@/lib/logActivity'
 import { loadGoogleAdsConfig, getAccessToken, getKPVolumes, getKPKeywordIdeas } from '@/lib/googleKeywordPlannerService'
 import { getDataForSeoVolumes, hasDataForSeoCreds } from '@/lib/dataForSeoService'
 import { fetchSitemapUrls, scrapeBusinessContext, formatBusinessContextForPrompt, type BusinessContext } from '@/lib/siteCrawler'
-import { getVertex, hasVertexOidcConfig, VERTEX_TEXT_MODEL } from '@/lib/vertex'
 import {
   PRESETS,
   DEFAULT_RATIO,
@@ -35,6 +33,7 @@ import { buildSeoTitleAiPrompt, type TitleRequest, type TitleAiResult } from '@/
 import { scoreCompetitorGap } from '@/lib/skills/competitorGapSkill'
 import { detectTrendSignal } from '@/lib/skills/trendSkill'
 import { extractCompetitorKeywords } from '@/lib/skills/competitorUrlSkill'
+import { generateVertexContent, isVertexOidcConfigured } from '@/lib/vertex'
 import {
   classifyJourneyStage,
   classifyAISearchRisk,
@@ -184,9 +183,9 @@ interface CsvInputRow {
   relevance_score?: number
 }
 
-// ── Gemini helpers (Vertex AI via Vercel OIDC) ───────────────────────
+// ── Gemini helpers (via Vertex AI + Vercel OIDC) ──────────────────────────────
 
-const GEMINI_MODEL = VERTEX_TEXT_MODEL
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 
 // Accumulate tokens across all Gemini calls in one request
 let _geminiTokensAccum = 0
@@ -243,25 +242,23 @@ function parseGeminiJSON(text: string): any {
 
 // Plain text / JSON parse — no grounding tools
 async function callGemini(prompt: string): Promise<any> {
-  const vertex = getVertex()
   return withRetry(async () => {
-    const result = await generateText({ model: vertex(GEMINI_MODEL), prompt })
-    addTokens(result.usage.totalTokens ?? 0)
+    const result = await generateVertexContent(prompt, { model: GEMINI_MODEL })
+    addTokens(result.usage.totalTokenCount)
     return parseGeminiJSON(result.text)
   })
 }
 
 // JSON mode via responseMimeType
 async function callGeminiJson(prompt: string): Promise<any> {
-  const vertex = getVertex()
   return withRetry(async () => {
-    const result = await generateText({
-      model: vertex(GEMINI_MODEL),
-      prompt: `${prompt}\n\nReturn valid JSON only. Do not use markdown fences.`,
+    const result = await generateVertexContent(prompt, {
+      model: GEMINI_MODEL,
+      responseMimeType: 'application/json',
       temperature: 0.5,
       maxOutputTokens: 16384,
     })
-    addTokens(result.usage.totalTokens ?? 0)
+    addTokens(result.usage.totalTokenCount)
     return parseGeminiJSON(result.text)
   })
 }
@@ -277,26 +274,23 @@ interface GroundingMeta {
 // prompt should be research instructions only — no JSON schema (so Gemini focuses on searching)
 // jsonSchema is extracted from the last JSON block in prompt and sent in pass 2
 async function callGeminiWithGrounding(prompt: string): Promise<{ data: any; grounding: GroundingMeta }> {
-  const vertex = getVertex()
-
   // Extract JSON schema from end of prompt (last { ... } block) so pass 1 is research-only
   const jsonStart = prompt.lastIndexOf('\n{')
   const researchPart = jsonStart !== -1 ? prompt.substring(0, jsonStart).trimEnd() : prompt
   const jsonSchema   = jsonStart !== -1 ? prompt.substring(jsonStart).trim() : ''
 
-  const researchResult = await withRetry(() => generateText({
-    model: vertex(GEMINI_MODEL),
-    tools: { google_search: vertex.tools.googleSearch({}) },
-    prompt: researchPart,
+  // Pass 1: grounding search
+  const researchResult = await withRetry(() => generateVertexContent(researchPart, {
+    model: GEMINI_MODEL,
+    tools: [{ googleSearch: {} }],
   }))
   const researchText = researchResult.text
-  addTokens(researchResult.usage.totalTokens ?? 0)
+  addTokens(researchResult.usage.totalTokenCount)
 
+  const meta = researchResult.data?.candidates?.[0]?.groundingMetadata ?? {}
   const grounding: GroundingMeta = {
-    webSearchQueries: [],
-    sourceUrls: researchResult.sources
-      .filter(source => source.sourceType === 'url')
-      .map(source => source.url),
+    webSearchQueries: meta.webSearchQueries ?? [],
+    sourceUrls: (meta.groundingChunks ?? []).map((c: any) => c.web?.uri ?? '').filter(Boolean),
   }
 
   // Pass 2: format research findings to JSON
@@ -305,13 +299,13 @@ async function callGeminiWithGrounding(prompt: string): Promise<{ data: any; gro
     : `Based on this research:\n\n${researchText}\n\nReturn your findings as valid JSON only (no markdown).`
 
   const data = await withRetry(async () => {
-    const result = await generateText({
-      model: vertex(GEMINI_MODEL),
-      prompt: formatPrompt,
+    const result = await generateVertexContent(formatPrompt, {
+      model: GEMINI_MODEL,
+      responseMimeType: 'application/json',
       temperature: 0.3,
       maxOutputTokens: 8192,
     })
-    addTokens(result.usage.totalTokens ?? 0)
+    addTokens(result.usage.totalTokenCount)
     return parseGeminiJSON(result.text)
   })
 
@@ -759,7 +753,7 @@ export async function POST(req: NextRequest) {
         PRESETS.find(p => p.key === preset_key)?.ratio ?? DEFAULT_RATIO
       )
       const isKnowledgeMode = preset_key === 'preset6'
-      const hasGemini = hasVertexOidcConfig()
+      const hasGemini = isVertexOidcConfigured()
 
       // ─ Step 0: Sitemap + business context ──────────────────────────────────
       let businessCtx: BusinessContext | null = null

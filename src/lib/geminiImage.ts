@@ -4,9 +4,8 @@
  * Avoids internal HTTP fetches that would be blocked by auth middleware.
  */
 import Anthropic from '@anthropic-ai/sdk'
-import { generateImage } from 'ai'
 import sharp from 'sharp'
-import { getVertex, VERTEX_IMAGE_MODEL } from '@/lib/vertex'
+import { generateVertexContent, getVertexInlineImage } from '@/lib/vertex'
 
 const GEMINI_TEXT_INPUT_COST_PER_TOKEN   = 0.10 / 1_000_000
 const GEMINI_IMAGE_OUTPUT_COST_PER_IMAGE = 0.039
@@ -294,7 +293,7 @@ async function compressToWebP(
   }
 }
 
-// ── Core function — call Gemini image API directly ────────────────────────────
+// ── Core function — call Vertex Gemini image generation via Vercel OIDC ───────
 
 export interface GeminiImageResult {
   imageBase64: string
@@ -325,19 +324,23 @@ export async function callGeminiImage(params: {
     ? buildMidPrompt(keyword, title, accentColor, width, height)
     : await buildCoverPrompt(keyword, title, siteName, brandTone, accentColor, width, height)
 
-  const vertex = getVertex()
-  const { image } = await generateImage({
-    model: vertex.image(VERTEX_IMAGE_MODEL),
-    prompt,
-    aspectRatio: width === height ? '1:1' : '16:9',
+  const model = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image'
+  const result = await generateVertexContent(prompt, {
+    model,
+    responseModalities: ['TEXT', 'IMAGE'],
   })
 
-  const promptTokens = 0
-  const totalTokens = 0
+  const inlineImage = getVertexInlineImage(result.data)
+  if (!inlineImage) {
+    throw new Error(`Vertex Gemini returned no image. Response: ${result.text.slice(0, 200)}`)
+  }
+
+  const promptTokens = result.usage.promptTokenCount
+  const totalTokens = result.usage.totalTokenCount
   const costUsd = Number(((promptTokens * GEMINI_TEXT_INPUT_COST_PER_TOKEN) + GEMINI_IMAGE_OUTPUT_COST_PER_IMAGE).toFixed(6))
 
   const { base64, mimeType, originalKB, compressedKB } =
-    await compressToWebP(image.base64, image.mediaType || 'image/png', type)
+    await compressToWebP(inlineImage.data, inlineImage.mimeType, type)
 
   console.log(`[geminiImage] ${type} ${originalKB}KB → ${compressedKB}KB (${Math.round((1 - compressedKB / originalKB) * 100)}% saved)`)
 
