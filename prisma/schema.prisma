@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  schemas   = ["plans_seo_pipeline"]
 }
 
 // ─── Auth (NextAuth) ──────────────────────────────────────────────────────────
@@ -26,6 +28,7 @@ model Account {
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@schema("plans_seo_pipeline")
 }
 
 model Session {
@@ -34,6 +37,8 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("plans_seo_pipeline")
 }
 
 model VerificationToken {
@@ -42,6 +47,7 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Users & Orgs ─────────────────────────────────────────────────────────────
@@ -60,20 +66,20 @@ model User {
   status         String    @default("ACTIVE")
   organizationId String?
 
-  organization        Organization?    @relation(fields: [organizationId], references: [id])
+  organization        Organization?         @relation(fields: [organizationId], references: [id])
   accounts            Account[]
   sessions            Session[]
-  projects            Project[]        @relation("ProjectCreatedBy")
-  ownedProjects       Project[]        @relation("ProjectOwner")
-  assignedArticles    Article[]        @relation("ArticleAssignedTo")
-  reviewedArticles    Article[]        @relation("ArticleReviewer")
-  createdArticles     Article[]        @relation("ArticleCreatedBy")
+  projects            Project[]             @relation("ProjectCreatedBy")
+  ownedProjects       Project[]             @relation("ProjectOwner")
+  assignedArticles    Article[]             @relation("ArticleAssignedTo")
+  reviewedArticles    Article[]             @relation("ArticleReviewer")
+  createdArticles     Article[]             @relation("ArticleCreatedBy")
   aiJobs              AIJob[]
   activityLogs        ActivityLog[]
   comments            Comment[]
   reviews             Review[]
-  promptsCreated      PromptTemplate[] @relation("PromptCreatedBy")
-  promptsUpdated      PromptTemplate[] @relation("PromptUpdatedBy")
+  promptsCreated      PromptTemplate[]      @relation("PromptCreatedBy")
+  promptsUpdated      PromptTemplate[]      @relation("PromptUpdatedBy")
   promptVersions      PromptVersion[]
   articleVersions     ArticleVersion[]
   mediaAssets         MediaAsset[]
@@ -82,10 +88,12 @@ model User {
   notifications       Notification[]
   backlinkEntries     BacklinkEntry[]
   contentRefreshItems ContentRefreshItem[]
-  externalTasks       ExternalTask[]   @relation("ExternalTaskAssigned")
+  externalTasks       ExternalTask[]        @relation("ExternalTaskAssigned")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 model Organization {
@@ -111,24 +119,26 @@ model Organization {
   batchJobs            BatchJob[]
   dataBrainFiles       DataBrainFile[]
 
-  studioPrompt         String?
+  studioPrompt String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── AI Provider Keys ─────────────────────────────────────────────────────────
 // Keys are encrypted with AES-256-CBC server-side; keyEncrypted is NEVER sent to client
 
 model AIProviderKey {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   organizationId String
-  provider       String   // "claude" | "openai" | "gemini" | "groq"
+  provider       String // "claude" | "openai" | "gemini" | "groq"
   displayName    String
-  keyMasked      String   // "sk-****xxxx" – safe to show in UI
-  keyEncrypted   String   // AES-256-CBC encrypted – never returned to client
-  isActive       Boolean  @default(true)
-  isDefault      Boolean  @default(false)
+  keyMasked      String // "sk-****xxxx" – safe to show in UI
+  keyEncrypted   String // AES-256-CBC encrypted – never returned to client
+  isActive       Boolean @default(true)
+  isDefault      Boolean @default(false)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -136,6 +146,7 @@ model AIProviderKey {
   updatedAt DateTime @updatedAt
 
   @@unique([organizationId, provider, displayName])
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Projects & Keywords ──────────────────────────────────────────────────────
@@ -184,21 +195,21 @@ model Project {
   wpUser                String?
   wpAppPassword         String?
   timeline              String  @default("[]")
-  keywordRows           String  @default("[]")  // JSON: KeywordRow[] from AI research
+  keywordRows           String  @default("[]") // JSON: KeywordRow[] from AI research
   autoSchedule          Boolean @default(false)
-  gscSiteUrl            String?  // e.g. "sc-domain:example.com" or "https://example.com/"
-  ctaSetting            String  @default("{}")  // JSON: CtaSettings object
+  gscSiteUrl            String? // e.g. "sc-domain:example.com" or "https://example.com/"
+  ctaSetting            String  @default("{}") // JSON: CtaSettings object
   authorEnabled         Boolean @default(false)
   authorName            String?
   authorTitle           String?
-  authorImage           String?  // base64 data URL
-  authors               String  @default("[]")  // JSON: AuthorProfile[] — multi-author list
+  authorImage           String? // base64 data URL
+  authors               String  @default("[]") // JSON: AuthorProfile[] — multi-author list
 
-  organization        Organization         @relation(fields: [organizationId], references: [id])
-  createdBy           User                 @relation("ProjectCreatedBy", fields: [createdById], references: [id])
-  owner               User?                @relation("ProjectOwner", fields: [ownerId], references: [id])
-  defaultTemplate     BrandTemplate?       @relation(fields: [defaultTemplateId], references: [id])
-  wordpressConnection WordPressConnection? @relation(fields: [wordpressConnectionId], references: [id])
+  organization        Organization          @relation(fields: [organizationId], references: [id])
+  createdBy           User                  @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  owner               User?                 @relation("ProjectOwner", fields: [ownerId], references: [id])
+  defaultTemplate     BrandTemplate?        @relation(fields: [defaultTemplateId], references: [id])
+  wordpressConnection WordPressConnection?  @relation(fields: [wordpressConnectionId], references: [id])
   keywords            Keyword[]
   articles            Article[]
   aiJobs              AIJob[]
@@ -210,6 +221,8 @@ model Project {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // funnelStage: TOFU | MOFU | BOFU
@@ -233,6 +246,8 @@ model Keyword {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Articles ─────────────────────────────────────────────────────────────────
@@ -244,13 +259,13 @@ model Keyword {
 // auditResults JSON: { scoreOutOf10, breakdown:{ seo,aiSearch,eeat,ux,conversion }, criticalGaps[], recommendations[] }
 
 model Article {
-  id              String  @id @default(cuid())
+  id              String    @id @default(cuid())
   projectId       String
   keywordId       String?
   title           String
   slug            String
-  funnelStage     String  @default("TOFU")
-  searchIntent    String  @default("INFORMATIONAL")
+  funnelStage     String    @default("TOFU")
+  searchIntent    String    @default("INFORMATIONAL")
   brief           String?
   outline         String?
   htmlContent     String?
@@ -270,14 +285,14 @@ model Article {
   createdById     String
 
   // Data Brain & Competitor context (stored as JSON strings)
-  competitorUrls    String?  // JSON: string[] — URLs to analyze before writing
-  dataBrainContext  String?  // JSON: extracted insights from uploaded files
-  gscData           String?  // JSON: GSC position/clicks snapshot at publish time
-  rankHistory       String?  // JSON: [{ date, position, clicks, impressions }]
-  refreshScore      Int?     // 0-100 — content freshness score, lower = needs refresh
-  lastRefreshedAt   DateTime?
-  needsRefresh      Boolean  @default(false)
-  assignedAuthorId  String?  // JSON id from Project.authors array
+  competitorUrls   String? // JSON: string[] — URLs to analyze before writing
+  dataBrainContext String? // JSON: extracted insights from uploaded files
+  gscData          String? // JSON: GSC position/clicks snapshot at publish time
+  rankHistory      String? // JSON: [{ date, position, clicks, impressions }]
+  refreshScore     Int? // 0-100 — content freshness score, lower = needs refresh
+  lastRefreshedAt  DateTime?
+  needsRefresh     Boolean   @default(false)
+  assignedAuthorId String? // JSON id from Project.authors array
 
   project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   keyword       Keyword?         @relation(fields: [keywordId], references: [id])
@@ -294,6 +309,8 @@ model Article {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 model ArticleVersion {
@@ -313,6 +330,8 @@ model ArticleVersion {
   changedBy User    @relation(fields: [changedById], references: [id])
 
   createdAt DateTime @default(now())
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Prompts & Templates ─────────────────────────────────────────────────────
@@ -338,13 +357,15 @@ model PromptTemplate {
   createdById    String
   updatedById    String?
 
-  organization Organization   @relation(fields: [organizationId], references: [id])
-  createdBy    User           @relation("PromptCreatedBy", fields: [createdById], references: [id])
-  updatedBy    User?          @relation("PromptUpdatedBy", fields: [updatedById], references: [id])
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  createdBy    User            @relation("PromptCreatedBy", fields: [createdById], references: [id])
+  updatedBy    User?           @relation("PromptUpdatedBy", fields: [updatedById], references: [id])
   versions     PromptVersion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // Snapshots created before every save — never delete, used to restore
@@ -368,6 +389,8 @@ model PromptVersion {
   createdBy      User           @relation(fields: [createdById], references: [id])
 
   createdAt DateTime @default(now())
+
+  @@schema("plans_seo_pipeline")
 }
 
 model BrandTemplate {
@@ -392,6 +415,8 @@ model BrandTemplate {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── AI Jobs ─────────────────────────────────────────────────────────────────
@@ -424,6 +449,8 @@ model AIJob {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Logs & Collaboration ─────────────────────────────────────────────────────
@@ -442,6 +469,8 @@ model ActivityLog {
   user         User         @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
+
+  @@schema("plans_seo_pipeline")
 }
 
 model WordPressConnection {
@@ -458,6 +487,8 @@ model WordPressConnection {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 model MediaAsset {
@@ -478,6 +509,8 @@ model MediaAsset {
   createdBy    User         @relation(fields: [createdById], references: [id])
 
   createdAt DateTime @default(now())
+
+  @@schema("plans_seo_pipeline")
 }
 
 model Comment {
@@ -491,6 +524,8 @@ model Comment {
   user    User    @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
+
+  @@schema("plans_seo_pipeline")
 }
 
 model Review {
@@ -508,6 +543,8 @@ model Review {
   reviewer User    @relation(fields: [reviewerId], references: [id])
 
   createdAt DateTime @default(now())
+
+  @@schema("plans_seo_pipeline")
 }
 
 model ProjectMember {
@@ -518,7 +555,9 @@ model ProjectMember {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+
   @@unique([projectId, userId])
+  @@schema("plans_seo_pipeline")
 }
 
 // CLIENT role: which projects a CLIENT user can view
@@ -529,27 +568,31 @@ model ClientProjectAccess {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+
   @@unique([userId, projectId])
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 // type: ARTICLE_ASSIGNED | REVIEW_REQUESTED | ARTICLE_APPROVED | REVISION_REQUIRED | COMMENT_ADDED | ARTICLE_PUBLISHED
 
 model Notification {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   userId         String
   organizationId String
   type           String
   title          String
   body           String?
   link           String?
-  isRead         Boolean  @default(false)
+  isRead         Boolean @default(false)
   entityType     String?
   entityId       String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Backlink Tracker ─────────────────────────────────────────────────────────
@@ -574,6 +617,8 @@ model SiteConnection {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── External Tasks (Slack / Asana) ──────────────────────────────────────────
@@ -583,16 +628,16 @@ model SiteConnection {
 model ExternalTask {
   id             String    @id @default(cuid())
   organizationId String
-  source         String    // "slack" | "asana"
-  externalId     String?   // Asana GID or Slack message ts
+  source         String // "slack" | "asana"
+  externalId     String? // Asana GID or Slack message ts
   title          String
   description    String?
   assignedToId   String?
   status         String    @default("TODO")
   priority       String    @default("MEDIUM")
   dueDate        DateTime?
-  externalUrl    String?   // link back to original task
-  articleId      String?   // linked article if created
+  externalUrl    String? // link back to original task
+  articleId      String? // linked article if created
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   assignedTo   User?        @relation("ExternalTaskAssigned", fields: [assignedToId], references: [id])
@@ -602,27 +647,28 @@ model ExternalTask {
   updatedAt DateTime @updatedAt
 
   @@unique([organizationId, source, externalId])
+  @@schema("plans_seo_pipeline")
 }
 
 model ContentRefreshItem {
-  id             String   @id @default(cuid())
-  organizationId String
-  projectId      String?
-  url            String
-  pageTitle      String?
-  clientName     String?
-  priority       String   @default("medium")  // high | medium | low
-  status         String   @default("pending")  // pending | in_progress | done | ignored
-  reasons        String   @default("[]")       // JSON string[]
-  notes          String?
-  daysOld        Int?
-  clicks         Int?
-  impressions    Int?
-  clicksChangePct   Float?
-  imprsChangePct    Float?
-  recommendation String?
-  dueDate        String?
-  createdById    String
+  id              String  @id @default(cuid())
+  organizationId  String
+  projectId       String?
+  url             String
+  pageTitle       String?
+  clientName      String?
+  priority        String  @default("medium") // high | medium | low
+  status          String  @default("pending") // pending | in_progress | done | ignored
+  reasons         String  @default("[]") // JSON string[]
+  notes           String?
+  daysOld         Int?
+  clicks          Int?
+  impressions     Int?
+  clicksChangePct Float?
+  imprsChangePct  Float?
+  recommendation  String?
+  dueDate         String?
+  createdById     String
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   project      Project?     @relation(fields: [projectId], references: [id])
@@ -630,17 +676,19 @@ model ContentRefreshItem {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 model BacklinkEntry {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   organizationId String
   projectId      String
   targetUrl      String
   sourceUrl      String?
   anchorText     String?
   domainRating   Int?
-  status         String   @default("REQUESTED")
+  status         String  @default("REQUESTED")
   notes          String?
   articleId      String?
   createdById    String
@@ -651,6 +699,8 @@ model BacklinkEntry {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Data Sources ─────────────────────────────────────────────────────────────
@@ -658,55 +708,59 @@ model BacklinkEntry {
 // status: "CONNECTED" | "ERROR" | "PENDING" | "DISCONNECTED"
 
 model DataSource {
-  id             String  @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String
   projectId      String?
-  type           String  // GSC | GA4 | AHREFS | SEMRUSH | SERPAPI | DATABRAIN_FILE
+  type           String // GSC | GA4 | AHREFS | SEMRUSH | SERPAPI | DATABRAIN_FILE
   name           String
-  status         String  @default("PENDING")
+  status         String    @default("PENDING")
   credentialJson String? // encrypted JSON: { accessToken, refreshToken, siteUrl, propertyId, apiKey, etc. }
   lastSyncAt     DateTime?
   syncError      String?
-  config         String  @default("{}") // extra config JSON
+  config         String    @default("{}") // extra config JSON
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Rank Snapshots ───────────────────────────────────────────────────────────
 // Stores GSC/Ahrefs position history per article per keyword
 
 model RankSnapshot {
-  id         String   @id @default(cuid())
-  articleId  String
-  keyword    String
-  position   Float
-  clicks     Int      @default(0)
-  impressions Int     @default(0)
-  ctr        Float    @default(0)
-  source     String   @default("GSC") // GSC | AHREFS | SEMRUSH | MANUAL
-  snapshotAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  articleId   String
+  keyword     String
+  position    Float
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float    @default(0)
+  source      String   @default("GSC") // GSC | AHREFS | SEMRUSH | MANUAL
+  snapshotAt  DateTime @default(now())
 
   article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Batch Jobs ───────────────────────────────────────────────────────────────
 // status: PENDING | RUNNING | DONE | FAILED | CANCELLED
 
 model BatchJob {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   organizationId String
   projectId      String
   name           String
-  type           String   @default("BULK_CREATE") // BULK_CREATE | BULK_REFRESH | BULK_OPTIMIZE
-  status         String   @default("PENDING")
-  totalItems     Int      @default(0)
-  completedItems Int      @default(0)
-  failedItems    Int      @default(0)
-  inputData      String   @default("[]") // JSON: keyword list or article ids
-  resultData     String   @default("{}") // JSON: created article ids, errors
+  type           String  @default("BULK_CREATE") // BULK_CREATE | BULK_REFRESH | BULK_OPTIMIZE
+  status         String  @default("PENDING")
+  totalItems     Int     @default(0)
+  completedItems Int     @default(0)
+  failedItems    Int     @default(0)
+  inputData      String  @default("[]") // JSON: keyword list or article ids
+  resultData     String  @default("{}") // JSON: created article ids, errors
   createdById    String
   errorMessage   String?
 
@@ -714,6 +768,8 @@ model BatchJob {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
 
 // ─── Data Brain Files ─────────────────────────────────────────────────────────
@@ -739,4 +795,6 @@ model DataBrainFile {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
 }
