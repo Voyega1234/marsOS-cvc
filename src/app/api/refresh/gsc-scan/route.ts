@@ -1,18 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getGSCAuth } from "@/lib/google-auth";
 import { google } from "googleapis";
-
-// Build Google auth from env JSON
-function getGSCAuth() {
-  const raw = process.env.GSC_SERVICE_ACCOUNT_JSON;
-  if (!raw) throw new Error("GSC_SERVICE_ACCOUNT_JSON not set");
-  const creds = JSON.parse(raw);
-  return new google.auth.GoogleAuth({
-    credentials: creds,
-    scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
-  });
-}
 
 interface GSCRow {
   keys: string[];

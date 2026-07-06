@@ -2,10 +2,17 @@
 
 ## สิ่งที่ต้องเตรียม (Dev ทำ)
 
-### 1. สร้าง PostgreSQL Database
-สมัคร **https://neon.tech** (free) → New Project → Copy connection strings 2 อัน:
-- **Pooled URL** → ใส่ใน `DATABASE_URL`
-- **Direct URL** (host ไม่มี `-pooler`) → ใส่ใน `DIRECT_URL`
+### 1. ตั้งค่า Supabase PostgreSQL
+ใช้ connection strings 2 อันจาก **Supabase → Project Settings → Database**:
+- **Transaction pooler** → ใส่ใน `DATABASE_URL`
+- **Direct connection** → ใส่ใน `DIRECT_URL`
+
+สำหรับ Vercel/serverless ต้องให้ `DATABASE_URL` มี PgBouncer params เพื่อไม่ให้ Prisma ชน error `prepared statement "s0" already exists`:
+
+```env
+DATABASE_URL="postgresql://postgres.PROJECT_REF:YOUR_PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?schema=plans_seo_pipeline&pgbouncer=true&connection_limit=1"
+DIRECT_URL="postgresql://postgres:YOUR_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres?schema=plans_seo_pipeline"
+```
 
 ---
 
@@ -18,6 +25,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  schemas   = ["plans_seo_pipeline"]
 }
 ```
 
@@ -33,15 +41,46 @@ DATABASE_URL="postgresql://..." DIRECT_URL="postgresql://..." npx tsx prisma/see
 
 ---
 
-### 4. เตรียม `GOOGLE_SERVICE_ACCOUNT_JSON`
+### 4. ตั้งค่า Google integrations สำหรับ GSC/GA4
 
-รันคำสั่งนี้ใน terminal บนเครื่อง Mac ของทีม แล้ว copy output ทั้งหมด:
+ตอนนี้ GSC/GA4 ใช้ `GOOGLE_SERVICE_ACCOUNT_JSON` เป็นหลักก่อน:
 
-```bash
-cat credentials/service-account.json | python3 -m json.tool --compact
+```env
+GOOGLE_SERVICE_ACCOUNT_JSON=""
 ```
 
-นำ output (single-line JSON) ไปใส่ใน env var `GOOGLE_SERVICE_ACCOUNT_JSON` บน Vercel
+ถ้า `GOOGLE_SERVICE_ACCOUNT_JSON` ถูกตั้งไว้ ระบบจะใช้ JSON key นี้ก่อนเสมอ แม้จะมี `GCP_*` สำหรับ Vertex/Gemini อยู่ก็ตาม
+
+ทางเลือกภายหลัง: ถ้าจะย้าย GSC/GA4 ไป Vercel OIDC ให้ใช้ `GOOGLE_OIDC_*`
+
+ถ้า GSC/GA4 ใช้ GCP project/service account เดียวกับ Vertex/Gemini ให้ใช้ `GCP_*` ชุดเดียว:
+
+```env
+GCP_PROJECT_ID=""
+GCP_PROJECT_NUMBER=""
+GCP_SERVICE_ACCOUNT_EMAIL=""
+GCP_WORKLOAD_IDENTITY_POOL_ID=""
+GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
+GCP_LOCATION="us-central1"
+```
+
+ถ้า GSC/GA4 อยู่คนละ GCP project หรือใช้คนละ service account ให้เพิ่ม `GOOGLE_OIDC_*` สำหรับ GSC/GA4 โดยเฉพาะ:
+
+```env
+GOOGLE_OIDC_PROJECT_ID=""
+GOOGLE_OIDC_PROJECT_NUMBER=""
+GOOGLE_OIDC_SERVICE_ACCOUNT_EMAIL=""
+GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_ID=""
+GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
+```
+
+ลำดับการเลือก auth สำหรับ GSC/GA4:
+1. `GOOGLE_SERVICE_ACCOUNT_JSON`
+2. `GOOGLE_SERVICE_ACCOUNT_PATH` สำหรับ local dev
+3. `GOOGLE_OIDC_*`
+4. `GCP_*`
+
+สำหรับ GSC/GA4 ให้แชร์สิทธิ์ property ให้ service account ที่ใช้งานอยู่
 
 ---
 
@@ -72,7 +111,7 @@ cat credentials/service-account.json | python3 -m json.tool --compact
 - [ ] PostgreSQL สร้างแล้ว และ `prisma db push` ผ่าน
 - [ ] `npm run db:seed` รันแล้ว (ได้ admin user)
 - [ ] `NEXTAUTH_URL` ตรงกับ domain จริง
-- [ ] `GOOGLE_SERVICE_ACCOUNT_JSON` ใส่แล้ว (valid JSON)
+- [ ] `GOOGLE_SERVICE_ACCOUNT_JSON` ใส่แล้ว หรือ GSC/GA4 OIDC env ครบ
 - [ ] `ANTHROPIC_API_KEY` ใส่แล้ว
 - [ ] ทดสอบ login ได้
 - [ ] ทดสอบ Report page ดึง GSC/GA4 ได้
@@ -84,6 +123,7 @@ cat credentials/service-account.json | python3 -m json.tool --compact
 | อาการ | วิธีแก้ |
 |-------|---------|
 | Build fail: prisma client not found | ตรวจ Build Command ว่ามี `prisma generate &&` |
-| GSC/GA4 ไม่ทำงาน | ตรวจ `GOOGLE_SERVICE_ACCOUNT_JSON` วาง JSON ใน browser console แล้ว `JSON.parse(...)` ต้องไม่ error |
+| GSC/GA4 ไม่ทำงาน | ตรวจ `GOOGLE_SERVICE_ACCOUNT_JSON` หรือ OIDC env และแชร์ GSC/GA4 property ให้ service account ที่ใช้งาน |
 | NextAuth error | `NEXTAUTH_URL` ต้องตรงกับ URL จริง รวมถึง `https://` |
-| DB connection timeout | เพิ่ม `?connect_timeout=30` ต่อท้าย `DATABASE_URL` |
+| DB connection timeout | ใช้ Supabase transaction pooler ใน `DATABASE_URL` |
+| `prepared statement "s0" already exists` | เพิ่ม `pgbouncer=true&connection_limit=1` ใน `DATABASE_URL` |

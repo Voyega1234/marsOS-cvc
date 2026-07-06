@@ -523,15 +523,15 @@ export function ReportSiteList({ initialProjects, serviceEmail }: Props) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Report</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Sites ที่ Service Account เข้าถึงได้</p>
+          <p className="text-sm text-gray-500 mt-0.5">Sites ที่บัญชี Google ที่เชื่อมต่อเข้าถึงได้</p>
         </div>
       </div>
 
-      {/* Service account badge */}
+      {/* Google identity badge */}
       <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-xs">
         <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />
         <div>
-          <span className="font-semibold text-emerald-800">Service Account: </span>
+          <span className="font-semibold text-emerald-800">Google Identity: </span>
           <span className="font-mono text-emerald-700">{serviceEmail}</span>
         </div>
       </div>
@@ -555,7 +555,7 @@ export function ReportSiteList({ initialProjects, serviceEmail }: Props) {
             <div>
               <p className="font-semibold">ไม่สามารถดึง Sites ได้</p>
               <p className="text-xs mt-0.5 opacity-80">{error}</p>
-              <p className="text-xs mt-1 opacity-60">ตรวจสอบว่า GOOGLE_SERVICE_ACCOUNT_PATH ใน .env.local ถูกต้อง และไฟล์ credentials/service-account.json มีอยู่</p>
+              <p className="text-xs mt-1 opacity-60">ตรวจสอบ GOOGLE_SERVICE_ACCOUNT_JSON และสิทธิ์ของ service account ใน GSC</p>
             </div>
           </div>
         )}

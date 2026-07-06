@@ -324,6 +324,7 @@ function isBrandNews(title: string): boolean {
 
 function classify(item: NewsItem, score: number, isHighRisk: boolean): Status {
   if (isBrandNews(item.title)) return 'rejected'
+  if (item.ageHours > 720) return 'rejected'   // ตัดข่าวเกิน 30 วัน
   if (isHighRisk) return 'human_review'
   if (score >= 75) return 'strong_opportunity'
   if (score >= 55) return 'refresh_opportunity'
