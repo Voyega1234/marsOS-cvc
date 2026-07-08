@@ -324,7 +324,7 @@ export async function callGeminiImage(params: {
     ? buildMidPrompt(keyword, title, accentColor, width, height)
     : await buildCoverPrompt(keyword, title, siteName, brandTone, accentColor, width, height)
 
-  const model = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image'
+  const model = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
   const result = await generateVertexContent(prompt, {
     model,
     responseModalities: ['TEXT', 'IMAGE'],

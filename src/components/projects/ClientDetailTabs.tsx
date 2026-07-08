@@ -543,25 +543,35 @@ function KeywordResearchTab({
       const decoder = new TextDecoder()
       let buffer = ''
       let resultData: any = null
+      let eventType = ''
+
+      const processSseLine = (rawLine: string) => {
+        const line = rawLine.replace(/\r$/, '')
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7).trim()
+          return
+        }
+        if (!line.startsWith('data: ')) return
+
+        let payload: any = null
+        try { payload = JSON.parse(line.slice(6)) } catch { eventType = ''; return }
+        if (eventType === 'progress') addLog(payload.msg)
+        else if (eventType === 'result') resultData = payload
+        else if (eventType === 'error') throw new Error(payload.error ?? 'Unknown error')
+        eventType = ''
+      }
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          buffer += decoder.decode()
+          if (buffer) buffer.split('\n').forEach(processSseLine)
+          break
+        }
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() ?? ''
-        let eventType = ''
-        for (const line of lines) {
-          if (line.startsWith('event: ')) { eventType = line.slice(7).trim() }
-          else if (line.startsWith('data: ')) {
-            let payload: any = null
-            try { payload = JSON.parse(line.slice(6)) } catch { eventType = ''; continue }
-            if (eventType === 'progress') addLog(payload.msg)
-            else if (eventType === 'result') resultData = payload
-            else if (eventType === 'error') throw new Error(payload.error ?? 'Unknown error')
-            eventType = ''
-          }
-        }
+        lines.forEach(processSseLine)
       }
 
       if (resultData?.rows) {

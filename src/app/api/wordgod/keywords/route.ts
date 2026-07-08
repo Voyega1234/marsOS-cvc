@@ -185,7 +185,7 @@ interface CsvInputRow {
 
 // ── Gemini helpers (via Vertex AI + Vercel OIDC) ──────────────────────────────
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview'
 
 // Accumulate tokens across all Gemini calls in one request
 let _geminiTokensAccum = 0

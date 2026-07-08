@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
             jobType: type === 'mid' ? 'IMAGE_MID' : 'IMAGE_COVER',
             status: 'COMPLETED',
             modelProvider: 'GEMINI',
-            modelName: process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image',
+            modelName: process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
             tokenUsed: result.totalTokens,
             estimatedCost: result.costUsd,
           },

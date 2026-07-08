@@ -3,7 +3,7 @@ import { ExternalAccountClient } from 'google-auth-library'
 import { createVertex } from '@ai-sdk/google-vertex'
 import { generateImage, generateText, Output } from 'ai'
 
-const DEFAULT_LOCATION = 'us-central1'
+const DEFAULT_LOCATION = 'global'
 
 export interface VertexGenerateOptions {
   model?: string
@@ -75,7 +75,7 @@ function getVertex() {
 }
 
 export async function generateVertexContent(prompt: string, options: VertexGenerateOptions = {}): Promise<VertexGenerateResult> {
-  const model = options.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+  const model = options.model || process.env.GEMINI_MODEL || 'gemini-3-flash-preview'
   const vertex = getVertex()
 
   if (options.responseModalities?.includes('IMAGE')) {
