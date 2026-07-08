@@ -16,11 +16,11 @@ type GoogleOidcConfig = {
 };
 
 function readGoogleOidcConfig(): GoogleOidcConfig | null {
-  const projectId = process.env.GOOGLE_OIDC_PROJECT_ID || process.env.GCP_PROJECT_ID;
-  const projectNumber = process.env.GOOGLE_OIDC_PROJECT_NUMBER || process.env.GCP_PROJECT_NUMBER;
-  const serviceAccountEmail = process.env.GOOGLE_OIDC_SERVICE_ACCOUNT_EMAIL || process.env.GCP_SERVICE_ACCOUNT_EMAIL;
-  const poolId = process.env.GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_ID || process.env.GCP_WORKLOAD_IDENTITY_POOL_ID;
-  const providerId = process.env.GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_PROVIDER_ID || process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID;
+  const projectId = process.env.GOOGLE_OIDC_PROJECT_ID;
+  const projectNumber = process.env.GOOGLE_OIDC_PROJECT_NUMBER;
+  const serviceAccountEmail = process.env.GOOGLE_OIDC_SERVICE_ACCOUNT_EMAIL;
+  const poolId = process.env.GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_ID;
+  const providerId = process.env.GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_PROVIDER_ID;
 
   if (!projectId || !projectNumber || !serviceAccountEmail || !poolId || !providerId) return null;
   return { projectId, projectNumber, serviceAccountEmail, poolId, providerId };

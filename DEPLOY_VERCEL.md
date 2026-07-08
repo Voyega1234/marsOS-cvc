@@ -49,22 +49,11 @@ DATABASE_URL="postgresql://..." DIRECT_URL="postgresql://..." npx tsx prisma/see
 GOOGLE_SERVICE_ACCOUNT_JSON=""
 ```
 
-ถ้า `GOOGLE_SERVICE_ACCOUNT_JSON` ถูกตั้งไว้ ระบบจะใช้ JSON key นี้ก่อนเสมอ แม้จะมี `GCP_*` สำหรับ Vertex/Gemini อยู่ก็ตาม
+ถ้า `GOOGLE_SERVICE_ACCOUNT_JSON` ถูกตั้งไว้ ระบบจะใช้ JSON key นี้ก่อนเสมอ
 
 ทางเลือกภายหลัง: ถ้าจะย้าย GSC/GA4 ไป Vercel OIDC ให้ใช้ `GOOGLE_OIDC_*`
 
-ถ้า GSC/GA4 ใช้ GCP project/service account เดียวกับ Vertex/Gemini ให้ใช้ `GCP_*` ชุดเดียว:
-
-```env
-GCP_PROJECT_ID=""
-GCP_PROJECT_NUMBER=""
-GCP_SERVICE_ACCOUNT_EMAIL=""
-GCP_WORKLOAD_IDENTITY_POOL_ID=""
-GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
-GCP_LOCATION="us-central1"
-```
-
-ถ้า GSC/GA4 อยู่คนละ GCP project หรือใช้คนละ service account ให้เพิ่ม `GOOGLE_OIDC_*` สำหรับ GSC/GA4 โดยเฉพาะ:
+กำหนด `GOOGLE_OIDC_*` สำหรับ GSC/GA4 แยกจาก `GCP_*` ของ Vertex/Gemini เสมอ แม้ค่าบางตัวจะอยู่ใน GCP project เดียวกัน:
 
 ```env
 GOOGLE_OIDC_PROJECT_ID=""
@@ -78,7 +67,6 @@ GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
 1. `GOOGLE_SERVICE_ACCOUNT_JSON`
 2. `GOOGLE_SERVICE_ACCOUNT_PATH` สำหรับ local dev
 3. `GOOGLE_OIDC_*`
-4. `GCP_*`
 
 สำหรับ GSC/GA4 ให้แชร์สิทธิ์ property ให้ service account ที่ใช้งานอยู่
 
