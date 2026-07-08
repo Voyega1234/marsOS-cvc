@@ -5585,28 +5585,26 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             try {
               const tl: TimelineEntry[] = JSON.parse(proj.timeline)
               if (tl.length) {
-                const reviewStatuses = new Set(['SEO_REVIEW', 'REVIEWING', 'REVIEW', 'APPROVED', 'ARTICLE_DONE'])
-                const approvedStatuses = new Set(['APPROVED'])
+                // Sync DB article statuses back into timeline entries
+                const REVIEW_STATUSES = new Set(['SEO_REVIEW', 'REVIEWING', 'REVIEW', 'APPROVED', 'ARTICLE_DONE'])
+                const APPROVED_STATUSES = new Set(['APPROVED'])
                 const articleMap: Record<string, string> = {}
-
                 if (Array.isArray(articles)) {
-                  for (const article of articles) {
-                    if (article.title && article.status) articleMap[article.title.trim()] = article.status
+                  for (const a of articles) {
+                    if (a.title && a.status) articleMap[a.title.trim()] = a.status
                   }
                 }
-
                 const synced = tl.map(entry => {
                   const dbStatus = articleMap[entry.title?.trim() ?? '']
                   if (!dbStatus) return entry
-                  if (approvedStatuses.has(dbStatus) && entry.articleStatus !== 'approved') {
+                  if (APPROVED_STATUSES.has(dbStatus) && entry.articleStatus !== 'approved') {
                     return { ...entry, articleStatus: 'approved' as const }
                   }
-                  if (reviewStatuses.has(dbStatus) && entry.articleStatus === 'pending') {
+                  if (REVIEW_STATUSES.has(dbStatus) && entry.articleStatus === 'pending') {
                     return { ...entry, articleStatus: 'review' as const }
                   }
                   return entry
                 })
-
                 setTimeline(synced)
               }
             } catch { /* ignore */ }
