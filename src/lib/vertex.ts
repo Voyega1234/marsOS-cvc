@@ -43,15 +43,16 @@ function getAuthClient() {
   const serviceAccountEmail = getRequiredEnv('GCP_SERVICE_ACCOUNT_EMAIL')
   const poolId = getRequiredEnv('GCP_WORKLOAD_IDENTITY_POOL_ID')
   const providerId = getRequiredEnv('GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID')
+  const audience = `https://iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`
 
   const authClient = ExternalAccountClient.fromJSON({
     type: 'external_account',
-    audience: `//iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`,
+    audience,
     subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
     token_url: 'https://sts.googleapis.com/v1/token',
     service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
     subject_token_supplier: {
-      getSubjectToken: getVercelOidcToken,
+      getSubjectToken: () => getVercelOidcToken({ audience }),
     },
   } as any)
 
@@ -121,4 +122,3 @@ export function getVertexInlineImage(data: any): { mimeType: string; data: strin
   if (!inlineData?.data) return null
   return { mimeType: inlineData.mimeType || 'image/jpeg', data: inlineData.data }
 }
-
