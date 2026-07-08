@@ -49,7 +49,7 @@ DATABASE_URL="postgresql://..." DIRECT_URL="postgresql://..." npx tsx prisma/see
 GOOGLE_SERVICE_ACCOUNT_JSON=""
 ```
 
-ถ้า `GOOGLE_SERVICE_ACCOUNT_JSON` ถูกตั้งไว้ ระบบจะใช้ JSON key นี้ก่อนเสมอ
+GSC จะใช้ `GOOGLE_SERVICE_ACCOUNT_JSON` ก่อน ส่วน GA4 จะใช้ `GOOGLE_OIDC_*` ก่อนเมื่อกำหนดครบ
 
 ทางเลือกภายหลัง: ถ้าจะย้าย GSC/GA4 ไป Vercel OIDC ให้ใช้ `GOOGLE_OIDC_*`
 
@@ -63,10 +63,13 @@ GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_ID=""
 GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
 ```
 
-ลำดับการเลือก auth สำหรับ GSC/GA4:
-1. `GOOGLE_SERVICE_ACCOUNT_JSON`
-2. `GOOGLE_SERVICE_ACCOUNT_PATH` สำหรับ local dev
-3. `GOOGLE_OIDC_*`
+ลำดับการเลือก auth สำหรับ GSC:
+1. `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_SERVICE_ACCOUNT_PATH`
+2. `GOOGLE_OIDC_*`
+
+ลำดับการเลือก auth สำหรับ GA4:
+1. `GOOGLE_OIDC_*`
+2. `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_SERVICE_ACCOUNT_PATH`
 
 สำหรับ GSC/GA4 ให้แชร์สิทธิ์ property ให้ service account ที่ใช้งานอยู่
 

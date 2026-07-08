@@ -91,10 +91,10 @@ export function getGSCAuth() {
 }
 
 export function getGA4Auth() {
+  if (isGoogleOidcConfigured()) return getOidcAuth([GA4_SCOPE]);
+
   const jsonAuth = getJsonAuth([GA4_SCOPE]);
   if (jsonAuth) return jsonAuth;
-
-  if (isGoogleOidcConfigured()) return getOidcAuth([GA4_SCOPE]);
   throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON/GOOGLE_SERVICE_ACCOUNT_PATH or Google OIDC env vars must be set");
 }
 
