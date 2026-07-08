@@ -45,7 +45,6 @@ function getAuthClient() {
   const providerId = getRequiredEnv('GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID')
   const providerPath = `projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`
   const stsAudience = `//iam.googleapis.com/${providerPath}`
-  const tokenAudience = `https://iam.googleapis.com/${providerPath}`
 
   const authClient = ExternalAccountClient.fromJSON({
     type: 'external_account',
@@ -54,7 +53,7 @@ function getAuthClient() {
     token_url: 'https://sts.googleapis.com/v1/token',
     service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
     subject_token_supplier: {
-      getSubjectToken: () => getVercelOidcToken({ audience: tokenAudience }),
+      getSubjectToken: () => getVercelOidcToken(),
     },
   } as any)
 
