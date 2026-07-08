@@ -17,6 +17,7 @@
     "db:setup": "prisma db push && tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@ai-sdk/google-vertex": "^5.0.12",
     "@anthropic-ai/sdk": "^0.100.1",
     "@auth/prisma-adapter": "^2.7.4",
     "@prisma/client": "^5.22.0",
@@ -46,7 +47,8 @@
     "@tiptap/pm": "^3.23.5",
     "@tiptap/react": "^3.23.5",
     "@tiptap/starter-kit": "^3.23.5",
-    "@vercel/oidc": "^3.7.1",
+    "@vercel/oidc": "^3.8.0",
+    "ai": "^7.0.17",
     "autoprefixer": "^10.5.0",
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",

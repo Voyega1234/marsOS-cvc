@@ -1,5 +1,7 @@
 import { getVercelOidcToken } from '@vercel/oidc'
 import { ExternalAccountClient } from 'google-auth-library'
+import { createVertex } from '@ai-sdk/google-vertex'
+import { generateImage, generateText, Output } from 'ai'
 
 const DEFAULT_LOCATION = 'us-central1'
 
@@ -43,17 +45,16 @@ function getAuthClient() {
   const serviceAccountEmail = getRequiredEnv('GCP_SERVICE_ACCOUNT_EMAIL')
   const poolId = getRequiredEnv('GCP_WORKLOAD_IDENTITY_POOL_ID')
   const providerId = getRequiredEnv('GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID')
-  const providerPath = `projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`
-  const stsAudience = `//iam.googleapis.com/${providerPath}`
+  const audience = `https://iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`
 
   const authClient = ExternalAccountClient.fromJSON({
     type: 'external_account',
-    audience: stsAudience,
+    audience,
     subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
     token_url: 'https://sts.googleapis.com/v1/token',
     service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
     subject_token_supplier: {
-      getSubjectToken: () => getVercelOidcToken(),
+      getSubjectToken: () => getVercelOidcToken({ audience }),
     },
   } as any)
 
@@ -61,57 +62,72 @@ function getAuthClient() {
   return authClient
 }
 
-async function getAccessToken(): Promise<string> {
-  const token = await getAuthClient().getAccessToken()
-  const value = typeof token === 'string' ? token : token?.token
-  if (!value) throw new Error('Unable to get Google access token from Vercel OIDC')
-  return value
+function getVertex() {
+  const projectId = getRequiredEnv('GCP_PROJECT_ID')
+  return createVertex({
+    project: projectId,
+    location: process.env.GCP_LOCATION || DEFAULT_LOCATION,
+    googleAuthOptions: {
+      authClient: getAuthClient(),
+      projectId,
+    } as any,
+  })
 }
 
 export async function generateVertexContent(prompt: string, options: VertexGenerateOptions = {}): Promise<VertexGenerateResult> {
-  const projectId = getRequiredEnv('GCP_PROJECT_ID')
-  const location = process.env.GCP_LOCATION || DEFAULT_LOCATION
   const model = options.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-  const token = await getAccessToken()
-  const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:generateContent`
+  const vertex = getVertex()
 
-  const generationConfig: Record<string, unknown> = {}
-  if (options.temperature !== undefined) generationConfig.temperature = options.temperature
-  if (options.maxOutputTokens !== undefined) generationConfig.maxOutputTokens = options.maxOutputTokens
-  if (options.responseMimeType) generationConfig.responseMimeType = options.responseMimeType
-  if (options.responseModalities) generationConfig.responseModalities = options.responseModalities
+  if (options.responseModalities?.includes('IMAGE')) {
+    const result = await generateImage({
+      model: vertex.image(model),
+      prompt,
+    })
+    const image = result.image
+    const promptTokens = result.usage.inputTokens ?? 0
+    const candidatesTokenCount = result.usage.outputTokens ?? 0
+    const totalTokenCount = result.usage.totalTokens ?? (promptTokens + candidatesTokenCount)
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      ...(Object.keys(generationConfig).length ? { generationConfig } : {}),
-      ...(options.tools?.length ? { tools: options.tools } : {}),
-    }),
-  })
-
-  if (!res.ok) {
-    const errText = await res.text()
-    throw new Error(`Vertex Gemini error ${res.status}: ${errText.slice(0, 500)}`)
+    return {
+      data: {
+        candidates: [{
+          content: {
+            parts: [{ inlineData: { mimeType: image.mediaType, data: image.base64 } }],
+          },
+        }],
+      },
+      text: '',
+      usage: { promptTokenCount: promptTokens, candidatesTokenCount, totalTokenCount },
+    }
   }
 
-  const data = await res.json()
-  const parts = data?.candidates?.[0]?.content?.parts ?? []
-  const text = parts.map((part: any) => part.text).filter(Boolean).join('')
-  const usage = data?.usageMetadata ?? {}
+  const usesGoogleSearch = options.tools?.some((tool: any) => tool?.googleSearch)
+  const result = await generateText({
+    model: vertex(model),
+    prompt,
+    temperature: options.temperature,
+    maxOutputTokens: options.maxOutputTokens,
+    ...(usesGoogleSearch ? { tools: { google_search: vertex.tools.googleSearch({}) } } : {}),
+    ...(options.responseMimeType === 'application/json' ? { output: Output.json() } : {}),
+  } as any)
+
+  const providerMetadata = result.providerMetadata?.google as any
+  const text = result.text || (result.output !== undefined ? JSON.stringify(result.output) : '')
+  const promptTokenCount = result.usage.inputTokens ?? 0
+  const candidatesTokenCount = result.usage.outputTokens ?? 0
+  const totalTokenCount = result.usage.totalTokens ?? (promptTokenCount + candidatesTokenCount)
+  const data = {
+    candidates: [{
+      content: { parts: [{ text }] },
+      groundingMetadata: providerMetadata?.groundingMetadata ?? undefined,
+    }],
+    usageMetadata: providerMetadata?.usageMetadata ?? undefined,
+  }
 
   return {
     data,
     text,
-    usage: {
-      promptTokenCount: usage.promptTokenCount ?? 0,
-      candidatesTokenCount: usage.candidatesTokenCount ?? 0,
-      totalTokenCount: usage.totalTokenCount ?? ((usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0)),
-    },
+    usage: { promptTokenCount, candidatesTokenCount, totalTokenCount },
   }
 }
 
