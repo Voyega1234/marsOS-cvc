@@ -33,7 +33,7 @@ function isGoogleOidcConfigured() {
 function getOidcAuth(scopes: string[]) {
   const config = readGoogleOidcConfig();
   if (!config) throw new Error("Google OIDC env vars are not configured");
-  const audience = `https://iam.googleapis.com/projects/${config.projectNumber}/locations/global/workloadIdentityPools/${config.poolId}/providers/${config.providerId}`;
+  const audience = `//iam.googleapis.com/projects/${config.projectNumber}/locations/global/workloadIdentityPools/${config.poolId}/providers/${config.providerId}`;
 
   const authClient = ExternalAccountClient.fromJSON({
     type: "external_account",
@@ -43,7 +43,7 @@ function getOidcAuth(scopes: string[]) {
     service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${config.serviceAccountEmail}:generateAccessToken`,
     scopes,
     subject_token_supplier: {
-      getSubjectToken: () => getVercelOidcToken({ audience }),
+      getSubjectToken: () => getVercelOidcToken(),
     },
   } as any);
 
