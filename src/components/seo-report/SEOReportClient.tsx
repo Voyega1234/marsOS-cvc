@@ -569,7 +569,7 @@ export function SEOReportClient() {
             <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
               <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
               {gscError === "Could not load the default credentials." || gscError?.includes("credentials")
-                ? "กรุณาตั้งค่า GOOGLE_SERVICE_ACCOUNT_JSON หรือ Google OIDC env และแชร์สิทธิ์ GSC ให้ service account"
+                ? "กรุณาตั้งค่า Google OIDC env และแชร์สิทธิ์ GSC ให้ service account"
                 : gscError}
             </div>
           )}

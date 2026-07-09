@@ -555,7 +555,7 @@ export function ReportSiteList({ initialProjects, serviceEmail }: Props) {
             <div>
               <p className="font-semibold">ไม่สามารถดึง Sites ได้</p>
               <p className="text-xs mt-0.5 opacity-80">{error}</p>
-              <p className="text-xs mt-1 opacity-60">ตรวจสอบ GOOGLE_SERVICE_ACCOUNT_JSON และสิทธิ์ของ service account ใน GSC</p>
+              <p className="text-xs mt-1 opacity-60">ตรวจสอบ Google OIDC env และสิทธิ์ของ service account ใน GSC</p>
             </div>
           </div>
         )}

@@ -41,19 +41,32 @@ DATABASE_URL="postgresql://..." DIRECT_URL="postgresql://..." npx tsx prisma/see
 
 ---
 
-### 4. ตั้งค่า Google integrations สำหรับ GSC/GA4
+### 4. ตั้งค่า Google integrations ด้วย Vercel OIDC
 
-ตอนนี้ GSC/GA4 ใช้ `GOOGLE_SERVICE_ACCOUNT_JSON` เป็นหลักก่อน:
+Gemini/Vertex, GSC และ GA4 ใช้ Vercel OIDC + Workload Identity Federation เท่านั้น ไม่ต้องใช้ `GEMINI_API_KEY` หรือ `GOOGLE_SERVICE_ACCOUNT_JSON`
+
+กำหนด `GCP_*` สำหรับ Vertex/Gemini:
 
 ```env
-GOOGLE_SERVICE_ACCOUNT_JSON=""
+GCP_PROJECT_ID=""
+GCP_PROJECT_NUMBER=""
+GCP_SERVICE_ACCOUNT_EMAIL=""
+GCP_WORKLOAD_IDENTITY_POOL_ID=""
+GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
+GCP_AUDIENCE=""
+GCP_LOCATION="global"
+GEMINI_USAGE_PROJECT_LABEL="maros"
 ```
 
-GSC จะใช้ `GOOGLE_SERVICE_ACCOUNT_JSON` ก่อน ส่วน GA4 จะใช้ `GOOGLE_OIDC_*` ก่อนเมื่อกำหนดครบ
+`GCP_AUDIENCE` เว้นว่างได้ถ้าใช้ default audience ของ Google provider เพราะ code จะ derive เป็น:
 
-ทางเลือกภายหลัง: ถ้าจะย้าย GSC/GA4 ไป Vercel OIDC ให้ใช้ `GOOGLE_OIDC_*`
+```text
+https://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID
+```
 
-กำหนด `GOOGLE_OIDC_*` สำหรับ GSC/GA4 แยกจาก `GCP_*` ของ Vertex/Gemini เสมอ แม้ค่าบางตัวจะอยู่ใน GCP project เดียวกัน:
+ถ้า GSC/GA4 ใช้ service account หรือ project เดียวกับ Vertex/Gemini ไม่ต้องใส่ `GOOGLE_OIDC_*` ซ้ำ เพราะ code จะ fallback ไปใช้ `GCP_*`
+
+ถ้า GSC/GA4 ใช้คนละ service account/project ให้กำหนด `GOOGLE_OIDC_*`:
 
 ```env
 GOOGLE_OIDC_PROJECT_ID=""
@@ -61,17 +74,10 @@ GOOGLE_OIDC_PROJECT_NUMBER=""
 GOOGLE_OIDC_SERVICE_ACCOUNT_EMAIL=""
 GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_ID=""
 GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
+GOOGLE_OIDC_AUDIENCE=""
 ```
 
-ลำดับการเลือก auth สำหรับ GSC:
-1. `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_SERVICE_ACCOUNT_PATH`
-2. `GOOGLE_OIDC_*`
-
-ลำดับการเลือก auth สำหรับ GA4:
-1. `GOOGLE_OIDC_*`
-2. `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_SERVICE_ACCOUNT_PATH`
-
-สำหรับ GSC/GA4 ให้แชร์สิทธิ์ property ให้ service account ที่ใช้งานอยู่
+สำหรับ GSC/GA4 ให้แชร์สิทธิ์ property ให้ service account ที่ถูก impersonate อยู่
 
 ---
 
@@ -102,7 +108,7 @@ GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
 - [ ] PostgreSQL สร้างแล้ว และ `prisma db push` ผ่าน
 - [ ] `npm run db:seed` รันแล้ว (ได้ admin user)
 - [ ] `NEXTAUTH_URL` ตรงกับ domain จริง
-- [ ] `GOOGLE_SERVICE_ACCOUNT_JSON` ใส่แล้ว หรือ GSC/GA4 OIDC env ครบ
+- [ ] `GCP_*` OIDC env ครบ และ GCP Workload Identity Provider ตั้ง default audience ถูกต้อง
 - [ ] `ANTHROPIC_API_KEY` ใส่แล้ว
 - [ ] ทดสอบ login ได้
 - [ ] ทดสอบ Report page ดึง GSC/GA4 ได้
@@ -114,7 +120,7 @@ GOOGLE_OIDC_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=""
 | อาการ | วิธีแก้ |
 |-------|---------|
 | Build fail: prisma client not found | ตรวจ Build Command ว่ามี `prisma generate &&` |
-| GSC/GA4 ไม่ทำงาน | ตรวจ `GOOGLE_SERVICE_ACCOUNT_JSON` หรือ OIDC env และแชร์ GSC/GA4 property ให้ service account ที่ใช้งาน |
+| GSC/GA4 ไม่ทำงาน | ตรวจ OIDC env และแชร์ GSC/GA4 property ให้ service account ที่ถูก impersonate |
 | NextAuth error | `NEXTAUTH_URL` ต้องตรงกับ URL จริง รวมถึง `https://` |
 | DB connection timeout | ใช้ Supabase transaction pooler ใน `DATABASE_URL` |
 | `prepared statement "s0" already exists` | เพิ่ม `pgbouncer=true&connection_limit=1` ใน `DATABASE_URL` |

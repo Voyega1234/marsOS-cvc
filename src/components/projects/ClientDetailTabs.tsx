@@ -13,6 +13,8 @@ import {
 
 import type { AuthorProfile } from '@/types'
 import { ClientReportClient } from '@/components/report/ClientReportClient'
+import ArticleFrame from '@/components/shared/ArticleFrame'
+import ScopedEditable from '@/components/shared/ScopedEditable'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2546,6 +2548,8 @@ function ArticlesTab({
 }) {
   const today = new Date().toISOString().slice(0, 10)
   const [writing, setWriting] = useState<Set<number>>(new Set())
+  // One AbortController per in-flight article write so the user can Stop it.
+  const writeAbortRef = useRef<Map<number, AbortController>>(new Map())
   const [streamTexts, setStreamTexts] = useState<Record<number, string>>({})
   const [stepLabels, setStepLabels] = useState<Record<number, string>>({})
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
@@ -2616,6 +2620,15 @@ function ArticlesTab({
     setWriting(prev => new Set(Array.from(prev).concat(entryIdx)))
     setStreamTexts(prev => ({ ...prev, [entryIdx]: '' }))
 
+    const abort = new AbortController()
+    writeAbortRef.current.set(entryIdx, abort)
+    // Watchdog: if no stream activity for 120s the server is stuck/timed out —
+    // abort so the UI can't hang forever (entry reverts to 'pending', retryable).
+    let lastActivity = Date.now()
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastActivity > 120_000) abort.abort()
+    }, 15_000)
+
     const updateJob = (patch: Partial<ArticleJob>) => {
       const rest = jobs.filter((j: ArticleJob) => j.entryIdx !== entryIdx)
       const existing: ArticleJob = jobs.find((j: ArticleJob) => j.entryIdx === entryIdx) ?? {
@@ -2636,6 +2649,7 @@ function ArticlesTab({
       const res = await fetch('/api/article/write', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: abort.signal,
         body: JSON.stringify({
           keyword: entry.keyword, title: entry.title, stream: true,
           projectId: project.id,
@@ -2678,6 +2692,7 @@ function ArticlesTab({
             if (!line || line === '[DONE]') continue
             try {
               const evt = JSON.parse(line)
+              lastActivity = Date.now()
               if (evt.type === 'chunk') {
                 html += evt.content
                 setStreamTexts(prev => ({ ...prev, [entryIdx]: html }))
@@ -2713,11 +2728,38 @@ function ArticlesTab({
       setDrawerIdx(entryIdx)
 
     } catch (e: unknown) {
-      updateJob({ status: 'error', error: String(e) })
+      // User pressed Stop → don't leave it in an error state; make it writable
+      // again. If partial HTML exists keep it as review, otherwise drop the job
+      // so it reverts to the timeline's 'pending' state.
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        // Drop the aborted job so the entry reverts to 'pending' and can be
+        // written again (a half-finished article isn't worth keeping).
+        setJobs(jobs.filter(j => j.entryIdx !== entryIdx))
+      } else {
+        updateJob({ status: 'error', error: String(e) })
+      }
     } finally {
+      clearInterval(watchdog)
+      writeAbortRef.current.delete(entryIdx)
       setWriting(prev => { const n = new Set(prev); n.delete(entryIdx); return n })
       setStreamTexts(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
       setStepLabels(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
+    }
+  }
+
+  // Stop a stuck / in-flight article write and make it writable again.
+  // Handles both an active stream (abort it — the catch above resets the job)
+  // and a stale job left in 'writing' after a refresh or navigating away.
+  function stopWriting(entryIdx: number) {
+    const ctrl = writeAbortRef.current.get(entryIdx)
+    if (ctrl) { ctrl.abort(); return }
+    setWriting(prev => { const n = new Set(prev); n.delete(entryIdx); return n })
+    setStreamTexts(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
+    setStepLabels(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
+    const job = jobs.find(j => j.entryIdx === entryIdx)
+    if (job && (job.status === 'writing' || job.status === 'cover')) {
+      if (job.html) setJobs([...jobs.filter(j => j.entryIdx !== entryIdx), { ...job, status: 'review', error: '' }])
+      else setJobs(jobs.filter(j => j.entryIdx !== entryIdx))
     }
   }
 
@@ -3148,6 +3190,16 @@ function ArticlesTab({
                 <p className="text-xs text-slate-400 truncate">{drawerEntry?.keyword}</p>
               </div>
 
+              {/* Stop / rewrite — always available while (or stuck) writing */}
+              {isDrawerWriting && (
+                <button
+                  onClick={() => { if (drawerIdx !== null) stopWriting(drawerIdx) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors flex-shrink-0"
+                >
+                  ⏹ หยุด / เขียนใหม่
+                </button>
+              )}
+
               {/* View mode switcher */}
               <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
                 {([
@@ -3323,29 +3375,23 @@ function ArticlesTab({
                       <p className="text-slate-300 text-[11px]">กรุณารอ — ห้ามปิดหน้าต่าง</p>
                     </div>
                   ) : (
-                    <div
-                      className="bg-white border border-blue-100 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm"
-                      dangerouslySetInnerHTML={{ __html: streamTexts[drawerIdx ?? -1] }}
-                    />
+                    <div className="bg-white border border-blue-100 rounded-xl shadow-sm overflow-hidden">
+                      <ArticleFrame html={streamTexts[drawerIdx ?? -1]} />
+                    </div>
                   )}
                 </>
               )}
               {drawerViewMode === 'preview' && !isDrawerWriting && (
-                <div
-                  className="bg-white border border-gray-100 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm"
-                  dangerouslySetInnerHTML={{ __html: drawerHtml }}
-                />
+                <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+                  <ArticleFrame html={drawerHtml} />
+                </div>
               )}
               {drawerViewMode === 'edit' && !isDrawerWriting && (
-                <div
-                  ref={drawerEditorRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={() => {
-                    if (drawerEditorRef.current) setDrawerHtml(drawerEditorRef.current.innerHTML)
-                  }}
+                <ScopedEditable
+                  html={drawerHtml}
+                  editorRef={drawerEditorRef}
+                  onInput={() => { if (drawerEditorRef.current) setDrawerHtml(drawerEditorRef.current.innerHTML) }}
                   className="bg-white border-2 border-orange-200 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[400px]"
-                  dangerouslySetInnerHTML={{ __html: drawerHtml }}
                 />
               )}
               {drawerViewMode === 'html' && !isDrawerWriting && (
@@ -3477,10 +3523,29 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
     }
   }
 
-  function approve(entryIdx: number) {
+  async function approve(entryIdx: number) {
+    const entry = timeline[entryIdx]
+    // Optimistically update the local timeline so the UI reacts immediately…
     const updated = [...timeline]
     updated[entryIdx] = { ...updated[entryIdx], articleStatus: 'approved' }
     setTimeline(updated)
+
+    // …but the source of truth for cross-tab handoff (Push/Published) is the DB.
+    // Persist status=APPROVED so the Push tab can pick it up on a fresh load.
+    try {
+      let artId = articleIds[entryIdx]
+      if (!artId && entry) {
+        const data = await fetchArticle(entryIdx, entry)
+        if (data?.id) { artId = data.id; setArticleIds(prev => ({ ...prev, [entryIdx]: data.id })) }
+      }
+      if (artId) {
+        await fetch(`/api/articles/${artId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'APPROVED' }),
+        })
+      }
+    } catch { /* non-fatal — timeline already reflects approval locally */ }
   }
 
   async function saveComment(entryIdx: number, entry: TimelineEntry) {
@@ -3620,8 +3685,9 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
                 {html ? (
                   <div>
                     <div className="text-xs font-semibold text-gray-500 mb-2">📄 บทความ</div>
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 prose prose-sm max-w-none max-h-[60vh] overflow-y-auto"
-                      dangerouslySetInnerHTML={{ __html: html }} />
+                    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden max-h-[60vh] overflow-y-auto">
+                      <ArticleFrame html={html} />
+                    </div>
                   </div>
                 ) : (
                   <p className="text-sm text-gray-400 text-center py-4">ยังไม่มี HTML ของบทความนี้</p>
@@ -5068,6 +5134,15 @@ interface PushJob {
 
 interface WpConnection { id: string; name: string; siteUrl: string; username: string }
 
+type ReadyPushItem = {
+  entryIdx: number; title: string; keyword: string; slug: string
+  html: string; coverImage: string; coverMimeType: string
+}
+type DbArticleLite = {
+  title?: string; slug?: string; status?: string; htmlContent?: string
+  keyword?: { keyword?: string } | null
+}
+
 function PushTab({
   project, timeline, jobs,
   wpConnections, setWpConnections, selectedConnId, setSelectedConnId,
@@ -5135,10 +5210,47 @@ function PushTab({
     setSavingConn(false)
   }
 
-  // Articles that have generated HTML (done/review/approved)
-  const readyArticles = jobs.filter(j =>
-    (j.status === 'done' || j.status === 'review' || j.status === 'approved') && j.html
-  )
+  // Ready-to-push articles come from TWO sources merged:
+  //  1) session `jobs` — freshest, includes generated cover/mid images
+  //  2) the DB — survives page refresh / other devices (the real handoff)
+  // Without (2) a fresh page load shows an empty queue even though the article
+  // was written & approved in a previous session (the reported Approve→Push bug).
+  const [dbArticles, setDbArticles] = useState<DbArticleLite[]>([])
+  useEffect(() => {
+    fetch(`/api/articles?projectId=${project.id}`)
+      .then(r => (r.ok ? r.json() : []))
+      .then((arts) => setDbArticles(Array.isArray(arts) ? arts : []))
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const readyArticles: ReadyPushItem[] = (() => {
+    const NOT_PUSHABLE = new Set(['POSTED', 'PUBLISHED', 'WORDPRESS_DRAFTED'])
+    const byEntry = new Map<number, ReadyPushItem>()
+    // 1) session jobs (carry the generated images)
+    for (const j of jobs) {
+      if (j.html && (j.status === 'done' || j.status === 'review' || j.status === 'approved')) {
+        byEntry.set(j.entryIdx, {
+          entryIdx: j.entryIdx, title: j.title, keyword: j.keyword, slug: (j as any).slug ?? '',
+          html: j.html, coverImage: j.coverImage ?? '', coverMimeType: j.coverMimeType ?? 'image/webp',
+        })
+      }
+    }
+    // 2) DB articles with HTML that aren't already pushed, mapped to timeline by title
+    for (const a of dbArticles) {
+      if (!a.htmlContent || NOT_PUSHABLE.has(a.status ?? '')) continue
+      const entryIdx = timeline.findIndex(t => (t.title ?? '').trim() === (a.title ?? '').trim())
+      if (entryIdx < 0 || byEntry.has(entryIdx)) continue
+      byEntry.set(entryIdx, {
+        entryIdx,
+        title: a.title ?? timeline[entryIdx]?.title ?? '',
+        keyword: a.keyword?.keyword ?? timeline[entryIdx]?.keyword ?? '',
+        slug: a.slug ?? timeline[entryIdx]?.slug ?? '',
+        html: a.htmlContent, coverImage: '', coverMimeType: 'image/webp',
+      })
+    }
+    return Array.from(byEntry.values())
+  })()
 
   async function handleConnect() {
     setWpStatus('connecting')
@@ -5175,7 +5287,9 @@ function PushTab({
   }
 
   async function handlePush(jobEntryIdx: number) {
-    const job = jobs.find(j => j.entryIdx === jobEntryIdx)
+    // Source from the merged ready list (session jobs + DB) so articles loaded
+    // from the DB on a fresh session can still be pushed.
+    const job = readyArticles.find(j => j.entryIdx === jobEntryIdx)
     if (!job?.html) return
     const entry = timeline[jobEntryIdx]
     const title = entry?.title ?? job.title ?? ''

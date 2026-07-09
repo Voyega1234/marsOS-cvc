@@ -584,7 +584,7 @@ export async function POST(req: NextRequest) {
 
     // Log Gemini image costs
     if (orgId && userId) {
-      const geminiModel = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
+      const geminiModel = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
       if (coverResult.totalTokens || coverResult.costUsd) {
         await prisma.aIJob.create({ data: {
           organizationId: orgId, createdById: userId,
@@ -695,7 +695,7 @@ export async function POST(req: NextRequest) {
 
       // Log Gemini image costs (streaming path)
       if (orgId && userId) {
-        const geminiModel = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
+        const geminiModel = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
         if (coverResult.totalTokens || coverResult.costUsd) {
           prisma.aIJob.create({ data: {
             organizationId: orgId, createdById: userId,

@@ -241,22 +241,33 @@ function parseGeminiJSON(text: string): any {
 }
 
 // Plain text / JSON parse — no grounding tools
-async function callGemini(prompt: string): Promise<any> {
+type GeminiUsageTag = {
+  usageOperation?: string
+  usageLabels?: Record<string, string | number | boolean | null | undefined>
+}
+
+async function callGemini(prompt: string, tags: GeminiUsageTag = {}): Promise<any> {
   return withRetry(async () => {
-    const result = await generateVertexContent(prompt, { model: GEMINI_MODEL })
+    const result = await generateVertexContent(prompt, {
+      model: GEMINI_MODEL,
+      usageOperation: tags.usageOperation || 'wordgod_text',
+      usageLabels: { feature: 'wordgod', ...tags.usageLabels },
+    })
     addTokens(result.usage.totalTokenCount)
     return parseGeminiJSON(result.text)
   })
 }
 
 // JSON mode via responseMimeType
-async function callGeminiJson(prompt: string): Promise<any> {
+async function callGeminiJson(prompt: string, tags: GeminiUsageTag = {}): Promise<any> {
   return withRetry(async () => {
     const result = await generateVertexContent(prompt, {
       model: GEMINI_MODEL,
       responseMimeType: 'application/json',
       temperature: 0.5,
       maxOutputTokens: 16384,
+      usageOperation: tags.usageOperation || 'wordgod_json',
+      usageLabels: { feature: 'wordgod', ...tags.usageLabels },
     })
     addTokens(result.usage.totalTokenCount)
     return parseGeminiJSON(result.text)
@@ -283,6 +294,8 @@ async function callGeminiWithGrounding(prompt: string): Promise<{ data: any; gro
   const researchResult = await withRetry(() => generateVertexContent(researchPart, {
     model: GEMINI_MODEL,
     tools: [{ googleSearch: {} }],
+    usageOperation: 'keyword_grounding_research',
+    usageLabels: { feature: 'wordgod' },
   }))
   const researchText = researchResult.text
   addTokens(researchResult.usage.totalTokenCount)
@@ -304,6 +317,8 @@ async function callGeminiWithGrounding(prompt: string): Promise<{ data: any; gro
       responseMimeType: 'application/json',
       temperature: 0.3,
       maxOutputTokens: 8192,
+      usageOperation: 'keyword_grounding_format',
+      usageLabels: { feature: 'wordgod' },
     })
     addTokens(result.usage.totalTokenCount)
     return parseGeminiJSON(result.text)
@@ -473,7 +488,10 @@ async function expandKeywordsGemini(
         : basePrompt
 
       try {
-        const raw = await callGeminiJson(prompt) as any
+        const raw = await callGeminiJson(prompt, {
+          usageOperation: 'keyword_expand',
+          usageLabels: { sub_function: 'seed_expansion', batch: bi + 1 },
+        }) as any
         const batch: any[] = raw?.keywords ?? raw ?? []
         const results: GeminiKw[] = []
         for (const kw of batch) {
@@ -549,7 +567,10 @@ async function generateTitles(
     let lastErr: unknown
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await callGeminiJson(prompt) as any
+        const raw = await callGeminiJson(prompt, {
+          usageOperation: 'seo_title_generation',
+          usageLabels: { sub_function: 'titles', batch: bi + 1 },
+        }) as any
         for (const t of (raw?.titles ?? [])) {
           if (t?.keyword && t?.title) {
             result.set(t.keyword.toLowerCase().trim(), {
@@ -899,7 +920,10 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
             const batch = (csv_rows as CsvInputRow[]).slice(start, start + CSV_CLASSIFY_BATCH)
             log(`🤖 Gemini classify batch ${batchNum}/${totalBatches}: ${batch.length} keywords ...`)
             try {
-              const classified = await callGeminiJson(buildClassifyPrompt(batch)) as any
+              const classified = await callGeminiJson(buildClassifyPrompt(batch), {
+                usageOperation: 'keyword_classify',
+                usageLabels: { sub_function: 'csv_classify', batch: batchNum },
+              }) as any
               if (classified?.keywords?.length) {
                 const batchResults = classified.keywords.map((k: any) => ({
                   ...k,
@@ -977,7 +1001,10 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
               )
 
             try {
-              const raw = await callGeminiJson(prompt) as any
+              const raw = await callGeminiJson(prompt, {
+                usageOperation: 'keyword_research',
+                usageLabels: { sub_function: 'niche_research', batch: bi + 1 },
+              }) as any
               const batch: any[] = raw?.keywords ?? raw ?? []
               const results: GeminiKw[] = []
               for (const kw of batch) {
@@ -1425,7 +1452,14 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
             opportunity_score: r.opportunity_score, priority: r.priority,
             intent: r.intent, aeo_question: '',
           }))
-          clusters = await clusterKeywords(clusterInput, category || business_name, callGeminiJson)
+          clusters = await clusterKeywords(
+            clusterInput,
+            category || business_name,
+            (prompt) => callGeminiJson(prompt, {
+              usageOperation: 'topic_cluster',
+              usageLabels: { sub_function: 'cluster_keywords' },
+            }),
+          )
           log(`✓ จัดกลุ่มได้ ${clusters.clusters.length} topic clusters`)
         } catch (err: any) {
           log(`⚠️ Cluster error: ${err?.message?.slice(0, 60)}`)

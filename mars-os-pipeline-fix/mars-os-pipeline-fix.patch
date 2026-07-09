@@ -1,0 +1,620 @@
+diff --git a/plans-seo-pipeline/src/app/(app)/dashboard/page.tsx b/plans-seo-pipeline/src/app/(app)/dashboard/page.tsx
+index ef9f13b..e636098 100644
+--- a/plans-seo-pipeline/src/app/(app)/dashboard/page.tsx
++++ b/plans-seo-pipeline/src/app/(app)/dashboard/page.tsx
+@@ -9,28 +9,34 @@ export default async function DashboardPage() {
+   if (!session?.user?.organizationId) redirect("/login");
+   const orgId = session.user.organizationId;
+ 
+-  // Fetch all projects with timeline JSON
+-  const projects = await prisma.project.findMany({
+-    where: { organizationId: orgId },
+-    select: {
+-      id: true,
+-      name: true,
+-      clientName: true,
+-      website: true,
+-      status: true,
+-      updatedAt: true,
+-      timeline: true,
+-    },
+-    orderBy: { updatedAt: "desc" },
+-  });
+-
+-  // Recent activity logs
+-  const recentActivity = await prisma.activityLog.findMany({
+-    where: { organizationId: orgId },
+-    include: { user: { select: { name: true } } },
+-    orderBy: { createdAt: "desc" },
+-    take: 30,
+-  });
++  // Fetch all projects with timeline JSON + recent activity.
++  // Wrapped so a transient DB / schema error renders an empty dashboard instead
++  // of crashing the whole page ("Server Components render error"). If this ever
++  // hits, the real fix is the DB connection/schema — see PIPELINE-FIX-HANDOFF.md.
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any
++  let projects: any[] = [];
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any
++  let recentActivity: any[] = [];
++  try {
++    [projects, recentActivity] = await Promise.all([
++      prisma.project.findMany({
++        where: { organizationId: orgId },
++        select: {
++          id: true, name: true, clientName: true, website: true,
++          status: true, updatedAt: true, timeline: true,
++        },
++        orderBy: { updatedAt: "desc" },
++      }),
++      prisma.activityLog.findMany({
++        where: { organizationId: orgId },
++        include: { user: { select: { name: true } } },
++        orderBy: { createdAt: "desc" },
++        take: 30,
++      }),
++    ]);
++  } catch (err) {
++    console.error("[dashboard] DB query failed:", err);
++  }
+ 
+   // Parse timeline entries per project
+   interface TimelineEntry {
+diff --git a/plans-seo-pipeline/src/app/api/article/write/route.ts b/plans-seo-pipeline/src/app/api/article/write/route.ts
+index 3cf47ad..6d0a0c5 100644
+--- a/plans-seo-pipeline/src/app/api/article/write/route.ts
++++ b/plans-seo-pipeline/src/app/api/article/write/route.ts
+@@ -45,10 +45,22 @@ async function logAIJob(opts: {
+   } catch { /* non-fatal */ }
+ }
+ 
++// Local-dev fallback path (dev machine). Prompts must be COMMITTED to the repo
++// under `prompts/` so they exist on Vercel — os.homedir()/Desktop does not.
+ const CC_ROOT = path.join(os.homedir(), 'Desktop', 'Mars', 'Convert-Cake-SEO-Project-FULL-20260623')
+ 
+ function readPromptFile(relPath: string): string {
+-  try { return fs.readFileSync(path.join(CC_ROOT, relPath), 'utf-8') } catch { return '' }
++  const base = path.basename(relPath) // e.g. "convert_cake_seo_master.md"
++  const candidates = [
++    path.join(process.cwd(), relPath),        // <repo>/prompts/x.md  (bundled — Vercel)
++    path.join(process.cwd(), 'prompts', base),
++    path.join(CC_ROOT, relPath),              // local dev fallback
++  ]
++  for (const p of candidates) {
++    try { return fs.readFileSync(p, 'utf-8') } catch { /* try next */ }
++  }
++  console.warn('[readPromptFile] NOT FOUND (commit prompts into repo /prompts):', relPath)
++  return ''
+ }
+ 
+ function loadConvertCakePrompts() {
+@@ -730,6 +742,13 @@ export async function POST(req: NextRequest) {
+   })()
+ 
+   return new NextResponse(transform.readable, {
+-    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
++    headers: {
++      'Content-Type': 'text/event-stream',
++      'Cache-Control': 'no-cache, no-transform',
++      Connection: 'keep-alive',
++      // Disable proxy/CDN buffering so SSE chunks reach the browser immediately
++      // (otherwise the UI shows "กำลังเขียน" the whole time then dumps at the end).
++      'X-Accel-Buffering': 'no',
++    },
+   })
+ }
+diff --git a/plans-seo-pipeline/src/components/content-studio/ContentStudioClient.tsx b/plans-seo-pipeline/src/components/content-studio/ContentStudioClient.tsx
+index 6655fb2..3bbe7e1 100644
+--- a/plans-seo-pipeline/src/components/content-studio/ContentStudioClient.tsx
++++ b/plans-seo-pipeline/src/components/content-studio/ContentStudioClient.tsx
+@@ -10,6 +10,8 @@ import {
+ } from "lucide-react";
+ import { cn } from "@/lib/utils";
+ import { toast } from "sonner";
++import ArticleFrame from "@/components/shared/ArticleFrame";
++import ScopedEditable from "@/components/shared/ScopedEditable";
+ 
+ // ── Types ────────────────────────────────────────────────────────────────────
+ 
+@@ -1136,21 +1138,16 @@ export function ContentStudioClient() {
+                     </pre>
+                   )}
+                   {viewMode === "preview" && (
+-                    <div
+-                      className="bg-white border border-gray-100 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm"
+-                      dangerouslySetInnerHTML={{ __html: articleHtml }}
+-                    />
++                    <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
++                      <ArticleFrame html={articleHtml} />
++                    </div>
+                   )}
+                   {viewMode === "edit" && (
+-                    <div
+-                      ref={editorRef}
+-                      contentEditable
+-                      suppressContentEditableWarning
+-                      onInput={() => {
+-                        if (editorRef.current) setAndPersistHtml(editorRef.current.innerHTML);
+-                      }}
++                    <ScopedEditable
++                      html={articleHtml}
++                      editorRef={editorRef}
++                      onInput={() => { if (editorRef.current) setAndPersistHtml(editorRef.current.innerHTML); }}
+                       className="bg-white border-2 border-orange-200 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
+-                      dangerouslySetInnerHTML={{ __html: articleHtml }}
+                     />
+                   )}
+                   {viewMode === "text" && (
+@@ -1513,21 +1510,16 @@ export function ContentStudioClient() {
+                   </div>
+                 )}
+                 {reviewHtml && reviewViewMode === "preview" && (
+-                  <div
+-                    className="bg-white border border-gray-100 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm"
+-                    dangerouslySetInnerHTML={{ __html: reviewHtml }}
+-                  />
++                  <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
++                    <ArticleFrame html={reviewHtml} />
++                  </div>
+                 )}
+                 {reviewHtml && reviewViewMode === "edit" && (
+-                  <div
+-                    ref={reviewEditorRef}
+-                    contentEditable
+-                    suppressContentEditableWarning
+-                    onInput={() => {
+-                      if (reviewEditorRef.current) setAndPersistReviewHtml(reviewEditorRef.current.innerHTML);
+-                    }}
++                  <ScopedEditable
++                    html={reviewHtml}
++                    editorRef={reviewEditorRef}
++                    onInput={() => { if (reviewEditorRef.current) setAndPersistReviewHtml(reviewEditorRef.current.innerHTML); }}
+                     className="bg-white border-2 border-orange-200 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
+-                    dangerouslySetInnerHTML={{ __html: reviewHtml }}
+                   />
+                 )}
+                 {reviewHtml && reviewViewMode === "text" && (
+diff --git a/plans-seo-pipeline/src/components/projects/ClientDetailTabs.tsx b/plans-seo-pipeline/src/components/projects/ClientDetailTabs.tsx
+index a92626f..4fe3984 100644
+--- a/plans-seo-pipeline/src/components/projects/ClientDetailTabs.tsx
++++ b/plans-seo-pipeline/src/components/projects/ClientDetailTabs.tsx
+@@ -13,6 +13,8 @@ import {
+ 
+ import type { AuthorProfile } from '@/types'
+ import { ClientReportClient } from '@/components/report/ClientReportClient'
++import ArticleFrame from '@/components/shared/ArticleFrame'
++import ScopedEditable from '@/components/shared/ScopedEditable'
+ 
+ // ─── Types ────────────────────────────────────────────────────────────────────
+ 
+@@ -2536,6 +2538,8 @@ function ArticlesTab({
+ }) {
+   const today = new Date().toISOString().slice(0, 10)
+   const [writing, setWriting] = useState<Set<number>>(new Set())
++  // One AbortController per in-flight article write so the user can Stop it.
++  const writeAbortRef = useRef<Map<number, AbortController>>(new Map())
+   const [streamTexts, setStreamTexts] = useState<Record<number, string>>({})
+   const [stepLabels, setStepLabels] = useState<Record<number, string>>({})
+   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
+@@ -2606,6 +2610,15 @@ function ArticlesTab({
+     setWriting(prev => new Set(Array.from(prev).concat(entryIdx)))
+     setStreamTexts(prev => ({ ...prev, [entryIdx]: '' }))
+ 
++    const abort = new AbortController()
++    writeAbortRef.current.set(entryIdx, abort)
++    // Watchdog: if no stream activity for 120s the server is stuck/timed out —
++    // abort so the UI can't hang forever (entry reverts to 'pending', retryable).
++    let lastActivity = Date.now()
++    const watchdog = setInterval(() => {
++      if (Date.now() - lastActivity > 120_000) abort.abort()
++    }, 15_000)
++
+     const updateJob = (patch: Partial<ArticleJob>) => {
+       const rest = jobs.filter((j: ArticleJob) => j.entryIdx !== entryIdx)
+       const existing: ArticleJob = jobs.find((j: ArticleJob) => j.entryIdx === entryIdx) ?? {
+@@ -2626,6 +2639,7 @@ function ArticlesTab({
+       const res = await fetch('/api/article/write', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
++        signal: abort.signal,
+         body: JSON.stringify({
+           keyword: entry.keyword, title: entry.title, stream: true,
+           projectId: project.id,
+@@ -2668,6 +2682,7 @@ function ArticlesTab({
+             if (!line || line === '[DONE]') continue
+             try {
+               const evt = JSON.parse(line)
++              lastActivity = Date.now()
+               if (evt.type === 'chunk') {
+                 html += evt.content
+                 setStreamTexts(prev => ({ ...prev, [entryIdx]: html }))
+@@ -2703,14 +2718,41 @@ function ArticlesTab({
+       setDrawerIdx(entryIdx)
+ 
+     } catch (e: unknown) {
+-      updateJob({ status: 'error', error: String(e) })
++      // User pressed Stop → don't leave it in an error state; make it writable
++      // again. If partial HTML exists keep it as review, otherwise drop the job
++      // so it reverts to the timeline's 'pending' state.
++      if (e instanceof DOMException && e.name === 'AbortError') {
++        // Drop the aborted job so the entry reverts to 'pending' and can be
++        // written again (a half-finished article isn't worth keeping).
++        setJobs(jobs.filter(j => j.entryIdx !== entryIdx))
++      } else {
++        updateJob({ status: 'error', error: String(e) })
++      }
+     } finally {
++      clearInterval(watchdog)
++      writeAbortRef.current.delete(entryIdx)
+       setWriting(prev => { const n = new Set(prev); n.delete(entryIdx); return n })
+       setStreamTexts(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
+       setStepLabels(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
+     }
+   }
+ 
++  // Stop a stuck / in-flight article write and make it writable again.
++  // Handles both an active stream (abort it — the catch above resets the job)
++  // and a stale job left in 'writing' after a refresh or navigating away.
++  function stopWriting(entryIdx: number) {
++    const ctrl = writeAbortRef.current.get(entryIdx)
++    if (ctrl) { ctrl.abort(); return }
++    setWriting(prev => { const n = new Set(prev); n.delete(entryIdx); return n })
++    setStreamTexts(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
++    setStepLabels(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
++    const job = jobs.find(j => j.entryIdx === entryIdx)
++    if (job && (job.status === 'writing' || job.status === 'cover')) {
++      if (job.html) setJobs([...jobs.filter(j => j.entryIdx !== entryIdx), { ...job, status: 'review', error: '' }])
++      else setJobs(jobs.filter(j => j.entryIdx !== entryIdx))
++    }
++  }
++
+   const STATUS_ICON: Record<string, React.ReactNode> = {
+     pending: <Clock size={12} className="text-gray-400" />,
+     writing: <RefreshCw size={12} className="text-blue-500 animate-spin" />,
+@@ -3138,6 +3180,16 @@ function ArticlesTab({
+                 <p className="text-xs text-slate-400 truncate">{drawerEntry?.keyword}</p>
+               </div>
+ 
++              {/* Stop / rewrite — always available while (or stuck) writing */}
++              {isDrawerWriting && (
++                <button
++                  onClick={() => { if (drawerIdx !== null) stopWriting(drawerIdx) }}
++                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors flex-shrink-0"
++                >
++                  ⏹ หยุด / เขียนใหม่
++                </button>
++              )}
++
+               {/* View mode switcher */}
+               <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+                 {([
+@@ -3313,29 +3365,23 @@ function ArticlesTab({
+                       <p className="text-slate-300 text-[11px]">กรุณารอ — ห้ามปิดหน้าต่าง</p>
+                     </div>
+                   ) : (
+-                    <div
+-                      className="bg-white border border-blue-100 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm"
+-                      dangerouslySetInnerHTML={{ __html: streamTexts[drawerIdx ?? -1] }}
+-                    />
++                    <div className="bg-white border border-blue-100 rounded-xl shadow-sm overflow-hidden">
++                      <ArticleFrame html={streamTexts[drawerIdx ?? -1]} />
++                    </div>
+                   )}
+                 </>
+               )}
+               {drawerViewMode === 'preview' && !isDrawerWriting && (
+-                <div
+-                  className="bg-white border border-gray-100 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm"
+-                  dangerouslySetInnerHTML={{ __html: drawerHtml }}
+-                />
++                <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
++                  <ArticleFrame html={drawerHtml} />
++                </div>
+               )}
+               {drawerViewMode === 'edit' && !isDrawerWriting && (
+-                <div
+-                  ref={drawerEditorRef}
+-                  contentEditable
+-                  suppressContentEditableWarning
+-                  onInput={() => {
+-                    if (drawerEditorRef.current) setDrawerHtml(drawerEditorRef.current.innerHTML)
+-                  }}
++                <ScopedEditable
++                  html={drawerHtml}
++                  editorRef={drawerEditorRef}
++                  onInput={() => { if (drawerEditorRef.current) setDrawerHtml(drawerEditorRef.current.innerHTML) }}
+                   className="bg-white border-2 border-orange-200 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[400px]"
+-                  dangerouslySetInnerHTML={{ __html: drawerHtml }}
+                 />
+               )}
+               {drawerViewMode === 'html' && !isDrawerWriting && (
+@@ -3467,10 +3513,29 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
+     }
+   }
+ 
+-  function approve(entryIdx: number) {
++  async function approve(entryIdx: number) {
++    const entry = timeline[entryIdx]
++    // Optimistically update the local timeline so the UI reacts immediately…
+     const updated = [...timeline]
+     updated[entryIdx] = { ...updated[entryIdx], articleStatus: 'approved' }
+     setTimeline(updated)
++
++    // …but the source of truth for cross-tab handoff (Push/Published) is the DB.
++    // Persist status=APPROVED so the Push tab can pick it up on a fresh load.
++    try {
++      let artId = articleIds[entryIdx]
++      if (!artId && entry) {
++        const data = await fetchArticle(entryIdx, entry)
++        if (data?.id) { artId = data.id; setArticleIds(prev => ({ ...prev, [entryIdx]: data.id })) }
++      }
++      if (artId) {
++        await fetch(`/api/articles/${artId}`, {
++          method: 'PATCH',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ status: 'APPROVED' }),
++        })
++      }
++    } catch { /* non-fatal — timeline already reflects approval locally */ }
+   }
+ 
+   async function saveComment(entryIdx: number, entry: TimelineEntry) {
+@@ -3610,8 +3675,9 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
+                 {html ? (
+                   <div>
+                     <div className="text-xs font-semibold text-gray-500 mb-2">📄 บทความ</div>
+-                    <div className="bg-white border border-gray-200 rounded-xl p-4 prose prose-sm max-w-none max-h-[60vh] overflow-y-auto"
+-                      dangerouslySetInnerHTML={{ __html: html }} />
++                    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden max-h-[60vh] overflow-y-auto">
++                      <ArticleFrame html={html} />
++                    </div>
+                   </div>
+                 ) : (
+                   <p className="text-sm text-gray-400 text-center py-4">ยังไม่มี HTML ของบทความนี้</p>
+@@ -5058,6 +5124,15 @@ interface PushJob {
+ 
+ interface WpConnection { id: string; name: string; siteUrl: string; username: string }
+ 
++type ReadyPushItem = {
++  entryIdx: number; title: string; keyword: string; slug: string
++  html: string; coverImage: string; coverMimeType: string
++}
++type DbArticleLite = {
++  title?: string; slug?: string; status?: string; htmlContent?: string
++  keyword?: { keyword?: string } | null
++}
++
+ function PushTab({
+   project, timeline, jobs,
+   wpConnections, setWpConnections, selectedConnId, setSelectedConnId,
+@@ -5125,10 +5200,47 @@ function PushTab({
+     setSavingConn(false)
+   }
+ 
+-  // Articles that have generated HTML (done/review/approved)
+-  const readyArticles = jobs.filter(j =>
+-    (j.status === 'done' || j.status === 'review' || j.status === 'approved') && j.html
+-  )
++  // Ready-to-push articles come from TWO sources merged:
++  //  1) session `jobs` — freshest, includes generated cover/mid images
++  //  2) the DB — survives page refresh / other devices (the real handoff)
++  // Without (2) a fresh page load shows an empty queue even though the article
++  // was written & approved in a previous session (the reported Approve→Push bug).
++  const [dbArticles, setDbArticles] = useState<DbArticleLite[]>([])
++  useEffect(() => {
++    fetch(`/api/articles?projectId=${project.id}`)
++      .then(r => (r.ok ? r.json() : []))
++      .then((arts) => setDbArticles(Array.isArray(arts) ? arts : []))
++      .catch(() => {})
++  // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [])
++
++  const readyArticles: ReadyPushItem[] = (() => {
++    const NOT_PUSHABLE = new Set(['POSTED', 'PUBLISHED', 'WORDPRESS_DRAFTED'])
++    const byEntry = new Map<number, ReadyPushItem>()
++    // 1) session jobs (carry the generated images)
++    for (const j of jobs) {
++      if (j.html && (j.status === 'done' || j.status === 'review' || j.status === 'approved')) {
++        byEntry.set(j.entryIdx, {
++          entryIdx: j.entryIdx, title: j.title, keyword: j.keyword, slug: (j as any).slug ?? '',
++          html: j.html, coverImage: j.coverImage ?? '', coverMimeType: j.coverMimeType ?? 'image/webp',
++        })
++      }
++    }
++    // 2) DB articles with HTML that aren't already pushed, mapped to timeline by title
++    for (const a of dbArticles) {
++      if (!a.htmlContent || NOT_PUSHABLE.has(a.status ?? '')) continue
++      const entryIdx = timeline.findIndex(t => (t.title ?? '').trim() === (a.title ?? '').trim())
++      if (entryIdx < 0 || byEntry.has(entryIdx)) continue
++      byEntry.set(entryIdx, {
++        entryIdx,
++        title: a.title ?? timeline[entryIdx]?.title ?? '',
++        keyword: a.keyword?.keyword ?? timeline[entryIdx]?.keyword ?? '',
++        slug: a.slug ?? timeline[entryIdx]?.slug ?? '',
++        html: a.htmlContent, coverImage: '', coverMimeType: 'image/webp',
++      })
++    }
++    return Array.from(byEntry.values())
++  })()
+ 
+   async function handleConnect() {
+     setWpStatus('connecting')
+@@ -5165,7 +5277,9 @@ function PushTab({
+   }
+ 
+   async function handlePush(jobEntryIdx: number) {
+-    const job = jobs.find(j => j.entryIdx === jobEntryIdx)
++    // Source from the merged ready list (session jobs + DB) so articles loaded
++    // from the DB on a fresh session can still be pushed.
++    const job = readyArticles.find(j => j.entryIdx === jobEntryIdx)
+     if (!job?.html) return
+     const entry = timeline[jobEntryIdx]
+     const title = entry?.title ?? job.title ?? ''
+diff --git a/plans-seo-pipeline/src/components/shared/ArticleFrame.tsx b/plans-seo-pipeline/src/components/shared/ArticleFrame.tsx
+new file mode 100644
+index 0000000..1750044
+--- /dev/null
++++ b/plans-seo-pipeline/src/components/shared/ArticleFrame.tsx
+@@ -0,0 +1,80 @@
++'use client'
++
++import { useEffect, useRef } from 'react'
++
++/**
++ * Renders AI-generated article HTML inside an isolated <iframe>.
++ *
++ * WHY: the article HTML begins with a `<style>` block (see the article-write
++ * prompt). Injecting it into the app DOM via `dangerouslySetInnerHTML` lets that
++ * CSS leak to the WHOLE page — its `body`/`.container`/`h1` rules override the
++ * app layout and squeeze every column (Thai text then wraps one word per line).
++ * An iframe gives the article its own document, so its styles can never escape.
++ *
++ * Read-only by design. The iframe auto-sizes to its content height.
++ */
++export default function ArticleFrame({
++  html,
++  className = '',
++  minHeight = 200,
++}: {
++  html: string
++  className?: string
++  minHeight?: number
++}) {
++  const ref = useRef<HTMLIFrameElement>(null)
++
++  useEffect(() => {
++    const iframe = ref.current
++    if (!iframe) return
++    const doc = iframe.contentDocument
++    if (!doc) return
++
++    const resize = () => {
++      try {
++        const h = doc.documentElement?.scrollHeight || doc.body?.scrollHeight || 0
++        if (h) iframe.style.height = Math.max(h, minHeight) + 'px'
++      } catch { /* cross-doc access can throw during teardown — ignore */ }
++    }
++
++    doc.open()
++    doc.write(
++      `<!DOCTYPE html><html><head><meta charset="utf-8">` +
++      `<meta name="viewport" content="width=device-width, initial-scale=1">` +
++      `<base target="_blank">` +
++      `<style>` +
++        `html,body{margin:0;padding:24px;box-sizing:border-box;` +
++        `font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;` +
++        `color:#1e293b;background:#fff;line-height:1.7;` +
++        `word-break:break-word;overflow-wrap:break-word;}` +
++        `img{max-width:100%;height:auto;}` +
++        `table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;}` +
++      `</style></head><body>${html || ''}</body></html>`
++    )
++    doc.close()
++
++    resize()
++
++    // Re-measure once images finish loading (they change the height).
++    const imgs = Array.from(doc.images || [])
++    imgs.forEach(img => { if (!img.complete) img.addEventListener('load', resize, { once: true }) })
++
++    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null
++    if (ro && doc.body) ro.observe(doc.body)
++    const t = setTimeout(resize, 300)
++
++    return () => { ro?.disconnect(); clearTimeout(t) }
++  }, [html, minHeight])
++
++  return (
++    <iframe
++      ref={ref}
++      title="article-preview"
++      // allow-same-origin lets us write into / measure the document.
++      // NO allow-scripts: article HTML must never execute code in our origin.
++      sandbox="allow-same-origin allow-popups"
++      className={className}
++      style={{ width: '100%', border: 'none', minHeight, display: 'block', background: '#fff' }}
++    />
++  )
++}
+diff --git a/plans-seo-pipeline/src/components/shared/ScopedEditable.tsx b/plans-seo-pipeline/src/components/shared/ScopedEditable.tsx
+new file mode 100644
+index 0000000..627faca
+--- /dev/null
++++ b/plans-seo-pipeline/src/components/shared/ScopedEditable.tsx
+@@ -0,0 +1,77 @@
++'use client'
++
++import { useEffect } from 'react'
++
++/**
++ * A contentEditable region that renders article HTML which may contain a
++ * `<style>` block, WITHOUT letting those styles leak to the whole page.
++ *
++ * Preview uses <iframe> (see ArticleFrame) for full isolation, but the editor
++ * must stay a real contentEditable in the main document so `document.execCommand`
++ * (bold/lists/headings…) and the existing refs keep working. So instead of
++ * isolating the DOM we scope the CSS: after each render we rewrite the CSSOM
++ * selectors of any inner <style> to be prefixed with `.cc-scoped-editor`.
++ *
++ * Crucially this only edits the LIVE stylesheet rules — never the <style>
++ * element's text — so `editorRef.current.innerHTML` (what gets saved/published)
++ * still contains the original, un-scoped global styles. All operations are
++ * wrapped in try/catch: worst case a rule fails to scope (styles behave as
++ * before) — nothing breaks.
++ */
++export default function ScopedEditable({
++  html,
++  editorRef,
++  className,
++  onInput,
++}: {
++  html: string
++  editorRef: React.RefObject<HTMLDivElement>
++  className?: string
++  onInput?: () => void
++}) {
++  useEffect(() => {
++    const el = editorRef.current
++    if (!el) return
++    el.classList.add('cc-scoped-editor')
++    const scopeSel = '.cc-scoped-editor'
++
++    const scopeGroup = (rules: CSSRuleList) => {
++      for (const r of Array.from(rules)) {
++        const anyR = r as unknown as { selectorText?: string; cssRules?: CSSRuleList }
++        if (anyR.selectorText != null) {
++          try {
++            anyR.selectorText = String(anyR.selectorText)
++              .split(',')
++              .map(s => {
++                const t = s.trim()
++                // Map root selectors onto the editor element itself.
++                const stripped = t.replace(/^(html|body|:root)\b/i, '').trim()
++                return `${scopeSel} ${stripped}`.trim()
++              })
++              .join(', ')
++          } catch { /* some selectors can't be reassigned — leave them */ }
++        } else if (anyR.cssRules) {
++          scopeGroup(anyR.cssRules) // @media / @supports groups
++        }
++      }
++    }
++
++    el.querySelectorAll('style').forEach(styleEl => {
++      const sheet = (styleEl as HTMLStyleElement).sheet
++      if (sheet) {
++        try { scopeGroup(sheet.cssRules) } catch { /* cross-doc / not-yet-parsed */ }
++      }
++    })
++  }, [html, editorRef])
++
++  return (
++    <div
++      ref={editorRef}
++      contentEditable
++      suppressContentEditableWarning
++      onInput={onInput}
++      className={className}
++      dangerouslySetInnerHTML={{ __html: html }}
++    />
++  )
++}

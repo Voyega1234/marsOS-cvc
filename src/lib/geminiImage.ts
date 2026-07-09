@@ -328,6 +328,11 @@ export async function callGeminiImage(params: {
   const result = await generateVertexContent(prompt, {
     model,
     responseModalities: ['TEXT', 'IMAGE'],
+    usageOperation: type === 'cover' ? 'image_cover' : 'image_mid',
+    usageLabels: {
+      feature: 'image_studio',
+      sub_function: type,
+    },
   })
 
   const inlineImage = getVertexInlineImage(result.data)

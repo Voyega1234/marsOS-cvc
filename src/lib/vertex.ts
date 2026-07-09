@@ -12,6 +12,8 @@ export interface VertexGenerateOptions {
   responseMimeType?: string
   responseModalities?: Array<'TEXT' | 'IMAGE'>
   tools?: unknown[]
+  usageOperation?: string
+  usageLabels?: Record<string, string | number | boolean | null | undefined>
 }
 
 export interface VertexGenerateResult {
@@ -22,6 +24,7 @@ export interface VertexGenerateResult {
     candidatesTokenCount: number
     totalTokenCount: number
   }
+  usageLabels?: Record<string, string>
 }
 
 export function isVertexOidcConfigured(): boolean {
@@ -45,16 +48,19 @@ function getAuthClient() {
   const serviceAccountEmail = getRequiredEnv('GCP_SERVICE_ACCOUNT_EMAIL')
   const poolId = getRequiredEnv('GCP_WORKLOAD_IDENTITY_POOL_ID')
   const providerId = getRequiredEnv('GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID')
-  const audience = `//iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`
+  const stsAudience = `//iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`
+  const oidcAudience =
+    process.env.GCP_AUDIENCE ||
+    `https://iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`
 
   const authClient = ExternalAccountClient.fromJSON({
     type: 'external_account',
-    audience,
+    audience: stsAudience,
     subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
     token_url: 'https://sts.googleapis.com/v1/token',
     service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccountEmail}:generateAccessToken`,
     subject_token_supplier: {
-      getSubjectToken: () => getVercelOidcToken(),
+      getSubjectToken: () => getVercelOidcToken({ audience: oidcAudience }),
     },
   } as any)
 
@@ -74,15 +80,52 @@ function getVertex() {
   })
 }
 
+function normalizeLabelKey(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/^[^a-z]+/, '').slice(0, 63)
+  return normalized || 'label'
+}
+
+function normalizeLabelValue(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 63)
+  return normalized || 'unknown'
+}
+
+function buildGeminiUsageLabels(model: string, options: VertexGenerateOptions): Record<string, string> {
+  const labels: Record<string, string> = {
+    project: normalizeLabelValue(process.env.GEMINI_USAGE_PROJECT_LABEL || 'maros'),
+    provider: 'vertex',
+    model: normalizeLabelValue(model),
+    operation: normalizeLabelValue(options.usageOperation || 'gemini'),
+  }
+
+  for (const [key, rawValue] of Object.entries(options.usageLabels ?? {})) {
+    if (rawValue === undefined || rawValue === null || rawValue === '') continue
+    labels[normalizeLabelKey(key)] = normalizeLabelValue(String(rawValue))
+  }
+
+  return labels
+}
+
+function buildProviderOptions(labels: Record<string, string>) {
+  return {
+    googleVertex: { labels },
+    vertex: { labels },
+    google: { labels },
+  }
+}
+
 export async function generateVertexContent(prompt: string, options: VertexGenerateOptions = {}): Promise<VertexGenerateResult> {
   const model = options.model || process.env.GEMINI_MODEL || 'gemini-3-flash-preview'
   const vertex = getVertex()
+  const usageLabels = buildGeminiUsageLabels(model, options)
+  const providerOptions = buildProviderOptions(usageLabels)
 
   if (options.responseModalities?.includes('IMAGE')) {
     const result = await generateImage({
       model: vertex.image(model),
       prompt,
-    })
+      providerOptions,
+    } as any)
     const image = result.image
     const promptTokens = result.usage.inputTokens ?? 0
     const candidatesTokenCount = result.usage.outputTokens ?? 0
@@ -97,8 +140,9 @@ export async function generateVertexContent(prompt: string, options: VertexGener
         }],
       },
       text: '',
+      usageLabels,
       usage: { promptTokenCount: promptTokens, candidatesTokenCount, totalTokenCount },
-    }
+    } as VertexGenerateResult
   }
 
   const usesGoogleSearch = options.tools?.some((tool: any) => tool?.googleSearch)
@@ -107,6 +151,7 @@ export async function generateVertexContent(prompt: string, options: VertexGener
     prompt,
     temperature: options.temperature,
     maxOutputTokens: options.maxOutputTokens,
+    providerOptions,
     ...(usesGoogleSearch ? { tools: { google_search: vertex.tools.googleSearch({}) } } : {}),
     ...(options.responseMimeType === 'application/json' ? { output: Output.json() } : {}),
   } as any)
@@ -122,6 +167,7 @@ export async function generateVertexContent(prompt: string, options: VertexGener
       groundingMetadata: providerMetadata?.groundingMetadata ?? undefined,
     }],
     usageMetadata: providerMetadata?.usageMetadata ?? undefined,
+    usageLabels,
   }
 
   return {
