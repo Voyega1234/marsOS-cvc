@@ -1,3 +1,26 @@
+diff --git a/plans-seo-pipeline/db-pooler-test.mjs b/plans-seo-pipeline/db-pooler-test.mjs
+new file mode 100644
+index 0000000..0428c89
+--- /dev/null
++++ b/plans-seo-pipeline/db-pooler-test.mjs
+@@ -0,0 +1,17 @@
++// Smoke-test the POOLED connection exactly as Vercel runtime would use it
++import { PrismaClient } from '@prisma/client'
++
++const p = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } })
++try {
++  const t0 = Date.now()
++  const users = await p.user.count()
++  const projects = await p.project.count()
++  const articles = await p.article.findMany({ select: { title: true, status: true }, take: 3 })
++  // The exact query shape that dashboard uses (include user on activityLog)
++  const act = await p.activityLog.findMany({ include: { user: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 5 })
++  console.log(`✓ pooled OK (${Date.now() - t0}ms) — users=${users} projects=${projects}`)
++  console.log('✓ articles:', JSON.stringify(articles))
++  console.log(`✓ activityLog include user: ${act.length} rows, sample user=${act[0]?.user?.name ?? '(none)'}`)
++} catch (e) {
++  console.error('❌ POOLED CONNECTION FAILED:', e.message.split('\n').slice(0, 4).join(' | '))
++} finally { await p.$disconnect() }
 diff --git a/plans-seo-pipeline/src/app/(app)/dashboard/page.tsx b/plans-seo-pipeline/src/app/(app)/dashboard/page.tsx
 index ef9f13b..e636098 100644
 --- a/plans-seo-pipeline/src/app/(app)/dashboard/page.tsx
@@ -59,6 +82,72 @@ index ef9f13b..e636098 100644
  
    // Parse timeline entries per project
    interface TimelineEntry {
+diff --git a/plans-seo-pipeline/src/app/(app)/projects/page.tsx b/plans-seo-pipeline/src/app/(app)/projects/page.tsx
+index 793bfe3..c10dfdc 100644
+--- a/plans-seo-pipeline/src/app/(app)/projects/page.tsx
++++ b/plans-seo-pipeline/src/app/(app)/projects/page.tsx
+@@ -25,31 +25,38 @@ export default async function ProjectsPage() {
+   }
+   const orgId = session.user.organizationId;
+ 
+-  // CLIENT: only see projects explicitly assigned by admin
+-  let rawProjects;
+-  if (userRole === "CLIENT") {
+-    const accessList = await prisma.clientProjectAccess.findMany({
+-      where: { userId: session.user.id },
+-      include: {
+-        project: {
+-          include: {
+-            owner: { select: { id: true, name: true } },
+-            _count: { select: { articles: true, keywords: true, members: true } },
++  // CLIENT: only see projects explicitly assigned by admin.
++  // Wrapped so a DB/schema error renders an empty state instead of crashing the
++  // whole page ("Server Components render error") — see PIPELINE-FIX-HANDOFF.md P0.
++  // eslint-disable-next-line @typescript-eslint/no-explicit-any
++  let rawProjects: any[] = [];
++  try {
++    if (userRole === "CLIENT") {
++      const accessList = await prisma.clientProjectAccess.findMany({
++        where: { userId: session.user.id },
++        include: {
++          project: {
++            include: {
++              owner: { select: { id: true, name: true } },
++              _count: { select: { articles: true, keywords: true, members: true } },
++            },
+           },
+         },
+-      },
+-    });
+-    rawProjects = accessList.map((a) => a.project);
+-  } else {
+-    if (!orgId) return null;
+-    rawProjects = await prisma.project.findMany({
+-      where: { organizationId: orgId },
+-      include: {
+-        owner: { select: { id: true, name: true } },
+-        _count: { select: { articles: true, keywords: true, members: true } },
+-      },
+-      orderBy: { updatedAt: "desc" },
+-    });
++      });
++      rawProjects = accessList.map((a) => a.project);
++    } else {
++      if (!orgId) return null;
++      rawProjects = await prisma.project.findMany({
++        where: { organizationId: orgId },
++        include: {
++          owner: { select: { id: true, name: true } },
++          _count: { select: { articles: true, keywords: true, members: true } },
++        },
++        orderBy: { updatedAt: "desc" },
++      });
++    }
++  } catch (err) {
++    console.error("[projects] DB query failed:", err);
+   }
+ 
+   interface TimelineEntry { articleStatus?: string }
 diff --git a/plans-seo-pipeline/src/app/api/article/write/route.ts b/plans-seo-pipeline/src/app/api/article/write/route.ts
 index 3cf47ad..6d0a0c5 100644
 --- a/plans-seo-pipeline/src/app/api/article/write/route.ts
@@ -102,6 +191,45 @@ index 3cf47ad..6d0a0c5 100644
 +    },
    })
  }
+diff --git a/plans-seo-pipeline/src/app/api/report/ga4/route.ts b/plans-seo-pipeline/src/app/api/report/ga4/route.ts
+index 73821c3..32760ae 100644
+--- a/plans-seo-pipeline/src/app/api/report/ga4/route.ts
++++ b/plans-seo-pipeline/src/app/api/report/ga4/route.ts
+@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
+     const dv = (row: GA4Row | undefined, idx: number) =>
+       row?.dimensionValues?.[idx]?.value ?? "";
+ 
+-    const [overview, byChannel, byPage, byDevice, byEvent, byDate] = await Promise.all([
++    const [overview, byChannel, byPage, byDevice, byEvent, byDate, byCountry] = await Promise.all([
+       runReport({
+         dateRanges: [
+           { startDate: fmt(start), endDate: fmt(end) },
+@@ -88,6 +88,14 @@ export async function POST(req: NextRequest) {
+         orderBys: [{ dimension: { dimensionName: "date" }, desc: false }],
+         limit: 90,
+       }),
++      // Locations donut (Site Kit-style): sessions by country
++      runReport({
++        dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
++        dimensions: [{ name: "country" }],
++        metrics: [{ name: "sessions" }],
++        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
++        limit: 8,
++      }),
+     ]);
+ 
+     const curr = overview.rows?.[0];
+@@ -138,6 +146,10 @@ export async function POST(req: NextRequest) {
+         sessions: mv(r, 0),
+         users:    mv(r, 1),
+       })),
++      countries: (byCountry.rows ?? []).map(r => ({
++        country:  dv(r, 0),
++        sessions: mv(r, 0),
++      })),
+     });
+   } catch (err) {
+     const msg = err instanceof Error ? err.message : "Unknown error";
 diff --git a/plans-seo-pipeline/src/components/content-studio/ContentStudioClient.tsx b/plans-seo-pipeline/src/components/content-studio/ContentStudioClient.tsx
 index 6655fb2..3bbe7e1 100644
 --- a/plans-seo-pipeline/src/components/content-studio/ContentStudioClient.tsx
@@ -449,6 +577,208 @@ index a92626f..4fe3984 100644
      if (!job?.html) return
      const entry = timeline[jobEntryIdx]
      const title = entry?.title ?? job.title ?? ''
+diff --git a/plans-seo-pipeline/src/components/report/ClientReportClient.tsx b/plans-seo-pipeline/src/components/report/ClientReportClient.tsx
+index 3396b7c..5808a68 100644
+--- a/plans-seo-pipeline/src/components/report/ClientReportClient.tsx
++++ b/plans-seo-pipeline/src/components/report/ClientReportClient.tsx
+@@ -518,7 +518,7 @@ function exportHtml(
+ // ── Simple Report ─────────────────────────────────────────────────────────────
+ 
+ type GscType = { overview?: Record<string, number>; pages?: {page:string;clicks:number;impressions:number;ctr:number;position:number}[]; queries?: {query:string;clicks:number;impressions:number;ctr:number;position:number}[] } | null;
+-type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[] } | null;
++type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[]; countries?: {country:string;sessions:number}[] } | null;
+ type PsiType = { mobile?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]}; desktop?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]} } | null;
+ 
+ function SimpleMetricCard({ label, value, subLabel, delta, deltaLabel, color = "text-gray-900" }: {
+@@ -659,31 +659,33 @@ function SKLineChart({ data, field, color = "#137333", prevData, prevField }: {
+   prevData?: GscDailyRow[] | Ga4DailyRow[];
+   prevField?: string;
+ }) {
+-  // left padding for Y-axis labels, bottom for date labels
++  // NOTE: the SVG stretches to the container width with preserveAspectRatio="none".
++  // Any <text> inside would stretch with it (the "ตัวเลขยืด" bug) — so ALL labels
++  // are rendered as HTML overlays outside the SVG, and the SVG holds paths only.
+   const W = 560; const H = 200; const PL = 40; const PB = 28; const PT = 10;
+-  const TW = W + PL; const TH = H + PT + PB;
++  const TH = H + PT + PB;
+   const vals = data.map(d => ((d as unknown) as Record<string,number>)[field] ?? 0);
+   if (vals.length < 2) return (
+     <div className="w-full" style={{ height: TH }}>
+-      <svg viewBox={`0 0 ${TW} ${TH}`} className="w-full h-full" preserveAspectRatio="none">
+-        <line x1={PL} y1={PT + H/2} x2={TW} y2={PT + H/2} stroke="#e8eaed" strokeWidth="1"/>
++      <svg viewBox={`0 0 ${W} ${TH}`} className="w-full h-full" preserveAspectRatio="none">
++        <line x1={0} y1={PT + H/2} x2={W} y2={PT + H/2} stroke="#e8eaed" strokeWidth="1"/>
+       </svg>
+     </div>
+   );
+ 
+   const max = Math.max(...vals, 1);
+-  // nice round grid values: 0, low, mid, high, max
+-  const niceVal = (v: number) => {
+-    if (v >= 1000) return Math.round(v / 200) * 200;
+-    if (v >= 100)  return Math.round(v / 50) * 50;
+-    return Math.round(v / 10) * 10;
+-  };
+-  const gridVals = [0, 0.25, 0.5, 0.75, 1].map(f => niceVal(max * f));
++  const fmtLabel = (v: number) => v >= 1000 ? `${(v/1000).toFixed(v >= 10000 ? 0 : 1)}K` : String(v);
++  // Evenly spaced grid lines; labels rounded from the true value at each line
++  // (the old nice-rounding produced non-monotonic labels like 0, 60, 100, 200).
++  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(f => ({
++    y: PT + H * (1 - f),
++    label: fmtLabel(Math.round(max * f)),
++  }));
+ 
+-  const toX = (i: number) => PL + (i / (vals.length - 1)) * W;
++  const toX = (i: number) => (i / (vals.length - 1)) * W;
+   const toY = (v: number) => PT + H * (1 - v / max);
+   const mainPath = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
+-  const fillPath = mainPath + ` L${PL + W},${PT + H} L${PL},${PT + H} Z`;
++  const fillPath = mainPath + ` L${W},${PT + H} L0,${PT + H} Z`;
+ 
+   let prevPath = '';
+   if (prevData && prevField && prevData.length >= 2) {
+@@ -693,8 +695,6 @@ function SKLineChart({ data, field, color = "#137333", prevData, prevField }: {
+     prevPath = pv.map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(Math.min(i, vals.length - 1)).toFixed(1)},${toYp(v).toFixed(1)}`).join(' ');
+   }
+ 
+-  const fmtLabel = (v: number) => v >= 1000 ? `${(v/1000).toFixed(v >= 10000 ? 0 : 1)}K` : String(v);
+-
+   const dateLabels = [0, Math.floor((vals.length - 1) / 2), vals.length - 1].map(i => {
+     const row = data[i] as GscDailyRow;
+     const raw = row?.date ?? '';
+@@ -708,40 +708,38 @@ function SKLineChart({ data, field, color = "#137333", prevData, prevField }: {
+   });
+ 
+   return (
+-    <svg viewBox={`0 0 ${TW} ${TH}`} className="w-full" style={{ height: TH }} preserveAspectRatio="none">
+-      <defs>
+-        <linearGradient id={`sk-fill-${field}`} x1="0" y1="0" x2="0" y2="1">
+-          <stop offset="0%" stopColor={color} stopOpacity="0.15"/>
+-          <stop offset="85%" stopColor={color} stopOpacity="0.03"/>
+-          <stop offset="100%" stopColor={color} stopOpacity="0"/>
+-        </linearGradient>
+-      </defs>
+-      {/* Y-axis grid lines + labels on the left */}
+-      {gridVals.map((v, i) => {
+-        const y = toY(v);
+-        return (
+-          <g key={i}>
+-            <line x1={PL} y1={y} x2={PL + W} y2={y} stroke="#e8eaed" strokeWidth="0.8"/>
+-            <text x={PL - 6} y={y + 4} fill="#5f6368" fontSize="10" textAnchor="end">{fmtLabel(v)}</text>
+-          </g>
+-        );
+-      })}
+-      {/* Fill area */}
+-      <path d={fillPath} fill={`url(#sk-fill-${field})`}/>
+-      {/* Previous period dashed */}
+-      {prevPath && <path d={prevPath} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="5 4" strokeOpacity="0.45"/>}
+-      {/* Main line */}
+-      <path d={mainPath} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
+-      {/* X baseline */}
+-      <line x1={PL} y1={PT + H} x2={PL + W} y2={PT + H} stroke="#e8eaed" strokeWidth="0.8"/>
+-      {/* Date labels */}
+-      {[0, Math.floor((vals.length - 1) / 2), vals.length - 1].map((idx, li) => (
+-        <text key={li} x={toX(idx)} y={PT + H + PB - 4} fill="#5f6368" fontSize="10"
+-          textAnchor={li === 0 ? 'start' : li === 2 ? 'end' : 'middle'}>
+-          {dateLabels[li]}
+-        </text>
+-      ))}
+-    </svg>
++    <div className="w-full flex" style={{ height: TH }}>
++      {/* Y-axis labels — HTML, never stretched */}
++      <div className="relative shrink-0" style={{ width: PL - 4 }}>
++        {gridLines.map((g, i) => (
++          <span key={i} className="absolute right-1.5 text-[10px] leading-none text-[#5f6368] tabular-nums"
++            style={{ top: g.y - 5 }}>{g.label}</span>
++        ))}
++      </div>
++      {/* Chart — SVG stretches horizontally but contains no text */}
++      <div className="relative flex-1 min-w-0">
++        <svg viewBox={`0 0 ${W} ${TH}`} className="w-full h-full" preserveAspectRatio="none">
++          <defs>
++            <linearGradient id={`sk-fill-${field}`} x1="0" y1="0" x2="0" y2="1">
++              <stop offset="0%" stopColor={color} stopOpacity="0.15"/>
++              <stop offset="85%" stopColor={color} stopOpacity="0.03"/>
++              <stop offset="100%" stopColor={color} stopOpacity="0"/>
++            </linearGradient>
++          </defs>
++          {gridLines.map((g, i) => (
++            <line key={i} x1={0} y1={g.y} x2={W} y2={g.y} stroke="#e8eaed" strokeWidth="0.8"/>
++          ))}
++          <path d={fillPath} fill={`url(#sk-fill-${field})`}/>
++          {prevPath && <path d={prevPath} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="5 4" strokeOpacity="0.45"/>}
++          <path d={mainPath} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
++          <line x1={0} y1={PT + H} x2={W} y2={PT + H} stroke="#e8eaed" strokeWidth="0.8"/>
++        </svg>
++        {/* Date labels — HTML, never stretched */}
++        <div className="absolute left-0 right-0 flex justify-between text-[10px] text-[#5f6368]" style={{ top: PT + H + 8 }}>
++          {dateLabels.map((d, i) => <span key={i}>{d}</span>)}
++        </div>
++      </div>
++    </div>
+   );
+ }
+ 
+@@ -807,7 +805,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
+   const [donutTab, setDonutTab] = useState<'channels'|'locations'|'devices'>('channels');
+   const [psiTab, setPsiTab] = useState<'lab'|'field'|'improve'>('field');
+   const [psiMode, setPsiMode] = useState<'mobile'|'desktop'>('mobile');
+-  const [activeGscMetric, setActiveGscMetric] = useState<'clicks'|'impressions'>('clicks');
++  const [activeGscMetric, setActiveGscMetric] = useState<'clicks'|'impressions'|'users'>('clicks');
+   const [activeGa4Metric, setActiveGa4Metric] = useState<'sessions'|'users'>('sessions');
+ 
+   const loading = gscLoading || ga4Loading;
+@@ -844,6 +842,11 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
+     label: d.device ?? "other", value: d.sessions,
+     color: DEVICE_COLORS[(d.device ?? "").toLowerCase()] ?? "#9e9e9e",
+   }));
++  const LOC_COLORS = ["#8ab4f8","#fbbc04","#34a853","#a142f4","#ea4335","#00bcd4","#e6c7fb","#9e9e9e"];
++  const locationData = (ga4?.countries ?? []).map((c, i) => ({
++    label: c.country || "Unknown", value: c.sessions,
++    color: LOC_COLORS[i % LOC_COLORS.length],
++  }));
+ 
+   const convEvents = (ga4?.events ?? []).filter(e => e.isConversion);
+   const mPsi = psi?.mobile; const dPsi = psi?.desktop;
+@@ -950,8 +953,9 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
+             </div>
+             {donutTab === 'channels' && <SKDonut data={channelData} label="Channels"/>}
+             {donutTab === 'devices'  && <SKDonut data={deviceData}  label="Devices"/>}
+-            {donutTab === 'locations' && (
+-              <p className="text-xs text-[#5f6368] py-10 text-center">ยังไม่มีข้อมูล Locations</p>
++            {donutTab === 'locations' && (locationData.length
++              ? <SKDonut data={locationData} label="Locations"/>
++              : <p className="text-xs text-[#5f6368] py-10 text-center">ยังไม่มีข้อมูล Locations</p>
+             )}
+             <p className="text-[11px] mt-3">
+               <a href={`https://analytics.google.com`} target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">
+@@ -972,7 +976,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
+           {[
+             { label: "Total Impressions", value: impressions, delta: impressionsD, metric: 'impressions' as const },
+             { label: "Total Clicks",      value: clicks,      delta: clicksD,      metric: 'clicks' as const },
+-            { label: "Unique Visitors from Search", value: users, delta: usersD,   metric: null },
++            { label: "Unique Visitors from Search", value: users, delta: usersD,   metric: 'users' as const },
+           ].map((k, i) => {
+             const isActive = k.metric === activeGscMetric;
+             return (
+@@ -997,14 +1001,15 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
+           <div className="flex items-center gap-5 mb-3 text-[12px] text-[#5f6368]">
+             <span className="flex items-center gap-1.5">
+               <svg width="24" height="3"><line x1="0" y1="1.5" x2="24" y2="1.5" stroke="#137333" strokeWidth="2"/></svg>
+-              {activeGscMetric === 'clicks' ? 'Clicks' : 'Impressions'}
++              {activeGscMetric === 'clicks' ? 'Clicks' : activeGscMetric === 'impressions' ? 'Impressions' : 'Unique Visitors'}
+             </span>
+             <span className="flex items-center gap-1.5">
+               <svg width="24" height="4"><line x1="0" y1="2" x2="24" y2="2" stroke="#137333" strokeWidth="1.5" strokeDasharray="5 3" strokeOpacity="0.5"/></svg>
+               Previous period
+             </span>
+           </div>
+-          <SKLineChart data={gscDaily} field={activeGscMetric} color="#137333" />
++          {/* users มาจาก GA4 daily (GSC ไม่มี unique visitors) — สลับ data source ตาม metric */}
++          <SKLineChart data={activeGscMetric === 'users' ? ga4Daily : gscDaily} field={activeGscMetric} color="#137333" />
+         </div>
+         <div className="px-6 py-3 text-[11px]">
+           <a href="https://search.google.com/search-console" target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">
 diff --git a/plans-seo-pipeline/src/components/shared/ArticleFrame.tsx b/plans-seo-pipeline/src/components/shared/ArticleFrame.tsx
 new file mode 100644
 index 0000000..1750044
@@ -618,3 +948,34 @@ index 0000000..627faca
 +    />
 +  )
 +}
+diff --git a/plans-seo-pipeline/src/lib/google-auth.ts b/plans-seo-pipeline/src/lib/google-auth.ts
+index 5fea335..8bd2d45 100644
+--- a/plans-seo-pipeline/src/lib/google-auth.ts
++++ b/plans-seo-pipeline/src/lib/google-auth.ts
+@@ -37,12 +37,22 @@ export const SERVICE_ACCOUNT_EMAIL = (() => {
+ })();
+ 
+ export async function getGeminiAccessToken(): Promise<string> {
+-  // On Vercel: use OIDC Workload Identity Federation (no secret keys needed)
++  // Preferred on Vercel: OIDC Workload Identity Federation (no secret keys).
++  // BUT if WIF is misconfigured (e.g. `invalid_grant: audience ... does not
++  // match`), fall back to the service-account JSON that worked before — so
++  // Image Studio / keyword expansion / article images keep working instead of
++  // failing hard. Only fall back when a service account is actually available.
+   if (process.env.GCP_PROJECT_NUMBER && process.env.GCP_WORKLOAD_IDENTITY_POOL_ID) {
+-    const { getGeminiTokenViaOidc } = await import('./vercel-gcp-auth')
+-    return getGeminiTokenViaOidc()
++    try {
++      const { getGeminiTokenViaOidc } = await import('./vercel-gcp-auth')
++      return await getGeminiTokenViaOidc()
++    } catch (err) {
++      const hasServiceAccount = !!(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_SERVICE_ACCOUNT_PATH)
++      if (!hasServiceAccount) throw err
++      console.warn('[gemini-auth] OIDC/WIF failed — falling back to service account JSON:', String(err))
++    }
+   }
+-  // Local dev fallback: service account JSON
++  // Service account JSON (also the local-dev path)
+   const auth = new google.auth.GoogleAuth({
+     credentials: getCredentials(),
+     scopes: ["https://www.googleapis.com/auth/generative-language"],

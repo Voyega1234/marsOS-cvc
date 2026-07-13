@@ -11,42 +11,50 @@
 
 | # | ปัญหา | ความรุนแรง | สาเหตุ | สถานะ |
 |---|---|---|---|---|
-| **P0** | Home/Console/หลายหน้า crash "Server Components render error" + **ข้อมูลไม่ถูก save** (refresh แล้วหาย) | 🔴 ระบบ | DB connection/schema ล่มหรือไม่ตรง (หลังเปลี่ยน `?schema=plans_seo_pipeline`) → read crash, write fail เงียบ | ⚠️ ต้อง dev/ops แก้ + ผมกัน crash หน้า dashboard แล้ว |
+| **P0** | Home/Console/หลายหน้า crash + **ข้อมูลไม่ถูก save** | 🔴 ระบบ | **ตรวจแล้ว: DB สมบูรณ์ 100%** — ตัวการคือ ENV บน Vercel (`DIRECT_URL`/`DATABASE_URL`) | ✅ วินิจฉัยจบ + กัน crash แล้ว · dev ตั้ง env 2 ตัว |
 | **P1** | Article เขียนค้าง / ออกไปหน้าอื่นแล้วกลับมาค้าง / หยุด-เขียนใหม่ไม่ได้ | 🔴 | `writeArticle` ไม่มี AbortController + สถานะ `writing` ค้างใน sessionStorage ไม่มีปุ่มหยุด | ✅ **แก้แล้ว** |
 | **P2** | Approve แล้วไม่ไป Push | 🟠 | approve ไม่เขียน DB + Push อ่าน sessionStorage ไม่ใช่ DB | ✅ **แก้แล้ว** |
 | **P3** | Content Studio / Review render พังทั้งแอป (คอลัมน์แคบ) | 🟠 | `<style>` จาก AI รั่ว global ผ่าน `dangerouslySetInnerHTML` | ✅ **แก้แล้ว (Preview + Edit)** |
 | **P4** | บทความค้างตอน "กำลังเขียน" (ฝั่ง server) | 🟠 | prompt โหลดจาก path Desktop เครื่อง dev → ว่างบน Vercel + SSE อาจถูก buffer | ✅ code แก้แล้ว · dev แค่ commit ไฟล์ prompt |
 | **P5** | ความเร็วระบบ | 🟡 | fetch หลายชั้น sequential, query ไม่ parallel | 🔧 บางส่วนแก้แล้ว + คำแนะนำ |
+| **P6** | Image Studio + Keyword Gemini expansion + ส่งเข้า Content Map พัง (`invalid_grant`) | 🔴 | สลับไป Vercel OIDC→GCP WIF แล้ว audience ไม่ตรง (config) | ✅ code fallback แล้ว · ต้องตั้ง env/WIF |
+| **P7** | หน้า Report: ตัวเลขยืด, Unique Visitors กดไม่ได้, Locations ว่าง | 🟡 | SVG stretch text, `metric:null` hardcode, ไม่เคย fetch country | ✅ **แก้ครบแล้ว** |
 
 ---
 
-# P0 — 🔴 ระบบพัง + ข้อมูลไม่ save (สำคัญสุด — dev/ops)
+# P0 — 🔴 ระบบพัง + ข้อมูลไม่ save — **ตรวจ DB จริงแล้ว (2026-07-09): ตัว database สมบูรณ์ 100%**
 
-## อาการ
-- Home (`/dashboard`), Console โหลดไม่ได้ / "เกิดข้อผิดพลาด — Server Components render error"
-- Generate keyword/บทความเสร็จ → refresh หรือ login ใหม่ → **ข้อมูลหายหมดทุกหน้า** (Content Map, Articles, Client bar)
+## ผลตรวจจริง (เชื่อมด้วย credentials ที่ dev ให้)
+| ตรวจ | ผล |
+|---|---|
+| ตารางใน schema `plans_seo_pipeline` | ✅ ครบ **30 ตาราง** |
+| Schema drift vs `prisma/schema.prisma` (`prisma migrate diff`) | ✅ **ศูนย์** — "empty migration" |
+| Users | ✅ adminseo (ADMIN) + userseo (USER) — ทดสอบ bcrypt รหัส `Convertcakeseo01` **ผ่านทั้งคู่** |
+| ข้อมูล | ✅ save จริง: Project 1, Article 2 (REVIEW + htmlContent), Keyword 74, timeline อยู่ครบ |
+| Orphaned FK (11 จุดรวม ActivityLog→User) | ✅ ศูนย์ |
+| **Pooled connection** (URL เดียวกับที่ Vercel ควรใช้) + query ทรงเดียวกับ dashboard | ✅ **ผ่าน** |
 
-## สาเหตุ (หลักฐานจากโค้ด)
-1. **หน้า Server Component ยิง `prisma` ตรงๆ ไม่มี try/catch** — `dashboard/page.tsx` query `project.findMany` + `activityLog.findMany`. ถ้า DB error → ทั้งหน้า crash
-2. **ทุกการ save ห่อ `.catch(() => {})` เงียบ** — เช่น timeline (`PATCH /api/scheduler`), keywords-cache, article status. ถ้า DB write fail → เงียบ ไม่มี error แต่ **ข้อมูลไม่ถูกบันทึก** → refresh แล้วหาย
+## ข้อสรุป: ปัญหาไม่ได้อยู่ที่ database — อยู่ที่ **ENV บน Vercel**
+`prisma/schema.prisma` ประกาศ `directUrl = env("DIRECT_URL")` — **ถ้าบน Vercel ไม่ได้ตั้ง `DIRECT_URL` (หรือ `DATABASE_URL` เป็นค่าเก่า/ไม่มี `?schema=`/ไม่มี `pgbouncer=true`) → Prisma init ล้มเหลว → ทุกหน้าที่แตะ DB crash ("Server Components render error") และทุกการ save เงียบๆ fail** — ตรงกับอาการ "พังทั้งระบบหลัง deploy" และ "ข้อมูลหายหลัง refresh" เป๊ะ
 
-> ทั้ง 2 อาการชี้จุดเดียวกัน: **DB เขียนไม่ได้/อ่านไม่ได้** — เกือบแน่นอนว่าเกิดหลังเปลี่ยน `DATABASE_URL` เป็น schema `plans_seo_pipeline` โดยที่ schema นั้น **ยังไม่มีตารางครบ** (migrations ยังไม่ได้รันใน schema ใหม่) หรือ connection pool ของ serverless หมด
+## วิธีแก้ (dev — 5 นาที)
+ตั้ง env 2 ตัวนี้บน Vercel (Production + Preview) แล้ว redeploy:
+```
+DATABASE_URL=postgresql://postgres.falakbebwdnrbkvnamrs:<PASSWORD>@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?schema=plans_seo_pipeline&pgbouncer=true&connection_limit=1
+DIRECT_URL=postgresql://postgres:<PASSWORD>@db.falakbebwdnrbkvnamrs.supabase.co:5432/postgres?schema=plans_seo_pipeline
+```
+(รหัสผ่านตัวจริงอยู่กับ dev — ค่าเดียวกับที่ส่งให้ทีมแล้ว)
 
-## วิธีแก้ (dev/ops)
-1. ตรวจ Supabase: schema `plans_seo_pipeline` มีตารางครบทุกตัวไหม (โดยเฉพาะ `ActivityLog`, `Project`, `Article`, `Keyword`)
-   - ถ้าไม่มี: รัน migration เข้า schema นั้น
-   ```bash
-   npx prisma migrate deploy      # หรือ prisma db push ไปยัง schema ที่ถูกต้อง
-   npx prisma generate
-   ```
-2. ใช้ **connection pooler URL** ของ Supabase (`...pooler.supabase.com:6543/...?pgbouncer=true`) สำหรับ serverless (Vercel) — กัน connection หมด
-3. ตั้ง `DATABASE_URL` + `DIRECT_URL` บน Vercel ให้ถูก (pooled สำหรับ runtime, direct สำหรับ migrate)
-4. ยืนยันว่า `prisma/schema.prisma` datasource ตรงกับวิธี set schema (ถ้าใช้ `?schema=` ใน URL ต้องมั่นใจว่า migration สร้างตารางใน schema นั้น)
+**Verify หลังตั้ง:** รัน `DATABASE_URL="<pooled url>" node db-pooler-test.mjs` (สคริปต์อยู่ที่ root ของโปรเจกต์) — ต้องเห็น `✓ pooled OK` + users=2
+> ❌ **ไม่ต้อง** รัน migrate/db push/force-reset ใดๆ — schema ตรงแล้ว ข้อมูลอยู่ครบ อย่าแตะ
 
 ## สิ่งที่ผมแก้ให้แล้ว (กันหน้าพังชั่วคราว)
-`src/app/(app)/dashboard/page.tsx` — ห่อ 2 query ด้วย `try/catch` + `Promise.all` → ถ้า DB error จะโชว์ dashboard เปล่าแทนการ crash ทั้งหน้า (และได้ perf จาก parallel query ด้วย)
+- `src/app/(app)/dashboard/page.tsx` — ห่อ query ด้วย `try/catch` + `Promise.all`
+- `src/app/(app)/projects/page.tsx` (หน้า **Clients**) — ห่อ query ด้วย `try/catch`
 
-> ⚠️ แนะนำ dev ทำแบบเดียวกันกับ Server Component อื่นที่ยิง prisma ตรง (เช่นหน้า report, client-portal)
+→ ถ้า DB error จะโชว์หน้าเปล่าแทนการ crash ทั้งหน้า
+
+> ⚠️ ยังมี Server Component อื่นอีก ~35 หน้าที่ยิง prisma ตรง (report, client-portal, articles, ฯลฯ) — ถ้า DB ยังพัง หน้าเหล่านั้นจะ crash. **ทางแก้จริงคือแก้ DB (ข้างบน) ไม่ใช่ห่อทีละหน้า**
 
 ---
 
@@ -116,6 +124,57 @@
 
 ---
 
+# P6 — 🔴 Gemini auth `invalid_grant` (Image Studio + Keyword + Content Map)
+
+## อาการ
+- Image Studio: `Error code invalid_grant: The audience in ID Token [//iam.googleapis.com/projects/457755368033/.../providers/vercel] does not match the expected audience`
+- Keyword Research: KP ได้ 25 แต่ Gemini เพิ่ม 0 (`Batch error invalid_grant`) → รวม 25 (ขอ 79)
+- ส่ง keyword → Content Map ไม่ครบ (เพราะ research ไม่จบ)
+- **ก่อนหน้าใช้ได้** ตอนใช้ service account · **พังหลังสลับไป Vercel OIDC → GCP Workload Identity Federation**
+
+## สาเหตุ
+WIF audience mismatch — token `aud` ที่ Vercel OIDC ส่ง ไม่ตรงกับ `allowed-audiences` ที่ GCP provider คาดหวัง (หรือ `GCP_PROJECT_NUMBER` ไม่ตรงกับ project จริงของ pool) → GCP ปฏิเสธ token → Gemini ทุกจุดที่ใช้ auth นี้พัง (image + keyword expansion + article cover/mid images)
+
+## สิ่งที่ผมแก้ (code)
+`src/lib/google-auth.ts` — `getGeminiAccessToken()` ตอนนี้ **ถ้า OIDC/WIF ล้มเหลว จะ fallback ไป service account JSON อัตโนมัติ** (สถานะที่เคยใช้ได้) แทนที่จะ throw
+
+## ⚡ ทางแก้ด่วนที่สุด (ยืนยันแล้ว 2026-07-09 — ไม่ต้อง deploy โค้ด/แตะ GCP)
+`GOOGLE_SERVICE_ACCOUNT_JSON` **ตั้งอยู่บน Vercel แล้วและใช้งานได้จริง** (หน้า Report ดึง GA4 ผ่าน credentials ตัวนี้อยู่) — โค้ด production เข้า OIDC เพียงเพราะเจอ env `GCP_PROJECT_NUMBER`
+1. Vercel → Settings → Environment Variables → **ลบ `GCP_PROJECT_NUMBER`**
+2. Deployments → **Redeploy** อันล่าสุด
+3. เสร็จ — Gemini กลับไปใช้ service account เหมือนช่วงที่ใช้งานได้
+> เมื่อ deploy โค้ดชุดแก้ (มี fallback) แล้ว ค่อยเติม `GCP_PROJECT_NUMBER` กลับเพื่อเปิด OIDC — พังก็ fallback อัตโนมัติ ผู้ใช้ไม่เจอ error
+
+## สิ่งที่ dev/ops ต้องทำ — เลือก 1 ทาง
+**ทาง A (เร็วสุด — กู้สถานะเดิม):** ลบ env `GCP_PROJECT_NUMBER` ตามข้างบน (service account JSON มีอยู่แล้ว)
+
+**ทาง B (คงใช้ OIDC ไม่ต้องมี key):** แก้ config WIF ให้ audience ตรง
+Error บอก `aud` ตัวจริงใน token แล้ว (ค่าในวงเล็บ) — ตั้ง allowed-audiences ให้เท่ากันเป๊ะ:
+```bash
+gcloud iam workload-identity-pools providers update-oidc vercel \
+  --project=<GCP_PROJECT_ID> --location=global --workload-identity-pool=vercel \
+  --allowed-audiences="https://iam.googleapis.com/projects/457755368033/locations/global/workloadIdentityPools/vercel/providers/vercel"
+```
+(หรือใน Console: provider `vercel` → Edit → Audiences → เลือก **Default audience** — ค่า default คือ path ของ provider ซึ่งตรงกับ token พอดี)
+เช็คเพิ่ม: Issuer URI ต้องตรงกับ `iss` ใน token (`https://oidc.vercel.com/<team-slug>`) + service account มี binding `roles/iam.workloadIdentityUser` ให้ principal ของ pool
+
+> หลังแก้ P6: Image Studio, Keyword (79 ครบ), และส่งเข้า Content Map จะทำงานพร้อมกัน
+
+---
+
+# P7 — ✅ หน้า Report แสดงผลเพี้ยน (แก้ครบ 3 จุดแล้ว)
+
+## อาการ → สาเหตุ → แก้
+1. **ตัวเลขแกนกราฟยืด/เบี้ยว อ่านยาก** — `SKLineChart` ใช้ `<svg preserveAspectRatio="none">` ที่ถูก stretch ตามความกว้างจอ และมี `<text>` อยู่ข้างใน → ตัวหนังสือถูกยืดตาม
+   → **แก้:** ย้าย label ทั้งแกน Y และวันที่ออกมาเป็น HTML overlay (ไม่โดน stretch) SVG เหลือเฉพาะเส้นกราฟ + แก้ bug ค่า grid ไม่เรียง (เดิม 0, 60, 100, 200 — สูตร nice-round ผิด) เป็นเส้นแบ่งเท่ากัน 4 ช่วง
+2. **"Unique Visitors from Search" กดไม่ได้** — การ์ดถูก hardcode `metric: null` → ปุ่ม disabled
+   → **แก้:** เพิ่ม metric `'users'` — กดแล้วกราฟสลับไปแสดงข้อมูล GA4 daily users + legend เปลี่ยนตาม
+3. **Locations ว่าง** — เป็น **hardcode** "ยังไม่มีข้อมูล Locations" และ GA4 API ไม่เคยดึง dimension `country`
+   → **แก้:** `api/report/ga4/route.ts` เพิ่ม query `country` (top 8 ตาม sessions) + `ClientReportClient` สร้าง `locationData` + donut แสดงจริง
+   > GA4 report ใช้ service account (ไม่ใช่ OIDC) และตอนนี้ดึงข้อมูลได้อยู่แล้ว (เห็น 8K visitors) → Locations จะขึ้นทันทีหลัง deploy โค้ดชุดนี้
+
+---
+
 ## ไฟล์ที่แก้ (ชุดนี้ — พร้อม redeploy, ผ่าน tsc)
 
 | ไฟล์ | เรื่อง |
@@ -125,18 +184,25 @@
 | `src/components/projects/ClientDetailTabs.tsx` | Article stop/abort/watchdog (P1), Approve→DB + Push←DB (P2), iframe+scoped edit (P3) |
 | `src/components/content-studio/ContentStudioClient.tsx` | iframe preview + scoped edit (P3) |
 | `src/app/api/article/write/route.ts` | prompt loader หลาย path + SSE header กัน buffer (P4) |
+| `src/lib/google-auth.ts` | Gemini OIDC→service account fallback อัตโนมัติ (P6) |
 | `src/app/(app)/dashboard/page.tsx` | กัน DB crash + parallel query (P0/P5) |
+| `src/app/(app)/projects/page.tsx` | กัน DB crash หน้า Clients (P0) |
+| `src/app/api/report/ga4/route.ts` | เพิ่ม Locations (country) query (P7) |
+| `src/components/report/ClientReportClient.tsx` | แก้ตัวเลขยืด + Unique Visitors กดได้ + Locations donut (P7) |
+| `db-pooler-test.mjs` | สคริปต์ verify DB connection สำหรับ dev (P0) |
 
 **Patch:** `mars-os-pipeline-fix.patch` (git apply ได้) + ไฟล์เต็มในโฟลเดอร์ handoff
 
 ---
 
 ## Checklist ก่อน redeploy
-- [ ] **P0:** ตรวจ/รัน migration เข้า schema `plans_seo_pipeline` + `prisma generate` + ใช้ pooler URL ⭐ สำคัญสุด
-- [ ] **P4:** commit ไฟล์ prompt เข้า repo + แก้ `readPromptFile`
-- [ ] ตั้ง ENV: `DATABASE_URL`(pooled), `DIRECT_URL`, `ANTHROPIC_API_KEY`, Gemini OIDC
-- [ ] apply patch 4 ไฟล์ชุดนี้
-- [ ] ทดสอบ flow เต็ม 1 รอบ: keyword → map → เขียน → review → approve → push → published
+- [ ] **P0:** ตั้ง `DATABASE_URL` (pooled + `?schema=plans_seo_pipeline&pgbouncer=true&connection_limit=1`) + `DIRECT_URL` บน Vercel ⭐ **ห้ามรัน migrate/reset — DB ตรง schema แล้ว ข้อมูลอยู่ครบ**
+- [ ] **P6:** แก้ WIF allowed-audiences (ทาง B — ทีมเลือกทางนี้) — ระหว่างรอ ตั้ง `GOOGLE_SERVICE_ACCOUNT_JSON` ไว้ด้วย code fallback จะทำงานทันที ⭐
+- [ ] **P4:** commit ไฟล์ prompt เข้า repo (`prompts/*.md`)
+- [ ] ตั้ง ENV อื่น: `ANTHROPIC_API_KEY`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`
+- [ ] apply patch (10 ไฟล์) + redeploy
+- [ ] verify DB: `node db-pooler-test.mjs` → ต้องเห็น `✓ pooled OK`
+- [ ] ทดสอบ flow เต็ม 1 รอบ: keyword(79) → map → เขียน+รูป → review → approve → push → published → report (Locations ขึ้น)
 
 ## Note: P3 แก้ครบทั้ง Preview + Edit แล้ว
 Preview = iframe (`ArticleFrame`), Edit = CSSOM scoping (`ScopedEditable`) — ไม่เหลือ `dangerouslySetInnerHTML` ที่ leak แล้ว. `ScopedEditable` ห่อ try/catch ทุกจุด: ถ้า scope fail จะกลับเป็นพฤติกรรมเดิม ไม่ทำ editor พัง
