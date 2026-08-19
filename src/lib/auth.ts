@@ -9,10 +9,12 @@ export type { AppSession };
 /**
  * getSession — Supabase Auth (user pool เดียวกับ plasai) → map เข้า User ของระบบ
  *
- * กติกาเข้าระบบ (คำสั่งเจ้าของ 2026-08-19):
+ * กติกาเข้าระบบ (คำสั่งเจ้าของ 2026-08-19 — ปรับเป็น allowlist คืนเดียวกัน):
  * 1. email ตรงกับ User ในระบบและ ACTIVE → เข้าได้ตาม role เดิม
- * 2. email ลงท้าย @convertcake.com แต่ยังไม่มี User → สร้างให้อัตโนมัติ (SEO_MANAGER)
+ * 2. email อยู่ใน ALLOWED_EMAILS แต่ยังไม่มี User → สร้างให้อัตโนมัติ (SEO_MANAGER)
+ *    (เจ้าของสั่ง: ให้เฉพาะรายชื่อนี้ก่อน ยังไม่เปิดทั้งโดเมน @convertcake.com)
  * 3. User ที่ INACTIVE หรือ email นอกเหนือจากนี้ → ปฏิเสธ (คืน null)
+ * เพิ่มคนทีหลังได้สองทาง: ADMIN เพิ่มในหน้า Users (เข้าเกณฑ์ข้อ 1) หรือเติมรายชื่อในไฟล์นี้
  *
  * ถ้า env Supabase ไม่ครบ (local dev) → fallback โหมดไม่มี login แบบเดิม
  * (คืน ADMIN ที่ active คนแรก) — middleware ก็ผ่านหมดในโหมดนี้เช่นกัน
@@ -21,7 +23,19 @@ export type { AppSession };
  * ที่เคยมีถูกถอดออกแล้ว — ใช้ไม่ได้เมื่อ session ต่างกันต่อคน)
  */
 
-const AUTO_PROVISION_DOMAIN = "@convertcake.com";
+const ALLOWED_EMAILS = new Set([
+  "giggs@convertcake.com",
+  "masia@convertcake.com",
+  "karn@convertcake.com",
+  "nut.j@convertcake.com",
+  "pran@convertcake.com",
+  "tommy@convertcake.com",
+  "top@convertcake.com",
+  "gift.a@convertcake.com",
+  "nutt@convertcake.com",
+  "wave@convertcake.com",
+  "apps@convertcake.com",
+]);
 
 function toSession(user: {
   id: string; name: string | null; email: string; image: string | null;
@@ -64,8 +78,8 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
     return toSession(existing);
   }
 
-  // ── auto-provision: @convertcake.com เข้าครั้งแรก สร้าง User ให้เอง ──
-  if (email.endsWith(AUTO_PROVISION_DOMAIN)) {
+  // ── auto-provision: เฉพาะรายชื่อที่เจ้าของอนุมัติ เข้าครั้งแรก สร้าง User ให้เอง ──
+  if (ALLOWED_EMAILS.has(email)) {
     const org = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" } });
     if (!org) return null;
     const created = await prisma.user.create({
