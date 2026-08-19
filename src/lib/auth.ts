@@ -35,6 +35,7 @@ const ALLOWED_EMAILS = new Set([
   "nutt@convertcake.com",
   "wave@convertcake.com",
   "apps@convertcake.com",
+  "mickey@convertcake.com",
 ]);
 
 function toSession(user: {
