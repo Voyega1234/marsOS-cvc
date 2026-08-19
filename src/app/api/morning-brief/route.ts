@@ -17,7 +17,7 @@ export async function GET() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [articles, aiJobs, reviews, wpConns] = await Promise.all([
+    const [articles, aiJobs, reviews, wpConns, gscProjects] = await Promise.all([
       // Articles stuck in review / SEO_REVIEW
       prisma.article.findMany({
         where: {
@@ -49,6 +49,12 @@ export async function GET() {
       // WordPress connections
       prisma.wordPressConnection.findMany({
         where: { organizationId: orgId },
+      }),
+      // Projects ที่ต่อ GSC (ใช้เฟสเช็ค traffic ด้านล่าง — ยุบมารวมรอบเดียว)
+      prisma.project.findMany({
+        where: { organizationId: orgId, gscSiteUrl: { not: null } },
+        select: { id: true, name: true, gscSiteUrl: true },
+        take: 5,
       }),
     ]);
 
@@ -166,11 +172,6 @@ export async function GET() {
 
     // GSC traffic drop check — for projects that have gscSiteUrl set
     try {
-      const gscProjects = await prisma.project.findMany({
-        where: { organizationId: orgId, gscSiteUrl: { not: null } },
-        select: { id: true, name: true, gscSiteUrl: true },
-        take: 5,
-      });
       if (gscProjects.length > 0) {
         const auth = await getGSCAuth();
         const sc = google.searchconsole({ version: "v1", auth });
@@ -181,7 +182,8 @@ export async function GET() {
         const prev_end  = fmt(new Date(now.getTime() - 30 * 86400000));
         const prev_start = fmt(new Date(now.getTime() - 57 * 86400000));
 
-        for (const proj of gscProjects) {
+        // ยิงทุกโปรเจกต์พร้อมกัน — เดิมวน for ทีละตัว (5 โปรเจกต์ = 5 รอบ RTT)
+        await Promise.all(gscProjects.map(async (proj) => {
           try {
             const [cur, prev] = await Promise.all([
               sc.searchanalytics.query({ siteUrl: proj.gscSiteUrl!, requestBody: { startDate: cur_start, endDate: cur_end, dimensions: [] } as never }),
@@ -205,7 +207,7 @@ export async function GET() {
               });
             }
           } catch { /* skip if GSC not accessible for this site */ }
-        }
+        }))
       }
     } catch { /* GSC block optional — skip if credentials not set up */ }
 

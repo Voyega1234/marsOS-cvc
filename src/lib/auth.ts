@@ -17,11 +17,17 @@ export type { AppSession };
  * แล้ว map ลง AppSession รูปแบบเดิม ที่เหลือไม่ต้องแตะ
  *
  * cache() ของ React ทำให้ query นี้ยิงครั้งเดียวต่อ request (layout + page + API
- * เรียกซ้ำกันได้ฟรี) และไม่ค้างข้ามคำขอ — ข้อมูลจึงไม่มีทางเก่าหลังแก้ผู้ใช้ใน DB
+ * เรียกซ้ำกันได้ฟรี) + cache ระดับ instance อีกชั้น (TTL 60 วิ) เพราะยังไม่มี
+ * ระบบล็อกอิน — ทุก request ได้ user คนเดียวกันอยู่แล้ว ไม่ต้องยิง DB ซ้ำทุกครั้ง
+ * (แก้/ปิด user มีผลช้าสุด 60 วิ — ยอมรับได้ก่อนมี Supabase Auth
+ *  และตอนต่อ Supabase Auth ต้องถอด instance cache นี้ทิ้ง เพราะ session จะต่างกันต่อคน)
  */
-export const getSession = cache(async (): Promise<AppSession | null> => {
+let cachedUser: { user: Awaited<ReturnType<typeof findSessionUser>>; at: number } | null = null;
+const SESSION_CACHE_MS = 60_000;
+
+async function findSessionUser() {
   // เลือก ADMIN ที่ active ก่อน ถ้าไม่มีจริง ๆ ค่อยรูดเอา user ที่ active คนแรก
-  const user =
+  return (
     (await prisma.user.findFirst({
       where: { status: "ACTIVE", role: "ADMIN" },
       orderBy: { createdAt: "asc" },
@@ -29,7 +35,18 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
     (await prisma.user.findFirst({
       where: { status: "ACTIVE" },
       orderBy: { createdAt: "asc" },
-    }));
+    }))
+  );
+}
+
+export const getSession = cache(async (): Promise<AppSession | null> => {
+  let user;
+  if (cachedUser && Date.now() - cachedUser.at < SESSION_CACHE_MS) {
+    user = cachedUser.user;
+  } else {
+    user = await findSessionUser();
+    cachedUser = { user, at: Date.now() };
+  }
 
   if (!user) return null;
 
