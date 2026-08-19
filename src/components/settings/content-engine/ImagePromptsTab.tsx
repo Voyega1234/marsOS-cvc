@@ -30,6 +30,22 @@ interface Draft {
 
 // Image Prompt ไม่มีโครง JSON แยก — promptText เป็นข้อความ prompt ตรงๆ อยู่แล้วทั้งสองโหมด
 // "กรอกฟอร์ม" = ช่องกรอกพร้อมตัวแปรช่วยเติม, "วาง Prompt ดิบ" = ช่องข้อความเปล่าล้วน ทั้งคู่ผูกกับ promptText เดียวกัน
+// ── จำนวนรูปประกอบกลางบทความ — เก็บเป็นบรรทัด "จำนวนรูปประกอบ: N" ใน promptText ──
+//  pipeline (/api/article/write) อ่านบรรทัดนี้ตอน generate · ไม่มีบรรทัด = 1 (default)
+const MID_IMAGE_RE = /^\s*จำนวนรูปประกอบ\s*[:：]\s*(\d+)\s*$/m;
+
+function readMidImageCount(promptText: string): number {
+  const m = promptText.match(MID_IMAGE_RE);
+  if (!m) return 1;
+  return Math.min(7, Math.max(1, parseInt(m[1], 10) || 1));
+}
+
+function writeMidImageCount(promptText: string, count: number): string {
+  const stripped = promptText.replace(MID_IMAGE_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+  if (count <= 1) return stripped; // default 1 = ไม่ต้องมีบรรทัด
+  return `${stripped}\n\nจำนวนรูปประกอบ: ${count}`;
+}
+
 function parseItem(item: PromptRow): Draft {
   const isJsonObject = tryParse(item.promptText) !== null;
   return { name: item.name, description: item.description ?? "", mode: isJsonObject ? "form" : "raw", promptText: item.promptText };
@@ -239,7 +255,23 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
 
           <div className="rounded-2xl border border-gray-200 bg-white p-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <Label className="text-xs text-gray-600">Prompt Text</Label>
+              <div className="flex items-center gap-3">
+                <Label className="text-xs text-gray-600">Prompt Text</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label className="text-[11px] text-gray-500">รูปประกอบกลางบทความ</Label>
+                  <select
+                    value={readMidImageCount(draft.promptText)}
+                    disabled={!canEdit || locked}
+                    onChange={(e) => setDraft({ ...draft, promptText: writeMidImageCount(draft.promptText, parseInt(e.target.value, 10)) })}
+                    className="h-7 rounded-md border border-gray-200 bg-white px-1.5 text-xs text-brand-navy disabled:opacity-50"
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                      <option key={n} value={n}>{n} รูป</option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-gray-400">(+ปก 1 · default 1)</span>
+                </div>
+              </div>
               {draft.mode === "form" && (
                 <div className="flex flex-wrap gap-1.5">
                   {IMAGE_PROMPT_VARIABLES.map((v) => (

@@ -270,6 +270,70 @@ async function generateGeminiImage(params: {
 
 // AI ทั้งระบบวิ่งผ่าน OpenRouter — ตัวเขียนบทความใช้ OPENROUTER_MODEL_WRITER (gpt-5.6-sol)
 
+// ── จำนวนรูปประกอบกลางบทความ — ตั้งใน Image Prompt layer ด้วยบรรทัด "จำนวนรูปประกอบ: N" ──
+//  default 1 (พฤติกรรมเดิม), เลือกได้ 1-7 · บรรทัด directive ถูกตัดออกก่อนส่งเป็น brief ให้ตัววาดภาพ
+const MID_IMAGE_DIRECTIVE = /^\s*จำนวนรูปประกอบ\s*[:：]\s*(\d+)\s*$/m
+
+function parseMidImageCount(imagePromptTemplate: string): { count: number; cleanTemplate: string } {
+  const m = imagePromptTemplate.match(MID_IMAGE_DIRECTIVE)
+  if (!m) return { count: 1, cleanTemplate: imagePromptTemplate }
+  const count = Math.min(7, Math.max(1, parseInt(m[1], 10) || 1))
+  return { count, cleanTemplate: imagePromptTemplate.replace(MID_IMAGE_DIRECTIVE, '').trim() }
+}
+
+// นับจุดแทรกรูปที่มีจริงในบทความ (ท้ายย่อหน้าแรกใต้ H2, เลี่ยงหัวท้ายสุด)
+// ใช้ cap จำนวนรูปก่อน generate — จะได้ไม่เสียค่ารูปที่ไม่มีที่ลง
+function countMidImageSpots(html: string): number {
+  const h2s = Array.from(html.matchAll(/<h2[\s>]/gi))
+  let spots = 0
+  for (const h of h2s) {
+    const pEnd = html.indexOf('</p>', h.index!)
+    if (pEnd !== -1 && pEnd - h.index! < 2000) spots++
+  }
+  return Math.max(1, spots - 1) // กันจุดท้ายสุด (FAQ/สรุป)
+}
+
+// กระจายรูปประกอบหลายรูปตามหัวข้อ H2 แบบเฉลี่ยระยะ (1 รูป = ตำแหน่งกลางแบบเดิม)
+function injectMidImages(html: string, images: Array<{ imageBase64: string; mimeType: string }>, altText = ''): string {
+  const usable = images.filter(im => im.imageBase64)
+  if (!usable.length) return html
+  if (usable.length === 1) return injectMidImage(html, usable[0].imageBase64, usable[0].mimeType, altText)
+
+  const alt = (altText.trim() || 'รูปประกอบบทความ').replace(/"/g, '&quot;')
+  const tag = (im: { imageBase64: string; mimeType: string }) =>
+    `\n<figure class="mars-figure">\n  <img src="data:${im.mimeType};base64,${im.imageBase64}" alt="${alt}" />\n</figure>\n`
+
+  // จุดแทรก = ท้ายย่อหน้าแรกใต้ H2 ที่เลือกแบบเฉลี่ยระยะ (ข้าม H2 แรกกับ H2 ท้ายสุด เช่น FAQ/สรุป)
+  const h2s = Array.from(html.matchAll(/<h2[\s>]/gi))
+  const candidates: number[] = []
+  for (const h of h2s) {
+    const pEnd = html.indexOf('</p>', h.index! )
+    if (pEnd !== -1 && pEnd - h.index! < 2000) candidates.push(pEnd + 4)
+  }
+  if (candidates.length < 2) {
+    // โครงหัวข้อน้อยเกิน — ถอยไปวางแบบรูปเดียวตามลำดับ
+    let out = html
+    for (const im of usable) out = injectMidImage(out, im.imageBase64, im.mimeType, altText)
+    return out
+  }
+  const usableSpots = candidates.slice(0, Math.max(2, candidates.length - 1)) // เลี่ยงท้ายบทความ
+  const picks: number[] = []
+  for (let i = 0; i < usable.length; i++) {
+    const idx = Math.min(usableSpots.length - 1, Math.round(((i + 1) * usableSpots.length) / (usable.length + 1)))
+    if (!picks.includes(usableSpots[idx])) picks.push(usableSpots[idx])
+  }
+  // แทรกจากท้ายไปหน้า กัน offset เลื่อน
+  let out = html
+  const ordered = picks.sort((a, b) => b - a)
+  const imgs = [...usable].reverse()
+  ordered.forEach((pos, i) => {
+    const im = imgs[i % imgs.length]
+    out = out.slice(0, pos) + tag(im) + out.slice(pos)
+  })
+  return out
+}
+
+
 // Inject mid-article image into the middle of the HTML body (never at the end)
 function injectMidImage(html: string, imageBase64: string, mimeType: string, altText = ''): string {
   if (!imageBase64) return html
@@ -692,10 +756,14 @@ export async function POST(req: NextRequest) {
         inputTokens: msg.usage.inputTokens, outputTokens: msg.usage.outputTokens, status: 'COMPLETED' })
     }
 
-    const [coverResult, midResult] = await Promise.all([
-      generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate, imageStyleGuide: resolvedImageStyleGuide }),
-      generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+    const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
+    const midCount = Math.min(midCountRaw, countMidImageSpots(html))
+    const [coverResult, ...midResults] = await Promise.all([
+      generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+      ...Array.from({ length: midCount }, () =>
+        generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
     ])
+    const midResult = midResults[0]
 
     // Log image generation costs
     if (orgId && userId) {
@@ -720,10 +788,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Inject mid image into the middle of the article HTML (never at the end)
-    if (midResult.imageBase64) {
-      html = injectMidImage(html, midResult.imageBase64, midResult.mimeType, title || keyword)
-    }
+    // Inject mid images — กระจายตามหัวข้อ (1 รูป = ตำแหน่งกลางแบบเดิม)
+    html = injectMidImages(html, midResults, title || keyword)
 
     // Append author box at the very end
     const authorHtml = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage)
@@ -813,13 +879,18 @@ export async function POST(req: NextRequest) {
       }
 
       // Step 2: Generate cover + mid images via Gemini in parallel
-      send({ type: 'status', step: 'cover', message: '🖼️ กำลังสร้างรูปปกและรูปประกอบ...' })
-      const [coverResult, midResult] = await Promise.all([
-        generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate, imageStyleGuide: resolvedImageStyleGuide }),
-        generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+      const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
+      const midCount = Math.min(midCountRaw, countMidImageSpots(fullHtml))
+      send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
+      const [coverResult, ...midResults] = await Promise.all([
+        generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+        ...Array.from({ length: midCount }, () =>
+          generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
       ])
+      const midResult = midResults[0]
+      const midOk = midResults.filter(r => r.imageBase64).length
       if (!coverResult.imageBase64) send({ type: 'status', step: 'cover', message: '⚠️ สร้างรูปปกไม่สำเร็จ (Gemini quota หรือ key หมด) — บทความยังใช้ได้' })
-      if (!midResult.imageBase64) send({ type: 'status', step: 'cover', message: '⚠️ สร้างรูปประกอบไม่สำเร็จ — ดำเนินการต่อโดยไม่มีรูปประกอบ' })
+      if (midOk < midCount) send({ type: 'status', step: 'cover', message: `⚠️ รูปประกอบสำเร็จ ${midOk}/${midCount} รูป — ดำเนินการต่อ` })
 
       // Log image generation costs (streaming path)
       if (orgId && userId) {
@@ -844,10 +915,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Inject mid image into the middle of the article HTML (never at the end)
-      if (midResult.imageBase64) {
-        fullHtml = injectMidImage(fullHtml, midResult.imageBase64, midResult.mimeType, title || keyword)
-      }
+      // Inject mid images — กระจายตามหัวข้อ (1 รูป = ตำแหน่งกลางแบบเดิม)
+      fullHtml = injectMidImages(fullHtml, midResults, title || keyword)
 
       // Append author box at the very end
       const authorHtmlBlock = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage)
