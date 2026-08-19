@@ -4583,33 +4583,31 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
     setCoverImageLab('')
     setMidImageLab('')
     try {
-      const internalLinks = parseInternalLinks()
+      // 1) บันทึกค่า Article Lab ลง DB ก่อนเสมอ
+      //    /api/article/write อ่านค่าทุกอย่างจาก DB ตอนรันจริง ถ้าไม่บันทึกก่อนแล้ว
+      //    ส่ง override มาทาง body บททดสอบจะใช้คนละค่ากับตอน publish จริง
+      setStepMsg('💾 บันทึกค่า Article Lab ลง DB...')
+      await persistSettings(false)
+
+      // 2) ยิงด้วย payload ชุดเดียวกับหน้าบทความจริงเป๊ะ ๆ — ไม่ override อะไรเลย
+      //    prompt ทุกชั้น (Business Skill → Master Prompt → Article Brief → Validator
+      //    → Image Prompt) จึงมาจาก Content Engine ของ client นี้ชุดเดียวกับตอนรันจริง
+      setStepMsg('✍️ AI กำลังเขียนบทความ...')
       const res = await fetch('/api/article/write', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           keyword, title, stream: true,
           projectId: project.id,
-          siteName: project.clientName ?? project.name,
-          websiteUrl: project.website,
-          brandTone: project.brandTone ?? 'professional, helpful',
-          styleGuide,
           language: project.language,
-          accentColor,
-          theme,
-          // ชุดสีที่กำลังแก้ในหน้านี้ — ส่งตรงเพื่อให้บททดสอบใช้สีล่าสุดแม้ยังไม่กดบันทึก
-          ...(articleColors.theme ? { colorTheme: articleColors.theme } : {}),
-          ...(articleColors.text ? { colorText: articleColors.text } : {}),
-          ...(articleColors.border ? { colorBorder: articleColors.border } : {}),
-          ...(articleColors.accent ? { colorAccent: articleColors.accent } : {}),
-          ...(articleColors.background ? { colorBackground: articleColors.background } : {}),
-          forbiddenWords: JSON.stringify(forbiddenWords.split('\n').map((w: string) => w.trim()).filter(Boolean)),
-          sampleArticle: project.sampleArticle ?? '',
-          internalLinks: JSON.stringify(internalLinks),
-          cta,
         }),
       })
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        // เซิร์ฟเวอร์ตอบเหตุผลจริงมาเป็น JSON (เช่น CONTENT_ENGINE_NOT_CONFIGURED)
+        const detail = await res.json().catch(() => null)
+        throw new Error(detail?.message || detail?.error || `HTTP ${res.status}`)
+      }
+      if (!res.body) throw new Error('เซิร์ฟเวอร์ไม่ส่ง stream กลับมา')
       const reader = res.body.getReader()
       const dec = new TextDecoder()
       let buf = ''
@@ -4621,8 +4619,10 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
         const parts = buf.split('\n\n')
         buf = parts.pop() ?? ''
         for (const part of parts) {
-          const line = part.replace(/^data:\s*/, '')
-          if (!line) continue
+          // หนึ่ง SSE block อาจมีหลายบรรทัด "data:" — ต้องอ่านทีละบรรทัดเหมือนหน้าบทความจริง
+          for (const rawLine of part.split('\n')) {
+          const line = rawLine.replace(/^data:\s*/, '').trim()
+          if (!line || line === '[DONE]') continue
           try {
             const evt = JSON.parse(line)
             if (evt.type === 'chunk') { fullHtml += evt.content; setStreamText(fullHtml) }
@@ -4637,57 +4637,95 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
             }
             else if (evt.type === 'error') throw new Error(evt.error)
           } catch { /* skip */ }
+          }
         }
       }
     } catch (e) {
-      setStreamText(`❌ Error: ${String(e)}`)
+      setStepMsg('')
+      setStreamText(`❌ ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setLoading(false)
     }
   }
 
+  /**
+   * เขียนค่า Article Lab ทั้งหมดลง DB
+   * includeSample = true เฉพาะตอนผู้ใช้กด "บันทึกเป็น Pattern" (เก็บ html เป็น sampleArticle)
+   * generate() เรียกด้วย false — บันทึกแค่ค่าตั้งต้น ไม่ทับ Pattern เดิมด้วยบททดสอบ
+   */
+  async function persistSettings(includeSample: boolean) {
+    const words = forbiddenWords.split('\n').map((w: string) => w.trim()).filter(Boolean)
+    const links = parseInternalLinks()
+    const common = {
+      styleGuide,
+      projectContext,
+      accentColor,
+      articleTheme: theme,
+      themeColors: JSON.stringify({ ...articleColors, elements: elementStyles }),
+      forbiddenWords: JSON.stringify(words),
+      internalLinks: JSON.stringify(links),
+      ctaSetting: JSON.stringify(cta),
+      authorEnabled,
+    }
+    const body: Record<string, unknown> = { ...common, authors }
+    if (includeSample && html) body.sampleArticle = html
+    const res = await fetch(`/api/projects/${project.id}/style`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error('บันทึกค่า Article Lab ไม่สำเร็จ')
+    onSaved({
+      ...common,
+      authors: JSON.stringify(authors),
+      ...(includeSample && html ? { sampleArticle: html } : {}),
+    })
+  }
+
   async function saveAll() {
     setSaving(true)
     try {
-      const words = forbiddenWords.split('\n').map((w: string) => w.trim()).filter(Boolean)
-      const links = parseInternalLinks()
-      const body: Record<string, unknown> = {
-        styleGuide,
-        projectContext,
-        accentColor,
-        articleTheme: theme,
-        themeColors: JSON.stringify({ ...articleColors, elements: elementStyles }),
-        forbiddenWords: JSON.stringify(words),
-        internalLinks: JSON.stringify(links),
-        ctaSetting: JSON.stringify(cta),
-        authorEnabled,
-        authors,
-      }
-      if (html) body.sampleArticle = html
-      const res = await fetch(`/api/projects/${project.id}/style`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error('Save failed')
-      onSaved({
-        styleGuide,
-        projectContext,
-        accentColor,
-        articleTheme: theme,
-        themeColors: JSON.stringify({ ...articleColors, elements: elementStyles }),
-        forbiddenWords: JSON.stringify(words),
-        internalLinks: JSON.stringify(links),
-        ctaSetting: JSON.stringify(cta),
-        authorEnabled,
-        authors: JSON.stringify(authors),
-        ...(html ? { sampleArticle: html } : {}),
-      })
+      await persistSettings(true)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } finally {
       setSaving(false)
     }
+  }
+
+  /**
+   * Export เป็นไฟล์ HTML เดียวจบ — เปิดดูได้เลยโดยไม่ต้องพึ่งระบบ
+   * ใช้ส่งให้ลูกค้าตรวจก่อนรันจริง (สี/CSS/Schema ฝังมาใน html จาก API แล้ว
+   * เหลือแค่ห่อ document + ฝังรูปปกเป็น data URI)
+   */
+  function exportHtml() {
+    if (!html) return
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    const cover = coverImageLab
+      ? `<img src="data:${coverMimeTypeLab};base64,${coverImageLab}" alt="${esc(title)}" style="width:100%;height:auto;display:block;margin:0 0 24px;border-radius:12px" />\n`
+      : ''
+    const doc = `<!doctype html>
+<html lang="${project.language === 'en' ? 'en' : 'th'}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+</head>
+<body style="margin:0;padding:24px 16px;background:#fff">
+<div style="max-width:840px;margin:0 auto">
+${cover}${html}
+</div>
+</body>
+</html>`
+    const slug = (keyword || 'article').trim().replace(/\s+/g, '-').replace(/[/\\?%*:|"<>]/g, '').slice(0, 60)
+    const a = document.createElement('a')
+    const url = URL.createObjectURL(new Blob([doc], { type: 'text/html;charset=utf-8' }))
+    a.href = url
+    a.download = `${slug || 'article'}.html`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   // ── Internal Link state — 3 separate tables ──────
@@ -5079,7 +5117,10 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
                   <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">✅ มี Pattern บันทึกแล้ว</span>
                 )}
               </div>
-              <p className="text-xs text-gray-500 mb-4">Generate บทความทดสอบด้วย Style ปัจจุบัน แก้ไขจนโอเค แล้ว "บันทึกทั้งหมด" — AI จะใช้เป็น reference ทุกครั้ง</p>
+              <p className="text-xs text-gray-500 mb-4">
+                ใช้ <b>prompt ชุดเดียวกับตอนรันจริงทุกชั้น</b> (Business Skill → Master Prompt → Article Brief → Validator → Image Prompt) ของ client นี้
+                — กด Generate แล้วระบบจะบันทึกค่า Article Lab ลง DB ให้ก่อน ผลลัพธ์จึงตรงกับหน้าบทความจริงเป๊ะ ๆ แล้ว Export HTML ส่งให้ลูกค้าตรวจได้เลย
+              </p>
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <label className="block text-[11px] font-medium text-gray-500 mb-1">Keyword หลัก</label>
@@ -5140,6 +5181,11 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
                     <button onClick={generate} disabled={loading}
                       className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-semibold rounded-xl hover:bg-gray-50">
                       <RefreshCw size={11} /> Regenerate
+                    </button>
+                    <button onClick={exportHtml}
+                      title="ดาวน์โหลดไฟล์ HTML เดียวจบ (ฝังสี/CSS/Schema/รูปปก) — ส่งให้ลูกค้าตรวจก่อนรันจริง"
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-blue-200 text-brand-blue text-xs font-semibold rounded-xl hover:bg-blue-50">
+                      <Download size={11} /> Export HTML
                     </button>
                     <button onClick={saveAll} disabled={saving}
                       className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-xl hover:bg-emerald-700 disabled:opacity-50">
