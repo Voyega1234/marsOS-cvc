@@ -4,6 +4,9 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+
+// กัน Next prerender route นี้เป็น static JSON แช่แข็งตอน build
+export const dynamic = "force-dynamic";
 function qualityScore(e: { domainRating: number | null; anchorText: string | null; sourceUrl: string | null }): number {
   let score = 40;
   const dr = e.domainRating ?? 0;
