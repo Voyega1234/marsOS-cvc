@@ -188,7 +188,7 @@ export function TestPromptClient({ prompt }: Props) {
         <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
         <div className="text-sm text-amber-800">
           <span className="font-semibold">Mock mode active.</span>{" "}
-          Output is generated locally based on prompt type. Connect <code className="font-mono bg-amber-100 px-1 rounded">ANTHROPIC_API_KEY</code> in <code className="font-mono bg-amber-100 px-1 rounded">.env.local</code> for real AI responses.
+          Output is generated locally based on prompt type. Connect <code className="font-mono bg-amber-100 px-1 rounded">OPENROUTER_API_KEY</code> in <code className="font-mono bg-amber-100 px-1 rounded">.env.local</code> for real AI responses.
           Each test run is logged as an AIJob.
         </div>
       </div>

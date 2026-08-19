@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   const mockResponses: Record<string, string> = {
     CLAUDE: `{
   "result": "Mock response from Claude API",
-  "note": "Connect ANTHROPIC_API_KEY to get real responses",
+  "note": "Connect OPENROUTER_API_KEY to get real responses",
   "promptLength": ${promptText?.length ?? 0},
   "timestamp": "${new Date().toISOString()}"
 }`,

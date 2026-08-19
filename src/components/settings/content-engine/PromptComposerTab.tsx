@@ -144,7 +144,7 @@ export function PromptComposerTab({ businessSkills, masterPrompts, briefTemplate
     const id = `run_${Date.now().toString(36)}`;
     setRunId(id);
     setTestOutput(
-      `[MOCK] บทความทดสอบจาก Prompt Composer (Run ID: ${id})\n\n<h1>${briefData?.coreTopic?.workingTitle || "หัวข้อบทความทดสอบ"}</h1>\n<p>เนื้อหานี้เป็น mock output สำหรับทดสอบการ compile — เชื่อม ANTHROPIC_API_KEY เพื่อสร้างบทความจริง</p>\n\n<!-- [MOCK] Content Engine test run -->`
+      `[MOCK] บทความทดสอบจาก Prompt Composer (Run ID: ${id})\n\n<h1>${briefData?.coreTopic?.workingTitle || "หัวข้อบทความทดสอบ"}</h1>\n<p>เนื้อหานี้เป็น mock output สำหรับทดสอบการ compile — เชื่อม OPENROUTER_API_KEY เพื่อสร้างบทความจริง</p>\n\n<!-- [MOCK] Content Engine test run -->`
     );
     const validators: ValidatorConfig[] = validatorPackData?.validators?.filter((v) => v.enabled) ?? [];
     setValidatorResults(

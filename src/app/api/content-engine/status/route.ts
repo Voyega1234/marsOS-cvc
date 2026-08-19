@@ -8,10 +8,6 @@
  *   → layer ที่ "มีชุดแล้วแต่ไม่มีตัวไหน active" ให้เปิดตัวล่าสุดให้อัตโนมัติ
  *     (ไม่สร้าง prompt ใหม่ — ไม่มี fallback ตามกฎ Content Engine)
  */
-import fs from "fs";
-import os from "os";
-import path from "path";
-
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
@@ -53,24 +49,10 @@ interface LayerStatus {
 }
 
 function aiStatus() {
-  const claude = Boolean(process.env.ANTHROPIC_API_KEY);
-  let gemini = false;
-  const mode = process.env.VERCEL ? "oidc" : "adc";
-  if (process.env.VERCEL) {
-    gemini = Boolean(
-      process.env.GCP_PROJECT_ID &&
-        process.env.GCP_PROJECT_NUMBER &&
-        process.env.GCP_SERVICE_ACCOUNT_EMAIL &&
-        process.env.GCP_WORKLOAD_IDENTITY_POOL_ID &&
-        process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID
-    );
-  } else {
-    const adcPath =
-      process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-      path.join(os.homedir(), ".config", "gcloud", "application_default_credentials.json");
-    gemini = Boolean(process.env.GCP_PROJECT_ID) && fs.existsSync(adcPath);
-  }
-  return { claude, gemini, mode };
+  // ทั้งระบบวิ่งผ่าน OpenRouter key เดียว — writer/image/util (src/lib/openrouter.ts)
+  // ของเก่า (ANTHROPIC_API_KEY + GCP OIDC/ADC) เลิกใช้แล้ว
+  const openrouter = Boolean(process.env.OPENROUTER_API_KEY);
+  return { claude: openrouter, gemini: openrouter, mode: "openrouter" };
 }
 
 async function buildStatus(orgId: string, projectId: string | null) {

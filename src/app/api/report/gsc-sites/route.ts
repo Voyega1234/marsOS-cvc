@@ -3,6 +3,9 @@ import { getSession } from "@/lib/auth";
 import { getGSCAuth } from "@/lib/google-auth";
 import { google } from "googleapis";
 
+// กัน Next prerender route นี้เป็น static ตอน build — GET ไม่ได้อ่าน request เลยโดนมองว่า static ได้
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const session = await getSession();
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

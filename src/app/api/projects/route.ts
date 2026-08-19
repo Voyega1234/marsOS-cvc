@@ -67,6 +67,34 @@ export async function POST(req: NextRequest) {
     data: { projectId: project.id, userId: session!.user.id, role: "PROJECT_ADMIN" },
   });
 
+  // ── Seed Content Engine ให้ client ใหม่ ─────────────────────────────────────
+  //  กติกา CE: prompt ห้ามใช้ข้าม scope — client ใหม่จึงเกิดมา scope ว่างเปล่า
+  //  แก้โดย "clone" default ที่ ACTIVE ของ Studio (projectId=null) เข้ามาเป็น
+  //  ของ client คนละแถวกัน แก้ต่อได้อิสระ ไม่ใช่ fallback ข้าม scope ตอนเขียน
+  const studioDefaults = await prisma.promptTemplate.findMany({
+    where: {
+      organizationId,
+      projectId: null,
+      isActive: true,
+      type: { in: ["CE_BUSINESS_SKILL", "CE_MASTER_PROMPT", "CE_ARTICLE_BRIEF", "CE_VALIDATOR_PACK", "CE_IMAGE_PROMPT"] },
+    },
+    select: { name: true, description: true, promptText: true, type: true },
+  });
+  if (studioDefaults.length) {
+    await prisma.promptTemplate.createMany({
+      data: studioDefaults.map((d) => ({
+        organizationId,
+        projectId: project.id,
+        name: d.name,
+        description: d.description,
+        promptText: d.promptText,
+        type: d.type,
+        isActive: true,
+        createdById: session!.user.id,
+      })),
+    });
+  }
+
   await prisma.activityLog.create({
     data: {
       organizationId,

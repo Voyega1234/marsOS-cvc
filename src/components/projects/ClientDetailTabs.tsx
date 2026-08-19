@@ -2990,7 +2990,7 @@ function ArticlesTab({
   const writeBlockReason: string | null =
     ceStatus.loading && !ceStatus.status ? 'กำลังตรวจสถานะ AI และ Content Engine...'
     : !ceStatus.status ? 'ตรวจสถานะ Content Engine ไม่ได้ — ลองรีเฟรช'
-    : !ceStatus.status.ai.claude ? 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY'
+    : !ceStatus.status.ai.claude ? 'ยังไม่ได้ตั้งค่า OPENROUTER_API_KEY'
     : !ceStatus.status.ai.gemini ? `ยังต่อ AI สร้างรูปไม่ได้ (${ceStatus.status.ai.mode.toUpperCase()}) — ภาพหน้าปกจะสร้างไม่ได้`
     : !ceStatus.status.ready ? `Content Engine ของโปรเจกต์นี้ขาด: ${ceStatus.status.missing.join(', ')}`
     : null

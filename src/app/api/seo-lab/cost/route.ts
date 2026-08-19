@@ -6,6 +6,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+// กัน Next prerender route นี้เป็น static ตอน build — GET ไม่ได้อ่าน request เลยโดนมองว่า static ได้
+export const dynamic = "force-dynamic";
+
 export async function GET(_req: NextRequest) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
