@@ -109,9 +109,9 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
   const accent = opts.accentColor || theme
   const bg = opts.backgroundColor && opts.backgroundColor !== '#ffffff' ? opts.backgroundColor : ''
 
-  // Default typography แบบ Google (อ้างอิง policies.google.com — Google Sans/Roboto):
-  // Roboto + Noto Sans Thai ใช้เมื่อ client ไม่ได้ตั้งฟอนต์เองใน Article Lab
-  const GOOGLE_DEFAULT_STACK = "Roboto,'Noto Sans Thai',Arial,sans-serif"
+  // Default typography — IBM Plex Sans Thai (เจ้าของเลือกจากหน้าเทียบ 2026-08-19)
+  // ใช้เมื่อ client ไม่ได้ตั้งฟอนต์เองใน Article Lab — ตั้งเองเมื่อไหร่ค่านั้นชนะ
+  const GOOGLE_DEFAULT_STACK = "'IBM Plex Sans Thai','Noto Sans Thai',sans-serif"
   const useGoogleDefault = !t?.fontFamily
 
   // ฟอนต์จาก element styles → @import ครั้งเดียว
@@ -119,7 +119,7 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
   for (const st of Object.values(opts.elementStyles ?? {})) {
     if (st?.font) fonts.add(st.font)
   }
-  if (useGoogleDefault) { fonts.add('Roboto'); fonts.add('Noto Sans Thai') }
+  if (useGoogleDefault) { fonts.add('IBM Plex Sans Thai'); fonts.add('Noto Sans Thai') }
   const importLine = fonts.size > 0
     ? `@import url('https://fonts.googleapis.com/css2?${Array.from(fonts).map(f => `family=${f.replace(/ /g, '+')}:wght@400;500;700`).join('&')}&display=swap');\n`
     : ''
