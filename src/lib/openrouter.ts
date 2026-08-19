@@ -136,11 +136,22 @@ export async function orChatStream(params: {
       if (payload === '[DONE]') continue
       try {
         const chunk = JSON.parse(payload)
+        // OpenRouter ส่ง error กลางสตรีมมากับ HTTP 200 ได้ — ห้ามกลืน
+        if (chunk.error) {
+          throw new Error(`OpenRouter stream error: ${JSON.stringify(chunk.error).slice(0, 300)}`)
+        }
         const delta: string = chunk.choices?.[0]?.delta?.content ?? ''
         if (delta) { full += delta; params.onDelta(delta) }
         if (chunk.usage) usage = parseUsage(chunk.usage)
-      } catch { /* keep-alive/comment — ข้าม */ }
+      } catch (e) {
+        if (e instanceof Error && e.message.startsWith('OpenRouter stream error')) throw e
+        /* keep-alive/comment — ข้าม */
+      }
     }
+  }
+  if (!full.trim()) {
+    // สตรีมจบแบบไม่มีเนื้อหาเลย — ถือว่าล้มเหลว ไม่ปล่อยค่าว่างไปให้ pipeline ทำต่อ
+    throw new Error(`OpenRouter คืนคำตอบว่าง (model: ${String(body.model)}, output tokens: ${usage.outputTokens})`)
   }
   return { text: full, usage }
 }

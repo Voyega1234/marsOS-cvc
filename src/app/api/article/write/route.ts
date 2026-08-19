@@ -787,6 +787,11 @@ export async function POST(req: NextRequest) {
         onDelta: (text) => { fullHtml += text; send({ type: 'chunk', content: text }) },
       })
       fullHtml = sanitizeArticleHtml(streamed.text)
+      // Guard: writer ต้องคืนเนื้อหาจริง — เนื้อว่าง/สั้นผิดปกติ = ล้มเหลว
+      // ห้ามเดินหน้าทำรูป/บันทึกบทความเปล่า (เคยเกิด: OpenRouter ล้มเงียบ แล้วระบบประกาศสำเร็จ)
+      if (fullHtml.replace(/<[^>]+>/g, '').trim().length < 500) {
+        throw new Error(`Writer คืนเนื้อหาสั้นผิดปกติ (${fullHtml.length} ตัวอักษรหลัง sanitize) — ตรวจ OpenRouter key/เครดิต แล้วลองใหม่`)
+      }
 
       // Log article write job
       if (orgId && userId) {
