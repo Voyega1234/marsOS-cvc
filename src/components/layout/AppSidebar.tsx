@@ -133,7 +133,8 @@ function SidebarInner() {
   const [todosBadge, setTodosBadge] = useState(0);
 
   useEffect(() => {
-    fetch('/api/morning-brief').then(r => r.ok ? r.json() : null).then(d => {
+    // badge ใช้ endpoint เบา — ตัวเต็ม (/api/morning-brief) หนัก 6-7 วิ ห้ามเรียกทุกหน้า
+    fetch('/api/morning-brief/badge').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.criticalCount != null) setBriefBadge(d.criticalCount);
     }).catch(() => {});
     fetch('/api/todos').then(r => r.ok ? r.json() : null).then((tasks: any[]) => {
