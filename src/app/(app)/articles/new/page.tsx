@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "สร้างบทความใ
 
 export default async function NewArticlePage() {
   const session = await getSession();
-  if (!session?.user?.organizationId) redirect("/login");
+  if (!session?.user?.organizationId) redirect("/setup");
 
   const orgId = session.user.organizationId;
 

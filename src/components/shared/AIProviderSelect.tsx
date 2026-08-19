@@ -26,7 +26,7 @@ const PROVIDER_LABEL: Record<string, string> = {
 const PROVIDER_COLOR: Record<string, string> = {
   claude:     "text-orange-600 bg-orange-50",
   openai:     "text-emerald-600 bg-emerald-50",
-  gemini:     "text-blue-600 bg-blue-50",
+  gemini:     "text-brand-blue bg-blue-50",
   groq:       "text-purple-600 bg-purple-50",
   mistral:    "text-rose-600 bg-rose-50",
   deepseek:   "text-indigo-600 bg-indigo-50",

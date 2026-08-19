@@ -1,0 +1,183 @@
+/**
+ * OpenRouter — ทางผ่าน AI กลางของทั้งระบบ (key เดียว: OPENROUTER_API_KEY)
+ *
+ * นโยบาย model (override ได้ทาง env):
+ *   เขียนบทความทั้งระบบ  → OPENROUTER_MODEL_WRITER  (default: openai/gpt-5.6-sol)
+ *   สร้างรูปทั้งระบบ      → OPENROUTER_MODEL_IMAGE   (default: openai/gpt-5-image — ผู้ใช้เลือกเอง 2026-08-19)
+ *   จุดอื่น ๆ ทั้งหมด     → OPENROUTER_MODEL_DEFAULT (default: google/gemini-3.7-flash)
+ */
+
+const OR_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+export const OR_MODELS = {
+  writer: () => process.env.OPENROUTER_MODEL_WRITER || 'openai/gpt-5.6-sol',
+  image: () => process.env.OPENROUTER_MODEL_IMAGE || 'openai/gpt-5-image',
+  default: () => process.env.OPENROUTER_MODEL_DEFAULT || 'google/gemini-3.7-flash',
+}
+
+function requireKey(): string {
+  const key = process.env.OPENROUTER_API_KEY
+  if (!key) throw new Error('OPENROUTER_API_KEY is not set — ใส่ key ใน .env.development.local (local) และ Vercel env (prod)')
+  return key
+}
+
+function headers(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${requireKey()}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': 'https://convertcake.com',
+    'X-Title': 'MarsOS',
+  }
+}
+
+export interface ORUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  costUsd: number
+}
+
+export interface ORChatResult {
+  text: string
+  usage: ORUsage
+  /** ลิงก์อ้างอิงจาก web search (เมื่อเปิด webSearch) */
+  citations: Array<{ url: string; title: string }>
+}
+
+function parseUsage(u: Record<string, unknown> | undefined): ORUsage {
+  const input = Number(u?.prompt_tokens ?? 0)
+  const output = Number(u?.completion_tokens ?? 0)
+  return { inputTokens: input, outputTokens: output, totalTokens: input + output, costUsd: Number(u?.cost ?? 0) }
+}
+
+export async function orChat(params: {
+  prompt?: string
+  messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  model?: string
+  maxTokens?: number
+  temperature?: number
+  /** เปิด web search plugin (แทน Google Search grounding ของ Gemini เดิม) */
+  webSearch?: boolean
+  timeoutMs?: number
+}): Promise<ORChatResult> {
+  const messages = params.messages ?? [{ role: 'user' as const, content: params.prompt ?? '' }]
+  const body: Record<string, unknown> = {
+    model: params.model || OR_MODELS.default(),
+    messages,
+    usage: { include: true },
+  }
+  if (params.maxTokens) body.max_tokens = params.maxTokens
+  if (typeof params.temperature === 'number') body.temperature = params.temperature
+  if (params.webSearch) body.plugins = [{ id: 'web', max_results: 8 }]
+
+  const res = await fetch(OR_URL, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(params.timeoutMs ?? 240_000),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`OpenRouter ${res.status}: ${detail.slice(0, 300)}`)
+  }
+  const data = await res.json()
+  if (data.error) throw new Error(`OpenRouter error: ${JSON.stringify(data.error).slice(0, 300)}`)
+  const msg = data.choices?.[0]?.message
+  const annotations: Array<{ type?: string; url_citation?: { url?: string; title?: string } }> = msg?.annotations ?? []
+  const citations = annotations
+    .filter((a) => a.url_citation?.url)
+    .map((a) => ({ url: String(a.url_citation!.url), title: String(a.url_citation!.title ?? '') }))
+  return { text: msg?.content ?? '', usage: parseUsage(data.usage), citations }
+}
+
+/** stream แบบ SSE — คืน ReadableStream ของ text delta + promise ของ usage ตอนจบ */
+export async function orChatStream(params: {
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  model?: string
+  maxTokens?: number
+  temperature?: number
+  timeoutMs?: number
+  onDelta: (text: string) => void
+}): Promise<{ text: string; usage: ORUsage }> {
+  const body: Record<string, unknown> = {
+    model: params.model || OR_MODELS.writer(),
+    messages: params.messages,
+    stream: true,
+    usage: { include: true },
+  }
+  if (params.maxTokens) body.max_tokens = params.maxTokens
+  if (typeof params.temperature === 'number') body.temperature = params.temperature
+
+  const res = await fetch(OR_URL, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(params.timeoutMs ?? 600_000),
+  })
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`OpenRouter ${res.status}: ${detail.slice(0, 300)}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let full = ''
+  let usage: ORUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 }
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const payload = line.slice(6).trim()
+      if (payload === '[DONE]') continue
+      try {
+        const chunk = JSON.parse(payload)
+        const delta: string = chunk.choices?.[0]?.delta?.content ?? ''
+        if (delta) { full += delta; params.onDelta(delta) }
+        if (chunk.usage) usage = parseUsage(chunk.usage)
+      } catch { /* keep-alive/comment — ข้าม */ }
+    }
+  }
+  return { text: full, usage }
+}
+
+export interface ORImageResult {
+  base64: string
+  mimeType: string
+  usage: ORUsage
+}
+
+/** สร้างรูปผ่าน chat completions + modalities image — คืน base64 */
+export async function orImage(params: {
+  prompt: string
+  model?: string
+  timeoutMs?: number
+  /** สัดส่วนที่โมเดลรองรับ (gpt-5-image: '1:1' | '3:2' | '2:3') — ใกล้เคียงเป้าหมายที่สุด
+   *  แล้วค่อย crop ปลายทาง เพื่อลดการตัดตัวหนังสือ/องค์ประกอบ */
+  aspectRatio?: '1:1' | '3:2' | '2:3'
+}): Promise<ORImageResult> {
+  // ใช้ Image API เฉพาะทางของ OpenRouter — chat completions ไม่รับพารามิเตอร์ขนาดภาพ
+  const res = await fetch('https://openrouter.ai/api/v1/images', {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({
+      model: params.model || OR_MODELS.image(),
+      prompt: params.prompt,
+      ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
+    }),
+    signal: AbortSignal.timeout(params.timeoutMs ?? 300_000),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`OpenRouter image ${res.status}: ${detail.slice(0, 300)}`)
+  }
+  const data = await res.json()
+  if (data.error) throw new Error(`OpenRouter image error: ${JSON.stringify(data.error).slice(0, 300)}`)
+  const img: { b64_json?: string; media_type?: string } | undefined = data.data?.[0]
+  if (!img?.b64_json) throw new Error(`OpenRouter image: no image returned (${JSON.stringify(data).slice(0, 120)})`)
+  return { base64: img.b64_json, mimeType: img.media_type || 'image/png', usage: parseUsage(data.usage) }
+}

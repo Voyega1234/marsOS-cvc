@@ -5,7 +5,7 @@ import ClientDetailTabs from "@/components/projects/ClientDetailTabs";
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
   const session = await getSession();
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/setup");
 
   const userRole = session.user.role ?? "USER";
   const orgId = session.user.organizationId;
@@ -17,7 +17,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
     });
     if (!access) notFound();
   } else if (!orgId) {
-    redirect("/login");
+    redirect("/setup");
   }
 
   const project = await prisma.project.findFirst({
@@ -51,6 +51,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         styleGuide: (project as any).styleGuide ?? null,
         accentColor: (project as any).accentColor ?? '#2563eb',
         articleTheme: (project as any).articleTheme ?? 'professional',
+        themeColors: (project as any).themeColors ?? '{}',
         forbiddenWords: (project as any).forbiddenWords ?? '[]',
         sampleArticle: (project as any).sampleArticle ?? null,
         internalLinks: (project as any).internalLinks ?? '[]',

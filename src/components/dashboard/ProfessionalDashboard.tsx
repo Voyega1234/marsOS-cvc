@@ -125,7 +125,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
       {/* Greeting */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">สวัสดี, {userName}</h1>
+          <h1 className="text-xl font-bold text-brand-navy">สวัสดี, {userName}</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {new Date().toLocaleDateString("th-TH", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
@@ -147,7 +147,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
           <div className={`rounded-xl border p-5 ${onTrack ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}>
             <div className="flex items-start justify-between gap-4 mb-3">
               <div>
-                <p className="text-sm font-semibold text-gray-900">เป้าหมายเดือนนี้</p>
+                <p className="text-sm font-semibold text-brand-navy">เป้าหมายเดือนนี้</p>
                 <p className="text-xs text-gray-500 mt-0.5">เหลือ {daysLeft} วัน · ต้องการอีก {needed} บทความ</p>
               </div>
               <div className="text-right">
@@ -174,12 +174,12 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
       {stats.projectCount === 0 && (
         <div className="rounded-xl border border-blue-100 bg-blue-50 px-5 py-5">
           <p className="text-sm font-semibold text-blue-900 mb-1">ยินดีต้อนรับสู่ Mars 👋</p>
-          <p className="text-xs text-blue-600 mb-4">ทำ 3 ขั้นตอนนี้ก็พร้อมเขียนบทความแรกได้เลย</p>
+          <p className="text-xs text-brand-blue mb-4">ทำ 3 ขั้นตอนนี้ก็พร้อมเขียนบทความแรกได้เลย</p>
           <div className="space-y-2.5">
             <Link href="/projects" className="flex items-center gap-3 bg-white border border-blue-200 rounded-lg px-4 py-3 hover:bg-blue-50 transition-colors group">
-              <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
+              <span className="w-6 h-6 rounded-full bg-brand-blue text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900">สร้าง Project แรก</p>
+                <p className="text-sm font-semibold text-brand-navy">สร้าง Project แรก</p>
                 <p className="text-xs text-gray-500">ตั้งชื่อเว็บไซต์และ URL ที่ต้องการเขียนบทความให้</p>
               </div>
               <ArrowUpRight className="h-4 w-4 text-gray-300 group-hover:text-blue-500 transition-colors shrink-0" />
@@ -266,7 +266,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
                   <ArrowUpRight className="h-3 w-3 text-gray-300 group-hover:text-gray-400 transition-colors" />
                 )}
               </div>
-              <p className="text-xl font-semibold tabular-nums text-gray-900 tracking-tight">
+              <p className="text-xl font-semibold tabular-nums text-brand-navy tracking-tight">
                 {card.value}
                 {card.suffix && <span className="text-sm font-normal text-gray-400 ml-1">{card.suffix}</span>}
               </p>
@@ -287,7 +287,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
       {/* Pipeline Progress */}
       <div className="bg-white border border-gray-100 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-900">Pipeline Throughput</h2>
+          <h2 className="text-sm font-semibold text-brand-navy">Pipeline Throughput</h2>
           <Link href="/articles" className="text-xs text-green-600 hover:text-green-700 font-medium">View All →</Link>
         </div>
         <div className="grid grid-cols-7 gap-2">
@@ -295,7 +295,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
             const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
             return (
               <Link key={key} href={`/articles?step=${key}`} className="group text-center">
-                <div className="text-lg font-bold text-gray-900 group-hover:text-green-600 transition-colors">{count}</div>
+                <div className="text-lg font-bold text-brand-navy group-hover:text-green-600 transition-colors">{count}</div>
                 <div className="text-xs text-gray-400 truncate">{label}</div>
                 <div className="mt-1.5 h-1.5 rounded-full bg-gray-100 overflow-hidden">
                   <div className="h-full bg-green-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
@@ -312,7 +312,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
         {/* Recent Articles */}
         <div className="xl:col-span-2 bg-white border border-gray-100 rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-            <h2 className="text-sm font-semibold text-gray-900">Recent Articles</h2>
+            <h2 className="text-sm font-semibold text-brand-navy">Recent Articles</h2>
             <Link href="/articles" className="text-xs text-green-600 hover:text-green-700 font-medium">View All →</Link>
           </div>
           <div className="divide-y divide-gray-50">
@@ -326,11 +326,11 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
                 className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors group"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate group-hover:text-green-700 transition-colors">{article.title}</p>
+                  <p className="text-sm font-medium text-brand-navy truncate group-hover:text-green-700 transition-colors">{article.title}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-xs text-gray-400">{article.project.name}</span>
                     {article.keyword && (
-                      <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{article.keyword.keyword}</span>
+                      <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-brand-blue rounded">{article.keyword.keyword}</span>
                     )}
                   </div>
                 </div>
@@ -350,7 +350,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
           {/* Activity */}
           <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-900">Activity</h2>
+              <h2 className="text-sm font-semibold text-brand-navy">Activity</h2>
               <Link href="/activity-logs" className="text-xs text-green-600 hover:text-green-700 font-medium">All Logs →</Link>
             </div>
             <div className="px-5 py-3 divide-y divide-gray-50 max-h-52 overflow-auto">
@@ -378,7 +378,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
           {/* Recent AI Jobs */}
           <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-brand-navy flex items-center gap-2">
                 <Zap className="h-3.5 w-3.5 text-amber-500" />
                 AI Jobs
               </h2>

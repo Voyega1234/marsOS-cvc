@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!siteUrl) return NextResponse.json({ error: "siteUrl required" }, { status: 400 });
 
   try {
-    const auth = getGSCAuth();
+    const auth = await getGSCAuth();
     const sc = google.searchconsole({ version: "v1", auth });
 
     const now = new Date();

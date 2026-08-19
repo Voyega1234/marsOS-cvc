@@ -154,7 +154,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
       {/* Greeting */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-brand-navy">
             {getGreeting()}, {userName} 👋
           </h1>
           <p className="text-gray-500 mt-1.5 text-base">
@@ -195,7 +195,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
       <div>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">ขั้นตอนการผลิตบทความ</h2>
+            <h2 className="text-xl font-bold text-brand-navy">ขั้นตอนการผลิตบทความ</h2>
             <p className="text-sm text-gray-500 mt-0.5">คลิกที่การ์ดเพื่อดูบทความในขั้นตอนนั้น</p>
           </div>
         </div>
@@ -241,7 +241,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
         {/* My Articles */}
         <div className="lg:col-span-3">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-900">บทความของฉัน</h2>
+            <h2 className="text-xl font-bold text-brand-navy">บทความของฉัน</h2>
             <Link href="/articles" className="text-sm text-green-600 hover:text-green-700 font-medium flex items-center gap-1">
               ดูทั้งหมด <ArrowRight className="h-3.5 w-3.5" />
             </Link>
@@ -268,7 +268,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
                     <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-green-200 hover:shadow-md transition-all group">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-900 group-hover:text-green-700 transition-colors line-clamp-2 leading-snug">
+                          <p className="font-semibold text-brand-navy group-hover:text-green-700 transition-colors line-clamp-2 leading-snug">
                             {article.title}
                           </p>
                           <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -306,7 +306,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
 
         {/* Activity Feed */}
         <div className="lg:col-span-2">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">กิจกรรมล่าสุด</h2>
+          <h2 className="text-xl font-bold text-brand-navy mb-4">กิจกรรมล่าสุด</h2>
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
             {recentActivity.length === 0 ? (
               <div className="text-center py-6">

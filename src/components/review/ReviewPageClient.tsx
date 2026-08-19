@@ -96,7 +96,7 @@ function ClientRevisionCard({ article, onDone }: { article: ArticleItem; onDone:
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-900 truncate">{article.title}</span>
+            <span className="text-sm font-semibold text-brand-navy truncate">{article.title}</span>
             <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-semibold shrink-0">Client ขอแก้ไข</span>
           </div>
           <p className="text-[11px] text-gray-400 mt-0.5">{article.project.name} {article.keyword ? `· ${article.keyword}` : ''} · {timeAgo(article.updatedAt)}</p>
@@ -203,7 +203,7 @@ function ClientReviewCard({ article, isClient, onDone }: { article: ArticleItem;
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-900 truncate">{article.title}</span>
+            <span className="text-sm font-semibold text-brand-navy truncate">{article.title}</span>
             <span className="text-[10px] bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full font-semibold shrink-0">รอ Approve</span>
           </div>
           <p className="text-[11px] text-gray-400 mt-0.5">{article.project.name} {article.keyword ? `· ${article.keyword}` : ''} · {timeAgo(article.updatedAt)}</p>
@@ -272,7 +272,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
     return (
       <div className="space-y-5 max-w-3xl">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">บทความรอ Approve</h1>
+          <h1 className="text-xl font-bold text-brand-navy">บทความรอ Approve</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {clientReviewArticles.length > 0
               ? `${clientReviewArticles.length} บทความรอการอนุมัติจากคุณ`
@@ -301,7 +301,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">Review Queue</h1>
+        <h1 className="text-xl font-bold text-brand-navy">Review Queue</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           {totalAdmin > 0 ? `${totalAdmin} รายการรอดำเนินการ` : 'ไม่มีรายการรอ'}
         </p>
@@ -312,7 +312,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <AlertCircle size={16} className="text-rose-500" />
-            <h2 className="text-sm font-bold text-gray-900">Client ขอแก้ไข</h2>
+            <h2 className="text-sm font-bold text-brand-navy">Client ขอแก้ไข</h2>
             <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-semibold">{clientRevisionArticles.length}</span>
             <span className="text-[11px] text-gray-400">— แก้ไขแล้วส่ง Approve ใหม่</span>
           </div>
@@ -327,7 +327,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Clock size={16} className="text-violet-500" />
-            <h2 className="text-sm font-bold text-gray-900">รอ Client Approve</h2>
+            <h2 className="text-sm font-bold text-brand-navy">รอ Client Approve</h2>
             <span className="text-xs bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full font-semibold">{clientReviewArticles.length}</span>
             <span className="text-[11px] text-gray-400">— ส่งให้ client แล้ว รอการตอบกลับ</span>
           </div>

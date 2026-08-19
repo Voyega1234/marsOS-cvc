@@ -224,7 +224,7 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
         </div>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Keyword Research</h1>
+            <h1 className="text-xl font-bold text-brand-navy">Keyword Research</h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {activeKeywords.length} keywords · {researchedCount} researched
             </p>
@@ -406,7 +406,7 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
                           <ChevronRight className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                         </td>
                         <td className="px-4 py-3.5">
-                          <p className="font-semibold text-gray-900">{group.seed}</p>
+                          <p className="font-semibold text-brand-navy">{group.seed}</p>
                           <p className="text-xs text-gray-400 mt-0.5">{group.keywords.length} keyword{group.keywords.length > 1 ? 's' : ''} in group</p>
                         </td>
                         <td className="px-4 py-3.5">

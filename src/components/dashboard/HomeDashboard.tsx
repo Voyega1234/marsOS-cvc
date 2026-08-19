@@ -59,7 +59,7 @@ interface Props {
 
 const STATUS_LABEL: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   pending:  { label: "รอเขียน",    color: "bg-gray-100 text-gray-500",    icon: <Clock size={10} /> },
-  writing:  { label: "กำลังเขียน", color: "bg-blue-100 text-blue-600",   icon: <RefreshCw size={10} className="animate-spin" /> },
+  writing:  { label: "กำลังเขียน", color: "bg-blue-100 text-brand-blue",   icon: <RefreshCw size={10} className="animate-spin" /> },
   review:   { label: "รอตรวจ",     color: "bg-amber-100 text-amber-700",  icon: <Eye size={10} /> },
   approved: { label: "Approved",   color: "bg-emerald-100 text-emerald-700", icon: <CheckCircle2 size={10} /> },
   pushed:   { label: "Pushed",     color: "bg-teal-100 text-teal-700",    icon: <Send size={10} /> },
@@ -99,7 +99,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
       {/* Header */}
       <div>
         <p className="text-xs text-gray-400 mb-0.5">{today}</p>
-        <h1 className="text-xl font-bold text-gray-900">
+        <h1 className="text-xl font-bold text-brand-navy">
           สวัสดี{userName ? `, ${userName}` : ""} 👋
         </h1>
         <p className="text-sm text-gray-500 mt-0.5">ภาพรวมงานที่ค้างอยู่ในระบบ</p>
@@ -108,7 +108,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
       {/* Summary chips */}
       <div className="flex flex-wrap gap-3">
         {[
-          { label: "Projects",      value: summary.totalProjects, color: "bg-gray-900 text-white" },
+          { label: "Projects",      value: summary.totalProjects, color: "bg-brand-blue text-white" },
           { label: "บทความทั้งหมด", value: summary.totalArticles, color: "bg-gray-100 text-gray-700" },
           { label: "รอเขียน",       value: summary.totalPending,  color: summary.totalPending > 0  ? "bg-gray-100 text-gray-600" : "bg-gray-50 text-gray-400" },
           { label: "กำลังเขียน",    value: summary.totalWriting,  color: summary.totalWriting > 0  ? "bg-blue-100 text-blue-700" : "bg-gray-50 text-gray-400" },
@@ -125,7 +125,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
       {/* ── งานค้าง ── */}
       {activeProjects.length > 0 && (
         <div>
-          <h2 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-bold text-brand-navy mb-3 flex items-center gap-2">
             <AlertCircle size={14} className="text-amber-500" />
             งานที่ค้างอยู่ ({activeProjects.length} client)
           </h2>
@@ -151,7 +151,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
                       {(p.review > 0) && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />}
                       {(p.writing > 0 && p.review === 0) && <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0 animate-pulse" />}
                       {(p.pending > 0 && p.writing === 0 && p.review === 0) && <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" />}
-                      <span className="font-semibold text-gray-900 text-sm truncate">{p.name}</span>
+                      <span className="font-semibold text-brand-navy text-sm truncate">{p.name}</span>
                     </div>
                     {p.website && (
                       <p className="text-[11px] text-gray-400 truncate mt-0.5 ml-4">{p.website}</p>
@@ -162,7 +162,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
                     <span className={`text-sm font-bold ${p.pending > 0 ? "text-gray-600" : "text-gray-300"}`}>{p.pending}</span>
                   </div>
                   <div className="text-center">
-                    <span className={`text-sm font-bold ${p.writing > 0 ? "text-blue-600" : "text-gray-300"}`}>{p.writing}</span>
+                    <span className={`text-sm font-bold ${p.writing > 0 ? "text-brand-blue" : "text-gray-300"}`}>{p.writing}</span>
                   </div>
                   <div className="text-center">
                     <span className={`text-sm font-bold ${p.review > 0 ? "text-amber-600" : "text-gray-300"}`}>{p.review}</span>
@@ -178,7 +178,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
                   <div className="flex justify-end">
                     <Link
                       href={`/projects/${p.id}?tab=${p.review > 0 ? "review" : "articles"}`}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs font-semibold hover:bg-gray-700 transition-colors"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors"
                     >
                       {p.review > 0 ? <Eye size={11} /> : <Pencil size={11} />}
                       {p.review > 0 ? "ตรวจ" : "เขียน"}
@@ -214,7 +214,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
       {/* ── Projects ที่เสร็จแล้ว / ไม่มีงานค้าง ── */}
       {idleProjects.length > 0 && (
         <div>
-          <h2 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-bold text-brand-navy mb-3 flex items-center gap-2">
             <CheckCircle2 size={14} className="text-emerald-500" />
             ไม่มีงานค้าง ({idleProjects.length} client)
           </h2>
@@ -250,7 +250,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
           <div className="text-4xl mb-3">📋</div>
           <p className="text-gray-500 font-medium">ยังไม่มี client</p>
           <p className="text-gray-400 text-sm mt-1">ไปที่ Clients เพื่อสร้าง project แรก</p>
-          <Link href="/projects" className="inline-block mt-4 px-4 py-2 bg-gray-900 text-white text-sm rounded-xl hover:bg-gray-700 transition-colors">
+          <Link href="/projects" className="inline-block mt-4 px-4 py-2 bg-brand-blue text-white text-sm rounded-xl hover:bg-brand-deep transition-colors">
             + สร้าง Client
           </Link>
         </div>
@@ -259,7 +259,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
       {/* ── Activity Log ── */}
       {recentActivity.length > 0 && (
         <div>
-          <h2 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-bold text-brand-navy mb-3 flex items-center gap-2">
             <FileText size={14} className="text-gray-400" />
             กิจกรรมล่าสุด
           </h2>

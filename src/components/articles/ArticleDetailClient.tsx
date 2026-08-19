@@ -119,7 +119,7 @@ function VersionDiff({ versions }: {
 
   return (
     <div className="space-y-4">
-      <h3 className="font-semibold text-gray-900">Version History</h3>
+      <h3 className="font-semibold text-brand-navy">Version History</h3>
 
       {/* Version list */}
       <div className="space-y-2">
@@ -129,14 +129,14 @@ function VersionDiff({ versions }: {
               v{v.versionNumber}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900">{v.changeNote ?? "Auto-saved"}</p>
+              <p className="text-sm font-medium text-brand-navy">{v.changeNote ?? "Auto-saved"}</p>
               <p className="text-xs text-gray-400">{formatDateTime(v.createdAt)}</p>
             </div>
             {v.htmlContent && (
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={() => setVA(v.id)}
-                  className={`px-2 py-1 text-[10px] font-bold rounded ${vA === v.id ? "bg-blue-600 text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-50"}`}
+                  className={`px-2 py-1 text-[10px] font-bold rounded ${vA === v.id ? "bg-brand-blue text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-50"}`}
                 >A</button>
                 <button
                   onClick={() => setVB(v.id)}
@@ -254,20 +254,20 @@ function SchemaGenerator({ article }: { article: { title: string; seoTitle?: str
             <button
               key={t}
               onClick={() => setType(t)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${type === t ? "bg-gray-900 text-white" : "text-gray-500 hover:bg-gray-200"}`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${type === t ? "bg-brand-blue text-white" : "text-gray-500 hover:bg-gray-200"}`}
             >
               {t}
             </button>
           ))}
         </div>
       </div>
-      <pre className="p-4 bg-gray-900 text-green-300 text-[11px] overflow-auto max-h-52 font-mono leading-relaxed">
+      <pre className="p-4 bg-brand-blue text-green-300 text-[11px] overflow-auto max-h-52 font-mono leading-relaxed">
         {scriptTag}
       </pre>
       <div className="px-4 py-2.5 border-t border-gray-200 flex justify-end">
         <button
           onClick={copy}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue hover:bg-brand-deep text-white text-xs font-semibold rounded-lg transition-colors"
         >
           <Copy className="h-3 w-3" />
           {copied ? "คัดลอกแล้ว ✓" : "Copy Schema"}
@@ -303,11 +303,11 @@ function BriefEditor({ article }: { article: { id: string; brief?: string | null
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-gray-900">Brief</h3>
+        <h3 className="font-semibold text-brand-navy">Brief</h3>
         <button
           onClick={save}
           disabled={saving}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
         >
           <Save className="h-3.5 w-3.5" />
           {saving ? "กำลังบันทึก..." : "บันทึก"}
@@ -322,7 +322,7 @@ function BriefEditor({ article }: { article: { id: string; brief?: string | null
             <button
               key={n}
               onClick={() => setTargetWc(n)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${targetWc === n ? "bg-blue-600 text-white" : "bg-white border border-blue-200 text-blue-600 hover:bg-blue-50"}`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${targetWc === n ? "bg-brand-blue text-white" : "bg-white border border-blue-200 text-brand-blue hover:bg-blue-50"}`}
             >
               {n}
             </button>
@@ -522,11 +522,11 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
           <span>/</span>
           <Link href={`/projects/${article.project.id}`} className="hover:text-green-600">{article.project.name}</Link>
           <span>/</span>
-          <span className="text-gray-900 truncate max-w-xs">{article.title}</span>
+          <span className="text-brand-navy truncate max-w-xs">{article.title}</span>
         </div>
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-gray-900 leading-tight">{article.title}</h1>
+            <h1 className="text-xl font-bold text-brand-navy leading-tight">{article.title}</h1>
             <div className="flex items-center gap-3 mt-2">
               <StatusBadge status={article.status} />
               <FunnelBadge stage={article.funnelStage as never} />
@@ -547,7 +547,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               <Link
                 href={`/share/${article.id}`}
                 target="_blank"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-brand-blue border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
               >
                 <Share2 className="h-3.5 w-3.5" />Share
               </Link>
@@ -601,7 +601,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
           <div className={`rounded-xl border px-5 py-4 flex items-start gap-3 ${isDone ? "bg-green-50 border-green-100" : s === "ERROR" ? "bg-red-50 border-red-100" : s.includes("GENERATING") ? "bg-gray-50 border-gray-100" : "bg-blue-50 border-blue-100"}`}>
             <span className="text-xl mt-0.5 shrink-0">{step.emoji}</span>
             <div className="flex-1 min-w-0">
-              <p className={`text-sm font-semibold ${s === "ERROR" ? "text-red-800" : "text-gray-900"}`}>{step.title}</p>
+              <p className={`text-sm font-semibold ${s === "ERROR" ? "text-red-800" : "text-brand-navy"}`}>{step.title}</p>
               <p className="text-xs text-gray-500 mt-0.5">{step.desc}</p>
             </div>
           </div>
@@ -669,10 +669,10 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                 {/* Tooltip on locked */}
                 {isLocked && (
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/btn:block z-50 pointer-events-none">
-                    <div className="bg-gray-900 text-white text-[11px] font-medium px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg">
+                    <div className="bg-brand-blue text-white text-[11px] font-medium px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg">
                       🔒 {action.lockedReason}
                     </div>
-                    <div className="w-2 h-2 bg-gray-900 rotate-45 mx-auto -mt-1" />
+                    <div className="w-2 h-2 bg-brand-blue rotate-45 mx-auto -mt-1" />
                   </div>
                 )}
               </div>
@@ -715,7 +715,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
             <BriefEditor article={article} />
             {article.keyword && (
               <div className="mt-5">
-                <h4 className="font-medium text-gray-900 mb-2 text-sm">Keywords</h4>
+                <h4 className="font-medium text-brand-navy mb-2 text-sm">Keywords</h4>
                 <div className="flex flex-wrap gap-2">
                   <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">{article.keyword.keyword}</span>
                   {relatedKeywords.map((kw, i) => (
@@ -729,7 +729,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
           {/* Outline */}
           <TabsContent value="outline" className="p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">Outline บทความ</h3>
+              <h3 className="font-semibold text-brand-navy">Outline บทความ</h3>
               {article.status === "OUTLINE_DONE" && (
                 <Button onClick={approveOutline} size="sm" className="bg-[#1A1A1A] hover:bg-[#2D2D2D] gap-2">
                   <CheckCircle className="h-4 w-4" /> อนุมัติ Outline
@@ -748,14 +748,14 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                 )}
                 {outline.sections?.map((section, i) => (
                   <div key={i} className="border rounded-lg p-4">
-                    <p className="font-medium text-gray-900">{section.heading}</p>
+                    <p className="font-medium text-brand-navy">{section.heading}</p>
                     {section.subheadings?.map((sh, j) => (
                       <p key={j} className="text-sm text-gray-600 ml-4 mt-1">• {sh}</p>
                     ))}
                     {section.keyPoints?.length ? (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {section.keyPoints.map((kp, k) => (
-                          <span key={k} className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded">{kp}</span>
+                          <span key={k} className="text-xs px-2 py-0.5 bg-blue-50 text-brand-blue rounded">{kp}</span>
                         ))}
                       </div>
                     ) : null}
@@ -763,7 +763,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                 ))}
                 {outline.faqSuggestions?.length ? (
                   <div className="border rounded-lg p-4 bg-yellow-50">
-                    <p className="font-medium text-gray-900 mb-2">FAQ ที่แนะนำ</p>
+                    <p className="font-medium text-brand-navy mb-2">FAQ ที่แนะนำ</p>
                     {outline.faqSuggestions.map((q, i) => (
                       <p key={i} className="text-sm text-gray-700">• {q}</p>
                     ))}
@@ -777,7 +777,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
           <TabsContent value="article" className="p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <h3 className="font-semibold text-gray-900">
+                <h3 className="font-semibold text-brand-navy">
                   บทความ
                   {editedHtml && (
                     <span className="ml-2 text-xs text-gray-400 font-normal">
@@ -810,13 +810,13 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                   <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
                     <button
                       onClick={() => setArticleViewMode("edit")}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${articleViewMode === "edit" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${articleViewMode === "edit" ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
                     >
                       <Code2 className="h-3.5 w-3.5" />Edit
                     </button>
                     <button
                       onClick={() => setArticleViewMode("preview")}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${articleViewMode === "preview" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${articleViewMode === "preview" ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
                     >
                       <Eye className="h-3.5 w-3.5" />Preview
                     </button>
@@ -929,7 +929,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
 
           {/* SEO */}
           <TabsContent value="seo" className="p-5">
-            <h3 className="font-semibold text-gray-900 mb-4">SEO Metadata</h3>
+            <h3 className="font-semibold text-brand-navy mb-4">SEO Metadata</h3>
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">SEO Title</label>
@@ -944,7 +944,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               {article.faqSchema && (
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">FAQ Schema (JSON-LD)</label>
-                  <pre className="mt-1 p-3 bg-gray-900 text-green-400 rounded-lg text-xs overflow-auto max-h-48">
+                  <pre className="mt-1 p-3 bg-brand-blue text-green-400 rounded-lg text-xs overflow-auto max-h-48">
                     {JSON.stringify(safeJson(article.faqSchema, {}), null, 2)}
                   </pre>
                 </div>
@@ -955,7 +955,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               {latestReview && (
                 <div className="grid grid-cols-3 gap-4 mt-4">
                   {[
-                    { label: "SEO Score", value: latestReview.seoScore, color: "text-blue-600" },
+                    { label: "SEO Score", value: latestReview.seoScore, color: "text-brand-blue" },
                     { label: "AEO Score", value: latestReview.aeoScore, color: "text-purple-600" },
                     { label: "Conversion", value: latestReview.conversionScore, color: "text-green-600" },
                   ].map((s) => (
@@ -972,7 +972,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
 
           {/* Image */}
           <TabsContent value="image" className="p-5">
-            <h3 className="font-semibold text-gray-900 mb-4">Image Prompt</h3>
+            <h3 className="font-semibold text-brand-navy mb-4">Image Prompt</h3>
             {!article.imagePrompt ? (
               <div className="text-center py-12 text-gray-400">
                 <Image className="h-10 w-10 mx-auto mb-3 text-gray-300" />
@@ -991,7 +991,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                     <button
                       onClick={insertImageIntoContent}
                       disabled={savingHtml || !article.htmlContent}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-40 transition-colors"
                     >
                       <ImagePlus className="h-4 w-4" />
                       {savingHtml ? "กำลังแทรก..." : "แทรกรูปเข้าบทความ"}
@@ -1036,7 +1036,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
           <TabsContent value="linking" className="p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="font-semibold text-gray-900">Internal Linking</h3>
+                <h3 className="font-semibold text-brand-navy">Internal Linking</h3>
                 <p className="text-xs text-gray-500 mt-0.5">บทความอื่นใน project นี้ที่ควร link ถึงกัน</p>
               </div>
             </div>
@@ -1056,7 +1056,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                     <div key={a.id} className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${relevant ? "border-green-200 bg-green-50/50" : "border-gray-100 bg-white"}`}>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <Link href={`/articles/${a.id}`} target="_blank" className="text-sm font-medium text-gray-900 hover:text-green-700 truncate">
+                          <Link href={`/articles/${a.id}`} target="_blank" className="text-sm font-medium text-brand-navy hover:text-green-700 truncate">
                             {a.title}
                           </Link>
                           {relevant && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">แนะนำ</span>}
@@ -1066,7 +1066,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                       </div>
                       <button
                         onClick={() => { navigator.clipboard.writeText(linkHtml); toast.success("คัดลอก link HTML แล้ว"); }}
-                        className="shrink-0 flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                        className="shrink-0 flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-brand-navy border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         <Copy className="h-3 w-3" />Copy
                       </button>
@@ -1079,7 +1079,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
 
           {/* Publish */}
           <TabsContent value="publish" className="p-5">
-            <h3 className="font-semibold text-gray-900 mb-4">เผยแพร่ไป WordPress</h3>
+            <h3 className="font-semibold text-brand-navy mb-4">เผยแพร่ไป WordPress</h3>
 
             {/* Pre-publish checklist */}
             {(() => {
@@ -1102,7 +1102,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               return (
                 <div className={`rounded-xl border p-4 mb-5 ${allPassed ? "border-green-200 bg-green-50" : "border-gray-200 bg-gray-50"}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold text-gray-900">Pre-publish Checklist</p>
+                    <p className="text-sm font-semibold text-brand-navy">Pre-publish Checklist</p>
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${allPassed ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-600"}`}>
                       {passed}/{checks.length} ✓
                     </span>
@@ -1156,7 +1156,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
           <TabsContent value="history" className="p-5">
             <VersionDiff versions={article.versions} />
 
-            <h3 className="font-semibold text-gray-900 mb-3 mt-6">AI Jobs</h3>
+            <h3 className="font-semibold text-brand-navy mb-3 mt-6">AI Jobs</h3>
             {article.aiJobs.length === 0 ? (
               <p className="text-gray-400 text-sm">ยังไม่มี AI job</p>
             ) : (
@@ -1166,7 +1166,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${job.status === "DONE" ? "bg-green-100 text-green-700" : job.status === "FAILED" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
                       {job.status}
                     </span>
-                    <span className="font-medium text-gray-900">{job.jobType}</span>
+                    <span className="font-medium text-brand-navy">{job.jobType}</span>
                     <span className="text-gray-400 ml-auto">{job.tokenUsed?.toLocaleString()} tokens</span>
                     <span className="text-gray-400">${job.estimatedCost?.toFixed(4)}</span>
                     <span className="text-gray-400">{formatDate(job.createdAt)}</span>

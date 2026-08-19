@@ -167,7 +167,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">สร้างบทความใหม่</h1>
+          <h1 className="text-xl font-semibold text-brand-navy">สร้างบทความใหม่</h1>
           <p className="text-sm text-gray-500 mt-0.5">ใส่ title → เลือก Full Auto → กด Enter</p>
         </div>
         <span className="text-xs text-gray-400 pb-0.5">กด <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600 font-mono text-[10px]">Enter</kbd> เพื่อสร้าง</span>
@@ -182,7 +182,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
             className={cn(
               "relative flex flex-col gap-1.5 rounded-xl border p-4 text-left transition-all",
               mode === m.value
-                ? "border-gray-900 bg-gray-900 text-white shadow-md"
+                ? "border-brand-blue bg-brand-blue text-white shadow-md"
                 : "border-gray-100 bg-white hover:border-gray-300"
             )}
           >
@@ -213,7 +213,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
             <select
               value={projectId}
               onChange={(e) => { setProjectId(e.target.value); setKeywordId(""); }}
-              className="w-full appearance-none rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+              className="w-full appearance-none rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -234,7 +234,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !isRunning) handleCreate(); }}
-            className="w-full rounded-lg border border-gray-100 px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+            className="w-full rounded-lg border border-gray-100 px-3 py-2.5 text-sm text-brand-navy placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
           />
         </div>
 
@@ -246,7 +246,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
               <select
                 value={keywordId}
                 onChange={(e) => setKeywordId(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+                className="w-full appearance-none rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
               >
                 <option value="">— พิมพ์เองด้านล่าง หรือเลือกจาก keyword ที่มี —</option>
                 {keywords.map((kw) => (
@@ -271,7 +271,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
               <select
                 value={intent}
                 onChange={(e) => setIntent(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+                className="w-full appearance-none rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
               >
                 {INTENT_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
@@ -292,7 +292,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
               <select
                 value={funnel}
                 onChange={(e) => setFunnel(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+                className="w-full appearance-none rounded-lg border border-gray-100 bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
               >
                 {FUNNEL_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
@@ -327,7 +327,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
         <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2.5">
           <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-400" />
           <span>
-            Demo Mode — ขณะนี้เป็น mock ไม่มีค่าใช้จ่าย · ถ้า connect Claude จริงจะเสีย{" "}
+            Demo Mode — ขณะนี้เป็น mock ไม่มีค่าใช้จ่าย · ถ้าเชื่อม AI จริงจะเสีย{" "}
             <strong className="text-gray-700">~$0.06 ต่อบทความ</strong>{" "}
             (Outline $0.01 + Article $0.04 + SEO $0.01)
           </span>
@@ -337,7 +337,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
       {/* Progress */}
       {step && (
         <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="text-sm font-semibold text-brand-navy">
             {step === "creating" && "กำลังสร้างบทความ..."}
             {step === "running"  && "AI กำลังทำงาน..."}
             {step === "done"     && "เสร็จแล้ว! 🎉"}
@@ -362,7 +362,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
                     <div className="h-4 w-4 rounded-full border-2 border-gray-100 shrink-0" />
                   )}
                   <span className={cn(
-                    done ? "text-gray-900" : "text-gray-400",
+                    done ? "text-brand-navy" : "text-gray-400",
                   )}>{s.label}</span>
                 </div>
               );
@@ -375,7 +375,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
       {step === "done" && createdId ? (
         <button
           onClick={() => router.push(`/articles/${createdId}`)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-900 text-white font-semibold hover:bg-gray-800 transition-colors"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-brand-blue text-white font-semibold hover:bg-brand-deep transition-colors"
         >
           <ArrowRight className="h-4 w-4" />
           ดูบทความที่สร้างแล้ว
@@ -384,7 +384,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
         <button
           onClick={handleCreate}
           disabled={isRunning || !title.trim() || !projectId}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-900 text-white font-semibold hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-brand-blue text-white font-semibold hover:bg-brand-deep disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {isRunning ? (
             <Loader2 className="h-4 w-4 animate-spin" />

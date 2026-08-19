@@ -5,45 +5,41 @@
  * DELETE /:id — remove file
  */
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { orChat, OR_MODELS } from "@/lib/openrouter";
 
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAIJob } from "@/lib/logAIJob";
 
 // Claude Opus 4.8 pricing: $5/1M input, $25/1M output
-const CLAUDE_INPUT_COST  = 5 / 1_000_000
-const CLAUDE_OUTPUT_COST = 25 / 1_000_000
 
 async function generateAISummary(
   text: string, fileName: string, orgId: string, userId: string, projectId: string | null
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey || !text.trim()) return `ไฟล์: ${fileName} (${text.length} ตัวอักษร)`;
+  if (!process.env.OPENROUTER_API_KEY || !text.trim()) return `ไฟล์: ${fileName} (${text.length} ตัวอักษร)`;
   try {
-    const model = process.env.ANTHROPIC_MODEL || "claude-opus-4-8"
-    const client = new Anthropic({ apiKey });
-    const msg = await client.messages.create({
+    const model = OR_MODELS.default()
+    const msg = await orChat({
       model,
-      max_tokens: 400,
+      maxTokens: 400,
       messages: [{
         role: "user",
         content: `สรุปเนื้อหาของไฟล์นี้เป็นภาษาไทย ใน 2-3 ประโยค บอกประเด็นหลักและประโยชน์ที่ใช้ได้:\n\n${text.slice(0, 4000)}`,
       }],
     });
 
-    const inputTokens  = msg.usage?.input_tokens  ?? 0
-    const outputTokens = msg.usage?.output_tokens ?? 0
-    const cost = (inputTokens * CLAUDE_INPUT_COST) + (outputTokens * CLAUDE_OUTPUT_COST)
+    const inputTokens  = msg.usage.inputTokens
+    const outputTokens = msg.usage.outputTokens
+    const cost = msg.usage.costUsd
     logAIJob({
       organizationId: orgId, createdById: userId,
       projectId: projectId ?? null,
-      jobType: 'DATA_BRAIN_SUMMARY', modelProvider: 'CLAUDE', modelName: model,
+      jobType: 'DATA_BRAIN_SUMMARY', modelProvider: 'OPENROUTER', modelName: model,
       status: 'SUCCESS', tokenUsed: inputTokens + outputTokens, estimatedCost: cost,
       inputSummary: `Data Brain summary — ${fileName}`,
     }).catch(() => {})
 
-    return msg.content[0].type === "text" ? msg.content[0].text.trim() : `ไฟล์: ${fileName}`;
+    return msg.text.trim() || `ไฟล์: ${fileName}`;
   } catch {
     return `ไฟล์: ${fileName} (${text.length} ตัวอักษร)`;
   }

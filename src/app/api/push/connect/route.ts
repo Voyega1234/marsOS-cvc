@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
+import { testSiteConnection, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -9,6 +10,25 @@ export async function POST(req: NextRequest) {
 
   const { projectId, connectionId } = await req.json()
   const orgId = session.user.organizationId
+
+  // ── แพลตฟอร์มอื่นที่ไม่ใช่ WordPress → ทดสอบผ่าน sitePublishers ──
+  if (projectId && !connectionId) {
+    const proj = await (prisma.project as any).findFirst({
+      where: { id: projectId, organizationId: orgId },
+      select: { websitePlatform: true, siteConnection: true },
+    }).catch(() => null)
+    const platform = proj?.websitePlatform as string | null
+    if (platform && platform !== 'wordpress') {
+      let conn: SiteConnectionConfig = {}
+      try { conn = JSON.parse(proj?.siteConnection || '{}') } catch { /* ว่าง */ }
+      const result = await testSiteConnection(platform as SitePlatform, conn)
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+      return NextResponse.json({
+        url: result.url ?? '', name: result.name ?? platform, version: '',
+        source: platform, choices: result.choices ?? {},
+      })
+    }
+  }
 
   let wpUrl = '', wpUser = '', wpPass = '', source = 'env'
 

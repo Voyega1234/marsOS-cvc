@@ -117,7 +117,7 @@ export function NotificationBell() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <div className="flex items-center gap-2">
               <Bell className="h-4 w-4 text-gray-500" />
-              <span className="text-sm font-semibold text-gray-900">แจ้งเตือน</span>
+              <span className="text-sm font-semibold text-brand-navy">แจ้งเตือน</span>
               {unread > 0 && (
                 <span className="text-xs font-bold text-white bg-rose-500 px-1.5 py-0.5 rounded-full">{unread}</span>
               )}
@@ -163,7 +163,7 @@ export function NotificationBell() {
                     {meta.emoji}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={cn("text-sm leading-snug", !n.isRead ? "font-semibold text-gray-900" : "text-gray-700")}>
+                    <p className={cn("text-sm leading-snug", !n.isRead ? "font-semibold text-brand-navy" : "text-gray-700")}>
                       {n.title}
                     </p>
                     {n.body && <p className="text-xs text-gray-500 mt-0.5 truncate">{n.body}</p>}

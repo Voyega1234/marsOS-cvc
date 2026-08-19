@@ -135,7 +135,7 @@ export function ArticleAuditPanel({ articleId, auditScore, auditResultsJson, has
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-semibold text-gray-900 text-base">AI Content Audit</h3>
+          <h3 className="font-semibold text-brand-navy text-base">AI Content Audit</h3>
           <p className="text-xs text-gray-500 mt-0.5">ตรวจสอบคุณภาพบทความและให้คะแนน 1-10 ตามมาตรฐาน SEO + E-E-A-T + AI Search</p>
         </div>
         <div className="flex items-center gap-2">

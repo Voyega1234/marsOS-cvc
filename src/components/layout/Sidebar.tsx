@@ -5,12 +5,11 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, FolderKanban, Search, Map, FileText, ClipboardCheck,
-  Cpu, BookOpen, Layers, Globe, Users, ScrollText, Settings, LogOut,
+  Cpu, BookOpen, Layers, Globe, Users, ScrollText, Settings,
   ChevronRight, Sparkles, Zap, Network, BarChart2, PenLine, KeyRound,
   CheckSquare, CalendarDays, Bell, ImageIcon,
 } from "lucide-react";
-import { signOut } from "next-auth/react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/components/layout/SessionProvider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ROLE_CONFIG } from "@/types";
 
@@ -22,7 +21,7 @@ type NavGroup = {
 const NAV_GROUPS: NavGroup[] = [
   {
     items: [
-      { href: "/dashboard",      label: "Projects",       icon: FolderKanban },
+      { href: "/projects",       label: "Projects",       icon: FolderKanban },
       { href: "/my-tasks",       label: "My Tasks",       icon: CheckSquare },
       { href: "/calendar",       label: "Calendar",       icon: CalendarDays },
       { href: "/notifications",  label: "Notifications",  icon: Bell },
@@ -49,7 +48,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Website Connect",
     items: [
-      { href: "/website-connect", label: "Website Connect", icon: Globe },
     ],
   },
 ];
@@ -110,7 +108,7 @@ export function Sidebar() {
 
       {/* Logo */}
       <div className="px-4 py-5 border-b border-slate-800">
-        <Link href="/dashboard" className="flex items-center gap-3">
+        <Link href="/morning-brief" className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center shadow-sm flex-shrink-0">
             <Sparkles className="h-4 w-4 text-white" />
           </div>
@@ -153,13 +151,6 @@ export function Sidebar() {
               <p className="text-xs text-slate-500 truncate">{roleLabel}</p>
             </div>
           </div>
-          <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="w-full mt-1 flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Sign out
-          </button>
         </div>
       )}
     </aside>

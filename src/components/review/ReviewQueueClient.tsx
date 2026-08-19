@@ -86,7 +86,7 @@ export function ReviewQueueClient({ articles }: Props) {
     return (
       <div className="text-center py-16 bg-white rounded-xl border">
         <div className="text-5xl mb-4">✅</div>
-        <h3 className="text-lg font-semibold text-gray-900">ไม่มีบทความรอ Review</h3>
+        <h3 className="text-lg font-semibold text-brand-navy">ไม่มีบทความรอ Review</h3>
         <p className="text-gray-500 text-sm mt-1">ทุกอย่างเรียบร้อยแล้ว!</p>
       </div>
     );
@@ -117,7 +117,7 @@ export function ReviewQueueClient({ articles }: Props) {
                     <div className="flex items-start gap-3 p-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <Link href={`/articles/${article.id}`} target="_blank" className="font-medium text-gray-900 hover:text-green-700 truncate flex items-center gap-1">
+                          <Link href={`/articles/${article.id}`} target="_blank" className="font-medium text-brand-navy hover:text-green-700 truncate flex items-center gap-1">
                             {article.title}
                             <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 shrink-0" />
                           </Link>
@@ -135,7 +135,7 @@ export function ReviewQueueClient({ articles }: Props) {
                       {/* Scores */}
                       {review && (
                         <div className="flex items-center gap-1.5 text-xs shrink-0">
-                          {review.seoScore != null && <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded font-medium">SEO {review.seoScore}</span>}
+                          {review.seoScore != null && <span className="px-2 py-0.5 bg-blue-50 text-brand-blue rounded font-medium">SEO {review.seoScore}</span>}
                           {review.aeoScore != null && <span className="px-2 py-0.5 bg-purple-50 text-purple-600 rounded font-medium">AEO {review.aeoScore}</span>}
                         </div>
                       )}

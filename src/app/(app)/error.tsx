@@ -21,7 +21,7 @@ export default function AppError({
         <AlertTriangle className="h-6 w-6 text-red-500" />
       </div>
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">เกิดข้อผิดพลาด</h2>
+        <h2 className="text-lg font-semibold text-brand-navy">เกิดข้อผิดพลาด</h2>
         <p className="text-sm text-gray-500 mt-1 max-w-sm">
           {error.message || "มีบางอย่างผิดพลาด กรุณาลองใหม่อีกครั้ง"}
         </p>

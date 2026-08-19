@@ -49,8 +49,8 @@ function NavItem({ route }: { route: Route }) {
           className={cn(
             "flex w-full items-center gap-3 rounded-md px-3 py-2 text-[13.5px] transition-colors",
             anySubActive
-              ? "text-gray-900 font-medium"
-              : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/60 font-normal"
+              ? "text-brand-navy font-medium"
+              : "text-gray-600 hover:text-brand-navy hover:bg-gray-100/60 font-normal"
           )}
         >
           <span className="shrink-0 text-gray-500">{route.icon}</span>
@@ -84,7 +84,7 @@ function NavItem({ route }: { route: Route }) {
                       className={cn(
                         "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors",
                         subActive
-                          ? "text-gray-900 font-medium bg-gray-100"
+                          ? "text-brand-navy font-medium bg-gray-100"
                           : "text-gray-500 hover:text-gray-800 hover:bg-gray-100/60"
                       )}
                     >
@@ -107,8 +107,8 @@ function NavItem({ route }: { route: Route }) {
       className={cn(
         "flex items-center gap-3 rounded-md px-3 py-2 text-[13.5px] transition-colors",
         isActive
-          ? "text-gray-900 font-medium"
-          : "text-gray-600 hover:text-gray-900 hover:bg-gray-100/60 font-normal"
+          ? "text-brand-navy font-medium"
+          : "text-gray-600 hover:text-brand-navy hover:bg-gray-100/60 font-normal"
       )}
     >
       <span className="shrink-0 text-gray-500">{route.icon}</span>
@@ -118,7 +118,7 @@ function NavItem({ route }: { route: Route }) {
           "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center tabular-nums",
           route.badgeVariant === "red"
             ? "bg-red-500 text-white"
-            : "bg-gray-900 text-white"
+            : "bg-brand-blue text-white"
         )}>
           {route.badge}
         </span>

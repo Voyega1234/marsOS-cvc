@@ -105,7 +105,7 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
 
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-gray-900">Batch Content Creation</h1>
+        <h1 className="text-xl font-bold text-brand-navy">Batch Content Creation</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           วาง keyword list → ระบบสร้างบทความพร้อม Auto Run ทั้งหมดในครั้งเดียว
         </p>
@@ -136,7 +136,7 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                   Keywords
-                  {keywords.length > 0 && <span className="ml-2 font-bold text-blue-600">{keywords.length} คำ</span>}
+                  {keywords.length > 0 && <span className="ml-2 font-bold text-brand-blue">{keywords.length} คำ</span>}
                 </label>
                 <button
                   onClick={() => fileRef.current?.click()}
@@ -259,7 +259,7 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
             <button
               onClick={handleSubmit}
               disabled={loading || !keywords.length}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors"
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
               {loading ? "กำลังสร้าง..." : `สร้าง ${keywords.length} บทความ`}
@@ -271,7 +271,7 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
       {/* Recent batch jobs */}
       {recentJobs.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <p className="text-sm font-semibold text-gray-900 mb-3">Batch Jobs ล่าสุด</p>
+          <p className="text-sm font-semibold text-brand-navy mb-3">Batch Jobs ล่าสุด</p>
           <div className="space-y-2">
             {recentJobs.map((job) => (
               <div key={job.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">

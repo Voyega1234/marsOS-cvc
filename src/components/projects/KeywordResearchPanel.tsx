@@ -44,7 +44,7 @@ export function KeywordResearchPanel({ projectId, keywords, userId }: Props) {
   return (
     <div className="bg-white rounded-xl border">
       <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-gray-900">Keyword Research</h2>
+        <h2 className="text-base font-semibold text-brand-navy">Keyword Research</h2>
         <span className="text-sm text-gray-500">{keywords.length} keywords</span>
       </div>
 
@@ -89,13 +89,13 @@ export function KeywordResearchPanel({ projectId, keywords, userId }: Props) {
                 <tr key={kw.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="p-3">
                     <div>
-                      <p className="font-medium text-gray-900">{kw.keyword}</p>
+                      <p className="font-medium text-brand-navy">{kw.keyword}</p>
                       <p className="text-xs text-gray-400">จาก: {kw.seedKeyword}</p>
                     </div>
                   </td>
                   <td className="p-3"><FunnelBadge stage={kw.funnelStage} /></td>
                   <td className="p-3 text-gray-600">{kw.intent}</td>
-                  <td className="p-3 text-right text-gray-900">{kw.volume?.toLocaleString() ?? "—"}</td>
+                  <td className="p-3 text-right text-brand-navy">{kw.volume?.toLocaleString() ?? "—"}</td>
                   <td className="p-3 text-right">
                     <span className={`font-medium ${(kw.difficulty ?? 0) > 50 ? "text-red-600" : (kw.difficulty ?? 0) > 30 ? "text-yellow-600" : "text-green-600"}`}>
                       {kw.difficulty ?? "—"}

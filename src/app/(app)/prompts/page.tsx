@@ -5,11 +5,14 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PromptLibraryClient } from "@/components/professional/PromptLibraryClient";
 
+// หน้า/route นี้ query DB ตอน request เท่านั้น — ห้าม prerender ตอน build (build ไม่ควรแตะ DB)
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = { title: "Prompt Library" };
 
 export default async function PromptsPage() {
   const session = await getSession();
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/setup");
 
   const role = session.user.role;
   const orgId = session.user.organizationId;
@@ -28,7 +31,7 @@ export default async function PromptsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">Prompt Library</h1>
+        <h1 className="text-xl font-bold text-brand-navy">Prompt Library</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           {prompts.length} prompt{prompts.length !== 1 ? "s" : ""}
           {" · "}

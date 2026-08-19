@@ -8,6 +8,9 @@ import {
   BookOpen, FolderKanban, Zap, ExternalLink, Tag, Bot,
 } from "lucide-react";
 
+// หน้า/route นี้ query DB ตอน request เท่านั้น — ห้าม prerender ตอน build (build ไม่ควรแตะ DB)
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = { title: "Setup Guide — Mars" };
 
 export default async function SetupPage() {
@@ -37,7 +40,7 @@ export default async function SetupPage() {
     {
       id: "api-key",
       icon: Key,
-      title: "Claude AI API Key",
+      title: "OpenRouter API Key",
       description: "ตั้งค่า ANTHROPIC_API_KEY ใน .env.local เพื่อให้ AI ทำงานได้",
       status: hasAnthropicKey ? "ok" : "error",
       detail: hasAnthropicKey
@@ -75,8 +78,8 @@ export default async function SetupPage() {
       status: hasWpConn ? "ok" : "warn",
       detail: hasWpConn
         ? `เชื่อมต่อแล้ว ${wpConns.length} site (${projectsWithWp.length}/${projects.length} โปรเจกต์)`
-        : "ยังไม่ได้เชื่อม — กด Connect WordPress ในหน้า Settings",
-      action: { label: "Website Connect", href: "/website-connect", external: false },
+        : "ยังไม่ได้เชื่อม — เปิด Project Settings (ฟันเฟือง) › Website ของแต่ละ client",
+      action: { label: "Clients", href: "/projects", external: false },
     },
     {
       id: "brand-template",
@@ -164,7 +167,7 @@ export default async function SetupPage() {
                     : <AlertCircle className="h-4 w-4 text-amber-500" />
                   }
                 </div>
-                <p className="font-semibold text-gray-900">{item.title}</p>
+                <p className="font-semibold text-brand-navy">{item.title}</p>
                 <p className="text-sm text-gray-500 mt-0.5">{item.description}</p>
                 <p className={`text-xs mt-2 font-medium ${isOk ? "text-green-600" : isErr ? "text-red-600" : "text-amber-600"}`}>
                   {item.detail}
@@ -176,7 +179,7 @@ export default async function SetupPage() {
                         href={item.action.href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                        className="inline-flex items-center gap-1.5 text-sm text-brand-blue hover:text-blue-700 font-medium"
                       >
                         {item.action.label}
                         <ExternalLink className="h-3.5 w-3.5" />
@@ -200,8 +203,8 @@ export default async function SetupPage() {
 
       {/* WordPress How-to */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
-        <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <Globe className="h-5 w-5 text-blue-600" />
+        <h2 className="text-lg font-bold text-brand-navy mb-4 flex items-center gap-2">
+          <Globe className="h-5 w-5 text-brand-blue" />
           วิธีเชื่อม WordPress
         </h2>
         <ol className="space-y-4 text-sm text-gray-700">
@@ -217,7 +220,7 @@ export default async function SetupPage() {
                 {item.step}
               </div>
               <div>
-                <p className="font-semibold text-gray-900">{item.title}</p>
+                <p className="font-semibold text-brand-navy">{item.title}</p>
                 <p className="text-gray-500 mt-0.5">{item.desc}</p>
               </div>
             </li>
@@ -231,7 +234,7 @@ export default async function SetupPage() {
 
       {/* GTM How-to */}
       <div id="gtm-guide" className="bg-white rounded-2xl border border-gray-100 p-6">
-        <h2 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
+        <h2 className="text-lg font-bold text-brand-navy mb-1 flex items-center gap-2">
           <Tag className="h-5 w-5 text-amber-500" />
           วิธีตั้งค่า GTM + GA4
         </h2>
@@ -252,7 +255,7 @@ export default async function SetupPage() {
                     {item.step}
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-900">{item.title}</p>
+                    <p className="font-semibold text-brand-navy">{item.title}</p>
                     <p className="text-gray-500 mt-0.5">{item.desc}</p>
                   </div>
                 </li>
@@ -273,7 +276,7 @@ export default async function SetupPage() {
                     {item.step}
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-900">{item.title}</p>
+                    <p className="font-semibold text-brand-navy">{item.title}</p>
                     <p className="text-gray-500 mt-0.5">{item.desc}</p>
                   </div>
                 </li>
@@ -289,7 +292,7 @@ export default async function SetupPage() {
       {/* Per-project status table */}
       {projects.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">สถานะการตั้งค่าต่อโปรเจกต์</h2>
+          <h2 className="text-lg font-bold text-brand-navy mb-4">สถานะการตั้งค่าต่อโปรเจกต์</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -308,7 +311,7 @@ export default async function SetupPage() {
                   return (
                     <tr key={project.id} className="hover:bg-gray-50/60">
                       <td className="py-3">
-                        <p className="font-semibold text-gray-900">{project.name}</p>
+                        <p className="font-semibold text-brand-navy">{project.name}</p>
                         <p className="text-xs text-gray-400">{project.website}</p>
                       </td>
                       <td className="text-center py-3">
@@ -337,10 +340,10 @@ export default async function SetupPage() {
                       </td>
                       <td className="py-3 text-right">
                         <Link
-                          href={`/projects/${project.id}/settings`}
+                          href={`/projects/${project.id}`}
                           className="text-xs text-green-600 hover:text-green-700 font-medium"
                         >
-                          ตั้งค่า →
+                          เปิดโปรเจกต์ →
                         </Link>
                       </td>
                     </tr>

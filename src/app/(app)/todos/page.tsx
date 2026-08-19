@@ -13,7 +13,7 @@ const TODAY = new Date().toISOString().slice(0, 10)
 
 const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; icon: typeof Circle }> = {
   todo:        { label: 'Todo',        color: 'text-gray-400',    icon: Circle },
-  in_progress: { label: 'In Progress', color: 'text-blue-600',    icon: Clock },
+  in_progress: { label: 'In Progress', color: 'text-brand-blue',    icon: Clock },
   done:        { label: 'Done',        color: 'text-emerald-600', icon: CheckCircle2 },
   blocked:     { label: 'Blocked',     color: 'text-rose-600',    icon: AlertCircle },
 }
@@ -44,8 +44,7 @@ const QUICK_LINKS = [
   { label: 'Articles',       href: '/articles' },
   { label: 'Review Queue',   href: '/review' },
   { label: 'AI Jobs',        href: '/ai-jobs' },
-  { label: 'WordPress',      href: '/website-connect' },
-  { label: 'SEO Report',     href: '/report' },
+  { label: 'Clients',        href: '/projects' },
   { label: 'Templates',      href: '/templates' },
   { label: 'Image Studio',   href: '/image-studio' },
 ]
@@ -67,7 +66,7 @@ function ArtifactCard({ artifact }: { artifact: NonNullable<MarsTask['artifact']
         <Icon size={13} className="text-gray-500" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-medium text-gray-900 truncate">{artifact.title}</div>
+        <div className="text-xs font-medium text-brand-navy truncate">{artifact.title}</div>
         <div className="text-[10px] text-gray-400 mt-0.5">{artifact.status}</div>
       </div>
       <ChevronRight size={13} className="text-gray-400 shrink-0 group-hover:text-gray-700 transition-colors" />
@@ -102,7 +101,7 @@ function TaskCard({ task, onToggle, onDelete }: {
               <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${PRIORITY_COLOR[task.priority]}`}>{task.priority}</span>
               <SourceBadge source={task.source} />
             </div>
-            <p className={`text-sm font-semibold leading-5 ${task.status === 'done' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+            <p className={`text-sm font-semibold leading-5 ${task.status === 'done' ? 'line-through text-gray-400' : 'text-brand-navy'}`}>
               {task.title}
             </p>
             <p className="text-xs text-gray-500 mt-1 leading-5 line-clamp-2">{task.description}</p>
@@ -137,7 +136,7 @@ function TaskCard({ task, onToggle, onDelete }: {
             </div>
             {task.actionHref && task.status !== 'done' && (
               <Link href={task.actionHref}
-                className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors whitespace-nowrap">
+                className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 bg-brand-blue text-white rounded-lg hover:bg-brand-deep transition-colors whitespace-nowrap">
                 {task.actionLabel ?? 'ไปดู'} <ChevronRight size={11} />
               </Link>
             )}
@@ -186,7 +185,7 @@ function AddTodoModal({ onClose, onAdd }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900 text-sm">เพิ่ม Todo ใหม่</h2>
+          <h2 className="font-semibold text-brand-navy text-sm">เพิ่ม Todo ใหม่</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
             <X size={15} />
           </button>
@@ -252,7 +251,7 @@ function AddTodoModal({ onClose, onAdd }: {
                   onClick={() => setHref(l.href)}
                   className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
                     actionHref === l.href
-                      ? 'bg-gray-900 text-white border-gray-900'
+                      ? 'bg-brand-blue text-white border-brand-blue'
                       : 'border-gray-200 text-gray-500 hover:bg-gray-50'
                   }`}>
                   {l.label}
@@ -267,7 +266,7 @@ function AddTodoModal({ onClose, onAdd }: {
               ยกเลิก
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition-colors disabled:opacity-50">
+              className="flex-1 px-4 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold hover:bg-brand-deep transition-colors disabled:opacity-50">
               {saving ? 'กำลังบันทึก...' : 'เพิ่ม Todo'}
             </button>
           </div>
@@ -336,13 +335,13 @@ function CalendarView({ tasks }: { tasks: MarsTask[] }) {
 
           return (
             <div key={date} className={`rounded-xl border p-2 min-h-[100px] ${
-              isToday ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white'
+              isToday ? 'border-brand-blue bg-gray-50' : 'border-gray-200 bg-white'
             } ${isWeekend ? 'opacity-50' : ''}`}>
               <div className="flex items-center justify-between mb-1.5">
-                <span className={`text-[11px] font-semibold ${isToday ? 'text-gray-900' : 'text-gray-400'}`}>
+                <span className={`text-[11px] font-semibold ${isToday ? 'text-brand-navy' : 'text-gray-400'}`}>
                   {DOW[dow]} {d.getDate()}
                 </span>
-                {isToday && <span className="text-[9px] font-bold bg-gray-900 text-white px-1.5 py-0.5 rounded-full">Today</span>}
+                {isToday && <span className="text-[9px] font-bold bg-brand-blue text-white px-1.5 py-0.5 rounded-full">Today</span>}
               </div>
               <div className="space-y-1">
                 {dayTasks.map(t => {
@@ -448,7 +447,7 @@ export default function TodosPage() {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 pb-5">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Todos</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-brand-navy">Todos</h1>
             <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
               Tasks จาก{' '}
               <SourceBadge source="mars" />
@@ -463,16 +462,16 @@ export default function TodosPage() {
             </button>
             <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
               <button onClick={() => setView('list')}
-                className={`p-1.5 rounded-md transition-colors ${view === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
+                className={`p-1.5 rounded-md transition-colors ${view === 'list' ? 'bg-white text-brand-navy shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
                 <List size={14} />
               </button>
               <button onClick={() => setView('calendar')}
-                className={`p-1.5 rounded-md transition-colors ${view === 'calendar' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
+                className={`p-1.5 rounded-md transition-colors ${view === 'calendar' ? 'bg-white text-brand-navy shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
                 <CalendarDays size={14} />
               </button>
             </div>
             <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-700 transition-colors">
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors">
               <Plus size={13} /> เพิ่ม Todo
             </button>
           </div>
@@ -483,7 +482,7 @@ export default function TodosPage() {
           {(['all', 'todo', 'in_progress', 'blocked', 'done'] as const).map(s => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={`px-3 py-1.5 text-xs rounded-full transition-colors ${
-                statusFilter === s ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
+                statusFilter === s ? 'bg-brand-blue text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
               }`}>
               {s === 'all'         ? `All (${counts.all})`
                : s === 'in_progress' ? `In Progress (${counts.in_progress})`
@@ -498,7 +497,7 @@ export default function TodosPage() {
               {['all', ...projects].map(p => (
                 <button key={p} onClick={() => setProjectFilter(p)}
                   className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                    projectFilter === p ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
+                    projectFilter === p ? 'bg-brand-blue text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
                   }`}>
                   {p === 'all' ? 'All projects' : p}
                 </button>
@@ -520,7 +519,7 @@ export default function TodosPage() {
                 <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-12 text-center">
                   <p className="text-gray-400 text-sm mb-3">ยังไม่มี Todo ในหมวดนี้</p>
                   <button onClick={() => setShowAdd(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-700 transition-colors">
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors">
                     <Plus size={13} /> เพิ่ม Todo แรก
                   </button>
                 </div>

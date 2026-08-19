@@ -23,7 +23,7 @@ export default async function ActivityLogsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">Activity Logs</h1>
+        <h1 className="text-xl font-bold text-brand-navy">Activity Logs</h1>
         <p className="text-sm text-gray-500 mt-0.5">Last {logs.length} events in your organization</p>
       </div>
       <ActivityLogsClient

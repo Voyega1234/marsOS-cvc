@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Test Prompt" };
 
 export default async function TestPromptPage({ params }: { params: { id: string } }) {
   const session = await getSession();
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/setup");
 
   const role = session.user.role;
   const orgId = session.user.organizationId;

@@ -193,7 +193,7 @@ function ProfessionalTable({
 
       {/* Bulk action bar */}
       {someChecked && (
-        <div className="px-4 py-2.5 bg-gray-900 flex items-center gap-3 flex-wrap">
+        <div className="px-4 py-2.5 bg-brand-blue flex items-center gap-3 flex-wrap">
           <span className="text-sm font-medium text-white">{selected.size} บทความที่เลือก</span>
           <div className="flex items-center gap-2 ml-auto flex-wrap">
             <button
@@ -226,7 +226,7 @@ function ProfessionalTable({
               <button
                 onClick={() => setShowAssignPicker((v) => !v)}
                 disabled={bulkLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
               >
                 <UserCheck className="h-3.5 w-3.5" />
                 Assign
@@ -307,7 +307,7 @@ function ProfessionalTable({
                 />
               </TableCell>
               <TableCell>
-                <Link href={`/articles/${article.id}`} className="flex items-center gap-1.5 font-medium text-gray-900 hover:text-green-700 group-hover:underline max-w-xs">
+                <Link href={`/articles/${article.id}`} className="flex items-center gap-1.5 font-medium text-brand-navy hover:text-green-700 group-hover:underline max-w-xs">
                   <span className="truncate">{article.title}</span>
                   <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 group-hover:opacity-100" />
                 </Link>

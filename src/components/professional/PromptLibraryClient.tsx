@@ -61,7 +61,7 @@ const PROMPT_TYPE_META: Record<string, { label: string; color: string; bg: strin
 const MODEL_BADGE: Record<string, string> = {
   CLAUDE: "bg-orange-50 text-orange-600 border border-orange-200",
   OPENAI: "bg-green-50 text-green-600 border border-green-200",
-  GEMINI: "bg-blue-50 text-blue-600 border border-blue-200",
+  GEMINI: "bg-blue-50 text-brand-blue border border-blue-200",
   CUSTOM: "bg-gray-50 text-gray-600 border border-gray-100",
 };
 
@@ -244,7 +244,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
         <div className="flex gap-1.5 flex-wrap">
           <button
             onClick={() => setTypeFilter("ALL")}
-            className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${typeFilter === "ALL" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${typeFilter === "ALL" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
           >
             All ({prompts.length})
           </button>
@@ -297,7 +297,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
                 <tr key={prompt.id} className="hover:bg-gray-50/50 transition-colors group">
                   {/* Name */}
                   <td className="px-4 py-3 max-w-xs">
-                    <Link href={`/prompts/${prompt.id}`} className="text-sm font-semibold text-gray-900 hover:text-green-700 transition-colors block truncate">
+                    <Link href={`/prompts/${prompt.id}`} className="text-sm font-semibold text-brand-navy hover:text-green-700 transition-colors block truncate">
                       {prompt.name}
                     </Link>
                     {prompt.description && (
@@ -327,7 +327,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
                     <div className="flex flex-col items-center gap-0.5">
                       <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">v{prompt.version}</span>
                       {prompt.versionCount > 0 && (
-                        <Link href={`/prompts/${prompt.id}/versions`} className="text-xs text-gray-400 hover:text-blue-600 flex items-center gap-0.5">
+                        <Link href={`/prompts/${prompt.id}/versions`} className="text-xs text-gray-400 hover:text-brand-blue flex items-center gap-0.5">
                           <History className="h-2.5 w-2.5" />{prompt.versionCount}
                         </Link>
                       )}
@@ -454,7 +454,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
           <div className="flex-1 overflow-auto space-y-4 min-h-0">
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Raw Template</p>
-              <pre className="text-xs bg-gray-900 text-green-400 p-4 rounded-xl overflow-auto max-h-44 whitespace-pre-wrap font-mono">
+              <pre className="text-xs bg-brand-blue text-green-400 p-4 rounded-xl overflow-auto max-h-44 whitespace-pre-wrap font-mono">
                 {previewPrompt?.promptText}
               </pre>
             </div>

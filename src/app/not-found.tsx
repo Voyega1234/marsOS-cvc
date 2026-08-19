@@ -8,12 +8,12 @@ export default function NotFound() {
         <FileSearch className="h-7 w-7 text-gray-400" />
       </div>
       <div>
-        <h1 className="text-4xl font-semibold text-gray-900">404</h1>
+        <h1 className="text-4xl font-semibold text-brand-navy">404</h1>
         <p className="text-sm text-gray-500 mt-2">ไม่พบหน้าที่คุณต้องการ</p>
       </div>
       <Link
         href="/dashboard"
-        className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+        className="px-4 py-2 bg-brand-blue text-white text-sm font-medium rounded-lg hover:bg-brand-deep transition-colors"
       >
         กลับหน้าหลัก
       </Link>

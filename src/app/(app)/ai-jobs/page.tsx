@@ -20,6 +20,7 @@ export default async function AIJobsPage() {
       include: {
         article: { select: { id: true, title: true } },
         createdBy: { select: { name: true } },
+        project: { select: { name: true, clientName: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -55,7 +56,7 @@ export default async function AIJobsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">AI Jobs</h1>
+        <h1 className="text-xl font-bold text-brand-navy">AI Jobs</h1>
         <p className="text-sm text-gray-500 mt-0.5">{jobs.length} jobs total</p>
       </div>
       <AIJobsClient
@@ -74,6 +75,7 @@ export default async function AIJobsPage() {
           createdAt: j.createdAt,
           article: j.article,
           createdBy: j.createdBy,
+          projectName: (j as any).project ? ((j as any).project.clientName ?? (j as any).project.name) : null,
         }))}
         totalCostMonth={(monthStats._sum.estimatedCost ?? 0) + ((monthStats._sum as any).externalCost ?? 0)}
         totalTokensMonth={monthStats._sum.tokenUsed ?? 0}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "@/components/layout/SessionProvider";
 import {
   Sidebar,
   SidebarContent,
@@ -14,30 +14,21 @@ import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import {
   BarChart2,
-  BookOpen,
   Calendar,
-  CheckSquare,
-  Database,
+  Cpu,
   FileText,
   FolderOpen,
   Globe,
-  Home,
   Image,
   Layers,
-  LogOut,
-  Network,
   RefreshCw,
   Search,
   Settings,
   Users,
-  Zap,
   ClipboardCheck,
-  KeyRound,
   ScrollText,
   Sun,
-  ListTodo,
-  LineChart,
-  FlaskConical,
+  Newspaper,
 } from "lucide-react";
 import type { Route } from "./nav-main";
 import DashboardNavigation from "./nav-main";
@@ -63,28 +54,15 @@ function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Ro
     ];
   }
 
+  // เมนูหลักเหลือ 5 รายการ: SEO News & Update / Clients / Article / Studio / Setting
   const base: Route[] = [
     {
-      id: "overview",
-      title: "Home",
-      icon: <Home className="size-4" />,
-      link: "/dashboard",
-    },
-    {
       id: "morning-brief",
-      title: "Morning Brief",
-      icon: <Sun className="size-4" />,
+      title: "SEO News & Update",
+      icon: <Newspaper className="size-4" />,
       link: "/morning-brief",
       badge: briefBadge,
       badgeVariant: "red" as const,
-    },
-    {
-      id: "todos",
-      title: "Todos",
-      icon: <ListTodo className="size-4" />,
-      link: "/todos",
-      badge: todosBadge,
-      badgeVariant: "black" as const,
     },
     {
       id: "projects",
@@ -94,7 +72,7 @@ function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Ro
     },
     {
       id: "content",
-      title: "Articles",
+      title: "Article",
       icon: <FileText className="size-4" />,
       link: "/articles",
       subs: [
@@ -109,67 +87,36 @@ function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Ro
       icon: <Layers className="size-4" />,
       link: "/content-studio",
       subs: [
-        { title: "Content Refresh", link: "/refresh",        icon: <RefreshCw className="size-3.5" /> },
+        // Content Engine ของ Studio: ปรับ prompt สำหรับเครื่องมือใน Studio เท่านั้น (ชุด org-active)
+        // (Content Refresh ย้ายไปอยู่ใน Clients ต่อโปรเจกต์แล้ว)
+        { title: "Content Engine",  link: "/content-engine", icon: <Cpu       className="size-3.5" /> },
         { title: "Content Studio",  link: "/content-studio", icon: <Search    className="size-3.5" /> },
         { title: "Image Studio",    link: "/image-studio",   icon: <Image     className="size-3.5" /> },
-        { title: "SEO Report",      link: "/ai-seo-report",  icon: <BarChart2 className="size-3.5" /> },
       ],
-    },
-    {
-      id: "backlink",
-      title: "Backlink",
-      icon: <Network className="size-4" />,
-      link: "/backlink-assistant",
-    },
-    {
-      id: "report",
-      title: "Report",
-      icon: <LineChart className="size-4" />,
-      link: "/report",
-    },
-    {
-      id: "ai-tools",
-      title: "AI",
-      icon: <Zap className="size-4" />,
-      link: "/ai-jobs",
-    },
-    {
-      id: "seo-intelligence-lab",
-      title: "SEO Intelligence Lab",
-      icon: <FlaskConical className="size-4" />,
-      link: "/seo-intelligence-lab",
     },
   ];
 
-  // ADMIN only: Website Connect + Settings (including AI Connect, Team, Users)
+  // ADMIN only: Setting หน้า home — AI Cost + Activity Logs + Users เท่านั้น
+  // (Content Engine อยู่ในฟันเฟืองของแต่ละ project และใน Studio)
   if (role === "ADMIN") {
-    base.push(
-      {
-        id: "publish",
-        title: "Website Connect",
-        icon: <Globe className="size-4" />,
-        link: "/website-connect",
-      },
-      {
-        id: "settings",
-        title: "Settings",
-        icon: <Settings className="size-4" />,
-        link: "/settings",
-        subs: [
-          { title: "AI Connect",       link: "/ai-connect",        icon: <KeyRound   className="size-3.5" /> },
-          { title: "Prompts & Skills", link: "/settings/prompts",  icon: <FileText   className="size-3.5" /> },
-          { title: "Activity Logs",  link: "/activity-logs",  icon: <ScrollText className="size-3.5" /> },
-          { title: "จัดการ Users",    link: "/admin/users",    icon: <Users      className="size-3.5" /> },
-        ],
-      }
-    );
+    base.push({
+      id: "settings",
+      title: "Setting",
+      icon: <Settings className="size-4" />,
+      link: "/settings",
+      subs: [
+        { title: "AI Cost",       link: "/settings/ai-cost", icon: <BarChart2  className="size-3.5" /> },
+        { title: "Activity Logs", link: "/activity-logs",    icon: <ScrollText className="size-3.5" /> },
+        { title: "Users",         link: "/admin/users",      icon: <Users      className="size-3.5" /> },
+      ],
+    });
   }
 
   return base;
 }
 
 const teams = [
-  { id: "1", name: "Mars", plan: "Pro" },
+  { id: "1", name: "MarsOS", plan: "Pro" },
 ];
 
 function SidebarInner() {
@@ -178,7 +125,7 @@ function SidebarInner() {
   const { data: session } = useSession();
   const [cmdOpen, setCmdOpen] = useState(false);
 
-  const orgName  = "Mars";
+  const orgName  = "MarsOS";
   const orgPlan  = "Pro";
   const orgTeams = [{ id: "1", name: orgName, plan: orgPlan }];
 
@@ -218,10 +165,11 @@ function SidebarInner() {
               : "flex-row items-center justify-between"
           )}
         >
-          {/* Name only — no logo */}
-          <a href="/dashboard" className="flex items-center">
+          {/* CVC Brand logo + name */}
+          <a href="/morning-brief" className="flex items-center gap-2">
+            {/* โลโก้รูปถูกถอดตามคำสั่งเจ้าของ 2026-08-19 — ใช้ชื่อ MarsOS อย่างเดียว */}
             {!isCollapsed && (
-              <span className="font-semibold text-gray-900">Mars</span>
+              <span className="font-bold text-brand-navy text-base tracking-tight">MarsOS</span>
             )}
           </a>
 
@@ -246,36 +194,21 @@ function SidebarInner() {
         </SidebarContent>
 
         <SidebarFooter className="px-2 pb-3 space-y-1">
-          {/* User info + logout */}
-          {!isCollapsed ? (
+          {/* User info */}
+          {!isCollapsed && (
             <div className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-100 group">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-800 text-[11px] font-bold text-white">
                 {(session?.user?.name ?? session?.user?.email ?? "U")[0]?.toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-medium text-gray-900 truncate">
+                <p className="text-[12px] font-medium text-brand-navy truncate">
                   {session?.user?.name ?? session?.user?.email ?? "User"}
                 </p>
                 <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded", roleBadge)}>
                   {userRole}
                 </span>
               </div>
-              <button
-                onClick={() => signOut({ callbackUrl: "/login" })}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-200"
-                title="ออกจากระบบ"
-              >
-                <LogOut className="size-3.5 text-gray-500" />
-              </button>
             </div>
-          ) : (
-            <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
-              className="flex w-full items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700"
-              title="ออกจากระบบ"
-            >
-              <LogOut className="size-4" />
-            </button>
           )}
         </SidebarFooter>
       </Sidebar>

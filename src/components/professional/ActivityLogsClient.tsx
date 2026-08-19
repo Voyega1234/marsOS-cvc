@@ -112,7 +112,7 @@ export function ActivityLogsClient({ logs }: Props) {
         {[
           { label: "Total Events", value: logs.length, color: "text-slate-800" },
           { label: "AI Generations", value: logs.filter((l) => l.action.startsWith("GENERATE")).length, color: "text-purple-600" },
-          { label: "Status Changes", value: logs.filter((l) => l.action === "STATUS_CHANGE").length, color: "text-blue-600" },
+          { label: "Status Changes", value: logs.filter((l) => l.action === "STATUS_CHANGE").length, color: "text-brand-blue" },
           { label: "Reviews", value: logs.filter((l) => l.action.includes("REVIEW") || l.action.includes("APPROVE")).length, color: "text-green-600" },
         ].map((s) => (
           <div key={s.label} className="bg-white border border-gray-100 rounded-xl p-4">
@@ -189,7 +189,7 @@ export function ActivityLogsClient({ logs }: Props) {
                           {(log.user?.name ?? log.user?.email ?? "?")[0]?.toUpperCase()}
                         </div>
                         <div>
-                          <p className="text-xs font-medium text-gray-900 leading-tight">{log.user?.name ?? "System"}</p>
+                          <p className="text-xs font-medium text-brand-navy leading-tight">{log.user?.name ?? "System"}</p>
                           <p className="text-xs text-gray-400 leading-tight">{log.user?.email ?? ""}</p>
                         </div>
                       </div>

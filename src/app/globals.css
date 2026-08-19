@@ -11,7 +11,8 @@
     --card-foreground:     oklch(0.145 0 0);
     --popover:             oklch(1 0 0);
     --popover-foreground:  oklch(0.145 0 0);
-    --primary:             oklch(0.205 0 0);
+    /* CVC Brand — Convert Blue #1d48f3 */
+    --primary:             oklch(0.47 0.26 268);
     --primary-foreground:  oklch(0.985 0 0);
     --secondary:           oklch(0.97 0 0);
     --secondary-foreground:oklch(0.205 0 0);
@@ -22,7 +23,7 @@
     --destructive:         oklch(0.577 0.245 27.325);
     --border:              oklch(0.945 0 0);
     --input:               oklch(0.922 0 0);
-    --ring:                oklch(0.708 0 0);
+    --ring:                oklch(0.47 0.26 268);
     --radius:              0.625rem;
 
     /* Sidebar — light, matches reference screenshots */
@@ -35,12 +36,12 @@
     --sidebar-border:              oklch(0.91 0 0);
     --sidebar-ring:                oklch(0.708 0 0);
 
-    /* Charts */
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
+    /* Charts — Convert Blue เป็นหลัก + สีเสริมตามกติกา CVC (ใช้น้อย) */
+    --chart-1: #1d48f3;  /* Convert Blue */
+    --chart-2: #177cfe;  /* Blue sky */
+    --chart-3: #000E3F;  /* Secure Navy */
+    --chart-4: #ffb95c;  /* Mustard (additional) */
+    --chart-5: #769a6d;  /* Sage Olive (additional) */
   }
 }
 
@@ -64,7 +65,7 @@
   }
   input:focus, select:focus, textarea:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.08);
+    box-shadow: 0 0 0 2px rgba(29, 72, 243, 0.18); /* Convert Blue ring */
   }
 }
 
@@ -72,7 +73,7 @@
 @layer components {
   /* Primary action button — dark, used everywhere */
   .btn-primary {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-gray-700
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-brand-blue hover:bg-brand-deep
            text-white text-sm font-semibold rounded-xl transition-colors
            disabled:opacity-40 disabled:cursor-not-allowed;
   }

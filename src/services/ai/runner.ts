@@ -24,12 +24,39 @@ function safeStringify(value: unknown, maxLen = 8000): string {
 
 // ── Active prompt loader ──────────────────────────────────────────────────────
 
-export async function loadActivePrompt(organizationId: string, promptType: string) {
-  const prompt = await prisma.promptTemplate.findFirst({
-    where: { organizationId, type: promptType, isActive: true },
-    orderBy: { version: "desc" },
-  });
-  if (!prompt) throw new AINoPromptError(promptType);
+/**
+ * โหลด prompt ที่ active ของ type นั้น
+ *
+ * เดิม query ไม่กรอง projectId เลย — findFirst จึงหยิบ prompt ของโปรเจกต์อื่นมาใช้ได้
+ * (prompt ของลูกค้า A ไปโผล่ในงานของลูกค้า B) ตอนนี้กรองแล้ว:
+ *   1. prompt ของโปรเจกต์นี้โดยตรง
+ *   2. ถ้าไม่มี → prompt กลาง (projectId = null)
+ * ไม่มีทางหยิบข้ามโปรเจกต์อีก
+ *
+ * หมายเหตุ: ตัวนี้ใช้กับ prompt ชุดเก่า (KEYWORD_RESEARCH_PROMPT ฯลฯ) เท่านั้น
+ * ส่วน Content Engine (CE_*) ใช้ resolveContentEngine ซึ่ง strict กว่า — ไม่มี fallback กลาง
+ */
+export async function loadActivePrompt(
+  organizationId: string,
+  promptType: string,
+  projectId?: string | null,
+) {
+  const findActive = (pid: string | null) =>
+    prisma.promptTemplate.findFirst({
+      where: { organizationId, type: promptType, isActive: true, projectId: pid },
+      orderBy: { version: "desc" },
+    });
+
+  // กติการะบบ (2026-08-19): งานของ client ต้องใช้ prompt ที่ตั้งใน project ของ client
+  // นั้นเท่านั้น — ห้าม fallback ไป prompt กลาง (org/studio) เด็ดขาด
+  const prompt = projectId ? await findActive(projectId) : await findActive(null);
+  if (!prompt) {
+    throw new AINoPromptError(
+      projectId
+        ? `${promptType} — ยังไม่ได้ตั้ง prompt นี้ใน Project Settings ของ client (ระบบไม่ใช้ prompt กลางแทน)`
+        : promptType
+    );
+  }
   return prompt;
 }
 
@@ -86,7 +113,7 @@ export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJo
   const { organizationId, projectId, articleId, jobType, promptType, variables, userId, mockFn } = opts;
 
   // 1. Load active prompt (throws AINoPromptError if missing)
-  const prompt = await loadActivePrompt(organizationId, promptType);
+  const prompt = await loadActivePrompt(organizationId, promptType, projectId ?? null);
 
   // 2. Compile the prompt text
   const compiled = compilePrompt(prompt.promptText, variables);

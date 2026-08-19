@@ -82,7 +82,7 @@ export function ArticleFunnelBoard({ articles }: Props) {
             const pct = articles.length > 0 ? Math.round((count / articles.length) * 100) : 0;
             return (
               <div key={stage.key} className="px-6 text-center first:pl-0 last:pr-0">
-                <p className="text-2xl font-bold text-gray-900">{count}</p>
+                <p className="text-2xl font-bold text-brand-navy">{count}</p>
                 <p className={`text-sm font-semibold ${stage.accent}`}>{stage.emoji} {stage.abbr}</p>
                 <p className="text-xs text-gray-400 mt-1">{pct}% of total</p>
                 <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -134,7 +134,7 @@ export function ArticleFunnelBoard({ articles }: Props) {
                           href={`/articles/${article.id}`}
                           className="block bg-white rounded-lg border border-gray-100 p-3 hover:border-green-200 hover:shadow-sm transition-all group"
                         >
-                          <p className="text-xs font-semibold text-gray-900 group-hover:text-green-700 line-clamp-2 leading-snug transition-colors">
+                          <p className="text-xs font-semibold text-brand-navy group-hover:text-green-700 line-clamp-2 leading-snug transition-colors">
                             {article.title}
                           </p>
                           <div className="flex items-center gap-1.5 mt-2 flex-wrap">
@@ -147,7 +147,7 @@ export function ArticleFunnelBoard({ articles }: Props) {
                           <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
                             <span className="truncate max-w-28">{article.project.name}</span>
                             {article.keyword && (
-                              <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded truncate max-w-24">
+                              <span className="px-1.5 py-0.5 bg-blue-50 text-brand-blue rounded truncate max-w-24">
                                 {article.keyword.keyword}
                               </span>
                             )}

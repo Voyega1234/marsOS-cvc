@@ -146,7 +146,7 @@ export function CalendarClient({
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Content Calendar</h1>
+          <h1 className="text-xl font-bold text-brand-navy">Content Calendar</h1>
           <p className="text-sm text-gray-500 mt-0.5">วางแผนการเผยแพร่บทความ</p>
         </div>
         <div className="flex items-center gap-2">
@@ -163,13 +163,13 @@ export function CalendarClient({
           <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
             <button
               onClick={() => setView("month")}
-              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all", view === "month" ? "bg-white shadow text-gray-900" : "text-gray-500")}
+              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all", view === "month" ? "bg-white shadow text-brand-navy" : "text-gray-500")}
             >
               <CalendarDays className="h-3.5 w-3.5" />รายเดือน
             </button>
             <button
               onClick={() => setView("list")}
-              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all", view === "list" ? "bg-white shadow text-gray-900" : "text-gray-500")}
+              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all", view === "list" ? "bg-white shadow text-brand-navy" : "text-gray-500")}
             >
               <List className="h-3.5 w-3.5" />รายการ
             </button>
@@ -186,7 +186,7 @@ export function CalendarClient({
               <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500">
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <h2 className="text-base font-bold text-gray-900">
+              <h2 className="text-base font-bold text-brand-navy">
                 {MONTH_TH[month]} {year + 543}
               </h2>
               <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500">
@@ -266,12 +266,12 @@ export function CalendarClient({
                   return (
                     <Link key={a.id} href={`/articles/${a.id}`} className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 transition-colors">
                       <div className="w-12 text-center flex-shrink-0">
-                        <p className="text-lg font-bold text-gray-900 leading-none">{d.getDate()}</p>
+                        <p className="text-lg font-bold text-brand-navy leading-none">{d.getDate()}</p>
                         <p className="text-xs text-gray-400">{MONTH_TH[d.getMonth()].slice(0, 3)}</p>
                       </div>
                       <div className={cn("w-1 h-10 rounded-full flex-shrink-0", projectColors[a.project.id])} />
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-gray-900 truncate text-sm">{a.title}</p>
+                        <p className="font-semibold text-brand-navy truncate text-sm">{a.title}</p>
                         <p className="text-xs text-gray-400 mt-0.5">{a.project.name}{a.assignedTo ? ` · ${a.assignedTo.name}` : ""}</p>
                       </div>
                       <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0", STATUS_COLOR[a.status] ?? "bg-gray-100 text-gray-600")}>

@@ -73,7 +73,7 @@ export function VersionHistoryClient({ promptId, promptName, currentVersion, ver
           <ChevronLeft className="h-5 w-5" />
         </Link>
         <div>
-          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-xl font-bold text-brand-navy flex items-center gap-2">
             <History className="h-5 w-5 text-gray-500" />
             Version History
           </h1>
@@ -193,7 +193,7 @@ export function VersionHistoryClient({ promptId, promptName, currentVersion, ver
 
                     {/* Expanded — full prompt text */}
                     {isExpanded && (
-                      <div className="border-t border-gray-100 bg-gray-900 p-4">
+                      <div className="border-t border-gray-100 bg-brand-blue p-4">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
                             Full Prompt Text — v{v.versionNumber}

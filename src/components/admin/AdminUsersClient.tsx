@@ -172,7 +172,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       <div className="flex justify-end">
         <button
           onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+          className="flex items-center gap-2 bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-brand-deep transition-colors"
         >
           <Plus size={14} /> สร้าง User ใหม่
         </button>
@@ -186,13 +186,13 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
             <div className="flex items-center gap-3 mt-2">
               <div>
                 <span className="text-[10px] text-emerald-600 font-medium block">Username</span>
-                <span className="text-sm font-mono font-bold text-gray-900">{createdInfo.username}</span>
+                <span className="text-sm font-mono font-bold text-brand-navy">{createdInfo.username}</span>
               </div>
               <div className="w-px h-8 bg-emerald-200" />
               <div>
                 <span className="text-[10px] text-emerald-600 font-medium block">รหัสผ่าน</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-mono font-bold text-gray-900">
+                  <span className="text-sm font-mono font-bold text-brand-navy">
                     {showCreatedPw ? createdInfo.pw : "••••••••"}
                   </span>
                   <button type="button" onClick={() => setShowCreatedPw(p => !p)}
@@ -213,7 +213,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       {showForm && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900">สร้าง User ใหม่</h3>
+            <h3 className="text-sm font-semibold text-brand-navy">สร้าง User ใหม่</h3>
             <button onClick={resetForm} className="text-gray-400 hover:text-gray-600">
               <X size={16} />
             </button>
@@ -301,7 +301,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
               <button
                 type="submit"
                 disabled={submitting}
-                className="bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-60 transition-colors"
+                className="bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-brand-deep disabled:opacity-60 transition-colors"
               >
                 {submitting ? "กำลังสร้าง..." : "สร้าง User"}
               </button>
@@ -322,7 +322,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-900">รีเซ็ตรหัสผ่าน</h3>
+              <h3 className="text-sm font-semibold text-brand-navy">รีเซ็ตรหัสผ่าน</h3>
               <button onClick={() => { setResetUserId(null); setResetPw(""); }} className="text-gray-400 hover:text-gray-600">
                 <X size={16} />
               </button>
@@ -349,7 +349,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
               </div>
               <div className="flex gap-2 pt-1">
                 <button type="submit" disabled={resetting || resetPw.length < 6}
-                  className="bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-60 transition-colors">
+                  className="bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-brand-deep disabled:opacity-60 transition-colors">
                   {resetting ? "กำลังบันทึก..." : "บันทึก"}
                 </button>
                 <button type="button" onClick={() => { setResetUserId(null); setResetPw(""); }}
@@ -378,7 +378,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
             {users.map((u) => (
               <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                 <td className="px-4 py-3">
-                  <p className="font-medium text-gray-900">{u.name || "—"}</p>
+                  <p className="font-medium text-brand-navy">{u.name || "—"}</p>
                   {u.email && !u.email.endsWith("@mars.local") && (
                     <p className="text-xs text-gray-500">{u.email}</p>
                   )}

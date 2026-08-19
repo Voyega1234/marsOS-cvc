@@ -27,6 +27,9 @@ interface RefreshItem {
 interface Props {
   initialItems: RefreshItem[];
   projects: { id: string; name: string }[];
+  /** ใช้ตอนฝังในหน้า project — ล็อค project + เติม GSC site อัตโนมัติ */
+  defaultProjectId?: string;
+  defaultSiteUrl?: string;
 }
 
 const PRIORITY_CONFIG = {
@@ -37,7 +40,7 @@ const PRIORITY_CONFIG = {
 
 const STATUS_CONFIG = {
   pending:     { label: "รอดำเนินการ", color: "text-gray-500",    icon: <Clock size={12} /> },
-  in_progress: { label: "กำลังทำ",    color: "text-blue-600",    icon: <RefreshCw size={12} className="animate-spin" /> },
+  in_progress: { label: "กำลังทำ",    color: "text-brand-blue",    icon: <RefreshCw size={12} className="animate-spin" /> },
   done:        { label: "เสร็จแล้ว",  color: "text-emerald-600", icon: <CheckCircle2 size={12} /> },
   ignored:     { label: "ข้าม",       color: "text-gray-400",    icon: <MinusCircle size={12} /> },
 };
@@ -52,11 +55,11 @@ function PriorityChip({ priority }: { priority: string }) {
 }
 
 // ─── Add form ──────────────────────────────────────────────────────────────────
-function AddForm({ projects, onAdd }: { projects: { id: string; name: string }[]; onAdd: (item: RefreshItem) => void }) {
+function AddForm({ projects, onAdd, defaultProjectId = "" }: { projects: { id: string; name: string }[]; onAdd: (item: RefreshItem) => void; defaultProjectId?: string }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    url: "", pageTitle: "", projectId: "", priority: "medium",
+    url: "", pageTitle: "", projectId: defaultProjectId, priority: "medium",
     reasons: "", notes: "", daysOld: "", recommendation: "", dueDate: "",
   });
 
@@ -89,7 +92,7 @@ function AddForm({ projects, onAdd }: { projects: { id: string; name: string }[]
   }
 
   if (!open) return (
-    <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-xl hover:bg-gray-700 transition-colors">
+    <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep transition-colors">
       <Plus size={14} /> เพิ่มหน้าที่ต้อง Refresh
     </button>
   );
@@ -97,7 +100,7 @@ function AddForm({ projects, onAdd }: { projects: { id: string; name: string }[]
   return (
     <form onSubmit={submit} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-gray-900 text-sm">เพิ่มหน้าที่ต้อง Refresh</h3>
+        <h3 className="font-semibold text-brand-navy text-sm">เพิ่มหน้าที่ต้อง Refresh</h3>
         <button type="button" onClick={reset} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -152,9 +155,9 @@ function AddForm({ projects, onAdd }: { projects: { id: string; name: string }[]
         </div>
       </div>
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={reset} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900">ยกเลิก</button>
+        <button type="button" onClick={reset} className="px-4 py-2 text-sm text-gray-500 hover:text-brand-navy">ยกเลิก</button>
         <button type="submit" disabled={saving}
-          className="px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-xl hover:bg-gray-700 disabled:opacity-50 transition-colors">
+          className="px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-50 transition-colors">
           {saving ? "กำลังบันทึก..." : "บันทึก"}
         </button>
       </div>
@@ -204,7 +207,7 @@ function RefreshRow({ item, onUpdate, onDelete }: {
             <span className="text-xs font-medium text-gray-500">{projectName}</span>
             {item.daysOld && <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{item.daysOld} วัน</span>}
           </div>
-          <p className="text-sm font-semibold text-gray-900 mt-1">{item.pageTitle || item.url}</p>
+          <p className="text-sm font-semibold text-brand-navy mt-1">{item.pageTitle || item.url}</p>
           <a href={item.url} target="_blank" rel="noopener" className="text-[11px] text-blue-500 hover:underline flex items-center gap-0.5 truncate mt-0.5">
             <ExternalLink size={9} />{item.url}
           </a>
@@ -252,11 +255,11 @@ function RefreshRow({ item, onUpdate, onDelete }: {
 }
 
 // ─── GSC Scan Modal ───────────────────────────────────────────────────────────
-function GSCScanModal({ projects, onDone }: { projects: { id: string; name: string }[]; onDone: (count: number) => void }) {
+function GSCScanModal({ projects, onDone, defaultProjectId = "", defaultSiteUrl = "" }: { projects: { id: string; name: string }[]; onDone: (count: number) => void; defaultProjectId?: string; defaultSiteUrl?: string }) {
   const [open, setOpen]     = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [siteUrl, setSiteUrl]   = useState("");
-  const [projectId, setProjectId] = useState("");
+  const [siteUrl, setSiteUrl]   = useState(defaultSiteUrl);
+  const [projectId, setProjectId] = useState(defaultProjectId);
   const [dropThreshold, setDropThreshold] = useState("20");
   const [result, setResult] = useState<{ scanned: number; added: number; skipped: number } | null>(null);
 
@@ -284,7 +287,7 @@ function GSCScanModal({ projects, onDone }: { projects: { id: string; name: stri
   }
 
   if (!open) return (
-    <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-500 transition-colors">
+    <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-blue-500 transition-colors">
       <Search size={14} /> Scan GSC
     </button>
   );
@@ -293,7 +296,7 @@ function GSCScanModal({ projects, onDone }: { projects: { id: string; name: stri
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-bold text-gray-900">Scan จาก Google Search Console</h3>
+          <h3 className="font-bold text-brand-navy">Scan จาก Google Search Console</h3>
           <button onClick={() => { setOpen(false); setResult(null); }} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
         </div>
 
@@ -331,9 +334,9 @@ function GSCScanModal({ projects, onDone }: { projects: { id: string; name: stri
         )}
 
         <div className="flex justify-end gap-2">
-          <button onClick={() => { setOpen(false); setResult(null); }} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900">ปิด</button>
+          <button onClick={() => { setOpen(false); setResult(null); }} className="px-4 py-2 text-sm text-gray-500 hover:text-brand-navy">ปิด</button>
           <button onClick={scan} disabled={scanning || !siteUrl}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-500 disabled:opacity-50 transition-colors">
+            className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-blue-500 disabled:opacity-50 transition-colors">
             {scanning ? <><RefreshCw size={13} className="animate-spin" /> กำลัง Scan...</> : <><Search size={13} /> Scan</>}
           </button>
         </div>
@@ -343,7 +346,7 @@ function GSCScanModal({ projects, onDone }: { projects: { id: string; name: stri
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export function ContentRefreshClient({ initialItems, projects }: Props) {
+export function ContentRefreshClient({ initialItems, projects, defaultProjectId, defaultSiteUrl }: Props) {
   const [items, setItems] = useState<RefreshItem[]>(initialItems);
   const [filterProject, setFilterProject]   = useState("all");
   const [filterStatus, setFilterStatus]     = useState("pending");
@@ -373,12 +376,12 @@ export function ContentRefreshClient({ initialItems, projects }: Props) {
     <div className="space-y-5 max-w-4xl">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Content Refresh</h1>
+          <h1 className="text-xl font-bold text-brand-navy">Content Refresh</h1>
           <p className="text-sm text-gray-500 mt-0.5">ติดตามหน้าที่ต้องปรับปรุงเนื้อหา</p>
         </div>
         <div className="flex items-center gap-2">
-          <GSCScanModal projects={projects} onDone={handleGSCDone} />
-          <AddForm projects={projects} onAdd={item => setItems(prev => [item, ...prev])} />
+          <GSCScanModal projects={projects} onDone={handleGSCDone} defaultProjectId={defaultProjectId} defaultSiteUrl={defaultSiteUrl} />
+          <AddForm projects={projects} onAdd={item => setItems(prev => [item, ...prev])} defaultProjectId={defaultProjectId} />
         </div>
       </div>
 
@@ -393,7 +396,7 @@ export function ContentRefreshClient({ initialItems, projects }: Props) {
         ].map(s => (
           <button key={s.key} onClick={() => setFilterStatus(s.key)}
             className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
-              filterStatus === s.key ? "bg-gray-900 text-white border-gray-900" : "bg-gray-100 text-gray-600 border-transparent hover:border-gray-200"
+              filterStatus === s.key ? "bg-brand-blue text-white border-brand-blue" : "bg-gray-100 text-gray-600 border-transparent hover:border-gray-200"
             }`}>
             {s.label} <span className="opacity-60 ml-1">{counts[s.key as keyof typeof counts]}</span>
           </button>

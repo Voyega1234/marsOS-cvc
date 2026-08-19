@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { signOut } from "next-auth/react";
 import {
   IconArrowRight,
   IconArticle,
@@ -14,7 +13,6 @@ import {
   IconFileSearch,
   IconFolderOpen,
   IconKeyboard,
-  IconLogout,
   IconMessage,
   IconNetwork,
   IconPlus,
@@ -108,7 +106,6 @@ export function CommandMenu({ open, onOpenChange }: Props) {
             {/* Navigate */}
             <CommandGroup heading="Navigate">
               {[
-                { label: "Dashboard",         href: "/dashboard",          icon: IconDashboard },
                 { label: "Projects",          href: "/projects",           icon: IconFolderOpen },
                 { label: "Articles",          href: "/articles",           icon: IconArticle },
                 { label: "Review Queue",      href: "/review",             icon: IconFileSearch },
@@ -120,7 +117,6 @@ export function CommandMenu({ open, onOpenChange }: Props) {
                 { label: "Brand Templates",   href: "/templates",          icon: IconTemplate },
                 { label: "Backlink Assistant",href: "/backlink-assistant", icon: IconNetwork },
                 { label: "AI SEO Report",     href: "/ai-seo-report",      icon: IconChartBar },
-                { label: "Website Connect",   href: "/website-connect",    icon: IconWorld },
                 { label: "AI Connect",        href: "/ai-connect",         icon: IconSettingsCode },
                 { label: "Users & Roles",     href: "/users",              icon: IconUsers },
                 { label: "Activity Logs",     href: "/activity-logs",      icon: IconFileSearch },
@@ -163,13 +159,6 @@ export function CommandMenu({ open, onOpenChange }: Props) {
                 <IconSettings aria-hidden />
                 Settings
                 <KbdGroup className="ml-auto"><Kbd>⌘</Kbd><Kbd>,</Kbd></KbdGroup>
-              </CommandItem>
-              <CommandItem
-                className="mx-2 rounded-lg py-2.5 text-red-600 aria-selected:bg-red-50 aria-selected:text-red-700 [&_svg]:text-red-400"
-                onSelect={() => { onOpenChange(false); signOut({ callbackUrl: "/login" }); }}
-              >
-                <IconLogout aria-hidden />
-                Log Out
               </CommandItem>
             </CommandGroup>
           </CommandList>

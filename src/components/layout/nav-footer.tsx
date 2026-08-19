@@ -1,6 +1,5 @@
 "use client";
 
-import { signOut } from "next-auth/react";
 import Link from "next/link";
 import {
   SidebarFooter,
@@ -15,7 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { IconChevronDown, IconLogout, IconSettings } from "@tabler/icons-react";
+import { IconChevronDown, IconSettings } from "@tabler/icons-react";
 
 interface Props {
   user: {
@@ -56,7 +55,7 @@ export function NavFooter({ user }: Props) {
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-gray-900 truncate">{user.name}</p>
+                  <p className="text-[13px] font-medium text-brand-navy truncate">{user.name}</p>
                   <p className="text-[11px] text-gray-400 truncate">{user.email}</p>
                 </div>
                 <IconChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
@@ -67,13 +66,6 @@ export function NavFooter({ user }: Props) {
                 <Link href="/settings" className="flex items-center gap-2 text-[13px]">
                   <IconSettings className="h-4 w-4" /> Settings
                 </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600 focus:text-red-700 focus:bg-red-50 text-[13px]"
-                onClick={() => signOut({ callbackUrl: "/login" })}
-              >
-                <IconLogout className="h-4 w-4" /> Log out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

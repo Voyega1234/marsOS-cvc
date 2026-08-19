@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/components/layout/SessionProvider";
 import { AppSidebar, SidebarProvider } from "./AppSidebar";
 import { ProTopBar } from "./ProTopBar";
 

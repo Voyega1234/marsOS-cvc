@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, Plus, ChevronDown, LogOut } from "lucide-react";
+import { Search, ChevronDown } from "lucide-react";
 import Link from "next/link";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "@/components/layout/SessionProvider";
 import { NotificationBell } from "./NotificationBell";
 import { CommandMenu } from "./CommandMenu";
 import { Kbd } from "@/components/ui/kbd";
@@ -23,7 +23,6 @@ const PAGE_LABELS: Record<string, string> = {
   "/prompts":              "Prompt Library",
   "/templates":            "Templates",
   "/backlink-assistant":   "Backlink",
-  "/website-connect":      "เผยแพร่",
   "/ai-seo-report":        "SEO Report",
   "/ai-connect":           "เชื่อมต่อ AI",
   "/users":                "ทีมงาน",
@@ -47,11 +46,20 @@ export function ProTopBar() {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("mars_demo_dismissed") === "1";
   });
+  // null = ยังไม่รู้สถานะ (ไม่โชว์แบนเนอร์จนกว่าจะเช็คเสร็จ)
+  const [aiConnected, setAiConnected] = useState<boolean | null>(null);
 
   function dismissDemo() {
     localStorage.setItem("mars_demo_dismissed", "1");
     setDemoDismissed(true);
   }
+
+  useEffect(() => {
+    fetch("/api/ai/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setAiConnected(Boolean(d.connected)); })
+      .catch(() => {});
+  }, []);
 
   const pageLabel =
     Object.entries(PAGE_LABELS).find(([k]) => pathname === k || (k !== "/dashboard" && pathname.startsWith(k)))?.[1] ?? "Console";
@@ -81,12 +89,12 @@ export function ProTopBar() {
     <>
       <CommandMenu open={cmdOpen} onOpenChange={setCmdOpen} />
 
-      {/* Demo Mode banner — dismissable, hidden for CLIENT */}
-      {!demoDismissed && !isClient && (
+      {/* แบนเนอร์เตือนเมื่อ AI ยังไม่ได้เชื่อมต่อจริงเท่านั้น (เช็คจาก /api/ai/status) */}
+      {!demoDismissed && !isClient && aiConnected === false && (
         <div className="bg-amber-50 border-b border-amber-100 px-5 py-1.5 flex items-center gap-2 text-xs text-amber-700">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-          <span className="font-medium">Demo Mode</span>
-          <span className="text-amber-500">— AI ยังไม่ได้ connect (mock output) · เชื่อมต่อจริงได้ที่</span>
+          <span className="font-medium">AI ยังไม่ได้เชื่อมต่อ</span>
+          <span className="text-amber-500">— local: รัน ./scripts/gcloud-adc.sh · หรือใส่ key ที่</span>
           <Link href="/ai-connect" className="underline underline-offset-2 font-medium hover:text-amber-800">เชื่อมต่อ AI</Link>
           <button onClick={dismissDemo} className="ml-auto text-amber-400 hover:text-amber-700 transition-colors p-0.5 rounded" aria-label="ปิด">✕</button>
         </div>
@@ -96,16 +104,16 @@ export function ProTopBar() {
         {/* Mars back button */}
         <button
           onClick={enterFront}
-          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 transition-colors shrink-0 mr-1"
+          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-brand-navy transition-colors shrink-0 mr-1"
         >
           <IconBolt className="h-3.5 w-3.5" />
-          Mars
+          MarsOS
         </button>
         <span className="text-gray-200 shrink-0">/</span>
 
         {/* Page Label */}
         <div className="flex-shrink-0">
-          <h1 className="text-sm font-semibold text-gray-900">{pageLabel}</h1>
+          <h1 className="text-sm font-semibold text-brand-navy">{pageLabel}</h1>
         </div>
 
         {/* Project Switcher — hidden for CLIENT */}
@@ -160,27 +168,7 @@ export function ProTopBar() {
         )}
 
         <div className="flex items-center gap-2 ml-auto">
-          {/* สร้างบทความ — hidden for CLIENT */}
-          {!isClient && (
-            <Link
-              href="/articles/new"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              สร้างบทความ
-            </Link>
-          )}
           {!isClient && <NotificationBell />}
-          {/* Logout button — CLIENT only */}
-          {isClient && (
-            <button
-              onClick={() => signOut({ callbackUrl: '/login' })}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              ออกจากระบบ
-            </button>
-          )}
         </div>
       </div>
     </>

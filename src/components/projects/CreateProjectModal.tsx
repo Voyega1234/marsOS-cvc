@@ -113,7 +113,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
               </div>
               <div>
                 <button type="button" onClick={() => logoRef.current?.click()}
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                  className="text-sm text-brand-blue hover:text-blue-700 font-medium">
                   {logoPreview ? "เปลี่ยนโลโก้" : "อัพโหลดโลโก้"}
                 </button>
                 <p className="text-[11px] text-gray-400 mt-0.5">PNG, JPG, SVG · แนะนำ 200×200px</p>

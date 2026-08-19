@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   // List all GSC properties the org has access to
   if (source === "properties") {
     try {
-      const auth = getGSCAuth();
+      const auth = await getGSCAuth();
       const sc = google.searchconsole({ version: "v1", auth });
       const res = await sc.sites.list();
       const properties = (res.data.siteEntry ?? [])
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ links: [], warning: "No GSC site URL configured" });
     }
     try {
-      const auth = getGSCAuth();
+      const auth = await getGSCAuth();
       const sc = google.searchconsole({ version: "v1", auth });
       const now = new Date();
       const endDate = new Date(now.getTime() - 3 * 86400000);

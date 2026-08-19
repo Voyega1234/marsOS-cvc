@@ -27,7 +27,7 @@ interface Props {
 const SOURCE_DEFS = [
   {
     type: "GSC", label: "Google Search Console", icon: Globe,
-    color: "bg-blue-50 border-blue-200", iconColor: "text-blue-600",
+    color: "bg-blue-50 border-blue-200", iconColor: "text-brand-blue",
     desc: "Position, clicks, impressions ต่อ keyword — ใช้สำหรับ Rank Tracking และ Refresh Score",
     fields: [
       { key: "siteUrl",       label: "Site URL",            placeholder: "https://example.com" },
@@ -123,7 +123,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-gray-900">Data Sources</h1>
+        <h1 className="text-xl font-bold text-brand-navy">Data Sources</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           เชื่อมต่อ AI, Analytics tools และ Data Brain files — ข้อมูลเหล่านี้จะถูก inject เข้า AI prompt ทุกครั้งที่สร้างบทความ
         </p>
@@ -143,7 +143,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
             </span>
           ))}
           <span className="text-gray-400">→</span>
-          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full font-medium bg-gray-900 text-white">
+          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full font-medium bg-brand-blue text-white">
             <Cpu className="h-3 w-3" /> AI Prompt Context
           </span>
           <span className="text-gray-400">→</span>
@@ -162,7 +162,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
         ].map((t) => (
           <button key={t.key} onClick={() => setActiveTab(t.key as typeof activeTab)}
             className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
-              activeTab === t.key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
+              activeTab === t.key ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-700")}>
             {t.label}
             {t.count !== null && <span className="text-xs bg-gray-200 text-gray-600 rounded-full px-1.5">{t.count}</span>}
           </button>
@@ -180,7 +180,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
                   <div className="flex items-center gap-3">
                     <def.icon className={cn("h-5 w-5", def.iconColor)} />
                     <div>
-                      <p className="font-semibold text-gray-900">{def.label}</p>
+                      <p className="font-semibold text-brand-navy">{def.label}</p>
                       <p className="text-xs text-gray-500 mt-0.5">{def.desc}</p>
                     </div>
                   </div>
@@ -191,7 +191,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
                       </span>
                     )}
                     <a href={def.connectUrl} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:underline">เปิด Console →</a>
+                      className="text-xs text-brand-blue hover:underline">เปิด Console →</a>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -212,7 +212,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
                   <button
                     onClick={() => connect(def.type)}
                     disabled={connecting === def.type}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors"
                   >
                     {connecting === def.type ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
                     {existing ? "Update Connection" : "Connect"}
@@ -252,7 +252,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
               <button
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold rounded-lg disabled:opacity-50"
               >
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 {uploading ? "กำลังอัปโหลด..." : "เลือกไฟล์"}
@@ -296,20 +296,20 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
             className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 hover:shadow-sm transition-all group"
           >
             <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-brand-blue flex items-center justify-center shrink-0">
                 <Cpu className="h-5 w-5 text-white" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-gray-900">ตั้งค่า AI Provider</p>
+                <p className="text-sm font-semibold text-brand-navy">ตั้งค่า AI Provider</p>
                 <p className="text-xs text-gray-500 mt-0.5">เพิ่ม API key และเลือก provider / model ที่ต้องการใช้</p>
               </div>
             </div>
-            <span className="text-xs font-semibold text-blue-600 group-hover:underline shrink-0">เปิด AI Connect →</span>
+            <span className="text-xs font-semibold text-brand-blue group-hover:underline shrink-0">เปิด AI Connect →</span>
           </a>
 
           <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-xs text-blue-700">
             <p className="font-semibold mb-1">เมื่อต่อ Data Sources ครบ — AI จะทำงานอย่างนี้:</p>
-            <ol className="list-decimal list-inside space-y-1 text-blue-600">
+            <ol className="list-decimal list-inside space-y-1 text-brand-blue">
               <li>ดึง Top 10 SERP จาก SerpAPI สำหรับ keyword นั้น</li>
               <li>อ่าน competitor URLs (ถ้ากำหนดใน brief)</li>
               <li>โหลด Data Brain files ที่เกี่ยวข้องกับ project</li>

@@ -33,11 +33,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const body = await req.json();
   // Allowlist — prevent overwriting organizationId or sensitive relations
   const allowed = ["name", "website", "businessType", "targetAudience", "language", "industry", "market",
-    "status", "notes", "projectContext", "writingPrompt", "imageStyleGuide", "automationMode",
-    "gtmContainerId", "ga4MeasurementId", "ga4PropertyId", "internalLinks", "themeColors",
+    // writingPrompt ถูกถอดออกจาก allowlist — ไม่มีใครอ่านค่านี้แล้ว (prompt มาจาก Content Engine)
+    "status", "notes", "projectContext", "imageStyleGuide", "automationMode",
+    "gtmContainerId", "ga4MeasurementId", "ga4PropertyId", "gscSiteUrl", "internalLinks", "themeColors",
     "wordpressConnectionId", "defaultTemplateId", "ownerId", "clientName",
     "monthlyTarget", "aiCostLimit", "slackWebhookUrl", "defaultWriterId", "defaultReviewerId",
-    "wpUrl", "wpUser", "wpAppPassword",
+    "wpUrl", "wpUser", "wpAppPassword", "websitePlatform", "pushPrefs", "siteConnection",
     "timeline", "autoSchedule",
     "styleGuide", "accentColor", "articleTheme", "forbiddenWords", "sampleArticle"];
   const data: Record<string, unknown> = {};

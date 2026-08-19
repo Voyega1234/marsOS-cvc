@@ -1,0 +1,682 @@
+/**
+ * WordGod — GoogleKeywordPlannerService
+ *
+ * Connects to Google Ads API (Keyword Planner) to fetch:
+ * - Keyword ideas from seed keywords / URL
+ * - Historical metrics (avg monthly searches, competition, CPC)
+ *
+ * Server-side only. Never expose credentials to frontend.
+ * No OAuth flow here — expects pre-generated refresh token in env.
+ */
+
+import type { GoogleAdsConfig, KeywordPlannerResult, KeywordPlannerRow, SkillInput } from '../skills/keyword-seo-title/types';
+import { readKeywordPlannerCache, writeKeywordPlannerCache, buildCacheKey } from '../cache/keywordPlannerCache';
+import {
+  CPC_OUTPUT_CURRENCY,
+  convertMicrosToCpcCurrency,
+  getCpcConversion,
+  type CpcConversion,
+} from './cpcCurrency';
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+export function loadGoogleAdsConfig(): GoogleAdsConfig | null {
+  const {
+    GOOGLE_ADS_DEVELOPER_TOKEN,
+    GOOGLE_ADS_CLIENT_ID,
+    GOOGLE_ADS_CLIENT_SECRET,
+    GOOGLE_ADS_REFRESH_TOKEN,
+    GOOGLE_ADS_CUSTOMER_ID,
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+    GOOGLE_ADS_API_VERSION,
+  } = process.env;
+
+  if (!GOOGLE_ADS_DEVELOPER_TOKEN || !GOOGLE_ADS_CLIENT_ID || !GOOGLE_ADS_CLIENT_SECRET ||
+      !GOOGLE_ADS_REFRESH_TOKEN || !GOOGLE_ADS_CUSTOMER_ID) {
+    return null;
+  }
+
+  return {
+    developerToken: GOOGLE_ADS_DEVELOPER_TOKEN,
+    clientId: GOOGLE_ADS_CLIENT_ID,
+    clientSecret: GOOGLE_ADS_CLIENT_SECRET,
+    refreshToken: GOOGLE_ADS_REFRESH_TOKEN,
+    customerId: normalizeCustomerId(GOOGLE_ADS_CUSTOMER_ID),
+    loginCustomerId: GOOGLE_ADS_LOGIN_CUSTOMER_ID
+      ? normalizeCustomerId(GOOGLE_ADS_LOGIN_CUSTOMER_ID)
+      : undefined,
+    apiVersion: GOOGLE_ADS_API_VERSION || 'v22',
+  };
+}
+
+export function validateGoogleAdsConfig(config: GoogleAdsConfig | null): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!config) {
+    return { valid: false, errors: ['Google Ads credentials not configured. Check GOOGLE_ADS_* env variables.'] };
+  }
+  if (!config.developerToken) errors.push('GOOGLE_ADS_DEVELOPER_TOKEN missing');
+  if (!config.clientId) errors.push('GOOGLE_ADS_CLIENT_ID missing');
+  if (!config.clientSecret) errors.push('GOOGLE_ADS_CLIENT_SECRET missing');
+  if (!config.refreshToken) errors.push('GOOGLE_ADS_REFRESH_TOKEN missing');
+  if (!config.customerId) errors.push('GOOGLE_ADS_CUSTOMER_ID missing');
+  if (config.customerId && !/^\d+$/.test(config.customerId)) {
+    errors.push(`GOOGLE_ADS_CUSTOMER_ID invalid format: ${config.customerId}`);
+  }
+  return { valid: errors.length === 0, errors };
+}
+
+// ─── ID normalizer ────────────────────────────────────────────────────────────
+
+export function normalizeCustomerId(id: string): string {
+  return id.replace(/-/g, '').trim();
+}
+
+// ─── Access Token ─────────────────────────────────────────────────────────────
+
+export async function getAccessToken(config: GoogleAdsConfig): Promise<string> {
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      refresh_token: config.refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new GoogleAdsApiError(`Failed to get access token: ${res.status} ${body}`, 'AUTH_ERROR');
+  }
+
+  const data = await res.json();
+  if (!data.access_token) throw new GoogleAdsApiError('No access_token in OAuth response', 'AUTH_ERROR');
+  return data.access_token;
+}
+
+// ─── Error class ─────────────────────────────────────────────────────────────
+
+export class GoogleAdsApiError extends Error {
+  code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = 'GoogleAdsApiError';
+    this.code = code;
+  }
+}
+
+interface GoogleAdsCpcContext {
+  originalCurrency: string;
+  conversion: CpcConversion | null;
+  warning?: string;
+}
+
+export async function getGoogleAdsAccountCurrency(
+  config: GoogleAdsConfig,
+  accessToken: string
+): Promise<string> {
+  const endpoint = `https://googleads.googleapis.com/${config.apiVersion}/customers/${config.customerId}/googleAds:search`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'developer-token': config.developerToken,
+      'Content-Type': 'application/json',
+      ...(config.loginCustomerId ? { 'login-customer-id': config.loginCustomerId } : {}),
+    },
+    body: JSON.stringify({ query: 'SELECT customer.currency_code FROM customer LIMIT 1' }),
+  });
+  const responseText = await response.text();
+  if (!response.ok) handleGoogleAdsApiError(response.status, responseText);
+
+  const data = JSON.parse(responseText);
+  const currency = String(data.results?.[0]?.customer?.currencyCode || '').trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new GoogleAdsApiError('Google Ads account currency_code was not returned', 'CURRENCY_ERROR');
+  }
+  return currency;
+}
+
+async function resolveGoogleAdsCpcContext(
+  config: GoogleAdsConfig,
+  accessToken: string
+): Promise<GoogleAdsCpcContext> {
+  let originalCurrency = 'UNKNOWN';
+  try {
+    originalCurrency = await getGoogleAdsAccountCurrency(config, accessToken);
+    const conversion = await getCpcConversion(originalCurrency);
+    return { originalCurrency, conversion };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      originalCurrency,
+      conversion: null,
+      warning: `Google Ads CPC was withheld because ${originalCurrency} could not be converted to THB: ${reason}. Search Volume remains usable.`,
+    };
+  }
+}
+
+// ─── Targeting helpers ────────────────────────────────────────────────────────
+
+// Common language constants
+const LANGUAGE_CONSTANTS: Record<string, string> = {
+  // ภาษาไทย = criterion 1044 — ค่าเดิม 1011 ไม่ใช่ภาษาไทย ทำให้ generateKeywordIdeas
+  // ไม่ขยายไอเดียเลย (คืนแค่คำ seed คำเดียว) ยืนยันจากการยิง API ตรง 2026-08-19
+  th: 'languageConstants/1044',
+  thai: 'languageConstants/1044',
+  en: 'languageConstants/1000',
+  english: 'languageConstants/1000',
+};
+
+// Common geo target constants
+const GEO_TARGET_CONSTANTS: Record<string, string> = {
+  thailand: 'geoTargetConstants/2764',
+  th: 'geoTargetConstants/2764',
+  us: 'geoTargetConstants/2840',
+  usa: 'geoTargetConstants/2840',
+};
+
+function resolveLanguageResource(input: SkillInput): string {
+  if (input.google_ads_language_resource) return input.google_ads_language_resource;
+  const lang = (input.target_language_name || input.target_language || 'th').toLowerCase();
+  return LANGUAGE_CONSTANTS[lang] || LANGUAGE_CONSTANTS['th'];
+}
+
+function resolveGeoTargetResources(input: SkillInput): string[] {
+  if (input.google_ads_geo_target_resources?.length) return input.google_ads_geo_target_resources;
+  const country = (input.target_country || 'Thailand').toLowerCase();
+  const geo = GEO_TARGET_CONSTANTS[country] || GEO_TARGET_CONSTANTS['thailand'];
+  return [geo];
+}
+
+// ─── Geo target resolution (ชื่อพื้นที่ → geoTargetConstant) ─────────────────
+//
+// ใช้ GeoTargetConstantService.SuggestGeoTargetConstants ของ Google Ads เอง
+// เพื่อแปลง "บางแค" / "ลาดพร้าว" เป็น resource name จริง — ไม่มีการเดา ID เอง
+// ถ้าเรียกไม่สำเร็จหรือหาไม่เจอ จะคืน null ให้ผู้เรียกถอยไปใช้ระดับที่กว้างขึ้น
+
+export type GeoTargetLevel = 'district' | 'province' | 'bangkok' | 'country';
+
+export interface ResolvedGeoTarget {
+  resourceName: string;
+  name: string;
+  level: GeoTargetLevel;
+}
+
+export const THAILAND_GEO_TARGET: ResolvedGeoTarget = {
+  resourceName: GEO_TARGET_CONSTANTS.thailand,
+  name: 'Thailand',
+  level: 'country',
+};
+
+// targetType ที่ Google ส่งกลับ → ระดับที่เราใช้จัดลำดับ fallback
+const DISTRICT_TARGET_TYPES = new Set([
+  'DISTRICT', 'SUB_DISTRICT', 'NEIGHBORHOOD', 'POSTAL_CODE', 'CITY', 'MUNICIPALITY',
+]);
+const PROVINCE_TARGET_TYPES = new Set(['PROVINCE', 'REGION', 'STATE', 'TERRITORY', 'DEPARTMENT']);
+
+const geoCache = new Map<string, ResolvedGeoTarget | null>();
+
+function classifyGeoLevel(targetType: string, name: string): GeoTargetLevel {
+  const type = String(targetType || '').toUpperCase().replace(/\s+/g, '_');
+  if (/bangkok/i.test(name)) return 'bangkok';
+  if (DISTRICT_TARGET_TYPES.has(type)) return 'district';
+  if (PROVINCE_TARGET_TYPES.has(type)) return 'province';
+  return 'province';
+}
+
+/**
+ * แปลงชื่อพื้นที่หนึ่งชื่อเป็น geoTargetConstant ที่ Google รู้จัก
+ * คืน null เมื่อหาไม่เจอ / เรียก API ไม่ได้ — ผู้เรียกต้องมี fallback เสมอ
+ *
+ * onError จะถูกเรียกเฉพาะกรณี "เรียก API ไม่สำเร็จ" (ไม่ใช่กรณีหาไม่เจอ) เพื่อให้
+ * ผู้เรียกแยกได้ว่าที่ตกไประดับประเทศเพราะ Google ไม่รู้จักพื้นที่ หรือเพราะยิง API ไม่ผ่าน
+ */
+export async function suggestGeoTargetConstant(
+  config: GoogleAdsConfig,
+  accessToken: string,
+  locationName: string,
+  countryCode = 'TH',
+  locale = 'th',
+  onError?: (detail: string) => void
+): Promise<ResolvedGeoTarget | null> {
+  const trimmed = locationName.trim();
+  if (!trimmed) return null;
+
+  const cacheKey = `${countryCode}|${locale}|${trimmed.toLowerCase()}`;
+  if (geoCache.has(cacheKey)) return geoCache.get(cacheKey) ?? null;
+
+  try {
+    const endpoint = `https://googleads.googleapis.com/${config.apiVersion}/geoTargetConstants:suggest`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'developer-token': config.developerToken,
+        'Content-Type': 'application/json',
+        ...(config.loginCustomerId ? { 'login-customer-id': config.loginCustomerId } : {}),
+      },
+      body: JSON.stringify({ locale, countryCode, locationNames: { names: [trimmed] } }),
+    });
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      onError?.(`geoTargetConstants:suggest ตอบ ${res.status} ${detail.slice(0, 300)}`);
+      geoCache.set(cacheKey, null);
+      return null;
+    }
+
+    const data = await res.json();
+    const suggestions: any[] = data.geoTargetConstantSuggestions || [];
+    const usable = suggestions
+      .map(s => s.geoTargetConstant)
+      .filter(g => g?.resourceName && String(g.status || 'ENABLED').toUpperCase() === 'ENABLED')
+      .filter(g => !g.countryCode || String(g.countryCode).toUpperCase() === countryCode.toUpperCase());
+
+    if (usable.length === 0) {
+      geoCache.set(cacheKey, null);
+      return null;
+    }
+
+    // เลือกตัวที่จำเพาะที่สุดก่อน (เขต/อำเภอ) แล้วค่อยถอยเป็นจังหวัด
+    const ranked = usable.sort((a, b) => {
+      const rank = (g: any) => (DISTRICT_TARGET_TYPES.has(String(g.targetType || '').toUpperCase()) ? 0 : 1);
+      return rank(a) - rank(b);
+    });
+    const chosen = ranked[0];
+    const resolved: ResolvedGeoTarget = {
+      resourceName: chosen.resourceName,
+      name: chosen.name || trimmed,
+      level: classifyGeoLevel(chosen.targetType, chosen.name || trimmed),
+    };
+    geoCache.set(cacheKey, resolved);
+    return resolved;
+  } catch (error) {
+    onError?.(`geoTargetConstants:suggest ล้มเหลว: ${error instanceof Error ? error.message : String(error)}`);
+    geoCache.set(cacheKey, null);
+    return null;
+  }
+}
+
+/**
+ * ลำดับ fallback ตามสเปก: เขต/อำเภอ → จังหวัด → กรุงเทพฯ → ประเทศไทย
+ * คืน Thailand เสมอเป็นทางสุดท้าย จึงไม่มีกรณีที่ยิง KP โดยไม่มี geo target
+ */
+export async function resolveGeoTargetChain(
+  config: GoogleAdsConfig,
+  accessToken: string,
+  candidates: string[],
+  onError?: (detail: string) => void
+): Promise<ResolvedGeoTarget> {
+  for (const name of candidates) {
+    if (!name?.trim()) continue;
+    const resolved = await suggestGeoTargetConstant(config, accessToken, name, 'TH', 'th', onError);
+    if (resolved) return resolved;
+  }
+  return THAILAND_GEO_TARGET;
+}
+
+// ─── Metric mappers ───────────────────────────────────────────────────────────
+
+function mapCompetition(value: string | number | undefined): string {
+  if (!value) return 'UNSPECIFIED';
+  const v = String(value).toUpperCase();
+  if (['LOW', 'MEDIUM', 'HIGH', 'UNSPECIFIED'].includes(v)) return v;
+  return 'UNSPECIFIED';
+}
+
+function mapKeywordIdeaToRow(idea: any, cpcContext: GoogleAdsCpcContext): KeywordPlannerRow {
+  const metrics = idea.keywordIdeaMetrics || {};
+  const monthlySearches = metrics.monthlySearchVolumes || [];
+  const monthlyTrend = monthlySearches
+    .map((m: any) => parseInt(m.monthlySearches || '0', 10))
+    .filter((v: number) => !isNaN(v));
+
+  const avgVolume = metrics.avgMonthlySearches
+    ? parseInt(String(metrics.avgMonthlySearches), 10)
+    : 0;
+
+  return {
+    keyword: idea.text || '',
+    volume: isNaN(avgVolume) ? 0 : avgVolume,
+    competition: mapCompetition(metrics.competition),
+    competition_index: parseInt(String(metrics.competitionIndex || '0'), 10),
+    low_cpc: convertMicrosToCpcCurrency(metrics.lowTopOfPageBidMicros, cpcContext.conversion),
+    high_cpc: convertMicrosToCpcCurrency(metrics.highTopOfPageBidMicros, cpcContext.conversion),
+    cpc_currency: CPC_OUTPUT_CURRENCY,
+    cpc_original_currency: cpcContext.originalCurrency,
+    cpc_to_thb_rate: cpcContext.conversion?.rate,
+    cpc_rate_as_of: cpcContext.conversion?.rateAsOf,
+    cpc_rate_source: cpcContext.conversion?.rateSource,
+    monthly_trend: monthlyTrend,
+    source: 'google_keyword_planner_api',
+  };
+}
+
+// ─── API calls ────────────────────────────────────────────────────────────────
+
+async function generateKeywordIdeas(
+  config: GoogleAdsConfig,
+  accessToken: string,
+  input: SkillInput,
+  cpcContext: GoogleAdsCpcContext
+): Promise<KeywordPlannerRow[]> {
+  const allSeeds = input.seed_keywords || [];
+  const url = input.website_url;
+  const language = resolveLanguageResource(input);
+  const geoTargets = resolveGeoTargetResources(input);
+  const network = input.keyword_plan_network || 'GOOGLE_SEARCH';
+
+  if (allSeeds.length === 0 && !url) {
+    throw new GoogleAdsApiError('Must provide seed_keywords or website_url', 'INVALID_INPUT');
+  }
+
+  // Google Ads limit: max 20 seed keywords per request
+  const SEED_CHUNK = 20;
+  const customerId = config.customerId;
+  const endpoint = `https://googleads.googleapis.com/${config.apiVersion}/customers/${customerId}:generateKeywordIdeas`;
+  const { appendFileSync } = require('fs');
+  const slog = (msg: string) => appendFileSync('/tmp/wordgod-metrics.log', `[Step1][${new Date().toISOString()}] ${msg}\n`);
+
+  const allRows: KeywordPlannerRow[] = [];
+  const seedChunks = allSeeds.length > 0
+    ? Array.from({ length: Math.ceil(allSeeds.length / SEED_CHUNK) }, (_, i) => allSeeds.slice(i * SEED_CHUNK, (i + 1) * SEED_CHUNK))
+    : [[]]; // url-only mode: one request, no seed chunks
+
+  for (const seedChunk of seedChunks) {
+    let keywordSeed: object;
+    if (seedChunk.length > 0 && url) {
+      keywordSeed = { keywordAndUrlSeed: { keywords: seedChunk, url } };
+    } else if (seedChunk.length > 0) {
+      keywordSeed = { keywordSeed: { keywords: seedChunk } };
+    } else {
+      keywordSeed = { urlSeed: { url } };
+    }
+
+    const body = {
+      language,
+      geoTargetConstants: geoTargets,
+      keywordPlanNetwork: network,
+      includeAdultKeywords: false,
+      ...keywordSeed,
+    };
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'developer-token': config.developerToken,
+        'Content-Type': 'application/json',
+        ...(config.loginCustomerId ? { 'login-customer-id': config.loginCustomerId } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+    const rawText = await res.text();
+    if (!res.ok) {
+      slog(`API error ${res.status}: ${rawText.slice(0, 400)}`);
+      handleGoogleAdsApiError(res.status, rawText);
+    }
+
+    const data = JSON.parse(rawText);
+    slog(`API ok — results: ${data.results?.length ?? 0}, seeds: ${seedChunk.slice(0,3).join(',')}`);
+    if (data.results?.length > 0) slog(`sample: ${JSON.stringify(data.results[0]).slice(0, 200)}`);
+    const rows = (data.results || [])
+      .map((idea: any) => mapKeywordIdeaToRow(idea, cpcContext))
+      .filter((r: KeywordPlannerRow) => r.keyword);
+    allRows.push(...rows);
+  }
+
+  // Deduplicate by keyword text
+  const seen = new Set<string>();
+  return allRows.filter(r => {
+    if (seen.has(r.keyword)) return false;
+    seen.add(r.keyword);
+    return true;
+  });
+}
+
+// ─── Error handler ────────────────────────────────────────────────────────────
+
+export function handleGoogleAdsApiError(status: number, body: string): never {
+  let parsed: any = {};
+  try { parsed = JSON.parse(body); } catch {}
+
+  const details = parsed?.error?.details || parsed?.error?.message || body;
+  const msg = typeof details === 'string' ? details : JSON.stringify(details);
+
+  if (status === 401) throw new GoogleAdsApiError(`Auth failed: ${msg}`, 'AUTH_ERROR');
+  if (status === 403) throw new GoogleAdsApiError(`Permission denied: ${msg}`, 'PERMISSION_DENIED');
+  if (status === 429) throw new GoogleAdsApiError(`Rate limited / quota exceeded: ${msg}`, 'QUOTA_EXCEEDED');
+  if (status === 400) throw new GoogleAdsApiError(`Bad request: ${msg}`, 'BAD_REQUEST');
+  throw new GoogleAdsApiError(`Google Ads API error ${status}: ${msg}`, 'API_ERROR');
+}
+
+// ─── Historical metrics (lookup volume for known keywords) ────────────────────
+
+// generateKeywordHistoricalMetrics requires elevated permissions not available on this account.
+// Instead, use generateKeywordIdeas with small seed batches and filter results to only
+// keywords that exactly match the input — same endpoint as Step 1, no extra permissions needed.
+export interface MetricEntry {
+  volume: number;
+  competition: string;
+  competition_index: number;
+  cpc: number;
+  cpc_low: number;
+  cpc_high: number;
+  cpc_currency: 'THB';
+  cpc_original_currency: string;
+  cpc_to_thb_rate?: number;
+  cpc_rate_as_of?: string;
+  cpc_rate_source?: string;
+  source: 'exact' | 'close_variant';
+  variant_keyword?: string;  // legacy compatibility; new lookups never synthesize variant volume
+  /** ยอดค้นหาย้อนหลังรายเดือน (เก่า → ใหม่) สำหรับ trend chart */
+  monthly_trend?: number[];
+}
+
+export async function getHistoricalMetrics(
+  keywords: string[],
+  config: GoogleAdsConfig,
+  accessToken: string,
+  language: string = 'th',
+  country: string = 'Thailand',
+  onWarning?: (warning: string) => void,
+  /**
+   * เจาะพื้นที่ให้แคบกว่าระดับประเทศ (เช่น เขตบางแค) — ใส่ resource name ที่ resolve
+   * มาแล้วจาก suggestGeoTargetConstant() เท่านั้น ไม่ใส่ = ใช้ระดับประเทศเหมือนเดิม
+   */
+  geoResourceOverride?: string | null
+): Promise<Map<string, MetricEntry>> {
+  const result = new Map<string, MetricEntry>();
+  if (keywords.length === 0) return result;
+
+  const languageResource = LANGUAGE_CONSTANTS[language.toLowerCase()] || LANGUAGE_CONSTANTS['th'];
+  const geoResource =
+    geoResourceOverride ||
+    GEO_TARGET_CONSTANTS[country.toLowerCase()] ||
+    GEO_TARGET_CONSTANTS['thailand'];
+  // Use client account ID in endpoint path; MCC goes in login-customer-id header only
+  const customerId = config.customerId;
+  const endpoint = `https://googleads.googleapis.com/${config.apiVersion}/customers/${customerId}:generateKeywordIdeas`;
+  const cpcContext = await resolveGoogleAdsCpcContext(config, accessToken);
+  if (cpcContext.warning) onWarning?.(cpcContext.warning);
+
+  // Chunk size 20 — max seeds per KP request; run 5 chunks in parallel for throughput
+  const CHUNK = 20;
+  const PARALLEL = 5;
+  const MAX_RETRIES = 2;
+  const { appendFileSync } = require('fs');
+  const logLine = (msg: string) => appendFileSync('/tmp/wordgod-metrics.log', `[${new Date().toISOString()}] ${msg}\n`);
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < keywords.length; i += CHUNK) chunks.push(keywords.slice(i, i + CHUNK));
+
+  // Process chunks in parallel waves
+  for (let w = 0; w < chunks.length; w += PARALLEL) {
+    const wave = chunks.slice(w, w + PARALLEL);
+    await Promise.all(wave.map(async (chunk) => {
+    const inputSet = new Set(chunk.map(k => k.trim().toLowerCase()));
+
+    const body = {
+      language: languageResource,
+      geoTargetConstants: [geoResource],
+      keywordPlanNetwork: 'GOOGLE_SEARCH',
+      keywordSeed: { keywords: chunk },
+    };
+
+    let responseText = '';
+    let success = false;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          await new Promise(r => setTimeout(r, 1000 * attempt)); // 1s, 2s backoff
+          logLine(`retry attempt ${attempt} for chunk: ${chunk[0]}`);
+        }
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'developer-token': config.developerToken,
+            'Content-Type': 'application/json',
+            ...(config.loginCustomerId ? { 'login-customer-id': config.loginCustomerId } : {}),
+          },
+          body: JSON.stringify(body),
+        });
+        responseText = await res.text();
+        if (!res.ok) {
+          logLine(`API error ${res.status} (attempt ${attempt}): ${responseText.slice(0, 200)}`);
+          if (res.status === 429 || res.status >= 500) continue; // retry on rate limit / server error
+          break; // don't retry on 400/403
+        }
+        success = true;
+        break;
+      } catch (fetchErr) {
+        logLine(`fetch exception (attempt ${attempt}): ${fetchErr}`);
+      }
+    }
+
+    if (!success) {
+      logLine(`chunk failed after retries, skipping: ${chunk[0]}`);
+      return; // return from async callback (was: continue)
+    }
+
+    try {
+      const data = JSON.parse(responseText);
+      logLine(`API ok — results: ${data.results?.length ?? 0}, chunk: ${chunk.join(',').slice(0, 80)}`);
+      if (data.results?.length > 0) {
+        logLine(`sample item: ${JSON.stringify(data.results[0]).slice(0, 200)}`);
+      }
+
+      for (const item of (data.results || [])) {
+        const rawText = (item.text || '').trim().toLowerCase();
+        const plannerText = rawText.replace(/\s+/g, ' ');
+        const closeVariants: string[] = (item.closeVariants || []).map((v: string) => v.trim().toLowerCase());
+        const metrics = item.keywordIdeaMetrics || {};
+        const volume = metrics.avgMonthlySearches ? parseInt(String(metrics.avgMonthlySearches), 10) : 0;
+        if (isNaN(volume) || volume < 0) continue;
+
+        const allForms = [plannerText, ...closeVariants];
+        const matchedInput = Array.from(inputSet).find(inp =>
+          allForms.some(form => form === inp || form.replace(/\s/g, '') === inp.replace(/\s/g, ''))
+        );
+        if (matchedInput && !result.has(matchedInput)) {
+          const cpcLow = convertMicrosToCpcCurrency(metrics.lowTopOfPageBidMicros, cpcContext.conversion);
+          const cpcHigh = convertMicrosToCpcCurrency(metrics.highTopOfPageBidMicros, cpcContext.conversion);
+          result.set(matchedInput, {
+            volume,
+            competition: mapCompetition(metrics.competition),
+            competition_index: parseInt(String(metrics.competitionIndex || '0'), 10),
+            cpc: cpcLow && cpcHigh ? (cpcLow + cpcHigh) / 2 : cpcHigh || cpcLow || 0,
+            cpc_low: cpcLow,
+            cpc_high: cpcHigh,
+            cpc_currency: CPC_OUTPUT_CURRENCY,
+            cpc_original_currency: cpcContext.originalCurrency,
+            cpc_to_thb_rate: cpcContext.conversion?.rate,
+            cpc_rate_as_of: cpcContext.conversion?.rateAsOf,
+            cpc_rate_source: cpcContext.conversion?.rateSource,
+            source: 'exact',
+            monthly_trend: (metrics.monthlySearchVolumes || [])
+              .map((m: { monthlySearches?: string }) => parseInt(m.monthlySearches || '0', 10))
+              .filter((v: number) => !isNaN(v)),
+          });
+          logLine(`exact: "${matchedInput}" vol=${volume}`);
+        }
+      }
+    } catch (err) {
+      logLine(`parse/process exception: ${err}`);
+    }
+    })); // end Promise.all wave
+  } // end wave loop
+
+  return result;
+}
+
+// ─── Main service function ────────────────────────────────────────────────────
+
+export async function getKeywordPlannerRows(input: SkillInput): Promise<KeywordPlannerResult> {
+  const config = loadGoogleAdsConfig();
+  const { valid, errors } = validateGoogleAdsConfig(config);
+
+  if (!valid) {
+    return {
+      success: false,
+      rows: [],
+      error: errors.join('; '),
+    };
+  }
+
+  // Cache check
+  const cacheKey = buildCacheKey(input, `${config!.customerId}|cpc-thb-v2`);
+  if (!input.force_refresh) {
+    const cached = readKeywordPlannerCache(cacheKey);
+    if (cached) {
+      return { success: true, rows: cached.rows, cached: true, cached_at: cached.cached_at };
+    }
+  }
+
+  // Google Ads ล่มชั่วคราวได้ (token/rate limit) — ห้ามล้มเงียบเพราะปลายทางจะเหลือ
+  // คีย์เวิร์ดไม่กี่คำโดยไม่รู้ตัว: ลองซ้ำ 1 ครั้ง แล้วถ้ายังพังให้ใช้ cache เก่าแทน
+  let lastError = '';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const accessToken = await getAccessToken(config!);
+      const cpcContext = await resolveGoogleAdsCpcContext(config!, accessToken);
+      const rows = await generateKeywordIdeas(config!, accessToken, input, cpcContext);
+
+      if (rows.length === 0) {
+        lastError = 'No keyword ideas returned from Google Keyword Planner.';
+      } else {
+        // Do not cache rows whose CPC conversion failed. This lets the next run
+        // retry the exchange-rate lookup instead of retaining blank CPC for 30 days.
+        if (cpcContext.conversion) writeKeywordPlannerCache(cacheKey, rows);
+        return {
+          success: true,
+          rows,
+          warnings: cpcContext.warning ? [cpcContext.warning] : undefined,
+        };
+      }
+    } catch (err: any) {
+      lastError = err.message || String(err);
+    }
+    if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
+  }
+
+  const stale = readKeywordPlannerCache(cacheKey, { allowStale: true });
+  if (stale && stale.rows.length > 0) {
+    return {
+      success: true,
+      rows: stale.rows,
+      cached: true,
+      cached_at: stale.cached_at,
+      warnings: [`Google Keyword Planner ขัดข้อง (${lastError.slice(0, 120)}) — ใช้ข้อมูลรอบก่อนจาก cache (${stale.cached_at.slice(0, 10)}) แทน`],
+    };
+  }
+  return {
+    success: false,
+    rows: [],
+    error: lastError,
+  };
+}

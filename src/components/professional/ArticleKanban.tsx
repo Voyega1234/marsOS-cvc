@@ -125,7 +125,7 @@ export function ArticleKanban({ articles }: Props) {
           <span className="text-xs font-semibold text-gray-500">Project:</span>
           <button
             onClick={() => setProjectFilter("ALL")}
-            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${projectFilter === "ALL" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${projectFilter === "ALL" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
           >
             ทั้งหมด ({articles.length})
           </button>
@@ -135,7 +135,7 @@ export function ArticleKanban({ articles }: Props) {
               <button
                 key={p.id}
                 onClick={() => setProjectFilter(p.id)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${projectFilter === p.id ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${projectFilter === p.id ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
               >
                 {p.name} ({count})
               </button>
@@ -201,7 +201,7 @@ export function ArticleKanban({ articles }: Props) {
                       onClick={(e) => e.stopPropagation()}
                       className="block"
                     >
-                      <p className="text-xs font-medium text-gray-900 line-clamp-2 leading-snug hover:text-green-700 transition-colors">
+                      <p className="text-xs font-medium text-brand-navy line-clamp-2 leading-snug hover:text-green-700 transition-colors">
                         {article.title}
                       </p>
                     </Link>

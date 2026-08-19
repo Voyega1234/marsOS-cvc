@@ -5,7 +5,7 @@ import { ClientPortalClient } from "@/components/client-portal/ClientPortalClien
 
 export default async function ClientPortalPage() {
   const session = await getSession();
-  if (!session?.user?.id) redirect("/login");
+  if (!session?.user?.id) redirect("/setup");
 
   // Non-CLIENT roles go to normal dashboard
   if (session.user.role !== "CLIENT") redirect("/dashboard");

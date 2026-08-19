@@ -99,11 +99,11 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
           {" / "}
           <Link href={`/projects/${project.id}`} className="hover:text-green-600">{project.name}</Link>
           {" / "}
-          <span className="text-gray-900">Articles</span>
+          <span className="text-brand-navy">Articles</span>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Articles</h1>
+            <h1 className="text-xl font-bold text-brand-navy">Articles</h1>
             <p className="text-sm text-gray-500 mt-1">{articles.length} article{articles.length !== 1 ? "s" : ""}</p>
           </div>
           <Link
@@ -173,7 +173,7 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
                     <td className="px-4 py-3">
                       <Link
                         href={`/projects/${project.id}/articles/${article.id}`}
-                        className="font-medium text-gray-900 hover:text-green-700 line-clamp-2 max-w-xs"
+                        className="font-medium text-brand-navy hover:text-green-700 line-clamp-2 max-w-xs"
                       >
                         {article.title}
                       </Link>
@@ -210,7 +210,7 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
                         <button
                           onClick={() => generateOutline(article.id)}
                           disabled={generatingOutline === article.id}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50"
+                          className="text-xs text-brand-blue hover:text-blue-700 font-medium disabled:opacity-50"
                         >
                           {generatingOutline === article.id ? "..." : "Outline"}
                         </button>

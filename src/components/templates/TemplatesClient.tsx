@@ -79,7 +79,7 @@ export function TemplatesClient({ templates: initial, orgId }: Props) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Brand Templates</h1>
+          <h1 className="text-xl font-bold text-brand-navy">Brand Templates</h1>
           <p className="text-gray-500 text-sm mt-1">{templates.length} templates</p>
         </div>
         <Button onClick={openCreate} className="gap-2">
@@ -96,7 +96,7 @@ export function TemplatesClient({ templates: initial, orgId }: Props) {
                   <Layers className="h-5 w-5 text-green-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">{t.name}</h3>
+                  <h3 className="font-semibold text-brand-navy">{t.name}</h3>
                   <p className="text-xs text-gray-500">{t.brandName} · {t.language.toUpperCase()}</p>
                 </div>
               </div>

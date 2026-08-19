@@ -39,3 +39,7 @@ next-env.d.ts
 # prisma
 **/dev.db
 **/dev.db-journal
+
+# local caches / old handoff
+/.cache/
+/mars-os-pipeline-fix/

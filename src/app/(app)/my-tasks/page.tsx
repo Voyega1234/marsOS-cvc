@@ -99,7 +99,7 @@ export default async function MyTasksPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">งานของฉัน</h1>
+          <h1 className="text-2xl font-bold text-brand-navy">งานของฉัน</h1>
           <p className="text-gray-500 text-sm mt-1">
             {totalCount === 0 ? "ไม่มีงานค้างอยู่ 🎉" : `${totalCount} งานที่รอดำเนินการ`}
           </p>
@@ -120,7 +120,7 @@ export default async function MyTasksPage() {
       {totalCount === 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
           <CheckCircle2 className="h-12 w-12 text-[#1A6A46] mx-auto mb-4 opacity-50" />
-          <h2 className="text-lg font-bold text-gray-900">ทำงานเสร็จหมดแล้ว!</h2>
+          <h2 className="text-lg font-bold text-brand-navy">ทำงานเสร็จหมดแล้ว!</h2>
           <p className="text-sm text-gray-500 mt-2">ยังไม่มีงานที่มอบหมายมาให้</p>
           <Link href="/articles/new" className="inline-flex items-center gap-2 mt-5 px-4 py-2 bg-[#1A1A1A] text-white text-sm font-semibold rounded-xl hover:bg-[#2D2D2D] transition-colors">
             สร้างบทความใหม่ <ArrowRight className="h-4 w-4" />
@@ -151,7 +151,7 @@ export default async function MyTasksPage() {
                       {src.label}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-900 truncate">{task.title}</p>
+                      <p className="font-semibold text-brand-navy truncate">{task.title}</p>
                       {task.description && (
                         <p className="text-xs text-gray-500 mt-0.5 truncate">{task.description}</p>
                       )}

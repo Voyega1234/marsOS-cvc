@@ -60,7 +60,7 @@ function getNextAction(status: string): NextAction {
     },
     KEYWORD_RESEARCHING: {
       label: "กำลังวิจัย...", emoji: "⏳", type: "waiting",
-      color: "bg-blue-100", textColor: "text-blue-600",
+      color: "bg-blue-100", textColor: "text-brand-blue",
       hint: "AI กำลังค้นหาคีย์เวิร์ดที่เหมาะสม",
     },
     KEYWORD_DONE: {
@@ -371,7 +371,7 @@ export function SimpleArticleCards({ articles, projects, users }: Props) {
                       </span>
                     )}
                   </div>
-                  <h3 className="font-semibold text-gray-900 group-hover:text-green-700 transition-colors leading-snug line-clamp-3 text-base">
+                  <h3 className="font-semibold text-brand-navy group-hover:text-green-700 transition-colors leading-snug line-clamp-3 text-base">
                     {article.title}
                   </h3>
                 </Link>
@@ -383,7 +383,7 @@ export function SimpleArticleCards({ articles, projects, users }: Props) {
                     {article.keyword && (
                       <>
                         <span>·</span>
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">{article.keyword.keyword}</span>
+                        <span className="px-2 py-0.5 bg-blue-50 text-brand-blue rounded-full">{article.keyword.keyword}</span>
                       </>
                     )}
                   </div>

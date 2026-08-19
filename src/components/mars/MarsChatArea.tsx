@@ -52,7 +52,7 @@ function renderContent(text: string): React.ReactNode {
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith("```")) { codeLines.push(lines[i]); i++; }
-      result.push(<pre key={i} className="bg-gray-900 text-green-300 rounded-lg px-4 py-3 text-xs overflow-x-auto my-3 font-mono leading-relaxed"><code>{codeLines.join("\n")}</code></pre>);
+      result.push(<pre key={i} className="bg-brand-blue text-green-300 rounded-lg px-4 py-3 text-xs overflow-x-auto my-3 font-mono leading-relaxed"><code>{codeLines.join("\n")}</code></pre>);
       i++; continue;
     }
     if (line.startsWith("### ")) { result.push(<p key={i} className="text-[11px] font-bold tracking-wider uppercase text-gray-400 mt-4 mb-2">{line.slice(4)}</p>); i++; continue; }
@@ -114,7 +114,7 @@ function Composer({ onSubmit, disabled }: { onSubmit: (v: string) => void; disab
         <button
           onClick={submit}
           disabled={disabled || !value.trim()}
-          className="h-8 w-8 flex items-center justify-center rounded-full bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-30 transition-colors"
+          className="h-8 w-8 flex items-center justify-center rounded-full bg-brand-blue text-white hover:bg-brand-deep disabled:opacity-30 transition-colors"
         >
           <ArrowUp className="h-4 w-4" />
         </button>
@@ -188,7 +188,7 @@ export function MarsChatArea() {
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-6 gap-8">
             <div className="text-center">
-              <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">สวัสดีครับ ผม Mars</h1>
+              <h1 className="text-2xl font-semibold text-brand-navy tracking-tight">สวัสดีครับ ผม Mars</h1>
               <p className="text-gray-400 mt-2 text-sm">AI Agent สำหรับทีม SEO — ช่วยอะไรได้บ้างวันนี้?</p>
             </div>
             <div className="w-full max-w-2xl">
@@ -216,7 +216,7 @@ export function MarsChatArea() {
             {messages.map((msg) => (
               <div key={msg.id} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
                 {msg.role === "user" ? (
-                  <div className="max-w-[80%] bg-gray-900 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed">
+                  <div className="max-w-[80%] bg-brand-blue text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed">
                     {msg.content}
                   </div>
                 ) : (

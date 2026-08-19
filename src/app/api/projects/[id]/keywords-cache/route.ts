@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 
 // GET /api/projects/[id]/keywords-cache — returns AI keyword research rows stored on project
 // PATCH /api/projects/[id]/keywords-cache — saves keyword rows back to project
+// DELETE /api/projects/[id]/keywords-cache — intentional clear (ปุ่ม "ล้างค่า")
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
@@ -51,5 +52,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     data: { keywordRows: JSON.stringify(keywordRows) },
   })
 
+  return NextResponse.json({ ok: true })
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getSession()
+  if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const existing = await prisma.project.findFirst({
+    where: { id: params.id, organizationId: session.user.organizationId },
+    select: { id: true },
+  })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  await prisma.project.update({ where: { id: params.id }, data: { keywordRows: '[]' } })
   return NextResponse.json({ ok: true })
 }

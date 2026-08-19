@@ -39,7 +39,7 @@ function StatCard({ label, value, delta, format = "number", inverse = false }:
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className="text-2xl font-bold text-gray-900">{fmt(value)}</p>
+      <p className="text-2xl font-bold text-brand-navy">{fmt(value)}</p>
       {delta !== undefined && (
         <div className={`flex items-center gap-1 text-xs mt-1 font-medium ${deltaNeutral ? "text-gray-400" : goodDelta ? "text-emerald-600" : "text-red-500"}`}>
           {deltaNeutral ? <Minus size={11} /> : goodDelta ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
@@ -72,7 +72,7 @@ function Section({ title, icon, children, defaultOpen = true }:
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
       <button onClick={() => setOpen(o => !o)}
         className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
-        <div className="flex items-center gap-2 font-semibold text-gray-900 text-sm">{icon}{title}</div>
+        <div className="flex items-center gap-2 font-semibold text-brand-navy text-sm">{icon}{title}</div>
         {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
       </button>
       {open && <div className="px-4 pb-4">{children}</div>}
@@ -85,7 +85,7 @@ function InsightCard({ insight }: { insight: SEOInsight }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = {
     strength:    { bg: "bg-emerald-50", border: "border-emerald-200", icon: <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />, label: "Strength",    dot: "bg-emerald-500" },
-    opportunity: { bg: "bg-blue-50",    border: "border-blue-200",    icon: <Lightbulb    size={13} className="text-blue-600 shrink-0" />,    label: "Opportunity", dot: "bg-blue-500" },
+    opportunity: { bg: "bg-blue-50",    border: "border-blue-200",    icon: <Lightbulb    size={13} className="text-brand-blue shrink-0" />,    label: "Opportunity", dot: "bg-blue-500" },
     warning:     { bg: "bg-amber-50",   border: "border-amber-200",   icon: <AlertCircle  size={13} className="text-amber-600 shrink-0" />,   label: "Warning",     dot: "bg-amber-500" },
     risk:        { bg: "bg-red-50",     border: "border-red-200",     icon: <AlertCircle  size={13} className="text-red-600 shrink-0" />,     label: "Risk",        dot: "bg-red-500" },
   }[insight.type];
@@ -96,7 +96,7 @@ function InsightCard({ insight }: { insight: SEOInsight }) {
           {cfg.icon}
           <div className="flex-1">
             <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded mr-1.5 opacity-70">{cfg.label}</span>
-            <span className="text-sm font-semibold text-gray-900">{insight.title}</span>
+            <span className="text-sm font-semibold text-brand-navy">{insight.title}</span>
             <p className="text-xs text-gray-600 mt-1">{insight.finding}</p>
             {expanded && (
               <div className="mt-2 space-y-1.5">
@@ -472,9 +472,9 @@ function exportHtml(
     <h2>PageSpeed / Core Web Vitals</h2>
     ${insights.psi.length ? `<div style="margin-bottom:16px">${insightHtml(insights.psi)}</div>` : ""}
     <div style="display:flex;gap:24px;flex-wrap:wrap">
-      ${(["mobile","desktop"] as const).filter(s=>psi[s]?.scores).map(s => {
+      ${(["mobile","desktop"] as const).filter(s=>psi[s]?.scores && psi[s]?.vitals).map(s => {
         const sc = psi[s]!.scores;
-        const vi = psi[s]!.vitals as Record<string,{display:string;value:number|null}>;
+        const vi = (psi[s]!.vitals ?? {}) as Record<string,{display:string;value:number|null}>;
         return `<div style="flex:1;min-width:200px">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:10px">${s}</div>
           <div style="display:flex;gap:16px;margin-bottom:12px">
@@ -521,7 +521,7 @@ type GscType = { overview?: Record<string, number>; pages?: {page:string;clicks:
 type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[]; countries?: {country:string;sessions:number}[] } | null;
 type PsiType = { mobile?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]}; desktop?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]} } | null;
 
-function SimpleMetricCard({ label, value, subLabel, delta, deltaLabel, color = "text-gray-900" }: {
+function SimpleMetricCard({ label, value, subLabel, delta, deltaLabel, color = "text-brand-navy" }: {
   label: string; value: string | number; subLabel?: string; delta?: number; deltaLabel?: string; color?: string
 }) {
   const up = (delta ?? 0) > 0;
@@ -569,7 +569,7 @@ function SimpleDonut({ data, colors }: { data: {label:string;value:number;color:
           <div key={i} className="flex items-center gap-2 text-xs">
             <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor: s.color}}/>
             <span className="text-gray-600 flex-1 truncate">{s.label}</span>
-            <span className="font-bold text-gray-900">{Math.round(s.pct * 100)}%</span>
+            <span className="font-bold text-brand-navy">{Math.round(s.pct * 100)}%</span>
           </div>
         ))}
       </div>
@@ -585,7 +585,7 @@ function SimpleBarChart({ data, maxVal }: { data: {label:string;value:number;pre
         <div key={i} className="space-y-0.5">
           <div className="flex justify-between text-xs text-gray-500">
             <span className="truncate">{d.label}</span>
-            <span className="font-semibold text-gray-900 ml-2 shrink-0">{d.value.toLocaleString()}</span>
+            <span className="font-semibold text-brand-navy ml-2 shrink-0">{d.value.toLocaleString()}</span>
           </div>
           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${(d.value / max) * 100}%` }} />
@@ -879,7 +879,8 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   }
 
   // PSI vitals definitions per tab
-  const labVitals = curPsi ? [
+  // ต้องเช็คลึกถึง vitals.lcp — เคย crash ("reading 'lcp'") เมื่อ API ตอบ shape ไม่ครบ
+  const labVitals = curPsi?.vitals?.lcp && curPsi.vitals.cls && curPsi.vitals.responsiveness ? [
     { label: "Largest Contentful Paint", desc: "Time it takes for the page to load",
       display: curPsi.vitals.lcp.display, val: curPsi.vitals.lcp.value, good: 2500, bad: 4000 },
     { label: "Cumulative Layout Shift", desc: "How stable the elements on the page are",
@@ -887,7 +888,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
     { label: "Total Blocking Time", desc: "How long people had to wait after the page loaded before they could click something",
       display: curPsi.vitals.responsiveness.value, val: curPsi.vitals.responsiveness.numericValue, good: 200, bad: 500 },
   ] : [];
-  const fieldVitals = curPsi ? [
+  const fieldVitals = curPsi?.vitals?.lcp && curPsi.vitals.cls && curPsi.vitals.responsiveness ? [
     { label: "Largest Contentful Paint", desc: "Time it takes for the page to load",
       display: curPsi.vitals.lcp.display, val: curPsi.vitals.lcp.value, good: 2500, bad: 4000 },
     { label: "Cumulative Layout Shift", desc: "How stable the elements on the page are",
@@ -1305,37 +1306,8 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
   const [ga4Error, setGa4Error]       = useState<string | null>(null);
   const [psiError, setPsiError]       = useState<string | null>(null);
 
-  // GA4 property picker state
-  const [ga4PropertyId, setGa4PropertyId] = useState<string>(project.ga4PropertyId ?? "");
-  const [ga4Properties, setGa4Properties] = useState<{ propertyId: string; displayName: string; accountName: string }[]>([]);
-  const [ga4PropLoading, setGa4PropLoading] = useState(false);
-  const [ga4PropSaving, setGa4PropSaving] = useState(false);
-
-  const fetchGA4Properties = useCallback(async () => {
-    setGa4PropLoading(true);
-    try {
-      const r = await fetch("/api/report/ga4-properties");
-      const d = await r.json() as { properties?: { propertyId: string; displayName: string; accountName: string }[]; error?: string };
-      if (d.properties) setGa4Properties(d.properties);
-    } catch { /* skip */ } finally { setGa4PropLoading(false); }
-  }, []);
-
-  const saveGA4PropertyId = useCallback(async (id: string) => {
-    setGa4PropSaving(true);
-    try {
-      await fetch(`/api/projects/${project.id}/style`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ga4PropertyId: id }),
-      });
-    } catch { /* skip */ } finally { setGa4PropSaving(false); }
-  }, [project.id]);
-
-  useEffect(() => {
-    // CLIENT role: never allow linking new properties — only show what's already connected
-    if (isClient) return;
-    if (!project.ga4PropertyId) fetchGA4Properties();
-  }, [project.ga4PropertyId, fetchGA4Properties, isClient]);
+  // GA4 property — read-only here; ผูก property ทำที่ Settings › GSC · GA4
+  const ga4PropertyId = project.ga4PropertyId ?? "";
 
   const fetchGSC = useCallback(async () => {
     if (!project.gscSiteUrl) return;
@@ -1400,7 +1372,9 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
-      setPsiData(d);
+      // เก็บเฉพาะ payload ที่มี vitals จริง — กัน component crash จาก shape เพี้ยน
+      if (d?.mobile?.vitals?.lcp || d?.desktop?.vitals?.lcp) setPsiData(d);
+      else throw new Error(d?.mobile?.error ?? d?.error ?? "PageSpeed ตอบข้อมูลไม่ครบ ลองใหม่อีกครั้ง");
     } catch (e) { setPsiError(e instanceof Error ? e.message : "Error"); }
     finally { setPsiLoading(false); }
   }, [project.gscSiteUrl, project.website]);
@@ -1415,12 +1389,14 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
 
   // Derive insights for Dashboard mode
   const dashInsights = useMemo(() => {
-    const gscIns  = gsc  ? deriveGSCInsights(gsc  as unknown as GSCData)  : [];
-    const ga4Ins  = ga4  ? deriveGA4Insights(ga4  as unknown as GA4Data)  : [];
-    const convIns = ga4  ? deriveConversionInsights(ga4 as unknown as GA4Data) : [];
-    const psiIns  = psi  ? derivePSIInsights(psi  as unknown as PSIData)  : [];
-    const connIns = deriveConnectedInsights(gsc as unknown as GSCData | null, ga4 as unknown as GA4Data | null, psi as unknown as PSIData | null);
-    const aiIns   = gscAiData ? deriveAIInsights(gscAiData) : [];
+    // เกราะกัน crash ถาวร: API ตอบ shape เพี้ยนแค่ไหน insights ก็แค่ว่าง ไม่ล้มทั้งหน้า
+    const safe = <T,>(fn: () => T[]): T[] => { try { return fn() } catch { return [] } };
+    const gscIns  = gsc  ? safe(() => deriveGSCInsights(gsc  as unknown as GSCData))  : [];
+    const ga4Ins  = ga4  ? safe(() => deriveGA4Insights(ga4  as unknown as GA4Data))  : [];
+    const convIns = ga4  ? safe(() => deriveConversionInsights(ga4 as unknown as GA4Data)) : [];
+    const psiIns  = psi  ? safe(() => derivePSIInsights(psi  as unknown as PSIData))  : [];
+    const connIns = safe(() => deriveConnectedInsights(gsc as unknown as GSCData | null, ga4 as unknown as GA4Data | null, psi as unknown as PSIData | null));
+    const aiIns   = gscAiData ? safe(() => deriveAIInsights(gscAiData)) : [];
     return {
       gsc:  gscIns,
       ga4:  [...ga4Ins, ...convIns],
@@ -1436,12 +1412,12 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           {!isClient && (
-            <Link href="/report" className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+            <Link href={`/projects/${project.id}`} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
               <ArrowLeft size={16} />
             </Link>
           )}
           <div>
-            <h1 className="text-xl font-bold text-gray-900">{project.name}</h1>
+            <h1 className="text-xl font-bold text-brand-navy">{project.name}</h1>
             <a href={project.website} target="_blank" rel="noopener" className="text-xs text-gray-400 hover:text-blue-500 flex items-center gap-0.5">
               <ExternalLink size={9} />{project.website}
             </a>
@@ -1450,7 +1426,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
         <div className="flex items-center gap-2">
           {[7, 28, 90].map(d => (
             <button key={d} onClick={() => setDays(d)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${days === d ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${days === d ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
               {d} วัน
             </button>
           ))}
@@ -1481,69 +1457,37 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
       {!isClient && (
         <div className="flex gap-2 border-b border-gray-100 pb-3">
           <button onClick={() => setReportMode("simple")}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "simple" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "simple" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
             <FileText size={12} /> Simple Report
           </button>
           <button onClick={() => setReportMode("dashboard")}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "dashboard" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "dashboard" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
             <BarChart3 size={12} /> Dashboard
           </button>
           <button onClick={() => setReportMode("seo-performance")}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "seo-performance" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "seo-performance" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
             <FileBarChart2 size={12} /> SEO Performance Report
           </button>
         </div>
       )}
 
-      {/* Status badges + GA4 picker */}
+      {/* การตั้งค่าเชื่อมต่อ Google ย้ายไปอยู่ Project Settings (ฟันเฟือง) > GSC · GA4 */}
+
+      {/* Status badges — read-only. การผูก GSC/GA4 Property ทำที่ Project Settings › GSC · GA4 เท่านั้น */}
       <div className="flex gap-2 flex-wrap items-center">
-        {/* GSC badge — read-only always */}
         <span className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${project.gscSiteUrl ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"}`}>
           {project.gscSiteUrl ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
           GSC{project.gscSiteUrl ? "" : " — ยังไม่เชื่อมต่อ"}
         </span>
 
-        {/* GA4 badge — CLIENT sees read-only status, admin sees picker if not set */}
-        {ga4PropertyId ? (
-          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
-            <CheckCircle2 size={11} />
-            GA4 ({ga4PropertyId})
-          </span>
-        ) : isClient ? (
-          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-400">
-            <AlertCircle size={11} /> GA4 — ยังไม่เชื่อมต่อ
-          </span>
-        ) : ga4PropLoading ? (
-          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-400">
-            <RefreshCw size={11} className="animate-spin" /> กำลังโหลด GA4...
-          </span>
-        ) : ga4Properties.length > 0 ? (
-          <div className="flex items-center gap-1.5">
-            <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
-              <AlertCircle size={11} /> GA4 — เลือก Property:
-            </span>
-            <select
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white"
-              value=""
-              onChange={async e => {
-                const id = e.target.value;
-                if (!id) return;
-                setGa4PropertyId(id);
-                await saveGA4PropertyId(id);
-                fetchGA4(id);
-              }}>
-              <option value="">— เลือก —</option>
-              {ga4Properties.map(p => (
-                <option key={p.propertyId} value={p.propertyId}>
-                  {p.displayName} ({p.propertyId})
-                </option>
-              ))}
-            </select>
-            {ga4PropSaving && <RefreshCw size={11} className="animate-spin text-gray-400" />}
-          </div>
-        ) : (
-          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-400">
-            <AlertCircle size={11} /> GA4 — ยังไม่ผูก
+        <span className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${ga4PropertyId ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"}`}>
+          {ga4PropertyId ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
+          {ga4PropertyId ? `GA4 (${ga4PropertyId})` : "GA4 — ยังไม่เชื่อมต่อ"}
+        </span>
+
+        {!isClient && (!project.gscSiteUrl || !ga4PropertyId) && (
+          <span className="text-[11px] text-gray-400">
+            ตั้งค่าการเชื่อมต่อที่ปุ่มฟันเฟือง (Settings) › แท็บ “GSC · GA4”
           </span>
         )}
       </div>
@@ -1608,7 +1552,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
                       <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
                         <span className="text-gray-400 w-4 shrink-0">{i + 1}</span>
                         <span className="flex-1 text-gray-700 truncate" title={p.page}>{p.page}</span>
-                        <span className="text-gray-900 font-semibold w-14 text-right">{p.clicks.toLocaleString()}</span>
+                        <span className="text-brand-navy font-semibold w-14 text-right">{p.clicks.toLocaleString()}</span>
                         <span className="text-gray-500 w-16 text-right">{p.impressions.toLocaleString()}</span>
                         <span className="text-gray-400 w-10 text-right">{p.ctr}%</span>
                         <span className="text-gray-400 w-10 text-right">#{p.position}</span>
@@ -1636,7 +1580,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
                       <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
                         <span className="text-gray-400 w-4 shrink-0">{i + 1}</span>
                         <span className="flex-1 text-gray-700 truncate">{q.query}</span>
-                        <span className="text-gray-900 font-semibold w-14 text-right">{q.clicks.toLocaleString()}</span>
+                        <span className="text-brand-navy font-semibold w-14 text-right">{q.clicks.toLocaleString()}</span>
                         <span className="text-gray-500 w-16 text-right">{q.impressions.toLocaleString()}</span>
                         <span className="text-gray-400 w-10 text-right">{q.ctr}%</span>
                         <span className="text-gray-400 w-10 text-right">#{q.position}</span>
@@ -1688,7 +1632,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
                           <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
                             <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
                           </div>
-                          <span className="text-gray-900 font-semibold w-14 text-right">{c.sessions.toLocaleString()}</span>
+                          <span className="text-brand-navy font-semibold w-14 text-right">{c.sessions.toLocaleString()}</span>
                           <span className="text-emerald-600 w-14 text-right">{c.conversions} conv</span>
                         </div>
                       );
@@ -1721,7 +1665,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
                       <div key={i} className="flex items-center gap-2 text-xs py-1.5 border-b border-gray-50 last:border-0">
                         <span className="text-gray-400 w-4 shrink-0">{i + 1}</span>
                         <span className="flex-1 text-gray-700 truncate" title={p.path}>{p.path}</span>
-                        <span className="text-gray-900 font-semibold w-14 text-right">{p.views.toLocaleString()} views</span>
+                        <span className="text-brand-navy font-semibold w-14 text-right">{p.views.toLocaleString()} views</span>
                         <span className="text-gray-400 w-14 text-right">Eng {p.engagementRate}%</span>
                       </div>
                     ))}
@@ -1874,7 +1818,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
           {!project.ga4PropertyId && (
             <p>• <b>GA4</b>: เพิ่ม <code className="bg-gray-200 px-1 rounded text-xs">ga4PropertyId</code> ใน Project settings เช่น <code className="bg-gray-200 px-1 rounded text-xs">511641653</code></p>
           )}
-          <Link href={`/projects/${project.id}?tab=settings`} className="text-blue-600 hover:underline text-xs inline-flex items-center gap-1 mt-1">
+          <Link href={`/projects/${project.id}?tab=settings`} className="text-brand-blue hover:underline text-xs inline-flex items-center gap-1 mt-1">
             <ExternalLink size={10} /> ไปที่ Project Settings
           </Link>
         </div>

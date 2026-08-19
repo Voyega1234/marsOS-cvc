@@ -59,7 +59,7 @@ function CostBadge({ cost }: { cost: number | null }) {
 }
 function Toast({ msg, onClose }: { msg: string; onClose: () => void }) {
   return (
-    <div className="fixed bottom-6 right-6 z-50 bg-gray-900 text-white text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
+    <div className="fixed bottom-6 right-6 z-50 bg-brand-blue text-white text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
       <CheckCircle size={15} className="text-green-400 shrink-0" />{msg}
       <button onClick={onClose}><X size={13} /></button>
     </div>
@@ -89,7 +89,7 @@ function TrendsChart({ data, keyword }: { data: TrendPoint[]; keyword: string })
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-bold text-gray-900">Search Trends — {keyword}</p>
+          <p className="text-xs font-bold text-brand-navy">Search Trends — {keyword}</p>
           <p className="text-[10px] text-gray-400">12 months · Google Trends (DataForSEO)</p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -133,7 +133,7 @@ function SerpPanel({ results, keyword, onClose }: { results: SerpResult[]; keywo
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
         <div>
-          <p className="text-xs font-bold text-gray-900">SERP Analysis — {results.length} organic results</p>
+          <p className="text-xs font-bold text-brand-navy">SERP Analysis — {results.length} organic results</p>
           <p className="text-[10px] text-gray-400">"{keyword}"</p>
         </div>
         <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-lg"><X size={13} className="text-gray-400" /></button>
@@ -165,17 +165,17 @@ function DemoBriefModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <div><h2 className="text-base font-bold text-gray-900">{DEMO_BRIEF.title}</h2><span className="text-[10px] text-gray-400">Demo Only</span></div>
+          <div><h2 className="text-base font-bold text-brand-navy">{DEMO_BRIEF.title}</h2><span className="text-[10px] text-gray-400">Demo Only</span></div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
         </div>
         <div className="space-y-3 text-sm text-gray-700">
-          <div><p className="text-[11px] font-semibold text-gray-400 uppercase mb-0.5">Topic</p><p className="font-medium text-gray-900">{DEMO_BRIEF.topic}</p></div>
+          <div><p className="text-[11px] font-semibold text-gray-400 uppercase mb-0.5">Topic</p><p className="font-medium text-brand-navy">{DEMO_BRIEF.topic}</p></div>
           <div><p className="text-[11px] font-semibold text-gray-400 uppercase mb-0.5">Target Intent</p><p>{DEMO_BRIEF.intent}</p></div>
           <div><p className="text-[11px] font-semibold text-gray-400 uppercase mb-0.5">Suggested H1</p><p className="font-medium bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">{DEMO_BRIEF.suggestedH1}</p></div>
           <div><p className="text-[11px] font-semibold text-gray-400 uppercase mb-1">Sections</p><ol className="space-y-1 pl-4 list-decimal text-gray-700">{DEMO_BRIEF.sections.map((s, i) => <li key={i}>{s}</li>)}</ol></div>
           <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">{DEMO_BRIEF.note}</div>
         </div>
-        <button onClick={onClose} className="w-full py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700">Close</button>
+        <button onClick={onClose} className="w-full py-2 rounded-xl bg-brand-blue text-white text-sm font-semibold hover:bg-brand-deep">Close</button>
       </div>
     </div>
   )
@@ -197,16 +197,16 @@ function CostPanel({ data }: { data: CostSummary | null }) {
         <p className="text-xs font-bold text-gray-700">DataForSEO Cost Tracker</p>
       </div>
       <div className="grid grid-cols-3 gap-3 text-center">
-        <div><p className="text-lg font-bold text-gray-900">${data.totalCost.toFixed(4)}</p><p className="text-[10px] text-gray-400">Total spent</p></div>
-        <div><p className="text-lg font-bold text-gray-900">${data.todayCost.toFixed(4)}</p><p className="text-[10px] text-gray-400">Today</p></div>
-        <div><p className="text-lg font-bold text-gray-900">{data.totalCalls}</p><p className="text-[10px] text-gray-400">API calls</p></div>
+        <div><p className="text-lg font-bold text-brand-navy">${data.totalCost.toFixed(4)}</p><p className="text-[10px] text-gray-400">Total spent</p></div>
+        <div><p className="text-lg font-bold text-brand-navy">${data.todayCost.toFixed(4)}</p><p className="text-[10px] text-gray-400">Today</p></div>
+        <div><p className="text-lg font-bold text-brand-navy">{data.totalCalls}</p><p className="text-[10px] text-gray-400">API calls</p></div>
       </div>
       {Object.keys(data.byType).length > 0 && (
         <div className="space-y-1 border-t border-gray-100 pt-2">
           {Object.entries(data.byType).map(([t, v]) => (
             <div key={t} className="flex items-center justify-between text-xs text-gray-600">
               <span>{TYPE_LABEL[t] ?? t}</span>
-              <span className="font-mono text-gray-900">${v.cost.toFixed(4)} <span className="text-gray-400">({v.calls})</span></span>
+              <span className="font-mono text-brand-navy">${v.cost.toFixed(4)} <span className="text-gray-400">({v.calls})</span></span>
             </div>
           ))}
         </div>
@@ -435,7 +435,7 @@ export default function SEOIntelligenceLabClient() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <FlaskConical size={17} className="text-gray-500" />
-              <h1 className="text-lg font-bold text-gray-900">SEO Intelligence Lab</h1>
+              <h1 className="text-lg font-bold text-brand-navy">SEO Intelligence Lab</h1>
               <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200 uppercase tracking-wide">Live Data</span>
             </div>
             <button onClick={() => setShowBrief(true)} className="px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Demo Brief</button>
@@ -457,7 +457,7 @@ export default function SEOIntelligenceLabClient() {
           <div className="flex gap-0.5 overflow-x-auto">
             {TABS.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${tab === t.id ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}>
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${tab === t.id ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"}`}>
                 {t.icon}{t.label}
               </button>
             ))}
@@ -473,7 +473,7 @@ export default function SEOIntelligenceLabClient() {
           <div className="grid lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 space-y-4">
               <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-2">
-                <p className="text-sm font-bold text-gray-900 flex items-center gap-2"><Zap size={14} />เริ่มใช้งาน</p>
+                <p className="text-sm font-bold text-brand-navy flex items-center gap-2"><Zap size={14} />เริ่มใช้งาน</p>
                 <p className="text-xs text-gray-500 leading-relaxed">1. ใส่ domain ในช่องด้านบน → 2. เลือก tab → 3. กด Analyze</p>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -486,9 +486,9 @@ export default function SEOIntelligenceLabClient() {
                   { label: "AI Visibility",     icon: <Cpu size={14}/>,     tab: "ai-visibility" as Tab, desc: "Brand presence in AI answers" },
                 ].map(c => (
                   <button key={c.tab} onClick={() => setTab(c.tab)}
-                    className="text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-gray-900 hover:shadow-sm transition-all space-y-2">
+                    className="text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-brand-blue hover:shadow-sm transition-all space-y-2">
                     <div className="text-gray-500">{c.icon}</div>
-                    <p className="text-xs font-semibold text-gray-900">{c.label}</p>
+                    <p className="text-xs font-semibold text-brand-navy">{c.label}</p>
                     <p className="text-[10px] text-gray-400">{c.desc}</p>
                   </button>
                 ))}
@@ -523,7 +523,7 @@ export default function SEOIntelligenceLabClient() {
                     className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg bg-white outline-none focus:border-gray-400" />
                 </div>
                 <button onClick={runKeywords} disabled={kwLoading}
-                  className="px-4 py-2 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 text-xs font-semibold bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-50 flex items-center gap-2">
                   {kwLoading ? <Spinner /> : <Search size={12} />} Search
                 </button>
               </div>
@@ -546,7 +546,7 @@ export default function SEOIntelligenceLabClient() {
                   </select>
                 )}
                 <button onClick={() => runTrends()} disabled={trendsLoading}
-                  className="px-4 py-2 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 text-xs font-semibold bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-50 flex items-center gap-2">
                   {trendsLoading ? <Spinner /> : <TrendingUp size={12} />} Trends
                 </button>
               </div>
@@ -569,7 +569,7 @@ export default function SEOIntelligenceLabClient() {
                   </select>
                 )}
                 <button onClick={() => runSerp()} disabled={serpLoading}
-                  className="px-4 py-2 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 text-xs font-semibold bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-50 flex items-center gap-2">
                   {serpLoading ? <Spinner /> : <Search size={12} />} SERP
                 </button>
               </div>
@@ -617,7 +617,7 @@ export default function SEOIntelligenceLabClient() {
                     <tbody>
                       {filtered.map((k, i) => (
                         <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 group">
-                          <td className="px-4 py-3 font-medium text-gray-900">{k.keyword}</td>
+                          <td className="px-4 py-3 font-medium text-brand-navy">{k.keyword}</td>
                           <td className="px-4 py-3 text-right text-gray-700">{k.volume.toLocaleString()}</td>
                           <td className="px-4 py-3 text-right text-gray-600">${k.cpc.toFixed(2)}</td>
                           <td className="px-4 py-3 text-center"><CompBadge v={k.competition} /></td>
@@ -630,7 +630,7 @@ export default function SEOIntelligenceLabClient() {
                                 <TrendingUp size={11} />
                               </button>
                               <button onClick={() => runSerp(k.keyword)} title="SERP"
-                                className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded">
+                                className="p-1 text-gray-400 hover:text-brand-blue hover:bg-blue-50 rounded">
                                 <Search size={11} />
                               </button>
                             </div>
@@ -669,7 +669,7 @@ export default function SEOIntelligenceLabClient() {
                     className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white outline-none focus:border-gray-400" />
                 </div>
                 <button onClick={runCompetitors} disabled={compLoading}
-                  className="px-4 py-2 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 text-xs font-semibold bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-50 flex items-center gap-2">
                   {compLoading ? <Spinner /> : <Target size={12} />} Analyze
                 </button>
               </div>
@@ -685,13 +685,13 @@ export default function SEOIntelligenceLabClient() {
                     <div key={i} className={`bg-white border rounded-xl p-4 space-y-3 ${i === 0 ? "border-blue-300 ring-1 ring-blue-100" : "border-gray-200"}`}>
                       <div className="flex items-center gap-2">
                         <Globe size={12} className="text-gray-400 shrink-0" />
-                        <p className="text-xs font-bold text-gray-900 truncate">{c.domain}</p>
+                        <p className="text-xs font-bold text-brand-navy truncate">{c.domain}</p>
                         {i === 0 && <span className="text-[9px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full shrink-0">You</span>}
                       </div>
                       <div className="space-y-1.5 text-xs">
-                        <div className="flex justify-between"><span className="text-gray-500">Organic KWs</span><span className="font-bold text-gray-900">{c.organicKeywords.toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500">Est. Traffic</span><span className="font-bold text-gray-900">{c.estimatedTraffic.toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500">Top 10 KWs</span><span className="font-bold text-gray-900">{c.top10.toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Organic KWs</span><span className="font-bold text-brand-navy">{c.organicKeywords.toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Est. Traffic</span><span className="font-bold text-brand-navy">{c.estimatedTraffic.toLocaleString()}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Top 10 KWs</span><span className="font-bold text-brand-navy">{c.top10.toLocaleString()}</span></div>
                       </div>
                     </div>
                   ))}
@@ -725,7 +725,7 @@ export default function SEOIntelligenceLabClient() {
                     className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white outline-none focus:border-gray-400" />
                 </div>
                 <button onClick={runRankings} disabled={rankLoading}
-                  className="px-4 py-2 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 text-xs font-semibold bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-50 flex items-center gap-2">
                   {rankLoading ? <Spinner /> : <BarChart2 size={12} />} Check
                 </button>
               </div>
@@ -747,13 +747,13 @@ export default function SEOIntelligenceLabClient() {
                   <tbody>
                     {rankRows.map((r, i) => (
                       <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">{r.keyword}</td>
+                        <td className="px-4 py-3 font-medium text-brand-navy">{r.keyword}</td>
                         <td className="px-4 py-3 text-center">
                           {r.position
-                            ? <span className={`font-bold text-sm ${r.position <= 3 ? "text-green-600" : r.position <= 10 ? "text-blue-600" : "text-gray-500"}`}>#{r.position}</span>
+                            ? <span className={`font-bold text-sm ${r.position <= 3 ? "text-green-600" : r.position <= 10 ? "text-brand-blue" : "text-gray-500"}`}>#{r.position}</span>
                             : <span className="text-gray-300 text-xs">—</span>}
                         </td>
-                        <td className="px-4 py-3 text-blue-600 truncate max-w-[180px] font-mono text-[10px]">{r.url || "—"}</td>
+                        <td className="px-4 py-3 text-brand-blue truncate max-w-[180px] font-mono text-[10px]">{r.url || "—"}</td>
                         <td className="px-4 py-3">
                           <div className="space-y-0.5">
                             {r.top3.map((t, j) => (
@@ -765,7 +765,7 @@ export default function SEOIntelligenceLabClient() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <button onClick={() => runSerp(r.keyword)} className="p-1 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded" title="SERP Analysis">
+                          <button onClick={() => runSerp(r.keyword)} className="p-1 text-gray-300 hover:text-brand-blue hover:bg-blue-50 rounded" title="SERP Analysis">
                             <Search size={11} />
                           </button>
                         </td>
@@ -799,7 +799,7 @@ export default function SEOIntelligenceLabClient() {
               <div className="flex flex-wrap gap-2">
                 <DomainBar />
                 <button onClick={runBacklinks} disabled={blLoading}
-                  className="px-4 py-2 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 text-xs font-semibold bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-50 flex items-center gap-2">
                   {blLoading ? <Spinner /> : <Link2 size={12} />} Analyze
                 </button>
               </div>
@@ -820,7 +820,7 @@ export default function SEOIntelligenceLabClient() {
                     { l: "Domain Rank",      v: blSummary.rank },
                   ].map(s => (
                     <div key={s.l} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
-                      <p className="text-xl font-bold text-gray-900">{s.v.toLocaleString()}</p>
+                      <p className="text-xl font-bold text-brand-navy">{s.v.toLocaleString()}</p>
                       <p className="text-[10px] text-gray-400 mt-0.5">{s.l}</p>
                     </div>
                   ))}
@@ -839,7 +839,7 @@ export default function SEOIntelligenceLabClient() {
                       <tbody>
                         {blDomains.map((d, i) => (
                           <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                            <td className="px-4 py-3 font-medium text-gray-900">{d.domain}</td>
+                            <td className="px-4 py-3 font-medium text-brand-navy">{d.domain}</td>
                             <td className="px-4 py-3 text-center font-bold text-gray-700">{d.rank}</td>
                             <td className="px-4 py-3 text-center text-gray-600">{d.backlinks}</td>
                             <td className="px-4 py-3 text-center">
@@ -873,7 +873,7 @@ export default function SEOIntelligenceLabClient() {
                     className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg bg-white outline-none focus:border-gray-400" />
                 </div>
                 <button onClick={runAudit} disabled={auditLoading}
-                  className="px-4 py-2 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 text-xs font-semibold bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-50 flex items-center gap-2">
                   {auditLoading ? <Spinner /> : <Activity size={12} />} Audit
                 </button>
               </div>
@@ -897,15 +897,15 @@ export default function SEOIntelligenceLabClient() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-white border border-gray-200 rounded-xl p-3">
                     <p className="text-[10px] text-gray-400">Title</p>
-                    <p className="text-xs font-medium text-gray-900 truncate mt-0.5">{auditResult.title || "—"}</p>
+                    <p className="text-xs font-medium text-brand-navy truncate mt-0.5">{auditResult.title || "—"}</p>
                   </div>
                   <div className="bg-white border border-gray-200 rounded-xl p-3">
                     <p className="text-[10px] text-gray-400">H1</p>
-                    <p className="text-xs font-medium text-gray-900 truncate mt-0.5">{auditResult.h1 || "—"}</p>
+                    <p className="text-xs font-medium text-brand-navy truncate mt-0.5">{auditResult.h1 || "—"}</p>
                   </div>
                   <div className="bg-white border border-gray-200 rounded-xl p-3">
                     <p className="text-[10px] text-gray-400">Word Count</p>
-                    <p className="text-lg font-bold text-gray-900">{auditResult.wordCount}</p>
+                    <p className="text-lg font-bold text-brand-navy">{auditResult.wordCount}</p>
                   </div>
                   <div className="bg-white border border-gray-200 rounded-xl p-3">
                     <p className="text-[10px] text-gray-400">Load Time</p>
@@ -924,7 +924,7 @@ export default function SEOIntelligenceLabClient() {
                       <tbody>
                         {auditResult.issues.map((a, i) => (
                           <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                            <td className="px-4 py-3 font-medium text-gray-900">{a.issue}</td>
+                            <td className="px-4 py-3 font-medium text-brand-navy">{a.issue}</td>
                             <td className="px-4 py-3 text-center"><SeverityBadge s={a.severity} /></td>
                             <td className="px-4 py-3 text-gray-600">{a.detail}</td>
                             <td className="px-4 py-3 text-gray-600">{a.fix}</td>
@@ -956,7 +956,7 @@ export default function SEOIntelligenceLabClient() {
             <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
               <div>
                 <p className="text-xs font-semibold text-gray-700">AI Visibility — Brand Presence in AI Answers</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">ทดสอบว่า Brand ของคุณปรากฏใน AI answers หรือไม่ (Claude Haiku)</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">ทดสอบว่า Brand ของคุณปรากฏใน AI answers หรือไม่</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <DomainBar />
@@ -964,7 +964,7 @@ export default function SEOIntelligenceLabClient() {
                   placeholder="Brand name เช่น Mars SEO (ถ้าว่างใช้ domain)"
                   className="flex-1 min-w-48 px-3 py-2 text-xs border border-gray-200 rounded-lg bg-white outline-none focus:border-gray-400" />
                 <button onClick={runAiVisibility} disabled={aiLoading}
-                  className="px-4 py-2 text-xs font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2">
+                  className="px-4 py-2 text-xs font-semibold bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-50 flex items-center gap-2">
                   {aiLoading ? <Spinner /> : <Cpu size={12} />} Test
                 </button>
               </div>
@@ -1025,7 +1025,7 @@ export default function SEOIntelligenceLabClient() {
               <div className="bg-white border border-gray-200 rounded-xl p-10 text-center space-y-3">
                 <Cpu size={32} className="text-gray-200 mx-auto" />
                 <p className="text-sm font-semibold text-gray-600">ทดสอบ AI Visibility ของ Brand คุณ</p>
-                <p className="text-xs text-gray-400 max-w-sm mx-auto">ระบบจะส่ง prompts ไปยัง Claude AI แล้วตรวจสอบว่า Brand ของคุณถูกกล่าวถึงหรือไม่</p>
+                <p className="text-xs text-gray-400 max-w-sm mx-auto">ระบบจะส่ง prompts ไปยัง AI แล้วตรวจสอบว่า Brand ของคุณถูกกล่าวถึงหรือไม่</p>
               </div>
             )}
           </div>

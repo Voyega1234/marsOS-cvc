@@ -43,8 +43,23 @@ export async function PATCH(req: NextRequest) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { projectId, title, wordpressUrl, status } = await req.json()
+  const { projectId, title, wordpressUrl, status, scheduledAt } = await req.json()
   if (!projectId || !title) return NextResponse.json({ error: 'projectId and title required' }, { status: 400 })
+
+  // scheduledAt มาจาก Content Map เป็น 'YYYY-MM-DD' — ตีความเป็นเที่ยงคืนตามเวลาท้องถิ่น
+  // ไม่ใช่ UTC ไม่งั้นโซนเวลาไทยจะทำให้วันที่เพี้ยนไป 1 วัน
+  let scheduledValue: Date | null | undefined
+  if (scheduledAt !== undefined) {
+    if (scheduledAt === null || scheduledAt === '') {
+      scheduledValue = null
+    } else {
+      const parsed = new Date(`${scheduledAt}T00:00:00`)
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: 'invalid scheduledAt' }, { status: 400 })
+      }
+      scheduledValue = parsed
+    }
+  }
 
   const article = await prisma.article.findFirst({
     where: { projectId, title, project: { organizationId: session.user.organizationId } },
@@ -57,6 +72,7 @@ export async function PATCH(req: NextRequest) {
     data: {
       ...(wordpressUrl !== undefined && { wordpressUrl }),
       ...(status !== undefined && { status }),
+      ...(scheduledValue !== undefined && { scheduledAt: scheduledValue }),
     },
   })
   return NextResponse.json({ ok: true })

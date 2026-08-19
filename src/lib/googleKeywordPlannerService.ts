@@ -61,7 +61,7 @@ export function loadGoogleAdsConfig(): GoogleAdsConfig | null {
     loginCustomerId: GOOGLE_ADS_LOGIN_CUSTOMER_ID
       ? GOOGLE_ADS_LOGIN_CUSTOMER_ID.replace(/-/g, '').trim()
       : undefined,
-    apiVersion: GOOGLE_ADS_API_VERSION || 'v21',
+    apiVersion: GOOGLE_ADS_API_VERSION || 'v22',
   }
 }
 

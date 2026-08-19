@@ -3,10 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { signOut } from "next-auth/react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/components/layout/SessionProvider";
 import {
-  LayoutDashboard, FolderOpen, FileText, CheckSquare, Settings, LogOut, ChevronDown, Plus,
+  LayoutDashboard, FolderOpen, FileText, CheckSquare, Settings, ChevronDown, Plus,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -31,12 +30,9 @@ export function TopNav() {
 
           {/* Logo */}
           <Link href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0 mr-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-sm">
-              <span className="text-white font-bold text-base">P</span>
-            </div>
             <div className="hidden sm:block">
-              <p className="font-bold text-gray-900 text-sm leading-none">Mars</p>
-              <p className="text-xs text-gray-400 leading-none mt-0.5">Pipeline</p>
+              <p className="font-bold text-brand-navy text-sm leading-none">MarsOS</p>
+              <p className="text-xs text-gray-400 leading-none mt-0.5">SEO Pipeline</p>
             </div>
           </Link>
 
@@ -90,7 +86,7 @@ export function TopNav() {
                     </AvatarFallback>
                   </Avatar>
                   <div className="hidden sm:block text-left">
-                    <p className="text-sm font-semibold text-gray-900 leading-none">{session.user.name}</p>
+                    <p className="text-sm font-semibold text-brand-navy leading-none">{session.user.name}</p>
                     <p className="text-xs text-gray-400 leading-none mt-1">{roleLabel}</p>
                   </div>
                   <ChevronDown className="h-3.5 w-3.5 text-gray-400 hidden sm:block" />
@@ -98,19 +94,11 @@ export function TopNav() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52 rounded-xl border-gray-100 shadow-lg">
                 <div className="px-3 py-2 border-b border-gray-50">
-                  <p className="text-sm font-semibold text-gray-900">{session.user.name}</p>
+                  <p className="text-sm font-semibold text-brand-navy">{session.user.name}</p>
                   <p className="text-xs text-gray-400">{session.user.email}</p>
                 </div>
                 <DropdownMenuItem asChild className="rounded-lg mx-1 mt-1">
                   <Link href="/settings">ตั้งค่าบัญชี</Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => signOut({ callbackUrl: "/login" })}
-                  className="text-red-600 rounded-lg mx-1 mb-1 focus:bg-red-50 focus:text-red-700"
-                >
-                  <LogOut className="h-4 w-4 mr-2" />
-                  ออกจากระบบ
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

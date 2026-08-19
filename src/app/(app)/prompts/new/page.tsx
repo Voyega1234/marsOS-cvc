@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "New Prompt" };
 
 export default async function NewPromptPage() {
   const session = await getSession();
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/setup");
 
   const role = session.user.role;
   if (!["ADMIN", "SEO_MANAGER"].includes(role)) redirect("/dashboard");

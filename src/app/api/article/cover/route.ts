@@ -10,7 +10,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
-import { isVertexOidcConfigured } from '@/lib/vertex'
+import { OR_MODELS } from '@/lib/openrouter'
+import { resolveContentEngine } from '@/lib/content-engine-resolve'
 
 export const maxDuration = 120
 
@@ -32,12 +33,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'keyword and title are required' }, { status: 400 })
   }
 
-  if (!isVertexOidcConfigured()) {
-    return NextResponse.json({ error: 'Vertex OIDC is not configured' }, { status: 500 })
+  if (!process.env.OPENROUTER_API_KEY) {
+    return NextResponse.json({ error: 'OPENROUTER_API_KEY is not configured' }, { status: 500 })
+  }
+
+  // กติกา: สร้างรูปต้องใช้ Image Prompt จาก Content Engine ของ scope เท่านั้น — ไม่มี fallback
+  const orgId = session?.user?.organizationId
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ce = await resolveContentEngine(orgId, projectId ? { projectId } : 'studio')
+  if (!ce.imagePrompt) {
+    return NextResponse.json({
+      error: 'CONTENT_ENGINE_NOT_CONFIGURED',
+      message: `ยังไม่มี Image Prompt ที่ Active ใน Content Engine (${projectId ? 'ของโปรเจกต์นี้' : 'ของ Studio'}) — ตั้งค่าก่อนสร้างรูป`,
+    }, { status: 400 })
+  }
+
+  // Image Style Guide จาก Article Lab เป็นข้อมูลประกอบบรีฟของโปรเจกต์ — ทิศทางงานภาพยังมาจาก CE เท่านั้น
+  let imageStyleGuide = ''
+  if (projectId) {
+    try {
+      const proj = await prisma.project.findFirst({
+        where: { id: projectId, organizationId: orgId },
+        select: { imageStyleGuide: true },
+      })
+      imageStyleGuide = proj?.imageStyleGuide ?? ''
+    } catch { /* non-fatal */ }
   }
 
   try {
-    const result = await callGeminiImage({ keyword, title, type, siteName, brandTone, accentColor, width, height })
+    const result = await callGeminiImage({ keyword, title, type, siteName, brandTone, accentColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide })
 
     // Log AI job for cost tracking
     try {
@@ -51,8 +75,8 @@ export async function POST(req: NextRequest) {
             ...(projectId && { projectId }),
             jobType: type === 'mid' ? 'IMAGE_MID' : 'IMAGE_COVER',
             status: 'COMPLETED',
-            modelProvider: 'GEMINI',
-            modelName: process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
+            modelProvider: 'OPENROUTER',
+            modelName: OR_MODELS.image(),
             tokenUsed: result.totalTokens,
             estimatedCost: result.costUsd,
           },

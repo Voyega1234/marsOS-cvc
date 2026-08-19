@@ -64,7 +64,7 @@ export function ClientPortalClient({ projects, userName }: { projects: Project[]
     <div className="min-h-screen bg-[#f7f7f6]">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-8 py-6">
-        <p className="text-2xl font-bold text-gray-900">สวัสดี, {userName} 👋</p>
+        <p className="text-2xl font-bold text-brand-navy">สวัสดี, {userName} 👋</p>
         <p className="text-sm text-gray-500 mt-1">ภาพรวมบทความของคุณทั้งหมด</p>
       </div>
 
@@ -72,7 +72,7 @@ export function ClientPortalClient({ projects, userName }: { projects: Project[]
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: "บทความทั้งหมด",  value: totalArticles,  color: "bg-gray-900 text-white" },
+            { label: "บทความทั้งหมด",  value: totalArticles,  color: "bg-brand-blue text-white" },
             { label: "เผยแพร่แล้ว",    value: totalPublished, color: "bg-emerald-600 text-white" },
             { label: "รอรีวิว",        value: totalReview,    color: "bg-amber-500 text-white" },
           ].map((c, i) => (
@@ -103,7 +103,7 @@ export function ClientPortalClient({ projects, userName }: { projects: Project[]
                   <div className="flex items-center gap-3">
                     {isOpen ? <ChevronDown size={16} className="text-gray-400"/> : <ChevronRight size={16} className="text-gray-400"/>}
                     <div>
-                      <p className="font-bold text-gray-900">{project.name}</p>
+                      <p className="font-bold text-brand-navy">{project.name}</p>
                       {project.website && (
                         <p className="text-xs text-gray-400">{project.website}</p>
                       )}
@@ -136,7 +136,7 @@ export function ClientPortalClient({ projects, userName }: { projects: Project[]
                               return (
                                 <div key={article.id} className={`flex items-start gap-4 px-6 py-4 border-l-2 ${group.accent}`}>
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-gray-900 truncate">{article.title}</p>
+                                    <p className="text-sm font-medium text-brand-navy truncate">{article.title}</p>
                                     {lastComment && (
                                       <div className="mt-1.5 flex items-start gap-1.5 text-xs text-gray-500">
                                         <MessageCircle size={11} className="mt-0.5 shrink-0 text-gray-400"/>
@@ -156,7 +156,7 @@ export function ClientPortalClient({ projects, userName }: { projects: Project[]
                                         href={article.wordpressUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="text-gray-400 hover:text-blue-600 transition-colors"
+                                        className="text-gray-400 hover:text-brand-blue transition-colors"
                                         title="ดูบทความ"
                                       >
                                         <ExternalLink size={14}/>

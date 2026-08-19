@@ -184,7 +184,7 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
                         {user.name?.[0]?.toUpperCase() ?? "?"}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-900">
+                        <p className="text-sm font-medium text-brand-navy">
                           {user.name}
                           {isMe && <span className="ml-2 text-xs text-green-600 font-normal">(You)</span>}
                         </p>
@@ -252,7 +252,7 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
 
       {/* Role Reference */}
       <div className="bg-white border border-gray-100 rounded-xl p-5">
-        <p className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <p className="text-sm font-semibold text-brand-navy mb-4 flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-green-600" />
           Role Permissions Reference
         </p>

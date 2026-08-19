@@ -151,7 +151,7 @@ export function ReviewChecklist({ articleId, articleStatus, reviews }: Props) {
                       {review.reviewer.name?.[0] ?? "?"}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">{review.reviewer.name}</p>
+                      <p className="text-sm font-semibold text-brand-navy">{review.reviewer.name}</p>
                       <p className="text-xs text-gray-400">{formatDate(review.createdAt)}</p>
                     </div>
                   </div>
@@ -215,7 +215,7 @@ export function ReviewChecklist({ articleId, articleStatus, reviews }: Props) {
             <div className="space-y-4 pt-2 border-t border-gray-100">
               <h5 className="text-xs font-bold text-gray-500 uppercase tracking-wide">ให้คะแนน</h5>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                <ScoreInput label="SEO Score"       value={seoScore}  onChange={setSeoScore}  color="text-blue-600" />
+                <ScoreInput label="SEO Score"       value={seoScore}  onChange={setSeoScore}  color="text-brand-blue" />
                 <ScoreInput label="E-E-A-T Score"   value={aeoScore}  onChange={setAeoScore}  color="text-purple-600" />
                 <ScoreInput label="Conversion Score" value={convScore} onChange={setConvScore} color="text-green-600" />
               </div>

@@ -31,7 +31,7 @@ export function NotificationsPopover({ notifications }: Props) {
         <button className="relative flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors">
           <Bell className="h-4 w-4" />
           {count > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-gray-900 text-[9px] font-semibold text-white">
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-blue text-[9px] font-semibold text-white">
               {count > 9 ? "9+" : count}
             </span>
           )}
@@ -43,7 +43,7 @@ export function NotificationsPopover({ notifications }: Props) {
         className="w-72 p-0 shadow-lg rounded-xl border border-gray-100"
       >
         <div className="px-4 py-3 border-b border-gray-100">
-          <p className="text-[13px] font-semibold text-gray-900">Notifications</p>
+          <p className="text-[13px] font-semibold text-brand-navy">Notifications</p>
         </div>
         {notifications.length === 0 ? (
           <p className="py-6 text-center text-xs text-gray-400">No notifications</p>

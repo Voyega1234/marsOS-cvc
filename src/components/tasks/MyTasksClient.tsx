@@ -29,7 +29,7 @@ interface Props {
 
 // Actions available per status
 const STATUS_ACTIONS: Record<string, { label: string; newStatus: string; color: string } | null> = {
-  OUTLINE_APPROVED:  { label: "เริ่มเขียน (Auto Run)", newStatus: "ARTICLE_GENERATING", color: "bg-blue-600 hover:bg-blue-500 text-white" },
+  OUTLINE_APPROVED:  { label: "เริ่มเขียน (Auto Run)", newStatus: "ARTICLE_GENERATING", color: "bg-brand-blue hover:bg-blue-500 text-white" },
   SEO_REVIEW:        { label: "Approve บทความ",         newStatus: "APPROVED",           color: "bg-green-600 hover:bg-green-500 text-white" },
   REVISION_REQUIRED: { label: "ส่ง Review ใหม่",         newStatus: "SEO_REVIEW",         color: "bg-amber-500 hover:bg-amber-400 text-white" },
   ARTICLE_DONE:      { label: "ส่ง SEO Check",           newStatus: "SEO_REVIEW",         color: "bg-teal-600 hover:bg-teal-500 text-white" },
@@ -98,7 +98,7 @@ export function MyTasksClient({ groups, urgencyMeta, userId }: Props) {
                               รอฉันตรวจ
                             </span>
                           )}
-                          <p className="font-semibold text-gray-900 truncate">{article.title}</p>
+                          <p className="font-semibold text-brand-navy truncate">{article.title}</p>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
                           <span className="font-medium text-gray-700">{article.project.name}</span>
@@ -153,7 +153,7 @@ export function MyTasksClient({ groups, urgencyMeta, userId }: Props) {
                       <div className="px-4 pb-4 pt-0 border-t border-gray-50 bg-gray-50/50">
                         <div className="flex items-center justify-between text-xs text-gray-400 pt-3">
                           <span>อัปเดต {formatDate(article.updatedAt)}</span>
-                          <Link href={`/articles/${article.id}`} className="text-blue-600 hover:underline flex items-center gap-1">
+                          <Link href={`/articles/${article.id}`} className="text-brand-blue hover:underline flex items-center gap-1">
                             เปิดบทความเต็ม <ExternalLink className="h-3 w-3" />
                           </Link>
                         </div>

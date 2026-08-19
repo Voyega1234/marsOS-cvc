@@ -88,7 +88,7 @@ export default function ProjectCard({ project }: { project: ProjectWithStats }) 
         {/* Header row */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-bold text-gray-900 leading-tight truncate group-hover:text-green-700 transition-colors">
+            <h3 className="text-lg font-bold text-brand-navy leading-tight truncate group-hover:text-green-700 transition-colors">
               {project.name}
             </h3>
             {project.clientName && project.clientName !== project.name && (
@@ -149,7 +149,7 @@ export default function ProjectCard({ project }: { project: ProjectWithStats }) 
         <div className="grid grid-cols-4 gap-2 py-3 border-t border-b border-gray-50">
           {[
             { value: ts.total,    label: "บทความทั้งหมด", color: "text-gray-800" },
-            { value: ts.writing,  label: "กำลังเขียน",    color: "text-blue-600" },
+            { value: ts.writing,  label: "กำลังเขียน",    color: "text-brand-blue" },
             { value: ts.review,   label: "รอตรวจ",        color: "text-amber-600" },
             { value: ts.pushed,   label: "Pushed",        color: "text-teal-600" },
           ].map((s) => (

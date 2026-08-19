@@ -32,11 +32,11 @@ export function TeamSwitcher({ teams }: Props) {
       <DropdownMenuTrigger asChild>
         <button className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left hover:bg-gray-100 transition-colors">
           {/* Team avatar */}
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gray-900 text-[10px] font-bold text-white">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-blue text-[10px] font-bold text-white">
             {selected.name[0]}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-medium text-gray-900 truncate">{selected.name}</p>
+            <p className="text-[13px] font-medium text-brand-navy truncate">{selected.name}</p>
             <p className="text-[11px] text-gray-400 truncate">{selected.plan}</p>
           </div>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />

@@ -86,7 +86,7 @@ export function NotificationsPageClient({ notifications: initial }: { notificati
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-xl font-bold text-brand-navy flex items-center gap-2">
             <Bell className="h-5 w-5 text-gray-600" />
             การแจ้งเตือน
           </h1>
@@ -115,7 +115,7 @@ export function NotificationsPageClient({ notifications: initial }: { notificati
               className={cn(
                 "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
                 filter === opt.value
-                  ? "bg-gray-900 text-white"
+                  ? "bg-brand-blue text-white"
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               )}
             >
@@ -160,7 +160,7 @@ export function NotificationsPageClient({ notifications: initial }: { notificati
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
-                  <p className={cn("text-sm leading-snug", !n.isRead ? "font-semibold text-gray-900" : "text-gray-700")}>
+                  <p className={cn("text-sm leading-snug", !n.isRead ? "font-semibold text-brand-navy" : "text-gray-700")}>
                     {n.title}
                   </p>
                   <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">

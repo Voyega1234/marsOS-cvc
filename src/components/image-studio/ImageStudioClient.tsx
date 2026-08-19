@@ -58,6 +58,9 @@ export function ImageStudioClient() {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [coverSize, setCoverSize] = useState<SizePreset>(COVER_SIZES[0]);
   const [midSize, setMidSize] = useState<SizePreset>(MID_SIZES[0]);
+  // จำนวนรูปกลางบทความต่อการกดสร้าง 1 ครั้ง — รูปปกล็อกที่ 1 เสมอ
+  const [midCount, setMidCount] = useState(1);
+  const [genProgress, setGenProgress] = useState<string | null>(null);
   const [showPptx, setShowPptx] = useState(false);
   const [exportingPptx, setExportingPptx] = useState(false);
 
@@ -71,34 +74,45 @@ export function ImageStudioClient() {
       return;
     }
     setGenerating(true);
+    const total = imageType === "mid" ? midCount : 1;
+    let done = 0;
     try {
-      const res = await fetch("/api/article/cover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, keyword, type: imageType, siteName, brandTone, accentColor, width: currentSize.w, height: currentSize.h }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error ?? `HTTP ${res.status}`);
+      for (let i = 0; i < total; i++) {
+        if (total > 1) setGenProgress(`กำลังสร้างรูปที่ ${i + 1}/${total}...`);
+        const res = await fetch("/api/article/cover", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, keyword, type: imageType, siteName, brandTone, accentColor, width: currentSize.w, height: currentSize.h }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error ?? `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const item: GeneratedImage = {
+          imageBase64: data.imageBase64,
+          mimeType: data.mimeType || "image/webp",
+          type: imageType,
+          keyword,
+          title,
+          w: currentSize.w,
+          h: currentSize.h,
+          createdAt: new Date(),
+        };
+        setHistory(prev => [item, ...prev]);
+        setSelectedIdx(0);
+        done++;
       }
-      const data = await res.json();
-      const item: GeneratedImage = {
-        imageBase64: data.imageBase64,
-        mimeType: data.mimeType || "image/webp",
-        type: imageType,
-        keyword,
-        title,
-        w: currentSize.w,
-        h: currentSize.h,
-        createdAt: new Date(),
-      };
-      setHistory(prev => [item, ...prev]);
-      setSelectedIdx(0);
-      toast.success(`สร้าง ${imageType === "cover" ? "Cover Image" : "Mid-Article Image"} สำเร็จ ✓`);
+      toast.success(total > 1
+        ? `สร้าง Mid-Article ${done} รูปสำเร็จ ✓`
+        : `สร้าง ${imageType === "cover" ? "Cover Image" : "Mid-Article Image"} สำเร็จ ✓`);
     } catch (e: unknown) {
-      toast.error(`เกิดข้อผิดพลาด: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(done > 0
+        ? `ได้ ${done}/${total} รูป — รูปถัดไปพัง: ${e instanceof Error ? e.message : String(e)}`
+        : `เกิดข้อผิดพลาด: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setGenerating(false);
+      setGenProgress(null);
     }
   };
 
@@ -163,7 +177,7 @@ export function ImageStudioClient() {
           </div>
           <div>
             <h1 className="text-sm font-bold text-slate-800">Image Studio</h1>
-            <p className="text-xs text-slate-400">สร้างรูป Cover &amp; Mid-Article ด้วย Gemini AI</p>
+            <p className="text-xs text-slate-400">สร้างรูป Cover &amp; Mid-Article ด้วย MarsOS AI</p>
           </div>
         </div>
       </div>
@@ -209,6 +223,27 @@ export function ImageStudioClient() {
                 </button>
               </div>
             </div>
+
+            {/* จำนวนรูป — mid เลือกได้ 1-4, cover ล็อก 1 */}
+            {imageType === "mid" && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-600">จำนวนรูป</label>
+                <div className="flex gap-1.5">
+                  {[1, 2, 3, 4].map(n => (
+                    <button key={n} onClick={() => setMidCount(n)}
+                      className={cn(
+                        "flex-1 py-2 rounded-lg border text-sm font-semibold transition-all",
+                        midCount === n
+                          ? "border-rose-400 bg-rose-50 text-rose-700"
+                          : "border-gray-200 bg-white text-slate-600 hover:border-slate-300"
+                      )}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-400">สร้างทีละรูปต่อกัน {midCount > 1 ? `— ประมาณ ${midCount} เท่าของเวลาปกติ` : ""}</p>
+              </div>
+            )}
 
             {/* Size Selector */}
             <div className="space-y-1.5">
@@ -346,9 +381,13 @@ export function ImageStudioClient() {
               className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all shadow-sm"
             >
               <Sparkles className="h-4 w-4" />
-              {generating ? "กำลังสร้างรูป..." : `สร้าง ${imageType === "cover" ? "Cover" : "Mid-Article"} Image`}
+              {generating
+                ? (genProgress ?? "กำลังสร้างรูป...")
+                : imageType === "mid" && midCount > 1
+                  ? `สร้าง Mid-Article ${midCount} รูป`
+                  : `สร้าง ${imageType === "cover" ? "Cover" : "Mid-Article"} Image`}
             </button>
-            <p className="text-xs text-slate-400 text-center -mt-3">ใช้ Gemini Imagen 3</p>
+            <p className="text-xs text-slate-400 text-center -mt-3">ใช้ MarsOS Image AI</p>
 
             {/* PNG Download */}
             <button
@@ -380,7 +419,7 @@ export function ImageStudioClient() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Wand2 className="h-4 w-4 text-rose-500 animate-pulse" />
-                  <p className="text-slate-500 text-sm">Gemini กำลังสร้างรูปภาพ...</p>
+                  <p className="text-slate-500 text-sm">AI กำลังสร้างรูปภาพ...</p>
                 </div>
                 <p className="text-slate-400 text-xs">อาจใช้เวลา 15–30 วินาที</p>
               </div>
@@ -416,7 +455,7 @@ export function ImageStudioClient() {
                       "text-xs px-2.5 py-1 rounded-full font-semibold",
                       selected.type === "cover"
                         ? "bg-rose-50 text-rose-600 border border-rose-200"
-                        : "bg-blue-50 text-blue-600 border border-blue-200"
+                        : "bg-blue-50 text-brand-blue border border-blue-200"
                     )}>
                       {selected.type === "cover" ? "Cover Image" : "Mid-Article"}
                     </span>

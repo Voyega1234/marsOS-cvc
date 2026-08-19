@@ -8,10 +8,10 @@ export const metadata: Metadata = { title: 'Review Queue' }
 
 export default async function ReviewPage() {
   const session = await getSession()
-  if (!session?.user) redirect('/login')
+  if (!session?.user) redirect('/setup')
   const orgId = session.user.organizationId
   const userRole = session.user.role ?? ''
-  if (!orgId) redirect('/login')
+  if (!orgId) redirect('/setup')
 
   // CLIENT: only see their own articles pending approval
   if (userRole === 'CLIENT') {

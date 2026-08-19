@@ -67,7 +67,7 @@ const STATUS_COLOR: Record<string, string> = {
   "Lost":           "bg-gray-100 text-gray-500",
   "Risk Review":    "bg-red-100 text-red-600",
   "Broken Target":  "bg-amber-100 text-amber-700",
-  "Nofollow":       "bg-blue-100 text-blue-600",
+  "Nofollow":       "bg-blue-100 text-brand-blue",
   "Redirected":     "bg-purple-100 text-purple-600",
 };
 
@@ -80,7 +80,7 @@ function Section({ title, icon, children, defaultOpen = true, accent }:
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
       <button onClick={() => setOpen(o => !o)}
         className={`w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left ${accent ?? ""}`}>
-        <div className="flex items-center gap-2.5 font-bold text-gray-900 text-sm">{icon}{title}</div>
+        <div className="flex items-center gap-2.5 font-bold text-brand-navy text-sm">{icon}{title}</div>
         {open ? <ChevronUp size={14} className="text-gray-400 shrink-0" /> : <ChevronDown size={14} className="text-gray-400 shrink-0" />}
       </button>
       {open && <div className="px-5 pb-5">{children}</div>}
@@ -90,7 +90,7 @@ function Section({ title, icon, children, defaultOpen = true, accent }:
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
-function KPICard({ label, value, sub, trend, color = "text-gray-900" }:
+function KPICard({ label, value, sub, trend, color = "text-brand-navy" }:
   { label: string; value: string | number; sub?: string; trend?: "up" | "down" | "neutral"; color?: string }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-1">
@@ -114,7 +114,7 @@ function SourceCard({ icon, name, badge, badgeColor, use, limit }:
   return (
     <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 font-semibold text-gray-900 text-sm">{icon}{name}</div>
+        <div className="flex items-center gap-2 font-semibold text-brand-navy text-sm">{icon}{name}</div>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeColor}`}>{badge}</span>
       </div>
       <p className="text-xs text-gray-600"><b>ใช้สำหรับ:</b> {use}</p>
@@ -148,7 +148,7 @@ function TaskCard({ title, assignee, priority, reason, action }:
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="font-semibold text-gray-900 text-sm">{title}</p>
+        <p className="font-semibold text-brand-navy text-sm">{title}</p>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${pColor}`}>{priority}</span>
       </div>
       <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
@@ -194,7 +194,7 @@ function AddBacklinkForm({ projects, onAdd }: { projects: Project[]; onAdd: (ent
 
   if (!open) return (
     <button onClick={() => setOpen(true)}
-      className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-xl hover:bg-gray-700 transition-colors">
+      className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep transition-colors">
       <Plus size={14} /> เพิ่ม Backlink
     </button>
   );
@@ -202,7 +202,7 @@ function AddBacklinkForm({ projects, onAdd }: { projects: Project[]; onAdd: (ent
   return (
     <form onSubmit={submit} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-gray-900 text-sm">เพิ่ม Backlink ใหม่</h3>
+        <h3 className="font-semibold text-brand-navy text-sm">เพิ่ม Backlink ใหม่</h3>
         <button type="button" onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -234,9 +234,9 @@ function AddBacklinkForm({ projects, onAdd }: { projects: Project[]; onAdd: (ent
         </div>
       </div>
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={() => setOpen(false)} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-900">ยกเลิก</button>
+        <button type="button" onClick={() => setOpen(false)} className="px-4 py-2 text-sm text-gray-500 hover:text-brand-navy">ยกเลิก</button>
         <button type="submit" disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-xl hover:bg-gray-700 disabled:opacity-50 transition-colors">
+          className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-50 transition-colors">
           {saving ? "กำลังบันทึก..." : "บันทึก"}
         </button>
       </div>
@@ -286,7 +286,7 @@ function BacklinkRow({ entry, onUpdate, onDelete }: {
   if (editing) return (
     <tr className="bg-blue-50/30">
       <td className={`${cellCls} text-xs text-gray-500`}>{entry.project.name}</td>
-      <td className={cellCls}><a href={entry.targetUrl} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline flex items-center gap-1 truncate max-w-[140px]"><Link2 size={10} />{entry.targetUrl}</a></td>
+      <td className={cellCls}><a href={entry.targetUrl} target="_blank" rel="noopener" className="text-xs text-brand-blue hover:underline flex items-center gap-1 truncate max-w-[140px]"><Link2 size={10} />{entry.targetUrl}</a></td>
       <td className={cellCls}><input value={form.sourceUrl} onChange={e => setForm(f => ({ ...f, sourceUrl: e.target.value }))} className={inputCls} placeholder="https://..." /></td>
       <td className={cellCls}><input value={form.anchorText} onChange={e => setForm(f => ({ ...f, anchorText: e.target.value }))} className={inputCls} placeholder="anchor" /></td>
       <td className={cellCls}><input type="number" min="0" max="100" value={form.domainRating} onChange={e => setForm(f => ({ ...f, domainRating: e.target.value }))} className={`${inputCls} w-14`} /></td>
@@ -298,7 +298,7 @@ function BacklinkRow({ entry, onUpdate, onDelete }: {
       <td className={cellCls}><input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className={inputCls} placeholder="หมายเหตุ" /></td>
       <td className={cellCls}>
         <div className="flex gap-1">
-          <button onClick={save} disabled={saving} className="p-1.5 rounded bg-gray-900 text-white hover:bg-gray-700"><Check size={12} /></button>
+          <button onClick={save} disabled={saving} className="p-1.5 rounded bg-brand-blue text-white hover:bg-brand-deep"><Check size={12} /></button>
           <button onClick={() => setEditing(false)} className="p-1.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200"><X size={12} /></button>
         </div>
       </td>
@@ -308,8 +308,8 @@ function BacklinkRow({ entry, onUpdate, onDelete }: {
   return (
     <tr className="hover:bg-gray-50/50 transition-colors group">
       <td className={`${cellCls} text-xs text-gray-500 whitespace-nowrap`}>{entry.project.name}</td>
-      <td className={`${cellCls} max-w-[140px]`}><a href={entry.targetUrl} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline flex items-center gap-1 truncate"><Link2 size={10} className="shrink-0" />{entry.targetUrl}</a></td>
-      <td className={`${cellCls} max-w-[140px]`}>{entry.sourceUrl ? <a href={entry.sourceUrl} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline flex items-center gap-1 truncate"><Globe size={10} className="shrink-0" />{entry.sourceUrl}</a> : <span className="text-gray-300 text-xs">—</span>}</td>
+      <td className={`${cellCls} max-w-[140px]`}><a href={entry.targetUrl} target="_blank" rel="noopener" className="text-xs text-brand-blue hover:underline flex items-center gap-1 truncate"><Link2 size={10} className="shrink-0" />{entry.targetUrl}</a></td>
+      <td className={`${cellCls} max-w-[140px]`}>{entry.sourceUrl ? <a href={entry.sourceUrl} target="_blank" rel="noopener" className="text-xs text-brand-blue hover:underline flex items-center gap-1 truncate"><Globe size={10} className="shrink-0" />{entry.sourceUrl}</a> : <span className="text-gray-300 text-xs">—</span>}</td>
       <td className={cellCls}><span className="text-xs text-gray-600">{entry.anchorText || <span className="text-gray-300">—</span>}</span></td>
       <td className={`${cellCls} text-center`}>{entry.domainRating != null ? <span className={`text-xs font-bold ${entry.domainRating >= 60 ? "text-emerald-600" : entry.domainRating >= 30 ? "text-amber-600" : "text-gray-400"}`}>{entry.domainRating}</span> : <span className="text-gray-300 text-xs">—</span>}</td>
       <td className={cellCls}><StatusChip status={entry.status} /></td>
@@ -361,7 +361,7 @@ function CSVImportModal({ projects, onImported, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <p className="font-bold text-gray-900 text-sm flex items-center gap-2"><Upload size={14} /> Import CSV</p>
+          <p className="font-bold text-brand-navy text-sm flex items-center gap-2"><Upload size={14} /> Import CSV</p>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
         </div>
 
@@ -385,7 +385,7 @@ function CSVImportModal({ projects, onImported, onClose }: {
           <label className="block text-xs font-medium text-gray-500 mb-1">ไฟล์ CSV</label>
           <input type="file" accept=".csv,.tsv,.txt"
             onChange={e => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(null); }}
-            className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-gray-900 file:text-white file:text-xs file:font-semibold hover:file:bg-gray-700" />
+            className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-brand-blue file:text-white file:text-xs file:font-semibold hover:file:bg-gray-700" />
         </div>
 
         {error && (
@@ -401,9 +401,9 @@ function CSVImportModal({ projects, onImported, onClose }: {
         )}
 
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-xs text-gray-500 hover:text-gray-900">ปิด</button>
+          <button onClick={onClose} className="px-4 py-2 text-xs text-gray-500 hover:text-brand-navy">ปิด</button>
           <button onClick={upload} disabled={!file || !projectId || uploading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors">
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-40 transition-colors">
             {uploading ? <><RefreshCw size={11} className="animate-spin" /> กำลัง import...</> : <><Upload size={11} /> Import</>}
           </button>
         </div>
@@ -462,7 +462,7 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <p className="font-bold text-gray-900 text-sm flex items-center gap-2"><ScanLine size={14} /> Self Link Checker</p>
+          <p className="font-bold text-brand-navy text-sm flex items-center gap-2"><ScanLine size={14} /> Self Link Checker</p>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
         </div>
 
@@ -477,11 +477,11 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
 
         <div className="grid grid-cols-2 gap-2 text-xs text-center">
           <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
-            <p className="text-2xl font-black text-gray-900">{entries.length}</p>
+            <p className="text-2xl font-black text-brand-navy">{entries.length}</p>
             <p className="text-gray-500">Total backlinks</p>
           </div>
           <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
-            <p className="text-2xl font-black text-gray-900">{Math.min(entries.length, 50)}</p>
+            <p className="text-2xl font-black text-brand-navy">{Math.min(entries.length, 50)}</p>
             <p className="text-gray-500">จะตรวจสอบ</p>
           </div>
         </div>
@@ -492,7 +492,7 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
             <div className="grid grid-cols-3 gap-1 text-center">
               {Object.entries(summary).map(([k, v]) => (
                 <div key={k} className="bg-white rounded-lg px-2 py-1.5 border border-emerald-100">
-                  <p className="font-bold text-gray-900">{v as number}</p>
+                  <p className="font-bold text-brand-navy">{v as number}</p>
                   <p className="text-gray-500 capitalize">{k}</p>
                 </div>
               ))}
@@ -506,9 +506,9 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
         )}
 
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-xs text-gray-500 hover:text-gray-900">ปิด</button>
+          <button onClick={onClose} className="px-4 py-2 text-xs text-gray-500 hover:text-brand-navy">ปิด</button>
           <button onClick={() => runCheck()} disabled={checking || entries.length === 0}
-            className="flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-xs font-semibold rounded-xl hover:bg-gray-700 disabled:opacity-40 transition-colors">
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-40 transition-colors">
             {checking
               ? <><RefreshCw size={11} className="animate-spin" /> กำลังตรวจสอบ...</>
               : <><ScanLine size={11} /> ตรวจสอบ {Math.min(entries.length, 50)} links</>}
@@ -578,13 +578,13 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             {[
               { label: "Free-first",        bg: "bg-emerald-100 text-emerald-700" },
               { label: "Automated",         bg: "bg-blue-100 text-blue-700" },
-              { label: "Gemini-assisted",   bg: "bg-purple-100 text-purple-700" },
+              { label: "AI-assisted",   bg: "bg-purple-100 text-purple-700" },
               { label: "SEO Team Workflow", bg: "bg-amber-100 text-amber-700" },
             ].map(b => (
               <span key={b.label} className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${b.bg}`}>{b.label}</span>
             ))}
           </div>
-          <h1 className="text-xl font-bold text-gray-900">Backlink Automation Lite</h1>
+          <h1 className="text-xl font-bold text-brand-navy">Backlink Automation Lite</h1>
           <p className="text-sm text-gray-500 max-w-2xl">
             Free-first backlink monitoring and action system for SEO teams. Detect new links, lost links, risky links, broken backlinks, competitor gaps, and generate recommended SEO actions.
           </p>
@@ -619,14 +619,14 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             const k = stats?.kpi;
             const newTrend = k ? (k.newThisWeek >= k.newLastWeek ? "up" : "down") : "neutral";
             return <>
-              <KPICard label="Total Backlinks"    value={k?.total ?? 0}      sub={k?.newThisWeek ? `+${k.newThisWeek} this week` : "no data yet"} trend={k?.newThisWeek ? "up" : "neutral"} color="text-gray-900" />
-              <KPICard label="Referring Domains"  value={k?.domains ?? 0}    sub="unique domains"           trend="neutral"  color="text-gray-900" />
+              <KPICard label="Total Backlinks"    value={k?.total ?? 0}      sub={k?.newThisWeek ? `+${k.newThisWeek} this week` : "no data yet"} trend={k?.newThisWeek ? "up" : "neutral"} color="text-brand-navy" />
+              <KPICard label="Referring Domains"  value={k?.domains ?? 0}    sub="unique domains"           trend="neutral"  color="text-brand-navy" />
               <KPICard label="New This Week"      value={k?.newThisWeek ?? 0} sub={k ? `vs ${k.newLastWeek} last week` : "—"} trend={newTrend} color="text-emerald-600" />
               <KPICard label="Lost Links"         value={k?.lostLinks ?? 0}  sub="status: LOST"             trend={k?.lostLinks ? "down" : "neutral"} color={k?.lostLinks ? "text-red-500" : "text-gray-400"} />
               <KPICard label="Broken Target URLs" value={k?.brokenTarget ?? 0} sub="needs fix"              trend="neutral"  color={k?.brokenTarget ? "text-amber-600" : "text-gray-400"} />
               <KPICard label="Risk Review"        value={k?.riskReview ?? 0} sub="risk score ≥ 60"          trend="neutral"  color={k?.riskReview ? "text-red-500" : "text-gray-400"} />
-              <KPICard label="Gemini Candidates"  value={k?.geminiEnrich ?? 0} sub="eligible for AI enrich" trend="neutral"  color="text-purple-600" />
-              <KPICard label="Tasks Created"      value={stats?.tasks.length ?? 0} sub="auto-generated"     trend="neutral"  color="text-gray-900" />
+              <KPICard label="AI Candidates"  value={k?.geminiEnrich ?? 0} sub="eligible for AI enrich" trend="neutral"  color="text-purple-600" />
+              <KPICard label="Tasks Created"      value={stats?.tasks.length ?? 0} sub="auto-generated"     trend="neutral"  color="text-brand-navy" />
             </>;
           })()}
         </div>
@@ -636,17 +636,17 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
       <Section title="Free Data Sources" icon={<Database size={15} />} defaultOpen={false}>
         <p className="text-xs text-gray-500 mb-4">ระบบใช้ free-first sources — ไม่ต้องจ่ายค่า Ahrefs หรือ Semrush เพื่อเริ่มต้น</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <SourceCard icon={<Globe size={13} className="text-blue-600" />}        name="Common Crawl"          badge="Free"          badgeColor="bg-emerald-100 text-emerald-700" use="Discover backlinks from web crawl index" limit="Requires processing — not real-time. Best for bulk discovery." />
+          <SourceCard icon={<Globe size={13} className="text-brand-blue" />}        name="Common Crawl"          badge="Free"          badgeColor="bg-emerald-100 text-emerald-700" use="Discover backlinks from web crawl index" limit="Requires processing — not real-time. Best for bulk discovery." />
           <SourceCard icon={<Search size={13} className="text-emerald-600" />}    name="Google Search Console" badge="Free"          badgeColor="bg-emerald-100 text-emerald-700" use="Official link data from Google — sampled" limit="GSC shows a sample, not all links. Use as verification source." />
           <SourceCard icon={<BarChart3 size={13} className="text-blue-500" />}    name="Bing Webmaster Tools"  badge="Free"          badgeColor="bg-emerald-100 text-emerald-700" use="Additional link signals from Bing's index" limit="Smaller index than Google but often finds links GSC misses." />
           <SourceCard icon={<Upload size={13} className="text-gray-600" />}       name="CSV Upload"            badge="Manual"        badgeColor="bg-gray-100 text-gray-600"       use="Import from Ahrefs, Semrush, Majestic export" limit="Fallback method — full control over what goes in." />
           <SourceCard icon={<RefreshCw size={13} className="text-amber-600" />}   name="Self Link Checker"     badge="Built-in"      badgeColor="bg-amber-100 text-amber-700"     use="Verify live/lost/nofollow/redirect/404 status" limit="Rate-limited to avoid IP blocks — checks in batches." />
           <SourceCard icon={<Database size={13} className="text-indigo-600" />}   name="Supabase Free"         badge="Free DB"       badgeColor="bg-indigo-100 text-indigo-700"   use="Store all backlink records, scores, history" limit="500MB free tier. Upgrade when dataset grows large." />
           <SourceCard icon={<Github size={13} className="text-gray-700" />}       name="GitHub Actions"        badge="Free CI"       badgeColor="bg-gray-100 text-gray-700"       use="Schedule nightly checks and imports automatically" limit="2,000 min/month free. Sufficient for most small agencies." />
-          <SourceCard icon={<Sparkles size={13} className="text-purple-600" />}   name="Gemini Grounding"      badge="Optional AI"   badgeColor="bg-purple-100 text-purple-700"   use="AI analysis & classification — NOT the backlink index" limit="Cost-gated. Used only for high-value or uncertain links." />
+          <SourceCard icon={<Sparkles size={13} className="text-purple-600" />}   name="AI Analysis"      badge="Optional AI"   badgeColor="bg-purple-100 text-purple-700"   use="AI analysis & classification — NOT the backlink index" limit="Cost-gated. Used only for high-value or uncertain links." />
         </div>
         <div className="mt-4 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-800">
-          <b>สำคัญ:</b> Gemini Grounding คือ AI analysis layer — ไม่ใช่ backlink database. ใช้สำหรับ classify, enrich, และ generate insights จาก links ที่ collect มาแล้วเท่านั้น
+          <b>สำคัญ:</b> AI Analysis คือ analysis layer — ไม่ใช่ backlink database. ใช้สำหรับ classify, enrich, และ generate insights จาก links ที่ collect มาแล้วเท่านั้น
         </div>
       </Section>
 
@@ -659,7 +659,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             { step: "2", label: "Normalize",     desc: "Domain, URL, anchor text standardization",     color: "bg-indigo-50 border-indigo-200 text-indigo-800" },
             { step: "3", label: "Verify",        desc: "Live / Lost / Nofollow / Redirect / 404",     color: "bg-amber-50 border-amber-200 text-amber-800" },
             { step: "4", label: "Score",         desc: "Quality + Risk — rule-based logic",           color: "bg-emerald-50 border-emerald-200 text-emerald-800" },
-            { step: "5", label: "Gemini Enrich", desc: "Only high-value / uncertain links",           color: "bg-purple-50 border-purple-200 text-purple-800" },
+            { step: "5", label: "AI Enrich", desc: "Only high-value / uncertain links",           color: "bg-purple-50 border-purple-200 text-purple-800" },
             { step: "6", label: "Create Tasks",  desc: "Auto SEO action items by category",          color: "bg-orange-50 border-orange-200 text-orange-800" },
             { step: "7", label: "Report",        desc: "Dashboard + CSV export to team",             color: "bg-gray-50 border-gray-200 text-gray-800" },
           ].map((s, i, arr) => (
@@ -676,10 +676,10 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
       </Section>
 
       {/* ── 5. Gemini Guardrail ── */}
-      <Section title="Gemini AI Guardrail" icon={<Shield size={15} />} defaultOpen={false}>
+      <Section title="AI Guardrail" icon={<Shield size={15} />} defaultOpen={false}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-bold text-emerald-800 flex items-center gap-1.5"><CheckCircle2 size={13} /> ใช้ Gemini เมื่อ</p>
+            <p className="text-xs font-bold text-emerald-800 flex items-center gap-1.5"><CheckCircle2 size={13} /> ใช้ AI เมื่อ</p>
             <ul className="text-xs text-emerald-700 space-y-1.5">
               {[
                 "quality_score ≥ 70 — high-value link",
@@ -691,7 +691,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             </ul>
           </div>
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-bold text-red-800 flex items-center gap-1.5"><X size={13} /> ไม่ใช้ Gemini สำหรับ</p>
+            <p className="text-xs font-bold text-red-800 flex items-center gap-1.5"><X size={13} /> ไม่ใช้ AI สำหรับ</p>
             <ul className="text-xs text-red-700 space-y-1.5">
               {[
                 "ทุก backlink โดยไม่มีเงื่อนไข",
@@ -703,9 +703,9 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             </ul>
           </div>
         </div>
-        <div className="mt-3 bg-gray-900 rounded-xl px-4 py-3 text-xs text-gray-300 flex items-start gap-2">
+        <div className="mt-3 bg-brand-blue rounded-xl px-4 py-3 text-xs text-gray-300 flex items-start gap-2">
           <Sparkles size={12} className="text-purple-400 mt-0.5 shrink-0" />
-          <span><b className="text-white">Cost Control:</b> AI enrichment is gated to avoid unnecessary API usage. Only ~5–10% of backlinks are sent to Gemini. The rest are scored by rule-based logic.</span>
+          <span><b className="text-white">Cost Control:</b> AI enrichment is gated to avoid unnecessary API usage. Only ~5–10% of backlinks are sent to AI. The rest are scored by rule-based logic.</span>
         </div>
       </Section>
 
@@ -731,7 +731,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
                 {(stats?.reviewTable ?? []).map((row, i) => (
                   <tr key={i} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-3 py-2.5 text-xs font-semibold text-gray-700 whitespace-nowrap">{row.domain}</td>
-                    <td className="px-3 py-2.5 text-[11px] text-blue-600 truncate max-w-[120px]">{row.target}</td>
+                    <td className="px-3 py-2.5 text-[11px] text-brand-blue truncate max-w-[120px]">{row.target}</td>
                     <td className="px-3 py-2.5 text-xs text-gray-600 max-w-[100px] truncate">{row.anchor}</td>
                     <td className="px-3 py-2.5">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_COLOR[row.status] ?? "bg-gray-100 text-gray-500"}`}>{row.status}</span>
@@ -824,14 +824,14 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
         {/* Summary chips */}
         <div className="flex flex-wrap gap-2 mb-4">
           <button onClick={() => setFilterStatus("all")}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${filterStatus === "all" ? "bg-gray-900 text-white border-gray-900" : "bg-gray-100 text-gray-600 border-transparent hover:border-gray-200"}`}>
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${filterStatus === "all" ? "bg-brand-blue text-white border-brand-blue" : "bg-gray-100 text-gray-600 border-transparent hover:border-gray-200"}`}>
             ทั้งหมด <span className="opacity-60 ml-1">{entries.length}</span>
           </button>
           {ALL_STATUSES.map(s => {
             const cfg = STATUS_CONFIG[s];
             return (
               <button key={s} onClick={() => setFilterStatus(filterStatus === s ? "all" : s)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${filterStatus === s ? "bg-gray-900 text-white border-gray-900" : `${cfg.bg} ${cfg.color} border-transparent hover:border-gray-200`}`}>
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${filterStatus === s ? "bg-brand-blue text-white border-brand-blue" : `${cfg.bg} ${cfg.color} border-transparent hover:border-gray-200`}`}>
                 {cfg.icon}{cfg.label}
                 <span className="opacity-60 ml-0.5">{counts[s]}</span>
               </button>
@@ -885,7 +885,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             { icon: <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />, text: "Free backlink data จะไม่ครบเท่า Ahrefs, Semrush, หรือ Majestic — แต่เพียงพอสำหรับ monitoring และ prioritization" },
             { icon: <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />, text: "GSC แสดงเพียงส่วนหนึ่งของ links ทั้งหมด (sampled data) — ไม่ใช่ full backlink index" },
             { icon: <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />, text: "Common Crawl ต้องมีการ processing และ filtering ก่อนใช้งาน — ไม่ใช่ real-time API" },
-            { icon: <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />, text: "Gemini Grounding ไม่ใช่ backlink database — เป็นเพียง AI layer สำหรับ enrich และ classify" },
+            { icon: <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />, text: "AI Analysis ไม่ใช่ backlink database — เป็นเพียง AI layer สำหรับ enrich และ classify" },
             { icon: <CheckCircle2 size={13} className="text-emerald-500 shrink-0 mt-0.5" />, text: "Best MVP approach: เริ่มด้วย automation + prioritization — ไม่ต้องรอ perfect data coverage" },
             { icon: <CheckCircle2 size={13} className="text-emerald-500 shrink-0 mt-0.5" />, text: "ระบบนี้ช่วยทีม SEO ทำงานได้ faster โดยไม่จ่ายค่า tool subscription ตั้งแต่วันแรก" },
           ].map((item, i) => (
@@ -904,7 +904,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             { label: "Database",   value: "Supabase Free / PostgreSQL",    color: "bg-green-50 border-green-200" },
             { label: "Scheduler",  value: "GitHub Actions / cron",         color: "bg-gray-50  border-gray-200" },
             { label: "Link Check", value: "Python / Node worker",          color: "bg-blue-50  border-blue-200" },
-            { label: "AI Layer",   value: "Gemini Grounding (optional)",   color: "bg-purple-50 border-purple-200" },
+            { label: "AI Layer",   value: "AI Analysis (optional)",   color: "bg-purple-50 border-purple-200" },
             { label: "Reporting",  value: "Dashboard + CSV export",        color: "bg-amber-50 border-amber-200" },
           ].map(s => (
             <div key={s.label} className={`border rounded-xl p-3 text-center ${s.color}`}>

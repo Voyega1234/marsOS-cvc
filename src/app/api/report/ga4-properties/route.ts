@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getGA4Auth } from "@/lib/google-auth";
+import { getGA4Auth, getGoogleAccessToken } from "@/lib/google-auth";
 
 export async function GET() {
   const session = await getSession();
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const auth = getGA4Auth();
-    const client = await auth.getClient();
-    const { token } = await client.getAccessToken();
+    const auth  = await getGA4Auth();
+    const token = await getGoogleAccessToken(auth);
     if (!token) throw new Error("No token");
 
     const r = await fetch(

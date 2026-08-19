@@ -134,7 +134,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-0.5">
-          <h1 className="text-xl font-bold text-gray-900">เชื่อมต่อ AI</h1>
+          <h1 className="text-xl font-bold text-brand-navy">เชื่อมต่อ AI</h1>
           <span className="flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
             <Lock className="h-3 w-3" />Admin
           </span>
@@ -211,7 +211,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
               href={provider.getKeyUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-blue-600 hover:underline"
+              className="text-xs text-brand-blue hover:underline"
             >
               สร้าง key ที่ {provider.label} →
             </a>
@@ -246,7 +246,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
         <button
           onClick={handleAdd}
           disabled={saving || !apiKey.trim()}
-          className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors"
+          className="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
           {saving ? "กำลังบันทึก..." : "เชื่อมต่อ"}
@@ -317,7 +317,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
           ].map((item) => (
             <div key={item.label} className={`px-3 py-3 ${item.highlight ? "bg-green-50" : ""}`}>
               <p className="text-[11px] text-gray-500">{item.label}</p>
-              <p className={`text-base font-semibold tabular-nums mt-0.5 ${item.highlight ? "text-green-700" : "text-gray-900"}`}>{item.cost}</p>
+              <p className={`text-base font-semibold tabular-nums mt-0.5 ${item.highlight ? "text-green-700" : "text-brand-navy"}`}>{item.cost}</p>
             </div>
           ))}
         </div>

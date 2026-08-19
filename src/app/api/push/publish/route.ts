@@ -9,6 +9,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { sanitizeArticleHtml } from '@/lib/articleSanitize'
+import { stripStyleTags, stripLeadingH1 } from '@/lib/articleComponents'
+import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
+import { buildArticleSchema } from '@/lib/articleSchema'
 
 function extractSeoMeta(html: string, fallbackTitle: string, fallbackKeyword: string) {
   // Parse <!-- CONVERT_CAKE_SEO_META ... --> block (line-based key: value format)
@@ -106,7 +110,7 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { html, title, keyword, slug: manualSlug, coverImage = '', coverMimeType = 'image/webp', publishMode = 'draft', useElementor = false, wpPostType = 'post', projectId, connectionId } = body
+  const { html, title, keyword, slug: manualSlug, coverImage = '', coverMimeType = 'image/webp', publishMode = 'draft', useElementor = false, wpPostType = 'post', projectId, connectionId, stripH1 } = body
   const orgId = session.user.organizationId
 
   // Enrich with DB article data if we can match by projectId + title
@@ -124,6 +128,95 @@ export async function POST(req: NextRequest) {
       dbSlug            = dbArticle.slug ?? ''
     }
   }
+
+  // ── เตรียม HTML ก่อนขึ้นเว็บ (feedback PSEO) ──
+  // 1. sanitize กันข้อความ AI หลุด  2. โหมด clean = ถอด <style> ให้ธีมเว็บคุม
+  // 3. ตัด H1 (เว็บส่วนใหญ่แสดง H1 จาก post title อยู่แล้ว — default: ตัด)
+  let processedHtml = sanitizeArticleHtml(html)
+  let projectStyleMode = 'embed'
+  let prefStripH1: boolean | undefined
+  let sitePlatform: string | null = null
+  let siteConn: SiteConnectionConfig = {}
+  if (projectId) {
+    try {
+      const proj = await (prisma.project as any).findFirst({
+        where: { id: projectId, organizationId: orgId },
+        select: { themeColors: true, pushPrefs: true, websitePlatform: true, siteConnection: true },
+      })
+      try { projectStyleMode = JSON.parse(proj?.themeColors || '{}').styleMode === 'clean' ? 'clean' : 'embed' } catch { /* default */ }
+      try { prefStripH1 = JSON.parse(proj?.pushPrefs || '{}').stripH1 } catch { /* default */ }
+      sitePlatform = proj?.websitePlatform ?? null
+      try { siteConn = JSON.parse(proj?.siteConnection || '{}') } catch { /* ว่าง */ }
+    } catch { /* non-fatal */ }
+  }
+  if (projectStyleMode === 'clean') processedHtml = stripStyleTags(processedHtml)
+  const shouldStripH1 = typeof stripH1 === 'boolean' ? stripH1 : (prefStripH1 ?? true)
+  if (shouldStripH1) processedHtml = stripLeadingH1(processedHtml)
+
+  // ── บทความรุ่นเก่าที่ยังไม่มี Schema JSON-LD → generate แปะให้ตอนขึ้นเว็บ ──
+  // (บทความใหม่มีมาจาก write pipeline แล้ว — ข้ามเพราะเจอ ld+json อยู่แล้ว)
+  if (projectId && title && !/application\/ld\+json/i.test(processedHtml)) {
+    try {
+      const projMeta = await (prisma.project as any).findFirst({
+        where: { id: projectId, organizationId: orgId },
+        select: { name: true, clientName: true, website: true, ctaSetting: true, businessType: true, authorEnabled: true, authors: true, authorName: true, authorTitle: true },
+      })
+      if (projMeta) {
+        const metaForSchema = extractSeoMeta(processedHtml, title, keyword ?? '')
+        let schemaCta: { channels?: Array<{ type?: string; label?: string; value?: string }> } = {}
+        try { schemaCta = JSON.parse(projMeta.ctaSetting || '{}') } catch { /* ว่าง */ }
+        const chans = (schemaCta.channels ?? []).filter(c => c?.value)
+        let authorName = '', authorTitle = ''
+        if (projMeta.authorEnabled) {
+          try {
+            const first = (JSON.parse(projMeta.authors || '[]') as Array<{ name?: string; title?: string }>)[0]
+            authorName = first?.name || projMeta.authorName || ''
+            authorTitle = first?.title || projMeta.authorTitle || ''
+          } catch { authorName = projMeta.authorName || '' }
+        }
+        const schema = buildArticleSchema({
+          html: processedHtml,
+          title,
+          metaDescription: dbMetaDescription || metaForSchema.metaDescription || undefined,
+          slug: manualSlug?.trim() || dbSlug || metaForSchema.enSlug || undefined,
+          siteUrl: projMeta.website || undefined,
+          siteName: projMeta.clientName || projMeta.name || undefined,
+          authorName: authorName || undefined,
+          authorTitle: authorTitle || undefined,
+          contact: {
+            phones: chans.filter(c => /phone|tel|โทร/i.test(`${c.type} ${c.label}`) || /^0\d{8,9}$/.test((c.value ?? '').replace(/[\s-]/g, ''))).map(c => c.value as string),
+            email: chans.find(c => /mail/i.test(`${c.type} ${c.label}`) || (c.value ?? '').includes('@'))?.value,
+          },
+          serviceName: (projMeta.businessType ?? '').trim() || undefined,
+        })
+        processedHtml = `${schema}\n${processedHtml}`
+      }
+    } catch { /* non-fatal — ขึ้นเว็บโดยไม่มี schema ดีกว่าล้มทั้ง publish */ }
+  }
+
+  // ── แพลตฟอร์มอื่นที่ไม่ใช่ WordPress → ลงผ่าน sitePublishers แล้วจบที่นี่ ──
+  // (เว้นแต่ผู้ใช้เลือก WordPress Connection ระดับ org มาเองใน Push tab)
+  if (sitePlatform && sitePlatform !== 'wordpress' && !connectionId) {
+    const metaEarly = extractSeoMeta(processedHtml, dbSeoTitle || title, keyword ?? '')
+    const result = await publishToSite(sitePlatform as SitePlatform, siteConn, {
+      title,
+      html: processedHtml,
+      slug: manualSlug?.trim() || dbSlug || metaEarly.enSlug || undefined,
+      excerpt: dbMetaDescription || metaEarly.metaDescription || undefined,
+      coverBase64: coverImage || undefined,
+      coverMimeType,
+      publishMode,
+    })
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 502 })
+    return NextResponse.json({
+      postUrl: result.postUrl || '',
+      postId: result.postId ?? '',
+      platform: sitePlatform,
+      mode: publishMode,
+    })
+  }
+
+  const htmlForContent = processedHtml
 
   const normalizeWpUrl = (raw: string) =>
     raw.trim().replace(/\/(wp-admin|wp-login\.php)(\/.*)?$/, '').replace(/\/$/, '')
@@ -190,7 +283,6 @@ export async function POST(req: NextRequest) {
   const coverAltText    = meta.coverAlt !== (dbSeoTitle || title) ? meta.coverAlt : (dbSeoTitle || title)
   const isPage          = wpPostType === 'page'
 
-  const htmlForContent = html
 
   // 1c. Add alt text to inline <img> tags missing it (use article title as fallback)
   const htmlWithAlt = htmlForContent.replace(

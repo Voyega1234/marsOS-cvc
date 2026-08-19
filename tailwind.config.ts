@@ -20,6 +20,29 @@ const config: Config = {
   			sans: ["var(--font-sarabun)", "Sarabun", "system-ui", "sans-serif"],
   		},
   		colors: {
+  			// CVC Brand (CVC_Brand Guideline [Color]) — Convert Cake CI
+  			brand: {
+  				blue: '#1d48f3',   // Convert Blue — สีหลัก
+  				deep: '#0618df',   // shade เข้มขึ้น (hover)
+  				dark: '#0107a9',   // shade เข้มสุดของ blue
+  				sky:  '#177cfe',   // shade อ่อน
+  				soft: '#6b8cef',   // shade อ่อนสุด
+  				navy: '#000E3F',   // Secure Navy — ตัวอักษร/พื้นเข้ม
+  				cyan: '#4ff5e9',   // Tech Cyan — highlight บนพื้นเข้มเท่านั้น (≤2%)
+  				gray: '#DAE1E7',   // Easy Gray
+  				mist: '#eff5f9',   // Easy Gray อ่อน — พื้นหลังรอง
+  			},
+  			// ชุดสีเสริม (Additional Colors) — ใช้กับกราฟ/illustration เท่านั้น
+  			// กติกา: ไม่เกิน 1-2 สีต่อชิ้นงาน, สัดส่วน Brand:Additional = 95:5
+  			addon: {
+  				salmon:  '#e35336',
+  				crimson: '#bd3239',
+  				wine:    '#4e120e',
+  				oatmeal: '#fcdfc8',
+  				amber:   '#8c684a',
+  				mustard: '#ffb95c',
+  				sage:    '#769a6d',
+  			},
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',

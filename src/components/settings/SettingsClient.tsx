@@ -118,7 +118,7 @@ function WordPressConnectionManager({
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
-            <h2 className="text-base font-bold text-gray-900">WordPress Connections</h2>
+            <h2 className="text-base font-bold text-brand-navy">WordPress Connections</h2>
             <p className="text-xs text-gray-400 mt-0.5">{connections.length} site{connections.length !== 1 ? "s" : ""} เชื่อมต่ออยู่</p>
           </div>
           <button
@@ -146,7 +146,7 @@ function WordPressConnectionManager({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="font-semibold text-gray-900 text-sm">{wp.name}</p>
+                    <p className="font-semibold text-brand-navy text-sm">{wp.name}</p>
                     <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                       <CheckCircle2 className="h-3 w-3" />Connected
                     </span>
@@ -173,7 +173,7 @@ function WordPressConnectionManager({
       {showForm && (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-            <h3 className="text-sm font-bold text-gray-900">เชื่อมต่อ WordPress ใหม่</h3>
+            <h3 className="text-sm font-bold text-brand-navy">เชื่อมต่อ WordPress ใหม่</h3>
             <p className="text-xs text-gray-400 mt-0.5">ทำตามขั้นตอนด้านล่างแล้วกรอกข้อมูลในฟอร์ม</p>
           </div>
 
@@ -194,7 +194,7 @@ function WordPressConnectionManager({
               <div className="px-6 pb-5 space-y-4">
                 {WP_STEPS.map((step) => (
                   <div key={step.n} className="flex gap-4">
-                    <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <div className="w-7 h-7 rounded-full bg-brand-blue text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
                       {step.n}
                     </div>
                     <div className="flex-1">
@@ -202,7 +202,7 @@ function WordPressConnectionManager({
                       <p className="text-sm text-gray-500 mt-0.5 leading-relaxed">{step.detail}</p>
                       {step.code && (
                         <div className="mt-2 flex items-center gap-2">
-                          <code className="inline-block bg-gray-900 text-emerald-400 text-xs font-mono px-3 py-1.5 rounded-lg">
+                          <code className="inline-block bg-brand-blue text-emerald-400 text-xs font-mono px-3 py-1.5 rounded-lg">
                             {step.code}
                           </code>
                           {step.n === 4 && <span className="text-xs text-gray-400">← พิมพ์ชื่อนี้แล้วกด Add New</span>}
@@ -210,7 +210,7 @@ function WordPressConnectionManager({
                         </div>
                       )}
                       {step.tip && (
-                        <div className={`mt-2 flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${step.n === 4 ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-blue-50 text-blue-600"}`}>
+                        <div className={`mt-2 flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${step.n === 4 ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-blue-50 text-brand-blue"}`}>
                           {step.n === 4 ? <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" /> : <span className="text-base leading-none flex-shrink-0">💡</span>}
                           <span>{step.tip}</span>
                         </div>
@@ -342,7 +342,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">ตั้งค่า</h1>
+        <h1 className="text-xl font-bold text-brand-navy">ตั้งค่า</h1>
         <p className="text-gray-500 text-sm mt-1">{org?.name}</p>
       </div>
 
@@ -357,7 +357,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
         {/* Interface Mode / Role */}
         <TabsContent value="interface" className="mt-6">
           <div className="bg-white rounded-xl border p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">โหมดการใช้งาน</h2>
+            <h2 className="text-lg font-semibold text-brand-navy mb-1">โหมดการใช้งาน</h2>
             <p className="text-sm text-gray-500 mb-6">กำหนดสิทธิ์การมองเห็นเมนูสำหรับผู้ใช้งานแต่ละคน</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {([
@@ -373,7 +373,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
                   label: "User",
                   desc: "เห็นเฉพาะส่วนที่จำเป็นสำหรับการเขียน เหมาะสำหรับทีม Content Writer ที่ไม่ต้องดูแลระบบ",
                   emoji: "✍️",
-                  features: ["Home & Morning Brief", "Clients & Articles", "Review Queue", "Backlink"],
+                  features: ["Home & SEO News", "Clients & Articles", "Review Queue", "Backlink"],
                 },
               ] as { role: Role; label: string; desc: string; emoji: string; features: string[] }[]).map((option) => {
                 const active = isAdmin ? option.role === "ADMIN" : option.role === "WRITER";
@@ -396,7 +396,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
                     className={`text-left p-5 rounded-xl border-2 transition-all ${active ? "border-green-500 bg-green-50 ring-2 ring-green-200" : "border-gray-100 hover:border-gray-300"}`}
                   >
                     <div className="text-3xl mb-3">{option.emoji}</div>
-                    <h3 className="font-semibold text-gray-900 text-base">{option.label}</h3>
+                    <h3 className="font-semibold text-brand-navy text-base">{option.label}</h3>
                     <p className="text-sm text-gray-500 mt-1 mb-3">{option.desc}</p>
                     <ul className="space-y-1">
                       {option.features.map(f => (
@@ -420,7 +420,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
           <TabsContent value="users" className="mt-6">
             <div className="bg-white rounded-xl border">
               <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900">ผู้ใช้งาน ({users.length} คน)</h2>
+                <h2 className="text-lg font-semibold text-brand-navy">ผู้ใช้งาน ({users.length} คน)</h2>
                 <Button size="sm" className="gap-2">+ เชิญผู้ใช้ใหม่</Button>
               </div>
               <div className="divide-y">
@@ -430,7 +430,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
                       {user.name?.[0]?.toUpperCase() ?? "?"}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900">{user.name ?? "—"}</p>
+                      <p className="font-medium text-brand-navy">{user.name ?? "—"}</p>
                       <p className="text-sm text-gray-500">{user.email}</p>
                     </div>
                     <UserRoleBadge role={user.role as Role} />
@@ -455,7 +455,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
         {isAdmin && (
           <TabsContent value="ai-cost" className="mt-6">
             <div className="bg-white rounded-xl border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">AI Cost Tracking</h2>
+              <h2 className="text-lg font-semibold text-brand-navy mb-4">AI Cost Tracking</h2>
               {aiStats.length === 0 ? (
                 <p className="text-gray-400 text-sm">ยังไม่มีข้อมูล AI jobs</p>
               ) : (
@@ -463,7 +463,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
                   {aiStats.map((stat) => (
                     <div key={stat.modelProvider} className="border rounded-xl p-4">
                       <p className="text-sm text-gray-500">{stat.modelProvider}</p>
-                      <p className="text-2xl font-bold text-gray-900 mt-1">{stat._count.id} jobs</p>
+                      <p className="text-2xl font-bold text-brand-navy mt-1">{stat._count.id} jobs</p>
                       <p className="text-sm text-gray-600 mt-1">{(stat._sum.tokenUsed ?? 0).toLocaleString()} tokens</p>
                       <p className="text-lg font-semibold text-green-600">${(stat._sum.estimatedCost ?? 0).toFixed(4)}</p>
                     </div>

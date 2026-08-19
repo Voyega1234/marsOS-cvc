@@ -28,6 +28,8 @@ export interface VertexGenerateResult {
 }
 
 export function isVertexOidcConfigured(): boolean {
+  // local (นอก Vercel): ใช้ ADC — ขอแค่ GCP_PROJECT_ID ก็เรียก Gemini ได้
+  if (!process.env.VERCEL) return Boolean(process.env.GCP_PROJECT_ID)
   return Boolean(
     process.env.GCP_PROJECT_ID &&
     process.env.GCP_PROJECT_NUMBER &&
@@ -70,9 +72,21 @@ function getAuthClient() {
 
 function getVertex() {
   const projectId = getRequiredEnv('GCP_PROJECT_ID')
+  const location = process.env.GCP_LOCATION || DEFAULT_LOCATION
+
+  // นอก Vercel (local dev) ใช้ Application Default Credentials แทน OIDC:
+  //   gcloud auth application-default login --impersonate-service-account=<SA>
+  if (!process.env.VERCEL) {
+    return createVertex({
+      project: projectId,
+      location,
+      googleAuthOptions: { projectId } as any,
+    })
+  }
+
   return createVertex({
     project: projectId,
-    location: process.env.GCP_LOCATION || DEFAULT_LOCATION,
+    location,
     googleAuthOptions: {
       authClient: getAuthClient(),
       projectId,
@@ -121,27 +135,62 @@ export async function generateVertexContent(prompt: string, options: VertexGener
   const providerOptions = buildProviderOptions(usageLabels)
 
   if (options.responseModalities?.includes('IMAGE')) {
-    const result = await generateImage({
-      model: vertex.image(model),
+    // Imagen (imagen-*) = image model จริง → predict endpoint
+    // Gemini image (gemini-*-image) = generateContent + responseModalities
+    // เดิมส่ง gemini-*-image เข้า vertex.image() ทุกกรณี → Vertex ไม่คืน predictions
+    // AI SDK จึงโยน AI_NoImageGeneratedError ทุกครั้ง (รูปปก/รูปประกอบพังทั้งระบบ)
+    if (model.startsWith('imagen')) {
+      const result = await generateImage({
+        model: vertex.image(model),
+        prompt,
+        providerOptions,
+      } as any)
+      const image = result.image
+      const promptTokens = result.usage?.inputTokens ?? 0
+      const candidatesTokenCount = result.usage?.outputTokens ?? 0
+      const totalTokenCount = result.usage?.totalTokens ?? (promptTokens + candidatesTokenCount)
+
+      return {
+        data: {
+          candidates: [{
+            content: {
+              parts: [{ inlineData: { mimeType: image.mediaType, data: image.base64 } }],
+            },
+          }],
+        },
+        text: '',
+        usageLabels,
+        usage: { promptTokenCount: promptTokens, candidatesTokenCount, totalTokenCount },
+      } as VertexGenerateResult
+    }
+
+    const result = await generateText({
+      model: vertex(model),
       prompt,
-      providerOptions,
+      providerOptions: {
+        ...providerOptions,
+        google: { labels: usageLabels, responseModalities: [...options.responseModalities] },
+      },
     } as any)
-    const image = result.image
-    const promptTokens = result.usage.inputTokens ?? 0
+
+    const imageFile = result.files?.find((f: { mediaType?: string }) => f.mediaType?.startsWith('image/'))
+    const promptTokenCount = result.usage.inputTokens ?? 0
     const candidatesTokenCount = result.usage.outputTokens ?? 0
-    const totalTokenCount = result.usage.totalTokens ?? (promptTokens + candidatesTokenCount)
+    const totalTokenCount = result.usage.totalTokens ?? (promptTokenCount + candidatesTokenCount)
 
     return {
       data: {
         candidates: [{
           content: {
-            parts: [{ inlineData: { mimeType: image.mediaType, data: image.base64 } }],
+            parts: imageFile
+              ? [{ inlineData: { mimeType: imageFile.mediaType, data: imageFile.base64 } }]
+              : [{ text: result.text ?? '' }],
           },
         }],
       },
-      text: '',
+      text: result.text ?? '',
       usageLabels,
-      usage: { promptTokenCount: promptTokens, candidatesTokenCount, totalTokenCount },
+      usage: { promptTokenCount, candidatesTokenCount, totalTokenCount },
     } as VertexGenerateResult
   }
 

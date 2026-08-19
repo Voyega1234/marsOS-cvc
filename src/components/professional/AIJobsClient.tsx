@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { th } from "date-fns/locale";
 import {
@@ -23,6 +23,8 @@ interface Job {
   createdAt: Date;
   article: { id: string; title: string } | null;
   createdBy: { name: string | null } | null;
+  /** ชื่อ client project — null = งานจาก Studio (ไม่ผูก project) */
+  projectName?: string | null;
 }
 
 interface CostByProject {
@@ -42,29 +44,31 @@ interface Props {
 }
 
 const JOB_TYPE_LABEL: Record<string, string> = {
-  ARTICLE_WRITE:       "เขียนบทความ (Claude)",
-  IMAGE_COVER:         "รูปปก (Gemini)",
-  IMAGE_MID:           "รูปประกอบ (Gemini)",
+  ARTICLE_WRITE:       "เขียนบทความ (AI)",
+  IMAGE_COVER:         "รูปปก (AI)",
+  IMAGE_MID:           "รูปประกอบ (AI)",
   KEYWORD_CLASSIFY:    "จัด Keyword (CSV)",
-  KEYWORD_RESEARCH:    "Keyword Research (Gemini)",
+  KEYWORD_RESEARCH:    "Keyword Research (AI)",
   KP_VOLUME_LOOKUP:    "Keyword Planner Volume (Google)",
   DFS_VOLUME_LOOKUP:   "Search Volume (DataForSEO)",
-  OUTLINE:             "สร้าง Outline (Claude)",
-  SEO_REVIEW:          "SEO Review (Claude)",
-  CONTENT_MAP:         "Content Map (Claude)",
-  ARTICLE_HTML:        "เขียนบทความ HTML (Claude)",
-  IMAGE_PROMPT:        "Image Prompt (Claude)",
-  SEO_CHECK:           "SEO Check (Claude)",
+  OUTLINE:             "สร้าง Outline (AI)",
+  SEO_REVIEW:          "SEO Review (AI)",
+  CONTENT_MAP:         "Content Map (AI)",
+  ARTICLE_HTML:        "เขียนบทความ HTML (AI)",
+  IMAGE_PROMPT:        "Image Prompt (AI)",
+  SEO_CHECK:           "SEO Check (AI)",
   WORDPRESS_DRAFT:     "WordPress Draft",
-  ARTICLE_AUDIT:       "Article Audit (Claude)",
-  ARTICLE_FIX:         "Article Fix (Claude)",
-  DATA_BRAIN_SUMMARY:  "Data Brain Summary (Claude)",
+  ARTICLE_AUDIT:       "Article Audit (AI)",
+  ARTICLE_FIX:         "Article Fix (AI)",
+  DATA_BRAIN_SUMMARY:  "Data Brain Summary (AI)",
 };
 
 const PROVIDER_COLOR: Record<string, string> = {
   CLAUDE:      "bg-orange-100 text-orange-700",
   GEMINI:      "bg-blue-100 text-blue-700",
   OPENAI:      "bg-emerald-100 text-emerald-700",
+  OPENROUTER:  "bg-sky-100 text-sky-700",
+  GOOGLE:      "bg-blue-100 text-blue-700",
   DATAFORSEO:  "bg-violet-100 text-violet-700",
   ANTHROPIC:   "bg-orange-100 text-orange-700",
 };
@@ -202,7 +206,7 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {["ประเภท", "Model", "Status", "Tokens", "ค่าใช้จ่าย", "โดย", "เวลา"].map(h => (
+                  {["ประเภท", "โปรเจกต์", "Model", "Status", "Tokens", "ค่าใช้จ่าย", "โดย", "เวลา"].map(h => (
                     <th key={h} className="px-4 py-2.5 text-[11px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -213,7 +217,7 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
                   const provColor = PROVIDER_COLOR[j.modelProvider] ?? "bg-gray-100 text-gray-500";
                   const isExpanded = expandedId === j.id;
                   return (
-                    <>
+                    <Fragment key={j.id}>
                       <tr
                         key={j.id}
                         className="hover:bg-gray-50/50 transition-colors cursor-pointer"
@@ -226,6 +230,17 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
                           </div>
                           {j.article && (
                             <p className="text-[10px] text-gray-400 truncate max-w-[180px] ml-4 mt-0.5">{j.article.title}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {j.projectName ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-brand-blue border border-blue-100 max-w-[140px] truncate">
+                              {j.projectName}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500">
+                              Studio
+                            </span>
                           )}
                         </td>
                         <td className="px-4 py-3">
@@ -280,12 +295,12 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
                       </tr>
                       {isExpanded && j.errorMessage && (
                         <tr key={`${j.id}-err`} className="bg-red-50">
-                          <td colSpan={7} className="px-4 py-2">
+                          <td colSpan={8} className="px-4 py-2">
                             <p className="text-xs text-red-600 font-mono">{j.errorMessage}</p>
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>

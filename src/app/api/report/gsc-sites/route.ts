@@ -8,7 +8,7 @@ export async function GET() {
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const auth = getGSCAuth();
+    const auth = await getGSCAuth();
     const sc = google.searchconsole({ version: "v1", auth });
     const res = await sc.sites.list();
     const sites = (res.data.siteEntry ?? []).map(s => ({

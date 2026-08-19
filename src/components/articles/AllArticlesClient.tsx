@@ -30,7 +30,7 @@ interface Props {
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   pending:  { label: "รอเขียน",     color: "bg-gray-100 text-gray-500",       icon: <Clock size={10} /> },
-  writing:  { label: "กำลังเขียน",  color: "bg-blue-100 text-blue-600",       icon: <RefreshCw size={10} className="animate-spin" /> },
+  writing:  { label: "กำลังเขียน",  color: "bg-blue-100 text-brand-blue",       icon: <RefreshCw size={10} className="animate-spin" /> },
   review:   { label: "รอตรวจ",      color: "bg-amber-100 text-amber-700",     icon: <Eye size={10} /> },
   done:     { label: "เขียนแล้ว",   color: "bg-purple-100 text-purple-700",   icon: <CheckCircle2 size={10} /> },
   approved: { label: "Approved",    color: "bg-emerald-100 text-emerald-700", icon: <CheckCircle2 size={10} /> },
@@ -79,7 +79,7 @@ export function AllArticlesClient({ articles, projects }: Props) {
 
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-gray-900">บทความทั้งหมด</h1>
+        <h1 className="text-xl font-bold text-brand-navy">บทความทั้งหมด</h1>
         <p className="text-sm text-gray-500 mt-0.5">{articles.length} บทความจาก {projects.length} client</p>
       </div>
 
@@ -89,7 +89,7 @@ export function AllArticlesClient({ articles, projects }: Props) {
           onClick={() => setFilterStatus("all")}
           className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
             filterStatus === "all"
-              ? "bg-gray-900 text-white border-gray-900"
+              ? "bg-brand-blue text-white border-brand-blue"
               : "bg-gray-100 text-gray-600 border-transparent hover:border-gray-200"
           }`}
         >
@@ -103,7 +103,7 @@ export function AllArticlesClient({ articles, projects }: Props) {
               onClick={() => setFilterStatus(filterStatus === s ? "all" : s)}
               className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
                 filterStatus === s
-                  ? "bg-gray-900 text-white border-gray-900"
+                  ? "bg-brand-blue text-white border-brand-blue"
                   : `${cfg.color} border-transparent hover:border-gray-200`
               }`}
             >
@@ -188,7 +188,7 @@ export function AllArticlesClient({ articles, projects }: Props) {
           <div className="text-4xl mb-3">📄</div>
           <p className="text-gray-500 font-medium">ไม่พบบทความ</p>
           <p className="text-gray-400 text-sm mt-1">ลองเปลี่ยน filter หรือไปสร้าง timeline ใน Client ก่อน</p>
-          <Link href="/projects" className="inline-block mt-4 px-4 py-2 bg-gray-900 text-white text-sm rounded-xl hover:bg-gray-700 transition-colors">
+          <Link href="/projects" className="inline-block mt-4 px-4 py-2 bg-brand-blue text-white text-sm rounded-xl hover:bg-brand-deep transition-colors">
             ไปหน้า Clients
           </Link>
         </div>

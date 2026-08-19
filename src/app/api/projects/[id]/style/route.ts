@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { styleGuide, accentColor, articleTheme, forbiddenWords, sampleArticle, internalLinks, linksPerArticle, gscSiteUrl, ga4PropertyId, ctaSetting, authorEnabled, authorName, authorTitle, authorImage, authors } = await req.json()
+  const { styleGuide, accentColor, articleTheme, themeColors, forbiddenWords, sampleArticle, internalLinks, linksPerArticle, gscSiteUrl, ga4PropertyId, ctaSetting, authorEnabled, authorName, authorTitle, authorImage, authors, projectContext } = await req.json()
 
   const project = await prisma.project.findFirst({
     where: { id: params.id, organizationId: session.user.organizationId },
@@ -19,6 +19,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(styleGuide !== undefined && { styleGuide }),
       ...(accentColor !== undefined && { accentColor }),
       ...(articleTheme !== undefined && { articleTheme }),
+      ...(themeColors !== undefined && { themeColors }),
       ...(forbiddenWords !== undefined && { forbiddenWords }),
       ...(sampleArticle !== undefined && { sampleArticle }),
       ...(internalLinks !== undefined && { internalLinks }),
@@ -31,6 +32,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(authorTitle !== undefined && { authorTitle }),
       ...(authorImage !== undefined && { authorImage }),
       ...(authors !== undefined && { authors: JSON.stringify(authors) }),
+      ...(projectContext !== undefined && { projectContext }),
     },
   })
 

@@ -202,7 +202,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                 )}
                 <span className="text-xs text-gray-400">อัปเดต {formatDate(article.updatedAt)}</span>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 leading-tight">{article.title}</h1>
+              <h1 className="text-2xl font-bold text-brand-navy leading-tight">{article.title}</h1>
               <p className="text-sm text-gray-500 mt-1">{article.project.name} · {article.project.website}</p>
             </div>
           </div>
@@ -317,7 +317,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
             </div>
             <div>
               <p className="text-xs text-gray-400 font-medium">ขั้นตอนที่ {activeStep} / {STEPS.length}</p>
-              <h2 className="text-lg font-bold text-gray-900">{STEPS[activeStep - 1].labelTh}</h2>
+              <h2 className="text-lg font-bold text-brand-navy">{STEPS[activeStep - 1].labelTh}</h2>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <button
@@ -447,7 +447,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                   )}
                   {outline.sections?.map((section, i) => (
                     <div key={i} className="border border-gray-100 rounded-2xl p-4 hover:border-green-200 transition-colors">
-                      <p className="font-semibold text-gray-900 text-base">{section.heading}</p>
+                      <p className="font-semibold text-brand-navy text-base">{section.heading}</p>
                       {section.subheadings?.map((sh, j) => (
                         <p key={j} className="text-sm text-gray-600 ml-4 mt-1.5 flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
@@ -465,7 +465,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                   ))}
                   {outline.faqSuggestions?.length ? (
                     <div className="border border-yellow-100 rounded-2xl p-4 bg-yellow-50">
-                      <p className="font-semibold text-gray-900 mb-2">💬 FAQ ที่แนะนำ</p>
+                      <p className="font-semibold text-brand-navy mb-2">💬 FAQ ที่แนะนำ</p>
                       {outline.faqSuggestions.map((q, i) => (
                         <p key={i} className="text-sm text-gray-700 mt-1.5 flex items-start gap-2">
                           <span className="text-yellow-500 font-bold">Q{i + 1}.</span>
@@ -547,7 +547,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                     <div className="border-t p-4 bg-gray-50">
                       <details>
                         <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">ดู HTML Source</summary>
-                        <pre className="text-xs text-gray-600 mt-2 overflow-auto max-h-48 whitespace-pre-wrap bg-gray-900 text-green-400 p-3 rounded-xl">{article.htmlContent}</pre>
+                        <pre className="text-xs text-gray-600 mt-2 overflow-auto max-h-48 whitespace-pre-wrap bg-brand-blue text-green-400 p-3 rounded-xl">{article.htmlContent}</pre>
                       </details>
                     </div>
                   </div>
@@ -595,7 +595,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                   <div className="grid grid-cols-1 gap-4">
                     <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">SEO Title</p>
-                      <p className="text-base font-medium text-gray-900">{article.seoTitle}</p>
+                      <p className="text-base font-medium text-brand-navy">{article.seoTitle}</p>
                       {article.seoTitle && (
                         <div className="flex items-center gap-2 mt-2">
                           <div className={`h-1.5 rounded-full flex-1 ${article.seoTitle.length <= 60 ? "bg-green-400" : "bg-red-400"}`}
@@ -627,7 +627,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                       <SectionLabel>คะแนน SEO</SectionLabel>
                       <div className="grid grid-cols-3 gap-3">
                         {[
-                          { label: "SEO",         value: latestReview.seoScore,        color: "text-blue-600",   bg: "bg-blue-50",   border: "border-b border-gray-100lue-100" },
+                          { label: "SEO",         value: latestReview.seoScore,        color: "text-brand-blue",   bg: "bg-blue-50",   border: "border-b border-gray-100lue-100" },
                           { label: "AEO",         value: latestReview.aeoScore,        color: "text-violet-600", bg: "bg-violet-50", border: "border-violet-100" },
                           { label: "Conversion",  value: latestReview.conversionScore, color: "text-green-600",  bg: "bg-green-50",  border: "border-green-100" },
                         ].map((s) => (
@@ -737,7 +737,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                             {review.reviewer.name?.[0] ?? "?"}
                           </div>
                           <div>
-                            <p className="text-sm font-semibold text-gray-900">{review.reviewer.name}</p>
+                            <p className="text-sm font-semibold text-brand-navy">{review.reviewer.name}</p>
                             <p className="text-xs text-gray-400">{formatDate(review.createdAt)}</p>
                           </div>
                         </div>
@@ -753,7 +753,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                       </div>
                       <div className="grid grid-cols-3 gap-3 mb-4">
                         {[
-                          { l: "SEO",        v: review.seoScore,        bg: "bg-blue-50",   text: "text-blue-600" },
+                          { l: "SEO",        v: review.seoScore,        bg: "bg-blue-50",   text: "text-brand-blue" },
                           { l: "AEO",        v: review.aeoScore,        bg: "bg-violet-50", text: "text-violet-600" },
                           { l: "Conversion", v: review.conversionScore, bg: "bg-green-50",  text: "text-green-600" },
                         ].map((s) => (
@@ -1033,7 +1033,7 @@ function resolveBannerAction(status: string): {
     case "NEW":
       return {
         bannerStyle: "bg-blue-50 border-blue-200",
-        icon: <Search className="h-5 w-5 text-blue-600" />,
+        icon: <Search className="h-5 w-5 text-brand-blue" />,
         title: "เพิ่มคีย์เวิร์ดก่อนเริ่มต้น",
         subtitle: "เลือก keyword จากโปรเจกต์ แล้วสร้าง Outline",
         action: { type: "nav", step: 2, label: "ไปหน้าคีย์เวิร์ด →", color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]" },
@@ -1155,7 +1155,7 @@ function CurrentActionBanner({
           {icon}
         </div>
         <div className="min-w-0">
-          <p className="font-bold text-gray-900 text-base leading-tight">{title}</p>
+          <p className="font-bold text-brand-navy text-base leading-tight">{title}</p>
           <p className="text-sm text-gray-500 mt-0.5 leading-snug">{subtitle}</p>
         </div>
       </div>

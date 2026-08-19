@@ -77,7 +77,7 @@ export const MOCK_MORNING_BRIEF: MorningBrief = {
       metric: '2 failed',
       metricDelta: 'WP sync',
       action: 'ตั้งค่า WordPress',
-      href: '/website-connect',
+      href: '/projects',
     },
     {
       id: 'brief-5',

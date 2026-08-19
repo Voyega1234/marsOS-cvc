@@ -304,7 +304,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
             </Link>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-base font-bold text-gray-900 truncate">
+                <h1 className="text-base font-bold text-brand-navy truncate">
                   {form.name || "New Prompt"}
                 </h1>
                 {!isNew && (
@@ -556,7 +556,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
                     <span>{form.promptText.length.toLocaleString()} chars</span>
                     <span>~{Math.ceil(form.promptText.length / 4).toLocaleString()} tokens</span>
                     {usedVars.length > 0 && (
-                      <span className="text-blue-600">{usedVars.length} variables</span>
+                      <span className="text-brand-blue">{usedVars.length} variables</span>
                     )}
                   </div>
                 </div>
@@ -635,7 +635,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
                             className={`w-full text-left flex items-center justify-between p-2 rounded-lg transition-colors ${isAdmin ? "cursor-pointer hover:bg-gray-50" : "cursor-default"} ${inUse ? "bg-green-50" : ""}`}
                           >
                             <div className="min-w-0 flex-1">
-                              <code className={`text-xs font-mono font-semibold block ${inUse ? "text-green-700" : "text-blue-600"}`}>
+                              <code className={`text-xs font-mono font-semibold block ${inUse ? "text-green-700" : "text-brand-blue"}`}>
                                 {`{{${v.name}}}`}
                               </code>
                               <span className="text-xs text-gray-400 truncate block">{v.label}</span>

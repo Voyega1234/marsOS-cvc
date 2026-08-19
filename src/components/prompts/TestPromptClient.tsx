@@ -162,7 +162,7 @@ export function TestPromptClient({ prompt }: Props) {
         </Link>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <h1 className="text-xl font-bold text-brand-navy flex items-center gap-2">
               <FlaskConical className="h-5 w-5 text-teal-600" />
               Test Prompt
             </h1>
@@ -221,7 +221,7 @@ export function TestPromptClient({ prompt }: Props) {
                     <div key={varName} className="px-4 py-3">
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2">
-                          <code className={`text-xs font-mono font-bold ${isEmpty ? "text-red-600" : "text-blue-600"}`}>
+                          <code className={`text-xs font-mono font-bold ${isEmpty ? "text-red-600" : "text-brand-blue"}`}>
                             {`{{${varName}}}`}
                           </code>
                           {meta && <span className="text-xs text-gray-400">{meta.label}</span>}
@@ -357,7 +357,7 @@ export function TestPromptClient({ prompt }: Props) {
                 </div>
               </div>
 
-              <div className="p-4 bg-gray-900 max-h-96 overflow-auto">
+              <div className="p-4 bg-brand-blue max-h-96 overflow-auto">
                 {!showRaw && isJsonOutput ? (
                   <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap leading-relaxed">
                     {JSON.stringify(JSON.parse(result.output), null, 2)}

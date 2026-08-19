@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Prompt Editor" };
 
 export default async function PromptEditorPage({ params }: { params: { id: string } }) {
   const session = await getSession();
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/setup");
 
   const role = session.user.role;
   const orgId = session.user.organizationId;

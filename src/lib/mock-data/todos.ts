@@ -67,14 +67,14 @@ export const MOCK_TASKS: MarsTask[] = [
     dueDate: '2026-05-29',
     tags: ['wordpress', 'publish'],
     createdAt: '2026-05-29T07:00:00',
-    actionHref: '/website-connect',
+    actionHref: '/projects',
     actionLabel: 'ตั้งค่า WordPress',
     artifact: {
       type: 'wordpress',
       id: 'wp-001',
       title: 'Siam Clinic — WordPress Connection',
       status: 'ERROR',
-      href: '/website-connect',
+      href: '/projects',
     },
   },
   {

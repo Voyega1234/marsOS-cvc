@@ -27,7 +27,7 @@ function Collapsible({ title, icon, children, defaultOpen = true, badge }:
     <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white">
       <button onClick={() => setOpen(o => !o)}
         className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors text-left">
-        <div className="flex items-center gap-2.5 font-semibold text-gray-900 text-sm">
+        <div className="flex items-center gap-2.5 font-semibold text-brand-navy text-sm">
           {icon}{title}
           {badge && <span className="ml-1 px-2 py-0.5 bg-gray-100 text-gray-500 text-[10px] rounded-full font-normal">{badge}</span>}
         </div>
@@ -42,7 +42,7 @@ function InsightCard({ insight }: { insight: SEOInsight }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = {
     strength:    { bg: "bg-emerald-50",  border: "border-emerald-200", icon: <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />, label: "Strength",    dot: "bg-emerald-400" },
-    opportunity: { bg: "bg-blue-50",     border: "border-blue-200",    icon: <Lightbulb size={13} className="text-blue-600 shrink-0" />,       label: "Opportunity", dot: "bg-blue-400" },
+    opportunity: { bg: "bg-blue-50",     border: "border-blue-200",    icon: <Lightbulb size={13} className="text-brand-blue shrink-0" />,       label: "Opportunity", dot: "bg-blue-400" },
     warning:     { bg: "bg-amber-50",    border: "border-amber-200",   icon: <AlertCircle size={13} className="text-amber-600 shrink-0" />,    label: "Warning",     dot: "bg-amber-400" },
     risk:        { bg: "bg-red-50",      border: "border-red-200",     icon: <AlertCircle size={13} className="text-red-600 shrink-0" />,      label: "Risk",        dot: "bg-red-400" },
   }[insight.type];
@@ -54,7 +54,7 @@ function InsightCard({ insight }: { insight: SEOInsight }) {
           {cfg.icon}
           <div className="flex-1">
             <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded mr-2 ${cfg.bg}`} style={{ color: "inherit" }}>{cfg.label}</span>
-            <p className="text-sm font-semibold text-gray-900 inline">{insight.title}</p>
+            <p className="text-sm font-semibold text-brand-navy inline">{insight.title}</p>
             <p className="text-xs text-gray-600 mt-1">{insight.finding}</p>
             {expanded && (
               <div className="mt-2 space-y-1.5">
@@ -80,7 +80,7 @@ function MetricCard({ label, value, delta, suffix = "", inverse = false }:
   return (
     <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-100">
       <p className="text-[10px] text-gray-500 font-medium mb-1">{label}</p>
-      <p className="text-xl font-black text-gray-900">{typeof value === "number" ? value.toLocaleString() : value}{suffix}</p>
+      <p className="text-xl font-black text-brand-navy">{typeof value === "number" ? value.toLocaleString() : value}{suffix}</p>
       {delta !== undefined && (
         <div className={`flex items-center gap-0.5 text-[10px] mt-1 font-semibold ${neutral ? "text-gray-400" : good ? "text-emerald-600" : "text-red-500"}`}>
           {neutral ? <Minus size={9} /> : good ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
@@ -150,7 +150,7 @@ function VitalBadge({ label, display, value, good, bad }:
 function ExecutiveSummarySection({ summary }: { summary: ExecutiveSummary }) {
   const dirCfg = {
     growth:  { bg: "bg-emerald-50 border-emerald-200", text: "text-emerald-800", icon: <TrendingUp size={16} className="text-emerald-600" /> },
-    stable:  { bg: "bg-blue-50 border-blue-200",       text: "text-blue-800",    icon: <Minus size={16} className="text-blue-600" /> },
+    stable:  { bg: "bg-blue-50 border-blue-200",       text: "text-blue-800",    icon: <Minus size={16} className="text-brand-blue" /> },
     decline: { bg: "bg-red-50 border-red-200",         text: "text-red-800",     icon: <TrendingDown size={16} className="text-red-600" /> },
     mixed:   { bg: "bg-amber-50 border-amber-200",     text: "text-amber-800",   icon: <Info size={16} className="text-amber-600" /> },
   }[summary.direction];
@@ -307,7 +307,7 @@ export function SEOPerformanceReport({
     <div className="space-y-4">
 
       {/* Report header */}
-      <div className="bg-gray-900 rounded-2xl px-5 py-4 text-white">
+      <div className="bg-brand-blue rounded-2xl px-5 py-4 text-white">
         <div className="flex items-center gap-2 mb-1">
           <FileText size={14} className="text-gray-400" />
           <span className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">SEO Performance Report</span>
@@ -400,7 +400,7 @@ export function SEOPerformanceReport({
             </div>
             <div>
               <p className="text-sm font-semibold text-blue-800 mb-1">Account นี้ยังไม่มีข้อมูล AI Performance</p>
-              <p className="text-xs text-blue-600 leading-relaxed">
+              <p className="text-xs text-brand-blue leading-relaxed">
                 Google Search Console กำลัง rollout ฟีเจอร์ <strong>AI Overviews</strong> และ <strong>AI Mode</strong> Report แบบ Beta
                 — หากเว็บไซต์มี traffic จาก AI-generated results จะเริ่มเห็นข้อมูลในส่วนนี้โดยอัตโนมัติ
               </p>
@@ -422,7 +422,7 @@ export function SEOPerformanceReport({
                       <Zap size={10} className="text-white" />
                     </div>
                     <span className="text-xs font-bold text-blue-900 uppercase tracking-wide">AI Overviews</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 font-semibold">Beta</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-brand-blue font-semibold">Beta</span>
                   </div>
                   <p className="text-[10px] text-blue-400 mb-3">Google-generated summaries at the top of search results</p>
                   <div className="grid grid-cols-2 gap-3">
@@ -557,7 +557,7 @@ export function SEOPerformanceReport({
                       <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
                         <div className="h-full bg-blue-400 rounded-full" style={{ width: `${pct}%` }} />
                       </div>
-                      <span className="text-gray-900 font-semibold w-16 text-right">{c.sessions.toLocaleString()}</span>
+                      <span className="text-brand-navy font-semibold w-16 text-right">{c.sessions.toLocaleString()}</span>
                       <span className="text-gray-400 w-10 text-right">{pct}%</span>
                     </div>
                   );
@@ -634,7 +634,7 @@ export function SEOPerformanceReport({
                   {ga4.devices.map((d, i) => (
                     <div key={i} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-center">
                       <p className="text-[10px] text-gray-500 capitalize">{d.device}</p>
-                      <p className="font-bold text-gray-900">{d.sessions.toLocaleString()}</p>
+                      <p className="font-bold text-brand-navy">{d.sessions.toLocaleString()}</p>
                       <p className="text-[10px] text-emerald-600">{d.conversions} conv</p>
                     </div>
                   ))}

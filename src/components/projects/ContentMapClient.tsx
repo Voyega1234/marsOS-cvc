@@ -61,7 +61,7 @@ function TopicCard({
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-900 text-sm leading-snug">{entry.proposedTitle}</p>
+          <p className="font-semibold text-brand-navy text-sm leading-snug">{entry.proposedTitle}</p>
           <p className="text-xs text-gray-500 mt-1">{entry.keyword}</p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${config.badge}`}>
@@ -84,6 +84,7 @@ function TopicCard({
 }
 
 export default function ContentMapClient({ project, contentMap: initialMap, existingArticleTitles, keywordList }: Props) {
+  const [sendingTimeline, setSendingTimeline] = useState(false);
   const router = useRouter();
   const [contentMap, setContentMap] = useState<ContentMapOutput | null>(initialMap);
   const [generating, setGenerating] = useState(false);
@@ -194,6 +195,81 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
     }
   }
 
+  /** ส่งหัวข้อที่เลือกเข้า Project Timeline — ให้แท็บ Article เขียนต่อได้ทันที
+   *  (เดิม Content Map สร้าง Article ตรงอย่างเดียว ไม่เชื่อมกับ timeline ของ Content Studio) */
+  async function sendSelectedToTimeline() {
+    const toSend = allEntries.filter((e) => selectedIds.has(e._id));
+    if (toSend.length === 0) return;
+    setSendingTimeline(true);
+    try {
+      // อ่าน timeline ปัจจุบันเพื่อต่อท้าย (ห้ามทับของเดิม) + กันหัวข้อซ้ำ
+      const projRes = await fetch(`/api/projects/${project.id}`);
+      if (!projRes.ok) throw new Error();
+      const proj = await projRes.json();
+      let timeline: Array<Record<string, unknown>> = [];
+      try { timeline = JSON.parse(proj.timeline || "[]"); } catch { /* เริ่มใหม่ */ }
+      const existingTitles = new Set(timeline.map(t => String(t.title ?? "").toLowerCase()));
+
+      // นัดวันต่อจากรายการล่าสุด (หรือพรุ่งนี้) เว้นวันละ 2 วันต่อบทความ
+      const lastDate = timeline
+        .map(t => String(t.date ?? ""))
+        .filter(Boolean)
+        .sort()
+        .pop();
+      const start = lastDate ? new Date(`${lastDate}T00:00:00+07:00`) : new Date();
+      const OBJ_BY_FUNNEL: Record<string, string> = {
+        TOFU: "Traffic Content", MOFU: "Comparison Content", BOFU: "Service Content",
+      };
+      const fmt = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(d);
+      const thai = (d: Date) => d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+      const dow = (d: Date) => d.toLocaleDateString("th-TH", { weekday: "long" });
+
+      let added = 0;
+      let cursor = new Date(start);
+      for (const entry of toSend) {
+        if (existingTitles.has(entry.proposedTitle.toLowerCase())) continue;
+        cursor = new Date(cursor.getTime() + 2 * 86400_000);
+        timeline.push({
+          date: fmt(cursor),
+          thaiDate: thai(cursor),
+          dayOfWeek: dow(cursor),
+          keyword: entry.keyword,
+          title: entry.proposedTitle,
+          priority: entry.priority >= 8 ? "high" : entry.priority >= 5 ? "medium" : "low",
+          volume: 0,
+          intent: entry.intent,
+          opportunity_score: entry.priority * 10,
+          isCore: entry.funnelStage === "BOFU",
+          phase: 1,
+          weekLabel: "จาก Content Map",
+          articleStatus: "pending",
+          funnel: entry.funnelStage,
+          articleObjectiveTag: OBJ_BY_FUNNEL[entry.funnelStage] ?? "Traffic Content",
+          reasonForScheduling: `Content Map · ${entry.contentType} · เป้า ${entry.wordCountTarget.toLocaleString()} คำ`,
+        });
+        added++;
+      }
+
+      if (added === 0) {
+        toast.info("หัวข้อที่เลือกอยู่ใน Timeline แล้วทั้งหมด");
+      } else {
+        const save = await fetch(`/api/projects/${project.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeline: JSON.stringify(timeline) }),
+        });
+        if (!save.ok) throw new Error();
+        toast.success(`ส่ง ${added} หัวข้อเข้า Timeline แล้ว — เขียนต่อได้ที่แท็บ Article`);
+        setSelectedIds(new Set());
+        router.push(`/projects/${project.id}?tab=articles`);
+      }
+    } catch {
+      toast.error("ส่งเข้า Timeline ไม่สำเร็จ กรุณาลองใหม่");
+    } finally {
+      setSendingTimeline(false);
+    }
+  }
+
   const stages: FunnelKey[] = ["TOFU", "MOFU", "BOFU"];
   const stageEntries = (stage: FunnelKey) =>
     allEntries.filter((e) => e.funnelStage === stage);
@@ -214,7 +290,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
         </div>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-brand-navy flex items-center gap-2">
               <Map className="h-6 w-6 text-green-600" />
               Content Map
             </h1>
@@ -249,7 +325,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
       {!contentMap && (
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
           <div className="text-5xl mb-4">🗺️</div>
-          <h2 className="text-lg font-bold text-gray-900">ยังไม่มี Content Map</h2>
+          <h2 className="text-lg font-bold text-brand-navy">ยังไม่มี Content Map</h2>
           <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
             {keywordList.length > 0
               ? `มี ${keywordList.length} keywords พร้อมแล้ว — กด "Generate Content Map" เพื่อให้ AI วางแผนหัวข้อบทความ TOFU/MOFU/BOFU`
@@ -279,6 +355,15 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
               <button onClick={deselectAll} className="text-xs text-gray-400 hover:text-gray-600 font-medium">ยกเลิก</button>
             </div>
             <button
+              onClick={sendSelectedToTimeline}
+              disabled={selectedCount === 0 || sendingTimeline}
+              className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+            >
+              {sendingTimeline
+                ? <><Loader2 className="h-4 w-4 animate-spin" />กำลังส่ง...</>
+                : <><Map className="h-4 w-4" />ส่งเข้า Timeline ({selectedCount})</>}
+            </button>
+            <button
               onClick={createSelectedArticles}
               disabled={selectedCount === 0 || creating}
               className="flex items-center gap-2 px-5 py-2.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40"
@@ -293,7 +378,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
           {/* Info note */}
           <div className="flex items-start gap-2 px-1 text-xs text-gray-400">
             <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-            <span>บทความที่แสดง "มีแล้ว" คือสร้างไปแล้ว — ติ้กเลือกบทความใหม่แล้วกด "สร้างบทความที่เลือก"</span>
+            <span>ติ๊กหัวข้อแล้วเลือกได้ 2 ทาง: <b>"ส่งเข้า Timeline"</b> = เข้าคิวเขียนในแท็บ Article (แนะนำ) · "สร้างบทความที่เลือก" = สร้าง draft เปล่าทันที · หัวข้อที่ขึ้น "มีแล้ว" คือเคยสร้างไปแล้ว</span>
           </div>
 
           {/* Kanban columns */}
@@ -312,7 +397,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
                   >
                     <div className="flex items-center gap-3">
                       <div className={`w-3 h-3 rounded-full ${config.dot}`} />
-                      <span className="font-bold text-gray-900">{config.label}</span>
+                      <span className="font-bold text-brand-navy">{config.label}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${config.badge}`}>
                         {entries.length} topics
                       </span>

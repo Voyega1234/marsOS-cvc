@@ -134,7 +134,7 @@ export async function GET() {
         metric: `${wpFailed.length} site`,
         metricDelta: "WP not configured",
         action: "ตั้งค่า WordPress",
-        href: "/website-connect",
+        href: "/projects",
       });
     }
 
@@ -169,7 +169,7 @@ export async function GET() {
         take: 5,
       });
       if (gscProjects.length > 0) {
-        const auth = getGSCAuth();
+        const auth = await getGSCAuth();
         const sc = google.searchconsole({ version: "v1", auth });
         const now = new Date();
         const fmt = (d: Date) => d.toISOString().slice(0, 10);

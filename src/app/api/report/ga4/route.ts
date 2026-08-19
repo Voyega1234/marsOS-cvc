@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getGA4Auth } from "@/lib/google-auth";
+import { getGA4Auth, getGoogleAccessToken } from "@/lib/google-auth";
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
@@ -11,9 +11,8 @@ export async function POST(req: NextRequest) {
 
   try {
     // Get access token from service account
-    const auth   = getGA4Auth();
-    const client = await auth.getClient();
-    const { token } = await client.getAccessToken();
+    const auth  = await getGA4Auth();
+    const token = await getGoogleAccessToken(auth);
     if (!token) throw new Error("Could not get access token");
 
     const end   = new Date(Date.now() - 86400000);

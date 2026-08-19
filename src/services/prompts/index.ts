@@ -52,9 +52,17 @@ export async function activatePrompt(promptId: string, orgId: string, userId: st
   if (!prompt) throw new Error("Prompt not found");
   if (prompt.isActive) return prompt;
 
-  // Deactivate every other prompt of the same type in this org
+  // Deactivate other prompts of the same type ใน scope เดียวกันเท่านั้น
+  // (projectId = X → เฉพาะโปรเจกต์ X, projectId = null → เฉพาะ Studio)
+  // เดิมไม่กรอง projectId: เปิดใช้ Master ของโปรเจกต์ → ปิด Master ของ Studio ไปด้วย
+  // ทำให้ Studio เหลือ 0 active แล้วเขียนบทความไม่ได้ทั้ง scope
   await prisma.promptTemplate.updateMany({
-    where: { organizationId: orgId, type: prompt.type, isActive: true },
+    where: {
+      organizationId: orgId,
+      type: prompt.type,
+      projectId: prompt.projectId ?? null,
+      isActive: true,
+    },
     data: { isActive: false },
   });
 

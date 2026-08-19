@@ -4,13 +4,26 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { canViewPrompts, canEditPrompts } from "@/services/prompts";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!canViewPrompts(session.user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  const orgId = session.user.organizationId ?? "";
+  const { searchParams } = new URL(req.url);
+  const projectId = searchParams.get("projectId");
+  const scope = searchParams.get("scope");
+
+  const where: Record<string, unknown> = { organizationId: orgId };
+  if (projectId) {
+    where.projectId = projectId;
+  } else if (scope === "studio") {
+    where.projectId = null;
+    where.type = { startsWith: "CE_" };
+  }
+
   const prompts = await prisma.promptTemplate.findMany({
-    where: { organizationId: session.user.organizationId ?? "" },
+    where,
     include: {
       createdBy: { select: { name: true } },
       updatedBy: { select: { name: true } },
@@ -27,11 +40,38 @@ export async function POST(req: NextRequest) {
   if (!canEditPrompts(session.user.role)) return NextResponse.json({ error: "Forbidden — Admin only" }, { status: 403 });
 
   const body = await req.json();
-  const { name, type, description, promptText, variables, modelProvider, modelName, temperature, maxTokens } = body;
+  const { name, type, description, promptText, variables, modelProvider, modelName, temperature, maxTokens, projectId } = body;
 
   if (!name?.trim() || !type || !promptText?.trim()) {
     return NextResponse.json({ error: "name, type, and promptText are required" }, { status: 400 });
   }
+
+  let resolvedProjectId: string | null = null;
+  if (projectId) {
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, organizationId: session.user.organizationId! },
+      select: { id: true },
+    });
+    if (!project) {
+      return NextResponse.json({ error: "Invalid projectId" }, { status: 400 });
+    }
+    resolvedProjectId = project.id;
+  }
+
+  // Layer แรกของ type นั้นใน scope นั้น → เปิดใช้งานให้เลย
+  // (เดิม isActive: false เสมอ → คัดลอกชุดเข้าโปรเจกต์แล้วไม่มี layer ไหน active
+  //  → resolveContentEngine เห็น missing ครบทุกชั้น → เขียนบทความไม่ได้เลย)
+  const isCeLayer = typeof type === "string" && type.startsWith("CE_");
+  const hasActiveSibling = isCeLayer
+    ? (await prisma.promptTemplate.count({
+        where: {
+          organizationId: session.user.organizationId!,
+          projectId: resolvedProjectId,
+          type,
+          isActive: true,
+        },
+      })) > 0
+    : true;
 
   const prompt = await prisma.promptTemplate.create({
     data: {
@@ -44,10 +84,11 @@ export async function POST(req: NextRequest) {
       modelName: modelName ?? "claude-sonnet-4-6",
       temperature: temperature ?? 0.7,
       maxTokens: maxTokens ?? 4000,
-      isActive: false,
+      isActive: isCeLayer && !hasActiveSibling,
       version: 1,
       organizationId: session.user.organizationId!,
       createdById: session.user.id,
+      projectId: resolvedProjectId,
     },
     include: {
       createdBy: { select: { name: true } },

@@ -1,5 +1,7 @@
 "use client";
 
+import { ArticleElementStylesEditor } from '@/components/shared/ArticleElementStyles'
+import type { ArticleElementStyles } from '@/lib/articleTheme'
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -234,6 +236,24 @@ export function ContentStudioClient() {
     return DEFAULT_SETTINGS;
   });
   const [scrapingStyle, setScrapingStyle] = useState(false);
+  // สี+ฟอนต์ราย element ของ Studio — เก็บฝั่ง server (AppSetting) ใช้ร่วมกันทุกเครื่อง
+  const [elementStyles, setElementStyles] = useState<ArticleElementStyles>({});
+  const elementStylesLoaded = useRef(false);
+  useEffect(() => {
+    fetch('/api/studio/article-theme')
+      .then(r => (r.ok ? r.json() : {}))
+      .then((t: { elements?: ArticleElementStyles }) => { setElementStyles(t.elements ?? {}); elementStylesLoaded.current = true; })
+      .catch(() => { elementStylesLoaded.current = true; });
+  }, []);
+  const saveElementStyles = (next: ArticleElementStyles) => {
+    setElementStyles(next);
+    if (!elementStylesLoaded.current) return;
+    fetch('/api/studio/article-theme', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ elements: next }),
+    }).catch(() => {});
+  };
   const [generating, setGenerating] = useState(false);
   const [articleHtml, setArticleHtml] = useState<string>(() => {
     if (typeof window !== "undefined") {
@@ -450,7 +470,11 @@ export function ContentStudioClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: reviewText, siteUrl }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // เซิร์ฟเวอร์บอกเหตุผลจริงมา (เช่น CONTENT_ENGINE_NOT_CONFIGURED) — อย่ากลืนเป็น HTTP 400 เปล่า ๆ
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.message || detail?.error || `HTTP ${res.status}`);
+      }
       const data = await res.json();
       setSuggestions((data.suggestions ?? []).map((s: Suggestion) => ({ ...s, applied: false })));
       setLinks((data.links ?? []).map((l: InternalLink) => ({ ...l, added: false })));
@@ -495,7 +519,7 @@ export function ContentStudioClient() {
             </div>
             <div>
               <h1 className="text-sm font-bold text-slate-800">Content Studio</h1>
-              <p className="text-xs text-slate-400">Write with Claude · Review with AI</p>
+              <p className="text-xs text-slate-400">เขียนและรีวิวด้วย MarsOS AI</p>
             </div>
           </div>
           <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
@@ -532,11 +556,11 @@ export function ContentStudioClient() {
               {/* Prefill banner from Morning Brief */}
               {prefillTitle && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 space-y-1">
-                  <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wide">จาก Morning Brief</div>
+                  <div className="text-[10px] font-bold text-brand-blue uppercase tracking-wide">จาก SEO News</div>
                   <p className="text-xs text-blue-800 font-medium leading-4">{prefillTitle}</p>
                   <button
                     onClick={() => setPrefillTitle("")}
-                    className="text-[10px] text-blue-400 hover:text-blue-600 underline"
+                    className="text-[10px] text-blue-400 hover:text-brand-blue underline"
                   >
                     ล้าง
                   </button>
@@ -713,6 +737,15 @@ export function ContentStudioClient() {
                       <div className="flex-1" style={{ backgroundColor: settings.colorBorder }} />
                       <div className="w-8" style={{ backgroundColor: settings.colorText }} />
                     </div>
+                  </div>
+                </div>
+
+                {/* STEP 3 — สี + ฟอนต์ราย element (H1-H6 / Text / URL / Author / FAQ) */}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">3. ปรับราย Element (สี + ฟอนต์)</p>
+                  <div className="bg-white border border-gray-100 rounded-xl p-3">
+                    <ArticleElementStylesEditor value={elementStyles} onChange={saveElementStyles} />
+                    <p className="mt-2 text-[10px] text-slate-400">บันทึกอัตโนมัติ — ใช้กับบทความที่เขียนจาก Studio ทุกชิ้น (client แต่ละรายตั้งแยกที่ Article Lab ของโปรเจกต์)</p>
                   </div>
                 </div>
               </div>
@@ -1028,7 +1061,7 @@ export function ContentStudioClient() {
                   <div className="w-full max-w-sm h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full animate-pulse w-3/4" />
                   </div>
-                  <p className="text-slate-500 text-sm">Claude กำลังเขียนบทความ...</p>
+                  <p className="text-slate-500 text-sm">AI กำลังเขียนบทความ...</p>
                   <p className="text-slate-400 text-xs">SEO Master Prompt + Auto-Validate · อาจใช้เวลา 30–60 วินาที</p>
                 </div>
               )}
@@ -1036,7 +1069,7 @@ export function ContentStudioClient() {
               {!generating && !articleHtml && (
                 <div className="flex flex-col items-center justify-center h-full gap-8 py-12 px-6">
                   <div className="text-center">
-                    <h2 className="text-2xl font-semibold text-gray-900 mb-2">เริ่มเขียนบทความ</h2>
+                    <h2 className="text-2xl font-semibold text-brand-navy mb-2">เริ่มเขียนบทความ</h2>
                     <p className="text-sm text-gray-400">ใส่ keyword ในแผงซ้าย แล้วกด เขียนบทความ</p>
                   </div>
 
@@ -1170,7 +1203,7 @@ export function ContentStudioClient() {
             <div className="px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
                 <Brain className="h-4 w-4 text-blue-500" />
-                <span className="text-sm font-semibold text-blue-700">Claude SEO Reviewer</span>
+                <span className="text-sm font-semibold text-blue-700">AI SEO Reviewer</span>
               </div>
             </div>
             <div className="flex-1 flex flex-col p-4 gap-3 overflow-y-auto">
@@ -1204,7 +1237,7 @@ export function ContentStudioClient() {
               <button
                 onClick={handleReview}
                 disabled={reviewing}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-sm"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-blue hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-sm"
               >
                 <Search className="h-4 w-4" />
                 {reviewing ? "กำลังวิเคราะห์..." : "วิเคราะห์บทความ"}
@@ -1222,7 +1255,7 @@ export function ContentStudioClient() {
                 <div className="w-full max-w-xs h-1.5 bg-slate-100 rounded-full overflow-hidden">
                   <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-400 rounded-full animate-pulse w-3/4" />
                 </div>
-                <p className="text-slate-500 text-sm">Claude กำลังวิเคราะห์บทความ...</p>
+                <p className="text-slate-500 text-sm">AI กำลังวิเคราะห์บทความ...</p>
               </div>
             )}
 
@@ -1251,7 +1284,7 @@ export function ContentStudioClient() {
                       className={cn(
                         "flex items-center gap-1.5 px-3 pb-2.5 pt-1 text-sm font-medium border-b-2 transition-colors",
                         reviewTab === tab
-                          ? "border-blue-500 text-blue-600"
+                          ? "border-blue-500 text-brand-blue"
                           : "border-transparent text-slate-500 hover:text-slate-700"
                       )}
                     >
@@ -1260,7 +1293,7 @@ export function ContentStudioClient() {
                       {badge && (
                         <span className={cn(
                           "text-xs px-1.5 py-0.5 rounded-full font-semibold",
-                          reviewTab === tab ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"
+                          reviewTab === tab ? "bg-blue-100 text-brand-blue" : "bg-slate-100 text-slate-500"
                         )}>{badge}</span>
                       )}
                     </button>
@@ -1317,7 +1350,7 @@ export function ContentStudioClient() {
                         />
                         <button
                           onClick={() => { setLinks(prev => prev.map(l => ({ ...l, added: true }))); toast.success("เพิ่ม links ทั้งหมดแล้ว"); }}
-                          className="flex-shrink-0 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors"
+                          className="flex-shrink-0 px-3 py-2 rounded-lg bg-brand-blue hover:bg-blue-500 text-white text-sm font-semibold transition-colors"
                         >
                           Apply All
                         </button>
@@ -1333,7 +1366,7 @@ export function ContentStudioClient() {
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 mb-0.5">
-                                <code className="text-xs bg-slate-100 text-blue-600 px-2 py-0.5 rounded font-mono">{l.anchor}</code>
+                                <code className="text-xs bg-slate-100 text-brand-blue px-2 py-0.5 rounded font-mono">{l.anchor}</code>
                                 <ArrowRight className="h-3 w-3 text-slate-400 flex-shrink-0" />
                                 <code className="text-xs text-slate-500 truncate font-mono">{siteUrl || "site.com"}{l.url}</code>
                               </div>

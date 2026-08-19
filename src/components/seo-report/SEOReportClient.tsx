@@ -197,7 +197,7 @@ function PsiScoreCircle({ score, label }: { score: number | null; label: string 
 function ConnectorBadge({ status, label }: { status: ConnectorState; label: string }) {
   if (status === "loading") {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 text-xs font-medium border border-blue-100">
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-brand-blue text-xs font-medium border border-blue-100">
         <Loader2 className="h-3 w-3 animate-spin" />{label}: กำลังตรวจสอบ...
       </span>
     );
@@ -534,7 +534,7 @@ export function SEOReportClient() {
                   onClick={() => setDays(d)}
                   className={cn(
                     "px-3 py-1.5 font-medium transition-colors",
-                    days === d ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50"
+                    days === d ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-50"
                   )}
                 >
                   {d} วัน
@@ -544,7 +544,7 @@ export function SEOReportClient() {
             <button
               onClick={refresh}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors disabled:opacity-60"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold transition-colors disabled:opacity-60"
             >
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
               {loading ? "กำลังโหลด..." : "Refresh"}
@@ -901,7 +901,7 @@ function ProjectReport({
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-blue-800 mb-0.5">Account นี้ยังไม่มีข้อมูล AI Performance</p>
-                  <p className="text-xs text-blue-600 leading-relaxed">
+                  <p className="text-xs text-brand-blue leading-relaxed">
                     Google Search Console กำลัง rollout ฟีเจอร์ <strong>AI Overviews</strong> และ <strong>AI Mode</strong> Report แบบ Beta
                     — หากเว็บไซต์ของคุณมี traffic จาก AI-generated results จะเริ่มเห็นข้อมูลในส่วนนี้โดยอัตโนมัติ
                   </p>
@@ -920,7 +920,7 @@ function ProjectReport({
                         <Zap className="h-3 w-3 text-white" />
                       </div>
                       <span className="text-sm font-semibold text-blue-900">AI Overviews</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 font-medium">Beta</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-brand-blue font-medium">Beta</span>
                     </div>
                     <p className="text-[11px] text-blue-500 mb-3">Google-generated summaries at the top of search results</p>
                     <div className="grid grid-cols-2 gap-3">
@@ -1038,7 +1038,7 @@ function ProjectReport({
                       <td className="px-3 py-2">
                         <span className={cn("text-xs font-semibold",
                           q.position <= 3 ? "text-emerald-600"
-                          : q.position <= 10 ? "text-blue-600"
+                          : q.position <= 10 ? "text-brand-blue"
                           : "text-gray-500"
                         )}>
                           #{q.position.toFixed(1)}
@@ -1129,7 +1129,7 @@ function ArticlePsiCell({ url, score, isLoading, onLoad }: {
   return (
     <button
       onClick={() => onLoad()}
-      className="text-xs px-2 py-0.5 rounded bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-600 transition-colors font-medium"
+      className="text-xs px-2 py-0.5 rounded bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-brand-blue transition-colors font-medium"
       title={url}
     >
       โหลด

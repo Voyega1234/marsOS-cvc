@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Version History" };
 
 export default async function VersionHistoryPage({ params }: { params: { id: string } }) {
   const session = await getSession();
-  if (!session?.user) redirect("/login");
+  if (!session?.user) redirect("/setup");
 
   const role = session.user.role;
   const orgId = session.user.organizationId;

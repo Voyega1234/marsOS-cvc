@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
+import { orChat, orChatStream, OR_MODELS } from '@/lib/openrouter'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
+import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
+import { type ArticleElementStyles } from '@/lib/articleTheme'
+import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, type ArticleStyleMode } from '@/lib/articleComponents'
+import { sanitizeArticleHtml } from '@/lib/articleSanitize'
+import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -35,7 +37,7 @@ async function logAIJob(opts: {
         ...(opts.articleId && { articleId: opts.articleId }),
         jobType: opts.jobType,
         status: opts.status,
-        modelProvider: 'CLAUDE',
+        modelProvider: 'OPENROUTER',
         modelName: opts.modelName,
         tokenUsed,
         estimatedCost,
@@ -43,33 +45,6 @@ async function logAIJob(opts: {
       },
     })
   } catch { /* non-fatal */ }
-}
-
-// Local-dev fallback path (dev machine). Prompts must be COMMITTED to the repo
-// under `prompts/` so they exist on Vercel — os.homedir()/Desktop does not.
-const CC_ROOT = path.join(os.homedir(), 'Desktop', 'Mars', 'Convert-Cake-SEO-Project-FULL-20260623')
-
-function readPromptFile(relPath: string): string {
-  const base = path.basename(relPath) // e.g. "convert_cake_seo_master.md"
-  const candidates = [
-    path.join(process.cwd(), relPath),        // <repo>/prompts/x.md  (bundled — Vercel)
-    path.join(process.cwd(), 'prompts', base),
-    path.join(CC_ROOT, relPath),              // local dev fallback
-  ]
-  for (const p of candidates) {
-    try { return fs.readFileSync(p, 'utf-8') } catch { /* try next */ }
-  }
-  console.warn('[readPromptFile] NOT FOUND (commit prompts into repo /prompts):', relPath)
-  return ''
-}
-
-function loadConvertCakePrompts() {
-  return {
-    globalRules:  readPromptFile('prompts/global_rules.md'),
-    masterPrompt: readPromptFile('prompts/convert_cake_seo_master.md'),
-    validator:    readPromptFile('prompts/convert_cake_validator_10_10.md'),
-    coverMaster:  readPromptFile('prompts/cover_master_prompt.md'),
-  }
 }
 
 interface CtaChannel { type: string; label: string; value: string }
@@ -90,26 +65,23 @@ Subtext: ${cta.subtext}
 ช่องทาง:
 ${channelLines}
 
-INSTRUCTION: ใส่ CTA box ที่สวยงามในบทความ โดย:
-1. วาง CTA หลักก่อน FAQ section (ปลายบทความ)
-2. ใช้ Design: rounded box พร้อมสี Theme Color เป็น background, มีปุ่มแต่ละช่องทาง
-3. ทุก channel ที่มี URL → ทำเป็น <a href="..."> ปุ่ม
-4. ทุก channel ที่เป็น phone/email → ทำเป็น <a href="tel:..." หรือ "mailto:...">
-5. Style ให้สอดคล้องกับ COLOR SYSTEM ทั้งหมด
+INSTRUCTION: วาง CTA 3 จุด และทุกจุดต้องเขียนข้อความใหม่ให้ตรง pain point ของบทความนั้น (ห้ามใช้ headline/subtext ข้างบนแบบคำต่อคำซ้ำทุกจุด — ใช้เป็นวัตถุดิบ):
+1. จุดที่ 1 หลังกล่อง Short Answer: ประโยคชวน 1 บรรทัดพร้อมลิงก์ช่องทางหลัก (ข้อความธรรมดา ไม่ใช่กล่อง)
+2. จุดที่ 2 กลางบทความ: .mars-cta แบบสั้น (headline + ปุ่มเดียว)
+3. จุดที่ 3 ก่อน FAQ: .mars-cta เต็ม (headline + subtext + ปุ่มครบทุกช่องทาง)
+กติกา: ใช้โครง .mars-cta จาก COMPONENT STANDARD เท่านั้น / URL → <a class="mars-cta__button" href="..."> / phone → tel: / email → mailto: / ปุ่มแรก mars-cta__button ปุ่มถัดไปเพิ่ม mars-cta__button--secondary / ห้าม hard sell ห้ามใส่สีหรือ style เอง
 `
 }
 
 function buildAuthorHtml(name: string, title: string, imageBase64: string): string {
   if (!name && !title) return ''
-  const imgTag = imageBase64
-    ? `<img src="${imageBase64}" alt="${name}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid #e5e7eb;flex-shrink:0;">`
-    : ''
+  const imgTag = imageBase64 ? `<img src="${imageBase64}" alt="${name}">` : ''
   return `
-<div class="author-box" style="display:flex;align-items:center;gap:16px;padding:20px 24px;margin-top:40px;border-top:2px solid #e5e7eb;background:#f9fafb;border-radius:12px;">
+<div class="mars-author">
   ${imgTag}
-  <div style="display:flex;flex-direction:column;gap:4px;">
-    ${name ? `<span style="font-size:15px;font-weight:700;color:#111827;">${name}</span>` : ''}
-    ${title ? `<span style="font-size:13px;color:#6b7280;">${title}</span>` : ''}
+  <div>
+    ${name ? `<span class="mars-author__name">${name}</span>` : ''}
+    ${title ? `<span class="mars-author__title">${title}</span>` : ''}
   </div>
 </div>`
 }
@@ -128,38 +100,31 @@ function shuffleSeed<T>(arr: T[], seed: string): T[] {
 function buildArticlePrompt(opts: {
   keyword: string; title: string; language: string
   styleGuide: string; accentColor: string; theme: string
-  colorTheme?: string; colorText?: string; colorBorder?: string; colorAccent?: string
+  colorTheme?: string; colorText?: string; colorBorder?: string; colorAccent?: string; colorBackground?: string
+  elementStyles?: ArticleElementStyles | null
   typography?: { fontFamily?: string | null; fontSize?: string | null; lineHeight?: string | null; letterSpacing?: string | null; headingFont?: string | null; headingWeight?: string | null; paragraphMargin?: string | null } | null
   internalLinks: string; forbiddenWords: string
   websiteUrl: string; siteName: string; brandTone: string
   contentType: string; sampleArticle?: string
+  /** Article Lab > บริบทโปรเจกต์ — ข้อเท็จจริงของธุรกิจที่บทความต้องอ้างอิงให้ถูก */
+  projectContext?: string
   cta?: CtaSettings | null
-  promptOverrides?: Record<string, string>
+  // Prompt ทั้งหมดมาจาก Content Engine เท่านั้น (เรียงลำดับ 4 layers)
+  // ห้ามสร้าง prompt เอง — ดู src/lib/content-engine-resolve.ts
+  ce: {
+    businessSkill?: string
+    masterPrompt: string
+    articleBrief?: string
+    validatorPack?: string
+  }
 }) {
-  const base = loadConvertCakePrompts()
-  const overrides = opts.promptOverrides ?? {}
-  const globalRules  = overrides['global_rules']  || base.globalRules
-  const masterPrompt = overrides['master_prompt']  || base.masterPrompt
-  const validator    = overrides['validator']      || base.validator
-
   const effectiveThemeColor = opts.colorTheme || opts.accentColor || '#2563eb'
   const effectiveTextColor = opts.colorText || '#1c1c1c'
   const effectiveBorderColor = opts.colorBorder || '#e2e8f0'
   const effectiveAccentColor = opts.colorAccent || opts.accentColor || '#16a34a'
+  const effectiveBackgroundColor = opts.colorBackground || '#ffffff'
 
-  const typo = opts.typography
-  const typographyBlock = typo ? `
-==================================================
-TYPOGRAPHY SYSTEM (แกะจาก URL ตัวอย่าง — ใช้ใน inline CSS ให้ตรงทุก element)
-==================================================
-Body Font Family: ${typo.fontFamily || 'inherit'}
-Body Font Size: ${typo.fontSize || '16px'}
-Body Line Height: ${typo.lineHeight || '1.7'}
-Letter Spacing: ${typo.letterSpacing || 'normal'}
-Heading Font: ${typo.headingFont || typo.fontFamily || 'inherit'}
-Heading Weight: ${typo.headingWeight || '700'}
-Paragraph Margin Bottom: ${typo.paragraphMargin || '1.2em'}
-` : ''
+  // Typography ไม่ส่งเข้า prompt แล้ว — ระบบใส่ให้เองผ่าน buildArticleCss
 
   const siteBlock = `
 ==================================================
@@ -174,17 +139,20 @@ Content Type: ${opts.contentType || 'seo_article'}
 Keyword หลัก: ${opts.keyword}
 Theme: ${opts.theme || 'professional'}
 
-COLOR SYSTEM:
-- Theme Color (headings, CTA backgrounds, highlights): ${effectiveThemeColor}
-- Text Color (body text): ${effectiveTextColor}
-- Border Color (dividers, callout boxes): ${effectiveBorderColor}
-- Accent Color (links, buttons, badges): ${effectiveAccentColor}
-${typographyBlock}
+COLOR SYSTEM (ข้อมูลประกอบเท่านั้น — ระบบใส่สีทั้งหมดให้เองผ่าน CSS กลางหลังเขียนเสร็จ
+ห้ามใส่ style attribute หรือแท็ก <style> ใด ๆ ในบทความ):
+- Theme Color: ${effectiveThemeColor} · Text: ${effectiveTextColor} · Accent: ${effectiveAccentColor}
+${MARS_COMPONENT_SPEC}
 ==================================================
 SITE STYLE GUIDE
 ==================================================
 ${opts.styleGuide || '(ไม่มี — ใช้ tone และ color จาก SITE CONFIG ด้านบน)'}
-
+${opts.projectContext?.trim() ? `
+==================================================
+PROJECT CONTEXT (ข้อเท็จจริงของธุรกิจนี้ — ห้ามเขียนขัดกับข้อมูลนี้)
+==================================================
+${opts.projectContext.trim()}
+` : ''}
 ==================================================
 INTERNAL LINKS
 ==================================================
@@ -196,17 +164,17 @@ FORBIDDEN WORDS
 ${opts.forbiddenWords || '(ไม่มี)'}
 
 ==================================================
-COVER IMAGE PROMPT INSTRUCTION
+SEO META BLOCK (REQUIRED — ระบบอ่านค่าเหล่านี้ไปใช้จริงตอน publish)
 ==================================================
-ในส่วน CONVERT_CAKE_SEO_META comment block ให้ใส่ข้อมูลดังนี้ (REQUIRED ทุก field):
-en_slug: [English URL slug for this article, lowercase, hyphens only, no Thai, e.g. "dental-implant-price-guide"]
-meta_description: [Thai meta description 120-155 characters สรุปเนื้อหาบทความ]
-cover_headline: ชื่อบทความสั้น ≤30 ตัว
-cover_subtitle: คำอธิบายสั้น ≤55 ตัว
-benefit_1 ถึง benefit_4: ประโยชน์สั้น 6-12 ตัว
-highlight_text: callout สั้น ≤50 ตัว
-cover_image_prompt: [English prompt for Gemini AI. STYLE: premium dark-background infographic. Describe: (1) 1 photorealistic 3D hero element relevant to "${opts.keyword}" floating center-right, (2) 4-6 small 3D accent icons floating around it with electric cyan/gold glow halos, (3) deep navy gradient background with scattered neon particles, (4) dramatic studio lighting. Left 40% open dark area for headline text overlay. NO text/letters/numbers on image. 3-5 sentences, English only.]
-mid_image_prompt: [English prompt for in-body image. High-quality editorial lifestyle photograph about "${opts.title}". ABSOLUTELY NO text, labels, or overlays. Beautiful composition, professional lighting, 16:9 horizontal landscape.]
+ในส่วน CONVERT_CAKE_SEO_META comment block ให้ใส่ครบทั้ง 5 field นี้ (ห้ามขาด):
+en_slug: [English URL slug, lowercase, hyphens only, ห้ามมีภาษาไทย เช่น "dental-implant-price-guide"]
+meta_title: [SEO title ภาษาไทย ≤60 ตัวอักษร มี keyword หลัก]
+meta_description: [meta description ภาษาไทย 120-155 ตัวอักษร สรุปเนื้อหาบทความ]
+focus_keyword: ${opts.keyword}
+cover_image_alt: [alt text ภาษาไทยของภาพหน้าปก ≤100 ตัวอักษร]
+
+ห้ามใส่ field อื่นนอกเหนือจากนี้ในบล็อก META — prompt ของภาพมาจาก Content Engine
+(Image Prompt) ไม่ได้มาจากบทความ
 `
 
   const sampleBlock = opts.sampleArticle
@@ -215,61 +183,78 @@ mid_image_prompt: [English prompt for in-body image. High-quality editorial life
 
   const ctaBlock = buildCtaBlock(opts.cta)
 
-  if (globalRules && masterPrompt && validator) {
-    return `${globalRules}
+  // ── ประกอบตามลำดับ Content Engine: Business Skill → Master Prompt →
+  //    Article Brief → (ข้อมูลโปรเจกต์/CTA/ตัวอย่าง) → Validator Pack ──
+  const businessSkillBlock = opts.ce.businessSkill
+    ? `==================================================
+LAYER 1: BUSINESS SKILL (ความรู้เฉพาะของลูกค้ารายนี้ — ยึดเป็นข้อเท็จจริง ห้ามแต่งเพิ่ม)
+==================================================
+${opts.ce.businessSkill}
+`
+    : ''
 
-${masterPrompt}
+  const articleBriefBlock = opts.ce.articleBrief
+    ? `==================================================
+LAYER 3: ARTICLE BRIEF TEMPLATE (โครง brief ของบทความ)
+==================================================
+${opts.ce.articleBrief}
+`
+    : ''
 
+  const validatorBlock = opts.ce.validatorPack
+    ? `==================================================
+LAYER 4: VALIDATOR PACK (ตรวจก่อนส่งงาน — ข้อ BLOCKING ไม่ผ่านห้าม output)
+==================================================
+${opts.ce.validatorPack}
+`
+    : ''
+
+  return `${businessSkillBlock}
+==================================================
+LAYER 2: MASTER PROMPT
+==================================================
+${opts.ce.masterPrompt}
+
+${articleBriefBlock}
 ${siteBlock}
 ${ctaBlock}
 ${sampleBlock}
-==================================================
-VALIDATOR
-==================================================
-${validator}
-
+${validatorBlock}
 ---
 OUTPUT: ส่ง HTML ชุดเดียวเท่านั้น ไม่มีคำอธิบาย ไม่มี Markdown ไม่มี diagnostic text
-เริ่มด้วย <!-- CONVERT_CAKE_SEO_META หรือ <script type="application/ld+json"> หรือ <style>
-`
-  }
-
-  // Fallback
-  return `คุณคือ SEO Content Writer ผู้เชี่ยวชาญ เขียนบทความ HTML คุณภาพสูง
-
-${siteBlock}
-${ctaBlock}
-${sampleBlock}
-สิ่งที่ต้องมีในบทความ:
-- <!-- CONVERT_CAKE_SEO_META ... --> block พร้อม cover_headline, cover_subtitle, benefit_1-4, highlight_text, cover_image_prompt, mid_image_prompt
-- JSON-LD schema: Article, FAQPage, BreadcrumbList
-- H1 เพียง 1 จุด
-- Short Answer 2-3 บรรทัด
-- TOC
-- H2/H3 ตาม search intent
-- ตาราง หรือ Checklist
-- FAQ (details/summary)
-- CTA
-- <!-- COVER_IMAGE --> และ <!-- MID_IMAGE --> comment marks
-
-ก่อน output: Auto Validate และแก้ให้ผ่านก่อน
-OUTPUT: HTML เท่านั้น ไม่มีคำอธิบาย
+เริ่มด้วย <!-- CONVERT_CAKE_SEO_META หรือ <script type="application/ld+json">
+ห้ามมีแท็ก <style> และห้ามมี style attribute ในทุก element
 `
 }
 
 
 // Call Gemini image generation directly (no internal HTTP — bypasses auth middleware)
+// กันขั้นตอนสร้างรูปแขวนไม่จบ — ถ้าเกิน timeout ให้ทิ้งรูปแล้วไปต่อ
+// (เดิมไม่มี timeout: Vertex ค้าง → stream ค้าง → โดน maxDuration ฆ่า → บทความค้างสถานะ WRITING)
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
+  ])
+}
+
+const IMAGE_TIMEOUT_MS = 75_000
+
 async function generateGeminiImage(params: {
   keyword: string; title: string; type: 'cover' | 'mid'
   siteName?: string; brandTone?: string; accentColor?: string
+  imagePromptTemplate: string
+  imageStyleGuide?: string
 }): Promise<{ imageBase64: string; mimeType: string; costUsd: number; totalTokens: number }> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const result = await callGeminiImage({
+      const result = await withTimeout(callGeminiImage({
         keyword: params.keyword, title: params.title, type: params.type,
         siteName: params.siteName ?? '', brandTone: params.brandTone ?? '',
         accentColor: params.accentColor ?? '',
-      })
+        promptTemplate: params.imagePromptTemplate,
+        imageStyleGuide: params.imageStyleGuide ?? '',
+      }), IMAGE_TIMEOUT_MS, `gemini-image-${params.type}`)
       if (!result.imageBase64) {
         console.error(`[write] generateGeminiImage ${params.type} returned no image`)
         if (attempt === 0) { await new Promise(r => setTimeout(r, 3000)); continue }
@@ -283,16 +268,17 @@ async function generateGeminiImage(params: {
   return { imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }
 }
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+// AI ทั้งระบบวิ่งผ่าน OpenRouter — ตัวเขียนบทความใช้ OPENROUTER_MODEL_WRITER (gpt-5.6-sol)
 
 // Inject mid-article image into the middle of the HTML body (never at the end)
-function injectMidImage(html: string, imageBase64: string, mimeType: string): string {
+function injectMidImage(html: string, imageBase64: string, mimeType: string, altText = ''): string {
   if (!imageBase64) return html
 
-  const imgTag = `\n<figure style="margin:2.5rem 0;text-align:center;">
-  <img src="data:${mimeType};base64,${imageBase64}"
-       alt="รูปประกอบบทความ"
-       style="width:100%;max-width:800px;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.10);display:inline-block;" />
+  // alt ต้องบรรยายภาพจริง ไม่ใช่คำกลาง ๆ — Validator ข้อ Image Alt Text ตรวจจุดนี้
+  const alt = (altText.trim() || 'รูปประกอบบทความ').replace(/"/g, '&quot;')
+
+  const imgTag = `\n<figure class="mars-figure">
+  <img src="data:${mimeType};base64,${imageBase64}" alt="${alt}" />
 </figure>\n`
 
   // 1. If Claude left a <!-- MID_IMAGE --> marker, replace it
@@ -416,6 +402,8 @@ export async function POST(req: NextRequest) {
     colorText = '',
     colorBorder = '',
     colorAccent = '',
+    colorBackground = '',
+    elementStyles: elementStylesBody = null,
     typography = null,
     sampleArticle = '',
     stream: doStream = false,
@@ -426,20 +414,26 @@ export async function POST(req: NextRequest) {
     cta: ctaFromBody = null,
   } = body
 
-  // Resolve CTA + author + project prompt overrides from DB
-  // studio overrides (studioPrompt) take priority over per-client writing overrides for studio keys
+  // ดึง CTA + ผู้เขียน + ค่า Article Lab ของโปรเจกต์จาก DB
   let cta = ctaFromBody
   let resolvedAuthorName = ''
   let resolvedAuthorTitle = ''
   let resolvedAuthorImage = ''
   let resolvedAuthorGender: string = 'none'
-  let projectPromptOverrides: Record<string, string> = {}
   let _dbProj: Record<string, unknown> | null = null
   if (projectId && orgId) {
     try {
       const proj = await (prisma.project as any).findFirst({
         where: { id: projectId, organizationId: orgId },
-        select: { ctaSetting: true, writingPrompt: true, authorEnabled: true, authorName: true, authorTitle: true, authorImage: true, authors: true, styleGuide: true, internalLinks: true, linksPerArticle: true },
+        // ค่าจาก Article Lab ทั้งหมดที่ prompt ใช้ — ดึงมาเป็น fallback ให้ผู้เรียกที่ส่งมาแค่ projectId
+        // (writingPrompt ไม่ได้ select เพราะเลิกใช้แล้ว — prompt มาจาก Content Engine เท่านั้น)
+        select: {
+          ctaSetting: true, authorEnabled: true, authorName: true, authorTitle: true, authorImage: true, authors: true,
+          styleGuide: true, internalLinks: true, linksPerArticle: true,
+          forbiddenWords: true, sampleArticle: true, projectContext: true,
+          brandTone: true, website: true, name: true, clientName: true, imageStyleGuide: true,
+        themeColors: true, accentColor: true, articleTheme: true, businessType: true,
+        },
       })
       if (!cta && proj?.ctaSetting) {
         const parsed = JSON.parse(proj.ctaSetting)
@@ -472,35 +466,87 @@ export async function POST(req: NextRequest) {
           resolvedAuthorImage = proj?.authorImage ?? ''
         }
       }
-      if (proj?.writingPrompt) {
-        projectPromptOverrides = JSON.parse(proj.writingPrompt)
-      }
       _dbProj = proj ?? null
     } catch { /* non-fatal */ }
-    // Studio overrides from org take priority for studio-specific keys
-    try {
-      const org = await (prisma.organization as any).findUnique({
-        where: { id: orgId },
-        select: { studioPrompt: true },
-      })
-      if (org?.studioPrompt) {
-        const studioOverrides: Record<string, string> = JSON.parse(org.studioPrompt)
-        projectPromptOverrides = { ...projectPromptOverrides, ...studioOverrides }
-      }
-    } catch { /* non-fatal */ }
   }
+  // หน้า Settings > Prompts ถูกลบทิ้งแล้ว (2026-08-10) พร้อม override จาก
+  // project.writingPrompt / org.studioPrompt — prompt มาจาก Content Engine เท่านั้น
+  // ส่วนค่าเฉพาะโปรเจกต์ (style, forbidden words, บริบท ฯลฯ) มาจาก Article Lab
 
-  // Resolve styleGuide from DB if not provided in body
+  // ค่าจาก Article Lab: body ชนะ DB เสมอ (ผู้เรียกอาจ override รายครั้ง)
+  // แต่ถ้า body ไม่ส่งมา ต้องดึงจาก DB ไม่ใช่ปล่อยว่าง — ไม่งั้นค่าที่ทีมตั้งไว้ถูกทิ้งเงียบ ๆ
   let resolvedStyleGuide = styleGuide
-  // Resolve internalLinks + linksPerArticle from DB
   let resolvedLinksPerArticleRaw: string = linksPerArticleBody != null ? String(linksPerArticleBody) : '3'
   let resolvedRawInternalLinks = rawInternalLinks
+  let resolvedForbiddenWordsRaw = rawForbiddenWords
+  let resolvedSampleArticle = sampleArticle
+  let resolvedProjectContext = ''
+  let resolvedBrandTone = brandTone
+  let resolvedWebsiteUrl = websiteUrl
+  let resolvedSiteName = siteName
+  let resolvedImageStyleGuide = ''
+  // ชุดสีของ client (Article Lab > Article Colors) — ตั้งครั้งเดียวใช้กับทุกบทความของเว็บนั้น
+  let resolvedColorTheme = colorTheme
+  let resolvedColorText = colorText
+  let resolvedColorBorder = colorBorder
+  let resolvedColorAccent = colorAccent
+  let resolvedColorBackground = colorBackground
+  let resolvedAccentColor = accentColor
+  let resolvedTheme = theme
+  let resolvedElementStyles: ArticleElementStyles | null = elementStylesBody
+  // โหมดสไตล์ของ client: 'embed' = แนบ <style> ในบทความ (default) / 'clean' = HTML ล้วน
+  let resolvedStyleMode: ArticleStyleMode = 'embed'
   if (_dbProj) {
-    const dbP = _dbProj as { styleGuide?: string | null; internalLinks?: string | null; linksPerArticle?: number | string | null }
+    const dbP = _dbProj as {
+      styleGuide?: string | null; internalLinks?: string | null; linksPerArticle?: number | string | null
+      forbiddenWords?: string | null; sampleArticle?: string | null; projectContext?: string | null
+      brandTone?: string | null; website?: string | null; name?: string | null; clientName?: string | null
+      imageStyleGuide?: string | null; themeColors?: string | null; accentColor?: string | null; articleTheme?: string | null
+    }
+    let projColors: Record<string, string> = {}
+    try { projColors = JSON.parse(dbP?.themeColors || '{}') } catch { /* ค่าเสีย — ใช้ default */ }
+    if (!resolvedColorTheme && projColors.theme) resolvedColorTheme = projColors.theme
+    if (!resolvedColorText && projColors.text) resolvedColorText = projColors.text
+    if (!resolvedColorBorder && projColors.border) resolvedColorBorder = projColors.border
+    if (!resolvedColorAccent && projColors.accent) resolvedColorAccent = projColors.accent
+    if (!resolvedColorBackground && projColors.background) resolvedColorBackground = projColors.background
+    if (!resolvedElementStyles && projColors.elements && typeof projColors.elements === 'object') {
+      resolvedElementStyles = projColors.elements as unknown as ArticleElementStyles
+    }
+    if ((projColors as Record<string, unknown>).styleMode === 'clean') resolvedStyleMode = 'clean'
+    // accentColor/theme ใน body มี default — ใช้ค่าโปรเจกต์เมื่อผู้เรียกไม่ได้ตั้งใจส่งมา
+    if (accentColor === '#2563eb' && dbP?.accentColor) resolvedAccentColor = dbP.accentColor
+    if (theme === 'professional' && dbP?.articleTheme) resolvedTheme = dbP.articleTheme
     if (!resolvedStyleGuide && dbP?.styleGuide) resolvedStyleGuide = dbP.styleGuide
     if (!rawInternalLinks || rawInternalLinks === '[]') resolvedRawInternalLinks = dbP?.internalLinks ?? '[]'
     if (linksPerArticleBody == null && dbP?.linksPerArticle != null) resolvedLinksPerArticleRaw = String(dbP.linksPerArticle)
+    if (!resolvedForbiddenWordsRaw || resolvedForbiddenWordsRaw === '[]') resolvedForbiddenWordsRaw = dbP?.forbiddenWords ?? ''
+    if (!resolvedSampleArticle && dbP?.sampleArticle) resolvedSampleArticle = dbP.sampleArticle
+    if (dbP?.projectContext) resolvedProjectContext = dbP.projectContext
+    if (!resolvedBrandTone && dbP?.brandTone) resolvedBrandTone = dbP.brandTone
+    if (!resolvedWebsiteUrl && dbP?.website) resolvedWebsiteUrl = dbP.website
+    if (!resolvedSiteName) resolvedSiteName = dbP?.clientName || dbP?.name || ''
+    if (dbP?.imageStyleGuide) resolvedImageStyleGuide = dbP.imageStyleGuide
   }
+  // Studio (ไม่ผูก client): ใช้ธีมของ Content Studio ที่ตั้งไว้ใน AppSetting
+  if (!projectId && orgId) {
+    try {
+      const row = await prisma.appSetting.findUnique({ where: { key: 'studio_article_theme' } })
+      if (row) {
+        const st = JSON.parse(row.value) as Record<string, unknown>
+        if (!resolvedColorTheme && typeof st.theme === 'string') resolvedColorTheme = st.theme
+        if (!resolvedColorText && typeof st.text === 'string') resolvedColorText = st.text
+        if (!resolvedColorBorder && typeof st.border === 'string') resolvedColorBorder = st.border
+        if (!resolvedColorAccent && typeof st.accent === 'string') resolvedColorAccent = st.accent
+        if (!resolvedColorBackground && typeof st.background === 'string') resolvedColorBackground = st.background
+        if (!resolvedElementStyles && st.elements && typeof st.elements === 'object') {
+          resolvedElementStyles = st.elements as ArticleElementStyles
+        }
+        if (st.styleMode === 'clean') resolvedStyleMode = 'clean'
+      }
+    } catch { /* ไม่มีธีม studio — ใช้ default */ }
+  }
+
   // Parse "3" or "3-10" range into min/max, pick a count deterministically
   function parseLinksRange(raw: string): { min: number; max: number } {
     const m = raw.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/)
@@ -527,24 +573,57 @@ export async function POST(req: NextRequest) {
   // Parse forbiddenWords JSON array → readable list
   let forbiddenWords = ''
   try {
-    const parsed = typeof rawForbiddenWords === 'string' ? JSON.parse(rawForbiddenWords || '[]') : rawForbiddenWords
+    const parsed = typeof resolvedForbiddenWordsRaw === 'string' ? JSON.parse(resolvedForbiddenWordsRaw || '[]') : resolvedForbiddenWordsRaw
     if (Array.isArray(parsed)) forbiddenWords = parsed.join(', ')
-    else forbiddenWords = rawForbiddenWords
-  } catch { forbiddenWords = rawForbiddenWords }
+    else forbiddenWords = resolvedForbiddenWordsRaw
+  } catch { forbiddenWords = resolvedForbiddenWordsRaw }
 
   if (!keyword || !title) {
     return NextResponse.json({ error: 'keyword and title are required' }, { status: 400 })
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 })
+  if (!process.env.OPENROUTER_API_KEY) {
+    return NextResponse.json({ error: 'OPENROUTER_API_KEY not configured' }, { status: 500 })
+  }
+
+  // ── Prompt ทั้งหมดจาก Content Engine เท่านั้น (scope: project หรือ studio — ห้าม cross-scope) ──
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const ceScope: CEScope = projectId ? { projectId } : 'studio'
+  const ce = await resolveContentEngine(orgId, ceScope)
+  if (ce.missing.length > 0) {
+    return NextResponse.json({
+      error: 'CONTENT_ENGINE_NOT_CONFIGURED',
+      missing: ce.missing,
+      message: `ยังไม่ได้ตั้งค่า Content Engine (${ce.scope === 'studio' ? 'ของ Studio' : 'ของโปรเจกต์นี้'}) — ขาด: ${ce.missing.join(', ')} · ตั้งค่าที่${ce.scope === 'studio' ? ' Studio > Content Engine' : ' ฟันเฟือง > Content Engine ของโปรเจกต์'}`,
+    }, { status: 400 })
+  }
+
+  // resolver รับประกันแล้วว่า masterPrompt/imagePrompt ไม่ null (ผ่าน missing check ด้านบน)
+  const imagePromptTemplate = ce.imagePrompt?.text ?? ''
+  if (!imagePromptTemplate.trim()) {
+    return NextResponse.json({
+      error: 'CONTENT_ENGINE_NOT_CONFIGURED',
+      missing: ['Image Prompt'],
+      message: `ยังไม่ได้ตั้งค่า Content Engine (${ce.scope === 'studio' ? 'ของ Studio' : 'ของโปรเจกต์นี้'}) — ขาด: Image Prompt · ตั้งค่าที่${ce.scope === 'studio' ? ' Studio > Content Engine' : ' ฟันเฟือง > Content Engine ของโปรเจกต์'}`,
+    }, { status: 400 })
   }
 
   let articlePrompt = buildArticlePrompt({
-    keyword, title, language, styleGuide: resolvedStyleGuide, accentColor, theme,
-    colorTheme, colorText, colorBorder, colorAccent, typography,
-    internalLinks, forbiddenWords, websiteUrl, siteName, brandTone, contentType, sampleArticle,
+    keyword, title, language, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,
+    colorTheme: resolvedColorTheme, colorText: resolvedColorText, colorBorder: resolvedColorBorder,
+    colorAccent: resolvedColorAccent, colorBackground: resolvedColorBackground,
+    elementStyles: resolvedElementStyles, typography,
+    internalLinks, forbiddenWords,
+    websiteUrl: resolvedWebsiteUrl, siteName: resolvedSiteName, brandTone: resolvedBrandTone,
+    contentType, sampleArticle: resolvedSampleArticle, projectContext: resolvedProjectContext,
     cta,
-    promptOverrides: projectPromptOverrides,
+    ce: {
+      businessSkill: ce.businessSkill?.text,
+      masterPrompt: ce.masterPrompt!.text,
+      articleBrief: ce.articleBrief?.text,
+      validatorPack: ce.validatorPack?.text,
+    },
   })
 
   // Inject author persona into prompt so writing tone/pronouns match
@@ -561,36 +640,72 @@ export async function POST(req: NextRequest) {
     articlePrompt += `\n\n==================================================\nADJUST INSTRUCTION (บทความถูกส่ง Adjust — เขียนใหม่ตาม instruction นี้)\n==================================================\n${adjustNote.trim()}\n\nให้เขียนบทความใหม่ทั้งหมด โดยแก้ไขตาม Adjust instruction ด้านบนอย่างเคร่งครัด\n`
   }
 
-  const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8'
+  const model = OR_MODELS.writer()
+
+  // CSS กลางของบทความ — compile จากค่า Article Lab แบบ deterministic (AI ไม่ทาสีเอง)
+  const articleCss = buildArticleCss({
+    themeColor: resolvedColorTheme || resolvedAccentColor || '#2563eb',
+    textColor: resolvedColorText || '#000000',
+    borderColor: resolvedColorBorder || '#e2e8f0',
+    accentColor: resolvedColorAccent || resolvedAccentColor || '#2563eb',
+    backgroundColor: resolvedColorBackground || '',
+    elementStyles: resolvedElementStyles,
+    typography,
+  })
+  /** sanitize → ครอบ wrapper มาตรฐาน (+CSS ตามโหมด) → แปะ Schema JSON-LD ที่ generate
+   *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="mars-article">
+   *  (schema ของ AI/รอบก่อนถูกถอดทิ้งเสมอ กัน URL มั่วและกัน FAQPage ไม่ตรงเนื้อหา) */
+  const finalizeArticleHtml = (raw: string): string => {
+    const body = wrapArticleHtml(stripSchemaScripts(sanitizeArticleHtml(raw)), resolvedStyleMode === 'embed' ? articleCss : null)
+    const metaBlock = body.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
+    const metaOf = (k: string) => metaBlock.match(new RegExp(`${k}\\s*:\\s*(.+)`, 'i'))?.[1]?.trim() ?? ''
+    type CtaChan = { type?: string; label?: string; value?: string }
+    const ctaChannels = ((cta?.channels ?? []) as CtaChan[]).filter((c): c is CtaChan & { value: string } => !!c.value)
+    const schema = buildArticleSchema({
+      html: body,
+      title,
+      metaDescription: metaOf('meta_description') || undefined,
+      slug: metaOf('en_slug') || undefined,
+      siteUrl: resolvedWebsiteUrl || undefined,
+      siteName: resolvedSiteName || undefined,
+      authorName: resolvedAuthorName || undefined,
+      authorTitle: resolvedAuthorTitle || undefined,
+      contact: {
+        phones: ctaChannels.filter(c => /phone|tel|โทร/i.test(`${c.type} ${c.label}`) || /^0\d{8,9}$/.test(c.value.replace(/[\s-]/g, ''))).map(c => c.value),
+        email: ctaChannels.find(c => /mail/i.test(`${c.type} ${c.label}`) || c.value.includes('@'))?.value,
+      },
+      serviceName: ((_dbProj as { businessType?: string | null } | null)?.businessType ?? '').trim() || undefined,
+    })
+    return `${schema}\n${body}`
+  }
 
   if (!doStream) {
-    const msg = await client.messages.create({
-      model, max_tokens: 20000,
+    const msg = await orChat({
+      model, maxTokens: 20000, timeoutMs: 600_000,
       messages: [{ role: 'user', content: articlePrompt }],
     })
-    let html = msg.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
-    html = html.trim().replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim()
+    let html = sanitizeArticleHtml(msg.text)
 
     if (orgId && userId) {
       await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
         jobType: 'ARTICLE_WRITE', modelName: model,
-        inputTokens: msg.usage.input_tokens, outputTokens: msg.usage.output_tokens, status: 'COMPLETED' })
+        inputTokens: msg.usage.inputTokens, outputTokens: msg.usage.outputTokens, status: 'COMPLETED' })
     }
 
     const [coverResult, midResult] = await Promise.all([
-      generateGeminiImage({ keyword, title, type: 'cover', siteName, brandTone, accentColor }),
-      generateGeminiImage({ keyword, title, type: 'mid', siteName, brandTone, accentColor }),
+      generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+      generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate, imageStyleGuide: resolvedImageStyleGuide }),
     ])
 
-    // Log Gemini image costs
+    // Log image generation costs
     if (orgId && userId) {
-      const geminiModel = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
+      const imageModel = OR_MODELS.image()
       if (coverResult.totalTokens || coverResult.costUsd) {
         await prisma.aIJob.create({ data: {
           organizationId: orgId, createdById: userId,
           projectId: projectId ?? null, articleId: articleId ?? null,
           jobType: 'IMAGE_COVER', status: 'SUCCESS',
-          modelProvider: 'GEMINI', modelName: geminiModel,
+          modelProvider: 'OPENROUTER', modelName: imageModel,
           tokenUsed: coverResult.totalTokens, estimatedCost: coverResult.costUsd,
         }}).catch(() => {})
       }
@@ -599,7 +714,7 @@ export async function POST(req: NextRequest) {
           organizationId: orgId, createdById: userId,
           projectId: projectId ?? null, articleId: articleId ?? null,
           jobType: 'IMAGE_MID', status: 'SUCCESS',
-          modelProvider: 'GEMINI', modelName: geminiModel,
+          modelProvider: 'OPENROUTER', modelName: imageModel,
           tokenUsed: midResult.totalTokens, estimatedCost: midResult.costUsd,
         }}).catch(() => {})
       }
@@ -607,12 +722,15 @@ export async function POST(req: NextRequest) {
 
     // Inject mid image into the middle of the article HTML (never at the end)
     if (midResult.imageBase64) {
-      html = injectMidImage(html, midResult.imageBase64, midResult.mimeType)
+      html = injectMidImage(html, midResult.imageBase64, midResult.mimeType, title || keyword)
     }
 
     // Append author box at the very end
     const authorHtml = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage)
     if (authorHtml) html = html + authorHtml
+
+    // ครอบ wrapper มาตรฐาน + CSS ตามโหมดของ client (ทำหลังใส่รูป/author ให้สไตล์คลุมถึง)
+    html = finalizeArticleHtml(html)
 
     await saveArticleHtml({ orgId, userId, projectId, keyword, title, html, keywordId: keywordId || undefined })
 
@@ -654,22 +772,27 @@ export async function POST(req: NextRequest) {
     let fullHtml = ''
     try {
       // Step 1: Write article (streaming)
-      send({ type: 'status', step: 'writing', message: '✍️ Claude กำลังเขียนบทความ...' })
-      const s = client.messages.stream({ model, max_tokens: 20000, messages: [{ role: 'user', content: articlePrompt }] })
-      for await (const chunk of s) {
-        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-          fullHtml += chunk.delta.text
-          send({ type: 'chunk', content: chunk.delta.text })
-        }
-      }
-      fullHtml = fullHtml.trim().replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim()
+      const ceInfo = [
+        ce.businessSkill && `Business Skill: ${ce.businessSkill.name} v${ce.businessSkill.version}`,
+        `Master Prompt: ${ce.masterPrompt!.name} v${ce.masterPrompt!.version}`,
+        ce.articleBrief && `Brief: ${ce.articleBrief.name} v${ce.articleBrief.version}`,
+        ce.validatorPack && `Validator: ${ce.validatorPack.name} v${ce.validatorPack.version}`,
+        ce.imagePrompt && `Image Prompt: ${ce.imagePrompt.name} v${ce.imagePrompt.version}`,
+      ].filter(Boolean).join(' · ')
+      send({ type: 'status', step: 'writing', message: `📚 Content Engine (${ce.scope === 'studio' ? 'ของ Studio' : 'ของโปรเจกต์นี้'}): ${ceInfo}` })
+      send({ type: 'status', step: 'writing', message: `✍️ ${model} กำลังเขียนบทความ...` })
+      const streamed = await orChatStream({
+        model, maxTokens: 20000,
+        messages: [{ role: 'user', content: articlePrompt }],
+        onDelta: (text) => { fullHtml += text; send({ type: 'chunk', content: text }) },
+      })
+      fullHtml = sanitizeArticleHtml(streamed.text)
 
       // Log article write job
-      const finalMsg = await s.finalMessage()
       if (orgId && userId) {
         await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
           jobType: 'ARTICLE_WRITE', modelName: model,
-          inputTokens: finalMsg.usage.input_tokens, outputTokens: finalMsg.usage.output_tokens, status: 'COMPLETED' })
+          inputTokens: streamed.usage.inputTokens, outputTokens: streamed.usage.outputTokens, status: 'COMPLETED' })
         // Activity log for tracking
         try {
           await prisma.activityLog.create({
@@ -678,30 +801,30 @@ export async function POST(req: NextRequest) {
               action: 'ARTICLE_WRITE',
               entityType: 'Article',
               entityId: projectId || 'unknown',
-              newValue: JSON.stringify({ keyword, title, model, tokens: finalMsg.usage.input_tokens + finalMsg.usage.output_tokens }),
+              newValue: JSON.stringify({ keyword, title, model, tokens: streamed.usage.totalTokens }),
             },
           })
         } catch { /* non-fatal */ }
       }
 
       // Step 2: Generate cover + mid images via Gemini in parallel
-      send({ type: 'status', step: 'cover', message: '🖼️ Gemini กำลังสร้างรูปปกและรูปประกอบ...' })
+      send({ type: 'status', step: 'cover', message: '🖼️ กำลังสร้างรูปปกและรูปประกอบ...' })
       const [coverResult, midResult] = await Promise.all([
-        generateGeminiImage({ keyword, title, type: 'cover', siteName, brandTone, accentColor }),
-        generateGeminiImage({ keyword, title, type: 'mid', siteName, brandTone, accentColor }),
+        generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+        generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate, imageStyleGuide: resolvedImageStyleGuide }),
       ])
       if (!coverResult.imageBase64) send({ type: 'status', step: 'cover', message: '⚠️ สร้างรูปปกไม่สำเร็จ (Gemini quota หรือ key หมด) — บทความยังใช้ได้' })
       if (!midResult.imageBase64) send({ type: 'status', step: 'cover', message: '⚠️ สร้างรูปประกอบไม่สำเร็จ — ดำเนินการต่อโดยไม่มีรูปประกอบ' })
 
-      // Log Gemini image costs (streaming path)
+      // Log image generation costs (streaming path)
       if (orgId && userId) {
-        const geminiModel = process.env.VERTEX_GEMINI_IMAGE_MODEL || process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
+        const imageModel = OR_MODELS.image()
         if (coverResult.totalTokens || coverResult.costUsd) {
           prisma.aIJob.create({ data: {
             organizationId: orgId, createdById: userId,
             projectId: projectId ?? null, articleId: articleId ?? null,
             jobType: 'IMAGE_COVER', status: 'SUCCESS',
-            modelProvider: 'GEMINI', modelName: geminiModel,
+            modelProvider: 'OPENROUTER', modelName: imageModel,
             tokenUsed: coverResult.totalTokens, estimatedCost: coverResult.costUsd,
           }}).catch(() => {})
         }
@@ -710,7 +833,7 @@ export async function POST(req: NextRequest) {
             organizationId: orgId, createdById: userId,
             projectId: projectId ?? null, articleId: articleId ?? null,
             jobType: 'IMAGE_MID', status: 'SUCCESS',
-            modelProvider: 'GEMINI', modelName: geminiModel,
+            modelProvider: 'OPENROUTER', modelName: imageModel,
             tokenUsed: midResult.totalTokens, estimatedCost: midResult.costUsd,
           }}).catch(() => {})
         }
@@ -718,12 +841,15 @@ export async function POST(req: NextRequest) {
 
       // Inject mid image into the middle of the article HTML (never at the end)
       if (midResult.imageBase64) {
-        fullHtml = injectMidImage(fullHtml, midResult.imageBase64, midResult.mimeType)
+        fullHtml = injectMidImage(fullHtml, midResult.imageBase64, midResult.mimeType, title || keyword)
       }
 
       // Append author box at the very end
       const authorHtmlBlock = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage)
       if (authorHtmlBlock) fullHtml = fullHtml + authorHtmlBlock
+
+      // ครอบ wrapper มาตรฐาน + CSS ตามโหมดของ client
+      fullHtml = finalizeArticleHtml(fullHtml)
 
       await saveArticleHtml({ orgId, userId, projectId, keyword, title, html: fullHtml, keywordId: keywordId || undefined })
 
@@ -736,8 +862,15 @@ export async function POST(req: NextRequest) {
 
     } catch (e: unknown) {
       send({ type: 'error', error: String(e) })
+      // สำคัญ: อย่าปล่อยบทความค้างสถานะ WRITING ใน DB — client จะได้รู้ว่าพังและสั่งเขียนใหม่ได้
+      if (orgId && projectId) {
+        prisma.article.updateMany({
+          where: { projectId, title, status: 'WRITING', project: { organizationId: orgId } },
+          data: { status: 'ERROR' },
+        }).catch(() => {})
+      }
     } finally {
-      writer.close()
+      try { await writer.close() } catch { /* client อาจปิด connection ไปแล้ว */ }
     }
   })()
 

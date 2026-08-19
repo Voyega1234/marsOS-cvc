@@ -7,7 +7,7 @@ import type { ContentMapOutput } from "@/services/ai/types";
 
 export default async function ContentMapPage({ params }: { params: { id: string } }) {
   const session = await getSession();
-  if (!session?.user?.organizationId) redirect("/login");
+  if (!session?.user?.organizationId) redirect("/setup");
   const orgId = session.user.organizationId;
 
   const project = await prisma.project.findFirst({
