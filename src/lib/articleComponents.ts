@@ -109,17 +109,23 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
   const accent = opts.accentColor || theme
   const bg = opts.backgroundColor && opts.backgroundColor !== '#ffffff' ? opts.backgroundColor : ''
 
+  // Default typography แบบ Google (อ้างอิง policies.google.com — Google Sans/Roboto):
+  // Roboto + Noto Sans Thai ใช้เมื่อ client ไม่ได้ตั้งฟอนต์เองใน Article Lab
+  const GOOGLE_DEFAULT_STACK = "Roboto,'Noto Sans Thai',Arial,sans-serif"
+  const useGoogleDefault = !t?.fontFamily
+
   // ฟอนต์จาก element styles → @import ครั้งเดียว
   const fonts = new Set<string>()
   for (const st of Object.values(opts.elementStyles ?? {})) {
     if (st?.font) fonts.add(st.font)
   }
+  if (useGoogleDefault) { fonts.add('Roboto'); fonts.add('Noto Sans Thai') }
   const importLine = fonts.size > 0
     ? `@import url('https://fonts.googleapis.com/css2?${Array.from(fonts).map(f => `family=${f.replace(/ /g, '+')}:wght@400;500;700`).join('&')}&display=swap');\n`
     : ''
 
   const lines: string[] = []
-  lines.push(`.mars-article{${bg ? `background:${bg};` : ''}color:${text};${t?.fontFamily ? `font-family:${t.fontFamily};` : ''}${t?.fontSize ? `font-size:${t.fontSize};` : ''}line-height:${t?.lineHeight || '1.7'};${t?.letterSpacing && t.letterSpacing !== 'normal' ? `letter-spacing:${t.letterSpacing};` : ''}}`)
+  lines.push(`.mars-article{${bg ? `background:${bg};` : ''}color:${text};font-family:${t?.fontFamily || GOOGLE_DEFAULT_STACK};${t?.fontSize ? `font-size:${t.fontSize};` : ''}line-height:${t?.lineHeight || '1.7'};${t?.letterSpacing && t.letterSpacing !== 'normal' ? `letter-spacing:${t.letterSpacing};` : ''}}`)
   lines.push(`.mars-article h1,.mars-article h2,.mars-article h3,.mars-article h4,.mars-article h5,.mars-article h6{color:${theme};${t?.headingFont ? `font-family:${t.headingFont};` : ''}font-weight:${t?.headingWeight || '700'};line-height:1.35;margin:1.6em 0 .6em;}`)
   lines.push(`.mars-article h1{margin-top:0;}`)
   lines.push(`.mars-article p{margin:0 0 ${t?.paragraphMargin || '1.2em'};}`)
