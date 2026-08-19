@@ -1,55 +1,32 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
+import { createSupabaseServer } from "@/lib/supabase/server";
 import type { AppSession } from "@/lib/session-types";
 import type { Role } from "@/types";
 
 export type { AppSession };
 
 /**
- * ระบบล็อกอินถูกถอดออกแล้ว — ไม่มีหน้า /login และไม่มี middleware กั้นหน้าใด ๆ
- * เข้าแอปได้ทันที รอสลับไปใช้ Supabase Auth ตอน deploy
+ * getSession — Supabase Auth (user pool เดียวกับ plasai) → map เข้า User ของระบบ
  *
- * getSession() ยังคืน session หน้าตาเดิม (id / role / organizationId) เพื่อให้
- * การ scope ข้อมูลด้วย organizationId และการเช็ค role ที่กระจายอยู่ทั้งแอป
- * ทำงานต่อได้โดยไม่ต้องแก้ตาม ~150 ไฟล์
+ * กติกาเข้าระบบ (คำสั่งเจ้าของ 2026-08-19):
+ * 1. email ตรงกับ User ในระบบและ ACTIVE → เข้าได้ตาม role เดิม
+ * 2. email ลงท้าย @convertcake.com แต่ยังไม่มี User → สร้างให้อัตโนมัติ (SEO_MANAGER)
+ * 3. User ที่ INACTIVE หรือ email นอกเหนือจากนี้ → ปฏิเสธ (คืน null)
  *
- * ตอนต่อ Supabase ให้แก้เฉพาะฟังก์ชันนี้ฟังก์ชันเดียว: อ่าน user จาก Supabase
- * แล้ว map ลง AppSession รูปแบบเดิม ที่เหลือไม่ต้องแตะ
+ * ถ้า env Supabase ไม่ครบ (local dev) → fallback โหมดไม่มี login แบบเดิม
+ * (คืน ADMIN ที่ active คนแรก) — middleware ก็ผ่านหมดในโหมดนี้เช่นกัน
  *
- * cache() ของ React ทำให้ query นี้ยิงครั้งเดียวต่อ request (layout + page + API
- * เรียกซ้ำกันได้ฟรี) + cache ระดับ instance อีกชั้น (TTL 60 วิ) เพราะยังไม่มี
- * ระบบล็อกอิน — ทุก request ได้ user คนเดียวกันอยู่แล้ว ไม่ต้องยิง DB ซ้ำทุกครั้ง
- * (แก้/ปิด user มีผลช้าสุด 60 วิ — ยอมรับได้ก่อนมี Supabase Auth
- *  และตอนต่อ Supabase Auth ต้องถอด instance cache นี้ทิ้ง เพราะ session จะต่างกันต่อคน)
+ * cache() ของ React = ยิงครั้งเดียวต่อ request (ตัว cache 60 วิ ระดับ instance
+ * ที่เคยมีถูกถอดออกแล้ว — ใช้ไม่ได้เมื่อ session ต่างกันต่อคน)
  */
-let cachedUser: { user: Awaited<ReturnType<typeof findSessionUser>>; at: number } | null = null;
-const SESSION_CACHE_MS = 60_000;
 
-async function findSessionUser() {
-  // เลือก ADMIN ที่ active ก่อน ถ้าไม่มีจริง ๆ ค่อยรูดเอา user ที่ active คนแรก
-  return (
-    (await prisma.user.findFirst({
-      where: { status: "ACTIVE", role: "ADMIN" },
-      orderBy: { createdAt: "asc" },
-    })) ??
-    (await prisma.user.findFirst({
-      where: { status: "ACTIVE" },
-      orderBy: { createdAt: "asc" },
-    }))
-  );
-}
+const AUTO_PROVISION_DOMAIN = "@convertcake.com";
 
-export const getSession = cache(async (): Promise<AppSession | null> => {
-  let user;
-  if (cachedUser && Date.now() - cachedUser.at < SESSION_CACHE_MS) {
-    user = cachedUser.user;
-  } else {
-    user = await findSessionUser();
-    cachedUser = { user, at: Date.now() };
-  }
-
-  if (!user) return null;
-
+function toSession(user: {
+  id: string; name: string | null; email: string; image: string | null;
+  role: string; organizationId: string | null;
+}): AppSession {
   return {
     user: {
       id: user.id,
@@ -60,4 +37,50 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
       organizationId: user.organizationId,
     },
   };
+}
+
+export const getSession = cache(async (): Promise<AppSession | null> => {
+  const supabase = createSupabaseServer();
+
+  // ── โหมด local dev (ไม่มี env Supabase) — พฤติกรรมเดิมก่อนมี login ──
+  if (!supabase) {
+    const user =
+      (await prisma.user.findFirst({ where: { status: "ACTIVE", role: "ADMIN" }, orderBy: { createdAt: "asc" } })) ??
+      (await prisma.user.findFirst({ where: { status: "ACTIVE" }, orderBy: { createdAt: "asc" } }));
+    return user ? toSession(user) : null;
+  }
+
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  if (!authUser?.email) return null;
+  const email = authUser.email.toLowerCase();
+
+  const existing = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+  });
+
+  if (existing) {
+    // INACTIVE = ถูกปิดสิทธิ์ (เช่น adminseo/userseo เก่า) — ห้ามเข้าแม้ login ผ่าน
+    if (existing.status !== "ACTIVE") return null;
+    return toSession(existing);
+  }
+
+  // ── auto-provision: @convertcake.com เข้าครั้งแรก สร้าง User ให้เอง ──
+  if (email.endsWith(AUTO_PROVISION_DOMAIN)) {
+    const org = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" } });
+    if (!org) return null;
+    const created = await prisma.user.create({
+      data: {
+        email,
+        name: (authUser.user_metadata?.full_name as string | undefined)
+          ?? email.split("@")[0],
+        role: "SEO_MANAGER",
+        status: "ACTIVE",
+        organizationId: org.id,
+        password: "",
+      },
+    });
+    return toSession(created);
+  }
+
+  return null;
 });

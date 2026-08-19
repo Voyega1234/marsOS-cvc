@@ -1,6 +1,8 @@
 "use client";
 
 import { useSession } from "@/components/layout/SessionProvider";
+import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { LogOut } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -209,6 +211,16 @@ function SidebarInner() {
                   {userRole}
                 </span>
               </div>
+              <button
+                title="ออกจากระบบ"
+                onClick={async () => {
+                  try { await createSupabaseBrowser().auth.signOut(); } catch { /* env ไม่ครบ (dev) */ }
+                  window.location.href = "/login";
+                }}
+                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
+              >
+                <LogOut size={13} />
+              </button>
             </div>
           )}
         </SidebarFooter>

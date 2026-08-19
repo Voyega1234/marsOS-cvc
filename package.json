@@ -36,6 +36,8 @@
     "@radix-ui/react-switch": "^1.1.0",
     "@radix-ui/react-tabs": "^1.1.0",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.3",
     "@tabler/icons-react": "^3.44.0",
     "@tiptap/extension-color": "^3.23.5",
     "@tiptap/extension-highlight": "^3.23.5",
