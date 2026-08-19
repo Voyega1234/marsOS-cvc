@@ -957,9 +957,15 @@ export function ContentStudioClient() {
           <div className="flex-1 flex flex-col overflow-hidden bg-white">
             {/* Top toolbar */}
             <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
-              {articleHtml && (
+              {(articleHtml || settings.keyword) && (
                 <button
-                  onClick={() => { setAndPersistHtml(""); setViewMode("preview"); }}
+                  onClick={() => {
+                    // ล้างงานชิ้นนี้ทิ้งทั้งชุด — ทั้งร่างบทความและหัวข้อที่ค้างอยู่ใน localStorage
+                    // (ค่าสไตล์/สี/CTA เก็บไว้ เพราะเป็นค่าตั้งของเครื่อง ไม่ใช่ข้อมูลงาน)
+                    setAndPersistHtml("");
+                    updateSettings({ keyword: "" });
+                    setViewMode("preview");
+                  }}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 text-xs transition-colors"
                 >
                   <RotateCcw className="h-3 w-3" /> Clear
