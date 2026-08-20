@@ -228,17 +228,23 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
   async function deleteRow(row: BankKeyword) {
     if (isReadOnly) return
     if (!confirm(`ลบ "${row.keyword}" ออกจากคลัง keyword?`)) return
-    setRows(prev => prev.filter(r => r.id !== row.id))
-    setSelectedIds(prev => { const n = new Set(prev); n.delete(row.id); return n })
-    try { await fetch(`/api/keywords/${row.id}`, { method: 'DELETE' }) }
+    // ลบทุกแถวที่เป็น keyword เดียวกัน — คลังเคยสะสมแถวซ้ำจาก import ซ้ำ
+    // ลบตัวเดียวแล้วตัวซ้ำยังอยู่ = ผู้ใช้เห็นเหมือน "กดแล้วไม่ลบจริง"
+    const key = row.keyword.trim().toLowerCase()
+    const ids = rows.filter(r => r.keyword.trim().toLowerCase() === key).map(r => r.id)
+    setRows(prev => prev.filter(r => !ids.includes(r.id)))
+    setSelectedIds(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n })
+    try { await Promise.all(ids.map(id => fetch(`/api/keywords/${id}`, { method: 'DELETE' }))) }
     catch { toast.error('ลบไม่สำเร็จ') }
   }
 
   async function bulkDelete() {
     if (isReadOnly || !selectedIds.size) return
     if (!confirm(`ลบ ${selectedIds.size} keywords ที่เลือก?`)) return
-    const ids = Array.from(selectedIds)
-    setRows(prev => prev.filter(r => !selectedIds.has(r.id)))
+    // รวม keyword ของแถวที่เลือก แล้วลบทุกแถวที่ตรง keyword (รวมตัวซ้ำที่ไม่ได้ติ๊ก)
+    const keys = new Set(rows.filter(r => selectedIds.has(r.id)).map(r => r.keyword.trim().toLowerCase()))
+    const ids = rows.filter(r => keys.has(r.keyword.trim().toLowerCase())).map(r => r.id)
+    setRows(prev => prev.filter(r => !ids.includes(r.id)))
     setSelectedIds(new Set())
     try {
       await Promise.all(ids.map(id => fetch(`/api/keywords/${id}`, { method: 'DELETE' })))

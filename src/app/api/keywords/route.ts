@@ -33,20 +33,31 @@ export async function POST(req: NextRequest) {
   const project = await prisma.project.findFirst({ where: { id: body.projectId, organizationId: orgId }, select: { id: true } });
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const keyword = await prisma.keyword.create({
-    data: {
-      projectId:       project.id,
-      seedKeyword:     String(body.seedKeyword ?? ""),
-      keyword:         String(body.keyword ?? body.seedKeyword ?? ""),
-      relatedKeywords: body.relatedKeywords ?? "[]",
-      intent:          body.intent          ?? "INFORMATIONAL",
-      funnelStage:     body.funnelStage     ?? "TOFU",
-      priority:        Number(body.priority ?? 0),
-      volume:          body.volume     != null ? Number(body.volume)     : undefined,
-      difficulty:      body.difficulty != null ? Number(body.difficulty) : undefined,
-      status:          body.status ?? "NEW",
-    },
-  });
-  logActivity({ organizationId: orgId, userId: session!.user.id, action: 'CREATE', entityType: 'Keyword', entityId: keyword.id, newValue: keyword.keyword })
-  return NextResponse.json(keyword, { status: 201 });
+  const kw = String(body.keyword ?? body.seedKeyword ?? "").trim();
+
+  // dedupe ด้วย (projectId, keyword) — เดิม create ทุกครั้ง ทำให้เกิดแถวซ้ำสะสม
+  // (เช่น กด "ส่งเข้า Content Map" หลายรอบ จะยิง keyword ชุดเดิมเข้ามาใหม่ทั้งหมด)
+  // พอมีตัวซ้ำ การลบทีละแถวใน Keyword Bank เลยเหมือนลบไม่ออก เพราะตัวซ้ำยังอยู่
+  const existing = kw
+    ? await prisma.keyword.findFirst({ where: { projectId: project.id, keyword: kw }, select: { id: true } })
+    : null;
+
+  const data = {
+    seedKeyword:     String(body.seedKeyword ?? ""),
+    keyword:         kw,
+    relatedKeywords: body.relatedKeywords ?? "[]",
+    intent:          body.intent          ?? "INFORMATIONAL",
+    funnelStage:     body.funnelStage     ?? "TOFU",
+    priority:        Number(body.priority ?? 0),
+    volume:          body.volume     != null ? Number(body.volume)     : undefined,
+    difficulty:      body.difficulty != null ? Number(body.difficulty) : undefined,
+    status:          body.status ?? "NEW",
+  };
+
+  const keyword = existing
+    ? await prisma.keyword.update({ where: { id: existing.id }, data })
+    : await prisma.keyword.create({ data: { projectId: project.id, ...data } });
+
+  logActivity({ organizationId: orgId, userId: session!.user.id, action: existing ? 'UPDATE' : 'CREATE', entityType: 'Keyword', entityId: keyword.id, newValue: keyword.keyword })
+  return NextResponse.json(keyword, { status: existing ? 200 : 201 });
 }
