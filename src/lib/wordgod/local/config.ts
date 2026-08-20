@@ -118,3 +118,10 @@ export const LOCATION_PAGE_RULES = {
   /** เกินจำนวนนี้ให้เตือนเรื่อง doorway page */
   doorwayWarningThreshold: 5,
 };
+
+/**
+ * ค่าเริ่มต้นของการคัดคำสุดท้าย (§ selection) — ไม่แตะสูตรคะแนน/badge
+ * salesRatio: สัดส่วนคำเชิงขาย vs คำเชิง traffic ในผลลัพธ์สุดท้าย
+ * maxPerCluster: กันคลัสเตอร์เดียวยึดตารางทั้งหมด
+ */
+export const SELECTION_DEFAULTS = { salesRatio: 0.5, maxPerCluster: 2 } as const;

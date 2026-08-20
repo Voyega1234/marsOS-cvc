@@ -7108,7 +7108,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
           <KeywordsTab project={project} keywords={keywords} setKeywords={setKeywords} onDone={() => setTab('keyword-bank')} selectedKws={selectedKws} setSelectedKws={setSelectedKws} priorityScore={kwPriorityScorerRef.current} userRole={userRole} />
         )}
         {tab === 'keyword-bank' && (
-          <KeywordBankTab project={project} onSendToContentMap={(rows) => { setWgContentMapKws(rows); setTab('content-map') }} userRole={userRole} />
+          <KeywordBankTab project={project} onSendToContentMap={(rows) => { setWgContentMapKws(rows); setSelectedKws(new Set()); setTab('content-map') }} userRole={userRole} />
         )}
         {tab === 'content-map' && (
           loadingBankForMap && wgContentMapKws.length === 0 ? (

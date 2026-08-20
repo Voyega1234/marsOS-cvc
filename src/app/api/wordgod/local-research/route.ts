@@ -17,9 +17,13 @@ import {
   generateLocalCandidates,
   KP_LOOKUP_LIMIT,
   LOCAL_KEYWORD_WEIGHTS,
+  runLocalProblemDiscovery,
+  selectBalancedKeywords,
   type LocalRawItem,
   type MetricRecord,
 } from '@/lib/wordgod/local';
+import { runProblemToKeywordExpander } from '@/lib/skills/problemFirstSkill';
+import { clusterKeywords, type PipelineKeyword } from '@/lib/skills/topicClusterSkill';
 import type {
   LocalArea,
   LocalAreaType,
@@ -42,7 +46,7 @@ import {
   type ResolvedGeoTarget,
 } from '@/lib/wordgod/services/googleKeywordPlannerService';
 import { getDataForSeoVolumes, hasDataForSeoCreds } from '@/lib/wordgod/services/dataForSeoService';
-import { callGemini } from '@/lib/wordgod/gemini';
+import { callGemini, callGeminiWithGrounding } from '@/lib/wordgod/gemini';
 import { DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
 
 export const maxDuration = 300;
@@ -191,6 +195,41 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Problem-first: แตก topic universe → ปัญหาลูกค้า → คำ solution/วิธี/ความรู้ ──
+  // วิธีเดียวกับโหมด "ไม่มีหน้าร้าน" แต่ยิงผ่าน OpenRouter (คงโฟกัส location โดยไม่
+  // เติมชื่อเขตต่อท้าย) — คำจากขั้นนี้เป็น "ครึ่ง traffic / บทความ" ของผลลัพธ์
+  // และจะถูกดึง volume จริงต่อไปเหมือนคำอื่น (คำไหน volume=0 ก็ถูกตัดตามกติกา §32)
+  const generatedTrafficKeys = new Set<string>();
+  const useProblemFirst = body.useProblemFirst !== false;
+  if (useProblemFirst) {
+    try {
+      const niche = services.join(' / ');
+      const excludeSet = new Set(Array.from(items.keys()));
+      const groundedCb = (p: string) => callGeminiWithGrounding(p, true);
+      const { problems } = await runLocalProblemDiscovery(
+        { services, primaryLocation, nearbyLocations, businessContext: input.businessContext, language },
+        { callGeminiWithGrounding: groundedCb }
+      );
+      if (problems.length > 0) {
+        const expanded = await runProblemToKeywordExpander(problems, niche, excludeSet, () => {}, groundedCb);
+        let addedPf = 0;
+        for (const pk of expanded.keywords) {
+          const keyword = normalizeThaiSpacing(pk.keyword);
+          const key = dedupeKey(keyword);
+          if (!key || items.has(key)) continue;
+          items.set(key, { keyword, sources: ['generated'] as LocalKeywordSource[], metric: null });
+          generatedTrafficKeys.add(key);
+          addedPf++;
+        }
+        if (addedPf > 0) {
+          warnings.push(`เพิ่มคำปัญหา/วิธี/ความรู้ (topic universe) ${addedPf} คำ จาก ${problems.length} ปัญหาจริงของลูกค้า — เป็นคำ traffic/บทความ จะดึง volume จริงต่อไป`);
+        }
+      }
+    } catch (err) {
+      warnings.push(`สร้างคำปัญหา/บทความอัตโนมัติไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+    }
+  }
+
   // ── Google Keyword Planner ────────────────────────────────────────────────
   let kpStatus: 'ok' | 'partial' | 'unavailable' | 'skipped' = 'skipped';
   let kpMessage: string | undefined;
@@ -275,6 +314,33 @@ export async function POST(req: NextRequest) {
           : 'partial';
         if (enrichedCount === 0) {
           kpMessage = 'Keyword Planner ไม่มีข้อมูลปริมาณการค้นหาสำหรับคำในชุดนี้';
+        }
+
+        // ── volume ระดับประเทศสำหรับคำ problem/traffic (บทความ) ──
+        // คำหาความรู้/วิธี/ปัญหา แทบไม่มี volume ระดับเขต ถ้าใช้ geo เขตจะโดนตัดทิ้งหมด
+        // จึงยิงซ้ำที่ระดับประเทศ (Thailand) เฉพาะคำกลุ่มนี้ที่ยังไม่มี metric
+        if (generatedTrafficKeys.size > 0) {
+          const pfKeywords = Array.from(items.values())
+            .filter(it => generatedTrafficKeys.has(dedupeKey(it.keyword)) && !it.metric)
+            .map(it => it.keyword)
+            .slice(0, KP_LOOKUP_LIMIT);
+          if (pfKeywords.length > 0) {
+            const natMetrics = await getHistoricalMetrics(
+              pfKeywords, config, accessToken, 'th', 'Thailand', warning => warnings.push(warning)
+            );
+            let natEnriched = 0;
+            for (const item of Array.from(items.values())) {
+              if (item.metric) continue;
+              const entry = natMetrics.get(item.keyword.trim().toLowerCase());
+              if (!entry) continue;
+              item.metric = toMetricRecord(entry);
+              item.sources = Array.from(new Set([...item.sources, 'keyword_planner' as LocalKeywordSource]));
+              enrichedCount++;
+              natEnriched++;
+            }
+            kpCalls += pfKeywords.length;
+            if (natEnriched > 0) warnings.push(`ดึง Search Volume ระดับประเทศให้คำ traffic/บทความ ${natEnriched} คำ`);
+          }
         }
 
         // ── ขยายผลด้วยไอเดียจริงจาก KP (ตัวเลือกเสริม) ────────────────────
@@ -370,7 +436,7 @@ export async function POST(req: NextRequest) {
             if (unsureBatch.length > 0) {
               try {
                 const relevancePrompt = `ธุรกิจ: ${services.join(', ')}${body.businessContext ? ` — ${body.businessContext}` : ''}
-จากรายการ keyword ต่อไปนี้ เลือกเฉพาะคำที่เกี่ยวข้องกับธุรกิจนี้และมีโอกาสสร้างยอดขาย/ดึงลูกค้า (รวมคำเชิงปัญหา เช่น อาการเสีย, ราคา, เปรียบเทียบ) ตัดคำที่เป็นคนละธุรกิจทิ้ง
+จากรายการ keyword ต่อไปนี้ เลือกเฉพาะคำที่เกี่ยวข้องกับธุรกิจนี้ ทั้งคำที่มีโอกาสสร้างยอดขาย/ดึงลูกค้า (ราคา อาการเสีย เปรียบเทียบ) และคำหาความรู้/วิธี/ข้อมูลที่ดึง traffic เข้าเว็บ (เช่น วิธี..., ...คืออะไร, ...บ่อยแค่ไหน) ตัดเฉพาะคำที่เป็นคนละธุรกิจทิ้ง
 ตอบเป็น JSON array ของ keyword ที่เลือกเท่านั้น: ["...","..."]
 Keywords:
 ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
@@ -476,7 +542,10 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
   }
 
   const ranked = assembleResults(volumeBacked, input);
-  const keepKeywords = new Set(ranked.results.slice(0, targetCount).map(r => dedupeKey(r.keyword)));
+  // คัดเข้าตารางสุดท้าย: สัดส่วน sales/traffic 50/50 + กันคลัสเตอร์เดียวยึดตาราง
+  // (ไม่แตะสูตรคะแนน/badge — แค่เลือกว่าใครได้เข้าไปอยู่ในตาราง)
+  const balanced = selectBalancedKeywords(ranked.results, { targetCount, salesRatio: 0.5, maxPerCluster: 2 });
+  const keepKeywords = new Set(balanced.map(r => dedupeKey(r.keyword)));
   const finalItems = volumeBacked.filter(item => keepKeywords.has(dedupeKey(item.keyword)));
   if (ranked.results.length > targetCount) {
     warnings.push(`แสดง ${targetCount} คำแรกตามคะแนนโอกาส (จากทั้งหมด ${ranked.results.length} คำที่มี volume)`);
@@ -510,24 +579,81 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
     warnings.push(`เขียน title/slug อัตโนมัติไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
   }
 
-  // ── แบ่ง sitemap: จัดหน้าเว็บจาก suggestedPage + cluster ──
-  const sitemapMap = new Map<string, { page: string; pageType: string; slug: string; keywords: Array<{ keyword: string; volume: number | null; title?: string }> }>();
-  for (const r of results) {
-    const pageType = r.suggestedPage ?? 'blog';
-    const groupName = r.cluster ?? `${r.service}`;
-    const key = `${pageType}::${groupName}`;
-    if (!sitemapMap.has(key)) {
-      const top = r.slug || dedupeKey(groupName).replace(/\s+/g, '-');
-      sitemapMap.set(key, { page: groupName, pageType: String(pageType), slug: top, keywords: [] });
+  // ── โครงสร้างเว็บทั้งไซต์: จัด pillar/cluster แบบเดียวกับโหมด "ไม่มีหน้าร้าน" ──
+  // (degradable — ถ้า LLM ล้มเหลว sitemap ยังใช้ category จาก local cluster ได้)
+  // ไม่ยุบบทความ: ยังคง 1 keyword = 1 บทความ แค่ติดป้ายว่าอยู่ pillar/cluster ไหน
+  type ClusterMembership = { clusterId: number; clusterName: string; role: 'pillar' | 'supporting'; pillarSlug: string };
+  const clusterByKey = new Map<string, ClusterMembership>();
+  let topicClusters: Array<{ clusterId: number; name: string; pillarSlug: string; memberSlugs: string[]; totalVolume: number }> = [];
+  const buildTopicClusters = body.buildTopicClusters !== false;
+  if (buildTopicClusters && results.length > 1) {
+    try {
+      const pipelineKws: PipelineKeyword[] = results.map(r => ({
+        keyword: r.keyword,
+        title: r.suggestedTitle || r.keyword,
+        volume: r.volume ?? 0,
+        opportunity_score: r.score?.total ?? 0,
+        priority: String(r.score?.total ?? ''),
+        intent: r.intents?.[0] ?? 'informational',
+        aeo_question: '',
+      }));
+      const niche = services.join(' / ');
+      const clusterResult = await clusterKeywords(pipelineKws, niche, (p: string) => callGemini(p));
+      for (const c of clusterResult.clusters) {
+        const pillarSlug = c.pillar.slug;
+        clusterByKey.set(dedupeKey(c.pillar.keyword), { clusterId: c.cluster_id, clusterName: c.cluster_name, role: 'pillar', pillarSlug });
+        for (const s of c.supporting) {
+          clusterByKey.set(dedupeKey(s.keyword), { clusterId: c.cluster_id, clusterName: c.cluster_name, role: 'supporting', pillarSlug });
+        }
+      }
+      topicClusters = clusterResult.clusters.map(c => ({
+        clusterId: c.cluster_id,
+        name: c.cluster_name,
+        pillarSlug: c.pillar.slug,
+        memberSlugs: [c.pillar.slug, ...c.supporting.map(s => s.slug)],
+        totalVolume: c.total_volume,
+      }));
+    } catch (err) {
+      warnings.push(`จัดโครงสร้าง pillar/cluster ไม่สำเร็จ — ใช้หมวดจาก local cluster แทน (${err instanceof Error ? err.message.slice(0, 60) : String(err)})`);
     }
-    sitemapMap.get(key)!.keywords.push({ keyword: r.keyword, volume: r.volume ?? null, title: r.suggestedTitle });
   }
-  const sitemap = Array.from(sitemapMap.values()).sort((a, b) => b.keywords.length - a.keywords.length);
 
-  const response: LocalResearchResponse & { sitemap: typeof sitemap } = {
+  // ── แบ่ง sitemap: 1 keyword = 1 บทความ/หน้า ──
+  // โมเดลของโปรเจกต์คือ "หนึ่งคีย์เวิร์ดต่อหนึ่งบทความ" จึงไม่จับหลายคำรวมเป็นหน้าเดียว
+  // (การกันคำซ้ำ/ทับหัวข้อทำที่ชั้น selection แล้ว — 50/50 + cap ต่อ cluster + แยก intent)
+  // คำ traffic/ปัญหา (topic universe) → บทความ (blog) ให้ชัด "เน้นบทความ" ตามที่ขอ
+  const seenSitemapKey = new Set<string>();
+  const sitemap = results
+    .filter(r => {
+      const k = dedupeKey(r.keyword);
+      if (!k || seenSitemapKey.has(k)) return false;
+      seenSitemapKey.add(k);
+      return true;
+    })
+    .map(r => {
+      const key = dedupeKey(r.keyword);
+      const membership = clusterByKey.get(key);
+      const isArticle = generatedTrafficKeys.has(key);
+      const pageType = isArticle ? 'blog' : (r.suggestedPage ?? 'blog');
+      const slug = r.slug || key.replace(/\s+/g, '-');
+      return {
+        page: r.suggestedTitle || r.keyword,
+        pageType: String(pageType),
+        slug,
+        category: membership?.clusterName ?? r.cluster ?? r.service,
+        clusterId: membership?.clusterId,
+        pillarSlug: membership?.pillarSlug,
+        role: membership?.role ?? 'standalone' as 'pillar' | 'supporting' | 'standalone',
+        keywords: [{ keyword: r.keyword, volume: r.volume ?? null, title: r.suggestedTitle }],
+      };
+    })
+    .sort((a, b) => (b.keywords[0].volume ?? 0) - (a.keywords[0].volume ?? 0));
+
+  const response: LocalResearchResponse & { sitemap: typeof sitemap; topicClusters: typeof topicClusters } = {
     results,
     clusters,
     sitemap,
+    topicClusters,
     meta: {
       generatedCount: candidates.length,
       enrichedCount,

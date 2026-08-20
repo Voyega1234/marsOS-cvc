@@ -146,8 +146,14 @@ export function assembleResults(
 }
 
 export { generateLocalCandidates } from './seedGeneration';
-export { LOCAL_KEYWORD_WEIGHTS, PRIORITY_THRESHOLDS, KP_LOOKUP_LIMIT } from './config';
+export { LOCAL_KEYWORD_WEIGHTS, PRIORITY_THRESHOLDS, KP_LOOKUP_LIMIT, SELECTION_DEFAULTS } from './config';
 export { scoreBreakdown } from './scoring';
 export { SUGGESTED_PAGE_LABELS } from './clustering';
 export { INTENT_TAG_LABELS, MODIFIER_GROUP_LABELS } from './intentModifiers';
 export { dedupeKey, displayForm } from './normalize';
+export { selectBalancedKeywords, type SelectionOptions } from './selection';
+export {
+  runLocalProblemDiscovery,
+  type LocalProblemDiscoveryInput,
+  type LocalProblemDiscoveryResult,
+} from './problemDiscovery';

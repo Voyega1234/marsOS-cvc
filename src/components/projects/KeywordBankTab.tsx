@@ -102,6 +102,11 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
   const [filterIntent, setFilterIntent] = useState('All')
   const [filterFunnel, setFilterFunnel] = useState('All')
 
+  // จำนวน keyword ที่จะส่งเข้า Content Map (ใช้เมื่อไม่ได้ติ๊กเลือกเอง) — Infinity = ทั้งหมด
+  const [sendCount, setSendCount] = useState<number>(20)
+  // เรียงตาม Volume จากหัวตาราง: none → desc → asc → none
+  const [volSort, setVolSort] = useState<'none' | 'desc' | 'asc'>('none')
+
   const [editingCell, setEditingCell] = useState<{ id: string; field: 'keyword' | 'title' | 'volume' | 'priority' } | null>(null)
   const [editValue, setEditValue] = useState('')
 
@@ -141,6 +146,20 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
     if (filterFunnel !== 'All' && r.funnelStage !== filterFunnel) return false
     return true
   }), [rows, search, filterIntent, filterFunnel])
+
+  // เรียงตาม Volume (คัดลอกก่อน sort — ไม่แตะ state) — แถวที่ไม่มี volume (null/0) อยู่ท้ายเสมอ
+  const sorted = useMemo(() => {
+    if (volSort === 'none') return filtered
+    const dir = volSort === 'desc' ? -1 : 1
+    const val = (r: BankKeyword) => (r.volume != null && r.volume > 0 ? r.volume : null)
+    return [...filtered].sort((a, b) => {
+      const av = val(a), bv = val(b)
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      return dir * (av - bv)
+    })
+  }, [filtered, volSort])
 
   const intentFilterOptions = useMemo(() => ['All', ...Array.from(new Set(rows.map(r => r.intent)))], [rows])
   const funnelFilterOptions = useMemo(() => ['All', ...Array.from(new Set(rows.map(r => r.funnelStage)))], [rows])
@@ -289,9 +308,12 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
   }
 
   function sendToContentMap() {
-    if (!selectedIds.size) return
-    const selRows = rows.filter(r => selectedIds.has(r.id))
-    onSendToContentMap(selRows.map((r, i) => toKeywordRow(r, i)))
+    // ติ๊กเลือกไว้ → ส่งเฉพาะที่เลือก (count ถูกละเว้น) | ไม่ได้เลือก → ส่ง top N ตามลำดับที่แสดง
+    const source = selectedIds.size
+      ? sorted.filter(r => selectedIds.has(r.id))
+      : (sendCount === Infinity ? sorted : sorted.slice(0, sendCount))
+    if (!source.length) return
+    onSendToContentMap(source.map((r, i) => toKeywordRow(r, i)))
   }
 
   return (
@@ -400,7 +422,17 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                   <Trash2 size={12} /> ลบที่เลือก
                 </button>
               )}
-              <button onClick={sendToContentMap} disabled={!selectedIds.size}
+              {!isReadOnly && (
+                <select value={sendCount === Infinity ? 'all' : String(sendCount)}
+                  onChange={e => setSendCount(e.target.value === 'all' ? Infinity : Number(e.target.value))}
+                  disabled={selectedIds.size > 0}
+                  title={selectedIds.size > 0 ? 'มีการติ๊กเลือกไว้แล้ว — จะส่งเฉพาะที่เลือก' : 'จำนวน keyword ที่จะส่ง (เรียงตามลำดับที่แสดง)'}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-40">
+                  {[10, 20, 30, 50, 100].map(n => <option key={n} value={n}>ส่ง {n} อันดับแรก</option>)}
+                  <option value="all">ส่งทั้งหมด</option>
+                </select>
+              )}
+              <button onClick={sendToContentMap} disabled={filtered.length === 0}
                 className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors">
                 ส่งเข้า Content Map <ArrowRight size={12} />
               </button>
@@ -417,12 +449,19 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                       className="rounded border-gray-300 text-brand-blue focus:ring-blue-500 cursor-pointer" />
                   </th>
                   {['Keyword', 'Title', 'Volume', 'Intent', 'Funnel', 'Priority', 'Status', 'ที่มา', 'อัปเดตล่าสุด', ''].map(h => (
-                    <th key={h} className="text-left px-3 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    h === 'Volume' ? (
+                      <th key={h} onClick={() => setVolSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
+                        className="text-left px-3 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:text-gray-600">
+                        <span className="inline-flex items-center gap-1">Volume {volSort === 'desc' ? '▼' : volSort === 'asc' ? '▲' : ''}</span>
+                      </th>
+                    ) : (
+                      <th key={h} className="text-left px-3 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    )
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filtered.map(row => {
+                {sorted.map(row => {
                   const src = sourceLabel(row)
                   const intentOpts = INTENT_OPTIONS.includes(row.intent) ? INTENT_OPTIONS : [row.intent, ...INTENT_OPTIONS]
                   const funnelOpts = FUNNEL_OPTIONS.includes(row.funnelStage) ? FUNNEL_OPTIONS : [row.funnelStage, ...FUNNEL_OPTIONS]

@@ -195,8 +195,9 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
 
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState('');
-  type SitemapPage = { page: string; pageType: string; slug: string; keywords: Array<{ keyword: string; volume: number | null; title?: string }> };
-  const [data, setData] = useState<(LocalResearchResponse & { sitemap?: SitemapPage[] }) | null>(null);
+  type SitemapPage = { page: string; pageType: string; slug: string; category?: string; clusterId?: number; pillarSlug?: string; role?: 'pillar' | 'supporting' | 'standalone'; keywords: Array<{ keyword: string; volume: number | null; title?: string }> };
+  type TopicCluster = { clusterId: number; name: string; pillarSlug: string; memberSlugs: string[]; totalVolume: number };
+  const [data, setData] = useState<(LocalResearchResponse & { sitemap?: SitemapPage[]; topicClusters?: TopicCluster[] }) | null>(null);
   const [view, setView] = useState<'keywords' | 'clusters' | 'sitemap'>('keywords');
   const [targetCount, setTargetCount] = useState(50);
   const [chip, setChip] = useState('all');
@@ -773,6 +774,20 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
               </>
             ) : view === 'sitemap' ? (
               <div className="divide-y divide-[#eef1f7]">
+                {(data?.topicClusters ?? []).length > 0 ? (
+                  <div className="bg-[#f8fafd] px-4 py-3">
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-[#71809c]">โครงสร้างเว็บ · {data!.topicClusters!.length} กลุ่มหัวข้อ (pillar + บทความสนับสนุน)</p>
+                    <div className="flex flex-wrap gap-2">
+                      {data!.topicClusters!.map(tc => (
+                        <span key={tc.clusterId} className="inline-flex items-center gap-1.5 rounded-lg border border-[#e3e8f2] bg-white px-2.5 py-1 text-[11px] text-[#495975]" title={`pillar: /${tc.pillarSlug}`}>
+                          <span className="font-semibold text-[#17233a]">{tc.name}</span>
+                          <span className="text-[#91a0b8]">· {tc.memberSlugs.length} หน้า</span>
+                          {tc.totalVolume > 0 ? <span className="tabular-nums text-[#0d4fd8]">· {tc.totalVolume.toLocaleString('th-TH')}/ด.</span> : null}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {(data?.sitemap ?? []).length === 0 ? (
                   <div className="px-4 py-10 text-center text-[#91a0b8]">ยังไม่มีข้อมูล sitemap — รันการค้นหาก่อน</div>
                 ) : (data?.sitemap ?? []).map(pg => (
@@ -781,7 +796,9 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
                       <h3 className="text-sm font-bold text-[#17233a]">{pg.page}</h3>
                       <code className="rounded bg-[#f4f6fb] border border-[#e3e8f2] px-1.5 py-0.5 font-mono text-[10px] text-[#0d4fd8]">/{pg.slug}</code>
                       <span className="rounded-lg bg-[#eef1f7] px-2 py-1 text-[11px] font-semibold text-[#495975]">{pg.pageType}</span>
-                      <span className="text-[11px] text-[#71809c]">{pg.keywords.length} คำ</span>
+                      {pg.role === 'pillar' ? <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">PILLAR</span> : null}
+                      {pg.category ? <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800">{pg.category}</span> : null}
+                      <span className="ml-auto text-[11px] text-[#71809c]">1 บทความ</span>
                     </div>
                     <ul className="mt-2 grid gap-1 text-[11px] leading-5 text-[#495975] sm:grid-cols-2">
                       {pg.keywords.map(k => (
