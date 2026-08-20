@@ -17,6 +17,7 @@ import {
 
 import type { WorkspaceProject, WorkspaceLiveStats } from "./types";
 import { canSeeInternalCost } from "./types";
+import { useSeoTaskSync } from "./useSeoTaskSync";
 
 interface Props {
   project: WorkspaceProject;
@@ -242,6 +243,10 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
   useEffect(() => {
     load();
   }, [load]);
+
+  // แถบ SEO Checklist สรุปจาก SeoTask — งานถูกแก้ที่แท็บอื่น/แท็บ browser อื่นก็ให้ตามทัน
+  // guard เป็น (loading && !data) / (error && !data) อยู่แล้ว จึงไม่กระพริบเมื่อ refetch
+  useSeoTaskSync(project.id, load);
 
   function handleNavigate(tabId: string) {
     onNavigate?.(tabId);

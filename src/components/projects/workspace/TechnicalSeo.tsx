@@ -21,6 +21,7 @@ import {
   type SeoTaskPriority,
 } from "@/lib/seo-check-templates";
 import { SeoTaskChecklist, type SeoTaskStats } from "./SeoTaskChecklist";
+import { notifySeoTaskChange } from "./useSeoTaskSync";
 
 interface Props {
   project: WorkspaceProject;
@@ -151,6 +152,8 @@ export function TechnicalSeo({ project, userRole }: Props) {
         .join(" · ");
       toast.success(`สร้างงานจากผลตรวจแล้ว ${data.count ?? tasks.length} รายการ — ${breakdown}`);
       setChecklistKey((k) => k + 1);
+      // งานกระจายไปหลาย area — แจ้ง overview/timeline (รวมถึงแท็บ browser อื่น) ให้ตามทัน
+      notifySeoTaskChange(project.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "สร้างงานจากผลตรวจไม่สำเร็จ");
     } finally {

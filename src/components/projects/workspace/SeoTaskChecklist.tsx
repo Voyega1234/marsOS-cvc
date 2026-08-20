@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -21,6 +21,7 @@ import type {
   SeoTaskArea,
   SeoTaskPriority,
 } from "@/lib/seo-check-templates";
+import { notifySeoTaskChange, useSeoTaskSync } from "./useSeoTaskSync";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Types
@@ -122,9 +123,10 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
   const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
   const [evidencePromptTask, setEvidencePromptTask] = useState<SeoTask | null>(null);
   const [seedingTemplates, setSeedingTemplates] = useState(false);
+  const instanceId = useId(); // กันไม่ให้ตัวเอง refetch ซ้ำจาก event ที่ตัวเองแจ้ง
 
-  const fetchTasks = useCallback(async () => {
-    setLoading(true);
+  const fetchTasks = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/seo-tasks?area=${area}`);
@@ -132,15 +134,19 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
       const data = await res.json();
       setTasks(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "โหลดรายการงานไม่สำเร็จ");
+      if (!quiet) setError(e instanceof Error ? e.message : "โหลดรายการงานไม่สำเร็จ");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [projectId, area]);
 
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  // sync ข้ามหน้า/แท็บ/หน้าต่าง — refetch เงียบ ๆ ไม่ให้ skeleton กระพริบ
+  const quietRefetch = useCallback(() => fetchTasks(true), [fetchTasks]);
+  useSeoTaskSync(projectId, quietRefetch, instanceId);
 
   const stats = useMemo<SeoTaskStats>(() => {
     const done = tasks.filter((t) => t.status === "DONE").length;
@@ -215,6 +221,7 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
       if (!res.ok) throw new Error("เพิ่มงานไม่สำเร็จ");
       toast.success("เพิ่มงานแล้ว");
       await fetchTasks();
+      notifySeoTaskChange(projectId, instanceId);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "เพิ่มงานไม่สำเร็จ");
     }
@@ -235,6 +242,7 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
       const data = await res.json();
       toast.success(`เพิ่มงานจาก template แล้ว ${data.count ?? items.length} รายการ`);
       await fetchTasks();
+      notifySeoTaskChange(projectId, instanceId);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "เพิ่มงานจาก template ไม่สำเร็จ");
     }
@@ -250,6 +258,7 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
       if (!res.ok) throw new Error("บันทึกไม่สำเร็จ");
       const updated = await res.json();
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
+      notifySeoTaskChange(projectId, instanceId);
       return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
@@ -264,6 +273,7 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
       if (drawerTaskId === taskId) setDrawerTaskId(null);
       toast.success("ลบงานแล้ว");
+      notifySeoTaskChange(projectId, instanceId);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "ลบไม่สำเร็จ");
     }
@@ -318,7 +328,7 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
         </div>
         <button
           type="button"
-          onClick={fetchTasks}
+          onClick={() => fetchTasks()}
           className="flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
         >
           <RefreshCw className="h-3.5 w-3.5" />

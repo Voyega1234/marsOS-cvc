@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import type { WorkspaceProject } from "./types";
+import { useSeoTaskSync } from "./useSeoTaskSync";
 
 interface Props {
   project: WorkspaceProject;
@@ -186,8 +187,8 @@ export function ProjectTimeline({ project, userRole }: Props) {
 
   const isReadOnly = userRole === "CLIENT"; // read-only anyway — no mutations on this page
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const [projRes, artRes, taskRes] = await Promise.all([
@@ -214,15 +215,19 @@ export function ProjectTimeline({ project, userRole }: Props) {
       setArticles(Array.isArray(articlesJson) ? articlesJson : []);
       setSeoTasks(Array.isArray(seoTasksJson) ? seoTasksJson : []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "เกิดข้อผิดพลาดในการโหลดข้อมูล");
+      if (!quiet) setError(e instanceof Error ? e.message : "เกิดข้อผิดพลาดในการโหลดข้อมูล");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [project.id]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // งาน SEO ถูกแก้จากแท็บ On-Page/Technical/Indexing หรือแท็บ browser อื่น → refetch เงียบ ๆ
+  const quietRefetch = useCallback(() => fetchData(true), [fetchData]);
+  useSeoTaskSync(project.id, quietRefetch);
 
   // ── Derive content items: match timeline entry ↔ real article by trimmed title ──
   const items: TimelineItem[] = useMemo(() => {
@@ -450,7 +455,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
           </div>
           <button
             type="button"
-            onClick={fetchData}
+            onClick={() => fetchData()}
             className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
           >
             <RefreshCw className="h-3.5 w-3.5" />
