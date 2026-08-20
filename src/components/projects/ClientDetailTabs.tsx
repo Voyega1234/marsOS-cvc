@@ -1197,6 +1197,16 @@ function KeywordsTab({
     finally { setClearingKeywords(false) }
   }
 
+  // ปุ่ม "Reset Keywords" ในตารางผลลัพธ์ — ต้องล้าง cache ใน DB ด้วย ไม่งั้น refresh
+  // แล้วโหลดกลับมา (ปุ่มมี confirm ของตัวเองแล้ว จึงไม่ถามซ้ำ ไม่ยุ่งกับฟอร์ม CSV)
+  async function resetKeywordRows() {
+    setKeywords([])
+    setSelectedKws(new Set())
+    try {
+      await fetch(`/api/projects/${project.id}/keywords-cache`, { method: 'DELETE' })
+    } catch { /* non-fatal — เคลียร์ใน UI ไปแล้ว */ }
+  }
+
   const [csvText, setCsvText] = useState('')
   const [csvFileName, setCsvFileName] = useState('')
   const [parsedXlsxRows, setParsedXlsxRows] = useState<{ keyword: string; volume: number; title?: string; page_type?: string }[]>([])
@@ -1642,7 +1652,7 @@ function KeywordsTab({
           doneLabel={() => `บันทึกเข้าคลัง Keyword (${keywords.length}) →`}
           doneBusy={savingToBank}
           downloadCsv={downloadCsv} selectedKws={selectedKws} setSelectedKws={setSelectedKws}
-          priorityScore={priorityScore} isAdmin={isAdmin} setKeywords={setKeywords}
+          priorityScore={priorityScore} isAdmin={isAdmin} setKeywords={setKeywords} onReset={resetKeywordRows}
         />
       )}
     </div>
@@ -1682,7 +1692,7 @@ function ScoreBar({ value, color }: { value: number; color: string }) {
   )
 }
 
-function KeywordResultsTable({ keywords, onDone, doneLabel, doneBusy, downloadCsv, downloadHtml, selectedKws, setSelectedKws, priorityScore, isAdmin, setKeywords, hidePosStatus }: {
+function KeywordResultsTable({ keywords, onDone, doneLabel, doneBusy, downloadCsv, downloadHtml, selectedKws, setSelectedKws, priorityScore, isAdmin, setKeywords, onReset, hidePosStatus }: {
   keywords: KeywordRow[]
   onDone: () => void
   /** ข้อความบนปุ่มขั้นถัดไป (default: ไปคลัง Keyword) */
@@ -1695,6 +1705,8 @@ function KeywordResultsTable({ keywords, onDone, doneLabel, doneBusy, downloadCs
   priorityScore?: (kw: KeywordRow) => number
   isAdmin?: boolean
   setKeywords?: (kws: KeywordRow[]) => void
+  /** ล้าง keywords แบบถาวร (เคลียร์ทั้ง state และ cache ใน DB) — ถ้าไม่ส่งมาจะเคลียร์แค่ state */
+  onReset?: () => void
   hidePosStatus?: boolean
 }) {
   const [expanded, setExpanded] = useState<number | null>(null)
@@ -1834,8 +1846,12 @@ function KeywordResultsTable({ keywords, onDone, doneLabel, doneBusy, downloadCs
               <button
                 onClick={() => {
                   if (confirm(`ล้าง ${keywords.length} keywords ทั้งหมด? (ต้อง generate ใหม่)`)) {
-                    setKeywords([])
-                    setSelectedKws(new Set())
+                    if (onReset) {
+                      onReset() // เคลียร์ทั้ง state + cache ใน DB → refresh แล้วไม่กลับมา
+                    } else {
+                      setKeywords([])
+                      setSelectedKws(new Set())
+                    }
                   }
                 }}
                 className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 border border-red-200 rounded-lg transition-colors"

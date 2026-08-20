@@ -269,6 +269,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
   const seoAreas: Array<{ key: string; label: string; navTab: string }> = [
     { key: "ONPAGE", label: "On-Page", navTab: "on-page" },
     { key: "TECHNICAL", label: "Technical", navTab: "technical" },
+    { key: "INDEXING", label: "Indexing & Crawling", navTab: "indexing" },
   ];
 
   return (
