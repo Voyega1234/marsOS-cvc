@@ -142,6 +142,7 @@ export async function callGeminiImage(params: {
     ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a marketing cover banner — it MUST include Thai text rendered inside the image:
 - Main headline (dominant focal element, large bold legible Thai typography): "${title}"
 - Add 2-4 short supporting Thai callouts/badges derived from the brief (benefits, services, or trust marks)
+- Render every Thai word as clean, correctly-formed glyphs — never split, merge, duplicate, warp, or drop characters; keep every tone mark and vowel correctly attached to its base letter
 - Professional Thai advertising-banner layout with clear text hierarchy; keep every character fully inside safe margins, never clipped
 - Keep the headline and ALL text within the central vertical band — the top 10% and bottom 10% of the frame will be trimmed in post-processing
 - Spell all Thai words EXACTLY as provided — do not invent, translate, or misspell Thai text`
