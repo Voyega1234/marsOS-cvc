@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
       ? body.businessType
       : 'service_area';
   // จำนวนคีย์เวิร์ดที่ผู้ใช้ต้องการ (เลือกได้เหมือนโหมดไม่มีหน้าร้าน)
-  const targetCount = Math.min(Math.max(Number(body.targetCount) || 50, 10), 200);
+  const targetCount = Math.min(Math.max(Number(body.targetCount) || 50, 10), 1000);
   const language: LocalLanguage = body.language === 'th_en' ? 'th_en' : 'th';
 
   const input: LocalResearchInput = {

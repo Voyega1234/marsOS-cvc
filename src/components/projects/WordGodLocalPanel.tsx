@@ -517,10 +517,10 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
             <div>
               <label className={labelClass}>จำนวนคีย์เวิร์ดที่ต้องการ</label>
               <div className="flex items-center gap-2">
-                <input type="range" min={10} max={200} step={10} value={targetCount}
+                <input type="range" min={10} max={1000} step={10} value={targetCount}
                   onChange={e => setTargetCount(Number(e.target.value))} className="flex-1 accent-brand-blue" />
-                <input type="number" min={10} max={200} value={targetCount}
-                  onChange={e => setTargetCount(Math.min(200, Math.max(10, Number(e.target.value) || 50)))}
+                <input type="number" min={10} max={1000} value={targetCount}
+                  onChange={e => setTargetCount(Math.min(1000, Math.max(10, Number(e.target.value) || 50)))}
                   className="h-8 w-16 rounded-lg border border-[#bcc9e2] bg-white px-2 text-center text-xs font-bold" />
               </div>
               <p className="mb-3 mt-1 text-[10px] leading-4 text-[#71809c]">ระบบคัดตามคะแนนโอกาส — ทุกคำมี Search Volume จริง</p>
