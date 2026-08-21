@@ -523,7 +523,7 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
                   onChange={e => setTargetCount(Math.min(1000, Math.max(10, Number(e.target.value) || 50)))}
                   className="h-8 w-16 rounded-lg border border-[#bcc9e2] bg-white px-2 text-center text-xs font-bold" />
               </div>
-              <p className="mb-3 mt-1 text-[10px] leading-4 text-[#71809c]">ระบบคัดตามคะแนนโอกาส — ทุกคำมี Search Volume จริง</p>
+              <p className="mb-3 mt-1 text-[10px] leading-4 text-[#71809c]">เรียงคำที่เกี่ยวกับธุรกิจ + มีโอกาสขายมาก่อน — คำที่มี Search Volume จริงมาอันดับต้น ส่วนคำ AI ที่ยังไม่ยืนยัน volume จะติดป้าย “AI”</p>
               <label className={labelClass}>ประเภทธุรกิจ (หน้าร้าน / ไปหาลูกค้า)</label>
               <select className={fieldClass} value={businessType} onChange={event => setBusinessType(event.target.value as LocalBusinessType)}>
                 {BUSINESS_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -716,7 +716,12 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
                       {filtered.map(row => (
                         <tr key={row.keyword} className="border-t border-[#eef1f7] align-top hover:bg-[#fafbfe]">
                           <td className="px-4 py-2.5">
-                            <div className="font-semibold text-[#17233a]">{row.keyword}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-[#17233a]">{row.keyword}</span>
+                              {(row.volume ?? 0) <= 0 ? (
+                                <span title="คำ AI แนะนำที่เกี่ยวกับธุรกิจ — ยังไม่ยืนยัน Search Volume จริง ควรตรวจก่อนนำไปใช้" className="cursor-help rounded bg-[#fff3e6] px-1 py-0.5 text-[9px] font-bold text-[#c46a12]">AI</span>
+                              ) : null}
+                            </div>
                             {row.suggestedTitle ? (
                               <div className="mt-0.5 max-w-[320px] text-[10px] leading-4 text-[#0d4fd8]" title="SEO Title ที่ AI เขียนให้">✍ {row.suggestedTitle}</div>
                             ) : null}

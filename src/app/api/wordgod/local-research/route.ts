@@ -18,7 +18,6 @@ import {
   KP_LOOKUP_LIMIT,
   LOCAL_KEYWORD_WEIGHTS,
   runLocalProblemDiscovery,
-  selectBalancedKeywords,
   type LocalRawItem,
   type MetricRecord,
 } from '@/lib/wordgod/local';
@@ -48,8 +47,11 @@ import {
 import { getDataForSeoVolumes, hasDataForSeoCreds } from '@/lib/wordgod/services/dataForSeoService';
 import { callGemini, callGeminiWithGrounding } from '@/lib/wordgod/gemini';
 import { DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
+import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
 
-export const maxDuration = 300;
+// โหมดมีหน้าร้าน generate หนักขึ้น (AI ขยาย pool + KP/DFS ดึง volume) เลยยืด
+// timeout เท่าโหมดไม่มีหน้าร้าน (Vercel Pro สูงสุด) — กัน request ถูกตัดกลางคัน
+export const maxDuration = 800;
 
 const KP_UNAVAILABLE_MESSAGE =
   'ไม่สามารถดึงข้อมูล Search Volume ได้ในขณะนี้ แต่ยังสามารถวิเคราะห์ Local Intent และ Commercial Intent ได้';
@@ -227,6 +229,60 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       warnings.push(`สร้างคำปัญหา/บทความอัตโนมัติไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+    }
+  }
+
+  // ── AI expansion: ขยาย pool คำที่ "เกี่ยวกับธุรกิจ + มีโอกาสขาย" ให้ใกล้เป้า ──
+  // ยกวิธีจากโหมด "ไม่มีหน้าร้าน": pool ใหญ่ = มีคำให้ KP/DFS ดึง volume จริงมากขึ้น
+  // (นี่คือ fix ตัวจริงของอาการ "ตั้ง 1000 ได้ 2 คำ" — เดิม pool เล็ก + ตัด volume=0 ทิ้ง)
+  // ใช้ intent ratio แบบ Lead-Gen/Service (commercial 35 + transactional 20 = เน้นขาย)
+  // AI ประเมิน volume เอาไม่ได้ (§32) — ตั้ง metric=null ให้ KP/DFS ยืนยัน volume จริงต่อ
+  const useAiExpand = body.useAiExpand !== false;
+  if (useAiExpand) {
+    // คุม pool ไม่ให้เกิน budget ดึง volume (KP ~400 + DFS ~700) มากนัก เพื่อให้
+    // candidate ส่วนใหญ่ได้เช็ค volume จริง — คำที่ไม่ได้เช็คจะกลายเป็นส่วนรองเท่านั้น
+    const poolTarget = Math.min(Math.ceil(targetCount * 1.3), 900);
+    if (items.size < poolTarget) {
+      const salesRatio = { informational: 40, commercial: 35, transactional: 20, navigational: 5, update: 0 };
+      const genNiche = `${services.join(' / ')}${input.businessContext ? ` — ${input.businessContext}` : ''}`;
+      const genSeed = services[0];
+      const BATCH = 50;
+      const PARALLEL = targetCount <= 100 ? 2 : targetCount <= 400 ? 4 : 6;
+      const MAX_WAVES = 6;
+      let genAdded = 0;
+      let genFailed = 0;
+      for (let wave = 0; wave < MAX_WAVES && items.size < poolTarget; wave++) {
+        const need = poolTarget - items.size;
+        const batches = Math.min(PARALLEL, Math.max(1, Math.ceil(need / BATCH)));
+        const exclude = Array.from(items.values()).map(it => it.keyword);
+        const prompts = Array.from({ length: batches }, () =>
+          KEYWORD_RESEARCH_PROMPT(genNiche, genSeed, BATCH, exclude, [], salesRatio, false)
+        );
+        const settled = await Promise.allSettled(prompts.map(p => callGemini(p)));
+        let waveAdded = 0;
+        for (const s of settled) {
+          if (s.status !== 'fulfilled') { genFailed++; continue; }
+          const text = typeof s.value === 'string' ? s.value : JSON.stringify(s.value);
+          const m = text.match(/\{[\s\S]*\}/);
+          if (!m) continue;
+          let parsed: { keywords?: Array<{ keyword?: string }> };
+          try { parsed = JSON.parse(m[0]); } catch { continue; }
+          for (const row of parsed.keywords ?? []) {
+            const kw = normalizeThaiSpacing(String(row?.keyword ?? '').trim());
+            const key = dedupeKey(kw);
+            if (!key || items.has(key)) continue;
+            items.set(key, { keyword: kw, sources: ['generated'] as LocalKeywordSource[], metric: null });
+            generatedTrafficKeys.add(key);
+            waveAdded++; genAdded++;
+          }
+        }
+        if (waveAdded === 0) break; // กันลูปเปล่า (AI ตอบซ้ำ/ล้มเหลวทั้งหมด)
+      }
+      if (genAdded > 0) {
+        warnings.push(`ขยายคำที่เกี่ยวกับธุรกิจ (เน้นโอกาสขาย) ด้วย AI อีก ${genAdded} คำ (pool รวม ${items.size} คำ) — จะดึง Search Volume จริงต่อไป`);
+      } else if (genFailed > 0) {
+        warnings.push('ขยายคำด้วย AI ไม่สำเร็จรอบนี้ — ใช้คำจาก seed/ปัญหาลูกค้าที่มีอยู่');
+      }
     }
   }
 
@@ -520,36 +576,38 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     }
   }
 
-  // ── กติกาหน้านี้: เอาเฉพาะคำที่มี volume จริงเท่านั้น (KP หรือ DFS) ──
+  // ── เลือกผลลัพธ์: คำ "มี volume จริง" มาก่อนเสมอ แล้วค่อยเติมด้วยคำ AI ──
+  // user จัดลำดับความสำคัญไว้ชัด: (1) เกี่ยวกับธุรกิจ + มีโอกาสขาย = อันดับ 1
+  // (2) ต้องมี volume จริง — "ไม่มี volume ทำไปก็ไม่มีประโยชน์"
+  // → เอาคำมี volume (เรียงตามคะแนนโอกาส/relevance ตาม §18) ให้ครบเป้าก่อน
+  //   ถ้ายังขาดค่อยเติมด้วยคำ AI ที่เกี่ยวกับธุรกิจ แต่ติดป้ายชัดว่า "ยังไม่มี volume"
+  //   (เดิมตัดคำ volume=0 ทิ้งทั้งหมด ทำให้คำ local ไทยได้น้อยมาก — ตั้ง 1000 ได้ 2)
   const allItems = Array.from(items.values());
-  const volumeBacked = allItems.filter(item => (item.metric?.volume ?? 0) > 0);
-  const droppedNoVolume = allItems.length - volumeBacked.length;
-  if (droppedNoVolume > 0) {
-    warnings.push(`ตัดคำที่ไม่มี Search Volume ออก ${droppedNoVolume} คำ — แสดงเฉพาะ ${volumeBacked.length} คำที่มีข้อมูลจริงจาก Keyword Planner/DataForSEO`);
-  }
-  if (volumeBacked.length === 0) {
-    warnings.push('ไม่มีคำไหนมี volume รายงานในพื้นที่นี้เลย — ลองขยายทำเลรอง หรือใช้คำบริการที่กว้างขึ้น');
+  const rankedAll = assembleResults(allItems, input); // เรียงตาม score.total แล้ว (§18)
+  const withVol = rankedAll.results.filter(r => (r.volume ?? 0) > 0);
+  const withoutVol = rankedAll.results.filter(r => (r.volume ?? 0) <= 0);
+
+  // 1) คำมี volume จริงมาก่อน (สูงสุดถึงเป้า) — นี่คือผลลัพธ์หลักที่ "มีประโยชน์จริง"
+  const volPick = withVol.slice(0, targetCount);
+  // 2) ยังไม่ครบเป้า → เติมด้วยคำ AI ที่เกี่ยวกับธุรกิจ (volume ยังไม่ยืนยัน = ส่วนรอง)
+  const remain = targetCount - volPick.length;
+  const aiPick = remain > 0 ? withoutVol.slice(0, remain) : [];
+  const picked = [...volPick, ...aiPick];
+
+  const keepKeywords = new Set(picked.map(r => dedupeKey(r.keyword)));
+  const finalItems = allItems.filter(item => keepKeywords.has(dedupeKey(item.keyword)));
+
+  // รายงานองค์ประกอบผลลัพธ์ตามจริง (แทนข้อความ "ตัดคำ volume=0 ทิ้ง" เดิม)
+  const finalWithVol = volPick.length;
+  const finalAi = aiPick.length;
+  if (withVol.length === 0) {
+    warnings.push('ยังไม่มีคำไหนมี Search Volume รายงานในพื้นที่นี้ — คำในตารางเป็นคำ AI แนะนำที่เกี่ยวกับธุรกิจ (ยังไม่ยืนยัน volume) แนะนำกด "ค้นหา" ซ้ำหรือขยายทำเล/บริการ');
+  } else if (finalAi > 0) {
+    warnings.push(`ได้ ${picked.length}/${targetCount} คำ — คำมี Search Volume จริง ${finalWithVol} คำ (KP/DataForSEO) มาก่อน + เติมคำ AI ที่เกี่ยวกับธุรกิจอีก ${finalAi} คำ (ยังไม่ยืนยัน volume ให้ตรวจก่อนใช้)`);
+  } else if (withVol.length > targetCount) {
+    warnings.push(`แสดง ${targetCount} คำที่มี Search Volume สูงสุดตามคะแนนโอกาส (มีคำที่ volume จริงทั้งหมด ${withVol.length} คำ)`);
   }
 
-  // จัดอันดับรอบแรกเพื่อเลือก top-N ตาม targetCount แล้วประกอบใหม่ให้ cluster สอดคล้อง
-  if (volumeBacked.length < targetCount) {
-    const expansionFailed = warnings.some(w => w.includes('ไม่สำเร็จ'));
-    if (expansionFailed) {
-      warnings.unshift(
-        `ได้ ${volumeBacked.length}/${targetCount} คำ เพราะรอบขยายผลจาก Google Keyword Planner ขัดข้องชั่วคราว — กด "ค้นหา" ซ้ำอีกครั้งเพื่อดึงให้ครบ`
-      );
-    }
-  }
-
-  const ranked = assembleResults(volumeBacked, input);
-  // คัดเข้าตารางสุดท้าย: สัดส่วน sales/traffic 50/50 + กันคลัสเตอร์เดียวยึดตาราง
-  // (ไม่แตะสูตรคะแนน/badge — แค่เลือกว่าใครได้เข้าไปอยู่ในตาราง)
-  const balanced = selectBalancedKeywords(ranked.results, { targetCount, salesRatio: 0.5, maxPerCluster: 2 });
-  const keepKeywords = new Set(balanced.map(r => dedupeKey(r.keyword)));
-  const finalItems = volumeBacked.filter(item => keepKeywords.has(dedupeKey(item.keyword)));
-  if (ranked.results.length > targetCount) {
-    warnings.push(`แสดง ${targetCount} คำแรกตามคะแนนโอกาส (จากทั้งหมด ${ranked.results.length} คำที่มี volume)`);
-  }
   const { results, clusters } = assembleResults(finalItems, input);
 
   // ── เขียน SEO title + slug ให้ทุกคำ (แบบเดียวกับโหมดไม่มีหน้าร้าน) ──
