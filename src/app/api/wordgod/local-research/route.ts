@@ -337,12 +337,14 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        const lookupKeywords = Array.from(items.values())
-          .slice(0, KP_LOOKUP_LIMIT)
-          .map(item => item.keyword);
-        if (candidates.length > KP_LOOKUP_LIMIT) {
+        // ดึง volume "คำที่เกี่ยวข้อง/มีโอกาสขายสูงสุดก่อน" — ไม่ใช่ตามลำดับ insert
+        // (เดิม slice ตามลำดับ insert → คำ local long-tail มาก่อน ส่วนคำ broad/commercial
+        //  ที่ AI สร้าง เช่น "ติดตั้ง solarcell" อยู่ท้าย เลยหลุด budget 400 → ทั้งชุดไม่มี volume)
+        const rankedForKp = assembleResults(Array.from(items.values()), input).results;
+        const lookupKeywords = rankedForKp.slice(0, KP_LOOKUP_LIMIT).map(r => r.keyword);
+        if (rankedForKp.length > KP_LOOKUP_LIMIT) {
           warnings.push(
-            `ดึง Search Volume เฉพาะ ${KP_LOOKUP_LIMIT} คำแรกที่คะแนนสูงสุด (ทั้งหมด ${candidates.length} คำ)`
+            `ดึง Search Volume เฉพาะ ${KP_LOOKUP_LIMIT} คำที่เกี่ยวข้อง/มีโอกาสขายสูงสุด (ทั้งหมด ${rankedForKp.length} คำ)`
           );
         }
 
@@ -549,10 +551,12 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
   // ── DFS fallback: คำที่ KP ไม่มี volume → ถาม DataForSEO (กติกาเดียวกับโหมดไม่มีหน้าร้าน) ──
   let dfsCalls = 0;
   if (hasDataForSeoCreds()) {
-    const needVolume = Array.from(items.values())
-      .filter(item => !item.metric || !item.metric.volume)
-      .map(item => item.keyword)
-      .slice(0, 700);
+    // เติม volume ที่ขาด โดยไล่ "คำที่เกี่ยวข้อง/มีโอกาสขายสูงสุดก่อน" เช่นกัน (budget 700)
+    const rankedForDfs = assembleResults(Array.from(items.values()), input).results;
+    const needVolume = rankedForDfs
+      .filter(r => (r.volume ?? 0) <= 0)
+      .slice(0, 700)
+      .map(r => r.keyword);
     if (needVolume.length > 0) {
       try {
         const dfsMap = await getDataForSeoVolumes(needVolume, 'th', 2764, w => warnings.push(w));
