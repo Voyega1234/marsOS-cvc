@@ -48,20 +48,30 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // Image Style Guide จาก Article Lab เป็นข้อมูลประกอบบรีฟของโปรเจกต์ — ทิศทางงานภาพยังมาจาก CE เท่านั้น
+  // Image Style Guide + ชุดสีธีม จาก Article Lab เป็นข้อมูลประกอบบรีฟของโปรเจกต์ — ทิศทางงานภาพยังมาจาก CE เท่านั้น
   let imageStyleGuide = ''
+  let themeColor = ''
+  let backgroundColor = ''
+  let textColor = ''
+  let effectiveAccent = accentColor
   if (projectId) {
     try {
       const proj = await prisma.project.findFirst({
         where: { id: projectId, organizationId: orgId },
-        select: { imageStyleGuide: true },
+        select: { imageStyleGuide: true, themeColors: true, accentColor: true },
       })
       imageStyleGuide = proj?.imageStyleGuide ?? ''
+      let colors: Record<string, string> = {}
+      try { colors = JSON.parse(proj?.themeColors || '{}') } catch { /* ค่าเสีย — ข้าม */ }
+      themeColor = colors.theme || proj?.accentColor || ''
+      backgroundColor = colors.background || ''
+      textColor = colors.text || ''
+      if (!effectiveAccent) effectiveAccent = colors.accent || proj?.accentColor || ''
     } catch { /* non-fatal */ }
   }
 
   try {
-    const result = await callGeminiImage({ keyword, title, type, siteName, brandTone, accentColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide })
+    const result = await callGeminiImage({ keyword, title, type, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide })
 
     // Log AI job for cost tracking
     try {

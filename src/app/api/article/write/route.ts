@@ -243,6 +243,7 @@ const IMAGE_TIMEOUT_MS = 75_000
 async function generateGeminiImage(params: {
   keyword: string; title: string; type: 'cover' | 'mid'
   siteName?: string; brandTone?: string; accentColor?: string
+  themeColor?: string; backgroundColor?: string; textColor?: string
   imagePromptTemplate: string
   imageStyleGuide?: string
 }): Promise<{ imageBase64: string; mimeType: string; costUsd: number; totalTokens: number }> {
@@ -252,6 +253,7 @@ async function generateGeminiImage(params: {
         keyword: params.keyword, title: params.title, type: params.type,
         siteName: params.siteName ?? '', brandTone: params.brandTone ?? '',
         accentColor: params.accentColor ?? '',
+        themeColor: params.themeColor ?? '', backgroundColor: params.backgroundColor ?? '', textColor: params.textColor ?? '',
         promptTemplate: params.imagePromptTemplate,
         imageStyleGuide: params.imageStyleGuide ?? '',
       }), IMAGE_TIMEOUT_MS, `gemini-image-${params.type}`)
@@ -759,9 +761,9 @@ export async function POST(req: NextRequest) {
     const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
     const midCount = Math.min(midCountRaw, countMidImageSpots(html))
     const [coverResult, ...midResults] = await Promise.all([
-      generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+      generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide }),
       ...Array.from({ length: midCount }, () =>
-        generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
+        generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
     ])
     const midResult = midResults[0]
 
@@ -883,9 +885,9 @@ export async function POST(req: NextRequest) {
       const midCount = Math.min(midCountRaw, countMidImageSpots(fullHtml))
       send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
       const [coverResult, ...midResults] = await Promise.all([
-        generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+        generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide }),
         ...Array.from({ length: midCount }, () =>
-          generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedAccentColor, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
+          generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
       ])
       const midResult = midResults[0]
       const midOk = midResults.filter(r => r.imageBase64).length

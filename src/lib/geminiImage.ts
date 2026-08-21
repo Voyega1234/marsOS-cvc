@@ -82,10 +82,10 @@ export interface GeminiImageResult {
 }
 
 // ── Content Engine image prompt template — placeholder substitution ───────────
-// {{keyword}} {{title}} {{site_name}} {{brand_tone}} {{accent_color}}
+// {{keyword}} {{title}} {{site_name}} {{brand_tone}} {{accent_color}} {{theme_color}} {{background_color}} {{text_color}}
 function renderImagePromptTemplate(
   template: string,
-  vars: { keyword: string; title: string; siteName: string; brandTone: string; accentColor: string }
+  vars: { keyword: string; title: string; siteName: string; brandTone: string; accentColor: string; themeColor: string; backgroundColor: string; textColor: string }
 ): string {
   return template
     .replace(/\{\{\s*keyword\s*\}\}/gi, vars.keyword)
@@ -93,6 +93,9 @@ function renderImagePromptTemplate(
     .replace(/\{\{\s*site_name\s*\}\}/gi, vars.siteName)
     .replace(/\{\{\s*brand_tone\s*\}\}/gi, vars.brandTone)
     .replace(/\{\{\s*accent_color\s*\}\}/gi, vars.accentColor)
+    .replace(/\{\{\s*theme_color\s*\}\}/gi, vars.themeColor)
+    .replace(/\{\{\s*background_color\s*\}\}/gi, vars.backgroundColor)
+    .replace(/\{\{\s*text_color\s*\}\}/gi, vars.textColor)
 }
 
 export async function callGeminiImage(params: {
@@ -102,6 +105,10 @@ export async function callGeminiImage(params: {
   siteName?: string
   brandTone?: string
   accentColor?: string
+  /** ชุดสีธีมเว็บลูกค้า (Article Lab > Article Colors) — ให้ภาพเป็นชุดเดียวกับเว็บไซต์ */
+  themeColor?: string
+  backgroundColor?: string
+  textColor?: string
   width?: number
   height?: number
   /** Content Engine CE_IMAGE_PROMPT text — บังคับ (กติกา: ห้ามมี fallback, ต้องมาจาก CE เท่านั้น) */
@@ -112,6 +119,7 @@ export async function callGeminiImage(params: {
   const {
     keyword, title, type,
     siteName = '', brandTone = '', accentColor = '',
+    themeColor = '', backgroundColor = '', textColor = '',
     width = type === 'cover' ? 1536 : 1200,
     height = type === 'cover' ? 864 : 630,
     promptTemplate,
@@ -121,31 +129,42 @@ export async function callGeminiImage(params: {
   if (!promptTemplate?.trim()) {
     throw new Error('CONTENT_ENGINE_NOT_CONFIGURED: ต้องมี Image Prompt จาก Content Engine — ไม่มี fallback')
   }
-  const rendered = renderImagePromptTemplate(promptTemplate, { keyword, title, siteName, brandTone, accentColor })
+  const rendered = renderImagePromptTemplate(promptTemplate, { keyword, title, siteName, brandTone, accentColor, themeColor, backgroundColor, textColor })
   const isSquare = width === height
   const orientationLine = isSquare
     ? `\n\nIMAGE ORIENTATION (CRITICAL): SQUARE 1:1 ratio. Width equals height.`
     : `\n\nIMAGE ORIENTATION (CRITICAL): HORIZONTAL LANDSCAPE ${width}×${height} (${(width / height).toFixed(2)}:1 ratio). Width must be greater than height. DO NOT generate portrait or square images.`
+
+  // ชุดสีธีมเว็บลูกค้า (Article Lab) — ข้อเท็จจริงประกอบบรีฟ ให้ภาพเป็นชุดสีเดียวกับเว็บไซต์
+  const palette = [
+    themeColor.trim() && `สีธีม/สีหลัก ${themeColor.trim()}`,
+    accentColor.trim() && `สี accent ${accentColor.trim()}`,
+    backgroundColor.trim() && `สีพื้นหลัง ${backgroundColor.trim()}`,
+    textColor.trim() && `สีตัวอักษร ${textColor.trim()}`,
+  ].filter(Boolean).join(', ')
 
   // ข้อเท็จจริงประกอบบรีฟ (ไม่ใช่ทิศทางงานภาพ — ทิศทางมาจาก Content Engine เท่านั้น)
   const briefFacts = [
     `[ประเภทภาพ: ${type === 'cover' ? 'ภาพหน้าปกบทความ (cover)' : 'ภาพประกอบกลางบทความ (in-article)'}]`,
     `[สัดส่วน: ${width}×${height}]`,
     `[ปีปัจจุบัน: ${CURRENT_YEAR}]`,
+    ...(palette ? [`[ชุดสีธีมเว็บลูกค้า (Article Lab) — ใช้เป็นชุดสีหลักของภาพให้เข้ากับเว็บไซต์: ${palette}]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
   ].join('\n')
   const compiled = await compileImagePrompt(`${rendered}\n\n${briefFacts}`)
 
-  // รูปปกต้องมีตัวหนังสือไทยประกอบเสมอ (คำสั่งเจ้าของระบบ 2026-08-19) —
-  // เป็นข้อบังคับรูปแบบเอาต์พุตแบบเดียวกับ orientation ไม่ใช่ทิศทางสไตล์ (สไตล์ยังมาจาก CE)
+  // รูปปกต้องมีตัวหนังสือประกอบเสมอ (คำสั่งเจ้าของระบบ 2026-08-19, ปรับ 2026-08-21:
+  // ไม่จำกัดภาษาไทย — ใช้ภาษาเดียวกับ title ไทย/อังกฤษ/ผสม) — เป็นข้อบังคับรูปแบบ
+  // เอาต์พุตแบบเดียวกับ orientation ไม่ใช่ทิศทางสไตล์ (สไตล์ยังมาจาก CE)
   const coverTextLine = type === 'cover'
-    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a marketing cover banner — it MUST include Thai text rendered inside the image:
-- Main headline (dominant focal element, large bold legible Thai typography): "${title}"
-- Add 2-4 short supporting Thai callouts/badges derived from the brief (benefits, services, or trust marks)
-- Render every Thai word as clean, correctly-formed glyphs — never split, merge, duplicate, warp, or drop characters; keep every tone mark and vowel correctly attached to its base letter
-- Professional Thai advertising-banner layout with clear text hierarchy; keep every character fully inside safe margins, never clipped
+    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a marketing cover banner — it MUST include readable text rendered inside the image:
+- Main headline (dominant focal element, large bold legible typography): "${title}"
+- Use the SAME language(s) as the headline above — Thai, English, or a mix, exactly as written. Do NOT force one language and do NOT translate the title
+- Add 2-4 short supporting callouts/badges derived from the brief (benefits, services, or trust marks), in the same language(s) as the headline
+- Render every character as clean, correctly-formed glyphs in whatever script is used — for Thai keep every tone mark and vowel attached to its base letter, for Latin spell every word correctly; never split, merge, duplicate, warp, or drop characters
+- Professional advertising-banner layout with clear text hierarchy; keep every character fully inside safe margins, never clipped
 - Keep the headline and ALL text within the central vertical band — the top 10% and bottom 10% of the frame will be trimmed in post-processing
-- Spell all Thai words EXACTLY as provided — do not invent, translate, or misspell Thai text`
+- Spell every word EXACTLY as provided — do not invent, translate, or misspell any text`
     : ''
   const prompt = compiled + coverTextLine + orientationLine
 
