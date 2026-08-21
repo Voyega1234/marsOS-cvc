@@ -12,11 +12,22 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { KeywordResearchProgress } from './KeywordResearchProgress';
 import {
   INTENT_TAG_LABELS,
   SUGGESTED_PAGE_LABELS,
   scoreBreakdown,
 } from '@/lib/wordgod/local';
+
+// ขั้นตอนจริงของ pipeline โหมดมีหน้าร้าน (POST เดียว ไม่มี stream) — ใช้ไล่ไฮไลต์ให้เห็นกระบวนการ
+const LOCAL_RESEARCH_STEPS = [
+  'สร้างคำค้นจากบริการและพื้นที่ที่ระบุ',
+  'แตกปัญหาลูกค้า → คำค้นเชิงบทความ/ความรู้',
+  'ขยายคำที่เกี่ยวกับธุรกิจด้วย AI (เน้นโอกาสขาย)',
+  'ดึง Search Volume จริงจาก Google Keyword Planner',
+  'เติมยอดค้นหาที่ขาดจาก DataForSEO',
+  'จัดอันดับตามโอกาสปิดงาน + เขียน SEO title ให้',
+];
 import type {
   KeywordResearchResult,
   LocalAreaType,
@@ -293,6 +304,7 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
 
     setStatus('running');
     setStatusMessage('กำลังสร้างคีย์เวิร์ดและดึงข้อมูลจาก Keyword Planner...');
+    setData(null); // ล้างผลเก่า เพื่อให้ progress กลางจอโชว์ตอนกดค้นหาซ้ำ
 
     try {
       const response = await fetch('/api/wordgod/local-research', {
@@ -850,6 +862,8 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
               </div>
             )}
           </section>
+        ) : status === 'running' ? (
+          <KeywordResearchProgress title="กำลังหาคีย์เวิร์ดในพื้นที่" steps={LOCAL_RESEARCH_STEPS} />
         ) : (
           <section className={`${cardClass} px-6 py-16 text-center`}>
             <p className="text-sm font-semibold text-[#495975]">ยังไม่มีผลลัพธ์</p>

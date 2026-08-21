@@ -8,6 +8,7 @@ import type { PlanMode, PlanPillarInput } from '@/lib/wordgod/planning/contentPl
 import { INTENT_DESCRIPTIONS, INTENT_LABELS, PRESETS, rebalanceRatio, totalRatio } from '@/lib/wordgod/skills/intentRatioSkill';
 import type { IntentRatio, PresetKey } from '@/lib/wordgod/skills/intentRatioSkill';
 import WordGodLocalPanel from './WordGodLocalPanel';
+import { KeywordResearchProgress } from './KeywordResearchProgress';
 import { threeMonthChange, formatPercentChange } from '@/lib/wordgod/pipeline/kpMetrics';
 
 type Status = 'idle' | 'running' | 'done' | 'error';
@@ -669,7 +670,9 @@ export default function WordGodTab({ project, onSendToBank }: Props) {
         </aside>
 
         <section className="min-w-0 space-y-5">
-          {!result ? (
+          {status === 'running' ? (
+            <KeywordResearchProgress title="กำลังวิเคราะห์คีย์เวิร์ด" logs={logs} />
+          ) : !result ? (
             <div className="grid min-h-[640px] place-items-center rounded-2xl p-10 text-center shadow-sm"
               style={{ background: 'linear-gradient(160deg, #1d48f3 0%, #0618df 45%, #0107a9 75%, #000E3F 100%)' }}>
               {/* Dark Tone ตาม CVC Brand Guideline — Technology · Trust · Innovation */}
