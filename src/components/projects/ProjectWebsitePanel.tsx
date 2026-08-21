@@ -288,13 +288,13 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
           <div>
             <label className="block text-xs font-semibold text-brand-navy mb-1.5">Webhook URL</label>
             <input value={siteConn.custom?.webhookUrl ?? ""} onChange={e => setConnField("custom", "webhookUrl", e.target.value)}
-              placeholder="https://www.example.com/api/mars-article"
+              placeholder="https://www.example.com/api/content-article"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-soft/50" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-brand-navy mb-1.5">Secret (ไม่บังคับ)</label>
             <input type="password" value={siteConn.custom?.secret ?? ""} onChange={e => setConnField("custom", "secret", e.target.value)}
-              placeholder="ส่งไปใน header X-Mars-Secret"
+              placeholder="ส่งไปใน header X-Content-Secret"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-soft/50" />
           </div>
           <p className="sm:col-span-2 text-[11px] text-gray-400 leading-4">

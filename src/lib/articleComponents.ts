@@ -1,8 +1,8 @@
 /**
- * Component Standard ของบทความ MarsOS
+ * Component Standard ของบทความ
  *
  * แก้ปัญหาจาก feedback PSEO (2026-08-19):
- * 1. บทความห้ามฝัง inline style — เขียนเฉพาะ semantic HTML + class มาตรฐาน `mars-*`
+ * 1. บทความห้ามฝัง inline style — เขียนเฉพาะ semantic HTML + class มาตรฐาน `content-*`
  * 2. component ชนิดเดียวกันใช้โครง HTML เดียวกันทุกบทความ → คุมด้วย Global CSS ได้
  * 3. สี/ฟอนต์จาก Article Lab ถูก compile เป็น CSS ชุดเดียวแบบ deterministic
  *    (ไม่ให้ AI ทาสีเอง) — แนบเป็น <style> ในบทความ (โหมด embed) หรือให้ดาวน์โหลด
@@ -31,45 +31,45 @@ COMPONENT STANDARD (บังคับ — โครง HTML ต้องตร�
 หัวข้อ section (สำหรับสารบัญ): ทุก <h2> ต้องมี id ภาษาอังกฤษ เช่น <h2 id="what-is-x">
 
 CTA (กล่องชวนติดต่อ):
-<div class="mars-cta">
-  <p class="mars-cta__headline">ข้อความชวน</p>
-  <p class="mars-cta__subtext">รายละเอียดสั้น ๆ</p>
-  <div class="mars-cta__buttons">
-    <a class="mars-cta__button" href="tel:0812345678">โทร 081-234-5678</a>
-    <a class="mars-cta__button mars-cta__button--secondary" href="https://line.me/...">LINE</a>
+<div class="content-cta">
+  <p class="content-cta__headline">ข้อความชวน</p>
+  <p class="content-cta__subtext">รายละเอียดสั้น ๆ</p>
+  <div class="content-cta__buttons">
+    <a class="content-cta__button" href="tel:0812345678">โทร 081-234-5678</a>
+    <a class="content-cta__button content-cta__button--secondary" href="https://line.me/...">LINE</a>
   </div>
 </div>
 
 FAQ (ใช้ <details> — กดเปิด/ปิดได้โดยไม่ต้องมี JavaScript, ห้ามมี wrapper ครอบ):
 <h2 id="faq">คำถามที่พบบ่อย</h2>
-<details class="mars-faq__item">
-  <summary class="mars-faq__question">คำถาม?</summary>
-  <div class="mars-faq__answer"><p>คำตอบ</p></div>
+<details class="content-faq__item">
+  <summary class="content-faq__question">คำถาม?</summary>
+  <div class="content-faq__answer"><p>คำตอบ</p></div>
 </details>
 
 รูปภาพ:
-<figure class="mars-figure">
+<figure class="content-figure">
   <img src="..." alt="คำบรรยายรูปที่บรรยายภาพจริง">
   <figcaption>คำอธิบายรูป (ถ้ามี)</figcaption>
 </figure>
 
 ตาราง (ต้องมี wrapper กันตารางล้นจอมือถือ):
-<div class="mars-table-wrap"><table class="mars-table">...</table></div>
+<div class="content-table-wrap"><table class="content-table">...</table></div>
 
 กล่องเน้นข้อความสำคัญ:
-<div class="mars-highlight"><p>ประเด็นสำคัญ</p></div>
+<div class="content-highlight"><p>ประเด็นสำคัญ</p></div>
 
 กล่องคำเตือน/ข้อควรระวัง:
-<div class="mars-notice"><p>คำเตือน</p></div>
+<div class="content-notice"><p>คำเตือน</p></div>
 
 ข้อดี-ข้อเสีย:
-<div class="mars-pros-cons">
-  <div class="mars-pros"><h4>ข้อดี</h4><ul><li>...</li></ul></div>
-  <div class="mars-cons"><h4>ข้อควรพิจารณา</h4><ul><li>...</li></ul></div>
+<div class="content-pros-cons">
+  <div class="content-pros"><h4>ข้อดี</h4><ul><li>...</li></ul></div>
+  <div class="content-cons"><h4>ข้อควรพิจารณา</h4><ul><li>...</li></ul></div>
 </div>
 
 คำพูดอ้างอิง:
-<blockquote class="mars-quote"><p>...</p></blockquote>
+<blockquote class="content-quote"><p>...</p></blockquote>
 `
 
 // ── CSS builder — compile ค่าจาก Article Lab เป็น stylesheet เดียว ─────────────
@@ -89,16 +89,16 @@ export interface ArticleCssOptions {
 }
 
 const ELEMENT_SELECTOR: Record<string, string> = {
-  h1: '.mars-article h1',
-  h2: '.mars-article h2',
-  h3: '.mars-article h3',
-  h4: '.mars-article h4',
-  h5: '.mars-article h5',
-  h6: '.mars-article h6',
-  body: '.mars-article p, .mars-article li',
-  link: '.mars-article a',
-  author: '.mars-article .mars-author',
-  faq: '.mars-article .mars-faq__item',
+  h1: '.content-article h1',
+  h2: '.content-article h2',
+  h3: '.content-article h3',
+  h4: '.content-article h4',
+  h5: '.content-article h5',
+  h6: '.content-article h6',
+  body: '.content-article p, .content-article li',
+  link: '.content-article a',
+  author: '.content-article .content-author',
+  faq: '.content-article .content-faq__item',
 }
 
 export function buildArticleCss(opts: ArticleCssOptions): string {
@@ -125,56 +125,56 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
     : ''
 
   const lines: string[] = []
-  lines.push(`.mars-article{${bg ? `background:${bg};` : ''}color:${text};font-family:${t?.fontFamily || GOOGLE_DEFAULT_STACK};${t?.fontSize ? `font-size:${t.fontSize};` : ''}line-height:${t?.lineHeight || '1.7'};${t?.letterSpacing && t.letterSpacing !== 'normal' ? `letter-spacing:${t.letterSpacing};` : ''}}`)
-  lines.push(`.mars-article h1,.mars-article h2,.mars-article h3,.mars-article h4,.mars-article h5,.mars-article h6{color:${theme};${t?.headingFont ? `font-family:${t.headingFont};` : ''}font-weight:${t?.headingWeight || '700'};line-height:1.35;margin:1.6em 0 .6em;}`)
-  lines.push(`.mars-article h1{margin-top:0;}`)
-  lines.push(`.mars-article p{margin:0 0 ${t?.paragraphMargin || '1.2em'};}`)
-  lines.push(`.mars-article a{color:${accent};text-decoration:underline;text-underline-offset:2px;}`)
-  lines.push(`.mars-article img{max-width:100%;height:auto;}`)
+  lines.push(`.content-article{${bg ? `background:${bg};` : ''}color:${text};font-family:${t?.fontFamily || GOOGLE_DEFAULT_STACK};${t?.fontSize ? `font-size:${t.fontSize};` : ''}line-height:${t?.lineHeight || '1.7'};${t?.letterSpacing && t.letterSpacing !== 'normal' ? `letter-spacing:${t.letterSpacing};` : ''}}`)
+  lines.push(`.content-article h1,.content-article h2,.content-article h3,.content-article h4,.content-article h5,.content-article h6{color:${theme};${t?.headingFont ? `font-family:${t.headingFont};` : ''}font-weight:${t?.headingWeight || '700'};line-height:1.35;margin:1.6em 0 .6em;}`)
+  lines.push(`.content-article h1{margin-top:0;}`)
+  lines.push(`.content-article p{margin:0 0 ${t?.paragraphMargin || '1.2em'};}`)
+  lines.push(`.content-article a{color:${accent};text-decoration:underline;text-underline-offset:2px;}`)
+  lines.push(`.content-article img{max-width:100%;height:auto;}`)
 
   // Components
-  lines.push(`.mars-article .mars-figure{margin:2.2em 0;text-align:center;}`)
-  lines.push(`.mars-article .mars-figure img{border-radius:12px;}`)
-  lines.push(`.mars-article .mars-figure figcaption{margin-top:.6em;font-size:.85em;opacity:.65;}`)
-  lines.push(`.mars-article .mars-table-wrap{overflow-x:auto;margin:1.6em 0;}`)
-  lines.push(`.mars-article .mars-table{width:100%;border-collapse:collapse;font-size:.95em;}`)
-  lines.push(`.mars-article .mars-table th{background:${theme};color:#fff;text-align:left;padding:.65em .9em;}`)
-  lines.push(`.mars-article .mars-table td{border:1px solid ${border};padding:.6em .9em;vertical-align:top;}`)
-  lines.push(`.mars-article .mars-highlight{border-left:4px solid ${theme};background:color-mix(in srgb, ${theme} 7%, transparent);padding:1em 1.2em;border-radius:0 10px 10px 0;margin:1.6em 0;}`)
-  lines.push(`.mars-article .mars-notice{border:1px solid #f59e0b55;background:#f59e0b12;padding:1em 1.2em;border-radius:10px;margin:1.6em 0;}`)
-  lines.push(`.mars-article .mars-quote{border-left:4px solid ${border};margin:1.6em 0;padding:.4em 1.2em;font-style:italic;opacity:.85;}`)
-  lines.push(`.mars-article .mars-pros-cons{display:grid;grid-template-columns:1fr 1fr;gap:1em;margin:1.6em 0;}`)
-  lines.push(`@media(max-width:640px){.mars-article .mars-pros-cons{grid-template-columns:1fr;}}`)
-  lines.push(`.mars-article .mars-pros,.mars-article .mars-cons{border:1px solid ${border};border-radius:12px;padding:1em 1.2em;}`)
-  lines.push(`.mars-article .mars-pros h4{color:#059669;margin-top:0;}`)
-  lines.push(`.mars-article .mars-cons h4{color:#d97706;margin-top:0;}`)
+  lines.push(`.content-article .content-figure{margin:2.2em 0;text-align:center;}`)
+  lines.push(`.content-article .content-figure img{border-radius:12px;}`)
+  lines.push(`.content-article .content-figure figcaption{margin-top:.6em;font-size:.85em;opacity:.65;}`)
+  lines.push(`.content-article .content-table-wrap{overflow-x:auto;margin:1.6em 0;}`)
+  lines.push(`.content-article .content-table{width:100%;border-collapse:collapse;font-size:.95em;}`)
+  lines.push(`.content-article .content-table th{background:${theme};color:#fff;text-align:left;padding:.65em .9em;}`)
+  lines.push(`.content-article .content-table td{border:1px solid ${border};padding:.6em .9em;vertical-align:top;}`)
+  lines.push(`.content-article .content-highlight{border-left:4px solid ${theme};background:color-mix(in srgb, ${theme} 7%, transparent);padding:1em 1.2em;border-radius:0 10px 10px 0;margin:1.6em 0;}`)
+  lines.push(`.content-article .content-notice{border:1px solid #f59e0b55;background:#f59e0b12;padding:1em 1.2em;border-radius:10px;margin:1.6em 0;}`)
+  lines.push(`.content-article .content-quote{border-left:4px solid ${border};margin:1.6em 0;padding:.4em 1.2em;font-style:italic;opacity:.85;}`)
+  lines.push(`.content-article .content-pros-cons{display:grid;grid-template-columns:1fr 1fr;gap:1em;margin:1.6em 0;}`)
+  lines.push(`@media(max-width:640px){.content-article .content-pros-cons{grid-template-columns:1fr;}}`)
+  lines.push(`.content-article .content-pros,.content-article .content-cons{border:1px solid ${border};border-radius:12px;padding:1em 1.2em;}`)
+  lines.push(`.content-article .content-pros h4{color:#059669;margin-top:0;}`)
+  lines.push(`.content-article .content-cons h4{color:#d97706;margin-top:0;}`)
 
   // TOC (ระบบ generate ให้)
-  lines.push(`.mars-article .mars-toc{border:1px solid ${border};border-radius:12px;padding:1em 1.4em;margin:1.6em 0;}`)
-  lines.push(`.mars-article .mars-toc ol{margin:.5em 0 0;padding-left:1.2em;}`)
-  lines.push(`.mars-article .mars-toc a{text-decoration:none;}`)
+  lines.push(`.content-article .content-toc{border:1px solid ${border};border-radius:12px;padding:1em 1.4em;margin:1.6em 0;}`)
+  lines.push(`.content-article .content-toc ol{margin:.5em 0 0;padding-left:1.2em;}`)
+  lines.push(`.content-article .content-toc a{text-decoration:none;}`)
 
   // CTA
-  lines.push(`.mars-article .mars-cta{background:${theme};color:#fff;border-radius:16px;padding:1.6em;margin:2.2em 0;text-align:center;}`)
-  lines.push(`.mars-article .mars-cta__headline{font-size:1.25em;font-weight:700;margin:0 0 .3em;color:#fff;}`)
-  lines.push(`.mars-article .mars-cta__subtext{margin:0 0 1em;opacity:.85;color:#fff;}`)
-  lines.push(`.mars-article .mars-cta__buttons{display:flex;gap:.7em;justify-content:center;flex-wrap:wrap;}`)
-  lines.push(`.mars-article .mars-cta__button{display:inline-block;background:#fff;color:${theme};font-weight:700;padding:.65em 1.5em;border-radius:10px;text-decoration:none;}`)
-  lines.push(`.mars-article .mars-cta__button--secondary{background:transparent;color:#fff;border:1.5px solid #ffffff88;}`)
+  lines.push(`.content-article .content-cta{background:${theme};color:#fff;border-radius:16px;padding:1.6em;margin:2.2em 0;text-align:center;}`)
+  lines.push(`.content-article .content-cta__headline{font-size:1.25em;font-weight:700;margin:0 0 .3em;color:#fff;}`)
+  lines.push(`.content-article .content-cta__subtext{margin:0 0 1em;opacity:.85;color:#fff;}`)
+  lines.push(`.content-article .content-cta__buttons{display:flex;gap:.7em;justify-content:center;flex-wrap:wrap;}`)
+  lines.push(`.content-article .content-cta__button{display:inline-block;background:#fff;color:${theme};font-weight:700;padding:.65em 1.5em;border-radius:10px;text-decoration:none;}`)
+  lines.push(`.content-article .content-cta__button--secondary{background:transparent;color:#fff;border:1.5px solid #ffffff88;}`)
 
   // FAQ (details/summary)
-  lines.push(`.mars-article .mars-faq__item{border:1px solid ${border};border-radius:12px;margin:.7em 0;overflow:hidden;}`)
-  lines.push(`.mars-article .mars-faq__question{cursor:pointer;list-style:none;font-weight:600;padding:.9em 1.2em;display:flex;justify-content:space-between;align-items:center;gap:1em;}`)
-  lines.push(`.mars-article .mars-faq__question::-webkit-details-marker{display:none;}`)
-  lines.push(`.mars-article .mars-faq__question::after{content:"+";font-weight:700;color:${theme};flex-shrink:0;}`)
-  lines.push(`.mars-article .mars-faq__item[open] .mars-faq__question::after{content:"−";}`)
-  lines.push(`.mars-article .mars-faq__answer{padding:0 1.2em .9em;}`)
+  lines.push(`.content-article .content-faq__item{border:1px solid ${border};border-radius:12px;margin:.7em 0;overflow:hidden;}`)
+  lines.push(`.content-article .content-faq__question{cursor:pointer;list-style:none;font-weight:600;padding:.9em 1.2em;display:flex;justify-content:space-between;align-items:center;gap:1em;}`)
+  lines.push(`.content-article .content-faq__question::-webkit-details-marker{display:none;}`)
+  lines.push(`.content-article .content-faq__question::after{content:"+";font-weight:700;color:${theme};flex-shrink:0;}`)
+  lines.push(`.content-article .content-faq__item[open] .content-faq__question::after{content:"−";}`)
+  lines.push(`.content-article .content-faq__answer{padding:0 1.2em .9em;}`)
 
   // Author box
-  lines.push(`.mars-article .mars-author{display:flex;align-items:center;gap:16px;padding:1.2em 1.4em;margin-top:2.4em;border-top:2px solid ${border};background:color-mix(in srgb, ${border} 22%, transparent);border-radius:12px;}`)
-  lines.push(`.mars-article .mars-author img{width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0;}`)
-  lines.push(`.mars-article .mars-author__name{font-weight:700;display:block;}`)
-  lines.push(`.mars-article .mars-author__title{font-size:.85em;opacity:.65;display:block;}`)
+  lines.push(`.content-article .content-author{display:flex;align-items:center;gap:16px;padding:1.2em 1.4em;margin-top:2.4em;border-top:2px solid ${border};background:color-mix(in srgb, ${border} 22%, transparent);border-radius:12px;}`)
+  lines.push(`.content-article .content-author img{width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0;}`)
+  lines.push(`.content-article .content-author__name{font-weight:700;display:block;}`)
+  lines.push(`.content-article .content-author__title{font-size:.85em;opacity:.65;display:block;}`)
 
   // ค่าราย element จาก Article Lab ทับท้ายสุด (ชนะค่า default ข้างบน)
   const fontFallback = "', sans-serif"
@@ -198,13 +198,13 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
 export function wrapArticleHtml(html: string, css: string | null): string {
   let body = html.trim()
   // ถ้ามี wrapper อยู่แล้ว (เช่น regenerate) ถอดของเดิมก่อน
-  const wrapped = body.match(/^([\s\S]*?)<div class="mars-article">([\s\S]*)<\/div>\s*$/)
-  if (wrapped && !wrapped[1].includes('<div class="mars-article">')) {
+  const wrapped = body.match(/^([\s\S]*?)<div class="content-article">([\s\S]*)<\/div>\s*$/)
+  if (wrapped && !wrapped[1].includes('<div class="content-article">')) {
     body = (wrapped[1] + wrapped[2]).trim()
   }
   body = stripStyleTags(body)
   const styleBlock = css ? `<style>\n${css}\n</style>\n` : ''
-  return `${styleBlock}<div class="mars-article">\n${body}\n</div>`
+  return `${styleBlock}<div class="content-article">\n${body}\n</div>`
 }
 
 /** ตัดแท็ก <style> ทั้งหมด (ใช้ตอน push โหมด clean และกัน AI แอบใส่มา) */

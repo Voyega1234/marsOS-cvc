@@ -160,7 +160,7 @@ export function parseArticleCards(html: string): ParsedArticle {
   const tocTargets = cards.filter(c => c.type === 'content' || c.type === 'faq')
   if (tocTargets.length > 0) {
     const items = tocTargets.map((c, i) => `  <li><a href="#cc-sec-${i}">${c.label}</a></li>`).join('\n')
-    const tocHtml = `<nav class="mars-toc" aria-label="สารบัญ">\n<strong>สารบัญ</strong>\n<ol>\n${items}\n</ol>\n</nav>`
+    const tocHtml = `<nav class="content-toc" aria-label="สารบัญ">\n<strong>สารบัญ</strong>\n<ol>\n${items}\n</ol>\n</nav>`
     const titleIdx = cards.findIndex(c => c.type === 'title')
     cards.splice(titleIdx + 1, 0, {
       id: 'toc-0', type: 'toc', label: 'สารบัญ (Table of Contents)',
@@ -185,7 +185,7 @@ export function assembleArticleHtml(parsed: ParsedArticle, selectedIds: Set<stri
     if (card.type === 'toc') {
       // สร้าง TOC ใหม่จากเฉพาะ section ที่ถูกเลือกจริง
       const items = sectionCards.map((c, i) => `  <li><a href="#cc-sec-${i}">${c.label}</a></li>`).join('\n')
-      return `<nav class="mars-toc" aria-label="สารบัญ">\n<strong>สารบัญ</strong>\n<ol>\n${items}\n</ol>\n</nav>`
+      return `<nav class="content-toc" aria-label="สารบัญ">\n<strong>สารบัญ</strong>\n<ol>\n${items}\n</ol>\n</nav>`
     }
     if (withToc && (card.type === 'content' || card.type === 'faq')) {
       const i = sectionCards.indexOf(card)

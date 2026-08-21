@@ -1,9 +1,9 @@
 /**
  * Schema JSON-LD generator — สร้าง @graph จากข้อมูลจริงของบทความแบบ deterministic
  * (ไม่ให้ AI เขียน schema เอง — กัน URL/ข้อมูลมั่ว และ FAQPage ตรงกับ FAQ ในบทความ
- * 100% เพราะ parse จาก .mars-faq__item ใน HTML ที่ generate แล้วโดยตรง)
+ * 100% เพราะ parse จาก .content-faq__item ใน HTML ที่ generate แล้วโดยตรง)
  *
- * โครง output ของบทความ: <script ld+json> → <style> → <div class="mars-article">
+ * โครง output ของบทความ: <script ld+json> → <style> → <div class="content-article">
  */
 
 export interface ArticleSchemaOptions {
@@ -34,15 +34,15 @@ function stripTags(html: string): string {
     .trim()
 }
 
-/** ดึงคู่คำถาม-คำตอบจาก FAQ มาตรฐาน mars-faq__item */
+/** ดึงคู่คำถาม-คำตอบจาก FAQ มาตรฐาน content-faq__item */
 export function parseFaqFromHtml(html: string): Array<{ q: string; a: string }> {
   const out: Array<{ q: string; a: string }> = []
-  const re = /<details[^>]*class="[^"]*mars-faq__item[^"]*"[^>]*>([\s\S]*?)<\/details>/gi
+  const re = /<details[^>]*class="[^"]*content-faq__item[^"]*"[^>]*>([\s\S]*?)<\/details>/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(html))) {
     const block = m[1]
     const q = block.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i)?.[1] ?? ''
-    const a = block.match(/<div[^>]*class="[^"]*mars-faq__answer[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1]
+    const a = block.match(/<div[^>]*class="[^"]*content-faq__answer[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1]
       ?? block.replace(/<summary[\s\S]*?<\/summary>/i, '')
     const question = stripTags(q)
     const answer = stripTags(a)

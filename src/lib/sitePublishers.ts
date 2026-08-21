@@ -216,7 +216,7 @@ async function wixPublish(cfg: NonNullable<SiteConnectionConfig['wix']>, p: Publ
       richContent: {
         nodes: [{
           type: 'HTML',
-          id: 'mars-article-html',
+          id: 'content-article-html',
           htmlData: { html: p.html, source: 'HTML' },
         }],
         metadata: { version: 1 },
@@ -237,8 +237,8 @@ async function wixPublish(cfg: NonNullable<SiteConnectionConfig['wix']>, p: Publ
 async function customHeaders(cfg: NonNullable<SiteConnectionConfig['custom']>) {
   return {
     'Content-Type': 'application/json',
-    'User-Agent': 'MarsOS/1.0',
-    ...(cfg.secret ? { 'X-Mars-Secret': cfg.secret } : {}),
+    'User-Agent': 'ContentPublisher/1.0',
+    ...(cfg.secret ? { 'X-Content-Secret': cfg.secret } : {}),
   }
 }
 
@@ -246,7 +246,7 @@ async function customTest(cfg: NonNullable<SiteConnectionConfig['custom']>): Pro
   if (!cfg.webhookUrl) return { ok: false, error: 'ต้องใส่ Webhook URL ของระบบเว็บลูกค้า' }
   const res = await fetch(cfg.webhookUrl, {
     method: 'POST', headers: await customHeaders(cfg),
-    body: JSON.stringify({ event: 'ping', source: 'marsos' }),
+    body: JSON.stringify({ event: 'ping', source: 'content-publisher' }),
     signal: AbortSignal.timeout(TIMEOUT),
   })
   if (!res.ok) return { ok: false, error: `Webhook ตอบ ${await readError(res)}` }

@@ -67,9 +67,9 @@ ${channelLines}
 
 INSTRUCTION: วาง CTA 3 จุด และทุกจุดต้องเขียนข้อความใหม่ให้ตรง pain point ของบทความนั้น (ห้ามใช้ headline/subtext ข้างบนแบบคำต่อคำซ้ำทุกจุด — ใช้เป็นวัตถุดิบ):
 1. จุดที่ 1 หลังกล่อง Short Answer: ประโยคชวน 1 บรรทัดพร้อมลิงก์ช่องทางหลัก (ข้อความธรรมดา ไม่ใช่กล่อง)
-2. จุดที่ 2 กลางบทความ: .mars-cta แบบสั้น (headline + ปุ่มเดียว)
-3. จุดที่ 3 ก่อน FAQ: .mars-cta เต็ม (headline + subtext + ปุ่มครบทุกช่องทาง)
-กติกา: ใช้โครง .mars-cta จาก COMPONENT STANDARD เท่านั้น / URL → <a class="mars-cta__button" href="..."> / phone → tel: / email → mailto: / ปุ่มแรก mars-cta__button ปุ่มถัดไปเพิ่ม mars-cta__button--secondary / ห้าม hard sell ห้ามใส่สีหรือ style เอง
+2. จุดที่ 2 กลางบทความ: .content-cta แบบสั้น (headline + ปุ่มเดียว)
+3. จุดที่ 3 ก่อน FAQ: .content-cta เต็ม (headline + subtext + ปุ่มครบทุกช่องทาง)
+กติกา: ใช้โครง .content-cta จาก COMPONENT STANDARD เท่านั้น / URL → <a class="content-cta__button" href="..."> / phone → tel: / email → mailto: / ปุ่มแรก content-cta__button ปุ่มถัดไปเพิ่ม content-cta__button--secondary / ห้าม hard sell ห้ามใส่สีหรือ style เอง
 `
 }
 
@@ -77,11 +77,11 @@ function buildAuthorHtml(name: string, title: string, imageBase64: string): stri
   if (!name && !title) return ''
   const imgTag = imageBase64 ? `<img src="${imageBase64}" alt="${name}">` : ''
   return `
-<div class="mars-author">
+<div class="content-author">
   ${imgTag}
   <div>
-    ${name ? `<span class="mars-author__name">${name}</span>` : ''}
-    ${title ? `<span class="mars-author__title">${title}</span>` : ''}
+    ${name ? `<span class="content-author__name">${name}</span>` : ''}
+    ${title ? `<span class="content-author__title">${title}</span>` : ''}
   </div>
 </div>`
 }
@@ -301,7 +301,7 @@ function injectMidImages(html: string, images: Array<{ imageBase64: string; mime
 
   const alt = (altText.trim() || 'รูปประกอบบทความ').replace(/"/g, '&quot;')
   const tag = (im: { imageBase64: string; mimeType: string }) =>
-    `\n<figure class="mars-figure">\n  <img src="data:${im.mimeType};base64,${im.imageBase64}" alt="${alt}" />\n</figure>\n`
+    `\n<figure class="content-figure">\n  <img src="data:${im.mimeType};base64,${im.imageBase64}" alt="${alt}" />\n</figure>\n`
 
   // จุดแทรก = ท้ายย่อหน้าแรกใต้ H2 ที่เลือกแบบเฉลี่ยระยะ (ข้าม H2 แรกกับ H2 ท้ายสุด เช่น FAQ/สรุป)
   const h2s = Array.from(html.matchAll(/<h2[\s>]/gi))
@@ -341,7 +341,7 @@ function injectMidImage(html: string, imageBase64: string, mimeType: string, alt
   // alt ต้องบรรยายภาพจริง ไม่ใช่คำกลาง ๆ — Validator ข้อ Image Alt Text ตรวจจุดนี้
   const alt = (altText.trim() || 'รูปประกอบบทความ').replace(/"/g, '&quot;')
 
-  const imgTag = `\n<figure class="mars-figure">
+  const imgTag = `\n<figure class="content-figure">
   <img src="data:${mimeType};base64,${imageBase64}" alt="${alt}" />
 </figure>\n`
 
@@ -717,7 +717,7 @@ export async function POST(req: NextRequest) {
     typography,
   })
   /** sanitize → ครอบ wrapper มาตรฐาน (+CSS ตามโหมด) → แปะ Schema JSON-LD ที่ generate
-   *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="mars-article">
+   *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="content-article">
    *  (schema ของ AI/รอบก่อนถูกถอดทิ้งเสมอ กัน URL มั่วและกัน FAQPage ไม่ตรงเนื้อหา) */
   const finalizeArticleHtml = (raw: string): string => {
     const body = wrapArticleHtml(stripSchemaScripts(sanitizeArticleHtml(raw)), resolvedStyleMode === 'embed' ? articleCss : null)
