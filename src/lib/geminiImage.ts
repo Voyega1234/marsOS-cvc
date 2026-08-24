@@ -150,7 +150,8 @@ export async function callGeminiImage(params: {
     `[ประเภทภาพ: ${type === 'cover' ? 'ภาพหน้าปกบทความ (cover)' : 'ภาพประกอบกลางบทความ (in-article)'}]`,
     `[สัดส่วน: ${width}×${height}]`,
     `[ปีปัจจุบัน: ${CURRENT_YEAR}]`,
-    ...(type === 'cover' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ตัวอักษรบนภาพมีได้ไม่เกิน 3 ชุด (headline + callout สั้นไม่เกิน 2 ชุด) และทุกตัวอักษรต้องสูงอย่างน้อย 4% ของความสูงภาพ — ถ้าบรีฟสั่งให้มีป้ายคำใต้ไอคอน แถบข้อความล่าง ชิป แท็ก หรือคำบรรยายย่อย ให้เปลี่ยนเป็นไอคอน/กราฟิกล้วนไม่มีตัวอักษร ห้าม prompt ที่คอมไพล์ออกมามีคำสั่งให้ใส่ข้อความเล็ก]`] : []),
+    ...(type === 'cover' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ตัวอักษรบนภาพมีได้ไม่เกิน 2 ชุด (headline + sub-headline สั้น 1 บรรทัด) ทั้งสองชุดต้องวางบนบล็อก/แถบสีทึบเพื่อคอนทราสต์ และทุกตัวอักษรต้องสูงอย่างน้อย 5% ของความสูงภาพ — ถ้าบรีฟสั่งให้มีป้ายคำใต้ไอคอน แถบข้อความล่าง ชิป แท็ก หรือคำบรรยายย่อย ให้เปลี่ยนเป็นไอคอน/กราฟิกล้วนไม่มีตัวอักษร ห้าม prompt ที่คอมไพล์ออกมามีคำสั่งให้ใส่ข้อความเล็ก]`] : []),
+    ...(type === 'mid' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: นี่คือภาพประกอบกลางบทความ ไม่ใช่ภาพปก ต้องเป็นภาพถ่ายจริง (photorealistic photography) เต็มเฟรม ไม่มีบล็อกข้อความ ไม่มีแถบสี และห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ หรือ ข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline หรือป้ายคำ ให้ตัดออกทั้งหมดแล้วเล่าด้วยภาพล้วน โดยคงสไตล์และชุดสีตามบรีฟไว้]`] : []),
     ...(palette ? [`[ชุดสีธีมเว็บลูกค้า (Article Lab) — ใช้เป็นชุดสีหลักของภาพให้เข้ากับเว็บไซต์: ${palette}]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
   ].join('\n')
@@ -167,18 +168,19 @@ export async function callGeminiImage(params: {
   // ("ตรวจสุขภาพ" → "ตรวอ ลุอกาพ") จึงบังคับว่าอะไรที่เล็กกว่า 4% ของความสูงภาพ
   // ให้ตัดข้อความทิ้งเหลือแต่ไอคอน — กฎนี้ทับบรีฟจาก CE ที่สั่งให้มีป้ายใต้ไอคอน
   const coverTextLine = type === 'cover'
-    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a SQUARE 1:1 marketing cover — it MUST include readable text rendered inside the image:
+    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a SQUARE 1:1 marketing cover built on a REAL PHOTOGRAPH with flat graphic panels on top — it MUST include readable text rendered inside the image:
 - Main headline (dominant focal element, large bold legible typography): "${title}"
 - Use the SAME language(s) as the headline above — Thai, English, or a mix, exactly as written. Do NOT force one language and do NOT translate the title
-- TEXT BUDGET (hard limit): the whole image contains AT MOST 3 text elements — the headline plus at most 2 very short supporting callouts/badges derived from the brief, in the same language(s)
-- MINIMUM TEXT SIZE (hard limit): every single glyph in the image must be at least 4% of the image height (about 40px at 1024×1024). Small text is ALWAYS rendered as broken, misspelled glyphs, so if a label, badge, caption, footer strip, chip, or icon caption would end up smaller than that, DROP THE TEXT COMPLETELY and leave the icon or graphic element with no label at all. An unlabelled icon is always better than small broken text. This overrides any instruction above that asks for labelled icon rows, medallion captions, footer text bars, chips, tags, or body copy
+- TEXT BUDGET (hard limit): the whole image contains AT MOST 2 text elements — the headline, plus at most ONE short single-line sub-headline (max ~8 words) derived from the brief, in the same language(s). Nothing else carries text
+- TEXT PLATE (hard limit): every text element sits on its own opaque solid-colour panel, band or pill (theme colour or dark navy), never directly on top of busy photographic detail — contrast must stay high and the letterforms must stay crisp
+- MINIMUM TEXT SIZE (hard limit): every single glyph in the image must be at least 5% of the image height (about 50px at 1024×1024). Small text is ALWAYS rendered as broken, misspelled glyphs, so if a label, badge, caption, footer strip, chip, or icon caption would end up smaller than that, DROP THE TEXT COMPLETELY and leave the icon or graphic element with no label at all. An unlabelled icon is always better than small broken text. This overrides any instruction above that asks for labelled icon rows, medallion captions, footer text bars, chips, tags, or body copy
 - THAI TYPOGRAPHY (when any Thai character appears): use a plain, modern Thai UI sans-serif (Noto Sans Thai / IBM Plex Sans Thai / Sarabun style). NO condensed, handwritten, script, outlined, 3D, distressed or decorative faces. No extra letter-spacing. Line height at least 1.6 so tone marks (วรรณยุกต์) and upper/lower vowels (สระบน/สระล่าง) have room and are never cut, merged, or collided
 - Render every character as clean, correctly-formed glyphs in whatever script is used — for Thai keep every tone mark and vowel attached to its own base letter in the correct position, for Latin spell every word correctly; never split, merge, duplicate, mirror, warp, or drop characters
 - Keep each Thai phrase on ONE unbroken line; never hyphenate Thai and never break a Thai word across lines
 - Do NOT invent text of your own: no phone numbers, LINE ids, emails, URLs, company names, or filler words — only the headline and the callouts from the brief
 - Clean layout with clear hierarchy, text sitting on a calm uncluttered area; keep every character fully inside a safe margin of at least 8% from all four edges, never clipped by the frame or covered by graphic elements
 - Spell every word EXACTLY as provided — do not invent, translate, or misspell any text`
-    : ''
+    : `\n\nNO TEXT (CRITICAL): This is an in-article illustration, not a cover. Render ZERO text: no headline, no article title, no labels, captions, chips, tags, numbers, units, logos, watermarks, signatures, and no text on screens, signs, or documents inside the scene. Tell the story with visuals only — objects, people, scenes, icons, graphic elements — keeping the style and colour palette from the brief. If the brief asks for a headline or captions, ignore that part.`
   const prompt = compiled + coverTextLine + orientationLine
 
   // เลือกสัดส่วนที่โมเดลรองรับให้ใกล้เป้าหมายที่สุด — crop ปลายทางจะเหลือน้อยลงมาก
