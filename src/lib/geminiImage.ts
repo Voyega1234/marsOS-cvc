@@ -5,6 +5,11 @@
  */
 import sharp from 'sharp'
 import { orChat, orImage, OR_MODELS } from '@/lib/openrouter'
+import { composeCoverOverlay } from '@/lib/coverOverlay'
+
+// ตัวหนังสือบนปกวาดเองด้วยฟอนต์จริง (ดู coverOverlay.ts) — โมเดลภาพสะกดไทยผิดเสมอ
+// ปิดได้ด้วย COVER_TEXT_OVERLAY=off ถ้าอยากกลับไปให้โมเดลเขียนตัวอักษรเอง
+const COVER_TEXT_OVERLAY = process.env.COVER_TEXT_OVERLAY !== 'off'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const NEXT_YEAR    = CURRENT_YEAR + 1
@@ -150,9 +155,13 @@ export async function callGeminiImage(params: {
     `[ประเภทภาพ: ${type === 'cover' ? 'ภาพหน้าปกบทความ (cover)' : 'ภาพประกอบกลางบทความ (in-article)'}]`,
     `[สัดส่วน: ${width}×${height}]`,
     `[ปีปัจจุบัน: ${CURRENT_YEAR}]`,
-    ...(type === 'cover' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ตัวอักษรบนภาพมีได้ไม่เกิน 2 ชุด (headline + sub-headline สั้น 1 บรรทัด) ทั้งสองชุดต้องวางบนบล็อก/แถบสีทึบเพื่อคอนทราสต์ และทุกตัวอักษรต้องสูงอย่างน้อย 5% ของความสูงภาพ — ถ้าบรีฟสั่งให้มีป้ายคำใต้ไอคอน แถบข้อความล่าง ชิป แท็ก หรือคำบรรยายย่อย ให้เปลี่ยนเป็นไอคอน/กราฟิกล้วนไม่มีตัวอักษร ห้าม prompt ที่คอมไพล์ออกมามีคำสั่งให้ใส่ข้อความเล็ก]`] : []),
+    ...(type === 'cover' ? [COVER_TEXT_OVERLAY
+      ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพนี้คือ "ภาพถ่ายพื้นหลังของปก" เท่านั้น ระบบจะวางหัวเรื่องและป้ายคีย์เวิร์ดทับด้วยฟอนต์จริงในขั้นตอนถัดไป จึงห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ, บล็อกข้อความ, แถบสีสำหรับใส่ข้อความ หรือข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline บล็อกข้อความ หรือป้ายคำ ให้ตัดออกทั้งหมด; องค์ประกอบภาพ: เป็นภาพถ่ายจริงเต็มเฟรม วางตัวแบบหลักไว้ครึ่งบนของเฟรม และเว้นครึ่งล่างให้เป็นพื้นที่เรียบสงบ (พื้น ผนัง ท้องฟ้า ระยะเบลอ) ไม่มีรายละเอียดสำคัญ เพราะจะถูกแผงสีทับ]`
+      : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ตัวอักษรบนภาพมีได้ไม่เกิน 2 ชุด (headline + sub-headline สั้น 1 บรรทัด) ทั้งสองชุดต้องวางบนบล็อก/แถบสีทึบเพื่อคอนทราสต์ และทุกตัวอักษรต้องสูงอย่างน้อย 5% ของความสูงภาพ — ถ้าบรีฟสั่งให้มีป้ายคำใต้ไอคอน แถบข้อความล่าง ชิป แท็ก หรือคำบรรยายย่อย ให้เปลี่ยนเป็นไอคอน/กราฟิกล้วนไม่มีตัวอักษร ห้าม prompt ที่คอมไพล์ออกมามีคำสั่งให้ใส่ข้อความเล็ก]`] : []),
     ...(type === 'mid' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: นี่คือภาพประกอบกลางบทความ ไม่ใช่ภาพปก ต้องเป็นภาพถ่ายจริง (photorealistic photography) เต็มเฟรม ไม่มีบล็อกข้อความ ไม่มีแถบสี และห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ หรือ ข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline หรือป้ายคำ ให้ตัดออกทั้งหมดแล้วเล่าด้วยภาพล้วน โดยคงสไตล์และชุดสีตามบรีฟไว้]`] : []),
-    ...(palette ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีของภาพต้องเป็นชุดสีธีมบทความจาก Article Lab เท่านั้น: ${palette} — บล็อกข้อความใหญ่ใช้สีธีม/สีหลัก, แถบ sub-headline ใช้เฉดเข้มของสีธีมเดียวกัน, ไอคอน/เส้นกราฟิกใช้สี accent หรือสีขาว, ตัวอักษรเลือกสีที่คอนทราสต์สูงกับพื้นที่รองรับ; ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของกราฟิก และให้เกรดโทนภาพถ่ายให้เข้ากับชุดสีนี้]`] : []),
+    ...(palette ? [(type === 'cover' && COVER_TEXT_OVERLAY)
+      ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีของภาพต้องเป็นชุดสีธีมบทความจาก Article Lab เท่านั้น: ${palette} — เกรดโทนภาพถ่ายให้กลมกลืนกับชุดสีนี้ (แสง เงา สีพร็อพ สีเสื้อผ้า สีฉากหลัง) ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของภาพ]`
+      : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีของภาพต้องเป็นชุดสีธีมบทความจาก Article Lab เท่านั้น: ${palette} — บล็อกข้อความใหญ่ใช้สีธีม/สีหลัก, แถบ sub-headline ใช้เฉดเข้มของสีธีมเดียวกัน, ไอคอน/เส้นกราฟิกใช้สี accent หรือสีขาว, ตัวอักษรเลือกสีที่คอนทราสต์สูงกับพื้นที่รองรับ; ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของกราฟิก และให้เกรดโทนภาพถ่ายให้เข้ากับชุดสีนี้]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
   ].join('\n')
   const compiled = await compileImagePrompt(`${rendered}\n\n${briefFacts}`)
@@ -167,7 +176,13 @@ export async function callGeminiImage(params: {
   // สะกดไทยถูกทั้งประโยค แต่ป้ายเล็กใต้ไอคอน/แถบล่างออกมาเป็นตัวมั่วแทบทุกครั้ง
   // ("ตรวจสุขภาพ" → "ตรวอ ลุอกาพ") จึงบังคับว่าอะไรที่เล็กกว่า 4% ของความสูงภาพ
   // ให้ตัดข้อความทิ้งเหลือแต่ไอคอน — กฎนี้ทับบรีฟจาก CE ที่สั่งให้มีป้ายใต้ไอคอน
-  const coverTextLine = type === 'cover'
+  const coverTextLine = (type === 'cover' && COVER_TEXT_OVERLAY)
+    ? `\n\nBACKGROUND PLATE FOR A COVER — NO TEXT (CRITICAL): The headline and keyword label are rendered afterwards by the system using a real font, directly on top of this image. Your job is ONLY the photograph underneath:
+- Render ZERO text: no headline, no article title, no labels, captions, chips, tags, numbers, units, logos, watermarks, signatures, no text panels or coloured text bars, and no text on screens, signs, packaging or documents inside the scene. Any letterform you draw will be covered or will clash with the real typography
+- Photorealistic photography, full frame, single clear subject — editorial/commercial quality, natural depth of field
+- COMPOSITION (hard requirement): keep the subject and every important detail in the UPPER TWO THIRDS of the frame. The BOTTOM HALF must be calm, simple, uncluttered negative space (floor, wall, sky, water, blurred background, plain gradient) because a solid colour panel is composited over it. Nothing important may sit in the bottom half
+- Leave the frame edges clean: no borders, frames, vignette text, collage panels or split-screen layouts`
+    : type === 'cover'
     ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a SQUARE 1:1 marketing cover built on a REAL PHOTOGRAPH with flat graphic panels on top — it MUST include readable text rendered inside the image:
 - Main headline (dominant focal element, large bold legible typography): "${title}"
 - Use the SAME language(s) as the headline above — Thai, English, or a mix, exactly as written. Do NOT force one language and do NOT translate the title
@@ -191,8 +206,28 @@ export async function callGeminiImage(params: {
   const totalTokens = result.usage.totalTokens
   const costUsd = Number(result.usage.costUsd.toFixed(6))
 
+  // วางตัวหนังสือปกด้วยฟอนต์จริงทับภาพถ่าย ก่อนบีบอัด — โมเดลภาพสะกดไทยผิดเป็นประจำ
+  // (ป→บ, ภ→ท, วรรณยุกต์หลุด) ส่วนฟอนต์จริงสะกดถูก 100% เสมอ
+  let plateBase64 = result.base64
+  let plateMime = result.mimeType
+  if (type === 'cover' && COVER_TEXT_OVERLAY) {
+    try {
+      const composed = await composeCoverOverlay({
+        image: Buffer.from(result.base64, 'base64'),
+        title, keyword, width, height,
+        themeColor: themeColor.trim() || accentColor.trim(),
+        accentColor: accentColor.trim(),
+      })
+      plateBase64 = composed.toString('base64')
+      plateMime = 'image/png'
+    } catch (err) {
+      // overlay พังไม่ควรทำให้บทความไม่มีภาพ — ใช้ภาพถ่ายเปล่าไปก่อนแล้วรายงานไว้ใน log
+      console.error('[image] cover overlay failed — ใช้ภาพถ่ายเปล่าแทน:', err)
+    }
+  }
+
   const { base64, mimeType, originalKB, compressedKB } =
-    await compressToWebP(result.base64, result.mimeType, type, width, height)
+    await compressToWebP(plateBase64, plateMime, type, width, height)
 
   console.log(`[image] ${type} via ${OR_MODELS.image()} ${originalKB}KB → ${compressedKB}KB (${Math.round((1 - compressedKB / originalKB) * 100)}% saved)`)
 
