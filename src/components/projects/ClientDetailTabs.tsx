@@ -4111,6 +4111,16 @@ function syncSeoMetaIntoHtml(html: string, v: { metaTitle: string; metaDescripti
 }
 
 /** แถบวัดความยาวแบบ Yoast: สั้นไป = ส้ม, กำลังดี = เขียว, ยาวเกิน = แดง */
+/**
+ * รูปแรกในตัวบทความ — ใช้เป็น thumbnail ของ SERP preview ตอนที่ยังไม่มีภาพปก
+ * (Google เองก็หยิบรูปในหน้ามาแสดงแบบนี้) รับเฉพาะ http(s) กับ data: กัน src แปลก ๆ
+ */
+function firstImageFromHtml(html: string): string {
+  const m = html.match(/<img[^>]+src=["']([^"']+)["']/i)
+  const src = m?.[1]?.trim() ?? ''
+  return /^(https?:\/\/|data:image\/)/i.test(src) ? src : ''
+}
+
 function MetaLengthBar({ len, min, max }: { len: number; min: number; max: number }) {
   const color = len === 0 ? 'bg-gray-200' : len < min ? 'bg-amber-400' : len <= max ? 'bg-emerald-500' : 'bg-rose-500'
   return (
@@ -4145,16 +4155,15 @@ function GoogleSerpPreview({ device, siteHost, siteName, slug, title, descriptio
           </p>
         </div>
       </div>
-      <div className="flex gap-3">
-        <div className="min-w-0 flex-1">
-          <p className={`${isMobile ? 'text-[15px]' : 'text-[18px]'} text-[#1a0dab] leading-snug line-clamp-2`} style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
-            {title || 'ยังไม่มี SEO title'}
-          </p>
-          <p className="text-[12px] text-gray-600 mt-1 leading-snug line-clamp-3">
-            <span className="text-gray-400">{dateLabel} — </span>
-            {description || 'ยังไม่มี meta description — Google จะเลือกข้อความจากบทความมาแสดงเอง'}
-          </p>
-        </div>
+      {/* หัวข้อกินเต็มความกว้างเหมือนผลจริงบน Google — รูปอยู่ข้างคำอธิบายเท่านั้น */}
+      <p className={`${isMobile ? 'text-[16px]' : 'text-[19px]'} text-[#1a0dab] leading-snug line-clamp-2`} style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+        {title || 'ยังไม่มี SEO title'}
+      </p>
+      <div className="flex gap-3 mt-1.5">
+        <p className="text-[12px] text-gray-600 leading-snug line-clamp-3 flex-1 min-w-0">
+          <span className="text-gray-400">{dateLabel} — </span>
+          {description || 'ยังไม่มี meta description — Google จะเลือกข้อความจากบทความมาแสดงเอง'}
+        </p>
         {thumbnail && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={thumbnail} alt="" className="w-[92px] h-[92px] rounded-lg object-cover border border-gray-200 shrink-0" />
@@ -4736,7 +4745,11 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                         slug={slugifyEnSlug(draft.slug)}
                         title={draft.seoTitle}
                         description={draft.metaDescription}
-                        thumbnail={job?.coverImage ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}` : (coverUrl[entryIdx] ?? '')}
+                        thumbnail={
+                          job?.coverImage
+                            ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}`
+                            : (coverUrl[entryIdx] || firstImageFromHtml(html))
+                        }
                         dateLabel={entry.thaiDate || entry.date}
                       />
 
