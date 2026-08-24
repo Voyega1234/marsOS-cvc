@@ -3919,8 +3919,8 @@ function ArticlesTab({
                 <img
                   src={`data:${drawerJob.coverMimeType || 'image/webp'};base64,${drawerJob.coverImage}`}
                   alt="cover"
-                  className="w-full rounded-xl overflow-hidden border border-gray-100 shadow-sm object-cover"
-                  style={{ maxHeight: '200px' }}
+                  className="w-full rounded-xl overflow-hidden border border-gray-100 shadow-sm object-contain bg-gray-50"
+                  style={{ maxHeight: '260px' }}
                 />
               </div>
             )}
