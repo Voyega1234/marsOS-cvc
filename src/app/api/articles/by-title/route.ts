@@ -31,6 +31,8 @@ export async function GET(req: NextRequest) {
     where: whereClause,
     select: {
       id: true, title: true, htmlContent: true, status: true, slug: true, metaDescription: true, seoTitle: true,
+      // ปกที่เปลี่ยนในแท็บ Review เก็บเป็น data URI — ต้องส่งกลับไปโชว์ตอนเปิดรอบใหม่
+      coverImageUrl: true,
       comments: { include: { user: { select: { name: true, role: true } } }, orderBy: { createdAt: 'asc' as const } },
     },
   })

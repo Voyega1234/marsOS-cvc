@@ -110,22 +110,26 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { html, title, keyword, slug: manualSlug, coverImage = '', coverMimeType = 'image/webp', publishMode = 'draft', useElementor = false, wpPostType = 'post', projectId, connectionId, stripH1 } = body
+  // metaTitle/metaDescription = ค่าที่แก้เองในแท็บ Review (override) — ถ้ามีต้องชนะทุกแหล่ง
+  const { html, title, keyword, slug: manualSlug, coverImage = '', coverMimeType = 'image/webp', metaTitle: reviewMetaTitle = '', metaDescription: reviewMetaDesc = '', publishMode = 'draft', useElementor = false, wpPostType = 'post', projectId, connectionId, stripH1 } = body
   const orgId = session.user.organizationId
 
   // Enrich with DB article data if we can match by projectId + title
   let dbMetaDescription = ''
   let dbSeoTitle = ''
   let dbSlug = ''
+  let dbCoverDataUri = ''
   if (projectId && title) {
     const dbArticle = await prisma.article.findFirst({
       where: { projectId, project: { organizationId: orgId }, title },
-      select: { metaDescription: true, seoTitle: true, slug: true },
+      select: { metaDescription: true, seoTitle: true, slug: true, coverImageUrl: true },
     }).catch(() => null)
     if (dbArticle) {
       dbMetaDescription = dbArticle.metaDescription ?? ''
       dbSeoTitle        = dbArticle.seoTitle ?? ''
       dbSlug            = dbArticle.slug ?? ''
+      // ภาพปกที่เปลี่ยนในแท็บ Review ถูกเก็บเป็น data URI ไว้ที่นี่ (อยู่ข้ามเซสชัน)
+      dbCoverDataUri    = (dbArticle.coverImageUrl ?? '').startsWith('data:') ? dbArticle.coverImageUrl! : ''
     }
   }
 
@@ -266,15 +270,22 @@ export async function POST(req: NextRequest) {
 
   // 1. Extract SEO metadata from HTML (HTML comment block is the primary source)
   const meta = extractSeoMeta(html, dbSeoTitle || title, keyword ?? '')
-  // DB values override HTML-comment values for slug and meta description
+  // ลำดับความสำคัญ: ค่าที่แก้ในแท็บ Review (override) → DB → meta block ในบทความ → title
+  // ถ้าไม่เคยแก้ที่หน้า Review ค่า override เป็นค่าว่าง = ใช้ลำดับเดิมทุกอย่าง
+  const reviewTitleOverride = String(reviewMetaTitle ?? '').trim()
+  const reviewDescOverride  = String(reviewMetaDesc ?? '').trim()
   const finalSlug       = manualSlug?.trim() || dbSlug || ''
-  const finalMetaDesc   = dbMetaDescription || meta.metaDescription
+  const finalMetaDesc   = reviewDescOverride || dbMetaDescription || meta.metaDescription
+  const finalMetaTitle  = reviewTitleOverride || meta.metaTitle || dbSeoTitle || title
 
   console.log('[push/publish] DEBUG', {
     title,
     manualSlug,
     dbSlug,
     finalSlug,
+    reviewTitleOverride,
+    reviewDescOverride: reviewDescOverride?.slice(0,80),
+    finalMetaTitle,
     dbMetaDescription: dbMetaDescription?.slice(0,80),
     metaMetaDescription: meta.metaDescription?.slice(0,80),
     finalMetaDesc: finalMetaDesc?.slice(0,80),
@@ -292,15 +303,22 @@ export async function POST(req: NextRequest) {
 
   // 2. Upload cover image as featured image
   let featuredMediaId: number | null = null
-  if (coverImage?.trim()) {
-    featuredMediaId = await uploadCoverImage(wpUrl, creds, coverImage, coverMimeType, dbSeoTitle || title, coverAltText)
+  // รูปในเซสชันมาก่อน (เพิ่งเขียน/เพิ่งเปลี่ยนรอบนี้) — ไม่มีค่อยใช้ปกที่บันทึกไว้จากแท็บ Review
+  let effectiveCover = String(coverImage ?? '').trim()
+  let effectiveCoverMime = coverMimeType
+  if (!effectiveCover && dbCoverDataUri) {
+    const m = dbCoverDataUri.match(/^data:([^;]+);base64,(.+)$/)
+    if (m) { effectiveCoverMime = m[1]; effectiveCover = m[2] }
+  }
+  if (effectiveCover) {
+    featuredMediaId = await uploadCoverImage(wpUrl, creds, effectiveCover, effectiveCoverMime, dbSeoTitle || title, coverAltText)
   }
 
   // 3. Build post payload
   const content = useElementor ? '' : htmlWithAlt
   const payload: Record<string, unknown> = {
     // For pages: send empty title so WP doesn't show a title block above content (H1 is in HTML)
-    title:   isPage ? '' : (meta.metaTitle || dbSeoTitle || title),
+    title:   isPage ? '' : finalMetaTitle,
     content,
     excerpt: finalMetaDesc ? finalMetaDesc.slice(0, 160) : undefined,
     status: publishMode === 'publish' ? 'publish' : 'draft',
@@ -310,7 +328,6 @@ export async function POST(req: NextRequest) {
 
   // 4. Yoast SEO meta
   const wpMeta: Record<string, string> = {}
-  const finalMetaTitle = meta.metaTitle || dbSeoTitle || title
   if (finalMetaTitle)    wpMeta['_yoast_wpseo_title']    = finalMetaTitle
   if (finalMetaDesc)     wpMeta['_yoast_wpseo_metadesc'] = finalMetaDesc.slice(0, 160)
   if (meta.focusKeyword) wpMeta['_yoast_wpseo_focuskw']  = meta.focusKeyword

@@ -138,6 +138,12 @@ interface TimelineEntry {
   kw_status?: string
   assignedAuthorId?: string  // id from Project.authors array
   keywordId?: string  // DB Keyword.id for article slug mapping
+  // ── ค่าที่แก้เองในแท็บ Review — ชนะทุกแหล่งตอน Push ──
+  // เขียนโดย ReviewTab > saveSeo เท่านั้น · ไม่มีเส้นทางอื่นเขียนทับ
+  // (บทความ/DB อาจถูก job อื่นเขียนทับได้ แต่ตรงนี้ไม่ถูกแตะ)
+  reviewSeoTitle?: string
+  reviewMetaDescription?: string
+  reviewMetaEditedAt?: string
 }
 
 // ─── แก้วันขึ้นบทความเอง (Content Map) ─────────────────────────────────────────
@@ -4045,13 +4051,127 @@ function ArticlesTab({
 
 // ─── Review Tab ───────────────────────────────────────────────────────────────
 
+// ── SEO meta ที่แก้ในหน้า Review ต้องเป็นค่าเดียวกับที่ Push ขึ้นเว็บ ──────────
+// กติกา: ยังไม่แก้ที่หน้านี้ = Push ใช้ค่าเดิมตามลำดับเดิม (meta block ในบทความ → DB
+// → title) · แก้แล้ว = ค่าที่แก้ชนะทุกแหล่งเสมอ
+// ทำได้โดยตอนบันทึกเขียนกลับทุกที่ที่ /api/push/publish อ่าน แล้วเก็บ override ไว้ที่
+// timeline entry (reviewSeoTitle/reviewMetaDescription/slug) ซึ่ง PushTab ส่งไปกับ
+// request — จุดนี้ไม่มี job อื่นในระบบเขียนทับ ต่อให้ DB/บทความถูกทับทีหลังก็ยังได้ของที่แก้
+const SEO_META_KEYS = { title: 'meta_title', desc: 'meta_description', slug: 'en_slug' } as const
+
+function readSeoMetaFromHtml(html: string) {
+  const block = html.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
+  const get = (key: string) => {
+    const m = block.match(new RegExp(`${key}\\s*[:=]\\s*([^\\n]+)`, 'i'))
+    return m?.[1]?.trim().replace(/^["']|["']$/g, '') ?? ''
+  }
+  let desc = get(SEO_META_KEYS.desc)
+  if (!desc) desc = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i)?.[1]?.trim() ?? ''
+  return { metaTitle: get(SEO_META_KEYS.title), metaDescription: desc, enSlug: get(SEO_META_KEYS.slug) }
+}
+
+/** slug ปลายทาง WordPress: a-z 0-9 ยัติภังค์ เท่านั้น (กติกาเดียวกับ /api/push/publish) */
+function slugifyEnSlug(raw: string) {
+  return raw.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
+}
+
+/** เขียน meta ที่แก้กลับเข้าตัวบทความ (comment block + <meta name="description">) */
+function syncSeoMetaIntoHtml(html: string, v: { metaTitle: string; metaDescription: string; slug: string }) {
+  const oneLine = (s: string) => s.replace(/\s*\n\s*/g, ' ').trim()
+  const vals: [string, string][] = [
+    [SEO_META_KEYS.title, oneLine(v.metaTitle)],
+    [SEO_META_KEYS.desc, oneLine(v.metaDescription)],
+    [SEO_META_KEYS.slug, oneLine(v.slug)],
+  ]
+
+  if (!/<!--\s*CONVERT_CAKE_SEO_META/i.test(html)) {
+    const block = vals.filter(([, val]) => val).map(([k, val]) => `${k}: ${val}`).join('\n')
+    return block ? `<!-- CONVERT_CAKE_SEO_META\n${block}\n-->\n${html}` : html
+  }
+
+  let out = html
+  for (const [key, val] of vals) {
+    if (!val) continue
+    out = out.replace(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i, (full: string, inner: string) => {
+      const re = new RegExp(`(^|\\n)([ \\t]*)${key}\\s*[:=]\\s*[^\\n]*`, 'i')
+      const nextInner = re.test(inner)
+        ? inner.replace(re, (_m: string, br: string, sp: string) => `${br}${sp}${key}: ${val}`)
+        : `${inner.replace(/\s*$/, '')}\n${key}: ${val}\n`
+      return full.replace(inner, () => nextInner)
+    })
+  }
+  const desc = oneLine(v.metaDescription)
+  if (desc) {
+    out = out.replace(
+      /(<meta\s+name=["']description["']\s+content=["'])([^"']*)(["'])/i,
+      (_m: string, pre: string, _old: string, post: string) => `${pre}${desc.replace(/"/g, '&quot;')}${post}`
+    )
+  }
+  return out
+}
+
+/** แถบวัดความยาวแบบ Yoast: สั้นไป = ส้ม, กำลังดี = เขียว, ยาวเกิน = แดง */
+function MetaLengthBar({ len, min, max }: { len: number; min: number; max: number }) {
+  const color = len === 0 ? 'bg-gray-200' : len < min ? 'bg-amber-400' : len <= max ? 'bg-emerald-500' : 'bg-rose-500'
+  return (
+    <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden mt-1.5">
+      <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${Math.max(2, Math.min(100, (len / max) * 100))}%` }} />
+    </div>
+  )
+}
+
+/** ตัวอย่างผลการค้นหา Google (แบบปลั๊กอิน Yoast) — Mobile / Desktop */
+function GoogleSerpPreview({ device, siteHost, siteName, slug, title, description, thumbnail, dateLabel }: {
+  device: 'mobile' | 'desktop'
+  siteHost: string
+  siteName: string
+  slug: string
+  title: string
+  description: string
+  thumbnail: string
+  dateLabel: string
+}) {
+  const isMobile = device === 'mobile'
+  return (
+    <div className={`rounded-xl border border-gray-200 bg-white p-3 shadow-sm ${isMobile ? 'max-w-[400px]' : ''}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-6 h-6 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500 shrink-0">
+          {(siteName || siteHost || '?').trim().slice(0, 1).toUpperCase()}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[11px] text-gray-800 leading-tight truncate">{siteName || siteHost || 'เว็บไซต์ลูกค้า'}</p>
+          <p className="text-[10px] text-gray-500 leading-tight truncate">
+            {siteHost || 'example.com'}{slug ? ` › ${slug}` : ''}
+          </p>
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <div className="min-w-0 flex-1">
+          <p className={`${isMobile ? 'text-[15px]' : 'text-[18px]'} text-[#1a0dab] leading-snug line-clamp-2`} style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+            {title || 'ยังไม่มี SEO title'}
+          </p>
+          <p className="text-[12px] text-gray-600 mt-1 leading-snug line-clamp-3">
+            <span className="text-gray-400">{dateLabel} — </span>
+            {description || 'ยังไม่มี meta description — Google จะเลือกข้อความจากบทความมาแสดงเอง'}
+          </p>
+        </div>
+        {thumbnail && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumbnail} alt="" className="w-[92px] h-[92px] rounded-lg object-cover border border-gray-200 shrink-0" />
+        )}
+      </div>
+    </div>
+  )
+}
+
 interface ReviewComment { id: string; body: string; createdAt: string; user: { name: string | null; role: string } }
 
-function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
+function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewrite }: {
   project: ProjectData
   timeline: TimelineEntry[]
   setTimeline: (t: TimelineEntry[]) => void
   jobs: ArticleJob[]
+  setJobs: React.Dispatch<React.SetStateAction<ArticleJob[]>>
   onAdjustRewrite: (entryIdx: number, note: string) => void
 }) {
   const [expanded, setExpanded] = useState<number | null>(null)
@@ -4068,6 +4188,17 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
   const [viewMode, setViewMode] = useState<'preview' | 'text' | 'edit'>('preview')
   const [editSaving, setEditSaving] = useState(false)
   const reviewEditorRef = useRef<HTMLDivElement>(null)
+  // ── แผง Search appearance (ขวา): meta title / slug / meta description + ภาพปก ──
+  const [seoDraft, setSeoDraft] = useState<Record<number, { seoTitle: string; metaDescription: string; slug: string }>>({})
+  const [seoSaving, setSeoSaving] = useState<number | null>(null)
+  const [seoSavedAt, setSeoSavedAt] = useState<Record<number, number>>({})
+  const [serpDevice, setSerpDevice] = useState<'mobile' | 'desktop'>('mobile')
+  const [coverBusy, setCoverBusy] = useState<number | null>(null)
+  // ภาพปกที่บันทึกไว้ใน DB (Article.coverImageUrl) — ใช้ตอนเซสชันใหม่ที่ยังไม่มีรูปใน jobs
+  const [coverUrl, setCoverUrl] = useState<Record<number, string>>({})
+
+  const siteHost = (project.website ?? '').replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+  const siteName = project.clientName || project.name || siteHost
 
   const reviewEntries: { entryIdx: number; entry: TimelineEntry; job: ArticleJob | undefined }[] = []
   timeline.forEach((entry, entryIdx) => {
@@ -4076,7 +4207,11 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
     if (inReview) reviewEntries.push({ entryIdx, entry, job })
   })
 
-  async function fetchArticle(entryIdx: number, entry: TimelineEntry): Promise<{ id: string; htmlContent: string; comments: ReviewComment[] } | null> {
+  async function fetchArticle(entryIdx: number, entry: TimelineEntry): Promise<{
+    id: string; htmlContent: string; comments: ReviewComment[]
+    seoTitle?: string | null; metaDescription?: string | null; slug?: string | null
+    coverImageUrl?: string | null
+  } | null> {
     try {
       const res = await fetch(`/api/articles/by-title?projectId=${encodeURIComponent(project.id)}&title=${encodeURIComponent(entry.title)}`)
       if (!res.ok) return null
@@ -4093,6 +4228,18 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
         if (data.id) setArticleIds(prev => ({ ...prev, [entryIdx]: data.id }))
         if (data.htmlContent) setLocalJobHtml(prev => ({ ...prev, [entryIdx]: data.htmlContent }))
         if (data.comments) setComments(prev => ({ ...prev, [entryIdx]: data.comments }))
+        if (data.coverImageUrl) setCoverUrl(prev => ({ ...prev, [entryIdx]: data.coverImageUrl! }))
+        // เติมค่า SEO เริ่มต้น: DB ก่อน → ตกมาที่ meta block ในบทความ → ตกมาที่ title/slug ของ entry
+        const htmlNow = data.htmlContent || jobs.find(j => j.entryIdx === entryIdx)?.html || ''
+        const fromHtml = readSeoMetaFromHtml(htmlNow)
+        setSeoDraft(prev => prev[entryIdx] ? prev : ({
+          ...prev,
+          [entryIdx]: {
+            seoTitle: entry.reviewSeoTitle || data.seoTitle || fromHtml.metaTitle || entry.title || '',
+            metaDescription: entry.reviewMetaDescription || data.metaDescription || fromHtml.metaDescription || '',
+            slug: entry.slug || data.slug || fromHtml.enSlug || '',
+          },
+        }))
       }
     } finally {
       setLoadingHtml(null)
@@ -4124,6 +4271,129 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
       setViewMode('preview')
     } finally {
       setEditSaving(false)
+    }
+  }
+
+  const htmlOf = (entryIdx: number) =>
+    localJobHtml[entryIdx] || jobs.find(j => j.entryIdx === entryIdx)?.html || ''
+
+  /**
+   * บันทึก meta title / meta description / slug ที่แก้ในแผงขวา
+   *
+   * กติกา: "แก้ที่หน้า Review แล้ว Push ต้องได้ของที่แก้เสมอ"
+   * เขียนครบ 4 ที่ ที่ปลายทาง Push อ่าน:
+   *   1. timeline entry (reviewSeoTitle/reviewMetaDescription/slug) → PushTab ส่งไปเป็น
+   *      override ที่ /api/push/publish ใช้ก่อนทุกแหล่ง · ไม่มี job อื่นเขียนทับที่นี่
+   *   2. Article ใน DB      → dbSeoTitle / dbMetaDescription / dbSlug
+   *   3. meta block ในบทความ → meta_title ตอนขึ้น Yoast
+   *   4. jobs ในเซสชัน      → html + slug ที่ Push หยิบไปใช้ทันที
+   * ถ้ายังไม่เคยแก้ที่หน้านี้ → ไม่มี override, Push ใช้ค่าเดิมตามลำดับเดิมทุกอย่าง
+   */
+  async function saveSeo(entryIdx: number, entry: TimelineEntry) {
+    const draft = seoDraft[entryIdx]
+    if (!draft) return
+    setSeoSaving(entryIdx)
+    try {
+      let artId = articleIds[entryIdx]
+      if (!artId) {
+        const data = await fetchArticle(entryIdx, entry)
+        if (data?.id) { artId = data.id; setArticleIds(prev => ({ ...prev, [entryIdx]: data.id })) }
+      }
+      if (!artId) { alert('ยังไม่พบบทความนี้ใน DB — ลองกด "ดู" ใหม่อีกครั้ง'); return }
+
+      const cleanSlug = slugifyEnSlug(draft.slug)
+      const seoTitle = draft.seoTitle.trim()
+      const metaDescription = draft.metaDescription.trim()
+      const baseHtml = htmlOf(entryIdx)
+      const nextHtml = baseHtml ? syncSeoMetaIntoHtml(baseHtml, { metaTitle: seoTitle, metaDescription, slug: cleanSlug }) : ''
+
+      const res = await fetch(`/api/articles/${artId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seoTitle, metaDescription,
+          ...(cleanSlug ? { slug: cleanSlug } : {}),
+          ...(nextHtml && nextHtml !== baseHtml ? { htmlContent: nextHtml } : {}),
+        }),
+      })
+      if (!res.ok) { alert('บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง'); return }
+
+      if (nextHtml && nextHtml !== baseHtml) {
+        setLocalJobHtml(prev => ({ ...prev, [entryIdx]: nextHtml }))
+        setJobs(prev => prev.map(j => j.entryIdx === entryIdx ? { ...j, html: nextHtml } : j))
+      }
+      setSeoDraft(prev => ({ ...prev, [entryIdx]: { seoTitle, metaDescription, slug: cleanSlug } }))
+      // override ที่ Push ใช้ก่อนทุกแหล่ง (timeline auto-save ลง DB ให้เอง)
+      setTimeline(timeline.map((e, i) => i === entryIdx ? {
+        ...e,
+        ...(cleanSlug ? { slug: cleanSlug } : {}),
+        reviewSeoTitle: seoTitle,
+        reviewMetaDescription: metaDescription,
+        reviewMetaEditedAt: new Date().toISOString(),
+      } : e))
+      if (cleanSlug) setJobs(prev => prev.map(j => j.entryIdx === entryIdx ? { ...j, slug: cleanSlug } : j))
+      setSeoSavedAt(prev => ({ ...prev, [entryIdx]: Date.now() }))
+    } catch {
+      alert('บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง')
+    } finally {
+      setSeoSaving(null)
+    }
+  }
+
+  /** สร้างภาพปกใหม่จาก Image Prompt ของ Content Engine (สไตล์มาจาก CE เท่านั้น) */
+  async function regenerateCover(entryIdx: number, entry: TimelineEntry) {
+    setCoverBusy(entryIdx)
+    try {
+      const res = await fetch('/api/article/cover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: project.id,
+          keyword: entry.keyword,
+          title: seoDraft[entryIdx]?.seoTitle?.trim() || entry.title,
+          type: 'cover',
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.imageBase64) {
+        alert(data?.message || data?.error || 'สร้างภาพปกไม่สำเร็จ')
+        return
+      }
+      const mime = data.mimeType || 'image/webp'
+      setJobs(prev => {
+        if (prev.some(j => j.entryIdx === entryIdx)) {
+          return prev.map(j => j.entryIdx === entryIdx ? { ...j, coverImage: data.imageBase64, coverMimeType: mime } : j)
+        }
+        // ยังไม่มี job ในเซสชันนี้ (บทความโหลดจาก DB) — สร้างขึ้นมาถือรูปให้ Push หยิบไปใช้
+        return [...prev, {
+          entryIdx, date: entry.date, keyword: entry.keyword, title: entry.title,
+          status: 'review' as const, html: htmlOf(entryIdx),
+          coverImage: data.imageBase64, coverMimeType: mime,
+          midImage: '', midMimeType: 'image/webp', error: '',
+          slug: entry.slug, articleId: articleIds[entryIdx],
+        }]
+      })
+
+      // เก็บรูปลง DB (Article.coverImageUrl) — รูปที่เปลี่ยนตรงนี้ต้องอยู่ข้ามเซสชัน
+      // ไม่งั้นรีเฟรชแล้ว Push จะได้ปกเดิม (เดิมรูปอยู่แค่ใน state ของเซสชัน)
+      const dataUri = `data:${mime};base64,${data.imageBase64}`
+      setCoverUrl(prev => ({ ...prev, [entryIdx]: dataUri }))
+      let artId = articleIds[entryIdx]
+      if (!artId) {
+        const a = await fetchArticle(entryIdx, entry)
+        if (a?.id) { artId = a.id; setArticleIds(prev => ({ ...prev, [entryIdx]: a.id })) }
+      }
+      if (artId && dataUri.length <= 3_000_000) {
+        fetch(`/api/articles/${artId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coverImageUrl: dataUri }),
+        }).catch(() => { /* รูปยังอยู่ในเซสชัน — Push รอบนี้ไม่กระทบ */ })
+      }
+    } catch {
+      alert('สร้างภาพปกไม่สำเร็จ — ลองอีกครั้ง')
+    } finally {
+      setCoverBusy(null)
     }
   }
 
@@ -4297,7 +4567,39 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
 
             {/* Expanded panel */}
             {expanded === entryIdx && (
-              <div className="border-t border-gray-200 p-5 space-y-5">
+              <div className="border-t border-gray-200 p-5 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
+                <div className="space-y-5 min-w-0">
+
+                {/* ภาพปกบทความ — เปลี่ยนได้ตรงนี้ เห็นผลทันทีก่อน Approve */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <div className="text-xs font-semibold text-gray-500">🖼 ภาพปกบทความ</div>
+                    <button
+                      disabled={coverBusy === entryIdx}
+                      onClick={() => regenerateCover(entryIdx, entry)}
+                      className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      {coverBusy === entryIdx
+                        ? <><RefreshCw size={11} className="animate-spin" /> กำลังสร้างภาพใหม่...</>
+                        : <><ImageIcon size={11} /> เปลี่ยนภาพปก</>}
+                    </button>
+                  </div>
+                  {(job?.coverImage || coverUrl[entryIdx]) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={job?.coverImage ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}` : coverUrl[entryIdx]}
+                      alt={entry.title}
+                      className="w-full rounded-xl border border-gray-200 object-cover"
+                    />
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center">
+                      <p className="text-xs text-gray-500">ยังไม่มีภาพปกของบทความนี้</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">กด "เปลี่ยนภาพปก" เพื่อให้ระบบวาดใหม่จาก Image Prompt ของ Content Engine</p>
+                    </div>
+                  )}
+                  {coverBusy === entryIdx && (
+                    <p className="text-[11px] text-gray-400 mt-1.5">ใช้เวลาราว 20-40 วินาที — ภาพใหม่ถูกบันทึกไว้กับบทความ และใช้ตอน Push แทนภาพเดิม</p>
+                  )}
+                </div>
 
                 {/* Article viewer: Preview / Text / แก้ไข */}
                 {html ? (
@@ -4400,6 +4702,117 @@ function ReviewTab({ project, timeline, setTimeline, jobs, onAdjustRewrite }: {
                     </div>
                   </div>
                 )}
+                </div>
+
+                {/* ── Search appearance (Yoast style) — meta ที่ใช้ตอน Push จริง ── */}
+                {(() => {
+                  const draft = seoDraft[entryIdx] ?? { seoTitle: entry.title ?? '', metaDescription: '', slug: entry.slug ?? '' }
+                  const setDraft = (patch: Partial<typeof draft>) =>
+                    setSeoDraft(prev => ({ ...prev, [entryIdx]: { ...draft, ...patch } }))
+                  const savedRecently = Date.now() - (seoSavedAt[entryIdx] ?? 0) < 6000
+                  return (
+                    <aside className="xl:sticky xl:top-4 bg-white border border-gray-200 rounded-2xl p-4 space-y-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-brand-navy">Search appearance</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">หน้าตาบทความบน Google — แก้ตรงนี้แล้วกดบันทึก ค่าที่ได้จะถูกใช้ตอน Push</p>
+                        </div>
+                        <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 shrink-0">
+                          {(['mobile', 'desktop'] as const).map(d => (
+                            <button key={d} onClick={() => setSerpDevice(d)}
+                              className={`px-2 py-1 text-[10px] font-semibold rounded-md transition-colors ${
+                                serpDevice === d ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500'
+                              }`}>
+                              {d === 'mobile' ? 'Mobile' : 'Desktop'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <GoogleSerpPreview
+                        device={serpDevice}
+                        siteHost={siteHost}
+                        siteName={siteName}
+                        slug={slugifyEnSlug(draft.slug)}
+                        title={draft.seoTitle}
+                        description={draft.metaDescription}
+                        thumbnail={job?.coverImage ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}` : (coverUrl[entryIdx] ?? '')}
+                        dateLabel={entry.thaiDate || entry.date}
+                      />
+
+                      {/* SEO title */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-semibold text-gray-600">Meta Title</label>
+                          <span className={`text-[10px] font-medium ${draft.seoTitle.length > 60 ? 'text-rose-500' : 'text-gray-400'}`}>
+                            {draft.seoTitle.length}/60
+                          </span>
+                        </div>
+                        <input
+                          value={draft.seoTitle}
+                          onChange={e => setDraft({ seoTitle: e.target.value })}
+                          placeholder="ชื่อที่จะแสดงบนผลการค้นหา"
+                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                        />
+                        <MetaLengthBar len={draft.seoTitle.length} min={30} max={60} />
+                      </div>
+
+                      {/* Slug */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-semibold text-gray-600">Slug (URL)</label>
+                          <span className="text-[10px] text-gray-400">a-z 0-9 และ - เท่านั้น</span>
+                        </div>
+                        <input
+                          value={draft.slug}
+                          onChange={e => setDraft({ slug: e.target.value })}
+                          onBlur={e => setDraft({ slug: slugifyEnSlug(e.target.value) })}
+                          placeholder="english-url-slug"
+                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1 truncate">
+                          {siteHost ? `${siteHost}/` : '/'}{slugifyEnSlug(draft.slug)}
+                        </p>
+                      </div>
+
+                      {/* Meta description */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-semibold text-gray-600">Meta Description</label>
+                          <span className={`text-[10px] font-medium ${draft.metaDescription.length > 160 ? 'text-rose-500' : 'text-gray-400'}`}>
+                            {draft.metaDescription.length}/160
+                          </span>
+                        </div>
+                        <textarea
+                          rows={4}
+                          value={draft.metaDescription}
+                          onChange={e => setDraft({ metaDescription: e.target.value })}
+                          placeholder="สรุปบทความ 1-2 ประโยคสำหรับผลการค้นหา"
+                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                        />
+                        <MetaLengthBar len={draft.metaDescription.length} min={120} max={160} />
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          disabled={seoSaving === entryIdx}
+                          onClick={() => saveSeo(entryIdx, entry)}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors">
+                          {seoSaving === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
+                          {seoSaving === entryIdx ? 'กำลังบันทึก...' : 'บันทึก SEO'}
+                        </button>
+                        {savedRecently && (
+                          <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+                            <Check size={12} /> บันทึกแล้ว
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-snug">
+                        บันทึกแล้วระบบเขียนค่าลงทั้งบทความและฐานข้อมูล — ตอนกด Push จะขึ้นเว็บด้วยค่าล่าสุดนี้ ไม่ใช่ค่าก่อนแก้
+                      </p>
+                    </aside>
+                  )
+                })()}
               </div>
             )}
           </div>
@@ -6221,6 +6634,10 @@ function PushTab({
     const title = entry?.title ?? job.title ?? ''
     const keyword = entry?.keyword ?? job.keyword ?? ''
     const slug = entry?.slug || job.slug || ''
+    // meta ที่แก้ในแท็บ Review — ส่งเป็น override ให้ publish ใช้ก่อนทุกแหล่ง
+    // ถ้ายังไม่เคยแก้ที่หน้า Review จะเป็นค่าว่าง → publish ใช้ลำดับเดิม (HTML → DB → title)
+    const reviewMetaTitle = entry?.reviewSeoTitle?.trim() ?? ''
+    const reviewMetaDesc = entry?.reviewMetaDescription?.trim() ?? ''
     const coverImage = job.coverImage ?? ''
     const coverMimeType = job.coverMimeType ?? 'image/webp'
 
@@ -6233,7 +6650,7 @@ function PushTab({
       const res = await fetch('/api/push/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, html: htmlForPush(jobEntryIdx, job.html), title, keyword, slug, coverImage, coverMimeType, publishMode, useElementor, wpPostType: getWpPostType(jobEntryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true }),
+        body: JSON.stringify({ projectId: project.id, html: htmlForPush(jobEntryIdx, job.html), title, keyword, slug, coverImage, coverMimeType, metaTitle: reviewMetaTitle, metaDescription: reviewMetaDesc, publishMode, useElementor, wpPostType: getWpPostType(jobEntryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true }),
       })
       const data = await res.json()
       if (!res.ok || data.error) {
@@ -6682,7 +7099,7 @@ const PRIMARY_TABS: { id: Tab | 'studio'; label: string }[] = [
 ]
 
 // เนื้อหาที่กว้างเต็มจอ (ที่เหลือใช้ px-8 max-w-5xl)
-const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'articles', 'content-map', 'proj-ce']
+const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'articles', 'content-map', 'proj-ce', 'review']
 
 const CLIENT_TABS: Tab[] = ['review', 'publish', 'report']
 
@@ -7179,6 +7596,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             timeline={timeline}
             setTimeline={setTimeline}
             jobs={jobs}
+            setJobs={setJobs}
             onAdjustRewrite={(entryIdx, note) => writeArticleRef.current?.(entryIdx, note)}
           />
         )}

@@ -32,9 +32,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const body = await req.json();
   const allowed = [
-    "status", "title", "brief", "outline", "htmlContent", "seoTitle", "metaDescription",
+    "status", "title", "slug", "brief", "outline", "htmlContent", "seoTitle", "metaDescription",
     "faqSchema", "imagePrompt", "assignedToId", "reviewerId", "wordpressUrl", "wordpressStatus",
     "competitorUrls", "dataBrainContext", "scheduledAt", "needsRefresh", "assignedAuthorId",
+    "coverImageUrl",
   ];
   const data: Record<string, unknown> = {};
   for (const key of allowed) {
