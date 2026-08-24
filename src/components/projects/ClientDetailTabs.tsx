@@ -5649,7 +5649,7 @@ ${cover}${html}
                 {viewMode === 'cover' && coverImageLab && (
                   <div className="p-4 space-y-4">
                     <div>
-                      <p className="text-[11px] font-semibold text-gray-500 mb-2 flex items-center gap-1"><ImageIcon size={11} /> รูปปกบทความ (Cover 1536×864)</p>
+                      <p className="text-[11px] font-semibold text-gray-500 mb-2 flex items-center gap-1"><ImageIcon size={11} /> รูปปกบทความ (Cover 1024×1024)</p>
                       <div className="relative group">
                         <img src={`data:${coverMimeTypeLab};base64,${coverImageLab}`} alt="cover" className="w-full rounded-xl overflow-hidden border border-gray-100" />
                         <a href={`data:${coverMimeTypeLab};base64,${coverImageLab}`} download="cover.webp"

@@ -22,6 +22,7 @@ const NEXT_YEAR    = CURRENT_YEAR + 1
 const ART_DIRECTOR_SYSTEM = `You are a prompt compiler for an image generation model.
 You receive a creative brief (usually written in Thai) describing the illustration to produce.
 The brief is the ONLY source of style, subject, composition, and constraints — follow it exactly and carry every constraint through.
+The one exception: lines wrapped in brackets and marked ข้อบังคับเอาต์พุต are hard platform output constraints — they OVERRIDE any conflicting line in the brief, and the compiled prompt must never ask for anything they forbid.
 Output ONLY the final English image-generation prompt as plain prose.
 Never translate the brief itself, never explain your choices, never offer multiple options, never use markdown, headings, labels, or surrounding quotes.`
 
@@ -54,13 +55,14 @@ async function compressToWebP(
   try {
     let img = sharp(inputBuf)
     // โมเดลภาพบางตัว (เช่น gpt-5-image) คืนสัดส่วนไม่ตรงที่สั่ง —
-    // crop กลางภาพให้ได้สัดส่วนเป้าหมายเสมอ (cover = 16:9, mid = 1.9:1)
+    // crop ให้ได้สัดส่วนเป้าหมายเสมอ (cover = 1:1 จัตุรัส, mid = 1.9:1)
+    // ปกครอปจากกึ่งกลางเสมอ — saliency ('attention') ชอบเลื่อนกรอบไปตัดตัวหนังสือทิ้ง
     if (targetWidth && targetHeight) {
       const meta = await img.metadata()
       const cur = (meta.width ?? 0) / (meta.height ?? 1)
       const want = targetWidth / targetHeight
       if (meta.width && meta.height && Math.abs(cur - want) / want > 0.05) {
-        img = img.resize(targetWidth, targetHeight, { fit: 'cover', position: 'attention' })
+        img = img.resize(targetWidth, targetHeight, { fit: 'cover', position: type === 'cover' ? 'centre' : 'attention' })
       }
     }
     const outputBuf = await img.webp({ quality, effort: 4 }).toBuffer()
@@ -120,8 +122,8 @@ export async function callGeminiImage(params: {
     keyword, title, type,
     siteName = '', brandTone = '', accentColor = '',
     themeColor = '', backgroundColor = '', textColor = '',
-    width = type === 'cover' ? 1536 : 1200,
-    height = type === 'cover' ? 864 : 630,
+    width = type === 'cover' ? 1024 : 1200,
+    height = type === 'cover' ? 1024 : 630,
     promptTemplate,
     imageStyleGuide = '',
   } = params
@@ -132,7 +134,7 @@ export async function callGeminiImage(params: {
   const rendered = renderImagePromptTemplate(promptTemplate, { keyword, title, siteName, brandTone, accentColor, themeColor, backgroundColor, textColor })
   const isSquare = width === height
   const orientationLine = isSquare
-    ? `\n\nIMAGE ORIENTATION (CRITICAL): SQUARE 1:1 ratio. Width equals height.`
+    ? `\n\nIMAGE ORIENTATION (CRITICAL): SQUARE 1:1 ratio, ${width}×${height}. Width equals height. DO NOT generate landscape or portrait images.`
     : `\n\nIMAGE ORIENTATION (CRITICAL): HORIZONTAL LANDSCAPE ${width}×${height} (${(width / height).toFixed(2)}:1 ratio). Width must be greater than height. DO NOT generate portrait or square images.`
 
   // ชุดสีธีมเว็บลูกค้า (Article Lab) — ข้อเท็จจริงประกอบบรีฟ ให้ภาพเป็นชุดสีเดียวกับเว็บไซต์
@@ -148,6 +150,7 @@ export async function callGeminiImage(params: {
     `[ประเภทภาพ: ${type === 'cover' ? 'ภาพหน้าปกบทความ (cover)' : 'ภาพประกอบกลางบทความ (in-article)'}]`,
     `[สัดส่วน: ${width}×${height}]`,
     `[ปีปัจจุบัน: ${CURRENT_YEAR}]`,
+    ...(type === 'cover' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ตัวอักษรบนภาพมีได้ไม่เกิน 3 ชุด (headline + callout สั้นไม่เกิน 2 ชุด) และทุกตัวอักษรต้องสูงอย่างน้อย 4% ของความสูงภาพ — ถ้าบรีฟสั่งให้มีป้ายคำใต้ไอคอน แถบข้อความล่าง ชิป แท็ก หรือคำบรรยายย่อย ให้เปลี่ยนเป็นไอคอน/กราฟิกล้วนไม่มีตัวอักษร ห้าม prompt ที่คอมไพล์ออกมามีคำสั่งให้ใส่ข้อความเล็ก]`] : []),
     ...(palette ? [`[ชุดสีธีมเว็บลูกค้า (Article Lab) — ใช้เป็นชุดสีหลักของภาพให้เข้ากับเว็บไซต์: ${palette}]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
   ].join('\n')
@@ -156,14 +159,24 @@ export async function callGeminiImage(params: {
   // รูปปกต้องมีตัวหนังสือประกอบเสมอ (คำสั่งเจ้าของระบบ 2026-08-19, ปรับ 2026-08-21:
   // ไม่จำกัดภาษาไทย — ใช้ภาษาเดียวกับ title ไทย/อังกฤษ/ผสม) — เป็นข้อบังคับรูปแบบ
   // เอาต์พุตแบบเดียวกับ orientation ไม่ใช่ทิศทางสไตล์ (สไตล์ยังมาจาก CE)
+  // ปรับ 2026-08-24: ปกเป็นจัตุรัส 1:1 + กฎตัวอักษรไทยให้เข้มขึ้น — ตัวหนังสือน้อยลงแต่ใหญ่ขึ้น,
+  // บังคับฟอนต์ไทยสายงาน UI, เว้นบรรทัดให้วรรณยุกต์/สระบน-ล่าง, ห้ามตัดคำไทยข้ามบรรทัด
+  //
+  // ทำไมต้องมีเพดานจำนวน/ขนาดตัวอักษร: ทดสอบจริงกับ gpt-5-image พบว่า headline ตัวใหญ่
+  // สะกดไทยถูกทั้งประโยค แต่ป้ายเล็กใต้ไอคอน/แถบล่างออกมาเป็นตัวมั่วแทบทุกครั้ง
+  // ("ตรวจสุขภาพ" → "ตรวอ ลุอกาพ") จึงบังคับว่าอะไรที่เล็กกว่า 4% ของความสูงภาพ
+  // ให้ตัดข้อความทิ้งเหลือแต่ไอคอน — กฎนี้ทับบรีฟจาก CE ที่สั่งให้มีป้ายใต้ไอคอน
   const coverTextLine = type === 'cover'
-    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a marketing cover banner — it MUST include readable text rendered inside the image:
+    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a SQUARE 1:1 marketing cover — it MUST include readable text rendered inside the image:
 - Main headline (dominant focal element, large bold legible typography): "${title}"
 - Use the SAME language(s) as the headline above — Thai, English, or a mix, exactly as written. Do NOT force one language and do NOT translate the title
-- Add 2-4 short supporting callouts/badges derived from the brief (benefits, services, or trust marks), in the same language(s) as the headline
-- Render every character as clean, correctly-formed glyphs in whatever script is used — for Thai keep every tone mark and vowel attached to its base letter, for Latin spell every word correctly; never split, merge, duplicate, warp, or drop characters
-- Professional advertising-banner layout with clear text hierarchy; keep every character fully inside safe margins, never clipped
-- Keep the headline and ALL text within the central vertical band — the top 10% and bottom 10% of the frame will be trimmed in post-processing
+- TEXT BUDGET (hard limit): the whole image contains AT MOST 3 text elements — the headline plus at most 2 very short supporting callouts/badges derived from the brief, in the same language(s)
+- MINIMUM TEXT SIZE (hard limit): every single glyph in the image must be at least 4% of the image height (about 40px at 1024×1024). Small text is ALWAYS rendered as broken, misspelled glyphs, so if a label, badge, caption, footer strip, chip, or icon caption would end up smaller than that, DROP THE TEXT COMPLETELY and leave the icon or graphic element with no label at all. An unlabelled icon is always better than small broken text. This overrides any instruction above that asks for labelled icon rows, medallion captions, footer text bars, chips, tags, or body copy
+- THAI TYPOGRAPHY (when any Thai character appears): use a plain, modern Thai UI sans-serif (Noto Sans Thai / IBM Plex Sans Thai / Sarabun style). NO condensed, handwritten, script, outlined, 3D, distressed or decorative faces. No extra letter-spacing. Line height at least 1.6 so tone marks (วรรณยุกต์) and upper/lower vowels (สระบน/สระล่าง) have room and are never cut, merged, or collided
+- Render every character as clean, correctly-formed glyphs in whatever script is used — for Thai keep every tone mark and vowel attached to its own base letter in the correct position, for Latin spell every word correctly; never split, merge, duplicate, mirror, warp, or drop characters
+- Keep each Thai phrase on ONE unbroken line; never hyphenate Thai and never break a Thai word across lines
+- Do NOT invent text of your own: no phone numbers, LINE ids, emails, URLs, company names, or filler words — only the headline and the callouts from the brief
+- Clean layout with clear hierarchy, text sitting on a calm uncluttered area; keep every character fully inside a safe margin of at least 8% from all four edges, never clipped by the frame or covered by graphic elements
 - Spell every word EXACTLY as provided — do not invent, translate, or misspell any text`
     : ''
   const prompt = compiled + coverTextLine + orientationLine
