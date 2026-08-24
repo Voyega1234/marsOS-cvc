@@ -4166,7 +4166,7 @@ function GoogleSerpPreview({ device, siteHost, siteName, slug, title, descriptio
         </p>
         {thumbnail && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumbnail} alt="" className="w-[92px] h-[92px] rounded-lg object-cover border border-gray-200 shrink-0" />
+          <img src={thumbnail} alt="" className="w-[104px] h-[104px] rounded-lg object-contain bg-gray-50 border border-gray-200 shrink-0" />
         )}
       </div>
     </div>
@@ -4597,7 +4597,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                     <img
                       src={job?.coverImage ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}` : coverUrl[entryIdx]}
                       alt={entry.title}
-                      className="w-full rounded-xl border border-gray-200 object-cover"
+                      className="w-full h-auto rounded-xl border border-gray-200 object-contain bg-gray-50"
                     />
                   ) : (
                     <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center">
