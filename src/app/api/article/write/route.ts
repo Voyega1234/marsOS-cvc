@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
-import { type ArticleElementStyles } from '@/lib/articleTheme'
+import { type ArticleElementStyles, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, type ArticleStyleMode } from '@/lib/articleComponents'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
@@ -579,6 +579,13 @@ export async function POST(req: NextRequest) {
     if (!resolvedElementStyles && projColors.elements && typeof projColors.elements === 'object') {
       resolvedElementStyles = projColors.elements as unknown as ArticleElementStyles
     }
+    // สีที่ปรับในหน้า Article Lab ต้องมีผลกับภาพปกด้วย — ถ้าลูกค้าปรับเฉพาะสี element
+    // (H1 / เนื้อความ / ลิงก์) ไม่ได้แตะสีระดับธีม ให้ใช้สีของ element เป็นชุดสีของภาพแทน
+    const labPalette = resolveImagePalette(dbP?.themeColors, dbP?.accentColor)
+    if (!resolvedColorTheme) resolvedColorTheme = labPalette.themeColor
+    if (!resolvedColorText) resolvedColorText = labPalette.textColor
+    if (!resolvedColorAccent) resolvedColorAccent = labPalette.accentColor
+    if (!resolvedColorBackground) resolvedColorBackground = labPalette.backgroundColor
     if ((projColors as Record<string, unknown>).styleMode === 'clean') resolvedStyleMode = 'clean'
     // accentColor/theme ใน body มี default — ใช้ค่าโปรเจกต์เมื่อผู้เรียกไม่ได้ตั้งใจส่งมา
     if (accentColor === '#2563eb' && dbP?.accentColor) resolvedAccentColor = dbP.accentColor

@@ -7,6 +7,7 @@
  * Mid:   Keyword-specific editorial photo, NO text, NO infographics
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveImagePalette } from '@/lib/articleTheme'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
@@ -61,12 +62,11 @@ export async function POST(req: NextRequest) {
         select: { imageStyleGuide: true, themeColors: true, accentColor: true },
       })
       imageStyleGuide = proj?.imageStyleGuide ?? ''
-      let colors: Record<string, string> = {}
-      try { colors = JSON.parse(proj?.themeColors || '{}') } catch { /* ค่าเสีย — ข้าม */ }
-      themeColor = colors.theme || proj?.accentColor || ''
-      backgroundColor = colors.background || ''
-      textColor = colors.text || ''
-      if (!effectiveAccent) effectiveAccent = colors.accent || proj?.accentColor || ''
+      const palette = resolveImagePalette(proj?.themeColors, proj?.accentColor)
+      themeColor = palette.themeColor
+      backgroundColor = palette.backgroundColor
+      textColor = palette.textColor
+      if (!effectiveAccent) effectiveAccent = palette.accentColor
     } catch { /* non-fatal */ }
   }
 

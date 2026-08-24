@@ -33,6 +33,29 @@ export const THAI_FONTS = [
 
 export type ArticleElementStyles = Record<string, ElementStyle>;
 
+/**
+ * ชุดสีสำหรับ "ภาพปก/ภาพประกอบ" ที่อิงตามธีมบทความใน Article Lab
+ * ลำดับ fallback: ค่าสีระดับธีม → สีของ element ที่ตั้งไว้ (H1/เนื้อความ/ลิงก์) → accentColor ของโปรเจกต์
+ * เหตุผล: ลูกค้าบางรายปรับเฉพาะสี H1/เนื้อความในหน้า Article Lab ไม่ได้แตะสีระดับธีม
+ * ถ้าไม่ไล่ fallback ให้ ปกจะไม่เปลี่ยนสีตามที่ปรับ
+ */
+export function resolveImagePalette(
+  themeColorsJson: string | null | undefined,
+  projectAccent?: string | null,
+): { themeColor: string; accentColor: string; backgroundColor: string; textColor: string } {
+  let parsed: Record<string, unknown> = {}
+  try { parsed = JSON.parse(themeColorsJson || '{}') } catch { /* ค่าเสีย — ใช้ default */ }
+  const els = (parsed.elements ?? {}) as ArticleElementStyles
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const el = (key: string, field: 'color' | 'background') => str(els?.[key]?.[field])
+  return {
+    themeColor: str(parsed.theme) || el('h1', 'color') || str(projectAccent),
+    accentColor: str(parsed.accent) || el('link', 'color') || el('h2', 'color') || str(projectAccent),
+    backgroundColor: str(parsed.background) || el('body', 'background'),
+    textColor: str(parsed.text) || el('body', 'color'),
+  }
+}
+
 /** แปลง elements ที่ตั้งไว้เป็นบล็อกข้อความใน prompt (คืน '' ถ้าไม่ได้ตั้งอะไรเลย) */
 export function buildElementStyleSpec(elements: ArticleElementStyles | undefined | null): string {
   if (!elements) return '';
