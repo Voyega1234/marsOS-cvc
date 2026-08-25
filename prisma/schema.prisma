@@ -851,3 +851,31 @@ model AppSetting {
 
   @@schema("plans_seo_pipeline")
 }
+
+// ── Local SEO Keyword Intelligence — บันทึกทุก research run (โหมดมีหน้าร้าน) ──
+// เก็บผล canonical ทั้งชุดเป็น JSON: UI (Workspace), Detail Drawer และ Excel
+// export อ่านจากแถวเดียวกันนี้เสมอ — export ไม่มีการรีเสิร์ชใหม่/ยิง API ซ้ำ
+model LocalKeywordResearchRun {
+  id              String  @id @default(cuid())
+  organizationId  String
+  projectId       String
+  mode            String  @default("local_storefront")
+  services        String  @default("[]") // JSON string[]
+  primaryLocation String
+  targetCount     Int
+  candidateCount  Int     @default(0)
+  qualifiedCount  Int     @default(0)
+  salesWeight     Float   @default(0.6)
+  trafficWeight   Float   @default(0.4)
+  status          String  @default("completed") // completed | completed_with_warnings | draft_failed
+  clientReady     Boolean @default(false)
+  summary         String  @default("{}") // JSON: meta + KPI + source status (ก้อนเล็ก โหลดตอน list)
+  resultData      String  @default("{}") // JSON: LocalResearchResponse canonical ทั้งชุด
+  createdById     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, createdAt])
+  @@schema("plans_seo_pipeline")
+}

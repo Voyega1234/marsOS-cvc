@@ -93,6 +93,7 @@ export type SuggestedPageType =
 export type LocalKeywordSource =
   | 'generated'
   | 'keyword_planner'
+  | 'dataforseo'
   | 'search_console'
   | 'suggest';
 
@@ -125,6 +126,12 @@ export interface KeywordResearchResult {
   sources: LocalKeywordSource[];
   /** กลุ่ม modifier ที่ประกอบเป็นคีย์เวิร์ดนี้ (ใช้เป็น filter/อธิบายที่มา) */
   modifierGroups: ModifierGroup[];
+  /**
+   * ข้อมูล Local SEO Intelligence Engine (โหมดมีหน้าร้าน) — Google/DFS แยกแหล่ง,
+   * confidence, SERP, Sales/Traffic/Final score, wave, คำรอง ฯลฯ
+   * optional เพื่อ backward compatibility กับผลลัพธ์รุ่นเก่า
+   */
+  intel?: import('./intelligence').KeywordIntel;
 }
 
 export interface LocalClusterSummary {
@@ -173,6 +180,26 @@ export interface LocalResearchMeta {
   weights: Record<keyof Omit<KeywordScore, 'total'>, number>;
   warnings: string[];
   generatedAt: string;
+
+  // ── ส่วนขยาย Local SEO Intelligence Engine (optional — backward compatible) ──
+  /** id ของ research run ที่บันทึกไว้ (null = บันทึกไม่สำเร็จ แต่ผลลัพธ์ยังใช้ได้) */
+  researchId?: string | null;
+  /** จำนวน candidate ทั้งหมดที่วิเคราะห์ก่อนคัดเหลือ qualified opportunities */
+  candidateCount?: number;
+  /** จำนวน SEO Opportunity สุดท้าย (นับเฉพาะคำหลัก ไม่นับคำรอง) */
+  qualifiedCount?: number;
+  /** น้ำหนัก Sales/Traffic ที่ใช้จริง (normalize เป็นผลรวม 1 แล้ว) */
+  opportunityWeights?: { sales: number; traffic: number };
+  /** สถานะรายแหล่งข้อมูล สำหรับ Data Source Status bar */
+  sourceStatus?: {
+    googleKeywordPlanner: { status: string; coverage: number; geo: string; message?: string; fetchedAt: string | null };
+    dataForSeo: { status: string; coverage: number; message?: string; fetchedAt: string | null };
+    localSerp: { status: string; checkedCount: number; message?: string; fetchedAt: string | null };
+  };
+  /** พร้อมส่งลูกค้าไหม — false เมื่อ volume coverage ต่ำกว่าเกณฑ์ (ดู warnings) */
+  clientReady?: boolean;
+  /** สัดส่วนคำที่มี volume ตรวจสอบแล้ว (LOCAL zero-volume ที่มีหลักฐานไม่นับว่าขาด) */
+  verifiedVolumeCoverage?: number;
 }
 
 export interface LocalResearchResponse {

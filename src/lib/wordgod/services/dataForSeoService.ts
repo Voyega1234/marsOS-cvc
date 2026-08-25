@@ -556,3 +556,254 @@ export async function getSerpTop(
     };
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ส่วนขยาย Local SEO Intelligence Engine (โหมดมีหน้าร้าน) — additive เท่านั้น
+// ฟังก์ชันด้านบนทั้งหมดคง signature เดิม โหมดออนไลน์ไม่ได้รับผลกระทบ
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DfsSearchIntentItem {
+  intent: string;          // informational | navigational | commercial | transactional
+  probability: number;     // 0–1
+}
+
+export interface DfsSearchIntentResult {
+  intents: Map<string, DfsSearchIntentItem>;
+  costUsd: number;
+  calledKeywords: number;
+  error?: string;
+}
+
+/**
+ * Search intent จาก DataForSEO Labs (ไม่ใช่ AI เดา) —
+ * endpoint: POST /v3/dataforseo_labs/google/search_intent/live
+ * รับสูงสุด 1,000 คำ/task และบัญชีนี้จำกัด 1 task/request (ข้อจำกัดเดียวกับ
+ * getDataForSeoVolumes ด้านบน) จึงยิงทีละ request ต่อ batch
+ */
+export async function getDataForSeoSearchIntents(
+  keywords: string[],
+  languageCode = 'th'
+): Promise<DfsSearchIntentResult> {
+  const creds = getCredentials();
+  const unique = Array.from(new Set(keywords.map(k => k.trim()).filter(Boolean)));
+  if (!creds || unique.length === 0) {
+    return { intents: new Map(), costUsd: 0, calledKeywords: 0, error: creds ? undefined : 'no credentials' };
+  }
+  const auth = makeBasicAuth(creds.login, creds.password);
+  const intents = new Map<string, DfsSearchIntentItem>();
+  let costUsd = 0;
+  let lastError: string | undefined;
+
+  for (const batch of chunk(unique, 1000)) {
+    try {
+      const res = await fetch(
+        'https://api.dataforseo.com/v3/dataforseo_labs/google/search_intent/live',
+        {
+          method: 'POST',
+          headers: { Authorization: auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify([{ keywords: batch, language_code: languageCode }]),
+          signal: AbortSignal.timeout(45000),
+        }
+      );
+      if (!res.ok) { lastError = `HTTP ${res.status}`; continue; }
+      const data = await res.json();
+      if (data.status_code !== 20000) { lastError = data.status_message || `DFS ${data.status_code}`; continue; }
+      for (const task of data.tasks || []) {
+        if (typeof task.cost === 'number') costUsd += task.cost;
+        if (task.status_code !== 20000) continue;
+        for (const result of task.result || []) {
+          for (const item of result.items || []) {
+            const keyword = item?.keyword;
+            const main = item?.keyword_intent;
+            if (!keyword || !main?.label) continue;
+            intents.set(String(keyword).toLowerCase().trim(), {
+              intent: String(main.label),
+              probability: typeof main.probability === 'number' ? main.probability : 1,
+            });
+          }
+        }
+      }
+    } catch (err: any) {
+      lastError = err?.message ?? String(err);
+    }
+  }
+  if (lastError) console.error(`[DataForSEO] search_intent: ${lastError}`);
+  return { intents, costUsd, calledKeywords: unique.length, error: intents.size === 0 ? lastError : undefined };
+}
+
+export interface DfsKeywordIdea {
+  keyword: string;
+  searchVolume: number | null;
+  cpc: number | null;
+  competitionIndex: number | null;
+  keywordDifficulty: number | null;
+}
+
+export interface DfsKeywordIdeasResult {
+  ideas: DfsKeywordIdea[];
+  costUsd: number;
+  error?: string;
+}
+
+/**
+ * ขยาย candidate pool จาก DataForSEO Labs keyword_ideas —
+ * endpoint: POST /v3/dataforseo_labs/google/keyword_ideas/live
+ * รับ seed ได้หลายคำใน task เดียว (สูงสุด 200) ตรงข้อจำกัด 1 task/request
+ * หมายเหตุ: volume ในผลนี้เป็นของ DFS Labs ใช้เป็น "candidate hint" เท่านั้น —
+ * ตัวเลขที่โชว์ลูกค้าจะถูกดึงซ้ำผ่านชั้น metric แยกแหล่งเสมอ
+ */
+export async function getDataForSeoKeywordIdeas(
+  seedKeywords: string[],
+  opts?: { limit?: number; locationCode?: number; languageCode?: string }
+): Promise<DfsKeywordIdeasResult> {
+  const creds = getCredentials();
+  const seeds = Array.from(new Set(seedKeywords.map(k => k.trim()).filter(Boolean))).slice(0, 200);
+  if (!creds || seeds.length === 0) {
+    return { ideas: [], costUsd: 0, error: creds ? undefined : 'no credentials' };
+  }
+  const auth = makeBasicAuth(creds.login, creds.password);
+  const limit = Math.max(1, Math.min(1000, opts?.limit ?? 300));
+  try {
+    const res = await fetch(
+      'https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live',
+      {
+        method: 'POST',
+        headers: { Authorization: auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify([{
+          keywords: seeds,
+          location_code: opts?.locationCode ?? 2764,
+          language_code: opts?.languageCode ?? 'th',
+          limit,
+          order_by: ['keyword_info.search_volume,desc'],
+        }]),
+        signal: AbortSignal.timeout(60000),
+      }
+    );
+    if (!res.ok) return { ideas: [], costUsd: 0, error: `HTTP ${res.status}` };
+    const data = await res.json();
+    if (data.status_code !== 20000) {
+      return { ideas: [], costUsd: 0, error: data.status_message || `DFS ${data.status_code}` };
+    }
+    const ideas: DfsKeywordIdea[] = [];
+    let costUsd = 0;
+    for (const task of data.tasks || []) {
+      if (typeof task.cost === 'number') costUsd += task.cost;
+      if (task.status_code !== 20000) continue;
+      for (const result of task.result || []) {
+        for (const item of result.items || []) {
+          const keyword = item?.keyword;
+          if (!keyword) continue;
+          const info = item?.keyword_info ?? {};
+          const props = item?.keyword_properties ?? {};
+          ideas.push({
+            keyword: String(keyword),
+            searchVolume: toFiniteNumberOrNull(info.search_volume),
+            cpc: toFiniteNumberOrNull(info.cpc),
+            competitionIndex: toFiniteNumberOrNull(info.competition_index ?? info.competition),
+            keywordDifficulty: toFiniteNumberOrNull(props.keyword_difficulty),
+          });
+        }
+      }
+    }
+    return { ideas, costUsd };
+  } catch (err: any) {
+    const message = err?.message ?? String(err);
+    console.error(`[DataForSEO] keyword_ideas: ${message}`);
+    return { ideas: [], costUsd: 0, error: message };
+  }
+}
+
+export interface SerpLocalSignalsResult {
+  keyword: string;
+  ok: boolean;
+  hasLocalPack: boolean;
+  localPackPosition: number | null;
+  organic: SerpResultItem[];
+  /** ประเภท item ทั้งหมดที่เจอใน SERP (organic, local_pack, map, people_also_ask …) */
+  itemTypes: string[];
+  costUsd: number;
+  fetchedAt: string;
+  note: string;
+}
+
+/**
+ * SERP พร้อมสัญญาณ local (local pack / map) สำหรับตรวจว่า Google มองคำนี้เป็น
+ * คำท้องถิ่นจริงไหม — endpoint เดียวกับ getSerpTop แต่อ่านทุกประเภท item
+ * ไม่ใช่เฉพาะ organic (getSerpTop คง behavior เดิมไว้เพื่อ backward compat)
+ */
+export async function getSerpLocalSignals(
+  keyword: string,
+  opts?: { depth?: number; locationCode?: number; languageCode?: string }
+): Promise<SerpLocalSignalsResult> {
+  const fetchedAt = new Date().toISOString();
+  const creds = getCredentials();
+  const base: SerpLocalSignalsResult = {
+    keyword, ok: false, hasLocalPack: false, localPackPosition: null,
+    organic: [], itemTypes: [], costUsd: 0, fetchedAt, note: '',
+  };
+  if (!creds || !hasDataForSeoCreds()) {
+    return { ...base, note: 'no DataForSEO credentials configured' };
+  }
+  const auth = makeBasicAuth(creds.login, creds.password);
+  try {
+    const res = await fetch(
+      'https://api.dataforseo.com/v3/serp/google/organic/live/advanced',
+      {
+        method: 'POST',
+        headers: { Authorization: auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify([{
+          keyword,
+          language_code: opts?.languageCode ?? 'th',
+          location_code: opts?.locationCode ?? 2764,
+          depth: opts?.depth ?? 10,
+        }]),
+        signal: AbortSignal.timeout(35000),
+      }
+    );
+    if (!res.ok) return { ...base, note: `HTTP ${res.status}` };
+    const json = await res.json();
+    if (json.status_code !== 20000) {
+      return { ...base, note: json.status_message || `DFS ${json.status_code}` };
+    }
+    const task = json?.tasks?.[0];
+    const costUsd = typeof task?.cost === 'number' ? task.cost : 0;
+    const items: any[] = task?.result?.[0]?.items ?? [];
+    const organic: SerpResultItem[] = [];
+    const itemTypes: string[] = [];
+    let hasLocalPack = false;
+    let localPackPosition: number | null = null;
+
+    for (const item of items) {
+      const type = item?.type ?? 'unknown';
+      itemTypes.push(String(type));
+      if (type === 'local_pack' || type === 'map' || type === 'maps_search') {
+        if (!hasLocalPack) {
+          hasLocalPack = true;
+          localPackPosition = toFiniteNumberOrNull(item?.rank_absolute ?? item?.rank_group);
+        }
+        continue;
+      }
+      if (type !== 'organic') continue;
+      const url = item?.url ?? null;
+      if (!url) continue;
+      const position = toFiniteNumberOrNull(item?.rank_absolute ?? item?.rank_group);
+      if (position === null) continue;
+      organic.push({
+        position,
+        url,
+        domain: item?.domain ?? deriveDomainFromUrl(url),
+        title: item?.title ?? '',
+      });
+    }
+    organic.sort((a, b) => a.position - b.position);
+    return {
+      keyword, ok: true, hasLocalPack, localPackPosition,
+      organic, itemTypes: Array.from(new Set(itemTypes)), costUsd, fetchedAt,
+      note: 'ok',
+    };
+  } catch (err: any) {
+    const message = err?.message ?? String(err);
+    console.error(`[DataForSEO] serp local signals: ${message}`);
+    return { ...base, note: `request failed: ${message}` };
+  }
+}
