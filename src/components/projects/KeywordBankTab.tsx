@@ -39,11 +39,15 @@ const FUNNEL_COLOR: Record<string, string> = {
 
 const SOURCE_LABEL: Record<string, string> = {
   'keyword-research': 'Keyword Research',
+  'keyword-research-local': 'Keyword Research (มีหน้าร้าน)',
+  'keyword-research-online': 'Keyword Research (ออนไลน์)',
   'keywords-input': 'Keywords Input',
   manual: 'Manual',
 }
 const SOURCE_COLOR: Record<string, string> = {
   'Keyword Research': 'bg-blue-50 text-blue-700 border-blue-200',
+  'Keyword Research (มีหน้าร้าน)': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'Keyword Research (ออนไลน์)': 'bg-cyan-50 text-cyan-700 border-cyan-200',
   'Keywords Input': 'bg-purple-50 text-purple-700 border-purple-200',
   Manual: 'bg-gray-50 text-gray-600 border-gray-200',
 }
