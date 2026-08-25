@@ -243,6 +243,42 @@ function buildServiceCoreKeys(services: string[]): string[] {
 
 type ProgressEmit = (event: Record<string, unknown>) => void;
 
+// ── Step orchestration: pipeline ถูกซอยเป็น stage ตามลำดับนี้ ──────────────────
+// โหมด resumable (จาก UI) จะ checkpoint state ลง DB ทุกจุดสำคัญ แล้ว "yield" เมื่อ
+// ใกล้หมดงบเวลา/request — client ยิง request ใหม่พร้อม resumeRunId เพื่อทำต่อ
+// ทำให้รัน 1000 คำบน Vercel (maxDuration 800s) ได้โดยไม่ถูกตัดกลางคัน
+// โหมดเดิม (ไม่ส่ง resumable) พฤติกรรมเหมือนเดิมทุกอย่าง: รันรวดเดียวจบ
+const STAGES = [
+  'init', 'problem', 'expand', 'dfs_ideas', 'kp', 'dfs_volumes',
+  'intent', 'kd', 'serp', 'intel', 'titles', 'clusters', 'finalize',
+] as const;
+type StageName = (typeof STAGES)[number];
+const stageIdx = (s: string) => Math.max(0, STAGES.indexOf(s as StageName));
+
+/** โยนเพื่อจบ request ปัจจุบันหลังบันทึก checkpoint แล้ว — ไม่ใช่ error จริง */
+class YieldSignal extends Error {
+  constructor(public stage: StageName) { super(`yield:${stage}`); }
+}
+
+const LOCK_STALE_MS = 5 * 60 * 1000; // lock ที่ไม่ถูก refresh เกิน 5 นาที = request ก่อนตายแล้ว
+const DEFAULT_STEP_BUDGET_MS = 240_000; // งบเวลาทำงานต่อ request ในโหมด resumable (~4 นาที)
+
+type RunFlags = {
+  useProblemFirst: boolean;
+  useAiExpand: boolean;
+  useDfsIdeas: boolean;
+  useKeywordPlanner: boolean;
+  expandWithKp: boolean;
+  useDataForSeo: boolean;
+  checkSerp: boolean;
+  buildTopicClusters: boolean;
+  forceRefresh: boolean;
+  projectId: string | null;
+  stepBudgetMs: number;
+};
+
+const mapToEntries = <V,>(m: Map<string, V>) => Array.from(m.entries());
+
 export async function POST(req: NextRequest) {
   const session = await getSession();
   const orgId = session?.user?.organizationId;
@@ -257,80 +293,276 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const services: string[] = Array.isArray(body.services)
-    ? body.services.map((s: unknown) => normalizeThaiSpacing(String(s ?? ''))).filter(Boolean)
-    : [];
-  if (services.length === 0) {
-    return NextResponse.json({ error: 'ต้องระบุบริการ / คำหลักอย่างน้อย 1 รายการ' }, { status: 400 });
+  const resumeRunId = typeof body.resumeRunId === 'string' && body.resumeRunId ? String(body.resumeRunId) : null;
+
+  let input: LocalResearchInput;
+  let targetCount: number;
+  let weights: { sales: number; traffic: number };
+  let flags: RunFlags;
+  let runId: string | null = null;
+  let ckptData: any = null;
+  let entryStage: StageName = 'init';
+
+  if (resumeRunId) {
+    // ── Resume: โหลด input + checkpoint จาก run เดิม (ไม่เชื่อ input จาก client ซ้ำ) ──
+    const staleBefore = new Date(Date.now() - LOCK_STALE_MS);
+    const locked = await prisma.localKeywordResearchRun.updateMany({
+      where: {
+        id: resumeRunId,
+        organizationId: orgId,
+        status: 'running',
+        OR: [{ lockedAt: null }, { lockedAt: { lt: staleBefore } }],
+      },
+      data: { lockedAt: new Date() },
+    });
+    if (locked.count === 0) {
+      const row = await prisma.localKeywordResearchRun.findUnique({ where: { id: resumeRunId } });
+      if (!row || row.organizationId !== orgId) {
+        return NextResponse.json({ error: 'ไม่พบ run ที่จะทำต่อ' }, { status: 404 });
+      }
+      if (row.status !== 'running') {
+        // run จบไปแล้ว (เช่น client retry ชนกับ request ที่เพิ่งเสร็จ) — คืนผลที่บันทึกไว้เลย
+        try {
+          return NextResponse.json(JSON.parse(row.resultData));
+        } catch {
+          return NextResponse.json({ error: 'ข้อมูลผลการวิจัยเสียหาย' }, { status: 500 });
+        }
+      }
+      return NextResponse.json(
+        { error: 'ยังมีการประมวลผลรอบก่อนของ run นี้ทำงานอยู่ — รอสักครู่แล้วลองใหม่', locked: true },
+        { status: 409 }
+      );
+    }
+    const row = await prisma.localKeywordResearchRun.findUnique({ where: { id: resumeRunId } });
+    let saved: any = null;
+    try { saved = row?.phaseState ? JSON.parse(row.phaseState) : null; } catch { saved = null; }
+    if (!saved?.input || !saved?.flags) {
+      await prisma.localKeywordResearchRun.update({
+        where: { id: resumeRunId }, data: { lockedAt: null },
+      }).catch(() => {});
+      return NextResponse.json({ error: 'checkpoint ของ run นี้เสียหาย — กรุณาเริ่มรันใหม่' }, { status: 409 });
+    }
+    runId = resumeRunId;
+    ckptData = saved;
+    entryStage = STAGES.includes(row!.phase as StageName) ? (row!.phase as StageName) : 'init';
+    input = saved.input as LocalResearchInput;
+    targetCount = Number(saved.targetCount) || 50;
+    weights = saved.weights;
+    flags = saved.flags as RunFlags;
+    if (Number(body.stepBudgetMs) > 0) flags.stepBudgetMs = Number(body.stepBudgetMs);
+  } else {
+    const services: string[] = Array.isArray(body.services)
+      ? body.services.map((s: unknown) => normalizeThaiSpacing(String(s ?? ''))).filter(Boolean)
+      : [];
+    if (services.length === 0) {
+      return NextResponse.json({ error: 'ต้องระบุบริการ / คำหลักอย่างน้อย 1 รายการ' }, { status: 400 });
+    }
+
+    const primaryLocation = parseArea(body.primaryLocation, 'district', 0);
+    if (!primaryLocation) {
+      return NextResponse.json({ error: 'ต้องระบุพื้นที่หลัก' }, { status: 400 });
+    }
+
+    const nearbyLocations = (Array.isArray(body.nearbyLocations) ? body.nearbyLocations : [])
+      .map((raw: unknown, i: number) => parseArea(raw, 'district', i + 1))
+      .filter(Boolean) as LocalArea[];
+
+    const businessType: LocalBusinessType =
+      body.businessType === 'storefront' || body.businessType === 'hybrid'
+        ? body.businessType
+        : 'service_area';
+    // จำนวน Final Qualified SEO Opportunities ที่ต้องการ (candidate pool จะใหญ่กว่านี้มาก)
+    targetCount = Math.min(Math.max(Math.round(Number(body.targetCount) || 50), 10), 1000);
+    const language: LocalLanguage = body.language === 'th_en' ? 'th_en' : 'th';
+
+    // น้ำหนัก Sales/Traffic (default 60/40) — รับได้ทั้งสัดส่วน (0.6) และเปอร์เซ็นต์ (60)
+    const rawSalesW = Number(body.salesWeight);
+    const rawTrafficW = Number(body.trafficWeight);
+    weights = normalizeWeights(
+      isFinite(rawSalesW) ? (rawSalesW > 1 ? rawSalesW / 100 : rawSalesW) : undefined,
+      isFinite(rawTrafficW) ? (rawTrafficW > 1 ? rawTrafficW / 100 : rawTrafficW) : undefined
+    );
+
+    input = {
+      services,
+      primaryLocation,
+      nearbyLocations,
+      businessType,
+      serviceRadiusKm: typeof body.serviceRadiusKm === 'number' ? body.serviceRadiusKm : null,
+      language,
+      businessContext: body.businessContext ? String(body.businessContext) : undefined,
+    };
+    flags = {
+      useProblemFirst: body.useProblemFirst !== false,
+      useAiExpand: body.useAiExpand !== false,
+      useDfsIdeas: body.useDfsIdeas !== false,
+      useKeywordPlanner: body.useKeywordPlanner !== false,
+      expandWithKp: body.expandWithKeywordPlanner !== false,
+      useDataForSeo: body.useDataForSeo !== false,
+      checkSerp: body.checkSerp !== false,
+      buildTopicClusters: body.buildTopicClusters !== false,
+      forceRefresh: !!body.forceRefresh,
+      projectId: body.projectId ? String(body.projectId) : null,
+      stepBudgetMs: Number(body.stepBudgetMs) > 0
+        ? Number(body.stepBudgetMs)
+        : Number(process.env.LOCAL_RESEARCH_STEP_BUDGET_MS) > 0
+          ? Number(process.env.LOCAL_RESEARCH_STEP_BUDGET_MS)
+          : DEFAULT_STEP_BUDGET_MS,
+    };
   }
 
-  const primaryLocation = parseArea(body.primaryLocation, 'district', 0);
-  if (!primaryLocation) {
-    return NextResponse.json({ error: 'ต้องระบุพื้นที่หลัก' }, { status: 400 });
+  // resumable ต้องมี projectId (checkpoint เก็บใน run row ของโปรเจกต์) — ไม่มีก็รันรวดเดียวแบบเดิม
+  const resumable = resumeRunId !== null || (body.resumable === true && !!flags.projectId);
+  if (resumable && !runId) {
+    const run = await prisma.localKeywordResearchRun.create({
+      data: {
+        organizationId: orgId,
+        projectId: flags.projectId!,
+        mode: 'local_storefront',
+        services: JSON.stringify(input.services),
+        primaryLocation: input.primaryLocation.name,
+        targetCount,
+        salesWeight: weights.sales,
+        trafficWeight: weights.traffic,
+        status: 'running',
+        phase: 'init',
+        lockedAt: new Date(),
+        createdById: userId,
+      },
+    });
+    runId = run.id;
   }
 
-  const nearbyLocations = (Array.isArray(body.nearbyLocations) ? body.nearbyLocations : [])
-    .map((raw: unknown, i: number) => parseArea(raw, 'district', i + 1))
-    .filter(Boolean) as LocalArea[];
-
-  const businessType: LocalBusinessType =
-    body.businessType === 'storefront' || body.businessType === 'hybrid'
-      ? body.businessType
-      : 'service_area';
-  // จำนวน Final Qualified SEO Opportunities ที่ต้องการ (candidate pool จะใหญ่กว่านี้มาก)
-  const targetCount = Math.min(Math.max(Math.round(Number(body.targetCount) || 50), 10), 1000);
-  const language: LocalLanguage = body.language === 'th_en' ? 'th_en' : 'th';
-
-  // น้ำหนัก Sales/Traffic (default 60/40) — รับได้ทั้งสัดส่วน (0.6) และเปอร์เซ็นต์ (60)
-  const rawSalesW = Number(body.salesWeight);
-  const rawTrafficW = Number(body.trafficWeight);
-  const weights = normalizeWeights(
-    isFinite(rawSalesW) ? (rawSalesW > 1 ? rawSalesW / 100 : rawSalesW) : undefined,
-    isFinite(rawTrafficW) ? (rawTrafficW > 1 ? rawTrafficW / 100 : rawTrafficW) : undefined
-  );
-
-  const input: LocalResearchInput = {
-    services,
-    primaryLocation,
-    nearbyLocations,
-    businessType,
-    serviceRadiusKm: typeof body.serviceRadiusKm === 'number' ? body.serviceRadiusKm : null,
-    language,
-    businessContext: body.businessContext ? String(body.businessContext) : undefined,
-  };
+  const startedAt = Date.now();
+  const budgetMs = resumable ? Math.min(600_000, Math.max(30_000, flags.stepBudgetMs)) : Infinity;
 
   const runPipeline = async (emit: ProgressEmit) => {
     const progress = (message: string, extra?: Record<string, unknown>) =>
       emit({ type: 'progress', at: new Date().toISOString(), message, ...(extra ?? {}) });
 
-    const warnings: string[] = [];
+    const { services, primaryLocation } = input;
+    const nearbyLocations = input.nearbyLocations ?? [];
+    const language = input.language ?? 'th';
+
+    // ── State ทั้งหมดต่อไปนี้ serialize เป็น JSON checkpoint ได้ (โหมด resumable) ──
+    const warnings: string[] = Array.isArray(ckptData?.warnings) ? ckptData.warnings : [];
 
     // ── ชั้นข้อมูลแยกแหล่งต่อคีย์เวิร์ด (key = dedupeKey) — ห้ามเฉลี่ยรวมข้ามแหล่ง ──
-    const googleByKey = new Map<string, GoogleMetricData>();
-    const dfsByKey = new Map<string, DfsMetricData>();
-    const intentByKey = new Map<string, SearchIntentData>();
-    const serpByKey = new Map<string, SerpSignals>();
-    let dfsExtraCostUsd = 0; // intent + ideas + KD + SERP (คิดตาม task.cost จริงจาก API)
-    let dfsExtraCalls = 0;
+    const googleByKey = new Map<string, GoogleMetricData>(ckptData?.google ?? []);
+    const dfsByKey = new Map<string, DfsMetricData>(ckptData?.dfs ?? []);
+    const intentByKey = new Map<string, SearchIntentData>(ckptData?.intents ?? []);
+    const serpByKey = new Map<string, SerpSignals>(ckptData?.serpSignals ?? []);
+    let dfsExtraCostUsd = ckptData?.c?.dfsExtraCostUsd ?? 0; // intent + ideas + KD + SERP (คิดตาม task.cost จริงจาก API)
+    let dfsExtraCalls = ckptData?.c?.dfsExtraCalls ?? 0;
 
-    progress(`เริ่มวิเคราะห์: ${services.join(', ')} @ ${primaryLocation.name} — เป้า ${targetCount} SEO Opportunities (Sales ${Math.round(weights.sales * 100)}% / Traffic ${Math.round(weights.traffic * 100)}%)`);
-
-    const candidates = generateLocalCandidates(input);
     const items = new Map<string, LocalRawItem>();
-    for (const candidate of candidates) {
-      items.set(dedupeKey(candidate.keyword), {
-        keyword: candidate.keyword,
-        sources: ['generated'] as LocalKeywordSource[],
-        candidate,
-        metric: null,
-      });
+    if (Array.isArray(ckptData?.items)) {
+      for (const it of ckptData.items as LocalRawItem[]) items.set(dedupeKey(it.keyword), it);
     }
-    progress(`สร้าง candidate จากโครงสร้างบริการ×พื้นที่ ${items.size} คำ`, { count: items.size });
+    const generatedTrafficKeys = new Set<string>(ckptData?.trafficKeys ?? []);
+    let generatedCount: number = ckptData?.c?.generatedCount ?? 0;
+
+    // สถานะสะสมของแหล่งข้อมูล (ต้องรอดข้าม request ตอน resume)
+    let kpStatus: 'ok' | 'partial' | 'unavailable' | 'skipped' = ckptData?.kp?.status ?? 'skipped';
+    let kpMessage: string | undefined = ckptData?.kp?.message ?? undefined;
+    let kpCalls: number = ckptData?.kp?.calls ?? 0;
+    let enrichedCount: number = ckptData?.c?.enrichedCount ?? 0;
+    let kpFetchedAt: string | null = ckptData?.kp?.fetchedAt ?? null;
+    let geoTarget: { requested: string; resolved: string; level: GeoTargetLevel } =
+      ckptData?.kp?.geoTarget ?? { requested: primaryLocation.name, resolved: 'Thailand', level: 'country' };
+    let resolvedGeoLite: { name: string; level: GeoTargetLevel; resourceName: string } | null =
+      ckptData?.kp?.resolvedGeo ?? null;
+    let dfsCalls: number = ckptData?.c?.dfsCalls ?? 0;
+    let dfsError: string | undefined = ckptData?.c?.dfsError ?? undefined;
+    let dfsFetchedAt: string | null = ckptData?.c?.dfsFetchedAt ?? null;
+    let serpChecked: number = ckptData?.c?.serpChecked ?? 0;
+    let serpErrors: number = ckptData?.c?.serpErrors ?? 0;
+    let candidateCount: number = ckptData?.c?.candidateCount ?? 0;
+    let qualifiedCount: number = ckptData?.c?.qualifiedCount ?? 0;
+    let titleFailures: number = ckptData?.c?.titleFailures ?? 0;
+
+    // ผลหลัง stage intel (ตาราง canonical) + งาน AI ท้าย pipeline ที่ทำค้างไว้
+    type ClusterMembership = { clusterId: number; clusterName: string; role: 'pillar' | 'supporting'; pillarSlug: string };
+    let results: KeywordResearchResult[] = Array.isArray(ckptData?.results) ? ckptData.results : [];
+    let clusters: ReturnType<typeof assembleResults>['clusters'] = Array.isArray(ckptData?.clusters) ? ckptData.clusters : [];
+    const titleByKey = new Map<string, { title?: string; slug?: string }>(ckptData?.titles ?? []);
+    const clusterByKey = new Map<string, ClusterMembership>(ckptData?.clusterMembers ?? []);
+    let topicClusters: Array<{ clusterId: number; name: string; pillarSlug: string; memberSlugs: string[]; totalVolume: number }> =
+      Array.isArray(ckptData?.topicClusters) ? ckptData.topicClusters : [];
+
+    /** stage นี้ต้องรันใน request นี้ไหม (stage ก่อน entryStage ถูกทำ+checkpoint ไปแล้ว) */
+    const needs = (s: StageName) => stageIdx(entryStage) <= stageIdx(s);
+    /** cursor ภายใน stage — ใช้ค่าที่ checkpoint ไว้เฉพาะตอน resume เข้า stage เดียวกัน */
+    const cursor = <T,>(stage: StageName, field: string, dflt: T): T =>
+      entryStage === stage && ckptData && ckptData[field] !== undefined ? (ckptData[field] as T) : dflt;
+
+    const snapshot = (nextStage: StageName, extra: Record<string, unknown>) => {
+      // หลังผ่าน intel แล้ว pool/metric maps ไม่ถูกใช้อีก — ตัดทิ้งให้ checkpoint เบา
+      const lean = stageIdx(nextStage) > stageIdx('intel');
+      return JSON.stringify({
+        v: 1,
+        input, targetCount, weights, flags,
+        warnings,
+        items: lean ? [] : Array.from(items.values()),
+        trafficKeys: Array.from(generatedTrafficKeys),
+        google: lean ? [] : mapToEntries(googleByKey),
+        dfs: lean ? [] : mapToEntries(dfsByKey),
+        intents: lean ? [] : mapToEntries(intentByKey),
+        serpSignals: lean ? [] : mapToEntries(serpByKey),
+        kp: { status: kpStatus, message: kpMessage, calls: kpCalls, fetchedAt: kpFetchedAt, geoTarget, resolvedGeo: resolvedGeoLite },
+        c: {
+          dfsExtraCostUsd, dfsExtraCalls, enrichedCount, dfsCalls, dfsError, dfsFetchedAt,
+          serpChecked, serpErrors, candidateCount, qualifiedCount, generatedCount, titleFailures,
+        },
+        results, clusters,
+        titles: mapToEntries(titleByKey),
+        clusterMembers: mapToEntries(clusterByKey),
+        topicClusters,
+        ...extra,
+      });
+    };
+
+    /**
+     * บันทึกความคืบหน้าลง run row แล้วเช็คงบเวลา — เกินงบ = โยน YieldSignal
+     * ให้ driver ปิด request นี้ (client จะยิง resumeRunId มาทำต่อจากจุดนี้)
+     * โหมดไม่ resumable: no-op ทั้งหมด — พฤติกรรมเดิมเป๊ะ
+     */
+    const checkpoint = async (nextStage: StageName, extra: Record<string, unknown> = {}) => {
+      if (!resumable || !runId) return;
+      await prisma.localKeywordResearchRun.update({
+        where: { id: runId },
+        data: {
+          phase: nextStage,
+          phaseState: snapshot(nextStage, extra),
+          candidateCount: Math.max(items.size, candidateCount),
+          lockedAt: new Date(),
+        },
+      });
+      if (Date.now() - startedAt > budgetMs) throw new YieldSignal(nextStage);
+    };
+
+    if (entryStage !== 'init') {
+      progress(`ทำต่อจาก checkpoint เดิม (ขั้น ${entryStage}) — pool ${items.size} คำ`);
+    }
+
+    if (needs('init')) {
+      progress(`เริ่มวิเคราะห์: ${services.join(', ')} @ ${primaryLocation.name} — เป้า ${targetCount} SEO Opportunities (Sales ${Math.round(weights.sales * 100)}% / Traffic ${Math.round(weights.traffic * 100)}%)`);
+      const candidates = generateLocalCandidates(input);
+      for (const candidate of candidates) {
+        items.set(dedupeKey(candidate.keyword), {
+          keyword: candidate.keyword,
+          sources: ['generated'] as LocalKeywordSource[],
+          candidate,
+          metric: null,
+        });
+      }
+      generatedCount = candidates.length;
+      progress(`สร้าง candidate จากโครงสร้างบริการ×พื้นที่ ${items.size} คำ`, { count: items.size });
+      await checkpoint('problem');
+    }
 
     // ── Problem-first: แตก topic universe → ปัญหาลูกค้า → คำ solution/วิธี/ความรู้ ──
-    const generatedTrafficKeys = new Set<string>();
-    const useProblemFirst = body.useProblemFirst !== false;
-    if (useProblemFirst) {
+    if (needs('problem') && flags.useProblemFirst) {
       try {
         progress('วิเคราะห์ปัญหาจริงของลูกค้า (problem-first) …');
         const niche = services.join(' / ');
@@ -360,23 +592,24 @@ export async function POST(req: NextRequest) {
         warnings.push(`สร้างคำปัญหา/บทความอัตโนมัติไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
       }
     }
+    if (needs('problem')) await checkpoint('expand');
 
     // ── AI expansion: ขยาย pool คำที่ "เกี่ยวกับธุรกิจ + มีโอกาสขาย" ให้ใหญ่กว่าเป้า ──
     // AI มีหน้าที่แค่ "เสนอ candidate" — ตัวเลขทุกตัวต้องผ่าน KP/DFS ยืนยันจริง (§32)
-    const useAiExpand = body.useAiExpand !== false;
-    if (useAiExpand) {
+    if (needs('expand') && flags.useAiExpand) {
       const poolTarget = Math.min(Math.ceil(targetCount * 1.3), 900);
-      if (items.size < poolTarget) {
-        progress(`ขยาย candidate pool ด้วย AI (เป้า pool ~${poolTarget} คำ) …`);
+      const startWave = cursor('expand', 'expandWave', 0);
+      if (items.size < poolTarget || startWave > 0) {
+        if (startWave === 0) progress(`ขยาย candidate pool ด้วย AI (เป้า pool ~${poolTarget} คำ) …`);
         const salesRatio = { informational: 40, commercial: 35, transactional: 20, navigational: 5, update: 0 };
         const genNiche = `${services.join(' / ')}${input.businessContext ? ` — ${input.businessContext}` : ''}`;
         const genSeed = services[0];
         const BATCH = 50;
         const PARALLEL = targetCount <= 100 ? 2 : targetCount <= 400 ? 4 : 6;
         const MAX_WAVES = 6;
-        let genAdded = 0;
-        let genFailed = 0;
-        for (let wave = 0; wave < MAX_WAVES && items.size < poolTarget; wave++) {
+        let genAdded = cursor('expand', 'expandAdded', 0);
+        let genFailed = cursor('expand', 'expandFailed', 0);
+        for (let wave = startWave; wave < MAX_WAVES && items.size < poolTarget; wave++) {
           const need = poolTarget - items.size;
           const batches = Math.min(PARALLEL, Math.max(1, Math.ceil(need / BATCH)));
           const exclude = Array.from(items.values()).map(it => it.keyword);
@@ -402,7 +635,13 @@ export async function POST(req: NextRequest) {
             }
           }
           progress(`AI expansion รอบ ${wave + 1}: +${waveAdded} คำ (pool ${items.size})`, { count: items.size });
-          if (waveAdded === 0) break; // กันลูปเปล่า (AI ตอบซ้ำ/ล้มเหลวทั้งหมด)
+          const stop = waveAdded === 0; // กันลูปเปล่า (AI ตอบซ้ำ/ล้มเหลวทั้งหมด)
+          await checkpoint('expand', {
+            expandWave: stop ? MAX_WAVES : wave + 1,
+            expandAdded: genAdded,
+            expandFailed: genFailed,
+          });
+          if (stop) break;
         }
         if (genAdded > 0) {
           warnings.push(`ขยายคำที่เกี่ยวกับธุรกิจ (เน้นโอกาสขาย) ด้วย AI อีก ${genAdded} คำ (pool รวม ${items.size} คำ) — จะดึง Search Volume จริงต่อไป`);
@@ -411,10 +650,11 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+    if (needs('expand')) await checkpoint('dfs_ideas');
 
     // ── DataForSEO keyword ideas: ขยาย candidate จากข้อมูลจริงของ DFS Labs ──
     // (volume ในผลนี้ถูกเก็บเข้า dfsByKey แยกแหล่งทันที — ไม่ปนกับ Google)
-    if (hasDataForSeoCreds() && body.useDfsIdeas !== false) {
+    if (needs('dfs_ideas') && hasDataForSeoCreds() && flags.useDfsIdeas) {
       try {
         progress('ขยาย candidate จาก DataForSEO keyword ideas …');
         const seeds = [
@@ -470,23 +710,12 @@ export async function POST(req: NextRequest) {
         warnings.push(`DataForSEO keyword ideas ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
       }
     }
+    if (needs('dfs_ideas')) await checkpoint('kp');
 
     // ── Google Keyword Planner (Primary Client Reference Volume) ─────────────
-    let kpStatus: 'ok' | 'partial' | 'unavailable' | 'skipped' = 'skipped';
-    let kpMessage: string | undefined;
-    let kpCalls = 0;
-    let enrichedCount = 0;
-    let kpFetchedAt: string | null = null;
-    let geoTarget: { requested: string; resolved: string; level: GeoTargetLevel } = {
-      requested: primaryLocation.name,
-      resolved: 'Thailand',
-      level: 'country',
-    };
-    let resolvedGeo: ResolvedGeoTarget | null = null;
-
-    const useKeywordPlanner = body.useKeywordPlanner !== false;
-
-    if (useKeywordPlanner) {
+    // ซอยเป็น 3 sub-step (kpStep) ให้ checkpoint/resume ระหว่างกลางได้:
+    // 0 = geo + volume หลัก (+ระดับประเทศให้คำ traffic), 1 = ideas เจาะพื้นที่, 2 = ideas คำกว้าง
+    if (needs('kp') && flags.useKeywordPlanner) {
       const config = loadGoogleAdsConfig();
       const { valid, errors } = validateGoogleAdsConfig(config);
       if (!valid || !config) {
@@ -496,7 +725,9 @@ export async function POST(req: NextRequest) {
       } else {
         try {
           const accessToken = await getAccessToken(config);
+          let kpStep = cursor('kp', 'kpStep', 0);
 
+          if (kpStep === 0) {
           // ลำดับพื้นที่: เขต/อำเภอ → จังหวัด → กรุงเทพฯ → ประเทศไทย (§8)
           // ห้าม AI เดา geo — เก็บทั้ง "ที่ขอ" และ "ที่ resolve ได้จริง" เสมอ
           const geoCandidates = [primaryLocation.name];
@@ -505,10 +736,11 @@ export async function POST(req: NextRequest) {
             geoCandidates.push('Bangkok');
           }
           let geoApiError: string | null = null;
-          resolvedGeo = await resolveGeoTargetChain(config, accessToken, geoCandidates, detail => {
+          const resolvedGeo = await resolveGeoTargetChain(config, accessToken, geoCandidates, detail => {
             if (!geoApiError) geoApiError = detail;
             console.warn('[local-research] geo target lookup failed:', detail);
           });
+          resolvedGeoLite = { name: resolvedGeo.name, level: resolvedGeo.level, resourceName: resolvedGeo.resourceName };
           geoTarget = {
             requested: primaryLocation.name,
             resolved: resolvedGeo.name,
@@ -592,16 +824,22 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          kpStep = 1;
+          await checkpoint('kp', { kpStep });
+          } // จบ kpStep 0
+
           // ── ขยายผลด้วยไอเดียจริงจาก KP (ตัวเลือกเสริม) ────────────────────
-          if (body.expandWithKeywordPlanner !== false) {
+          const ideaGeoInfo = { resolved: geoTarget.resolved, level: geoTarget.level };
+          if (flags.expandWithKp && resolvedGeoLite) {
+            if (kpStep === 1) {
             progress('ขยาย candidate จาก Keyword Planner ideas (เจาะพื้นที่) …');
             const ideas = await getKeywordPlannerRows({
               seed_keywords: services.slice(0, 5).map(s => `${s}${primaryLocation.name}`),
               target_language: 'th',
               target_country: 'Thailand',
-              google_ads_geo_target_resources: [resolvedGeo.resourceName],
+              google_ads_geo_target_resources: [resolvedGeoLite.resourceName],
               number_of_results: 200,
-              force_refresh: !!body.forceRefresh,
+              force_refresh: flags.forceRefresh,
             });
             if (ideas.warnings?.length) warnings.push(...ideas.warnings);
             if (ideas.success) {
@@ -615,7 +853,7 @@ export async function POST(req: NextRequest) {
                 const existing = items.get(key);
                 if (existing) {
                   existing.sources = Array.from(new Set([...existing.sources, 'keyword_planner' as LocalKeywordSource]));
-                  if (!googleByKey.has(key)) googleByKey.set(key, googleFromIdeaRow(row, geoInfo, 'th'));
+                  if (!googleByKey.has(key)) googleByKey.set(key, googleFromIdeaRow(row, ideaGeoInfo, 'th'));
                   if (!existing.metric) {
                     existing.metric = {
                       volume: row.volume,
@@ -643,7 +881,7 @@ export async function POST(req: NextRequest) {
                     trend: Array.isArray(row.monthly_trend) ? row.monthly_trend : undefined,
                   },
                 });
-                googleByKey.set(key, googleFromIdeaRow(row, geoInfo, 'th'));
+                googleByKey.set(key, googleFromIdeaRow(row, ideaGeoInfo, 'th'));
                 added++;
                 enrichedCount++;
               }
@@ -652,6 +890,9 @@ export async function POST(req: NextRequest) {
             } else if (ideas.error) {
               warnings.push(`ขยายผลจาก Keyword Planner ไม่สำเร็จ: ${ideas.error}`);
             }
+            kpStep = 2;
+            await checkpoint('kp', { kpStep });
+            } // จบ kpStep 1
 
             // ── รอบสอง: คำกว้างไม่ติดทำเล — ดึง traffic/โอกาสขาย (volume ระดับประเทศ) ──
             progress('ขยาย candidate จาก Keyword Planner ideas (คำกว้างระดับประเทศ) …');
@@ -660,7 +901,7 @@ export async function POST(req: NextRequest) {
               target_language: 'th',
               target_country: 'Thailand',
               number_of_results: Math.max(300, targetCount * 3),
-              force_refresh: !!body.forceRefresh,
+              force_refresh: flags.forceRefresh,
             });
             if (broadIdeas.warnings?.length) warnings.push(...broadIdeas.warnings);
             if (broadIdeas.success) {
@@ -686,7 +927,7 @@ export async function POST(req: NextRequest) {
               const unsureBatch = unsure.slice(0, 100);
               if (unsureBatch.length > 0) {
                 try {
-                  const relevancePrompt = `ธุรกิจ: ${services.join(', ')}${body.businessContext ? ` — ${body.businessContext}` : ''}
+                  const relevancePrompt = `ธุรกิจ: ${services.join(', ')}${input.businessContext ? ` — ${input.businessContext}` : ''}
 จากรายการ keyword ต่อไปนี้ เลือกเฉพาะคำที่เกี่ยวข้องกับธุรกิจนี้ ทั้งคำที่มีโอกาสสร้างยอดขาย/ดึงลูกค้า (ราคา อาการเสีย เปรียบเทียบ) และคำหาความรู้/วิธี/ข้อมูลที่ดึง traffic เข้าเว็บ (เช่น วิธี..., ...คืออะไร, ...บ่อยแค่ไหน) ตัดเฉพาะคำที่เป็นคนละธุรกิจทิ้ง
 ตอบเป็น JSON array ของ keyword ที่เลือกเท่านั้น: ["...","..."]
 Keywords:
@@ -738,6 +979,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
             }
           }
         } catch (err: any) {
+          if (err instanceof YieldSignal) throw err;
           // KP ล้มเหลวต้องไม่ทำให้ทั้งหน้าพัง — คืนผลวิเคราะห์เจตนาต่อไป (§31)
           kpStatus = 'unavailable';
           kpMessage = KP_UNAVAILABLE_MESSAGE;
@@ -745,15 +987,13 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         }
       }
     }
+    if (needs('kp')) await checkpoint('dfs_volumes');
 
     // ── DataForSEO volumes: cross-check ทุกคำ top budget (ไม่ใช่แค่คำที่ KP ไม่มี) ──
     // เก็บเข้า dfsByKey แยกแหล่งเสมอ — ใช้ยืนยัน confidence (HIGH/MEDIUM/LOW)
     // item.metric (ตัวจัดอันดับ candidate) จะถูกเติมด้วย DFS เฉพาะคำที่ KP ไม่มี volume
     // และติดป้าย 'dataforseo' ตรงตามแหล่งจริง (แก้ของเดิมที่ติดป้าย keyword_planner ผิด)
-    let dfsCalls = 0;
-    let dfsError: string | undefined;
-    let dfsFetchedAt: string | null = null;
-    if (hasDataForSeoCreds() && body.useDataForSeo !== false) {
+    if (needs('dfs_volumes') && hasDataForSeoCreds() && flags.useDataForSeo) {
       const rankedForDfs = assembleResults(Array.from(items.values()), input).results;
       const dfsTargets = rankedForDfs.slice(0, 700).map(r => r.keyword);
       if (dfsTargets.length > 0) {
@@ -790,22 +1030,28 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
       }
     }
 
+    if (needs('dfs_volumes')) await checkpoint('intent');
+
     // ── จัดอันดับ candidate ทั้งชุด (rule-based score เดิม ใช้เป็นสัญญาณย่อยของ intel) ──
-    const allItems = Array.from(items.values());
-    const rankedAll = assembleResults(allItems, input);
-    const candidateCount = rankedAll.results.length;
-    progress(`วิเคราะห์ candidate ทั้งหมด ${candidateCount} คำ — เริ่มชั้น intelligence`, { count: candidateCount });
+    // resume หลัง stage intel: checkpoint เป็นแบบ lean (ไม่มี items) — ข้าม rank เพราะตาราง canonical อยู่ใน results แล้ว
+    let rankedAll: ReturnType<typeof assembleResults> | null = null;
+    if (needs('intel')) {
+      rankedAll = assembleResults(Array.from(items.values()), input);
+      candidateCount = rankedAll.results.length;
+      progress(`วิเคราะห์ candidate ทั้งหมด ${candidateCount} คำ — เริ่มชั้น intelligence`, { count: candidateCount });
+    }
 
     // ── DataForSEO search intent (ข้อมูลจริง ไม่ใช่ AI เดา) ──
-    if (hasDataForSeoCreds() && body.useDataForSeo !== false) {
+    if (needs('intent') && rankedAll && hasDataForSeoCreds() && flags.useDataForSeo) {
+      const ranked = rankedAll;
       try {
-        const intentTargets = rankedAll.results.slice(0, 1000).map(r => r.keyword);
+        const intentTargets = ranked.results.slice(0, 1000).map(r => r.keyword);
         progress(`ตรวจ search intent ${intentTargets.length} คำ (DataForSEO) …`);
         const intentRes = await getDataForSeoSearchIntents(intentTargets, 'th');
         dfsExtraCostUsd += intentRes.costUsd;
         dfsExtraCalls += 1;
         const now = new Date().toISOString();
-        for (const r of rankedAll.results) {
+        for (const r of ranked.results) {
           const hit = intentRes.intents.get(r.keyword.trim().toLowerCase());
           if (!hit) continue;
           intentByKey.set(dedupeKey(r.keyword), {
@@ -819,17 +1065,21 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
       } catch (err) {
         warnings.push(`DataForSEO search intent ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
       }
+    }
+    if (needs('intent')) await checkpoint('kd');
 
-      // ── Keyword Difficulty (bulk) — เฉพาะ top slice ที่มีสิทธิ์เข้าตาราง ──
+    // ── Keyword Difficulty (bulk) — เฉพาะ top slice ที่มีสิทธิ์เข้าตาราง ──
+    if (needs('kd') && rankedAll && hasDataForSeoCreds() && flags.useDataForSeo) {
+      const ranked = rankedAll;
       try {
         const kdLimit = Math.min(800, Math.max(targetCount + 100, 300));
-        const kdTargets = rankedAll.results.slice(0, kdLimit).map(r => r.keyword);
+        const kdTargets = ranked.results.slice(0, kdLimit).map(r => r.keyword);
         progress(`ตรวจ Keyword Difficulty ${kdTargets.length} คำ (DataForSEO) …`);
         const kdRes = await getDataForSeoKeywordDifficulty(kdTargets, 'th', 2764);
         dfsExtraCostUsd += kdRes.costUsd;
         dfsExtraCalls += 1;
         let kdSet = 0;
-        for (const r of rankedAll.results) {
+        for (const r of ranked.results) {
           const kd = kdRes.metrics.get(r.keyword.trim().toLowerCase());
           if (typeof kd !== 'number') continue;
           const key = dedupeKey(r.keyword);
@@ -843,10 +1093,10 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
       }
     }
 
+    if (needs('kd')) await checkpoint('serp');
+
     // ── Local SERP check แบบ tiered (คุมค่าใช้จ่าย): เฉพาะคำ local/commercial เด่นสุด ──
-    let serpChecked = 0;
-    let serpErrors = 0;
-    if (hasDataForSeoCreds() && body.checkSerp !== false) {
+    if (needs('serp') && rankedAll && hasDataForSeoCreds() && flags.checkSerp) {
       const serpBudget = Math.min(60, Math.max(12, Math.round(targetCount * 0.12)));
       const serpTargets = rankedAll.results
         .filter(r => r.locationRole !== 'none' || r.score.commercialIntent >= 60)
@@ -854,9 +1104,11 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         .sort((a, b) => (b.score.localIntent + b.score.commercialIntent) - (a.score.localIntent + a.score.commercialIntent))
         .slice(0, serpBudget)
         .map(r => r.keyword);
+      const SERP_CONC = 6; // ขนาน 6 คำ/รอบ (จาก 3) — SERP คือคอขวดเวลาหลักของ run ใหญ่
+      const serpStart = cursor('serp', 'serpCursor', 0);
       progress(`ตรวจ Local SERP ${serpTargets.length} คำ (Tier A — คำ local/commercial เด่นสุด) …`);
-      for (let i = 0; i < serpTargets.length; i += 3) {
-        const batch = serpTargets.slice(i, i + 3);
+      for (let i = serpStart; i < serpTargets.length; i += SERP_CONC) {
+        const batch = serpTargets.slice(i, i + SERP_CONC);
         const settled = await Promise.allSettled(batch.map(kw => getSerpLocalSignals(kw)));
         settled.forEach((s, idx) => {
           const kw = batch[idx];
@@ -870,224 +1122,252 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
             serpErrors++;
           }
         });
-        if ((i / 3) % 4 === 0 || i + 3 >= serpTargets.length) {
-          progress(`Local SERP ${Math.min(i + 3, serpTargets.length)}/${serpTargets.length} คำ`);
+        if (((i - serpStart) / SERP_CONC) % 2 === 0 || i + SERP_CONC >= serpTargets.length) {
+          progress(`Local SERP ${Math.min(i + SERP_CONC, serpTargets.length)}/${serpTargets.length} คำ`);
+        }
+        // checkpoint ทุก 2 batch — cursor ชี้ index ถัดไปใน serpTargets (ลำดับ deterministic จาก state เดิม)
+        if (((i - serpStart) / SERP_CONC) % 2 === 1 || i + SERP_CONC >= serpTargets.length) {
+          await checkpoint('serp', { serpCursor: i + SERP_CONC });
         }
       }
       if (serpErrors > 0) warnings.push(`ตรวจ Local SERP ไม่สำเร็จ ${serpErrors} คำ (ตรวจได้ ${serpChecked} คำ) — คำที่ไม่ได้ตรวจใช้คะแนนกลาง ไม่แต่งข้อมูล`);
     }
 
-    // ── ประกอบ intel ต่อคำ: reference volume + confidence + Sales/Traffic/Final ──
-    progress('คำนวณ Sales Score / Traffic Score / Final Opportunity Score …');
-    const ctx: ScoreContext = { maxCpc: 0, maxLogReferenceVolume: 0 };
-    for (const r of rankedAll.results) {
-      const key = dedupeKey(r.keyword);
-      const g = googleByKey.get(key) ?? emptyGoogleMetric('th');
-      const d = dfsByKey.get(key) ?? emptyDfsMetric('th');
-      const cpc = d.cpc ?? g.bidHighMicros;
-      if (cpc && cpc > ctx.maxCpc) ctx.maxCpc = cpc;
-      const ref = resolveReferenceVolume(g, d).volume;
-      if (ref && ref > 0) ctx.maxLogReferenceVolume = Math.max(ctx.maxLogReferenceVolume, Math.log1p(ref));
-    }
-    const byKey = new Map<string, KeywordResearchResult>();
-    for (const r of rankedAll.results) {
-      const key = dedupeKey(r.keyword);
-      const item = items.get(key);
-      r.intel = buildIntel(r, {
-        google: googleByKey.get(key) ?? emptyGoogleMetric('th'),
-        dfs: dfsByKey.get(key) ?? emptyDfsMetric('th'),
-        searchIntent: intentByKey.get(key) ?? emptySearchIntent(),
-        serp: serpByKey.get(key) ?? emptySerpSignals(),
-        candidateSources: item ? item.sources.slice() : ['generated'],
-      }, weights, ctx);
-      byKey.set(key, r);
-    }
+    if (needs('serp')) await checkpoint('intel');
 
-    // ── กันคำชนกัน: location-swap (doorway protection) + SERP overlap merge ──
-    const areaKeys = [primaryLocation, ...nearbyLocations].map(a => dedupeKey(a.name));
-    const swap = resolveLocationSwapGroups(
-      rankedAll.results.map(r => ({ keyword: r.keyword, locationRole: r.locationRole, finalScore: r.intel!.finalScore })),
-      areaKeys
-    );
-    const serpMergeInput = rankedAll.results
-      .filter(r => r.intel!.serp.status === 'ok' && r.intel!.serp.topUrls.length >= 5)
-      .map(r => ({
-        keyword: r.keyword,
-        finalScore: r.intel!.finalScore,
-        topUrls: r.intel!.serp.topUrls,
-        intent: r.intel!.searchIntent.intent,
-      }));
-    const serpMerge = mergeBySerpOverlap(serpMergeInput);
-
-    const demotions = new Map<string, { primaryKey: string; action: CannibalizationAction; reason: string }>();
-    for (const [key, info] of Array.from(swap.demoted.entries())) {
-      demotions.set(key, { primaryKey: info.primaryKey, action: info.action, reason: info.reason });
-    }
-    for (const [key, info] of Array.from(serpMerge.merged.entries())) {
-      if (!demotions.has(key)) {
-        demotions.set(key, { primaryKey: info.primaryKey, action: 'MERGE', reason: info.reason });
+    if (needs('intel') && rankedAll) {
+      const ranked = rankedAll;
+      // ── ประกอบ intel ต่อคำ: reference volume + confidence + Sales/Traffic/Final ──
+      progress('คำนวณ Sales Score / Traffic Score / Final Opportunity Score …');
+      const ctx: ScoreContext = { maxCpc: 0, maxLogReferenceVolume: 0 };
+      for (const r of ranked.results) {
+        const key = dedupeKey(r.keyword);
+        const g = googleByKey.get(key) ?? emptyGoogleMetric('th');
+        const d = dfsByKey.get(key) ?? emptyDfsMetric('th');
+        const cpc = d.cpc ?? g.bidHighMicros;
+        if (cpc && cpc > ctx.maxCpc) ctx.maxCpc = cpc;
+        const ref = resolveReferenceVolume(g, d).volume;
+        if (ref && ref > 0) ctx.maxLogReferenceVolume = Math.max(ctx.maxLogReferenceVolume, Math.log1p(ref));
       }
-    }
-    // แก้ลูกโซ่: ถ้าคำหลักของเราถูกลดชั้นไปแล้ว ให้ชี้ไปคำหลักตัวจริง (จำกัด 5 ชั้นกันวน)
-    let demotedApplied = 0;
-    for (const [key, info] of Array.from(demotions.entries())) {
-      let primaryKey = info.primaryKey;
-      let hops = 0;
-      while (demotions.has(primaryKey) && hops < 5) {
-        primaryKey = demotions.get(primaryKey)!.primaryKey;
-        hops++;
+      const byKey = new Map<string, KeywordResearchResult>();
+      for (const r of ranked.results) {
+        const key = dedupeKey(r.keyword);
+        const item = items.get(key);
+        r.intel = buildIntel(r, {
+          google: googleByKey.get(key) ?? emptyGoogleMetric('th'),
+          dfs: dfsByKey.get(key) ?? emptyDfsMetric('th'),
+          searchIntent: intentByKey.get(key) ?? emptySearchIntent(),
+          serp: serpByKey.get(key) ?? emptySerpSignals(),
+          candidateSources: item ? item.sources.slice() : ['generated'],
+        }, weights, ctx);
+        byKey.set(key, r);
       }
-      if (primaryKey === key) continue;
-      const primary = byKey.get(primaryKey);
-      const demoted = byKey.get(key);
-      if (!primary || !demoted) continue;
-      primary.intel!.secondaryKeywords.push(demoted.keyword);
-      demoted.intel!.cannibalization = {
-        score: 0,
-        action: info.action,
-        reason: info.reason,
-        againstKeyword: primary.keyword,
-      };
-      demotedApplied++;
-    }
-    if (demotedApplied > 0) {
-      progress(`รวมคำเจตนาซ้ำเป็นคำรอง ${demotedApplied} คำ (location-swap + SERP overlap)`);
-      warnings.push(`รวมคำที่เจตนาซ้ำกันเป็นคำรอง ${demotedApplied} คำ — กันหน้า doorway/คำกินกันเอง (ดูใน Detail ของแต่ละคำหลัก)`);
-    }
 
-    // ── คัดเลือก Final Qualified SEO Opportunities: คำ verified ก่อน + โควตาคลัสเตอร์ ──
-    const demotedKeys = new Set(
-      Array.from(demotions.keys()).filter(k => byKey.get(k)?.intel?.cannibalization.action !== 'KEEP' && byKey.get(k)?.intel?.cannibalization.againstKeyword)
-    );
-    const primaries = rankedAll.results.filter(r => !demotedKeys.has(dedupeKey(r.keyword)));
-    const scoreOf = (r: KeywordResearchResult) => r.intel!.finalScore;
-    const verified = primaries.filter(r => r.intel!.referenceSource !== 'none' || r.intel!.zeroVolumeLocalOpportunity);
-    const unverified = primaries.filter(r => r.intel!.referenceSource === 'none' && !r.intel!.zeroVolumeLocalOpportunity);
-
-    let selected = selectWithClusterQuota(verified, targetCount, scoreOf);
-    if (selected.length < targetCount && unverified.length > 0) {
-      const chosenKeys = new Set(selected.map(r => dedupeKey(r.keyword)));
-      const fill = selectWithClusterQuota(
-        unverified.filter(r => !chosenKeys.has(dedupeKey(r.keyword))),
-        targetCount - selected.length,
-        scoreOf
+      // ── กันคำชนกัน: location-swap (doorway protection) + SERP overlap merge ──
+      const areaKeys = [primaryLocation, ...nearbyLocations].map(a => dedupeKey(a.name));
+      const swap = resolveLocationSwapGroups(
+        ranked.results.map(r => ({ keyword: r.keyword, locationRole: r.locationRole, finalScore: r.intel!.finalScore })),
+        areaKeys
       );
-      if (fill.length > 0) {
-        warnings.push(`คำที่มี volume ตรวจสอบแล้วมี ${selected.length} คำ — เติมคำที่เกี่ยวกับธุรกิจแต่ยังไม่ยืนยัน volume อีก ${fill.length} คำ (ติดป้าย NO VOLUME ให้ตรวจก่อนใช้)`);
-        selected = [...selected, ...fill];
+      const serpMergeInput = ranked.results
+        .filter(r => r.intel!.serp.status === 'ok' && r.intel!.serp.topUrls.length >= 5)
+        .map(r => ({
+          keyword: r.keyword,
+          finalScore: r.intel!.finalScore,
+          topUrls: r.intel!.serp.topUrls,
+          intent: r.intel!.searchIntent.intent,
+        }));
+      const serpMerge = mergeBySerpOverlap(serpMergeInput);
+
+      const demotions = new Map<string, { primaryKey: string; action: CannibalizationAction; reason: string }>();
+      for (const [key, info] of Array.from(swap.demoted.entries())) {
+        demotions.set(key, { primaryKey: info.primaryKey, action: info.action, reason: info.reason });
       }
-    }
-    if (selected.length < targetCount) {
-      warnings.push(`ได้ ${selected.length}/${targetCount} SEO Opportunities — คุณภาพมาก่อนจำนวน: ไม่เติมคำที่ไม่เกี่ยวข้องเพื่อให้ครบตัวเลข ลองขยายบริการ/พื้นที่หรือเพิ่ม nearby locations`);
-    }
-    const qualifiedCount = selected.length;
-    progress(`คัดเหลือ ${qualifiedCount} SEO Opportunities (จาก candidate ${candidateCount} คำ)`, { count: qualifiedCount });
-
-    // ── Publish waves: Wave 1 ≈15% (portfolio สมดุลข้ามคลัสเตอร์), Wave 2 ≈30%, ที่เหลือ Wave 3 ──
-    const waves = assignWaves(selected, scoreOf);
-    for (const r of selected) {
-      r.intel!.wave = waves.get(dedupeKey(r.keyword)) ?? 3;
-    }
-
-    // เรียงตาม Final Opportunity Score + sync คอลัมน์เดิมกับ reference volume
-    // (r.volume ที่ UI เดิมแสดง = reference volume พร้อมป้ายที่มาใน intel — ไม่มีการเฉลี่ย)
-    const results = [...selected].sort((a, b) => scoreOf(b) - scoreOf(a));
-    for (const r of results) {
-      const i = r.intel!;
-      r.volume = i.referenceVolume;
-      r.adsCompetition = i.google.competition ?? i.dfs.competition ?? r.adsCompetition ?? null;
-      r.competitionIndex = i.google.competitionIndex ?? i.dfs.competitionIndex ?? r.competitionIndex ?? null;
-      r.bidLow = i.google.bidLowMicros ?? r.bidLow ?? null;
-      r.bidHigh = i.google.bidHighMicros ?? i.dfs.cpc ?? r.bidHigh ?? null;
-      if (i.google.monthlySearchVolumes && i.google.monthlySearchVolumes.length > 1) {
-        r.trend = i.google.monthlySearchVolumes;
-      }
-    }
-
-    // cluster summary จากชุดที่คัดแล้ว (ให้ตรงกับตาราง)
-    const selectedKeys = new Set(results.map(r => dedupeKey(r.keyword)));
-    const finalItems = allItems.filter(item => selectedKeys.has(dedupeKey(item.keyword)));
-    const { clusters } = assembleResults(finalItems, input);
-
-    // ── เขียน SEO title + slug (AI ทำหลังข้อมูลจบแล้วเสมอ — batch ละ 100 คำ) ──
-    progress(`เขียน SEO title + slug ให้ ${results.length} คำ …`);
-    try {
-      const titleBatches: string[][] = [];
-      for (let i = 0; i < results.length; i += 100) {
-        titleBatches.push(results.slice(i, i + 100).map(r => r.keyword));
-      }
-      const titlePromptFor = (kwList: string[]) => `คุณคือผู้เชี่ยวชาญ SEO ไทย เขียนหัวข้อบทความ/หน้าเพจ (SEO title) และ English slug ให้ keyword ของธุรกิจนี้:
-ธุรกิจ: ${services.join(', ')} ในพื้นที่ ${primaryLocation.name}${body.businessContext ? ` — ${body.businessContext}` : ''}
-กติกา: title ภาษาไทย ≤60 ตัวอักษร มี keyword อยู่ในหัวข้อ เน้นให้คนอยากคลิกและสื่อว่าให้บริการจริง / slug เป็นอังกฤษล้วน ตัวเล็ก คั่นด้วย hyphen สั้นกระชับ
-ตอบเป็น JSON array เท่านั้น: [{"keyword":"...","title":"...","slug":"..."}]
-Keywords:
-${kwList.map(k => `- ${k}`).join('\n')}`;
-      const titleByKey = new Map<string, { title?: string; slug?: string }>();
-      let titleFailures = 0;
-      for (let i = 0; i < titleBatches.length; i += 3) {
-        const wave = titleBatches.slice(i, i + 3);
-        const settled = await Promise.allSettled(wave.map(batch => callGemini(titlePromptFor(batch))));
-        for (const s of settled) {
-          if (s.status !== 'fulfilled') { titleFailures++; continue; }
-          const text = typeof s.value === 'string' ? s.value : JSON.stringify(s.value);
-          const jsonMatch = text.match(/\[[\s\S]*\]/);
-          if (!jsonMatch) { titleFailures++; continue; }
-          try {
-            const titled = JSON.parse(jsonMatch[0]) as Array<{ keyword?: string; title?: string; slug?: string }>;
-            for (const t of titled) {
-              titleByKey.set(dedupeKey(String(t.keyword ?? '')), { title: t.title, slug: t.slug });
-            }
-          } catch { titleFailures++; }
+      for (const [key, info] of Array.from(serpMerge.merged.entries())) {
+        if (!demotions.has(key)) {
+          demotions.set(key, { primaryKey: info.primaryKey, action: 'MERGE', reason: info.reason });
         }
-        progress(`เขียน title แล้ว ${Math.min((i + 3) * 100, results.length)}/${results.length} คำ`);
       }
+      // แก้ลูกโซ่: ถ้าคำหลักของเราถูกลดชั้นไปแล้ว ให้ชี้ไปคำหลักตัวจริง (จำกัด 5 ชั้นกันวน)
+      let demotedApplied = 0;
+      for (const [key, info] of Array.from(demotions.entries())) {
+        let primaryKey = info.primaryKey;
+        let hops = 0;
+        while (demotions.has(primaryKey) && hops < 5) {
+          primaryKey = demotions.get(primaryKey)!.primaryKey;
+          hops++;
+        }
+        if (primaryKey === key) continue;
+        const primary = byKey.get(primaryKey);
+        const demoted = byKey.get(key);
+        if (!primary || !demoted) continue;
+        primary.intel!.secondaryKeywords.push(demoted.keyword);
+        demoted.intel!.cannibalization = {
+          score: 0,
+          action: info.action,
+          reason: info.reason,
+          againstKeyword: primary.keyword,
+        };
+        demotedApplied++;
+      }
+      if (demotedApplied > 0) {
+        progress(`รวมคำเจตนาซ้ำเป็นคำรอง ${demotedApplied} คำ (location-swap + SERP overlap)`);
+        warnings.push(`รวมคำที่เจตนาซ้ำกันเป็นคำรอง ${demotedApplied} คำ — กันหน้า doorway/คำกินกันเอง (ดูใน Detail ของแต่ละคำหลัก)`);
+      }
+
+      // ── คัดเลือก Final Qualified SEO Opportunities: คำ verified ก่อน + โควตาคลัสเตอร์ ──
+      const demotedKeys = new Set(
+        Array.from(demotions.keys()).filter(k => byKey.get(k)?.intel?.cannibalization.action !== 'KEEP' && byKey.get(k)?.intel?.cannibalization.againstKeyword)
+      );
+      const primaries = ranked.results.filter(r => !demotedKeys.has(dedupeKey(r.keyword)));
+      const scoreOf = (r: KeywordResearchResult) => r.intel!.finalScore;
+      const verified = primaries.filter(r => r.intel!.referenceSource !== 'none' || r.intel!.zeroVolumeLocalOpportunity);
+      const unverified = primaries.filter(r => r.intel!.referenceSource === 'none' && !r.intel!.zeroVolumeLocalOpportunity);
+
+      let selected = selectWithClusterQuota(verified, targetCount, scoreOf);
+      if (selected.length < targetCount && unverified.length > 0) {
+        const chosenKeys = new Set(selected.map(r => dedupeKey(r.keyword)));
+        const fill = selectWithClusterQuota(
+          unverified.filter(r => !chosenKeys.has(dedupeKey(r.keyword))),
+          targetCount - selected.length,
+          scoreOf
+        );
+        if (fill.length > 0) {
+          warnings.push(`คำที่มี volume ตรวจสอบแล้วมี ${selected.length} คำ — เติมคำที่เกี่ยวกับธุรกิจแต่ยังไม่ยืนยัน volume อีก ${fill.length} คำ (ติดป้าย NO VOLUME ให้ตรวจก่อนใช้)`);
+          selected = [...selected, ...fill];
+        }
+      }
+      if (selected.length < targetCount) {
+        warnings.push(`ได้ ${selected.length}/${targetCount} SEO Opportunities — คุณภาพมาก่อนจำนวน: ไม่เติมคำที่ไม่เกี่ยวข้องเพื่อให้ครบตัวเลข ลองขยายบริการ/พื้นที่หรือเพิ่ม nearby locations`);
+      }
+      qualifiedCount = selected.length;
+      progress(`คัดเหลือ ${qualifiedCount} SEO Opportunities (จาก candidate ${candidateCount} คำ)`, { count: qualifiedCount });
+
+      // ── Publish waves: Wave 1 ≈15% (portfolio สมดุลข้ามคลัสเตอร์), Wave 2 ≈30%, ที่เหลือ Wave 3 ──
+      const waves = assignWaves(selected, scoreOf);
+      for (const r of selected) {
+        r.intel!.wave = waves.get(dedupeKey(r.keyword)) ?? 3;
+      }
+
+      // เรียงตาม Final Opportunity Score + sync คอลัมน์เดิมกับ reference volume
+      // (r.volume ที่ UI เดิมแสดง = reference volume พร้อมป้ายที่มาใน intel — ไม่มีการเฉลี่ย)
+      results = [...selected].sort((a, b) => scoreOf(b) - scoreOf(a));
       for (const r of results) {
-        const hit = titleByKey.get(dedupeKey(r.keyword));
-        if (hit?.title) r.suggestedTitle = String(hit.title).slice(0, 120);
-        if (hit?.slug) r.slug = String(hit.slug).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+        const i = r.intel!;
+        r.volume = i.referenceVolume;
+        r.adsCompetition = i.google.competition ?? i.dfs.competition ?? r.adsCompetition ?? null;
+        r.competitionIndex = i.google.competitionIndex ?? i.dfs.competitionIndex ?? r.competitionIndex ?? null;
+        r.bidLow = i.google.bidLowMicros ?? r.bidLow ?? null;
+        r.bidHigh = i.google.bidHighMicros ?? i.dfs.cpc ?? r.bidHigh ?? null;
+        if (i.google.monthlySearchVolumes && i.google.monthlySearchVolumes.length > 1) {
+          r.trend = i.google.monthlySearchVolumes;
+        }
       }
-      if (titleFailures > 0) warnings.push(`เขียน title ไม่สำเร็จ ${titleFailures} batch — คำที่ไม่มี title ใช้ keyword แทน`);
-    } catch (err) {
-      warnings.push(`เขียน title/slug อัตโนมัติไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+
+      // cluster summary จากชุดที่คัดแล้ว (ให้ตรงกับตาราง)
+      const selectedKeys = new Set(results.map(r => dedupeKey(r.keyword)));
+      const finalItems = Array.from(items.values()).filter(item => selectedKeys.has(dedupeKey(item.keyword)));
+      clusters = assembleResults(finalItems, input).clusters;
+      await checkpoint('titles');
     }
+
+    if (needs('titles')) {
+      // ── เขียน SEO title + slug (AI ทำหลังข้อมูลจบแล้วเสมอ — batch ละ 100 คำ) ──
+      progress(`เขียน SEO title + slug ให้ ${results.length} คำ …`);
+      try {
+        const titleBatches: string[][] = [];
+        for (let i = 0; i < results.length; i += 100) {
+          titleBatches.push(results.slice(i, i + 100).map(r => r.keyword));
+        }
+        const titlePromptFor = (kwList: string[]) => `คุณคือผู้เชี่ยวชาญ SEO ไทย เขียนหัวข้อบทความ/หน้าเพจ (SEO title) และ English slug ให้ keyword ของธุรกิจนี้:
+  ธุรกิจ: ${services.join(', ')} ในพื้นที่ ${primaryLocation.name}${input.businessContext ? ` — ${input.businessContext}` : ''}
+  กติกา: title ภาษาไทย ≤60 ตัวอักษร มี keyword อยู่ในหัวข้อ เน้นให้คนอยากคลิกและสื่อว่าให้บริการจริง / slug เป็นอังกฤษล้วน ตัวเล็ก คั่นด้วย hyphen สั้นกระชับ
+  ตอบเป็น JSON array เท่านั้น: [{"keyword":"...","title":"...","slug":"..."}]
+  Keywords:
+  ${kwList.map(k => `- ${k}`).join('\n')}`;
+        const titleStart = cursor('titles', 'titleCursor', 0);
+        for (let i = titleStart; i < titleBatches.length; i += 3) {
+          const wave = titleBatches.slice(i, i + 3);
+          const settled = await Promise.allSettled(wave.map(batch => callGemini(titlePromptFor(batch))));
+          for (const s of settled) {
+            if (s.status !== 'fulfilled') { titleFailures++; continue; }
+            const text = typeof s.value === 'string' ? s.value : JSON.stringify(s.value);
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (!jsonMatch) { titleFailures++; continue; }
+            try {
+              const titled = JSON.parse(jsonMatch[0]) as Array<{ keyword?: string; title?: string; slug?: string }>;
+              for (const t of titled) {
+                titleByKey.set(dedupeKey(String(t.keyword ?? '')), { title: t.title, slug: t.slug });
+              }
+            } catch { titleFailures++; }
+          }
+          progress(`เขียน title แล้ว ${Math.min((i + 3) * 100, results.length)}/${results.length} คำ`);
+          await checkpoint('titles', { titleCursor: i + 3 });
+        }
+        for (const r of results) {
+          const hit = titleByKey.get(dedupeKey(r.keyword));
+          if (hit?.title) r.suggestedTitle = String(hit.title).slice(0, 120);
+          if (hit?.slug) r.slug = String(hit.slug).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+        }
+        if (titleFailures > 0) warnings.push(`เขียน title ไม่สำเร็จ ${titleFailures} batch — คำที่ไม่มี title ใช้ keyword แทน`);
+      } catch (err) {
+        if (err instanceof YieldSignal) throw err;
+        warnings.push(`เขียน title/slug อัตโนมัติไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+      }
+    }
+    if (needs('titles')) await checkpoint('clusters');
 
     // ── โครงสร้างเว็บทั้งไซต์: จัด pillar/cluster (degradable) ──
-    type ClusterMembership = { clusterId: number; clusterName: string; role: 'pillar' | 'supporting'; pillarSlug: string };
-    const clusterByKey = new Map<string, ClusterMembership>();
-    let topicClusters: Array<{ clusterId: number; name: string; pillarSlug: string; memberSlugs: string[]; totalVolume: number }> = [];
-    const buildTopicClusters = body.buildTopicClusters !== false;
-    if (buildTopicClusters && results.length > 1) {
+    // run ใหญ่ซอยเป็น chunk ละ 250 คำ (เรียงตามหมวด rule-based ให้คำใกล้กันอยู่ chunk เดียวกัน)
+    // cluster_id ของ chunk ที่ ci ถูก offset ci*1000 กัน id ชนกันข้าม chunk
+    if (needs('clusters') && flags.buildTopicClusters && results.length > 1) {
       try {
         progress('จัดโครงสร้าง pillar / topic cluster …');
-        const pipelineKws: PipelineKeyword[] = results.map(r => ({
-          keyword: r.keyword,
-          title: r.suggestedTitle || r.keyword,
-          volume: r.volume ?? 0,
-          opportunity_score: r.intel?.finalScore ?? r.score?.total ?? 0,
-          priority: String(r.intel?.finalScore ?? r.score?.total ?? ''),
-          intent: r.intents?.[0] ?? 'informational',
-          aeo_question: '',
-        }));
+        const CLUSTER_CHUNK = 250;
+        const ordered = [...results].sort((a, b) =>
+          String(a.cluster ?? a.service ?? '').localeCompare(String(b.cluster ?? b.service ?? ''), 'th'));
+        const chunksArr: KeywordResearchResult[][] = [];
+        for (let i = 0; i < ordered.length; i += CLUSTER_CHUNK) chunksArr.push(ordered.slice(i, i + CLUSTER_CHUNK));
         const niche = services.join(' / ');
-        const clusterResult = await clusterKeywords(pipelineKws, niche, (p: string) => callGemini(p));
-        for (const c of clusterResult.clusters) {
-          const pillarSlug = c.pillar.slug;
-          clusterByKey.set(dedupeKey(c.pillar.keyword), { clusterId: c.cluster_id, clusterName: c.cluster_name, role: 'pillar', pillarSlug });
-          for (const s of c.supporting) {
-            clusterByKey.set(dedupeKey(s.keyword), { clusterId: c.cluster_id, clusterName: c.cluster_name, role: 'supporting', pillarSlug });
+        const clusterStart = cursor('clusters', 'clusterCursor', 0);
+        for (let ci = clusterStart; ci < chunksArr.length; ci++) {
+          const chunk = chunksArr[ci];
+          const pipelineKws: PipelineKeyword[] = chunk.map(r => ({
+            keyword: r.keyword,
+            title: r.suggestedTitle || r.keyword,
+            volume: r.volume ?? 0,
+            opportunity_score: r.intel?.finalScore ?? r.score?.total ?? 0,
+            priority: String(r.intel?.finalScore ?? r.score?.total ?? ''),
+            intent: r.intents?.[0] ?? 'informational',
+            aeo_question: '',
+          }));
+          const clusterResult = await clusterKeywords(pipelineKws, niche, (p: string) => callGemini(p));
+          for (const c of clusterResult.clusters) {
+            const clusterId = ci * 1000 + c.cluster_id;
+            const pillarSlug = c.pillar.slug;
+            clusterByKey.set(dedupeKey(c.pillar.keyword), { clusterId, clusterName: c.cluster_name, role: 'pillar', pillarSlug });
+            for (const s of c.supporting) {
+              clusterByKey.set(dedupeKey(s.keyword), { clusterId, clusterName: c.cluster_name, role: 'supporting', pillarSlug });
+            }
+            topicClusters.push({
+              clusterId,
+              name: c.cluster_name,
+              pillarSlug,
+              memberSlugs: [c.pillar.slug, ...c.supporting.map(s => s.slug)],
+              totalVolume: c.total_volume,
+            });
           }
+          if (chunksArr.length > 1) {
+            progress(`จัดโครงสร้าง cluster แล้ว ${Math.min((ci + 1) * CLUSTER_CHUNK, ordered.length)}/${ordered.length} คำ`);
+          }
+          await checkpoint('clusters', { clusterCursor: ci + 1 });
         }
-        topicClusters = clusterResult.clusters.map(c => ({
-          clusterId: c.cluster_id,
-          name: c.cluster_name,
-          pillarSlug: c.pillar.slug,
-          memberSlugs: [c.pillar.slug, ...c.supporting.map(s => s.slug)],
-          totalVolume: c.total_volume,
-        }));
       } catch (err) {
+        if (err instanceof YieldSignal) throw err;
         warnings.push(`จัดโครงสร้าง pillar/cluster ไม่สำเร็จ — ใช้หมวดจาก local cluster แทน (${err instanceof Error ? err.message.slice(0, 60) : String(err)})`);
       }
     }
+    if (needs('clusters')) await checkpoint('finalize');
 
     // ── sitemap: 1 keyword = 1 บทความ/หน้า (โมเดลของโปรเจกต์) ──
     const seenSitemapKey = new Set<string>();
@@ -1137,7 +1417,7 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
       sitemap,
       topicClusters,
       meta: {
-        generatedCount: candidates.length,
+        generatedCount,
         enrichedCount,
         keywordPlannerStatus: kpStatus,
         keywordPlannerMessage: kpMessage,
@@ -1158,7 +1438,7 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
             fetchedAt: kpFetchedAt,
           },
           dataForSeo: {
-            status: !hasDataForSeoCreds() || body.useDataForSeo === false
+            status: !hasDataForSeoCreds() || !flags.useDataForSeo
               ? 'skipped'
               : dfsError && dfsCovered === 0 ? 'error' : dfsCovered > 0 ? 'ok' : 'partial',
             coverage: results.length > 0 ? Math.round((dfsCovered / results.length) * 1000) / 1000 : 0,
@@ -1166,7 +1446,7 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
             fetchedAt: dfsFetchedAt,
           },
           localSerp: {
-            status: !hasDataForSeoCreds() || body.checkSerp === false
+            status: !hasDataForSeoCreds() || !flags.checkSerp
               ? 'skipped'
               : serpChecked > 0 ? 'ok' : serpErrors > 0 ? 'error' : 'skipped',
             checkedCount: serpChecked,
@@ -1181,42 +1461,67 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
 
     // ── บันทึก canonical run (UI + Excel export อ่านชุดเดียวกันจากที่นี่) ──
     // ตารางยังไม่มีใน DB → research ยังใช้ได้ (researchId=null + คำเตือน) ไม่พังทั้งงาน
-    if (body.projectId) {
+    if (flags.projectId) {
       try {
-        const run = await prisma.localKeywordResearchRun.create({
-          data: {
-            organizationId: orgId,
-            projectId: String(body.projectId),
-            mode: 'local_storefront',
-            services: JSON.stringify(services),
-            primaryLocation: primaryLocation.name,
-            targetCount,
-            candidateCount,
-            qualifiedCount,
-            salesWeight: weights.sales,
-            trafficWeight: weights.traffic,
-            status: 'completed',
-            clientReady,
-            summary: JSON.stringify({
-              services,
-              primaryLocation: primaryLocation.name,
-              nearbyLocations: nearbyLocations.map(a => a.name),
+        const summaryJson = JSON.stringify({
+          services,
+          primaryLocation: primaryLocation.name,
+          nearbyLocations: nearbyLocations.map(a => a.name),
+          targetCount,
+          candidateCount,
+          qualifiedCount,
+          clientReady,
+          verifiedVolumeCoverage: coverage,
+          weights,
+          locationTarget: geoTarget,
+          generatedAt: response.meta.generatedAt,
+        });
+        if (runId) {
+          // โหมด resumable: row ถูกสร้างตั้งแต่เริ่ม — ปิดงาน + ล้าง checkpoint/lock ในจังหวะเดียว
+          response.meta.researchId = runId;
+          await prisma.localKeywordResearchRun.update({
+            where: { id: runId },
+            data: {
               targetCount,
               candidateCount,
               qualifiedCount,
+              salesWeight: weights.sales,
+              trafficWeight: weights.traffic,
+              status: 'completed',
               clientReady,
-              verifiedVolumeCoverage: coverage,
-              weights,
-              locationTarget: geoTarget,
-              generatedAt: response.meta.generatedAt,
-            }),
-            resultData: JSON.stringify(response),
-            createdById: userId,
-          },
-        });
-        response.meta.researchId = run.id;
-        progress(`บันทึกผลการวิจัยแล้ว (run ${run.id})`);
+              summary: summaryJson,
+              resultData: JSON.stringify(response),
+              phase: null,
+              phaseState: null,
+              lockedAt: null,
+            },
+          });
+          progress(`บันทึกผลการวิจัยแล้ว (run ${runId})`);
+        } else {
+          const run = await prisma.localKeywordResearchRun.create({
+            data: {
+              organizationId: orgId,
+              projectId: flags.projectId,
+              mode: 'local_storefront',
+              services: JSON.stringify(services),
+              primaryLocation: primaryLocation.name,
+              targetCount,
+              candidateCount,
+              qualifiedCount,
+              salesWeight: weights.sales,
+              trafficWeight: weights.traffic,
+              status: 'completed',
+              clientReady,
+              summary: summaryJson,
+              resultData: JSON.stringify(response),
+              createdById: userId,
+            },
+          });
+          response.meta.researchId = run.id;
+          progress(`บันทึกผลการวิจัยแล้ว (run ${run.id})`);
+        }
       } catch (err) {
+        response.meta.researchId = null;
         warnings.push(`บันทึก research run ไม่สำเร็จ (ผลลัพธ์ยังใช้ได้ แต่ export Excel จะสร้างจากข้อมูลชุดนี้ในหน้าเว็บแทน): ${err instanceof Error ? err.message.slice(0, 100) : String(err)}`);
       }
     }
@@ -1225,7 +1530,7 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
     if (dfsCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: body.projectId || null,
+        projectId: flags.projectId,
         jobType: 'DFS_VOLUME_LOOKUP',
         modelProvider: 'DATAFORSEO',
         modelName: 'dataforseo/search_volume/live',
@@ -1240,7 +1545,7 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
     if (dfsExtraCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: body.projectId || null,
+        projectId: flags.projectId,
         jobType: 'DFS_INTEL_LOOKUP',
         modelProvider: 'DATAFORSEO',
         modelName: 'dataforseo/labs+serp (intent, ideas, kd, local serp)',
@@ -1255,7 +1560,7 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
     if (kpCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: body.projectId || null,
+        projectId: flags.projectId,
         jobType: 'KP_VOLUME_LOOKUP',
         modelProvider: 'GOOGLE',
         modelName: 'google_ads/keyword_planner',
@@ -1296,6 +1601,7 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
             emit({ type: 'heartbeat', at: new Date().toISOString() });
           }
         }, 20_000);
+        if (resumable && runId) emit({ type: 'run', runId });
         runPipeline(emit)
           .then(response => {
             emit({ type: 'result', data: response });
@@ -1303,8 +1609,21 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
             clearInterval(heartbeat);
             try { controller.close(); } catch {}
           })
-          .catch(err => {
-            emit({ type: 'error', error: err instanceof Error ? err.message : String(err) });
+          .catch(async err => {
+            if (err instanceof YieldSignal && runId) {
+              // งบเวลาของ request นี้หมด — ปลดล็อกให้ request ถัดไปทำต่อ แล้วบอก client ว่ายังไม่จบ
+              try {
+                await prisma.localKeywordResearchRun.update({ where: { id: runId }, data: { lockedAt: null } });
+              } catch {}
+              emit({ type: 'yield', runId, phase: err.stage });
+            } else {
+              if (resumable && runId) {
+                try {
+                  await prisma.localKeywordResearchRun.update({ where: { id: runId }, data: { lockedAt: null } });
+                } catch {}
+              }
+              emit({ type: 'error', error: err instanceof Error ? err.message : String(err) });
+            }
             closed = true;
             clearInterval(heartbeat);
             try { controller.close(); } catch {}
@@ -1324,6 +1643,15 @@ ${kwList.map(k => `- ${k}`).join('\n')}`;
     const response = await runPipeline(() => {});
     return NextResponse.json(response);
   } catch (err) {
+    if (resumable && runId) {
+      try {
+        await prisma.localKeywordResearchRun.update({ where: { id: runId }, data: { lockedAt: null } });
+      } catch {}
+    }
+    if (err instanceof YieldSignal && runId) {
+      // งบเวลาหมด (โหมดไม่ stream): ตอบ 202 ให้ client ยิง resumeRunId มาทำต่อ
+      return NextResponse.json({ resume: true, runId, phase: err.stage }, { status: 202 });
+    }
     console.error('[local-research] pipeline failed:', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Local research failed' },

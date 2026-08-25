@@ -867,10 +867,14 @@ model LocalKeywordResearchRun {
   qualifiedCount  Int     @default(0)
   salesWeight     Float   @default(0.6)
   trafficWeight   Float   @default(0.4)
-  status          String  @default("completed") // completed | completed_with_warnings | draft_failed
+  status          String  @default("completed") // running | completed | completed_with_warnings | draft_failed
   clientReady     Boolean @default(false)
   summary         String  @default("{}") // JSON: meta + KPI + source status (ก้อนเล็ก โหลดตอน list)
   resultData      String  @default("{}") // JSON: LocalResearchResponse canonical ทั้งชุด
+  // step orchestration: รันยาวถูกซอยเป็นหลาย request (กัน Vercel maxDuration ตัด) — resume ได้จาก checkpoint
+  phase           String? // stage ถัดไปที่ต้องรัน (init … finalize) เมื่อ status=running
+  phaseState      String? // JSON checkpoint ของ state ทั้งชุด (pool/metric maps/cursors) ใช้ resume
+  lockedAt        DateTime? // กัน 2 request ทำ run เดียวกันพร้อมกัน (stale เกิน 5 นาทีถือว่าหลุด)
   createdById     String
 
   createdAt DateTime @default(now())

@@ -496,49 +496,105 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
       expandWithKeywordPlanner: expandWithKP,
       projectId: project.id,
       stream: true,
+      resumable: true, // run ยาวถูกซอยเป็นหลาย request ฝั่ง server (กัน Vercel maxDuration ตัด)
     };
 
     try {
-      const response = await fetch('/api/wordgod/local-research', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const contentType = response.headers.get('content-type') ?? '';
-
+      // โหมด resumable: server ทำงานเป็นช่วง ๆ ตามงบเวลา แล้วส่ง event `yield` พร้อม runId
+      // → client ยิง resumeRunId ทำต่อจาก checkpoint จนได้ result (run ใหญ่ไม่โดน maxDuration ตัด)
       let payload: FullResponse | null = null;
-      if (contentType.includes('ndjson') && response.body) {
-        // อ่าน progress จริงทีละบรรทัด — ไม่มี loading เปล่า ๆ
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            let event: any;
-            try { event = JSON.parse(line); } catch { continue; }
-            if (event.type === 'progress' && typeof event.message === 'string') {
-              setProgressLogs(prev => [...prev, event.message]);
-              setStatusMessage(event.message);
-            } else if (event.type === 'result') {
-              payload = event.data as FullResponse;
-            } else if (event.type === 'error') {
-              throw new Error(String(event.error ?? 'เกิดข้อผิดพลาด'));
-            }
-          }
+      let resumeRunId: string | null = null;
+      let retries = 0; // network สะดุด: ต่อจาก checkpoint เดิมได้สูงสุด 3 ครั้งติด
+      let lockWaits = 0;
+      for (;;) {
+        let response: Response;
+        try {
+          response = await fetch('/api/wordgod/local-research', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(resumeRunId ? { ...body, resumeRunId } : body),
+          });
+        } catch (err) {
+          if (!resumeRunId || retries >= 3) throw err;
+          retries++;
+          setStatusMessage(`การเชื่อมต่อสะดุด — กำลังทำต่อจากจุดเดิม (ครั้งที่ ${retries}) …`);
+          await new Promise(r => setTimeout(r, 3000 * retries));
+          continue;
         }
-        if (!payload) throw new Error('การเชื่อมต่อถูกตัดก่อนได้ผลลัพธ์ — ลองใหม่อีกครั้ง');
-      } else {
-        // fallback: เซิร์ฟเวอร์ตอบ JSON ก้อนเดียว (เวอร์ชันเก่า/พร็อกซีไม่รองรับ stream)
-        const json = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
-        payload = json as FullResponse;
+        const contentType = response.headers.get('content-type') ?? '';
+
+        if (contentType.includes('ndjson') && response.body) {
+          // อ่าน progress จริงทีละบรรทัด — ไม่มี loading เปล่า ๆ
+          let yielded = false;
+          try {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() ?? '';
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                let event: any;
+                try { event = JSON.parse(line); } catch { continue; }
+                if (event.type === 'progress' && typeof event.message === 'string') {
+                  setProgressLogs(prev => [...prev, event.message]);
+                  setStatusMessage(event.message);
+                } else if (event.type === 'run' && typeof event.runId === 'string') {
+                  resumeRunId = event.runId;
+                } else if (event.type === 'yield' && typeof event.runId === 'string') {
+                  resumeRunId = event.runId;
+                  yielded = true;
+                } else if (event.type === 'result') {
+                  payload = event.data as FullResponse;
+                } else if (event.type === 'error') {
+                  const e = new Error(String(event.error ?? 'เกิดข้อผิดพลาด'));
+                  (e as any).fromServer = true;
+                  throw e;
+                }
+              }
+            }
+          } catch (err) {
+            // สายหลุดกลาง stream (ไม่ใช่ error จริงจาก server) — ต่อจาก checkpoint ได้ถ้ารู้ runId
+            if ((err as any)?.fromServer || !resumeRunId || retries >= 3) throw err;
+            retries++;
+            setStatusMessage(`การเชื่อมต่อสะดุด — กำลังทำต่อจากจุดเดิม (ครั้งที่ ${retries}) …`);
+            await new Promise(r => setTimeout(r, 3000 * retries));
+            continue;
+          }
+          if (payload) break;
+          if (yielded) { retries = 0; continue; } // ช่วงนี้จบตามงบเวลา — ยิงต่อทันที
+          if (resumeRunId && retries < 3) {
+            retries++;
+            setStatusMessage(`การเชื่อมต่อสะดุด — กำลังทำต่อจากจุดเดิม (ครั้งที่ ${retries}) …`);
+            await new Promise(r => setTimeout(r, 3000 * retries));
+            continue;
+          }
+          throw new Error('การเชื่อมต่อถูกตัดก่อนได้ผลลัพธ์ — ลองใหม่อีกครั้ง');
+        } else {
+          // fallback: เซิร์ฟเวอร์ตอบ JSON ก้อนเดียว (เวอร์ชันเก่า/พร็อกซีไม่รองรับ stream)
+          const json = await response.json().catch(() => ({}));
+          if (response.status === 202 && json.runId) {
+            resumeRunId = String(json.runId);
+            retries = 0;
+            continue;
+          }
+          if (response.status === 409 && json.locked && lockWaits < 40) {
+            // request ก่อนหน้าของ run เดียวกันยังถือ lock อยู่ — รอ (server ปลด lock ค้างเองใน 5 นาที)
+            lockWaits++;
+            setStatusMessage('รอรอบประมวลผลก่อนหน้าของ run นี้ปิดตัว …');
+            await new Promise(r => setTimeout(r, 8000));
+            continue;
+          }
+          if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
+          payload = json as FullResponse;
+          break;
+        }
       }
+      if (!payload) throw new Error('การเชื่อมต่อถูกตัดก่อนได้ผลลัพธ์ — ลองใหม่อีกครั้ง');
 
       setData(payload);
       setTab('keywords');

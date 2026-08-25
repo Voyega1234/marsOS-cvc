@@ -194,6 +194,9 @@ export async function GET(req: NextRequest) {
   if (!run || run.organizationId !== orgId) {
     return NextResponse.json({ error: 'ไม่พบผลการวิจัยนี้' }, { status: 404 });
   }
+  if (run.status === 'running') {
+    return NextResponse.json({ error: 'run นี้ยังประมวลผลไม่เสร็จ — รอให้เสร็จก่อนแล้วค่อย export' }, { status: 409 });
+  }
 
   let data: LocalResearchResponse & { sitemap?: any[]; topicClusters?: any[] };
   try {
