@@ -122,6 +122,10 @@ export async function callGeminiImage(params: {
   promptTemplate: string
   /** Article Lab > Image Style Guide ของโปรเจกต์ — ข้อมูลประกอบบรีฟ ไม่ได้แทนที่ CE */
   imageStyleGuide?: string
+  /** คำโปรยใต้ headline บนปก (เช่น meta description) — ใช้เฉพาะ overlay ฟอนต์จริง */
+  coverSubtitle?: string
+  /** จุดขาย/หัวข้อเด่นบนปก (เช่น H2 จริงของบทความ) สูงสุด 3 ข้อ — ใช้เฉพาะ overlay ฟอนต์จริง */
+  coverBullets?: string[]
 }): Promise<GeminiImageResult> {
   const {
     keyword, title, type,
@@ -131,6 +135,8 @@ export async function callGeminiImage(params: {
     height = type === 'cover' ? 1024 : 630,
     promptTemplate,
     imageStyleGuide = '',
+    coverSubtitle = '',
+    coverBullets = [],
   } = params
 
   if (!promptTemplate?.trim()) {
@@ -160,7 +166,7 @@ export async function callGeminiImage(params: {
       : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ตัวอักษรบนภาพมีได้ไม่เกิน 2 ชุด (headline + sub-headline สั้น 1 บรรทัด) ทั้งสองชุดต้องวางบนบล็อก/แถบสีทึบเพื่อคอนทราสต์ และทุกตัวอักษรต้องสูงอย่างน้อย 5% ของความสูงภาพ — ถ้าบรีฟสั่งให้มีป้ายคำใต้ไอคอน แถบข้อความล่าง ชิป แท็ก หรือคำบรรยายย่อย ให้เปลี่ยนเป็นไอคอน/กราฟิกล้วนไม่มีตัวอักษร ห้าม prompt ที่คอมไพล์ออกมามีคำสั่งให้ใส่ข้อความเล็ก]`] : []),
     ...(type === 'mid' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: นี่คือภาพประกอบกลางบทความ ไม่ใช่ภาพปก ต้องเป็นภาพถ่ายจริง (photorealistic photography) เต็มเฟรม ไม่มีบล็อกข้อความ ไม่มีแถบสี และห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ หรือ ข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline หรือป้ายคำ ให้ตัดออกทั้งหมดแล้วเล่าด้วยภาพล้วน โดยคงสไตล์และชุดสีตามบรีฟไว้]`] : []),
     ...(palette ? [(type === 'cover' && COVER_TEXT_OVERLAY)
-      ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีของภาพต้องเป็นชุดสีธีมบทความจาก Article Lab เท่านั้น: ${palette} — เกรดโทนภาพถ่ายให้กลมกลืนกับชุดสีนี้ (แสง เงา สีพร็อพ สีเสื้อผ้า สีฉากหลัง) ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของภาพ]`
+      ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพถ่ายต้องคุมสีแบบธรรมชาติสมจริง (natural true-to-life colours) — คน อาคาร ท้องฟ้า วัตถุ วัสดุ ให้เป็นสีจริงตามธรรมชาติทั้งหมด ห้ามย้อม ห้ามเกรด ห้าม wash ทั้งภาพให้เป็นสีธีม/สีแบรนด์ใด ๆ เด็ดขาด ถ้าบรีฟสั่งให้ใช้ชุดสีธีม (${palette}) กับภาพถ่าย ให้ตีความว่าใช้ได้แค่กับพร็อพชิ้นเล็กหรือเสื้อผ้าอย่างพอดีตามธรรมชาติเท่านั้น — สีธีมของแบรนด์จะถูกระบบใส่เองในแผงกราฟิกและตัวหนังสือขั้นตอนถัดไป]`
       : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีของภาพต้องเป็นชุดสีธีมบทความจาก Article Lab เท่านั้น: ${palette} — บล็อกข้อความใหญ่ใช้สีธีม/สีหลัก, แถบ sub-headline ใช้เฉดเข้มของสีธีมเดียวกัน, ไอคอน/เส้นกราฟิกใช้สี accent หรือสีขาว, ตัวอักษรเลือกสีที่คอนทราสต์สูงกับพื้นที่รองรับ; ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของกราฟิก และให้เกรดโทนภาพถ่ายให้เข้ากับชุดสีนี้]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
   ].join('\n')
@@ -180,6 +186,7 @@ export async function callGeminiImage(params: {
     ? `\n\nBACKGROUND PLATE FOR A COVER — NO TEXT (CRITICAL): The headline and keyword label are rendered afterwards by the system using a real font, directly on top of this image. Your job is ONLY the photograph underneath:
 - Render ZERO text: no headline, no article title, no labels, captions, chips, tags, numbers, units, logos, watermarks, signatures, no text panels or coloured text bars, and no text on screens, signs, packaging or documents inside the scene. Any letterform you draw will be covered or will clash with the real typography
 - Photorealistic photography, full frame, single clear subject — editorial/commercial quality, natural depth of field
+- NATURAL COLOUR (hard requirement): true-to-life photographic colour grading. Do NOT tint, wash, duotone, or colour-grade the frame toward any brand or theme colour — skies stay sky-coloured, skin stays natural, buildings and objects keep their real material colours. A brand colour may appear only on a small prop or garment where it would occur naturally, never as an overall cast
 - COMPOSITION (hard requirement): keep the subject and every important detail in the UPPER TWO THIRDS of the frame. The BOTTOM HALF must be calm, simple, uncluttered negative space (floor, wall, sky, water, blurred background, plain gradient) because a solid colour panel is composited over it. Nothing important may sit in the bottom half
 - Leave the frame edges clean: no borders, frames, vignette text, collage panels or split-screen layouts`
     : type === 'cover'
@@ -215,6 +222,8 @@ export async function callGeminiImage(params: {
       const composed = await composeCoverOverlay({
         image: Buffer.from(result.base64, 'base64'),
         title, keyword, width, height,
+        subtitle: coverSubtitle,
+        bullets: coverBullets,
         themeColor: themeColor.trim() || accentColor.trim(),
         accentColor: accentColor.trim(),
       })

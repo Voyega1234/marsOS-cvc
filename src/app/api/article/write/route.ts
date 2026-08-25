@@ -246,6 +246,8 @@ async function generateGeminiImage(params: {
   themeColor?: string; backgroundColor?: string; textColor?: string
   imagePromptTemplate: string
   imageStyleGuide?: string
+  coverSubtitle?: string
+  coverBullets?: string[]
 }): Promise<{ imageBase64: string; mimeType: string; costUsd: number; totalTokens: number }> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -256,6 +258,8 @@ async function generateGeminiImage(params: {
         themeColor: params.themeColor ?? '', backgroundColor: params.backgroundColor ?? '', textColor: params.textColor ?? '',
         promptTemplate: params.imagePromptTemplate,
         imageStyleGuide: params.imageStyleGuide ?? '',
+        coverSubtitle: params.coverSubtitle ?? '',
+        coverBullets: params.coverBullets ?? [],
       }), IMAGE_TIMEOUT_MS, `gemini-image-${params.type}`)
       if (!result.imageBase64) {
         console.error(`[write] generateGeminiImage ${params.type} returned no image`)
@@ -271,6 +275,24 @@ async function generateGeminiImage(params: {
 }
 
 // AI ทั้งระบบวิ่งผ่าน OpenRouter — ตัวเขียนบทความใช้ OPENROUTER_MODEL_WRITER (gpt-5.6-sol)
+
+// ── ข้อมูลจริงจากบทความสำหรับวางบนปก (overlay ฟอนต์จริง — ดู coverOverlay.ts) ──────
+// bullet = หัวข้อ H2 จริง (ข้าม FAQ/สรุป) · คำโปรย = meta_description ที่ writer สร้าง
+// ใช้ของจริงเท่านั้น ไม่ให้ AI แต่งคำใหม่ — ข้อความบนปกจึงตรงกับเนื้อหาเสมอ
+function extractCoverExtras(html: string): { subtitle: string; bullets: string[] } {
+  const stripTags = (t: string) => t.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim()
+  const bullets: string[] = []
+  for (const m of Array.from(html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi))) {
+    const t = stripTags(m[1])
+    if (!t) continue
+    if (/คำถามที่พบบ่อย|FAQ|สรุป|บทส่งท้าย/i.test(t)) continue
+    bullets.push(t)
+    if (bullets.length >= 3) break
+  }
+  const metaBlock = html.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
+  const subtitle = metaBlock.match(/meta_description\s*[:=]\s*([^\n]+)/i)?.[1]?.trim() ?? ''
+  return { subtitle, bullets }
+}
 
 // ── จำนวนรูปประกอบกลางบทความ — ตั้งใน Image Prompt layer ด้วยบรรทัด "จำนวนรูปประกอบ: N" ──
 //  default 1 (พฤติกรรมเดิม), เลือกได้ 1-7 · บรรทัด directive ถูกตัดออกก่อนส่งเป็น brief ให้ตัววาดภาพ
@@ -767,8 +789,9 @@ export async function POST(req: NextRequest) {
 
     const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
     const midCount = Math.min(midCountRaw, countMidImageSpots(html))
+    const coverExtras = extractCoverExtras(html)
     const [coverResult, ...midResults] = await Promise.all([
-      generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+      generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets }),
       ...Array.from({ length: midCount }, () =>
         generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
     ])
@@ -890,9 +913,10 @@ export async function POST(req: NextRequest) {
       // Step 2: Generate cover + mid images via Gemini in parallel
       const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
       const midCount = Math.min(midCountRaw, countMidImageSpots(fullHtml))
+      const coverExtras = extractCoverExtras(fullHtml)
       send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
       const [coverResult, ...midResults] = await Promise.all([
-        generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide }),
+        generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets }),
         ...Array.from({ length: midCount }, () =>
           generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
       ])

@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
     width = 1024, height = 1024,
     type = 'cover' as 'cover' | 'mid',
     projectId,
+    subtitle = '',
+    bullets = [],
   } = body
 
   if (!keyword || !title) {
@@ -71,7 +73,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await callGeminiImage({ keyword, title, type, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide })
+    // ข้อมูลเสริมบนปก (คำโปรย + bullet) — ผู้เรียกส่งมาเอง เช่น หน้า UI ที่มีบทความอยู่แล้ว
+    const coverSubtitle = typeof subtitle === 'string' ? subtitle : ''
+    const coverBullets = Array.isArray(bullets) ? bullets.filter((b: unknown): b is string => typeof b === 'string').slice(0, 3) : []
+    const result = await callGeminiImage({ keyword, title, type, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets })
 
     // Log AI job for cost tracking
     try {
