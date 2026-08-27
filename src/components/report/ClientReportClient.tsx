@@ -518,7 +518,7 @@ function exportHtml(
 // ── Simple Report ─────────────────────────────────────────────────────────────
 
 type GscType = { overview?: Record<string, number>; pages?: {page:string;clicks:number;impressions:number;ctr:number;position:number}[]; queries?: {query:string;clicks:number;impressions:number;ctr:number;position:number}[]; queryPages?: {query:string;page:string;clicks:number;impressions:number}[] } | null;
-type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;title?:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number;avgDuration?:number;conversions?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[]; countries?: {country:string;sessions:number}[]; landingConversions?: {path:string;sessions:number;conversions:number;revenue:number}[] } | null;
+type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;title?:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number;avgDuration?:number;conversions?:number;events?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[]; countries?: {country:string;sessions:number}[]; landingConversions?: {path:string;sessions:number;conversions:number;revenue:number;events?:number}[] } | null;
 type PsiType = { mobile?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]}; desktop?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]} } | null;
 
 function SimpleMetricCard({ label, value, subLabel, delta, deltaLabel, color = "text-brand-navy" }: {
@@ -916,7 +916,7 @@ function MLChart({ data, series }: {
   data: Record<string, number | string>[];
   series: { key: string; color: string; invert?: boolean }[];
 }) {
-  const W = 560, H = 210, PT = 10, PB = 26; const TH = H + PT + PB;
+  const W = 560, H = 330, PT = 10, PB = 26; const TH = H + PT + PB;
   if (!data || data.length < 2 || !series.length) {
     return <div className="w-full flex items-center justify-center text-[12px] text-gray-400" style={{ height: TH }}>ยังไม่มีข้อมูลกราฟ</div>;
   }
@@ -1013,8 +1013,10 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   const landingConv = ga4?.landingConversions ?? [];
   const queryPages  = gsc?.queryPages ?? [];
   const pathOf = (u: string) => { try { return new URL(u).pathname } catch { return u } };
+  // property ที่ยังไม่ตั้ง conversion/key event ใน GA4 → สลับไปใช้ eventCount แทน (หัวคอลัมน์เปลี่ยนเป็น Events)
+  const hasConv = landingConv.some(l => l.conversions > 0);
   const convByPath = new Map<string, number>();
-  landingConv.forEach(l => { if (l.conversions > 0) convByPath.set(l.path, l.conversions) });
+  landingConv.forEach(l => { const v = hasConv ? l.conversions : (l.events ?? 0); if (v > 0) convByPath.set(l.path, v) });
   const pageClickTotals = new Map<string, number>();
   queryPages.forEach(r => { const pp = pathOf(r.page); pageClickTotals.set(pp, (pageClickTotals.get(pp) ?? 0) + r.clicks) });
   // กระจาย conversion ของแต่ละหน้าให้ keyword ตามสัดส่วน clicks (ประมาณการ — GA4 ไม่บอก keyword ตรง ๆ)
@@ -1028,9 +1030,19 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   const topQueryRows = (gsc?.queries ?? []).slice(0, 10).map(q => ({ ...q, estConv: kwConvMap.get(q.query) ?? 0 }));
   const kwConvRows = Array.from(kwConvMap.entries()).map(([query, conv]) => ({ query, conv }))
     .sort((a, b) => b.conv - a.conv).slice(0, 10);
-  const gaPageRows = (ga4?.pages ?? []).slice(0, 10);
+  const pagesHaveConv = (ga4?.pages ?? []).some(pg => (pg.conversions ?? 0) > 0);
+  const gaPageRows = (ga4?.pages ?? []).slice(0, 10).map(pg => ({ ...pg, actVal: pagesHaveConv ? (pg.conversions ?? 0) : (pg.events ?? 0) }));
   const convPageRows = landingConv.filter(l => l.conversions > 0).slice(0, 10);
-  const allEvents = ga4?.events ?? [];
+  // รวม event ชื่อเดียวกันเป็นแถวเดียว (GA4 แยกแถวตาม isConversionEvent)
+  const allEvents = (() => {
+    const m = new Map<string, { event: string; isConversion: boolean; count: number }>();
+    (ga4?.events ?? []).forEach(e => {
+      const cur = m.get(e.event);
+      if (cur) { cur.count += e.count; cur.isConversion = cur.isConversion || e.isConversion; }
+      else m.set(e.event, { event: e.event, isConversion: e.isConversion, count: e.count });
+    });
+    return Array.from(m.values()).sort((a, b) => b.count - a.count);
+  })();
 
   // ── PSI ──
   const curPsi = psiMode === "mobile" ? psi?.mobile : psi?.desktop;
@@ -1319,7 +1331,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                   <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Keyword</th>
                   <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Clicks</th>
                   <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.dark }}>Impressions</th>
-                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>Conversions*</th>
+                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>{hasConv ? "Conversions*" : "Events*"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1330,7 +1342,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                     </td>
                     <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{r.clicks.toLocaleString()}</td>
                     <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.impressions.toLocaleString()}</td>
-                    <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: r.estConv >= 0.05 ? CI.sage : "#c3ccd6" }}>{r.estConv >= 0.05 ? r.estConv.toFixed(1) : "—"}</td>
+                    <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: r.estConv >= 0.05 ? CI.sage : "#c3ccd6" }}>{r.estConv >= 0.05 ? (hasConv ? r.estConv.toFixed(1) : Math.round(r.estConv).toLocaleString()) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1339,7 +1351,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         ) : (
           <p className="text-[12px] text-gray-400 text-center py-10">{gscLoading ? "กำลังโหลด..." : "ยังไม่มีข้อมูล"}</p>
         )}
-        <p className="text-[10px] text-gray-400 px-4 py-2.5">*Conversions เป็นค่าประมาณ — กระจายจาก conversion ของ landing page (GA4) ตามสัดส่วนคลิกของแต่ละ keyword (GSC) · Source: Search Console + GA4</p>
+        <p className="text-[10px] text-gray-400 px-4 py-2.5">*{hasConv ? "Conversions" : "Events"} เป็นค่าประมาณ — กระจายจาก {hasConv ? "conversion" : "event"} ของ landing page (GA4) ตามสัดส่วนคลิกของแต่ละ keyword (GSC) · Source: Search Console + GA4</p>
       </CCard>
 
       {/* ══ ROW 4.2 — Top pages: pageviews / engagement / duration / conversion ══ */}
@@ -1354,7 +1366,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                   <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.dark }}>Sessions</th>
                   <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-32" style={{ color: CI.soft }}>Engagement Rate</th>
                   <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-32" style={{ color: CI.mustard }}>Session Duration</th>
-                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>Conversions</th>
+                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>{pagesHaveConv ? "Conversions" : "Events"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1372,7 +1384,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                     <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.sessions.toLocaleString()}</td>
                     <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.soft }}>{r.engagementRate}%</td>
                     <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.mustard }}>{fmtDuration(r.avgDuration ?? 0)}</td>
-                    <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: (r.conversions ?? 0) > 0 ? CI.sage : "#c3ccd6" }}>{(r.conversions ?? 0) > 0 ? (r.conversions ?? 0).toLocaleString() : "—"}</td>
+                    <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: r.actVal > 0 ? CI.sage : "#c3ccd6" }}>{r.actVal > 0 ? r.actVal.toLocaleString() : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1386,15 +1398,14 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
 
       {/* ══ ROW 4.3 — Events & Conversions + Conversion deep-dive ══ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <CCard title="Events & Conversions" pad={false}>
+        <CCard title="Events" pad={false}>
           {allEvents.length ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-[#eef2f8]">
                     <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Event</th>
-                    <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Count</th>
-                    <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>Conversions</th>
+                    <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Count</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1406,8 +1417,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                           <span className="ml-2 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full align-middle" style={{ backgroundColor: "#e8f3ec", color: CI.sage }}>conversion</span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{e.count.toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: e.conversions > 0 ? CI.sage : "#c3ccd6" }}>{e.conversions > 0 ? e.conversions.toLocaleString() : "—"}</td>
+                      <td className="px-4 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{e.count.toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1679,7 +1689,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
   }, [gsc, ga4, psi, gscAiData]);
 
   return (
-    <div className={`space-y-5 ${reportMode === "simple" || isClient ? "w-full" : "max-w-5xl"}`}>
+    <div className="space-y-5 w-full">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">

@@ -373,7 +373,7 @@ export function ContentRefreshClient({ initialItems, projects, defaultProjectId,
   }), [items, filterProject, filterStatus, filterPriority]);
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5 w-full">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-brand-navy">Content Refresh</h1>

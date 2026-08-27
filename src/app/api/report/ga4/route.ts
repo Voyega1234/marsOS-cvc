@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       runReport({
         dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
         dimensions: [{ name: "pagePath" }, { name: "pageTitle" }],
-        metrics: [{ name: "screenPageViews" }, { name: "sessions" }, { name: "bounceRate" }, { name: "engagementRate" }, { name: "averageSessionDuration" }, { name: "conversions" }],
+        metrics: [{ name: "screenPageViews" }, { name: "sessions" }, { name: "bounceRate" }, { name: "engagementRate" }, { name: "averageSessionDuration" }, { name: "conversions" }, { name: "eventCount" }],
         orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
         limit: 20,
       }),
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
       runReport({
         dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
         dimensions: [{ name: "landingPage" }],
-        metrics: [{ name: "sessions" }, { name: "conversions" }, { name: "totalRevenue" }],
+        metrics: [{ name: "sessions" }, { name: "conversions" }, { name: "totalRevenue" }, { name: "eventCount" }],
         orderBys: [{ metric: { metricName: "conversions" }, desc: true }],
         limit: 25,
       }),
@@ -152,12 +152,14 @@ export async function POST(req: NextRequest) {
         engagementRate: Number((mv(r, 3) * 100).toFixed(1)),
         avgDuration:    Number(mv(r, 4).toFixed(1)),
         conversions:    mv(r, 5),
+        events:         mv(r, 6),
       })),
       landingConversions: (byLanding.rows ?? []).map(r => ({
         path:        dv(r, 0),
         sessions:    mv(r, 0),
         conversions: mv(r, 1),
         revenue:     Number(mv(r, 2).toFixed(2)),
+        events:      mv(r, 3),
       })),
       devices: (byDevice.rows ?? []).map(r => ({
         device:      dv(r, 0),
