@@ -15,30 +15,37 @@ export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { siteUrl, days = 28 } = await req.json();
+  const { siteUrl, days = 28, startDate: customStart, endDate: customEnd } = await req.json();
   if (!siteUrl) return NextResponse.json({ error: "siteUrl required" }, { status: 400 });
 
   try {
     const auth = await getGSCAuth();
     const sc   = google.searchconsole({ version: "v1", auth });
 
+    // ช่วงวันที่: default = N วันล่าสุด (เผื่อ GSC delay 3 วัน), หรือ custom range จากผู้ใช้
+    const isCustom = typeof customStart === "string" && typeof customEnd === "string" && customStart && customEnd;
     const now      = new Date();
-    const endDate  = new Date(now.getTime() - 3 * 86400000);
-    const startDate = new Date(endDate.getTime() - days * 86400000);
+    const endDate  = isCustom ? new Date(customEnd) : new Date(now.getTime() - 3 * 86400000);
+    const startDate = isCustom ? new Date(customStart) : new Date(endDate.getTime() - days * 86400000);
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()) || startDate > endDate)
+      return NextResponse.json({ error: "invalid date range" }, { status: 400 });
+    const rangeDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
     const prevEnd  = new Date(startDate.getTime() - 86400000);
-    const prevStart = new Date(prevEnd.getTime() - days * 86400000);
+    const prevStart = new Date(prevEnd.getTime() - rangeDays * 86400000);
     const fmt = (d: Date) => d.toISOString().split("T")[0];
 
     const query = (body: Record<string, unknown>) =>
       sc.searchanalytics.query({ siteUrl, requestBody: body as never });
 
-    const [overviewCurr, overviewPrev, byPage, byQuery, byDevice, byDate] = await Promise.all([
+    const [overviewCurr, overviewPrev, byPage, byQuery, byDevice, byDate, byQueryPage] = await Promise.all([
       query({ startDate: fmt(startDate), endDate: fmt(endDate) }),
       query({ startDate: fmt(prevStart), endDate: fmt(prevEnd) }),
       query({ startDate: fmt(startDate), endDate: fmt(endDate), dimensions: ["page"],  rowLimit: 25 }),
       query({ startDate: fmt(startDate), endDate: fmt(endDate), dimensions: ["query"], rowLimit: 25 }),
       query({ startDate: fmt(startDate), endDate: fmt(endDate), dimensions: ["device"] }),
       query({ startDate: fmt(startDate), endDate: fmt(endDate), dimensions: ["date"],  rowLimit: 90 }),
+      // query×page สำหรับโยง keyword → landing page → conversion (GA4) ฝั่ง client
+      query({ startDate: fmt(startDate), endDate: fmt(endDate), dimensions: ["query", "page"], rowLimit: 250 }),
     ]);
 
     const curr: GSCRow = overviewCurr.data.rows?.[0] ?? {};
@@ -59,7 +66,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({
-      period: { start: fmt(startDate), end: fmt(endDate), days },
+      period: { start: fmt(startDate), end: fmt(endDate), days: rangeDays },
       overview: {
         clicks: currClicks, impressions: currImpr,
         ctr: Number((currCtr * 100).toFixed(1)),
@@ -70,6 +77,7 @@ export async function POST(req: NextRequest) {
         positionDelta: Number((currPos - prevPos).toFixed(1)),
       },
       pages: (byPage.data.rows ?? []).map(r => ({ page: r.keys?.[0] ?? "", ...mapRow(r) })),
+      queryPages: (byQueryPage.data.rows ?? []).map(r => ({ query: r.keys?.[0] ?? "", page: r.keys?.[1] ?? "", clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 })),
       queries: (byQuery.data.rows ?? []).map(r => ({ query: r.keys?.[0] ?? "", ...mapRow(r) })),
       devices: (byDevice.data.rows ?? []).map(r => ({ device: r.keys?.[0] ?? "", clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 })),
       daily: (byDate.data.rows ?? []).map(r => ({

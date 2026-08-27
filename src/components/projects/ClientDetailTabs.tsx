@@ -7121,7 +7121,7 @@ const PRIMARY_TABS: { id: Tab | 'studio'; label: string }[] = [
 ]
 
 // เนื้อหาที่กว้างเต็มจอ (ที่เหลือใช้ px-8 max-w-5xl)
-const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'articles', 'content-map', 'proj-ce', 'review']
+const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'articles', 'content-map', 'proj-ce', 'review', 'report']
 
 const CLIENT_TABS: Tab[] = ['review', 'publish', 'report']
 

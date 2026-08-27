@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { propertyId, days = 28 } = await req.json();
+  const { propertyId, days = 28, startDate, endDate } = await req.json();
   if (!propertyId) return NextResponse.json({ error: "propertyId required" }, { status: 400 });
 
   try {
@@ -15,12 +15,17 @@ export async function POST(req: NextRequest) {
     const token = await getGoogleAccessToken(auth);
     if (!token) throw new Error("Could not get access token");
 
-    const end   = new Date(Date.now() - 86400000);
-    const start = new Date(end.getTime() - days * 86400000);
+    // ช่วงวันที่: default = N วันล่าสุด, หรือ custom range จากผู้ใช้ (YYYY-MM-DD)
+    const isCustom = typeof startDate === "string" && typeof endDate === "string" && startDate && endDate;
+    const end   = isCustom ? new Date(endDate) : new Date(Date.now() - 86400000);
+    const start = isCustom ? new Date(startDate) : new Date(end.getTime() - days * 86400000);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end)
+      return NextResponse.json({ error: "invalid date range" }, { status: 400 });
+    const rangeDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
     const fmt   = (d: Date) => d.toISOString().split("T")[0];
 
     const prevEnd   = new Date(start.getTime() - 86400000);
-    const prevStart = new Date(prevEnd.getTime() - days * 86400000);
+    const prevStart = new Date(prevEnd.getTime() - rangeDays * 86400000);
 
     const BASE = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
     const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
@@ -42,7 +47,7 @@ export async function POST(req: NextRequest) {
     const dv = (row: GA4Row | undefined, idx: number) =>
       row?.dimensionValues?.[idx]?.value ?? "";
 
-    const [overview, byChannel, byPage, byDevice, byEvent, byDate, byCountry] = await Promise.all([
+    const [overview, byChannel, byPage, byDevice, byEvent, byDate, byLanding, byCountry] = await Promise.all([
       runReport({
         dateRanges: [
           { startDate: fmt(start), endDate: fmt(end) },
@@ -63,8 +68,8 @@ export async function POST(req: NextRequest) {
       }),
       runReport({
         dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
-        dimensions: [{ name: "pagePath" }],
-        metrics: [{ name: "screenPageViews" }, { name: "sessions" }, { name: "bounceRate" }, { name: "engagementRate" }],
+        dimensions: [{ name: "pagePath" }, { name: "pageTitle" }],
+        metrics: [{ name: "screenPageViews" }, { name: "sessions" }, { name: "bounceRate" }, { name: "engagementRate" }, { name: "averageSessionDuration" }, { name: "conversions" }],
         orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
         limit: 20,
       }),
@@ -88,6 +93,14 @@ export async function POST(req: NextRequest) {
         orderBys: [{ dimension: { dimensionName: "date" }, desc: false }],
         limit: 90,
       }),
+      // Conversion deep-dive: landing page ไหนพาให้เกิด conversion
+      runReport({
+        dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
+        dimensions: [{ name: "landingPage" }],
+        metrics: [{ name: "sessions" }, { name: "conversions" }, { name: "totalRevenue" }],
+        orderBys: [{ metric: { metricName: "conversions" }, desc: true }],
+        limit: 25,
+      }),
       // Locations donut (Site Kit-style): sessions by country
       runReport({
         dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
@@ -109,7 +122,7 @@ export async function POST(req: NextRequest) {
     const prevViews = mv(prev, 5), prevDur = mv(prev, 6);
 
     return NextResponse.json({
-      period: { start: fmt(start), end: fmt(end), days },
+      period: { start: fmt(start), end: fmt(end), days: rangeDays },
       overview: {
         sessions: currSessions, users: currUsers, conversions: currConv,
         revenue: Number(currRev.toFixed(2)),
@@ -132,10 +145,19 @@ export async function POST(req: NextRequest) {
       })),
       pages: (byPage.rows ?? []).map(r => ({
         path:           dv(r, 0),
+        title:          dv(r, 1),
         views:          mv(r, 0),
         sessions:       mv(r, 1),
         bounceRate:     Number((mv(r, 2) * 100).toFixed(1)),
         engagementRate: Number((mv(r, 3) * 100).toFixed(1)),
+        avgDuration:    Number(mv(r, 4).toFixed(1)),
+        conversions:    mv(r, 5),
+      })),
+      landingConversions: (byLanding.rows ?? []).map(r => ({
+        path:        dv(r, 0),
+        sessions:    mv(r, 0),
+        conversions: mv(r, 1),
+        revenue:     Number(mv(r, 2).toFixed(2)),
       })),
       devices: (byDevice.rows ?? []).map(r => ({
         device:      dv(r, 0),

@@ -517,8 +517,8 @@ function exportHtml(
 // ── Main ───────────────────────────────────────────────────────────────────────
 // ── Simple Report ─────────────────────────────────────────────────────────────
 
-type GscType = { overview?: Record<string, number>; pages?: {page:string;clicks:number;impressions:number;ctr:number;position:number}[]; queries?: {query:string;clicks:number;impressions:number;ctr:number;position:number}[] } | null;
-type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[]; countries?: {country:string;sessions:number}[] } | null;
+type GscType = { overview?: Record<string, number>; pages?: {page:string;clicks:number;impressions:number;ctr:number;position:number}[]; queries?: {query:string;clicks:number;impressions:number;ctr:number;position:number}[]; queryPages?: {query:string;page:string;clicks:number;impressions:number}[] } | null;
+type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;title?:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number;avgDuration?:number;conversions?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[]; countries?: {country:string;sessions:number}[]; landingConversions?: {path:string;sessions:number;conversions:number;revenue:number}[] } | null;
 type PsiType = { mobile?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]}; desktop?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]} } | null;
 
 function SimpleMetricCard({ label, value, subLabel, delta, deltaLabel, color = "text-brand-navy" }: {
@@ -950,12 +950,13 @@ function MLChart({ data, series }: {
   );
 }
 
-function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoading, gscError, ga4Error, days }: {
+function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoading, gscError, ga4Error, days, periodLabel }: {
   project: { name: string; website: string }
   gsc: GscType; ga4: Ga4Type; psi: PsiType
   gscLoading: boolean; ga4Loading: boolean; psiLoading: boolean
   gscError: string | null; ga4Error: string | null
   days: number
+  periodLabel?: string
 }) {
   const [donutTab, setDonutTab]   = useState<"devices" | "locations">("devices");
   const [psiMode, setPsiMode]     = useState<"mobile" | "desktop">("mobile");
@@ -1007,6 +1008,29 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
     label: p.path, value: p.views, href: `${project.website}${p.path}`,
   }));
   const events = (ga4?.events ?? []).slice(0, 6);
+
+  // ── Conversion deep-dive: โยง GSC query×page ↔ GA4 conversion ราย landing page ──
+  const landingConv = ga4?.landingConversions ?? [];
+  const queryPages  = gsc?.queryPages ?? [];
+  const pathOf = (u: string) => { try { return new URL(u).pathname } catch { return u } };
+  const convByPath = new Map<string, number>();
+  landingConv.forEach(l => { if (l.conversions > 0) convByPath.set(l.path, l.conversions) });
+  const pageClickTotals = new Map<string, number>();
+  queryPages.forEach(r => { const pp = pathOf(r.page); pageClickTotals.set(pp, (pageClickTotals.get(pp) ?? 0) + r.clicks) });
+  // กระจาย conversion ของแต่ละหน้าให้ keyword ตามสัดส่วน clicks (ประมาณการ — GA4 ไม่บอก keyword ตรง ๆ)
+  const kwConvMap = new Map<string, number>();
+  queryPages.forEach(r => {
+    const pp = pathOf(r.page);
+    const conv = convByPath.get(pp);
+    const total = pageClickTotals.get(pp) ?? 0;
+    if (conv && total > 0 && r.clicks > 0) kwConvMap.set(r.query, (kwConvMap.get(r.query) ?? 0) + conv * (r.clicks / total));
+  });
+  const topQueryRows = (gsc?.queries ?? []).slice(0, 10).map(q => ({ ...q, estConv: kwConvMap.get(q.query) ?? 0 }));
+  const kwConvRows = Array.from(kwConvMap.entries()).map(([query, conv]) => ({ query, conv }))
+    .sort((a, b) => b.conv - a.conv).slice(0, 10);
+  const gaPageRows = (ga4?.pages ?? []).slice(0, 10);
+  const convPageRows = landingConv.filter(l => l.conversions > 0).slice(0, 10);
+  const allEvents = ga4?.events ?? [];
 
   // ── PSI ──
   const curPsi = psiMode === "mobile" ? psi?.mobile : psi?.desktop;
@@ -1253,7 +1277,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       </div>
 
       {/* ══ ROW 4 — Search performance (GSC-style tiles + multi-line chart) ══ */}
-      <CCard title={`Search performance — last ${days} days`} pad={false}>
+      <CCard title={`Search performance — ${periodLabel ?? `last ${days} days`}`} pad={false}>
         <div className="px-4 pt-2 pb-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
           {GSC_METRICS.map(m => {
             const on = gscSeries[m.key];
@@ -1284,6 +1308,161 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
           <a href="https://search.google.com/search-console" target="_blank" rel="noopener noreferrer" className="text-[11px] text-brand-blue hover:underline">Open Search Console ↗</a>
         </div>
       </CCard>
+
+      {/* ══ ROW 4.1 — Top search queries + Conversion (ประมาณการจาก landing page) ══ */}
+      <CCard title="Top search queries for your site" pad={false}>
+        {topQueryRows.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[#eef2f8]">
+                  <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Keyword</th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Clicks</th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.dark }}>Impressions</th>
+                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>Conversions*</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topQueryRows.map((r, i) => (
+                  <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                    <td className="px-4 py-2.5 min-w-0">
+                      <span className="text-[13px] text-brand-navy"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{r.query}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{r.clicks.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.impressions.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: r.estConv >= 0.05 ? CI.sage : "#c3ccd6" }}>{r.estConv >= 0.05 ? r.estConv.toFixed(1) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-[12px] text-gray-400 text-center py-10">{gscLoading ? "กำลังโหลด..." : "ยังไม่มีข้อมูล"}</p>
+        )}
+        <p className="text-[10px] text-gray-400 px-4 py-2.5">*Conversions เป็นค่าประมาณ — กระจายจาก conversion ของ landing page (GA4) ตามสัดส่วนคลิกของแต่ละ keyword (GSC) · Source: Search Console + GA4</p>
+      </CCard>
+
+      {/* ══ ROW 4.2 — Top pages: pageviews / engagement / duration / conversion ══ */}
+      <CCard title="Top pages — pageviews & engagement" pad={false}>
+        {gaPageRows.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[#eef2f8]">
+                  <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Title</th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Pageviews</th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.dark }}>Sessions</th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-32" style={{ color: CI.soft }}>Engagement Rate</th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-32" style={{ color: CI.mustard }}>Session Duration</th>
+                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>Conversions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gaPageRows.map((r, i) => (
+                  <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                    <td className="px-4 py-2.5 min-w-0 max-w-lg">
+                      <a href={`${project.website}${r.path}`} target="_blank" rel="noopener noreferrer"
+                        className="text-[13px] text-brand-navy hover:text-brand-blue hover:underline block truncate"
+                        title={r.title || r.path}>
+                        <span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{r.title || r.path}
+                      </a>
+                      <p className="text-[11px] text-gray-400 truncate pl-6">{r.path}</p>
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{r.views.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.sessions.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.soft }}>{r.engagementRate}%</td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.mustard }}>{fmtDuration(r.avgDuration ?? 0)}</td>
+                    <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: (r.conversions ?? 0) > 0 ? CI.sage : "#c3ccd6" }}>{(r.conversions ?? 0) > 0 ? (r.conversions ?? 0).toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-[12px] text-gray-400 text-center py-10">{ga4Loading ? "กำลังโหลด..." : "ยังไม่มีข้อมูล"}</p>
+        )}
+        <p className="text-[10px] text-gray-400 px-4 py-2.5">Source: GA4</p>
+      </CCard>
+
+      {/* ══ ROW 4.3 — Events & Conversions + Conversion deep-dive ══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <CCard title="Events & Conversions" pad={false}>
+          {allEvents.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[#eef2f8]">
+                    <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Event</th>
+                    <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Count</th>
+                    <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>Conversions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allEvents.slice(0, 12).map((e, i) => (
+                    <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                      <td className="px-4 py-2.5 min-w-0">
+                        <span className="text-[13px] text-brand-navy">{e.event}</span>
+                        {e.isConversion && (
+                          <span className="ml-2 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full align-middle" style={{ backgroundColor: "#e8f3ec", color: CI.sage }}>conversion</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{e.count.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: e.conversions > 0 ? CI.sage : "#c3ccd6" }}>{e.conversions > 0 ? e.conversions.toLocaleString() : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-[12px] text-gray-400 text-center py-10">{ga4Loading ? "กำลังโหลด..." : "ยังไม่มี event ในช่วงนี้"}</p>
+          )}
+          <p className="text-[10px] text-gray-400 px-4 py-2.5">Source: GA4</p>
+        </CCard>
+
+        <CCard title="Conversion เกิดที่หน้าไหน" pad={false}>
+          {convPageRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[#eef2f8]">
+                    <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Landing page</th>
+                    <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.dark }}>Sessions</th>
+                    <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>Conversions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {convPageRows.map((r, i) => (
+                    <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                      <td className="px-4 py-2.5 min-w-0 max-w-xs">
+                        <a href={`${project.website}${r.path}`} target="_blank" rel="noopener noreferrer"
+                          className="text-[13px] text-brand-navy hover:text-brand-blue hover:underline block truncate" title={r.path}>
+                          <span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{r.path}
+                        </a>
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.sessions.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: CI.sage }}>{r.conversions.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {kwConvRows.length > 0 && (
+                <div className="border-t border-[#eef2f8] px-4 pt-2.5 pb-1">
+                  <p className="text-[11.5px] font-medium text-gray-400 mb-1.5">Keyword ที่คาดว่าพาให้เกิด conversion*</p>
+                  {kwConvRows.map((k, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 py-1">
+                      <span className="text-[12.5px] text-brand-navy truncate min-w-0">{k.query}</span>
+                      <span className="text-[12.5px] tabular-nums font-medium shrink-0" style={{ color: CI.sage }}>{k.conv.toFixed(1)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[12px] text-gray-400 text-center py-10">{ga4Loading ? "กำลังโหลด..." : "ยังไม่มี conversion ในช่วงนี้"}</p>
+          )}
+          <p className="text-[10px] text-gray-400 px-4 py-2.5">*ประมาณจากสัดส่วนคลิกของ keyword บน landing page ที่เกิด conversion · Source: GA4 + Search Console</p>
+        </CCard>
+      </div>
 
       {/* ══ ROW 5 — GSC table: Queries / Pages / Devices ══ */}
       <CCard pad={false}
@@ -1381,6 +1560,10 @@ type ReportMode = "dashboard" | "seo-performance" | "simple";
 
 export function ClientReportClient({ project, isClient = false }: { project: Project; isClient?: boolean }) {
   const [days, setDays]               = useState(28);
+  const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
+  const [showCustom, setShowCustom]   = useState(false);
+  const [draftStart, setDraftStart]   = useState("");
+  const [draftEnd, setDraftEnd]       = useState("");
   const [reportMode, setReportMode]   = useState<ReportMode>("simple");
   const [gscData, setGscData]         = useState<Record<string, unknown> | null>(null);
   const [ga4Data, setGa4Data]         = useState<Record<string, unknown> | null>(null);
@@ -1405,11 +1588,11 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
       const [gscRes, aiRes] = await Promise.allSettled([
         fetch("/api/report/gsc", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ siteUrl: project.gscSiteUrl, days }),
+          body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}) }),
         }).then(r => r.json()),
         fetch("/api/report/gsc-ai", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ siteUrl: project.gscSiteUrl, days }),
+          body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}) }),
         }).then(r => r.json()),
       ]);
       if (gscRes.status === "fulfilled" && !gscRes.value.error) setGscData(gscRes.value);
@@ -1424,13 +1607,13 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
     try {
       const r = await fetch("/api/report/gsc-insights", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ siteUrl: project.gscSiteUrl, days }),
+        body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}) }),
       });
       const d = await r.json();
       if (!d.error) setGscInsights(d);
     } catch { /* non-fatal */ }
     finally { setGscInsLoading(false); }
-  }, [project.gscSiteUrl, days]);
+  }, [project.gscSiteUrl, days, customRange]);
 
   const fetchGA4 = useCallback(async (overrideId?: string) => {
     const pid = overrideId ?? ga4PropertyId;
@@ -1439,14 +1622,14 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
     try {
       const r = await fetch("/api/report/ga4", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId: pid, days }),
+        body: JSON.stringify({ propertyId: pid, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}) }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       setGa4Data(d);
     } catch (e) { setGa4Error(e instanceof Error ? e.message : "Error"); }
     finally { setGa4Loading(false); }
-  }, [ga4PropertyId, days]);
+  }, [ga4PropertyId, days, customRange]);
 
   const fetchPSI = useCallback(async () => {
     const url = project.gscSiteUrl?.startsWith("sc-domain:")
@@ -1514,11 +1697,29 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
         </div>
         <div className="flex items-center gap-2">
           {[7, 28, 90].map(d => (
-            <button key={d} onClick={() => setDays(d)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${days === d ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            <button key={d} onClick={() => { setCustomRange(null); setShowCustom(false); setDays(d); }}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${!customRange && days === d ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
               {d} วัน
             </button>
           ))}
+          <button onClick={() => setShowCustom(v => !v)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${customRange ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            {customRange ? `${customRange.start} → ${customRange.end}` : "กำหนดเอง"}
+          </button>
+          {showCustom && (
+            <span className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-2.5 py-1">
+              <input type="date" value={draftStart} max={draftEnd || undefined} onChange={e => setDraftStart(e.target.value)}
+                className="text-[11px] text-gray-600 outline-none bg-transparent" />
+              <span className="text-[11px] text-gray-400">→</span>
+              <input type="date" value={draftEnd} min={draftStart || undefined} onChange={e => setDraftEnd(e.target.value)}
+                className="text-[11px] text-gray-600 outline-none bg-transparent" />
+              <button disabled={!draftStart || !draftEnd}
+                onClick={() => { if (draftStart && draftEnd) { setCustomRange({ start: draftStart, end: draftEnd }); setShowCustom(false); } }}
+                className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-brand-blue text-white disabled:opacity-40 transition-opacity">
+                ดู
+              </button>
+            </span>
+          )}
           <button onClick={() => { fetchGSC(); fetchGA4(); fetchPSI(); }}
             className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
             <RefreshCw size={14} className={gscLoading || ga4Loading || psiLoading ? "animate-spin" : ""} />
@@ -1894,6 +2095,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
           gscError={gscError}
           ga4Error={ga4Error}
           days={days}
+          periodLabel={customRange ? `${customRange.start} ถึง ${customRange.end}` : `last ${days} days`}
         />
       )}
 
