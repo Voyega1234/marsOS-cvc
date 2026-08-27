@@ -940,7 +940,7 @@ function MLChart({ data, series }: {
           <line key={i} x1={0} y1={PT + H * f} x2={W} y2={PT + H * f} stroke="#e8ecf3" strokeWidth="0.8" />
         ))}
         {paths.map((p, i) => (
-          <path key={i} d={p.d} fill="none" stroke={p.color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+          <path key={i} d={p.d} fill="none" stroke={p.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
         ))}
       </svg>
       <div className="absolute left-0 right-0 flex justify-between text-[10px] text-gray-400" style={{ top: PT + H + 6 }}>
@@ -1032,7 +1032,11 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
     .sort((a, b) => b.conv - a.conv).slice(0, 10);
   const pagesHaveConv = (ga4?.pages ?? []).some(pg => (pg.conversions ?? 0) > 0);
   const gaPageRows = (ga4?.pages ?? []).slice(0, 10).map(pg => ({ ...pg, actVal: pagesHaveConv ? (pg.conversions ?? 0) : (pg.events ?? 0) }));
-  const convPageRows = landingConv.filter(l => l.conversions > 0).slice(0, 10);
+  const convPageRows = landingConv
+    .map(l => ({ ...l, actVal: hasConv ? l.conversions : (l.events ?? 0) }))
+    .filter(l => l.actVal > 0)
+    .sort((a, b) => b.actVal - a.actVal)
+    .slice(0, 10);
   // รวม event ชื่อเดียวกันเป็นแถวเดียว (GA4 แยกแถวตาม isConversionEvent)
   const allEvents = (() => {
     const m = new Map<string, { event: string; isConversion: boolean; count: number }>();
@@ -1429,7 +1433,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
           <p className="text-[10px] text-gray-400 px-4 py-2.5">Source: GA4</p>
         </CCard>
 
-        <CCard title="Conversion เกิดที่หน้าไหน" pad={false}>
+        <CCard title={hasConv ? "Conversion เกิดที่หน้าไหน" : "Event เกิดที่หน้าไหน"} pad={false}>
           {convPageRows.length ? (
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -1437,7 +1441,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                   <tr className="border-b border-[#eef2f8]">
                     <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Landing page</th>
                     <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.dark }}>Sessions</th>
-                    <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>Conversions</th>
+                    <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>{hasConv ? "Conversions" : "Events"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1450,27 +1454,27 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                         </a>
                       </td>
                       <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.sessions.toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: CI.sage }}>{r.conversions.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: CI.sage }}>{r.actVal.toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {kwConvRows.length > 0 && (
                 <div className="border-t border-[#eef2f8] px-4 pt-2.5 pb-1">
-                  <p className="text-[11.5px] font-medium text-gray-400 mb-1.5">Keyword ที่คาดว่าพาให้เกิด conversion*</p>
+                  <p className="text-[11.5px] font-medium text-gray-400 mb-1.5">Keyword ที่คาดว่าพาให้เกิด {hasConv ? "conversion" : "event"}*</p>
                   {kwConvRows.map((k, i) => (
                     <div key={i} className="flex items-center justify-between gap-3 py-1">
                       <span className="text-[12.5px] text-brand-navy truncate min-w-0">{k.query}</span>
-                      <span className="text-[12.5px] tabular-nums font-medium shrink-0" style={{ color: CI.sage }}>{k.conv.toFixed(1)}</span>
+                      <span className="text-[12.5px] tabular-nums font-medium shrink-0" style={{ color: CI.sage }}>{hasConv ? k.conv.toFixed(1) : Math.round(k.conv).toLocaleString()}</span>
                     </div>
                   ))}
                 </div>
               )}
             </div>
           ) : (
-            <p className="text-[12px] text-gray-400 text-center py-10">{ga4Loading ? "กำลังโหลด..." : "ยังไม่มี conversion ในช่วงนี้"}</p>
+            <p className="text-[12px] text-gray-400 text-center py-10">{ga4Loading ? "กำลังโหลด..." : `ยังไม่มี ${hasConv ? "conversion" : "event"} ในช่วงนี้`}</p>
           )}
-          <p className="text-[10px] text-gray-400 px-4 py-2.5">*ประมาณจากสัดส่วนคลิกของ keyword บน landing page ที่เกิด conversion · Source: GA4 + Search Console</p>
+          <p className="text-[10px] text-gray-400 px-4 py-2.5">*ประมาณจากสัดส่วนคลิกของ keyword บน landing page ที่เกิด {hasConv ? "conversion" : "event"} · Source: GA4 + Search Console</p>
         </CCard>
       </div>
 
