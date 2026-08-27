@@ -4957,7 +4957,16 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   const [cta, setCta] = useState<CtaSettings>(() => parseCta(project.ctaSetting))
   const [authorEnabled, setAuthorEnabled] = useState(project.authorEnabled ?? false)
   const [authors, setAuthors] = useState<AuthorProfile[]>(() => {
-    try { return JSON.parse(project.authors ?? '[]') } catch { return [] }
+    try {
+      const list = JSON.parse(project.authors ?? '[]')
+      if (Array.isArray(list) && list.length > 0) return list
+    } catch { /* fall through to legacy seed */ }
+    // โปรเจกต์ legacy ที่ตั้ง author เดี่ยวไว้ก่อนมีระบบหลายคน — seed เข้า list
+    // ให้เห็น/เลือกเพศได้ แล้วค่อย persist เป็น authors[] ตอนกดบันทึก
+    if (project.authorName || project.authorTitle) {
+      return [{ id: 'author-legacy', name: project.authorName ?? '', title: project.authorTitle ?? '', gender: 'none', image: project.authorImage ?? '' }]
+    }
+    return []
   })
   const styleFileRef = useRef<HTMLInputElement>(null)
   const linkFileRef = useRef<HTMLInputElement>(null)
