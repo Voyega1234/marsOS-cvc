@@ -72,7 +72,13 @@ export async function POST(req: NextRequest) {
       pages: (byPage.data.rows ?? []).map(r => ({ page: r.keys?.[0] ?? "", ...mapRow(r) })),
       queries: (byQuery.data.rows ?? []).map(r => ({ query: r.keys?.[0] ?? "", ...mapRow(r) })),
       devices: (byDevice.data.rows ?? []).map(r => ({ device: r.keys?.[0] ?? "", clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 })),
-      daily: (byDate.data.rows ?? []).map(r => ({ date: r.keys?.[0] ?? "", clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 })),
+      daily: (byDate.data.rows ?? []).map(r => ({
+        date: r.keys?.[0] ?? "",
+        clicks: r.clicks ?? 0,
+        impressions: r.impressions ?? 0,
+        ctr: Number(((r.ctr ?? 0) * 100).toFixed(2)),
+        position: Number((r.position ?? 0).toFixed(1)),
+      })),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";

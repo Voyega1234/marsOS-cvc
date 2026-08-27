@@ -6,7 +6,7 @@ import {
   ArrowLeft, RefreshCw, TrendingUp, TrendingDown, Minus,
   Globe, Zap, BarChart3, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, ExternalLink,
   FileBarChart2, Lightbulb, Search, ArrowUp, ArrowDown, Star, Target,
-  Download, FileText, FileSpreadsheet,
+  Download, FileText, FileSpreadsheet, Users, MousePointerClick, Activity, MapPin,
 } from "lucide-react";
 import { SEOPerformanceReport } from "@/components/report/SEOPerformanceReport";
 import type { GSCData, GA4Data, PSIData, GscAiData, SEOInsight, GscInsightItem } from "@/lib/report/seo-insights";
@@ -615,7 +615,7 @@ function fmtDuration(seconds: number): string {
   return m > 0 ? `${m}นาที ${s}วิ` : `${s}วิ`;
 }
 
-type GscDailyRow = { date: string; clicks: number; impressions: number };
+type GscDailyRow = { date: string; clicks: number; impressions: number; ctr?: number; position?: number };
 type Ga4DailyRow = { date: string; sessions: number; users: number };
 
 function RealSparkline({ data, field, color = "#1a73e8" }: {
@@ -795,6 +795,161 @@ function SKDonut({ data, label }: { data: {label:string;value:number;color:strin
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Simple Report — Clarity-style dashboard (CVC CI theme)
+// ข้อมูลจริง 3 แหล่ง: GSC / GA4 / PageSpeed — ไม่มี mock
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// สีกราฟตาม CI: brand เป็นหลัก + addon เฉพาะกราฟ (กติกา CVC guideline)
+const CI = {
+  blue:   "#1d48f3", // brand.blue — series หลัก
+  dark:   "#0107a9", // brand.dark — series รอง
+  sky:    "#177cfe",
+  soft:   "#6b8cef",
+  navy:   "#000E3F",
+  mist:   "#eff5f9",
+  sage:   "#769a6d", // addon — CTR / good
+  salmon: "#e35336", // addon — position / attention
+  mustard:"#ffb95c",
+};
+const DONUT_COLORS = [CI.blue, CI.soft, CI.mustard, CI.sage, CI.salmon, CI.sky, CI.dark, "#DAE1E7"];
+
+function fmtNum(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 10_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+function fmtMin(seconds: number) {
+  if (!seconds) return "—";
+  if (seconds >= 60) return `${(seconds / 60).toFixed(1)} min`;
+  return `${Math.round(seconds)} s`;
+}
+
+// การ์ดขาวสไตล์ Clarity: หัวการ์ดเล็ก + เนื้อหา
+function CCard({ title, right, children, className = "", pad = true }: {
+  title?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode; className?: string; pad?: boolean;
+}) {
+  return (
+    <div className={`bg-white rounded-xl border border-[#e3e9f2] shadow-[0_1px_2px_rgba(0,14,63,0.06)] ${className}`}>
+      {title && (
+        <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
+          <p className="text-[13px] font-semibold text-brand-navy flex items-center gap-1.5">{title}</p>
+          {right}
+        </div>
+      )}
+      <div className={pad ? "px-4 pb-4 pt-1" : ""}>{children}</div>
+    </div>
+  );
+}
+
+// KPI แถวบนสุด (Sessions / Pages per session / ...)
+function CKpi({ label, value, sub, delta, invert = false }: {
+  label: string; value: string; sub?: string; delta?: number; invert?: boolean;
+}) {
+  const good = delta === undefined ? true : invert ? delta <= 0 : delta >= 0;
+  return (
+    <div className="bg-white rounded-xl border border-[#e3e9f2] shadow-[0_1px_2px_rgba(0,14,63,0.06)] px-4 py-3.5">
+      <p className="text-[12px] font-semibold text-brand-navy mb-1.5">{label}</p>
+      <div className="flex items-end justify-between gap-2">
+        <p className="text-[1.9rem] leading-none font-bold text-brand-navy tabular-nums">{value}</p>
+        {delta !== undefined && delta !== 0 && (
+          <span className={`text-[12px] font-semibold ${good ? "text-emerald-600" : "text-red-500"}`}>
+            {delta > 0 ? "↑" : "↓"}{Math.abs(delta)}%
+          </span>
+        )}
+      </div>
+      {sub && <p className="text-[11px] italic text-gray-400 mt-1.5">{sub}</p>}
+    </div>
+  );
+}
+
+// แถว insight (สไตล์ Rage clicks / Dead clicks ของ Clarity)
+function InsightRow({ icon, label, value, sub, valueColor = "#000E3F" }: {
+  icon: React.ReactNode; label: string; value: string; sub?: string; valueColor?: string;
+}) {
+  return (
+    <div className="border border-[#eef2f8] rounded-lg px-3 py-2.5">
+      <p className="text-[12px] font-medium text-gray-500 mb-1.5">{label}</p>
+      <div className="flex items-center gap-3">
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: CI.mist, color: CI.blue }}>
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[1.35rem] leading-none font-bold tabular-nums" style={{ color: valueColor }}>{value}</p>
+          {sub && <p className="text-[11px] italic text-gray-400 mt-1">{sub}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// รายการแถบแนวนอน (สไตล์ Source / Top pages ของ Clarity)
+function HBarList({ items, color = CI.blue, linkPrefix }: {
+  items: { label: string; value: number; href?: string }[]; color?: string; linkPrefix?: string;
+}) {
+  const max = Math.max(...items.map(i => i.value), 1);
+  if (!items.length) return <p className="text-[12px] text-gray-400 text-center py-8">ยังไม่มีข้อมูล</p>;
+  return (
+    <div className="space-y-3">
+      {items.map((it, i) => (
+        <div key={i}>
+          {it.href || linkPrefix ? (
+            <a href={it.href ?? `${linkPrefix}${it.label}`} target="_blank" rel="noopener noreferrer"
+              className="text-[12px] text-brand-navy hover:text-brand-blue hover:underline block truncate" title={it.label}>{it.label}</a>
+          ) : (
+            <p className="text-[12px] text-brand-navy truncate" title={it.label}>{it.label}</p>
+          )}
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex-1 h-3 rounded-sm bg-[#f4f7fb] overflow-hidden">
+              <div className="h-full rounded-sm" style={{ width: `${Math.max((it.value / max) * 100, 2)}%`, backgroundColor: color }} />
+            </div>
+            <span className="text-[12px] text-gray-500 tabular-nums w-12 text-right shrink-0">{fmtNum(it.value)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// กราฟหลายเส้นสไตล์ GSC — แต่ละ series สเกลตาม max ตัวเอง (เหมือนแกนคู่ของ GSC)
+function MLChart({ data, series }: {
+  data: Record<string, number | string>[];
+  series: { key: string; color: string; invert?: boolean }[];
+}) {
+  const W = 560, H = 210, PT = 10, PB = 26; const TH = H + PT + PB;
+  if (!data || data.length < 2 || !series.length) {
+    return <div className="w-full flex items-center justify-center text-[12px] text-gray-400" style={{ height: TH }}>ยังไม่มีข้อมูลกราฟ</div>;
+  }
+  const toX = (i: number) => (i / (data.length - 1)) * W;
+  const paths = series.map(s => {
+    const vals = data.map(d => Number(d[s.key] ?? 0));
+    const max = Math.max(...vals, 1e-6);
+    const toY = (v: number) => s.invert ? PT + H * (v / max) : PT + H * (1 - v / max);
+    return { color: s.color, d: vals.map((v, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ") };
+  });
+  const dateLabels = [0, Math.floor((data.length - 1) / 2), data.length - 1].map(i => {
+    const raw = String(data[i]?.date ?? "");
+    if (raw.length === 8) return `${parseInt(raw.slice(6))}/${parseInt(raw.slice(4, 6))}`;
+    if (raw.includes("-")) { const p = raw.split("-"); return `${parseInt(p[2])}/${parseInt(p[1])}`; }
+    return raw;
+  });
+  return (
+    <div className="relative w-full" style={{ height: TH }}>
+      <svg viewBox={`0 0 ${W} ${TH}`} className="w-full h-full" preserveAspectRatio="none">
+        {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
+          <line key={i} x1={0} y1={PT + H * f} x2={W} y2={PT + H * f} stroke="#e8ecf3" strokeWidth="0.8" />
+        ))}
+        {paths.map((p, i) => (
+          <path key={i} d={p.d} fill="none" stroke={p.color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+      </svg>
+      <div className="absolute left-0 right-0 flex justify-between text-[10px] text-gray-400" style={{ top: PT + H + 6 }}>
+        {dateLabels.map((d, i) => <span key={i}>{d}</span>)}
+      </div>
+    </div>
+  );
+}
+
 function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoading, gscError, ga4Error, days }: {
   project: { name: string; website: string }
   gsc: GscType; ga4: Ga4Type; psi: PsiType
@@ -802,488 +957,422 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   gscError: string | null; ga4Error: string | null
   days: number
 }) {
-  const [donutTab, setDonutTab] = useState<'channels'|'locations'|'devices'>('channels');
-  const [psiTab, setPsiTab] = useState<'lab'|'field'|'improve'>('field');
-  const [psiMode, setPsiMode] = useState<'mobile'|'desktop'>('mobile');
-  const [activeGscMetric, setActiveGscMetric] = useState<'clicks'|'impressions'|'users'>('clicks');
-  const [activeGa4Metric, setActiveGa4Metric] = useState<'sessions'|'users'>('sessions');
+  const [donutTab, setDonutTab]   = useState<"devices" | "locations">("devices");
+  const [psiMode, setPsiMode]     = useState<"mobile" | "desktop">("mobile");
+  const [gscTable, setGscTable]   = useState<"queries" | "pages" | "devices">("queries");
+  const [gscSeries, setGscSeries] = useState<Record<"clicks" | "impressions" | "ctr" | "position", boolean>>({
+    clicks: true, impressions: true, ctr: true, position: true,
+  });
 
   const loading = gscLoading || ga4Loading;
 
-  const sessions    = ga4?.overview?.sessions ?? 0;
-  const sessionsD   = ga4?.overview?.sessionsDelta ?? 0;
-  const conversions = ga4?.overview?.conversions ?? 0;
+  // ── GA4 overview ──
+  const sessions     = ga4?.overview?.sessions ?? 0;
+  const sessionsD    = ga4?.overview?.sessionsDelta ?? 0;
+  const users        = ga4?.overview?.users ?? 0;
+  const usersD       = ga4?.overview?.usersDelta ?? 0;
+  const newUsers     = (ga4?.overview as Record<string, number> | undefined)?.newUsers ?? 0;
+  const pageviews    = (ga4?.overview as Record<string, number> | undefined)?.pageviews ?? 0;
+  const avgDur       = (ga4?.overview as Record<string, number> | undefined)?.avgSessionDuration ?? 0;
+  const engagement   = ga4?.overview?.engagementRate ?? 0;
+  const conversions  = ga4?.overview?.conversions ?? 0;
   const conversionsD = ga4?.overview?.conversionsDelta ?? 0;
-  const revenue     = ga4?.overview?.revenue ?? 0;
-  const revenueD    = ga4?.overview?.revenueDelta ?? 0;
-  const clicks      = gsc?.overview?.clicks ?? 0;
-  const clicksD     = gsc?.overview?.clicksDelta ?? 0;
-  const impressions = gsc?.overview?.impressions ?? 0;
+  const revenue      = ga4?.overview?.revenue ?? 0;
+  const returningUsers = Math.max(users - newUsers, 0);
+  const pagesPerSession = sessions ? (pageviews / sessions) : 0;
+
+  // ── GSC overview ──
+  const clicks       = gsc?.overview?.clicks ?? 0;
+  const clicksD      = gsc?.overview?.clicksDelta ?? 0;
+  const impressions  = gsc?.overview?.impressions ?? 0;
   const impressionsD = gsc?.overview?.impressionsDelta ?? 0;
-  const users       = ga4?.overview?.users ?? 0;
-  const usersD      = ga4?.overview?.usersDelta ?? 0;
-  const position    = gsc?.overview?.position ?? 0;
+  const ctr          = gsc?.overview?.ctr ?? 0;
+  const ctrD         = gsc?.overview?.ctrDelta ?? 0;
+  const position     = gsc?.overview?.position ?? 0;
+  const positionD    = gsc?.overview?.positionDelta ?? 0;
 
-  const ga4Daily = ((ga4 as {daily?: Ga4DailyRow[]})?.daily ?? []) as Ga4DailyRow[];
-  const gscDaily = ((gsc as {daily?: GscDailyRow[]})?.daily ?? []) as GscDailyRow[];
+  const gscDaily = ((gsc as { daily?: GscDailyRow[] })?.daily ?? []) as GscDailyRow[];
 
-  const CHANNEL_COLORS: Record<string,string> = {
-    "Organic Search":"#fbbc04","Direct":"#8ab4f8","Paid Search":"#ea4335",
-    "Organic Social":"#34a853","Referral":"#a142f4","Cross-Network":"#e6c7fb",
-    "Email":"#00bcd4","(Other)":"#9e9e9e","Others":"#9e9e9e",
-  };
-  const DEVICE_COLORS: Record<string,string> = { mobile:"#fbbc04", desktop:"#8ab4f8", tablet:"#34a853" };
-
-  const channelData = (ga4?.channels ?? []).map(c => ({
-    label: c.channel, value: c.sessions,
-    color: CHANNEL_COLORS[c.channel] ?? "#9e9e9e",
+  // ── Donut data (CI palette) ──
+  const deviceData = (ga4?.devices ?? []).map((d, i) => ({
+    label: d.device || "other", value: d.sessions, color: DONUT_COLORS[i % DONUT_COLORS.length],
   }));
-  const deviceData = (ga4?.devices ?? []).map(d => ({
-    label: d.device ?? "other", value: d.sessions,
-    color: DEVICE_COLORS[(d.device ?? "").toLowerCase()] ?? "#9e9e9e",
-  }));
-  const LOC_COLORS = ["#8ab4f8","#fbbc04","#34a853","#a142f4","#ea4335","#00bcd4","#e6c7fb","#9e9e9e"];
   const locationData = (ga4?.countries ?? []).map((c, i) => ({
-    label: c.country || "Unknown", value: c.sessions,
-    color: LOC_COLORS[i % LOC_COLORS.length],
+    label: c.country || "Unknown", value: c.sessions, color: DONUT_COLORS[i % DONUT_COLORS.length],
   }));
+  const topCountry = (ga4?.countries ?? [])[0];
 
-  const convEvents = (ga4?.events ?? []).filter(e => e.isConversion);
-  const mPsi = psi?.mobile; const dPsi = psi?.desktop;
-  const curPsi = psiMode === "mobile" ? mPsi : dPsi;
+  const channelItems = (ga4?.channels ?? []).slice(0, 6).map(c => ({ label: c.channel, value: c.sessions }));
+  const topPageItems = (ga4?.pages ?? []).slice(0, 8).map(p => ({
+    label: p.path, value: p.views, href: `${project.website}${p.path}`,
+  }));
+  const events = (ga4?.events ?? []).slice(0, 6);
 
-  function fmtBig(n: number) {
-    if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n/1_000).toFixed(0)}K`;
-    return n.toLocaleString();
-  }
-
-  function Delta({ v, inv = false }: { v: number; inv?: boolean }) {
-    const good = inv ? v <= 0 : v >= 0;
-    if (v === 0) return null;
-    return (
-      <p className={`text-[13px] font-normal mt-1.5 ${good ? "text-[#137333]" : "text-[#c5221f]"}`}>
-        <span>{good ? "↑" : "↓"}{Math.abs(v).toFixed(1)}%</span>
-        <span className="text-[#5f6368] ml-1">compared to the previous {days} days</span>
-      </p>
-    );
-  }
-
-  // SK card wrapper
-  function SKCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-    return (
-      <div className={`bg-white rounded-lg shadow-[0_1px_2px_rgba(60,64,67,0.3),0_1px_3px_1px_rgba(60,64,67,0.15)] overflow-hidden ${className}`}>
-        {children}
-      </div>
-    );
-  }
-
-  // PSI vitals definitions per tab
-  // ต้องเช็คลึกถึง vitals.lcp — เคย crash ("reading 'lcp'") เมื่อ API ตอบ shape ไม่ครบ
-  const labVitals = curPsi?.vitals?.lcp && curPsi.vitals.cls && curPsi.vitals.responsiveness ? [
-    { label: "Largest Contentful Paint", desc: "Time it takes for the page to load",
-      display: curPsi.vitals.lcp.display, val: curPsi.vitals.lcp.value, good: 2500, bad: 4000 },
-    { label: "Cumulative Layout Shift", desc: "How stable the elements on the page are",
-      display: curPsi.vitals.cls.display, val: curPsi.vitals.cls.value, good: 0.1, bad: 0.25 },
-    { label: "Total Blocking Time", desc: "How long people had to wait after the page loaded before they could click something",
-      display: curPsi.vitals.responsiveness.value, val: curPsi.vitals.responsiveness.numericValue, good: 200, bad: 500 },
+  // ── PSI ──
+  const curPsi = psiMode === "mobile" ? psi?.mobile : psi?.desktop;
+  const perfScore = curPsi?.scores?.performance ?? null;
+  const scoreColor = perfScore === null ? "#9ca3af" : perfScore >= 90 ? "#059669" : perfScore >= 50 ? "#d97706" : "#dc2626";
+  const vitals = curPsi?.vitals?.lcp && curPsi.vitals.cls && curPsi.vitals.responsiveness ? [
+    { label: "LCP", full: "Largest Contentful Paint", display: curPsi.vitals.lcp.display, val: curPsi.vitals.lcp.value, good: 2500, bad: 4000 },
+    { label: "INP", full: "Interaction to Next Paint", display: curPsi.vitals.responsiveness.value, val: curPsi.vitals.responsiveness.numericValue, good: 200, bad: 500 },
+    { label: "CLS", full: "Cumulative Layout Shift", display: curPsi.vitals.cls.display, val: curPsi.vitals.cls.value, good: 0.1, bad: 0.25 },
   ] : [];
-  const fieldVitals = curPsi?.vitals?.lcp && curPsi.vitals.cls && curPsi.vitals.responsiveness ? [
-    { label: "Largest Contentful Paint", desc: "Time it takes for the page to load",
-      display: curPsi.vitals.lcp.display, val: curPsi.vitals.lcp.value, good: 2500, bad: 4000 },
-    { label: "Cumulative Layout Shift", desc: "How stable the elements on the page are",
-      display: curPsi.vitals.cls.display, val: curPsi.vitals.cls.value, good: 0.1, bad: 0.25 },
-    { label: "Interaction to Next Paint", desc: "How quickly your page responds when people interact with it",
-      display: curPsi.vitals.responsiveness.value, val: curPsi.vitals.responsiveness.numericValue, good: 200, bad: 500 },
-  ] : [];
+
+  // ── GSC chart series/tiles ──
+  const GSC_METRICS = [
+    { key: "clicks" as const,      label: "Total clicks",      color: CI.blue,   value: fmtNum(clicks),      delta: clicksD },
+    { key: "impressions" as const, label: "Total impressions", color: CI.dark,   value: fmtNum(impressions), delta: impressionsD },
+    { key: "ctr" as const,         label: "Average CTR",       color: CI.sage,   value: `${ctr}%`,           delta: ctrD },
+    { key: "position" as const,    label: "Average position",  color: CI.salmon, value: position.toFixed(1), delta: positionD, invert: true },
+  ];
+  const activeSeries = GSC_METRICS.filter(m => gscSeries[m.key]).map(m => ({ key: m.key, color: m.color, invert: m.key === "position" }));
+
+  const gscRows: { name: string; clicks: number; impressions: number; ctr: number; position: number; href?: string }[] =
+    gscTable === "queries"
+      ? (gsc?.queries ?? []).slice(0, 10).map(q => ({ name: q.query, ...q, href: `https://www.google.com/search?q=${encodeURIComponent(q.query)}` }))
+      : gscTable === "pages"
+        ? (gsc?.pages ?? []).slice(0, 10).map(p => ({ name: p.page.replace(project.website, "") || "/", clicks: p.clicks, impressions: p.impressions, ctr: p.ctr, position: p.position, href: p.page }))
+        : ((gsc as { devices?: { device: string; clicks: number; impressions: number }[] })?.devices ?? []).map(d => ({
+            name: d.device.toLowerCase(), clicks: d.clicks, impressions: d.impressions,
+            ctr: d.impressions ? Number(((d.clicks / d.impressions) * 100).toFixed(1)) : 0, position: 0,
+          }));
+
+  const newPct = users ? Math.round((newUsers / users) * 100) : 0;
 
   return (
-    <div className="bg-[#f1f3f4] -mx-6 -mt-4 px-4 pt-5 pb-10 min-h-screen space-y-3 w-[calc(100%+3rem)]">
+    <div className="bg-brand-mist -mx-6 -mt-4 px-4 pt-5 pb-10 min-h-screen space-y-3 w-[calc(100%+3rem)]">
       {loading && (
-        <div className="flex items-center gap-1.5 text-xs text-[#5f6368] bg-white rounded px-3 py-1.5 w-fit shadow-sm">
-          <RefreshCw size={11} className="animate-spin"/> กำลังโหลดข้อมูล...
+        <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-white rounded-lg px-3 py-1.5 w-fit shadow-sm">
+          <RefreshCw size={11} className="animate-spin" /> กำลังโหลดข้อมูล...
+        </div>
+      )}
+      {(gscError || ga4Error) && (
+        <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <AlertCircle size={12} className="shrink-0" />
+          <span>{gscError ? `GSC: ${gscError}` : ""}{gscError && ga4Error ? " · " : ""}{ga4Error ? `GA4: ${ga4Error}` : ""}</span>
         </div>
       )}
 
-      {/* ══ CARD 1 — Find out how your audience is growing ══ */}
-      <SKCard>
-        <div className="px-6 pt-5 pb-2">
-          <p className="text-[15px] font-normal text-[#202124] leading-snug">Find out how your audience is growing</p>
-          <p className="text-[13px] text-[#5f6368] mt-0.5">Track your site&apos;s traffic over time</p>
-        </div>
-        {/* layout: chart left, donut+tabs right — no border between */}
-        <div className="flex flex-col lg:flex-row">
-          {/* Left — metric selector + chart */}
-          <div className="flex-1 px-6 pt-2 pb-5 min-w-0">
-            {/* Clickable metric tabs */}
-            <div className="flex gap-6 border-b border-[#e8eaed] mb-3">
-              {[
-                { key: 'sessions' as const, label: 'All Visitors', value: sessions, delta: sessionsD },
-                { key: 'users' as const,    label: 'Unique Visitors', value: users, delta: usersD },
-              ].map(m => (
-                <button key={m.key} onClick={() => setActiveGa4Metric(m.key)}
-                  className={`pb-2.5 border-b-2 text-left transition-colors ${activeGa4Metric === m.key ? "border-[#137333]" : "border-transparent"}`}>
-                  <p className={`text-[13px] mb-0.5 ${activeGa4Metric === m.key ? "text-[#137333] font-medium" : "text-[#5f6368]"}`}>{m.label}</p>
-                  <p className="text-[2rem] font-normal text-[#202124] leading-none tracking-tight">{fmtBig(m.value)}</p>
-                  <Delta v={m.delta} />
+      {/* ══ ROW 1 — KPI cards (Clarity top strip) — GA4 ══ */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <CKpi label="Sessions" value={fmtNum(sessions)} sub={`${fmtNum(users)} unique users`} delta={sessionsD} />
+        <CKpi label="Pages per session" value={pagesPerSession ? pagesPerSession.toFixed(2) : "—"} sub="average" />
+        <CKpi label="Engagement rate" value={engagement ? `${engagement}%` : "—"} sub="average" />
+        <CKpi label="Active time spent" value={fmtMin(avgDur)} sub="avg per session" />
+      </div>
+
+      {/* ══ ROW 2 — Users overview · Insights · Performance overview ══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        {/* Users overview */}
+        <CCard title="Users overview">
+          <div className="space-y-2 mt-1">
+            <div className="border border-[#eef2f8] rounded-lg px-3 py-2.5 flex items-center gap-3">
+              <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: CI.mist, color: CI.blue }}>
+                <Users size={16} />
+              </span>
+              <div>
+                <p className="text-[1.35rem] leading-none font-bold text-brand-navy tabular-nums">{fmtNum(users)}</p>
+                <p className="text-[11px] text-gray-400 mt-1">Unique users</p>
+              </div>
+              {usersD !== 0 && (
+                <span className={`ml-auto text-[12px] font-semibold ${usersD >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  {usersD > 0 ? "↑" : "↓"}{Math.abs(usersD)}%
+                </span>
+              )}
+            </div>
+
+            {/* New vs returning bar — ซ่อนตอนยังไม่มีข้อมูล users */}
+            {users > 0 && (
+            <div className="pt-2">
+              <div className="h-3.5 rounded-full overflow-hidden flex bg-[#f4f7fb]">
+                <div style={{ width: `${newPct}%`, backgroundColor: CI.blue }} />
+                <div style={{ width: `${100 - newPct}%`, backgroundColor: CI.soft }} />
+              </div>
+              <div className="mt-2.5 space-y-1.5">
+                <div className="flex items-center gap-2 text-[12px]">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CI.blue }} />
+                  <span className="text-gray-500 flex-1">New users</span>
+                  <span className="font-semibold text-brand-navy tabular-nums">{newPct}%</span>
+                  <span className="text-gray-400 tabular-nums w-14 text-right">{fmtNum(newUsers)}</span>
+                </div>
+                <div className="flex items-center gap-2 text-[12px]">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CI.soft }} />
+                  <span className="text-gray-500 flex-1">Returning users</span>
+                  <span className="font-semibold text-brand-navy tabular-nums">{100 - newPct}%</span>
+                  <span className="text-gray-400 tabular-nums w-14 text-right">{fmtNum(returningUsers)}</span>
+                </div>
+              </div>
+            </div>
+            )}
+
+            {/* Top location banner */}
+            {topCountry && (
+              <div className="rounded-lg px-3 py-2.5 flex items-center gap-2.5 mt-2" style={{ backgroundColor: CI.mist }}>
+                <MapPin size={14} style={{ color: CI.blue }} className="shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-gray-500">Top location</p>
+                  <p className="text-[13px] font-semibold text-brand-navy truncate">{topCountry.country || "Unknown"}</p>
+                </div>
+                <span className="text-[12px] text-gray-500 tabular-nums shrink-0">{fmtNum(topCountry.sessions)} sessions</span>
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-gray-400 mt-3">Source: Google Analytics 4</p>
+        </CCard>
+
+        {/* Insights */}
+        <CCard title="Insights">
+          <div className="space-y-2 mt-1">
+            <InsightRow icon={<MousePointerClick size={16} />} label="Average CTR (Search)"
+              value={`${ctr}%`} sub={`${fmtNum(clicks)} clicks from Google`} />
+            <InsightRow icon={<Search size={16} />} label="Average position (Search)"
+              value={position ? position.toFixed(1) : "—"} sub="lower is better" />
+            <InsightRow icon={<Target size={16} />} label="Conversions"
+              value={fmtNum(conversions)} sub={conversionsD ? `${conversionsD > 0 ? "↑" : "↓"}${Math.abs(conversionsD)}% vs previous ${days} days` : `last ${days} days`} />
+            <InsightRow icon={<Activity size={16} />} label="Revenue"
+              value={revenue > 0 ? `฿${fmtNum(revenue)}` : "0"} sub="from GA4 ecommerce" />
+          </div>
+          <p className="text-[10px] text-gray-400 mt-3">Source: Search Console · GA4</p>
+        </CCard>
+
+        {/* Performance overview (PageSpeed) */}
+        <CCard title="Performance overview"
+          right={
+            <div className="flex rounded-full bg-[#f4f7fb] p-0.5">
+              {(["mobile", "desktop"] as const).map(m => (
+                <button key={m} onClick={() => setPsiMode(m)}
+                  className={`px-2.5 h-6 flex items-center text-[11px] font-medium rounded-full transition-colors ${psiMode === m ? "bg-brand-blue text-white" : "text-gray-500 hover:text-brand-navy"}`}>
+                  {m === "mobile" ? "Mobile" : "Desktop"}
                 </button>
               ))}
             </div>
-            <div className="mt-2">
-              <SKLineChart data={ga4Daily} field={activeGa4Metric} color="#137333" />
+          }>
+          {psiLoading ? (
+            <div className="flex items-center gap-2 text-[12px] text-gray-400 py-10 justify-center">
+              <RefreshCw size={12} className="animate-spin" /> กำลังโหลด PageSpeed...
             </div>
-            <p className="text-[11px] mt-3">
-              <a href={`https://analytics.google.com`} target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">
-                Source: Analytics ↗
-              </a>
-            </p>
-          </div>
-          {/* Right — tabs + donut (no border-left per screenshots) */}
-          <div className="lg:w-[340px] shrink-0 px-6 pt-3 pb-5">
-            <div className="flex gap-6 border-b border-[#e8eaed] mb-3">
-              {(['Channels','Locations','Devices'] as const).map(t => {
-                const key = t.toLowerCase() as 'channels'|'locations'|'devices';
-                return (
-                  <button key={t} onClick={() => setDonutTab(key)}
-                    className={`text-[13px] pb-2.5 border-b-2 transition-colors whitespace-nowrap ${
-                      donutTab === key ? "border-[#137333] text-[#202124] font-medium" : "border-transparent text-[#5f6368] hover:text-[#202124]"
-                    }`}>{t}
-                  </button>
-                );
-              })}
-            </div>
-            {donutTab === 'channels' && <SKDonut data={channelData} label="Channels"/>}
-            {donutTab === 'devices'  && <SKDonut data={deviceData}  label="Devices"/>}
-            {donutTab === 'locations' && (locationData.length
-              ? <SKDonut data={locationData} label="Locations"/>
-              : <p className="text-xs text-[#5f6368] py-10 text-center">ยังไม่มีข้อมูล Locations</p>
-            )}
-            <p className="text-[11px] mt-3">
-              <a href={`https://analytics.google.com`} target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">
-                Source: Analytics ↗
-              </a>
-            </p>
-          </div>
-        </div>
-      </SKCard>
+          ) : curPsi?.status === "ok" ? (
+            <div className="mt-1">
+              <div className="border border-[#eef2f8] rounded-lg px-3 py-2.5">
+                <div className="flex items-baseline gap-2">
+                  <p className="text-[1.6rem] leading-none font-bold tabular-nums" style={{ color: scoreColor }}>
+                    {perfScore ?? "—"}<span className="text-[13px] text-gray-400 font-normal">/100</span>
+                  </p>
+                  <p className="text-[11px] text-gray-400">Performance score ({psiMode})</p>
+                </div>
+                <div className="h-2 rounded-full bg-[#f4f7fb] mt-2 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${perfScore ?? 0}%`, backgroundColor: scoreColor }} />
+                </div>
+                <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400">
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />90+ good</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />50–89 needs improvement</span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />&lt;50 poor</span>
+                </div>
+              </div>
 
-      {/* ══ CARD 2 — Search traffic ══ */}
-      <SKCard>
-        <div className="px-6 pt-5 pb-2">
-          <p className="text-base font-normal text-[#202124]">Search traffic over the last {days} days</p>
-        </div>
-        {/* 3 metrics — กดได้เพื่อเปลี่ยน chart */}
-        <div className="px-6 pt-4 pb-5 grid grid-cols-3 gap-0">
-          {[
-            { label: "Total Impressions", value: impressions, delta: impressionsD, metric: 'impressions' as const },
-            { label: "Total Clicks",      value: clicks,      delta: clicksD,      metric: 'clicks' as const },
-            { label: "Unique Visitors from Search", value: users, delta: usersD,   metric: 'users' as const },
-          ].map((k, i) => {
-            const isActive = k.metric === activeGscMetric;
+              <p className="text-[11px] font-semibold text-gray-500 mt-3 mb-1.5">Performance score breakdown</p>
+              <div className="space-y-1.5">
+                {vitals.map(v => {
+                  const grade = v.val === null ? "—" : v.val <= v.good ? "good" : v.val <= v.bad ? "needs improvement" : "poor";
+                  const gc = v.val === null ? "#9ca3af" : v.val <= v.good ? "#059669" : v.val <= v.bad ? "#d97706" : "#dc2626";
+                  return (
+                    <div key={v.label} className="border border-[#eef2f8] rounded-lg px-3 py-2 flex items-center gap-3">
+                      <p className="text-[1.05rem] font-bold tabular-nums w-16 shrink-0" style={{ color: gc }}>{v.display ?? "—"}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[12px] text-brand-navy font-medium truncate">{v.label} ({v.full})</p>
+                        <p className="text-[11px] italic" style={{ color: gc }}>{grade}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <a href={`https://pagespeed.web.dev/report?url=${encodeURIComponent(project.website)}&strategy=${psiMode}`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-[11px] text-brand-blue hover:underline inline-block mt-2.5">
+                Learn how to improve your performance ↗
+              </a>
+            </div>
+          ) : (
+            <p className="text-[12px] text-gray-400 text-center py-10">ยังไม่มีข้อมูล PageSpeed สำหรับ {psiMode}</p>
+          )}
+        </CCard>
+      </div>
+
+      {/* ══ ROW 3 — Sources · Devices/Locations donut · Smart events ══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        {/* Traffic sources */}
+        <CCard title="Traffic sources">
+          <div className="mt-1.5">
+            <HBarList items={channelItems} color={CI.blue} />
+          </div>
+          <p className="text-[10px] text-gray-400 mt-3">Sessions by channel · Source: GA4</p>
+        </CCard>
+
+        {/* Devices / Locations donut */}
+        <CCard
+          title={
+            <span className="flex gap-4">
+              {(["devices", "locations"] as const).map(t => (
+                <button key={t} onClick={() => setDonutTab(t)}
+                  className={`pb-0.5 border-b-2 transition-colors ${donutTab === t ? "border-brand-blue text-brand-navy" : "border-transparent text-gray-400 hover:text-brand-navy"}`}>
+                  {t === "devices" ? "Devices" : "Locations"}
+                </button>
+              ))}
+            </span>
+          }>
+          <div className="mt-1">
+            {donutTab === "devices"
+              ? <SKDonut data={deviceData} label="Devices" />
+              : (locationData.length ? <SKDonut data={locationData} label="Locations" /> : <p className="text-[12px] text-gray-400 text-center py-10">ยังไม่มีข้อมูล Locations</p>)}
+          </div>
+          <p className="text-[10px] text-gray-400 mt-3">Sessions share · Source: GA4</p>
+        </CCard>
+
+        {/* Smart events */}
+        <CCard title="Smart events">
+          {events.length ? (
+            <div className="mt-1 divide-y divide-[#f1f5fa]">
+              {events.map((e, i) => (
+                <div key={i} className="flex items-center gap-3 py-2.5">
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: CI.mist, color: CI.blue }}>
+                    <Zap size={14} />
+                  </span>
+                  <p className="text-[12.5px] text-brand-navy truncate flex-1 min-w-0" title={e.event}>{e.event}</p>
+                  {e.isConversion && (
+                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 rounded-full px-2 py-0.5 shrink-0">conversion</span>
+                  )}
+                  <span className="text-[12px] text-gray-500 tabular-nums shrink-0">{fmtNum(e.count)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[12px] text-gray-400 text-center py-10">{ga4Loading ? "กำลังโหลด..." : "ยังไม่มีข้อมูล events"}</p>
+          )}
+          <p className="text-[10px] text-gray-400 mt-2">Event count · Source: GA4</p>
+        </CCard>
+      </div>
+
+      {/* ══ ROW 4 — Search performance (GSC-style tiles + multi-line chart) ══ */}
+      <CCard title={`Search performance — last ${days} days`} pad={false}>
+        <div className="px-4 pt-2 pb-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {GSC_METRICS.map(m => {
+            const on = gscSeries[m.key];
             return (
-              <button key={i}
-                onClick={() => k.metric && setActiveGscMetric(k.metric)}
-                className={`px-4 first:pl-0 text-left transition-colors rounded-lg py-1 ${k.metric ? "cursor-pointer hover:bg-[#f8f9fa]" : "cursor-default"}`}>
-                {isActive && <div className="h-[3px] w-full bg-[#137333] rounded-full mb-3"/>}
-                {!isActive && k.metric && <div className="h-[3px] w-full bg-transparent mb-3"/>}
-                <p className={`text-[13px] mb-1 ${isActive ? "text-[#137333] font-medium" : "text-[#5f6368]"}`}>{k.label}</p>
-                <p className="text-[2.25rem] font-normal text-[#202124] leading-none tracking-tight">{fmtBig(k.value)}</p>
-                {k.delta !== 0 && (
-                  <p className={`text-[13px] mt-1.5 font-normal ${k.delta > 0 ? "text-[#137333]" : "text-[#c5221f]"}`}>
-                    {k.delta > 0 ? "↑" : "↓"}{Math.abs(k.delta).toFixed(1)}%
+              <button key={m.key}
+                onClick={() => setGscSeries(s => ({ ...s, [m.key]: !s[m.key] }))}
+                className="rounded-lg px-3.5 py-3 text-left transition-opacity"
+                style={{ backgroundColor: on ? m.color : "#f4f7fb", opacity: on ? 1 : 0.9 }}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className={`w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center text-[9px] leading-none ${on ? "bg-white/25 border-white/70 text-white" : "border-gray-300 text-transparent bg-white"}`}>✓</span>
+                  <p className={`text-[11.5px] ${on ? "text-white/90" : "text-gray-500"}`}>{m.label}</p>
+                </div>
+                <p className={`text-[1.5rem] leading-none font-bold tabular-nums ${on ? "text-white" : "text-gray-400"}`}>{m.value}</p>
+                {m.delta !== 0 && (
+                  <p className={`text-[11px] mt-1 ${on ? "text-white/80" : "text-gray-400"}`}>
+                    {(m.invert ? m.delta < 0 : m.delta > 0) ? "▲" : "▼"} {Math.abs(m.delta)}{m.key === "position" ? "" : "%"} vs prev
                   </p>
                 )}
               </button>
             );
           })}
         </div>
-        {/* Chart legend + chart */}
-        <div className="px-6 pb-3">
-          <div className="flex items-center gap-5 mb-3 text-[12px] text-[#5f6368]">
-            <span className="flex items-center gap-1.5">
-              <svg width="24" height="3"><line x1="0" y1="1.5" x2="24" y2="1.5" stroke="#137333" strokeWidth="2"/></svg>
-              {activeGscMetric === 'clicks' ? 'Clicks' : activeGscMetric === 'impressions' ? 'Impressions' : 'Unique Visitors'}
-            </span>
-            <span className="flex items-center gap-1.5">
-              <svg width="24" height="4"><line x1="0" y1="2" x2="24" y2="2" stroke="#137333" strokeWidth="1.5" strokeDasharray="5 3" strokeOpacity="0.5"/></svg>
-              Previous period
-            </span>
-          </div>
-          {/* users มาจาก GA4 daily (GSC ไม่มี unique visitors) — สลับ data source ตาม metric */}
-          <SKLineChart data={activeGscMetric === 'users' ? ga4Daily : gscDaily} field={activeGscMetric} color="#137333" />
+        <div className="px-4 pt-3 pb-2">
+          <MLChart data={gscDaily as unknown as Record<string, number | string>[]} series={activeSeries} />
         </div>
-        <div className="px-6 py-3 text-[11px]">
-          <a href="https://search.google.com/search-console" target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">
-            Source: Search Console ↗
-          </a>
+        <div className="px-4 pb-3 flex items-center justify-between flex-wrap gap-2">
+          <p className="text-[10px] text-gray-400">Average position ใช้สเกลกลับด้าน (เส้นอยู่สูง = อันดับดี) · Source: Search Console</p>
+          <a href="https://search.google.com/search-console" target="_blank" rel="noopener noreferrer" className="text-[11px] text-brand-blue hover:underline">Open Search Console ↗</a>
         </div>
-      </SKCard>
+      </CCard>
 
-      {/* ══ CARD 3 — See how your content is doing (queries) ══ */}
-      <SKCard>
-        <div className="px-6 pt-5 pb-1">
-          <p className="text-base font-normal text-[#202124]">See how your content is doing</p>
-          <p className="text-[13px] text-[#5f6368] mt-0.5">Keep track of your most popular pages and how people found them from Search</p>
-        </div>
-        <div className="px-6 pt-4 pb-2">
-          <p className="text-[14px] font-semibold text-[#202124] mb-3">Top search queries for your site</p>
-          {gsc?.queries && gsc.queries.length > 0 ? (
+      {/* ══ ROW 5 — GSC table: Queries / Pages / Devices ══ */}
+      <CCard pad={false}
+        title={
+          <span className="flex gap-5">
+            {(["queries", "pages", "devices"] as const).map(t => (
+              <button key={t} onClick={() => setGscTable(t)}
+                className={`pb-0.5 border-b-2 uppercase tracking-wide text-[11.5px] transition-colors ${gscTable === t ? "border-brand-blue text-brand-navy font-semibold" : "border-transparent text-gray-400 hover:text-brand-navy"}`}>
+                {t}
+              </button>
+            ))}
+          </span>
+        }>
+        {gscRows.length ? (
+          <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-[#e8eaed]">
-                  <th className="pb-2 w-8 text-left"/>
-                  <th className="pb-2 text-left text-[13px] font-normal text-[#5f6368]"/>
-                  <th className="pb-2 text-right text-[13px] font-semibold text-[#202124] w-20">Clicks</th>
-                  <th className="pb-2 text-right text-[13px] font-semibold text-[#202124] w-24">Impressions</th>
+                <tr className="border-b border-[#eef2f8]">
+                  <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">
+                    {gscTable === "queries" ? "Top queries" : gscTable === "pages" ? "Top pages" : "Device"}
+                  </th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-20" style={{ color: CI.blue }}>Clicks</th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.dark }}>Impressions</th>
+                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-16" style={{ color: CI.sage }}>CTR</th>
+                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-20" style={{ color: CI.salmon }}>Position</th>
                 </tr>
               </thead>
               <tbody>
-                {gsc.queries.slice(0, 10).map((q, i) => (
-                  <tr key={i} className="border-b border-[#f1f3f4] last:border-0 hover:bg-[#f8f9fa]">
-                    <td className="py-3.5 text-[14px] text-[#5f6368] pr-2">{i + 1}.</td>
-                    <td className="py-3.5">
-                      <a href={`https://www.google.com/search?q=${encodeURIComponent(q.query)}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="text-[14px] text-[#1a73e8] hover:underline">{q.query}</a>
+                {gscRows.map((r, i) => (
+                  <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                    <td className="px-4 py-2.5 min-w-0">
+                      {r.href ? (
+                        <a href={r.href} target="_blank" rel="noopener noreferrer"
+                          className="text-[13px] text-brand-navy hover:text-brand-blue hover:underline block truncate max-w-md" title={r.name}>{r.name}</a>
+                      ) : (
+                        <span className="text-[13px] text-brand-navy block truncate max-w-md">{r.name}</span>
+                      )}
                     </td>
-                    <td className="py-3.5 text-[14px] text-right text-[#202124] tabular-nums">{q.clicks.toLocaleString()}</td>
-                    <td className="py-3.5 text-[14px] text-right text-[#202124] tabular-nums">{q.impressions.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{r.clicks.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.impressions.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.sage }}>{r.ctr}%</td>
+                    <td className="px-4 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.salmon }}>{r.position ? r.position.toFixed(1) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          ) : (
-            <p className="text-sm text-[#5f6368] py-8 text-center">{gscLoading ? "กำลังโหลด..." : "ยังไม่มีข้อมูล"}</p>
-          )}
-        </div>
-        <div className="px-6 py-3 text-[11px]">
-          <a href="https://search.google.com/search-console" target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">
-            Source: Search Console ↗
-          </a>
-        </div>
-      </SKCard>
-
-      {/* ══ CARD 4 — Top content ══ */}
-      <SKCard>
-        <div className="px-6 pt-5 pb-4">
-          <p className="text-base font-normal text-[#202124]">Top content over the last {days} days</p>
-        </div>
-        {ga4?.pages && ga4.pages.length > 0 ? (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[#e8eaed]">
-                <th className="px-6 pb-2 w-8 text-left"/>
-                <th className="pb-2 text-left text-[13px] font-semibold text-[#5f6368]">Title</th>
-                <th className="px-3 pb-2 text-right text-[13px] font-semibold text-[#5f6368] w-24">Pageviews</th>
-                <th className="px-3 pb-2 text-right text-[13px] font-semibold text-[#5f6368] w-20">Sessions</th>
-                <th className="px-3 pb-2 text-right text-[13px] font-semibold text-[#5f6368] w-28">Engagement Rate</th>
-                <th className="px-6 pb-2 text-right text-[13px] font-semibold text-[#5f6368] w-28">Session Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ga4.pages.slice(0, 10).map((p, i) => {
-                const parts = p.path.replace(/\/$/, '').split('/').filter(Boolean);
-                const title = parts[parts.length - 1] ?? p.path;
-                const dur = (p as {sessionDuration?:number}).sessionDuration ?? 0;
-                return (
-                  <tr key={i} className="border-b border-[#f1f3f4] last:border-0 hover:bg-[#f8f9fa]">
-                    <td className="pl-6 py-3.5 text-[14px] text-[#5f6368] pr-2">{i + 1}.</td>
-                    <td className="py-3.5 pr-3 min-w-0">
-                      <a href={`${project.website}${p.path}`} target="_blank" rel="noopener noreferrer"
-                        className="text-[14px] text-[#1a73e8] hover:underline block truncate max-w-xs leading-snug">
-                        {title}
-                      </a>
-                      <span className="text-[11px] text-[#5f6368] block truncate max-w-xs">{p.path}</span>
-                    </td>
-                    <td className="py-3.5 px-3 text-[14px] text-right text-[#202124] tabular-nums">{p.views.toLocaleString()}</td>
-                    <td className="py-3.5 px-3 text-[14px] text-right text-[#202124] tabular-nums">{p.sessions.toLocaleString()}</td>
-                    <td className="py-3.5 px-3 text-[14px] text-right text-[#202124] tabular-nums">{p.engagementRate ? `${p.engagementRate}%` : "—"}</td>
-                    <td className="pr-6 py-3.5 text-[14px] text-right text-[#202124] tabular-nums">{dur ? fmtDuration(dur) : "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <p className="text-sm text-[#5f6368] py-8 text-center px-6">{ga4Loading ? "กำลังโหลด..." : "ยังไม่มีข้อมูลหน้าเว็บ"}</p>
-        )}
-        <div className="px-6 py-3 text-[11px]">
-          <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">
-            Source: Analytics ↗
-          </a>
-        </div>
-      </SKCard>
-
-      {/* ══ CARD 5 — PageSpeed ══ */}
-      <SKCard>
-        <div className="px-6 pt-5 pb-4">
-          <p className="text-base font-normal text-[#202124]">Find out how visitors experience your site</p>
-          <p className="text-sm text-[#5f6368] mt-0.5">Keep track of how fast your pages are and get specific recommendations on what to improve</p>
-        </div>
-        {psiLoading ? (
-          <div className="px-6 py-10 flex items-center gap-2 text-sm text-[#5f6368]">
-            <RefreshCw size={13} className="animate-spin"/> กำลังโหลด PageSpeed...
           </div>
-        ) : (mPsi?.status === "ok" || dPsi?.status === "ok") ? (
-          <div>
-            {/* Tab bar + device pill toggle */}
-            <div className="px-6 flex items-center border-b border-[#e8eaed]">
-              <div className="flex flex-1">
-                {([
-                  { key: 'lab',     label: 'In the Lab' },
-                  { key: 'field',   label: 'In the Field' },
-                  { key: 'improve', label: 'How to improve' },
-                ] as const).map(t => (
-                  <button key={t.key} onClick={() => setPsiTab(t.key)}
-                    className={`py-3 mr-6 text-[14px] border-b-2 transition-colors ${
-                      psiTab === t.key ? "border-[#137333] text-[#202124] font-medium" : "border-transparent text-[#5f6368] hover:text-[#202124]"
-                    }`}>{t.label}
-                  </button>
-                ))}
-              </div>
-              {/* Device pill toggle — matches Site Kit screenshot exactly */}
-              <div className="flex items-center shrink-0 mb-1">
-                <div className="flex rounded-full bg-[#f1f3f4] p-0.5">
-                  <button onClick={() => setPsiMode("mobile")} title="Mobile"
-                    className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${psiMode === "mobile" ? "bg-[#137333] text-white shadow-sm" : "text-[#5f6368] hover:text-[#202124]"}`}>
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
-                  </button>
-                  <button onClick={() => setPsiMode("desktop")} title="Desktop"
-                    className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${psiMode === "desktop" ? "bg-[#137333] text-white shadow-sm" : "text-[#5f6368] hover:text-[#202124]"}`}>
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 3H4v10h16V3zm0 12H4v2h16v-2zM8 19h8v2H8v-2z"/></svg>
-                  </button>
+        ) : (
+          <p className="text-[12px] text-gray-400 text-center py-10">{gscLoading ? "กำลังโหลด..." : "ยังไม่มีข้อมูล"}</p>
+        )}
+        <p className="text-[10px] text-gray-400 px-4 py-2.5">Source: Search Console</p>
+      </CCard>
+
+      {/* ══ ROW 6 — Top pages (GA4) · How to improve (PSI) ══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <CCard title="Top pages">
+          <div className="mt-1.5">
+            <HBarList items={topPageItems} color={CI.soft} />
+          </div>
+          <p className="text-[10px] text-gray-400 mt-3">Pageviews · Source: GA4</p>
+        </CCard>
+
+        <CCard title="How to improve"
+          right={<span className="text-[11px] text-gray-400">{psiMode}</span>}>
+          {curPsi?.opportunities && curPsi.opportunities.length > 0 ? (
+            <div className="mt-1 divide-y divide-[#f1f5fa]">
+              {curPsi.opportunities.slice(0, 8).map((o, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: CI.mustard }} />
+                    <p className="text-[12.5px] text-brand-navy truncate">
+                      {o.type.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                    </p>
+                  </div>
+                  {o.savings && <span className="text-[12px] font-medium shrink-0" style={{ color: CI.sage }}>{o.savings}</span>}
                 </div>
-              </div>
+              ))}
             </div>
-
-            {/* ── In the Lab ── */}
-            {psiTab === 'lab' && (
-              curPsi?.status === "ok" ? (
-                <div className="px-6 py-6">
-                  <p className="text-[13px] text-[#5f6368] mb-6">
-                    Lab data is a snapshot of how your page performs right now, measured in tests we run in a controlled environment.{" "}
-                    <a href="https://web.dev/lab-and-field-data-differences/" target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">Learn more ↗</a>
-                  </p>
-                  <div className="space-y-7">
-                    {labVitals.map(v => {
-                      const grade = v.val === null ? "—" : v.val <= v.good ? "Good" : v.val <= v.bad ? "Needs Improvement" : "Poor";
-                      const gc = v.val === null ? "#5f6368" : v.val <= v.good ? "#137333" : v.val <= v.bad ? "#e37400" : "#c5221f";
-                      return (
-                        <div key={v.label} className="flex items-start justify-between gap-8">
-                          <div>
-                            <p className="text-[15px] font-semibold text-[#202124]">{v.label}</p>
-                            <p className="text-[13px] text-[#5f6368] mt-0.5">{v.desc}</p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-[15px] font-semibold tabular-nums" style={{ color: gc }}>{v.display ?? "N/A"}</p>
-                            <p className="text-[13px] font-medium" style={{ color: gc }}>{grade}</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <button onClick={() => setPsiTab('improve')}
-                    className="mt-7 px-6 py-2.5 bg-[#1a5e36] text-white text-[14px] font-medium rounded-full hover:bg-[#14492a] transition-colors">
-                    How to improve
-                  </button>
-                  <div className="mt-4 flex items-center justify-between text-[12px] text-[#5f6368]">
-                    <span className="underline cursor-pointer hover:text-[#202124]">Run test again</span>
-                    <a href={`https://pagespeed.web.dev/report?url=${encodeURIComponent(project.website)}&strategy=${psiMode}`}
-                      target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] underline">
-                      View details at PageSpeed Insights ↗
-                    </a>
-                  </div>
-                </div>
-              ) : <p className="px-6 py-8 text-[14px] text-[#5f6368] text-center">ยังไม่มีข้อมูล Lab สำหรับ {psiMode}</p>
-            )}
-
-            {/* ── In the Field ── */}
-            {psiTab === 'field' && (
-              curPsi?.status === "ok" ? (
-                <div className="px-6 py-6">
-                  <p className="text-[13px] text-[#5f6368] mb-6">
-                    Field data shows how real users actually loaded and interacted with your page over time.{" "}
-                    <a href="https://web.dev/lab-and-field-data-differences/" target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">Learn more ↗</a>
-                  </p>
-                  <div className="space-y-7">
-                    {fieldVitals.map((v, vi) => {
-                      const grade = v.val === null ? "—" : v.val <= v.good ? "Good" : v.val <= v.bad ? "Needs Improvement" : "Poor";
-                      const gc = v.val === null ? "#5f6368" : v.val <= v.good ? "#137333" : v.val <= v.bad ? "#e37400" : "#c5221f";
-                      return (
-                        <div key={v.label}>
-                          <div className="flex items-start justify-between gap-8">
-                            <div>
-                              <p className="text-[15px] font-semibold text-[#202124]">{v.label}</p>
-                              <p className="text-[13px] text-[#5f6368] mt-0.5">{v.desc}</p>
-                              {vi === 2 && (
-                                <p className="text-[12px] text-[#5f6368] mt-1">
-                                  INP is a new Core Web Vital that replaced FID in March 2024.{" "}
-                                  <a href="https://web.dev/inp/" target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">Learn more ↗</a>
-                                </p>
-                              )}
-                            </div>
-                            <div className="text-right shrink-0">
-                              <p className="text-[15px] font-semibold tabular-nums" style={{ color: gc }}>{v.display ?? "N/A"}</p>
-                              <p className="text-[13px] font-medium" style={{ color: gc }}>{grade}</p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-6 flex items-center justify-end text-[12px]">
-                    <a href={`https://pagespeed.web.dev/report?url=${encodeURIComponent(project.website)}&strategy=${psiMode}`}
-                      target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] underline">
-                      View details at PageSpeed Insights ↗
-                    </a>
-                  </div>
-                </div>
-              ) : <p className="px-6 py-8 text-[14px] text-[#5f6368] text-center">ยังไม่มีข้อมูล Field สำหรับ {psiMode}</p>
-            )}
-
-            {/* ── How to improve ── */}
-            {psiTab === 'improve' && (
-              <div className="px-6 py-6">
-                {curPsi?.opportunities && curPsi.opportunities.length > 0 ? (
-                  <div>
-                    <p className="text-[13px] text-[#5f6368] mb-4">Opportunities to improve page performance ({psiMode}):</p>
-                    {curPsi.opportunities.map((o, i) => (
-                      <div key={i} className="flex items-center justify-between py-3.5 border-b border-[#f1f3f4] last:border-0">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2.5 h-2.5 rounded-full bg-[#e37400] shrink-0"/>
-                          <p className="text-[14px] text-[#202124]">
-                            {o.type.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
-                          </p>
-                        </div>
-                        {o.savings && <span className="text-[13px] text-[#137333] font-medium shrink-0">{o.savings}</span>}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-[14px] text-[#137333] font-medium">ไม่พบจุดที่ต้องปรับปรุงสำหรับ {psiMode}</p>
-                    <p className="text-[13px] text-[#5f6368] mt-2">หน้าเว็บทำงานได้ดีอยู่แล้ว</p>
-                  </div>
-                )}
-                <div className="mt-5 flex items-center justify-end text-[12px]">
-                  <a href={`https://pagespeed.web.dev/report?url=${encodeURIComponent(project.website)}&strategy=${psiMode}`}
-                    target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] underline">
-                    View full report at PageSpeed Insights ↗
-                  </a>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="px-6 py-10 text-[14px] text-[#5f6368] text-center">ยังไม่มีข้อมูล PageSpeed</p>
-        )}
-        <div className="px-6 py-3 text-[11px]">
-          <a href={`https://pagespeed.web.dev/report?url=${encodeURIComponent(project.website)}`}
-            target="_blank" rel="noopener noreferrer" className="text-[#1a73e8] hover:underline">
-            Source: PageSpeed Insights ↗
+          ) : curPsi?.status === "ok" ? (
+            <p className="text-[12px] text-gray-400 text-center py-10">ไม่พบจุดที่ต้องปรับปรุง — หน้าเว็บทำงานได้ดีอยู่แล้ว</p>
+          ) : (
+            <p className="text-[12px] text-gray-400 text-center py-10">ยังไม่มีข้อมูล PageSpeed</p>
+          )}
+          <a href={`https://pagespeed.web.dev/report?url=${encodeURIComponent(project.website)}&strategy=${psiMode}`}
+            target="_blank" rel="noopener noreferrer" className="text-[11px] text-brand-blue hover:underline inline-block mt-2">
+            View full report at PageSpeed Insights ↗
           </a>
-        </div>
-      </SKCard>
+        </CCard>
+      </div>
     </div>
   );
 }

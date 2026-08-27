@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
         metrics: [
           { name: "sessions" }, { name: "totalUsers" },
           { name: "conversions" }, { name: "totalRevenue" }, { name: "engagementRate" },
+          { name: "screenPageViews" }, { name: "averageSessionDuration" }, { name: "newUsers" },
         ],
       }),
       runReport({
@@ -103,7 +104,9 @@ export async function POST(req: NextRequest) {
     const pct = (a: number, b: number) => b ? Math.round((a - b) / b * 100) : 0;
 
     const currSessions = mv(curr, 0), currUsers = mv(curr, 1), currConv = mv(curr, 2), currRev = mv(curr, 3), currEng = mv(curr, 4);
+    const currViews = mv(curr, 5), currDur = mv(curr, 6), currNew = mv(curr, 7);
     const prevSessions = mv(prev, 0), prevUsers = mv(prev, 1), prevConv = mv(prev, 2), prevRev = mv(prev, 3);
+    const prevViews = mv(prev, 5), prevDur = mv(prev, 6);
 
     return NextResponse.json({
       period: { start: fmt(start), end: fmt(end), days },
@@ -115,6 +118,11 @@ export async function POST(req: NextRequest) {
         usersDelta:    pct(currUsers, prevUsers),
         conversionsDelta: pct(currConv, prevConv),
         revenueDelta:  pct(currRev, prevRev),
+        pageviews: currViews,
+        avgSessionDuration: Number(currDur.toFixed(1)),
+        newUsers: currNew,
+        pageviewsDelta: pct(currViews, prevViews),
+        avgSessionDurationDelta: pct(currDur, prevDur),
       },
       channels: (byChannel.rows ?? []).map(r => ({
         channel:     dv(r, 0),
