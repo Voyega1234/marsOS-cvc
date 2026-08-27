@@ -20,7 +20,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logAIJob, DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
-import { dedupeKey, normalizeThaiSpacing } from '@/lib/wordgod/local/normalize';
+import { dedupeKey, hasForbiddenTerm, normalizeThaiSpacing, orderFreeKey } from '@/lib/wordgod/local/normalize';
 import {
   computeVolumeConfidence,
   emptyDfsMetric,
@@ -143,6 +143,8 @@ type PoolItem = {
   seed: string | null;
   product: string;
   heuristic: number;
+  /** รูปเขียนอื่นของคำเดียวกัน (สลับตำแหน่งคำ/close variant ของ KP) ที่ถูกยุบเข้าคำนี้ */
+  variants?: string[];
 };
 
 /** แถวที่ผ่านการคัดแล้ว (state ระหว่าง scoring → titles → finalize) */
@@ -193,6 +195,7 @@ function googleFromEntry(entry: MetricEntry, geo: { resolved: string; level: str
     competitionIndex: typeof entry.competition_index === 'number' ? entry.competition_index : null,
     bidLowMicros: typeof entry.cpc_low === 'number' && entry.cpc_low > 0 ? entry.cpc_low : null,
     bidHighMicros: typeof entry.cpc_high === 'number' && entry.cpc_high > 0 ? entry.cpc_high : null,
+    plannerCanonical: entry.planner_canonical ?? null,
     geoTarget: geo.resolved,
     geoLevel: geo.level,
     language,
@@ -409,6 +412,12 @@ export async function POST(req: NextRequest) {
 
     const pool = new Map<string, PoolItem>();
     if (Array.isArray(ckptData?.pool)) for (const it of ckptData.pool as PoolItem[]) pool.set(dedupeKey(it.keyword), it);
+    // ดัชนีคีย์แบบไม่สนลำดับคำ → dedupeKey เจ้าของ (จับ "ล้างแอร์ บางนา ราคาถูก" = "บางนา ล้างแอร์ ราคาถูก")
+    const orderIndex = new Map<string, string>();
+    for (const [key, it] of Array.from(pool.entries())) {
+      const ok = orderFreeKey(it.keyword);
+      if (!orderIndex.has(ok)) orderIndex.set(ok, key);
+    }
 
     const googleByKey = new Map<string, GoogleMetricData>(ckptData?.google ?? []);
     const dfsByKey = new Map<string, DfsMetricData>(ckptData?.dfs ?? []);
@@ -489,13 +498,29 @@ export async function POST(req: NextRequest) {
       const kw = normalizeThaiSpacing(keyword);
       const key = dedupeKey(kw);
       if (!key || kw.length < 2 || kw.length > 80) return false;
+      if (hasForbiddenTerm(kw)) return false; // คำพ่วงเว็บบอร์ด (pantip ฯลฯ) — ไม่เอาเข้าตาราง
+
       const existing = pool.get(key);
       if (existing) {
         if (!existing.sources.includes(source)) existing.sources.push(source);
         existing.heuristic = Math.max(existing.heuristic, heuristic);
         return false;
       }
+      // คำเดิมในรูปสลับตำแหน่ง/คำพ้อง → ยุบเข้าเจ้าของเดิม เก็บรูปนี้ไว้เป็น variant
+      const oKey = orderFreeKey(kw);
+      const ownerKey = orderIndex.get(oKey);
+      if (ownerKey && ownerKey !== key) {
+        const owner = pool.get(ownerKey);
+        if (owner) {
+          if (!owner.sources.includes(source)) owner.sources.push(source);
+          owner.heuristic = Math.max(owner.heuristic, heuristic);
+          const vars = owner.variants ?? (owner.variants = []);
+          if (!vars.includes(kw)) vars.push(kw);
+          return false;
+        }
+      }
       pool.set(key, { keyword: kw, raw: keyword, sources: [source], seed, product, heuristic });
+      orderIndex.set(oKey, key);
       return true;
     };
 
@@ -531,11 +556,35 @@ export async function POST(req: NextRequest) {
       relevanceTokenCache = Array.from(toks.values());
       return relevanceTokenCache;
     };
+    // คำนอกธุรกิจ/แบรนด์คู่แข่งจาก blueprint (checkpoint เก่าไม่มี field นี้ → [])
+    let negativeCache: string[] | null = null;
+    const negativeKeys = (): string[] => {
+      if (!negativeCache) negativeCache = (blueprint?.negativeEntities ?? []).map(dedupeKey).filter(k => k.length >= 3);
+      return negativeCache;
+    };
+    let competitorCache: string[] | null = null;
+    const competitorKeys = (): string[] => {
+      if (!competitorCache) competitorCache = (blueprint?.competitorBrands ?? []).map(dedupeKey).filter(k => k.length >= 3);
+      return competitorCache;
+    };
+    const competitorHits: string[] = [];
+    const offBusinessHits: string[] = [];
     const relevantToBusiness = (keyword: string): boolean => {
       const key = dedupeKey(keyword);
       if (!key) return false;
+      // แบรนด์คู่แข่ง → ตัดทิ้ง (เว้นแต่คำนั้นมีแบรนด์เราเองอยู่ด้วย)
+      if (!(brandKey && key.includes(brandKey)) && competitorKeys().some(c => key.includes(c))) {
+        if (competitorHits.length < 200) competitorHits.push(keyword);
+        return false;
+      }
       if (productKeys.some(p => key.includes(p) || p.includes(key))) return true;
       if (brandKey && key.includes(brandKey)) return true;
+      // มี entity นอกธุรกิจ (ไม่ได้ขาย/ไม่ได้ให้บริการ) → ตัด แม้จะมี token ทั่วไปร่วมกับธุรกิจ
+      // เช่น ธุรกิจซ่อม wifi: "ไอโฟน เชื่อม wifi ไม่ได้" มี token wifi แต่เป็นคำของสินค้าอื่น
+      if (negativeKeys().some(n => key.includes(n))) {
+        if (offBusinessHits.length < 200) offBusinessHits.push(keyword);
+        return false;
+      }
       // เทียบกับ seed ของ taxonomy (คำที่ AI ผูกกับธุรกิจแล้ว)
       if ((blueprint?.taxonomy ?? []).some(t =>
         t.seedKeywords.some(s => {
@@ -835,6 +884,43 @@ export async function POST(req: NextRequest) {
             }
             await checkpoint('kp', { kpChunk: totalChunks, kpIdeasDone: 1 });
           }
+          // ── รวมกลุ่ม close variants ตามที่ Google จัดให้ (planner_canonical) ──
+          // หลายคำใน pool ที่ KP ตอบ canonical เดียวกัน = คำเดียวกันในสายตา Google
+          // เก็บไว้แค่ตัวแทนเดียว ที่เหลือเป็น variant (โผล่เป็นคำรองตอน finalize)
+          const byCanonical = new Map<string, string[]>();
+          for (const key of Array.from(pool.keys())) {
+            const canon = googleByKey.get(key)?.plannerCanonical;
+            if (!canon) continue;
+            const cKey = dedupeKey(canon);
+            const list = byCanonical.get(cKey) ?? [];
+            list.push(key);
+            byCanonical.set(cKey, list);
+          }
+          let variantMerged = 0;
+          for (const [cKey, keys] of Array.from(byCanonical.entries())) {
+            if (keys.length < 2) continue;
+            const keeperKey = keys.includes(cKey)
+              ? cKey
+              : keys.reduce((a, b) => ((pool.get(a)?.heuristic ?? 0) >= (pool.get(b)?.heuristic ?? 0) ? a : b));
+            const keeper = pool.get(keeperKey);
+            if (!keeper) continue;
+            for (const k of keys) {
+              if (k === keeperKey) continue;
+              const item = pool.get(k);
+              if (!item) continue;
+              const vars = keeper.variants ?? (keeper.variants = []);
+              if (!vars.includes(item.keyword)) vars.push(item.keyword);
+              for (const src of item.sources) if (!keeper.sources.includes(src)) keeper.sources.push(src);
+              keeper.heuristic = Math.max(keeper.heuristic, item.heuristic);
+              pool.delete(k);
+              orderIndex.set(orderFreeKey(item.keyword), keeperKey);
+              variantMerged++;
+            }
+          }
+          if (variantMerged > 0) {
+            progress(`รวม close variants ตามการจัดกลุ่มของ Keyword Planner ${variantMerged} คำ`, stepOf('kp_volume'));
+            warnings.push(`Google Keyword Planner นับหลายรูปคำเป็นคำเดียวกัน — ยุบรวมแล้ว ${variantMerged} คำ (เก็บไว้เป็นคำรองของตัวแทน)`);
+          }
           kpFetchedAt = new Date().toISOString();
           kpStatus = kpEnriched > 0 ? (kpEnriched < lookup.length ? 'partial' : 'ok') : 'partial';
           if (kpEnriched === 0) kpMessage = 'Keyword Planner ไม่มีข้อมูลปริมาณการค้นหาสำหรับคำในชุดนี้';
@@ -846,7 +932,15 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-    if (needs('kp')) await checkpoint('dfs_volumes');
+    if (needs('kp')) {
+      if (competitorHits.length > 0) {
+        warnings.push(`ตัดคำค้นที่เป็นแบรนด์คู่แข่ง ${competitorHits.length} คำ เช่น ${competitorHits.slice(0, 5).join(', ')}`);
+      }
+      if (offBusinessHits.length > 0) {
+        warnings.push(`ตัดคำที่เป็นสินค้า/อุปกรณ์นอกธุรกิจ ${offBusinessHits.length} คำ เช่น ${offBusinessHits.slice(0, 5).join(', ')}`);
+      }
+      await checkpoint('dfs_volumes');
+    }
 
     // ── dfs_volumes: cross-check (เก็บแยกแหล่ง — ไม่เฉลี่ยรวมกับ Google เด็ดขาด) ──
     if (needs('dfs_volumes') && flags.useDataForSeo && hasDataForSeoCreds()) {
@@ -1161,7 +1255,7 @@ export async function POST(req: NextRequest) {
           cluster: assign.clusterName,
           clusterId: assign.clusterId,
           clusterRole: assign.clusterRole,
-          secondaryKeywords: cann.absorbed.get(w.clusterable.keyword) ?? [],
+          secondaryKeywords: Array.from(new Set([...(cann.absorbed.get(w.clusterable.keyword) ?? []), ...(w.item.variants ?? [])])),
           problemGroup: w.cls.problemGroup,
           google, dfs, reference, confidence,
           searchIntent: intent,

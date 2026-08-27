@@ -41,6 +41,8 @@ export interface LocalRawItem {
   sources: LocalKeywordSource[];
   metric?: MetricRecord | null;
   candidate?: GeneratedCandidate;
+  /** รูปเขียนอื่นของคำเดียวกัน (สลับตำแหน่งคำ/close variant ของ KP) ที่ถูกยุบเข้าคำนี้ */
+  variants?: string[];
 }
 
 function attributeService(keyword: string, context: ScoringContext): string {

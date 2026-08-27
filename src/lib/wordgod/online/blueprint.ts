@@ -80,7 +80,9 @@ ${stageList}
  "jtbd": [ { "job": "", "segment": "", "triggeredBy": "", "desiredOutcome": "" } ],  // 4-8 ข้อ
  "solutionMap": [ { "problem": "", "solutions": ["ทางแก้รวมทางเลือกอื่น"], "ourAnswer": "" } ],  // ตาม problemMap หลัก ๆ
  "purchaseFactors": [ { "factor": "", "weight": "HIGH|MEDIUM|LOW", "keywordAngles": ["มุมคำค้น"] } ],  // 4-7 ข้อ
- "taxonomy": [ { "branch": "ชื่อกิ่ง", "journeyStages": ["STAGE จากรายการ"], "product": "", "seedKeywords": ["seed ภาษาไทยที่คนพิมพ์ค้นจริง 4-8 คำ"] } ]  // 8-14 กิ่ง ครอบคลุมครบทั้ง TOFU/MOFU/BOFU + AEO_QUESTION + GEO_AI_TOPIC
+ "taxonomy": [ { "branch": "ชื่อกิ่ง", "journeyStages": ["STAGE จากรายการ"], "product": "", "seedKeywords": ["seed ภาษาไทยที่คนพิมพ์ค้นจริง 4-8 คำ"] } ],  // 8-14 กิ่ง ครอบคลุมครบทั้ง TOFU/MOFU/BOFU + AEO_QUESTION + GEO_AI_TOPIC
+ "negativeEntities": ["สินค้า/อุปกรณ์/บริการที่ธุรกิจนี้ไม่ได้ขายและไม่ได้ให้บริการ แต่เสี่ยงติดมากับคำค้นหมวดใกล้กัน"],  // 5-15 คำ เช่น ธุรกิจซ่อม wifi → "ไอโฟน", "ipad", "กล้องวงจรปิด", "เครื่องซักผ้า"
+ "competitorBrands": ["ชื่อแบรนด์/ร้านคู่แข่งในตลาดเดียวกัน"]  // 0-10 ชื่อ รู้จริงเท่านั้น ไม่รู้ให้ปล่อยว่าง ห้ามเดา
 }
 
 กติกาเด็ดขาด:
@@ -151,6 +153,8 @@ ${stageList}
       .filter(f => f.factor)
       .slice(0, 8),
     taxonomy,
+    negativeEntities: asStringArray(raw.negativeEntities, 20),
+    competitorBrands: asStringArray(raw.competitorBrands, 12),
     customerSource: input.targetCustomer ? 'USER' : 'AI_INFERRED',
   };
 }

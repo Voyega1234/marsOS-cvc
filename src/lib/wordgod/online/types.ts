@@ -206,6 +206,10 @@ export interface BusinessBlueprint {
   solutionMap: SolutionMapEntry[];
   purchaseFactors: PurchaseFactor[];
   taxonomy: TaxonomyNode[];
+  /** สินค้า/อุปกรณ์/บริการที่ธุรกิจ "ไม่ได้ขาย-ไม่ได้ให้บริการ" แต่เสี่ยงติดมากับคำค้นหมวดใกล้กัน — ใช้กรองคำหลุดธุรกิจ */
+  negativeEntities: string[];
+  /** ชื่อแบรนด์/ร้านคู่แข่ง — คำค้นที่เป็นแบรนด์คนอื่นถูกคัดออก (checkpoint เก่าอาจไม่มี ให้ guard ?? []) */
+  competitorBrands: string[];
   customerSource: 'USER' | 'AI_INFERRED';
 }
 

@@ -25,7 +25,8 @@ import {
   type SerpSignals,
   type VolumeConfidence,
 } from './metrics';
-import { dedupeKey } from './normalize';
+import { dedupeKey, orderFreeKey } from './normalize';
+import { textSimilarity } from '../online/clustering';
 import type { KeywordResearchResult } from './types';
 
 // ── น้ำหนักคะแนน (สเปก §46, §48) ─────────────────────────────────────────────
@@ -396,6 +397,45 @@ export function mergeBySerpOverlap(
           reason: `SERP ทับกับ "${primary.keyword}" ${(overlap * 100).toFixed(0)}% — Google มองเป็นเจตนาเดียวกัน`,
         });
       }
+    }
+  }
+  return { merged };
+}
+
+// ── Text-similarity merge (feedback HRC 2026-08) ────────────────────────────
+
+export interface TextMergeOutcome {
+  merged: Map<string, { primaryKey: string; reason: string }>;
+}
+
+/**
+ * จับคำที่ "ข้อความแทบเป็นคำเดียวกัน" ให้รวมกันแม้ไม่มีข้อมูล SERP
+ * (mergeBySerpOverlap ต้องมี topUrls ≥ 5 ซึ่งเช็กได้แค่บางคำ) — สองเงื่อนไข:
+ *  - orderFreeKey ตรงกัน = token ชุดเดียวกันสลับตำแหน่ง/คำพ้อง ("ล้างแอร์ บางนา ราคาถูก"
+ *    vs "บางนา ล้างแอร์ ราคาถูก") → รวมแน่นอน
+ *  - char-bigram dice ≥ 0.9 = สะกดต่างนิดเดียว → รวม
+ */
+export function mergeByTextSimilarity(
+  items: Array<{ keyword: string; finalScore: number }>
+): TextMergeOutcome {
+  const merged: TextMergeOutcome['merged'] = new Map();
+  const sorted = [...items].sort((a, b) => b.finalScore - a.finalScore);
+  const orderKeys = sorted.map(i => orderFreeKey(i.keyword));
+  for (let i = 0; i < sorted.length; i++) {
+    const hi = sorted[i];
+    if (merged.has(dedupeKey(hi.keyword))) continue;
+    for (let j = i + 1; j < sorted.length; j++) {
+      const lo = sorted[j];
+      const loKey = dedupeKey(lo.keyword);
+      if (merged.has(loKey)) continue;
+      const sameTokens = orderKeys[i] === orderKeys[j];
+      if (!sameTokens && textSimilarity(hi.keyword, lo.keyword) < 0.9) continue;
+      merged.set(loKey, {
+        primaryKey: dedupeKey(hi.keyword),
+        reason: sameTokens
+          ? `คำเดียวกับ "${hi.keyword}" (สลับตำแหน่งคำ/คำพ้อง) — รวมเป็นคำรอง`
+          : `ข้อความแทบเหมือน "${hi.keyword}" — รวมเป็นคำรองกันหน้าซ้ำ`,
+      });
     }
   }
   return { merged };

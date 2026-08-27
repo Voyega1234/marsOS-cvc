@@ -474,6 +474,8 @@ export interface MetricEntry {
   variant_keyword?: string;  // legacy compatibility; new lookups never synthesize variant volume
   /** ยอดค้นหาย้อนหลังรายเดือน (เก่า → ใหม่) สำหรับ trend chart */
   monthly_trend?: number[];
+  /** รูปคำที่ Keyword Planner ใช้เป็นตัวแทนกลุ่ม close variants — คำ input หลายคำที่ได้ค่านี้ตรงกันคือคำเดียวกันในสายตา Google */
+  planner_canonical?: string;
 }
 
 export async function getHistoricalMetrics(
@@ -579,13 +581,15 @@ export async function getHistoricalMetrics(
         if (isNaN(volume) || volume < 0) continue;
 
         const allForms = [plannerText, ...closeVariants];
-        const matchedInput = Array.from(inputSet).find(inp =>
+        // จับ "ทุก" input ที่อยู่กลุ่ม close variants เดียวกัน — เดิมเก็บแค่คำแรก
+        // ทำให้ข้อมูลว่า Google มองหลายคำเป็นคำเดียวกันหายไป (feedback HRC: คำสลับตำแหน่งซ้ำกันเอง)
+        const matchedInputs = Array.from(inputSet).filter(inp =>
           allForms.some(form => form === inp || form.replace(/\s/g, '') === inp.replace(/\s/g, ''))
         );
-        if (matchedInput && !result.has(matchedInput)) {
+        if (matchedInputs.length > 0) {
           const cpcLow = convertMicrosToCpcCurrency(metrics.lowTopOfPageBidMicros, cpcContext.conversion);
           const cpcHigh = convertMicrosToCpcCurrency(metrics.highTopOfPageBidMicros, cpcContext.conversion);
-          result.set(matchedInput, {
+          const entry: MetricEntry = {
             volume,
             competition: mapCompetition(metrics.competition),
             competition_index: parseInt(String(metrics.competitionIndex || '0'), 10),
@@ -601,8 +605,13 @@ export async function getHistoricalMetrics(
             monthly_trend: (metrics.monthlySearchVolumes || [])
               .map((m: { monthlySearches?: string }) => parseInt(m.monthlySearches || '0', 10))
               .filter((v: number) => !isNaN(v)),
-          });
-          logLine(`exact: "${matchedInput}" vol=${volume}`);
+            planner_canonical: plannerText,
+          };
+          for (const matchedInput of matchedInputs) {
+            if (result.has(matchedInput)) continue;
+            result.set(matchedInput, entry);
+            logLine(`exact: "${matchedInput}" vol=${volume}${matchedInputs.length > 1 ? ` (group: ${plannerText})` : ''}`);
+          }
         }
       }
     } catch (err) {

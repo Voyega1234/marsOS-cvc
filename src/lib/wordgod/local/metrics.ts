@@ -29,6 +29,8 @@ export interface GoogleMetricData {
   language: string;
   retrievedAt: string | null;        // ISO timestamp ตอนดึงข้อมูล
   status: MetricStatus;
+  /** รูปคำตัวแทนกลุ่ม close variants จาก Keyword Planner — หลายคำที่ค่านี้ตรงกัน = คำเดียวกันในสายตา Google */
+  plannerCanonical?: string | null;
 }
 
 export interface DfsMetricData {

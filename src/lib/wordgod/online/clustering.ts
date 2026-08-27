@@ -16,6 +16,7 @@ import type {
   SlugStatus,
   TopicRole,
 } from './types';
+import { orderFreeKey } from '../local/normalize';
 
 // ── ธีมจาก journey stage ────────────────────────────────────────────────────
 
@@ -152,6 +153,30 @@ export function detectCannibalization(rows: ClusterableRow[]): CannibalizationRe
       }
     }
   }
+
+  // รอบสอง: เทียบ "ข้ามกลุ่ม" ทั้ง pool — AI อาจติดป้าย journey stage ต่างกันให้คำที่
+  // เจตนาเดียวกัน (เช่น "ล้างแอร์ บางนา ราคาถูก" vs "บางนา ล้างแอร์ ราคาถูก") ทำให้
+  // รอบแรกไม่เคยได้เทียบกันเลย — รอบนี้จับเฉพาะเคสชัวร์: token ชุดเดียวกัน (orderFreeKey),
+  // ข้อความแทบเหมือนกัน (≥ MERGE_SIM) หรือ SERP ทับกันหนัก (≥ 0.75)
+  const GLOBAL_SERP_MERGE = 0.75;
+  const allSorted = [...rows].sort((a, b) => b.finalScore - a.finalScore);
+  for (let i = 0; i < allSorted.length; i++) {
+    const hi = allSorted[i];
+    if (actions.has(hi.keyword)) continue;
+    for (let j = i + 1; j < allSorted.length; j++) {
+      const lo = allSorted[j];
+      if (actions.has(lo.keyword)) continue;
+      const sameTokens = orderFreeKey(hi.keyword) === orderFreeKey(lo.keyword);
+      if (!sameTokens
+        && textSimilarity(hi.keyword, lo.keyword) < MERGE_SIM
+        && serpOverlap(hi.topUrls, lo.topUrls) < GLOBAL_SERP_MERGE) continue;
+      actions.set(lo.keyword, { action: 'MERGE', target: hi.keyword });
+      const secs = absorbed.get(hi.keyword) ?? [];
+      secs.push(lo.keyword);
+      absorbed.set(hi.keyword, secs);
+    }
+  }
+
   return { absorbed, actions, penalties };
 }
 

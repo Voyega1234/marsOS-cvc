@@ -40,7 +40,7 @@ import type {
   LocalResearchInput,
   LocalResearchResponse,
 } from '@/lib/wordgod/local/types';
-import { dedupeKey, normalizeThaiSpacing } from '@/lib/wordgod/local/normalize';
+import { dedupeKey, hasForbiddenTerm, normalizeThaiSpacing, orderFreeKey } from '@/lib/wordgod/local/normalize';
 import {
   emptyDfsMetric,
   emptyGoogleMetric,
@@ -56,6 +56,7 @@ import {
   assignWaves,
   buildIntel,
   mergeBySerpOverlap,
+  mergeByTextSimilarity,
   normalizeWeights,
   resolveLocationSwapGroups,
   selectWithClusterQuota,
@@ -155,6 +156,7 @@ function googleFromEntry(
     competitionIndex: typeof entry.competition_index === 'number' ? entry.competition_index : null,
     bidLowMicros: typeof entry.cpc_low === 'number' && entry.cpc_low > 0 ? entry.cpc_low : null,
     bidHighMicros: typeof entry.cpc_high === 'number' && entry.cpc_high > 0 ? entry.cpc_high : null,
+    plannerCanonical: entry.planner_canonical ?? null,
     geoTarget: geo.resolved,
     geoLevel: geo.level,
     language,
@@ -459,6 +461,41 @@ export async function POST(req: NextRequest) {
     if (Array.isArray(ckptData?.items)) {
       for (const it of ckptData.items as LocalRawItem[]) items.set(dedupeKey(it.keyword), it);
     }
+    // ดัชนีคีย์แบบไม่สนลำดับคำ → dedupeKey เจ้าของ ("ล้างแอร์ บางนา ราคาถูก" = "บางนา ล้างแอร์ ราคาถูก")
+    const orderIndex = new Map<string, string>();
+    for (const [key, it] of Array.from(items.entries())) {
+      const ok = orderFreeKey(it.keyword);
+      if (!orderIndex.has(ok)) orderIndex.set(ok, key);
+    }
+    /**
+     * ขอสิทธิ์เพิ่มคำใหม่ลง items — คืน dedupeKey เมื่อเพิ่มได้จริง
+     * คืน null เมื่อเป็นคำเดิม (ตรงตัว หรือสลับตำแหน่ง/คำพ้อง) โดยรวม source
+     * เข้าเจ้าของเดิม และเก็บรูปเขียนนี้ไว้เป็น variant ของเจ้าของ
+     */
+    const claimKey = (keyword: string, source: LocalKeywordSource): string | null => {
+      const key = dedupeKey(keyword);
+      if (!key) return null;
+      if (hasForbiddenTerm(keyword)) return null; // คำพ่วงเว็บบอร์ด (pantip ฯลฯ) — ไม่เอาเข้าตาราง
+
+      const existing = items.get(key);
+      if (existing) {
+        if (!existing.sources.includes(source)) existing.sources.push(source);
+        return null;
+      }
+      const oKey = orderFreeKey(keyword);
+      const ownerKey = orderIndex.get(oKey);
+      if (ownerKey && ownerKey !== key) {
+        const owner = items.get(ownerKey);
+        if (owner) {
+          if (!owner.sources.includes(source)) owner.sources.push(source);
+          const vars = owner.variants ?? (owner.variants = []);
+          if (!vars.includes(keyword)) vars.push(keyword);
+          return null;
+        }
+      }
+      orderIndex.set(oKey, key);
+      return key;
+    };
     const generatedTrafficKeys = new Set<string>(ckptData?.trafficKeys ?? []);
     let generatedCount: number = ckptData?.c?.generatedCount ?? 0;
 
@@ -549,7 +586,9 @@ export async function POST(req: NextRequest) {
       progress(`เริ่มวิเคราะห์: ${services.join(', ')} @ ${primaryLocation.name} — เป้า ${targetCount} SEO Opportunities (Sales ${Math.round(weights.sales * 100)}% / Traffic ${Math.round(weights.traffic * 100)}%)`);
       const candidates = generateLocalCandidates(input);
       for (const candidate of candidates) {
-        items.set(dedupeKey(candidate.keyword), {
+        const key = claimKey(candidate.keyword, 'generated');
+        if (!key) continue;
+        items.set(key, {
           keyword: candidate.keyword,
           sources: ['generated'] as LocalKeywordSource[],
           candidate,
@@ -577,8 +616,8 @@ export async function POST(req: NextRequest) {
           let addedPf = 0;
           for (const pk of expanded.keywords) {
             const keyword = normalizeThaiSpacing(pk.keyword);
-            const key = dedupeKey(keyword);
-            if (!key || items.has(key)) continue;
+            const key = claimKey(keyword, 'generated');
+            if (!key) continue;
             items.set(key, { keyword, sources: ['generated'] as LocalKeywordSource[], metric: null });
             generatedTrafficKeys.add(key);
             addedPf++;
@@ -627,8 +666,8 @@ export async function POST(req: NextRequest) {
             try { parsed = JSON.parse(m[0]); } catch { continue; }
             for (const row of parsed.keywords ?? []) {
               const kw = normalizeThaiSpacing(String(row?.keyword ?? '').trim());
-              const key = dedupeKey(kw);
-              if (!key || items.has(key)) continue;
+              const key = claimKey(kw, 'generated');
+              if (!key) continue;
               items.set(key, { keyword: kw, sources: ['generated'] as LocalKeywordSource[], metric: null });
               generatedTrafficKeys.add(key);
               waveAdded++; genAdded++;
@@ -698,7 +737,9 @@ export async function POST(req: NextRequest) {
               existing.sources = Array.from(new Set([...existing.sources, 'dataforseo' as LocalKeywordSource]));
               continue;
             }
-            items.set(key, { keyword, sources: ['dataforseo'] as LocalKeywordSource[], metric: null });
+            const claimed = claimKey(keyword, 'dataforseo');
+            if (!claimed) continue;
+            items.set(claimed, { keyword, sources: ['dataforseo'] as LocalKeywordSource[], metric: null });
             added++;
           }
           if (added > 0) {
@@ -824,6 +865,41 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // ── รวมกลุ่ม close variants ตามที่ Keyword Planner จัดให้ (planner_canonical) ──
+          // หลายคำที่ KP ตอบ canonical เดียวกัน = คำเดียวกันในสายตา Google
+          // เก็บตัวแทนเดียว ที่เหลือเป็น variant (จะโผล่เป็นคำรองตอนสรุปผล)
+          const byCanonical = new Map<string, string[]>();
+          for (const key of Array.from(items.keys())) {
+            const canon = googleByKey.get(key)?.plannerCanonical;
+            if (!canon) continue;
+            const cKey = dedupeKey(canon);
+            const list = byCanonical.get(cKey) ?? [];
+            list.push(key);
+            byCanonical.set(cKey, list);
+          }
+          let variantMerged = 0;
+          for (const [cKey, keys] of Array.from(byCanonical.entries())) {
+            if (keys.length < 2) continue;
+            const keeperKey = keys.includes(cKey) ? cKey : keys[0];
+            const keeper = items.get(keeperKey);
+            if (!keeper) continue;
+            for (const k of keys) {
+              if (k === keeperKey) continue;
+              const it = items.get(k);
+              if (!it) continue;
+              const vars = keeper.variants ?? (keeper.variants = []);
+              if (!vars.includes(it.keyword)) vars.push(it.keyword);
+              keeper.sources = Array.from(new Set([...keeper.sources, ...it.sources]));
+              items.delete(k);
+              orderIndex.set(orderFreeKey(it.keyword), keeperKey);
+              variantMerged++;
+            }
+          }
+          if (variantMerged > 0) {
+            progress(`รวม close variants ตามการจัดกลุ่มของ Keyword Planner ${variantMerged} คำ`, { count: items.size });
+            warnings.push(`Google Keyword Planner นับหลายรูปคำเป็นคำเดียวกัน — ยุบรวมแล้ว ${variantMerged} คำ (เก็บเป็นคำรองของตัวแทน)`);
+          }
+
           kpStep = 1;
           await checkpoint('kp', { kpStep });
           } // จบ kpStep 0
@@ -869,6 +945,7 @@ export async function POST(req: NextRequest) {
                 }
                 if (!isRelevantIdea(keyword, serviceKeys, areaKeys)) continue;
                 if (added >= 150) break;
+                if (claimKey(keyword, 'keyword_planner') !== key) continue;
                 items.set(key, {
                   keyword,
                   sources: ['keyword_planner'],
@@ -953,6 +1030,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
                 const keyword = normalizeThaiSpacing(row.keyword);
                 const key = dedupeKey(keyword);
                 if (!key || items.has(key)) continue;
+                if (claimKey(keyword, 'keyword_planner') !== key) continue;
                 items.set(key, {
                   keyword,
                   sources: ['keyword_planner'],
@@ -1160,6 +1238,12 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
           serp: serpByKey.get(key) ?? emptySerpSignals(),
           candidateSources: item ? item.sources.slice() : ['generated'],
         }, weights, ctx);
+        // รูปเขียนอื่นที่ถูกยุบเข้าคำนี้ (สลับตำแหน่ง/close variant) = คำรองของหน้าเดียวกัน
+        if (item?.variants?.length) {
+          for (const v of item.variants) {
+            if (!r.intel!.secondaryKeywords.includes(v)) r.intel!.secondaryKeywords.push(v);
+          }
+        }
         byKey.set(key, r);
       }
 
@@ -1178,12 +1262,22 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
           intent: r.intel!.searchIntent.intent,
         }));
       const serpMerge = mergeBySerpOverlap(serpMergeInput);
+      // ชั้นที่สาม: ข้อความแทบเป็นคำเดียวกัน (สลับตำแหน่ง/คำพ้อง/สะกดต่างนิดเดียว)
+      // — ครอบคลุมคำที่ไม่มีข้อมูล SERP ให้ mergeBySerpOverlap เช็ก
+      const textMerge = mergeByTextSimilarity(
+        ranked.results.map(r => ({ keyword: r.keyword, finalScore: r.intel!.finalScore }))
+      );
 
       const demotions = new Map<string, { primaryKey: string; action: CannibalizationAction; reason: string }>();
       for (const [key, info] of Array.from(swap.demoted.entries())) {
         demotions.set(key, { primaryKey: info.primaryKey, action: info.action, reason: info.reason });
       }
       for (const [key, info] of Array.from(serpMerge.merged.entries())) {
+        if (!demotions.has(key)) {
+          demotions.set(key, { primaryKey: info.primaryKey, action: 'MERGE', reason: info.reason });
+        }
+      }
+      for (const [key, info] of Array.from(textMerge.merged.entries())) {
         if (!demotions.has(key)) {
           demotions.set(key, { primaryKey: info.primaryKey, action: 'MERGE', reason: info.reason });
         }
@@ -1211,7 +1305,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         demotedApplied++;
       }
       if (demotedApplied > 0) {
-        progress(`รวมคำเจตนาซ้ำเป็นคำรอง ${demotedApplied} คำ (location-swap + SERP overlap)`);
+        progress(`รวมคำเจตนาซ้ำเป็นคำรอง ${demotedApplied} คำ (location-swap + SERP overlap + คำสลับตำแหน่ง)`);
         warnings.push(`รวมคำที่เจตนาซ้ำกันเป็นคำรอง ${demotedApplied} คำ — กันหน้า doorway/คำกินกันเอง (ดูใน Detail ของแต่ละคำหลัก)`);
       }
 
