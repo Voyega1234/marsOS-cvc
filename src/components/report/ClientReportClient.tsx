@@ -1012,11 +1012,17 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   // ── Conversion deep-dive: โยง GSC query×page ↔ GA4 conversion ราย landing page ──
   const landingConv = ga4?.landingConversions ?? [];
   const queryPages  = gsc?.queryPages ?? [];
-  const pathOf = (u: string) => { try { return new URL(u).pathname } catch { return u } };
+  // normalize path ให้ GA4 (ไม่มี trailing slash) กับ GSC (มี trailing slash + percent-encoded) แมตช์กัน
+  const normPath = (raw: string) => {
+    let v = raw; try { v = decodeURIComponent(v) } catch {}
+    v = v.replace(/\/+$/, "");
+    return v === "" ? "/" : v;
+  };
+  const pathOf = (u: string) => { try { return normPath(new URL(u).pathname) } catch { return normPath(u) } };
   // property ที่ยังไม่ตั้ง conversion/key event ใน GA4 → สลับไปใช้ eventCount แทน (หัวคอลัมน์เปลี่ยนเป็น Events)
   const hasConv = landingConv.some(l => l.conversions > 0);
   const convByPath = new Map<string, number>();
-  landingConv.forEach(l => { const v = hasConv ? l.conversions : (l.events ?? 0); if (v > 0) convByPath.set(l.path, v) });
+  landingConv.forEach(l => { const v = hasConv ? l.conversions : (l.events ?? 0); if (v > 0) convByPath.set(normPath(l.path), v) });
   const pageClickTotals = new Map<string, number>();
   queryPages.forEach(r => { const pp = pathOf(r.page); pageClickTotals.set(pp, (pageClickTotals.get(pp) ?? 0) + r.clicks) });
   // กระจาย conversion ของแต่ละหน้าให้ keyword ตามสัดส่วน clicks (ประมาณการ — GA4 ไม่บอก keyword ตรง ๆ)

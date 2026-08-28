@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
         dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
         dimensions: [{ name: "landingPage" }],
         metrics: [{ name: "sessions" }, { name: "conversions" }, { name: "totalRevenue" }, { name: "eventCount" }],
-        orderBys: [{ metric: { metricName: "conversions" }, desc: true }],
+        orderBys: [{ metric: { metricName: "conversions" }, desc: true }, { metric: { metricName: "eventCount" }, desc: true }],
         limit: 25,
       }),
       // Locations donut (Site Kit-style): sessions by country
