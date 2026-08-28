@@ -60,7 +60,7 @@ async function compressToWebP(
   try {
     let img = sharp(inputBuf)
     // โมเดลภาพบางตัว (เช่น gpt-5-image) คืนสัดส่วนไม่ตรงที่สั่ง —
-    // crop ให้ได้สัดส่วนเป้าหมายเสมอ (cover = 1:1 จัตุรัส, mid = 1.9:1)
+    // crop ให้ได้สัดส่วนเป้าหมายเสมอ (cover = 16:9 แนวนอน, mid = 1.9:1)
     // ปกครอปจากกึ่งกลางเสมอ — saliency ('attention') ชอบเลื่อนกรอบไปตัดตัวหนังสือทิ้ง
     if (targetWidth && targetHeight) {
       const meta = await img.metadata()
@@ -131,8 +131,8 @@ export async function callGeminiImage(params: {
     keyword, title, type,
     siteName = '', brandTone = '', accentColor = '',
     themeColor = '', backgroundColor = '', textColor = '',
-    width = type === 'cover' ? 1024 : 1200,
-    height = type === 'cover' ? 1024 : 630,
+    width = type === 'cover' ? 1600 : 1200,
+    height = type === 'cover' ? 900 : 630,
     promptTemplate,
     imageStyleGuide = '',
     coverSubtitle = '',
@@ -190,7 +190,7 @@ export async function callGeminiImage(params: {
 - COMPOSITION (hard requirement): keep the subject and every important detail in the UPPER TWO THIRDS of the frame. The BOTTOM HALF must be calm, simple, uncluttered negative space (floor, wall, sky, water, blurred background, plain gradient) because a solid colour panel is composited over it. Nothing important may sit in the bottom half
 - Leave the frame edges clean: no borders, frames, vignette text, collage panels or split-screen layouts`
     : type === 'cover'
-    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a SQUARE 1:1 marketing cover built on a REAL PHOTOGRAPH with flat graphic panels on top — it MUST include readable text rendered inside the image:
+    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a WIDE 16:9 LANDSCAPE marketing cover built on a REAL PHOTOGRAPH with flat graphic panels on top — it MUST include readable text rendered inside the image:
 - Main headline (dominant focal element, large bold legible typography): "${title}"
 - Use the SAME language(s) as the headline above — Thai, English, or a mix, exactly as written. Do NOT force one language and do NOT translate the title
 - TEXT BUDGET (hard limit): the whole image contains AT MOST 2 text elements — the headline above, plus an optional single-line sub-headline whose text must be EXACTLY "${keyword}" and nothing else. You may leave the sub-headline out entirely, but you may NEVER write your own words for it: any other phrase, slogan, benefit line or made-up wording is forbidden because invented text always comes out as broken glyphs. Nothing else in the image carries text

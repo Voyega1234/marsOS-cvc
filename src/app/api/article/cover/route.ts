@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     keyword, title,
     siteName = '', brandTone = '',
     accentColor = '',
-    width = 1024, height = 1024,
+    width, height,
     type = 'cover' as 'cover' | 'mid',
     projectId,
     subtitle = '',
