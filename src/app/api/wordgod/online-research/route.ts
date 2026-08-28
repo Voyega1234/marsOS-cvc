@@ -66,6 +66,7 @@ import {
 } from '@/lib/wordgod/online/blueprint';
 import { scanWebsiteContext } from '@/lib/wordgod/online/siteScan';
 import { callGemini } from '@/lib/wordgod/gemini';
+import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
 import {
   buildScoringContext,
@@ -1188,8 +1189,51 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Relevance Guard: ตัดคำที่ไม่ใช่ลูกค้าของธุรกิจ (เช่น คำค้นหาหน่วยงานราชการ/สถานที่)
+      // ที่รอดชั้นกรอง n-gram มาได้ — LLM ตัดสินเจตนา, fail-open (พัง = ไม่ตัดอะไร + warning)
+      let guardedWork = work;
+      try {
+        // ตรวจ "ทุกคำ" ที่มีสิทธิ์ถูกคัด (แบ่งชุดละ 400 — cap 3 ชุด) ไม่ใช่แค่ top คะแนน
+        const guardTargets = work.slice().sort((a, b) => b.clusterable.finalScore - a.clusterable.finalScore)
+          .slice(0, MAX_KEYWORDS_PER_CALL * 3).map(w => w.item.keyword);
+        if (guardTargets.length > 0) {
+          progress(`ตรวจคำนอกธุรกิจ ${guardTargets.length} คำ (Relevance Guard) …`, stepOf('scoring'));
+          const guardInput = {
+            services: input.products.filter(Boolean),
+            businessContext: [input.brandName, input.targetCustomer].filter(Boolean).join(' — '),
+          };
+          const chunks: string[][] = [];
+          for (let i = 0; i < guardTargets.length; i += MAX_KEYWORDS_PER_CALL) chunks.push(guardTargets.slice(i, i + MAX_KEYWORDS_PER_CALL));
+          const settledGuard = await Promise.allSettled(chunks.map(async chunk => {
+            const raw = await callGemini(buildRelevanceGuardPrompt(guardInput, chunk));
+            return parseRelevanceGuardResponse(typeof raw === 'string' ? raw : JSON.stringify(raw), chunk);
+          }));
+          const guard = { verdicts: new Map<string, { verdict: string; reason: string }>(), unanswered: [] as string[] };
+          let guardFailedChunks = 0;
+          for (const g of settledGuard) {
+            if (g.status === 'fulfilled') {
+              g.value.verdicts.forEach((v, k) => guard.verdicts.set(k, v));
+              guard.unanswered.push(...g.value.unanswered);
+            } else guardFailedChunks++;
+          }
+          if (guardFailedChunks > 0) warnings.push(`Relevance Guard ตรวจไม่ครบ (${guardFailedChunks}/${chunks.length} ชุดล้มเหลว) — ชุดที่ล้มเหลวไม่ถูกตัดคำ`);
+          const dropped: string[] = [];
+          guard.verdicts.forEach((v, kw) => { if (v.verdict !== 'ok') dropped.push(kw); });
+          if (dropped.length > 0) {
+            const dropSet = new Set(dropped);
+            guardedWork = work.filter(w => !dropSet.has(w.item.keyword));
+            warnings.push(`ตัดคำที่ไม่ใช่ลูกค้าของธุรกิจ ${dropped.length} คำ (เช่น ${dropped.slice(0, 5).join(', ')}) — Relevance Guard`);
+          }
+          if (guard.unanswered.length > 0 && guard.verdicts.size === 0) {
+            warnings.push('Relevance Guard ตรวจไม่สำเร็จ (โมเดลไม่ตอบเป็น JSON) — ไม่มีการตัดคำ');
+          }
+        }
+      } catch (err) {
+        warnings.push(`Relevance Guard ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 100) : String(err)} — ไม่มีการตัดคำ`);
+      }
+
       // กันคำกินกันเอง: ยุบคำซ้ำเจตนาเป็นคำรอง + โทษคะแนนคำเสี่ยง
-      const cann = detectCannibalization(work.map(w => w.clusterable));
+      const cann = detectCannibalization(guardedWork.map(w => w.clusterable));
       const absorbedBy = new Map<string, string>();
       for (const [primaryKw, secs] of mapToEntries(cann.absorbed)) {
         for (const s of secs) absorbedBy.set(s, primaryKw);
@@ -1199,7 +1243,7 @@ export async function POST(req: NextRequest) {
         progress(`รวมคำเจตนาซ้ำเป็นคำรอง ${absorbedBy.size} คำ`, stepOf('clusters'));
       }
 
-      const survivors = work.filter(w => !absorbedBy.has(w.clusterable.keyword));
+      const survivors = guardedWork.filter(w => !absorbedBy.has(w.clusterable.keyword));
       // ใส่ penalty แล้วคิด final ใหม่เฉพาะคำที่โดน
       const rowByKeyword = new Map(survivors.map(w => [w.clusterable.keyword, w]));
       for (const [kw, penalty] of mapToEntries(cann.penalties)) {

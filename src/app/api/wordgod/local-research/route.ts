@@ -89,6 +89,7 @@ import {
   type DFSMetric,
 } from '@/lib/wordgod/services/dataForSeoService';
 import { callGemini, callGeminiWithGrounding } from '@/lib/wordgod/gemini';
+import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
 import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
 
@@ -1313,8 +1314,69 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
       const demotedKeys = new Set(
         Array.from(demotions.keys()).filter(k => byKey.get(k)?.intel?.cannibalization.action !== 'KEEP' && byKey.get(k)?.intel?.cannibalization.againstKeyword)
       );
-      const primaries = ranked.results.filter(r => !demotedKeys.has(dedupeKey(r.keyword)));
+      let primaries = ranked.results.filter(r => !demotedKeys.has(dedupeKey(r.keyword)));
       const scoreOf = (r: KeywordResearchResult) => r.intel!.finalScore;
+
+      // ── Relevance Guard: LLM ตัดคำนอกพื้นที่/นอกบริการ ก่อนคัดเข้าตารางสุดท้าย ──
+      // (QA 2026-08: นนทบุรี/พัทยาหลุดเข้าผลของธุรกิจบางแค, คำซื้อเครื่อง/แอร์รถยนต์ปนคำจ้างบริการ)
+      // fail-open: LLM พัง = ไม่ตัดอะไรเลย + แจ้ง warning — ห้ามทำ run ล่มเพราะชั้นกรองเสริม
+      try {
+        // ตรวจ "ทุกคำ" ที่มีสิทธิ์เข้าตารางสุดท้าย (แบ่งชุดละ 400 — cap 3 ชุดกัน prompt บวม)
+        // QA รอบสอง: ตรวจแค่ top-200 แล้วคำคะแนนต่ำ (ล้างแอร์โชคชัย 4, ซ่อมแอร์นนทบุรี) หลุดเข้าผล
+        const guardTargets = primaries
+          .slice()
+          .sort((a, b) => scoreOf(b) - scoreOf(a))
+          .slice(0, MAX_KEYWORDS_PER_CALL * 3)
+          .map(r => r.keyword);
+        if (guardTargets.length > 0) {
+          progress(`ตรวจคำนอกพื้นที่/นอกบริการ ${guardTargets.length} คำ (Relevance Guard) …`);
+          const guardInput = {
+            services: input.services.filter(Boolean),
+            businessContext: input.businessContext,
+            primaryLocation: primaryLocation.parent ? `${primaryLocation.name} (${primaryLocation.parent})` : primaryLocation.name,
+            nearbyLocations: nearbyLocations.map(a => a.name),
+          };
+          const chunks: string[][] = [];
+          for (let i = 0; i < guardTargets.length; i += MAX_KEYWORDS_PER_CALL) chunks.push(guardTargets.slice(i, i + MAX_KEYWORDS_PER_CALL));
+          const settledGuard = await Promise.allSettled(chunks.map(async chunk => {
+            const raw = await callGemini(buildRelevanceGuardPrompt(guardInput, chunk));
+            return parseRelevanceGuardResponse(typeof raw === 'string' ? raw : JSON.stringify(raw), chunk);
+          }));
+          const guard = { verdicts: new Map<string, { verdict: string; reason: string }>(), unanswered: [] as string[] };
+          let guardFailedChunks = 0;
+          for (const g of settledGuard) {
+            if (g.status === 'fulfilled') {
+              g.value.verdicts.forEach((v, k) => guard.verdicts.set(k, v));
+              guard.unanswered.push(...g.value.unanswered);
+            } else guardFailedChunks++;
+          }
+          if (guardFailedChunks > 0) warnings.push(`Relevance Guard ตรวจไม่ครบ (${guardFailedChunks}/${chunks.length} ชุดล้มเหลว) — ชุดที่ล้มเหลวไม่ถูกตัดคำ`);
+          const dropped: Array<{ keyword: string; verdict: string; reason: string }> = [];
+          const before = primaries.length;
+          primaries = primaries.filter(r => {
+            const hit = guard.verdicts.get(r.keyword.trim());
+            if (!hit || hit.verdict === 'ok') return true;
+            dropped.push({ keyword: r.keyword, verdict: hit.verdict, reason: hit.reason });
+            return false;
+          });
+          if (dropped.length > 0) {
+            const offArea = dropped.filter(d => d.verdict === 'off_area');
+            const offService = dropped.filter(d => d.verdict === 'off_service');
+            const sample = (list: typeof dropped) => list.slice(0, 6).map(d => d.keyword).join(', ');
+            if (offArea.length > 0) warnings.push(`ตัดคำนอกพื้นที่ ${offArea.length} คำ (เช่น ${sample(offArea)}) — คนค้นอยู่นอกเขตให้บริการ`);
+            if (offService.length > 0) warnings.push(`ตัดคำนอกบริการ ${offService.length} คำ (เช่น ${sample(offService)}) — เจตนาไม่ใช่จ้างบริการของธุรกิจนี้`);
+            progress(`Relevance Guard ตัดออก ${dropped.length} คำ (เหลือ ${primaries.length} จาก ${before})`);
+          } else {
+            progress('Relevance Guard: ไม่พบคำหลุดพื้นที่/หลุดบริการ');
+          }
+          if (guard.unanswered.length > 0 && guard.verdicts.size === 0) {
+            warnings.push('Relevance Guard ตรวจไม่สำเร็จ (โมเดลไม่ตอบเป็น JSON) — ไม่มีการตัดคำ รอบนี้ควรตรวจตาด้วยตัวเอง');
+          }
+        }
+      } catch (err) {
+        warnings.push(`Relevance Guard ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)} — ไม่มีการตัดคำ`);
+      }
+
       const verified = primaries.filter(r => r.intel!.referenceSource !== 'none' || r.intel!.zeroVolumeLocalOpportunity);
       const unverified = primaries.filter(r => r.intel!.referenceSource === 'none' && !r.intel!.zeroVolumeLocalOpportunity);
 
