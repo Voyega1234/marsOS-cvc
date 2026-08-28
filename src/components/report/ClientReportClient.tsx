@@ -518,7 +518,7 @@ function exportHtml(
 // ── Simple Report ─────────────────────────────────────────────────────────────
 
 type GscType = { overview?: Record<string, number>; pages?: {page:string;clicks:number;impressions:number;ctr:number;position:number}[]; queries?: {query:string;clicks:number;impressions:number;ctr:number;position:number}[]; queryPages?: {query:string;page:string;clicks:number;impressions:number}[] } | null;
-type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;title?:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number;avgDuration?:number;conversions?:number;events?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[]; countries?: {country:string;sessions:number}[]; landingConversions?: {path:string;sessions:number;conversions:number;revenue:number;events?:number}[] } | null;
+type Ga4Type = { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;title?:string;views:number;sessions:number;bounceRate:number;engagementRate:number;sessionDuration?:number;avgDuration?:number;conversions?:number;events?:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[]; countries?: {country:string;sessions:number}[]; landingConversions?: {path:string;sessions:number;conversions:number;revenue:number;events?:number}[]; landingEvents?: {path:string;event:string;count:number}[]; pageEvents?: {path:string;event:string;count:number}[] } | null;
 type PsiType = { mobile?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]}; desktop?: {status:string;scores:{performance:number|null;accessibility:number|null;seo:number|null};vitals:{lcp:{display:string;value:number|null};cls:{display:string;value:number|null};fcp:{display:string;value:number|null};ttfb:{display:string;value:number|null};responsiveness:{metric:string;value:string;numericValue:number|null}};opportunities:{type:string;savings?:string}[]} } | null;
 
 function SimpleMetricCard({ label, value, subLabel, delta, deltaLabel, color = "text-brand-navy" }: {
@@ -961,6 +961,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   const [donutTab, setDonutTab]   = useState<"devices" | "locations">("devices");
   const [psiMode, setPsiMode]     = useState<"mobile" | "desktop">("mobile");
   const [gscTable, setGscTable]   = useState<"queries" | "pages" | "devices">("queries");
+  const [evFilter, setEvFilter]   = useState("");  // "" = รวมทุก event (ใช้เฉพาะโหมด Events)
   const [gscSeries, setGscSeries] = useState<Record<"clicks" | "impressions" | "ctr" | "position", boolean>>({
     clicks: true, impressions: true, ctr: true, position: true,
   });
@@ -1021,8 +1022,16 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   const pathOf = (u: string) => { try { return normPath(new URL(u).pathname) } catch { return normPath(u) } };
   // property ที่ยังไม่ตั้ง conversion/key event ใน GA4 → สลับไปใช้ eventCount แทน (หัวคอลัมน์เปลี่ยนเป็น Events)
   const hasConv = landingConv.some(l => l.conversions > 0);
+  // เลือกดูเฉพาะ event เดียว (โหมด Events): รวม count จาก breakdown ราย event ต่อ path
+  const landingEvByPath = new Map<string, number>();
+  const pageEvByPath = new Map<string, number>();
+  if (!hasConv && evFilter) {
+    (ga4?.landingEvents ?? []).forEach(r => { if (r.event === evFilter) { const k = normPath(r.path); landingEvByPath.set(k, (landingEvByPath.get(k) ?? 0) + r.count) } });
+    (ga4?.pageEvents ?? []).forEach(r => { if (r.event === evFilter) { const k = normPath(r.path); pageEvByPath.set(k, (pageEvByPath.get(k) ?? 0) + r.count) } });
+  }
+  const landingEvVal = (l: { path: string; events?: number }) => evFilter ? (landingEvByPath.get(normPath(l.path)) ?? 0) : (l.events ?? 0);
   const convByPath = new Map<string, number>();
-  landingConv.forEach(l => { const v = hasConv ? l.conversions : (l.events ?? 0); if (v > 0) convByPath.set(normPath(l.path), v) });
+  landingConv.forEach(l => { const v = hasConv ? l.conversions : landingEvVal(l); if (v > 0) convByPath.set(normPath(l.path), v) });
   const pageClickTotals = new Map<string, number>();
   queryPages.forEach(r => { const pp = pathOf(r.page); pageClickTotals.set(pp, (pageClickTotals.get(pp) ?? 0) + r.clicks) });
   // กระจาย conversion ของแต่ละหน้าให้ keyword ตามสัดส่วน clicks (ประมาณการ — GA4 ไม่บอก keyword ตรง ๆ)
@@ -1037,9 +1046,9 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   const kwConvRows = Array.from(kwConvMap.entries()).map(([query, conv]) => ({ query, conv }))
     .sort((a, b) => b.conv - a.conv).slice(0, 10);
   const pagesHaveConv = (ga4?.pages ?? []).some(pg => (pg.conversions ?? 0) > 0);
-  const gaPageRows = (ga4?.pages ?? []).slice(0, 10).map(pg => ({ ...pg, actVal: pagesHaveConv ? (pg.conversions ?? 0) : (pg.events ?? 0) }));
+  const gaPageRows = (ga4?.pages ?? []).slice(0, 10).map(pg => ({ ...pg, actVal: pagesHaveConv ? (pg.conversions ?? 0) : (!hasConv && evFilter ? (pageEvByPath.get(normPath(pg.path)) ?? 0) : (pg.events ?? 0)) }));
   const convPageRows = landingConv
-    .map(l => ({ ...l, actVal: hasConv ? l.conversions : (l.events ?? 0) }))
+    .map(l => ({ ...l, actVal: hasConv ? l.conversions : landingEvVal(l) }))
     .filter(l => l.actVal > 0)
     .sort((a, b) => b.actVal - a.actVal)
     .slice(0, 10);
@@ -1053,6 +1062,18 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
     });
     return Array.from(m.values()).sort((a, b) => b.count - a.count);
   })();
+  // dropdown เลือก event (โผล่เฉพาะโหมด Events) — ตัวเดียวคุมทุกตารางที่โชว์ค่า Events
+  const evSelect = !hasConv && allEvents.length > 0 ? (
+    <select
+      value={evFilter}
+      onChange={e => setEvFilter(e.target.value)}
+      className="text-[11px] border border-[#e3e9f2] rounded-md px-1.5 py-1 text-gray-600 bg-white max-w-[190px] cursor-pointer focus:outline-none"
+      title="เลือก event ที่ใช้คำนวณคอลัมน์ Events"
+    >
+      <option value="">ทุก event</option>
+      {allEvents.map(e => <option key={e.event} value={e.event}>{e.event}</option>)}
+    </select>
+  ) : null;
 
   // ── PSI ──
   const curPsi = psiMode === "mobile" ? psi?.mobile : psi?.desktop;
@@ -1332,7 +1353,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       </CCard>
 
       {/* ══ ROW 4.1 — Top search queries + Conversion (ประมาณการจาก landing page) ══ */}
-      <CCard title="Top search queries for your site" pad={false}>
+      <CCard title="Top search queries for your site" right={evSelect} pad={false}>
         {topQueryRows.length ? (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1361,11 +1382,11 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         ) : (
           <p className="text-[12px] text-gray-400 text-center py-10">{gscLoading ? "กำลังโหลด..." : "ยังไม่มีข้อมูล"}</p>
         )}
-        <p className="text-[10px] text-gray-400 px-4 py-2.5">*{hasConv ? "Conversions" : "Events"} เป็นค่าประมาณ — กระจายจาก {hasConv ? "conversion" : "event"} ของ landing page (GA4) ตามสัดส่วนคลิกของแต่ละ keyword (GSC) · Source: Search Console + GA4</p>
+        <p className="text-[10px] text-gray-400 px-4 py-2.5">*{hasConv ? "Conversions" : evFilter ? `Events (เฉพาะ ${evFilter})` : "Events"} เป็นค่าประมาณ — กระจายจาก {hasConv ? "conversion" : "event"} ของ landing page (GA4) ตามสัดส่วนคลิกของแต่ละ keyword (GSC) · Source: Search Console + GA4</p>
       </CCard>
 
       {/* ══ ROW 4.2 — Top pages: pageviews / engagement / duration / conversion ══ */}
-      <CCard title="Top pages — pageviews & engagement" pad={false}>
+      <CCard title="Top pages — pageviews & engagement" right={evSelect} pad={false}>
         {gaPageRows.length ? (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1439,7 +1460,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
           <p className="text-[10px] text-gray-400 px-4 py-2.5">Source: GA4</p>
         </CCard>
 
-        <CCard title={hasConv ? "Conversion เกิดที่หน้าไหน" : "Event เกิดที่หน้าไหน"} pad={false}>
+        <CCard title={hasConv ? "Conversion เกิดที่หน้าไหน" : "Event เกิดที่หน้าไหน"} right={evSelect} pad={false}>
           {convPageRows.length ? (
             <div className="overflow-x-auto">
               <table className="w-full">

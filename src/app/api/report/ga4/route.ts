@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     const dv = (row: GA4Row | undefined, idx: number) =>
       row?.dimensionValues?.[idx]?.value ?? "";
 
-    const [overview, byChannel, byPage, byDevice, byEvent, byDate, byLanding, byCountry] = await Promise.all([
+    const [overview, byChannel, byPage, byDevice, byEvent, byDate, byLanding, byCountry, byLandingEvent, byPageEvent] = await Promise.all([
       runReport({
         dateRanges: [
           { startDate: fmt(start), endDate: fmt(end) },
@@ -108,6 +108,21 @@ export async function POST(req: NextRequest) {
         metrics: [{ name: "sessions" }],
         orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
         limit: 8,
+      }),
+      // Breakdown ราย event ต่อ landing page / page — ให้ UI เลือกดูเฉพาะ event ได้
+      runReport({
+        dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
+        dimensions: [{ name: "landingPage" }, { name: "eventName" }],
+        metrics: [{ name: "eventCount" }],
+        orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+        limit: 600,
+      }),
+      runReport({
+        dateRanges: [{ startDate: fmt(start), endDate: fmt(end) }],
+        dimensions: [{ name: "pagePath" }, { name: "eventName" }],
+        metrics: [{ name: "eventCount" }],
+        orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+        limit: 600,
       }),
     ]);
 
@@ -180,6 +195,16 @@ export async function POST(req: NextRequest) {
       countries: (byCountry.rows ?? []).map(r => ({
         country:  dv(r, 0),
         sessions: mv(r, 0),
+      })),
+      landingEvents: (byLandingEvent.rows ?? []).map(r => ({
+        path:  dv(r, 0),
+        event: dv(r, 1),
+        count: mv(r, 0),
+      })),
+      pageEvents: (byPageEvent.rows ?? []).map(r => ({
+        path:  dv(r, 0),
+        event: dv(r, 1),
+        count: mv(r, 0),
       })),
     });
   } catch (err) {
