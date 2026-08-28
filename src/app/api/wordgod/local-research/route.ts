@@ -88,7 +88,7 @@ import {
   hasDataForSeoCreds,
   type DFSMetric,
 } from '@/lib/wordgod/services/dataForSeoService';
-import { callGemini, callGeminiWithGrounding } from '@/lib/wordgod/gemini';
+import { callGemini, callGeminiWithGrounding, getSessionUsage } from '@/lib/wordgod/gemini';
 import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
 import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
@@ -511,6 +511,14 @@ export async function POST(req: NextRequest) {
     let resolvedGeoLite: { name: string; level: GeoTargetLevel; resourceName: string } | null =
       ckptData?.kp?.resolvedGeo ?? null;
     let dfsCalls: number = ckptData?.c?.dfsCalls ?? 0;
+    let dfsVolumeCostUsd: number = ckptData?.c?.dfsVolumeCostUsd ?? 0; // บิลจริงจาก task.cost — แทนค่าประมาณต่อคำ
+    // ต้นทุน LLM สะสมของ run นี้ (ข้าม yield/resume ได้) — delta จาก session tracker ของ OpenRouter
+    // หมายเหตุ: tracker เป็น global ต่อ process ถ้ามี run ขนานกัน ตัวเลขจะปนกันได้เล็กน้อย (เพดาน 2 run)
+    const llmBaseCostUsd: number = ckptData?.c?.llmCostUsd ?? 0;
+    const llmBaseTokens: number = ckptData?.c?.llmTokens ?? 0;
+    const llmUsageStart = getSessionUsage();
+    const llmCostSoFar = () => llmBaseCostUsd + Math.max(0, getSessionUsage().cost_usd - llmUsageStart.cost_usd);
+    const llmTokensSoFar = () => llmBaseTokens + Math.max(0, getSessionUsage().total_tokens - llmUsageStart.total_tokens);
     let dfsError: string | undefined = ckptData?.c?.dfsError ?? undefined;
     let dfsFetchedAt: string | null = ckptData?.c?.dfsFetchedAt ?? null;
     let serpChecked: number = ckptData?.c?.serpChecked ?? 0;
@@ -549,7 +557,8 @@ export async function POST(req: NextRequest) {
         serpSignals: lean ? [] : mapToEntries(serpByKey),
         kp: { status: kpStatus, message: kpMessage, calls: kpCalls, fetchedAt: kpFetchedAt, geoTarget, resolvedGeo: resolvedGeoLite },
         c: {
-          dfsExtraCostUsd, dfsExtraCalls, enrichedCount, dfsCalls, dfsError, dfsFetchedAt,
+          dfsExtraCostUsd, dfsExtraCalls, enrichedCount, dfsCalls, dfsVolumeCostUsd, dfsError, dfsFetchedAt,
+          llmCostUsd: llmCostSoFar(), llmTokens: llmTokensSoFar(),
           serpChecked, serpErrors, candidateCount, qualifiedCount, generatedCount, titleFailures,
         },
         results, clusters,
@@ -637,7 +646,7 @@ export async function POST(req: NextRequest) {
     // ── AI expansion: ขยาย pool คำที่ "เกี่ยวกับธุรกิจ + มีโอกาสขาย" ให้ใหญ่กว่าเป้า ──
     // AI มีหน้าที่แค่ "เสนอ candidate" — ตัวเลขทุกตัวต้องผ่าน KP/DFS ยืนยันจริง (§32)
     if (needs('expand') && flags.useAiExpand) {
-      const poolTarget = Math.min(Math.ceil(targetCount * 1.3), 900);
+      const poolTarget = Math.min(Math.ceil(targetCount * 1.5), 2500);
       const startWave = cursor('expand', 'expandWave', 0);
       if (items.size < poolTarget || startWave > 0) {
         if (startWave === 0) progress(`ขยาย candidate pool ด้วย AI (เป้า pool ~${poolTarget} คำ) …`);
@@ -799,10 +808,12 @@ export async function POST(req: NextRequest) {
 
           // ดึง volume "คำที่เกี่ยวข้อง/มีโอกาสขายสูงสุดก่อน" — ไม่ใช่ตามลำดับ insert
           const rankedForKp = assembleResults(Array.from(items.values()), input).results;
-          const lookupKeywords = rankedForKp.slice(0, KP_LOOKUP_LIMIT).map(r => r.keyword);
-          if (rankedForKp.length > KP_LOOKUP_LIMIT) {
+          // เป้าใหญ่ (500-1000) ขยายโควตา KP ตามเป้า — คำที่เกินโควตานี้ได้ volume จาก DFS แทน (ไม่ตกสำรวจ)
+          const kpLookupLimit = Math.min(Math.max(KP_LOOKUP_LIMIT, targetCount), 1000);
+          const lookupKeywords = rankedForKp.slice(0, kpLookupLimit).map(r => r.keyword);
+          if (rankedForKp.length > kpLookupLimit) {
             warnings.push(
-              `ดึง Search Volume เฉพาะ ${KP_LOOKUP_LIMIT} คำที่เกี่ยวข้อง/มีโอกาสขายสูงสุด (ทั้งหมด ${rankedForKp.length} คำ)`
+              `ดึง Search Volume จาก Keyword Planner ${kpLookupLimit} คำแรกที่มีโอกาสสูงสุด — ที่เหลือใช้ volume จาก DataForSEO (ทั้งหมด ${rankedForKp.length} คำ)`
             );
           }
 
@@ -843,7 +854,7 @@ export async function POST(req: NextRequest) {
             const pfKeywords = Array.from(items.values())
               .filter(it => generatedTrafficKeys.has(dedupeKey(it.keyword)) && !it.metric)
               .map(it => it.keyword)
-              .slice(0, KP_LOOKUP_LIMIT);
+              .slice(0, kpLookupLimit);
             if (pfKeywords.length > 0) {
               progress(`ดึง volume ระดับประเทศให้คำ traffic/บทความ ${pfKeywords.length} คำ …`);
               const natMetrics = await getHistoricalMetrics(
@@ -1074,11 +1085,11 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     // และติดป้าย 'dataforseo' ตรงตามแหล่งจริง (แก้ของเดิมที่ติดป้าย keyword_planner ผิด)
     if (needs('dfs_volumes') && hasDataForSeoCreds() && flags.useDataForSeo) {
       const rankedForDfs = assembleResults(Array.from(items.values()), input).results;
-      const dfsTargets = rankedForDfs.slice(0, 700).map(r => r.keyword);
+      const dfsTargets = rankedForDfs.slice(0, 4000).map(r => r.keyword); // DFS แบ่ง 700 คำ/task ภายในเอง — ครอบทั้ง pool
       if (dfsTargets.length > 0) {
         try {
           progress(`Cross-check volume กับ DataForSEO ${dfsTargets.length} คำ …`);
-          const dfsMap = await getDataForSeoVolumes(dfsTargets, 'th', 2764, w => warnings.push(w));
+          const dfsMap = await getDataForSeoVolumes(dfsTargets, 'th', 2764, w => warnings.push(w), usd => { dfsVolumeCostUsd += usd; });
           dfsCalls = dfsTargets.length;
           dfsFetchedAt = new Date().toISOString();
           let dfsFilled = 0;
@@ -1124,7 +1135,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     if (needs('intent') && rankedAll && hasDataForSeoCreds() && flags.useDataForSeo) {
       const ranked = rankedAll;
       try {
-        const intentTargets = ranked.results.slice(0, 1000).map(r => r.keyword);
+        const intentTargets = ranked.results.slice(0, Math.max(1000, Math.min(targetCount * 3, 4000))).map(r => r.keyword);
         progress(`ตรวจ search intent ${intentTargets.length} คำ (DataForSEO) …`);
         const intentRes = await getDataForSeoSearchIntents(intentTargets, 'th');
         dfsExtraCostUsd += intentRes.costUsd;
@@ -1151,7 +1162,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     if (needs('kd') && rankedAll && hasDataForSeoCreds() && flags.useDataForSeo) {
       const ranked = rankedAll;
       try {
-        const kdLimit = Math.min(800, Math.max(targetCount + 100, 300));
+        const kdLimit = Math.min(1500, Math.max(targetCount + 100, 300));
         const kdTargets = ranked.results.slice(0, kdLimit).map(r => r.keyword);
         progress(`ตรวจ Keyword Difficulty ${kdTargets.length} คำ (DataForSEO) …`);
         const kdRes = await getDataForSeoKeywordDifficulty(kdTargets, 'th', 2764);
@@ -1321,12 +1332,12 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
       // (QA 2026-08: นนทบุรี/พัทยาหลุดเข้าผลของธุรกิจบางแค, คำซื้อเครื่อง/แอร์รถยนต์ปนคำจ้างบริการ)
       // fail-open: LLM พัง = ไม่ตัดอะไรเลย + แจ้ง warning — ห้ามทำ run ล่มเพราะชั้นกรองเสริม
       try {
-        // ตรวจ "ทุกคำ" ที่มีสิทธิ์เข้าตารางสุดท้าย (แบ่งชุดละ 400 — cap 3 ชุดกัน prompt บวม)
+        // ตรวจ "ทุกคำ" ที่มีสิทธิ์เข้าตารางสุดท้าย (แบ่งชุดละ 400 — เพดานโตตามเป้า)
         // QA รอบสอง: ตรวจแค่ top-200 แล้วคำคะแนนต่ำ (ล้างแอร์โชคชัย 4, ซ่อมแอร์นนทบุรี) หลุดเข้าผล
         const guardTargets = primaries
           .slice()
           .sort((a, b) => scoreOf(b) - scoreOf(a))
-          .slice(0, MAX_KEYWORDS_PER_CALL * 3)
+          .slice(0, Math.max(MAX_KEYWORDS_PER_CALL * 3, targetCount * 2))
           .map(r => r.keyword);
         if (guardTargets.length > 0) {
           progress(`ตรวจคำนอกพื้นที่/นอกบริการ ${guardTargets.length} คำ (Relevance Guard) …`);
@@ -1380,7 +1391,21 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
       const verified = primaries.filter(r => r.intel!.referenceSource !== 'none' || r.intel!.zeroVolumeLocalOpportunity);
       const unverified = primaries.filter(r => r.intel!.referenceSource === 'none' && !r.intel!.zeroVolumeLocalOpportunity);
 
-      let selected = selectWithClusterQuota(verified, targetCount, scoreOf);
+      // โควตาคำ volume 0: คำที่มี volume จริงได้สิทธิ์ก่อนเสมอ — คำ volume 0 (ส่วนใหญ่เป็น
+      // permute ทำเล) เข้าได้ไม่เกิน ~15% ของเป้า (ผู้ใช้ 2026-08-28: ตารางที่ 30-70%
+      // เป็น volume 0 ดูไม่น่าเชื่อถือ) ขาดเท่าไรค่อยผ่อนเพดานพร้อมแจ้งตรง ๆ ตอนท้าย
+      const zeroVolCap = Math.max(3, Math.ceil(targetCount * 0.15));
+      const hasRealVolume = (r: (typeof primaries)[number]) => (r.intel!.referenceVolume ?? 0) > 0;
+      const volRows = verified.filter(hasRealVolume);
+      const zeroRows = verified.filter(r => !hasRealVolume(r));
+      let selected = selectWithClusterQuota(volRows, targetCount, scoreOf);
+      if (selected.length < targetCount && zeroRows.length > 0) {
+        const zeroPick = selectWithClusterQuota(zeroRows, Math.min(zeroVolCap, targetCount - selected.length), scoreOf);
+        if (zeroPick.length > 0) {
+          selected = [...selected, ...zeroPick];
+          warnings.push(`มีคำ volume 0 ติดมา ${zeroPick.length} คำ (เพดาน ~15% ของเป้า) — คำเจาะทำเลที่ volume ระดับเขตวัดไม่ได้ ให้ตรวจก่อนใช้`);
+        }
+      }
       if (selected.length < targetCount && unverified.length > 0) {
         const chosenKeys = new Set(selected.map(r => dedupeKey(r.keyword)));
         const fill = selectWithClusterQuota(
@@ -1391,6 +1416,19 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         if (fill.length > 0) {
           warnings.push(`คำที่มี volume ตรวจสอบแล้วมี ${selected.length} คำ — เติมคำที่เกี่ยวกับธุรกิจแต่ยังไม่ยืนยัน volume อีก ${fill.length} คำ (ติดป้าย NO VOLUME ให้ตรวจก่อนใช้)`);
           selected = [...selected, ...fill];
+        }
+      }
+      // ยังไม่ครบและเหลือแต่คำ volume 0 → ยอมเกินเพดานเพื่อให้ครบจำนวน พร้อมแจ้งตรง ๆ
+      if (selected.length < targetCount && zeroRows.length > 0) {
+        const chosenZ = new Set(selected.map(r => dedupeKey(r.keyword)));
+        const extraZero = selectWithClusterQuota(
+          zeroRows.filter(r => !chosenZ.has(dedupeKey(r.keyword))),
+          targetCount - selected.length,
+          scoreOf
+        );
+        if (extraZero.length > 0) {
+          selected = [...selected, ...extraZero];
+          warnings.push(`เติมคำ volume 0 เกินเพดานอีก ${extraZero.length} คำเพื่อให้ครบเป้า ${targetCount} — อยากได้เฉพาะคำมี volume ให้เพิ่มบริการ/พื้นที่ หรือลดจำนวนเป้า`);
         }
       }
       if (selected.length < targetCount) {
@@ -1464,6 +1502,24 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
           const hit = titleByKey.get(dedupeKey(r.keyword));
           if (hit?.title) r.suggestedTitle = String(hit.title).slice(0, 120);
           if (hit?.slug) r.slug = String(hit.slug).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+        }
+        // slug ต้องไม่ซ้ำกันทั้งชุด — AI เขียนเป็น batch ละ 100 มองไม่เห็นกัน (QA 500 คำ: ชนกัน 32 กลุ่ม)
+        // แถวลำดับต้น (priority สูงกว่า) ได้ slug สะอาด แถวหลังเติม -2, -3 …
+        const usedSlugs = new Set<string>();
+        let slugCollisions = 0;
+        for (const r of results) {
+          if (!r.slug) continue;
+          if (usedSlugs.has(r.slug)) {
+            slugCollisions++;
+            const stem = r.slug.slice(0, 56);
+            let n = 2;
+            while (usedSlugs.has(`${stem}-${n}`)) n++;
+            r.slug = `${stem}-${n}`;
+          }
+          usedSlugs.add(r.slug);
+        }
+        if (slugCollisions > 0) {
+          warnings.push(`slug ซ้ำกัน ${slugCollisions} คำ — เติมเลขท้ายให้ไม่ชนกันแล้ว (คำพวกนี้มักเจตนาใกล้กันมาก ควรพิจารณารวมเป็นบทความเดียว)`);
         }
         if (titleFailures > 0) warnings.push(`เขียน title ไม่สำเร็จ ${titleFailures} batch — คำที่ไม่มี title ใช้ keyword แทน`);
       } catch (err) {
@@ -1691,7 +1747,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         modelProvider: 'DATAFORSEO',
         modelName: 'dataforseo/search_volume/live',
         status: 'SUCCESS',
-        externalCost: dfsCalls * DFS_COST_PER_KEYWORD,
+        externalCost: dfsVolumeCostUsd > 0 ? dfsVolumeCostUsd : dfsCalls * DFS_COST_PER_KEYWORD,
         externalCalls: dfsCalls,
         externalApi: 'DataForSEO',
         createdById: userId,
@@ -1726,6 +1782,20 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         externalApi: 'GoogleKeywordPlanner',
         createdById: userId,
         inputSummary: `WordGod Local SME — ${services.join(', ')} @ ${primaryLocation.name} · ${kpCalls} lookups`,
+      }).catch(() => {});
+    }
+    if (llmTokensSoFar() > 0 || llmCostSoFar() > 0) {
+      logAIJob({
+        organizationId: orgId,
+        projectId: flags.projectId,
+        jobType: 'RESEARCH_LLM',
+        modelProvider: 'OPENROUTER',
+        modelName: 'openrouter (ตีความ/จัดหมวด/ตั้งชื่อ — ไม่ใช่แหล่งตัวเลข)',
+        status: 'SUCCESS',
+        tokenUsed: Math.round(llmTokensSoFar()),
+        estimatedCost: llmCostSoFar(), // cost จริงจาก OpenRouter usage accounting
+        createdById: userId,
+        inputSummary: `WordGod Local SME LLM — ${services.join(', ')} @ ${primaryLocation.name} · เป้า ${targetCount} คำ`,
       }).catch(() => {});
     }
 

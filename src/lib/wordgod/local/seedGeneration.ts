@@ -40,7 +40,10 @@ export function modifiersForService(service: string): { shape: ServiceShape; mod
   const suppressed = new Set(template?.suppressModifierIds ?? []);
   const base = MODIFIER_DEFINITIONS.filter(def => !suppressed.has(def.id));
   const extra = (template?.extraModifiers ?? []).filter(def => !suppressed.has(def.id));
-  const modifiers = [...base, ...extra].filter(def => def.render('X', shape) !== null);
+  // คำเวลา (วันนี้/ตอนนี้/นอกเวลา/24 ชั่วโมง) เลิก permute เอง — เกือบทั้งหมด volume 0
+  // และบางบริการเป็นคำที่ไม่มีจริง ("ขูดหินปูน 24 ชั่วโมง") ถ้าคนค้นจริงจะเข้ามาทาง KP/DFS ideas เอง
+  const noGenerate = new Set(['today', 'right_now', 'after_hours', 'h24']);
+  const modifiers = [...base, ...extra].filter(def => !noGenerate.has(def.id) && def.render('X', shape) !== null);
   return { shape, modifiers };
 }
 
