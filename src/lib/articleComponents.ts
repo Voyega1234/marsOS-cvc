@@ -30,7 +30,7 @@ COMPONENT STANDARD (บังคับ — โครง HTML ต้องตร�
 
 หัวข้อ section (สำหรับสารบัญ): ทุก <h2> ต้องมี id ภาษาอังกฤษ เช่น <h2 id="what-is-x">
 
-CTA (กล่องชวนติดต่อ):
+CTA (กล่องชวนติดต่อ — เบอร์/ลิงก์ด้านล่างเป็นตัวอย่างสมมติ ห้ามใช้จริง ให้ใช้ข้อมูลจากบล็อก CTA เท่านั้น):
 <div class="content-cta">
   <p class="content-cta__headline">ข้อความชวน</p>
   <p class="content-cta__subtext">รายละเอียดสั้น ๆ</p>

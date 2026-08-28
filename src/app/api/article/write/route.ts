@@ -51,7 +51,14 @@ interface CtaChannel { type: string; label: string; value: string }
 interface CtaSettings { enabled: boolean; headline: string; subtext: string; channels: CtaChannel[] }
 
 function buildCtaBlock(cta: CtaSettings | null | undefined): string {
-  if (!cta?.enabled || !cta.channels.filter(c => c.value).length) return ''
+  // ไม่มี CTA ที่ตั้งไว้จริง → สั่งห้ามโมเดลแต่งช่องทางติดต่อเอง (กันก๊อปเบอร์ตัวอย่างจาก COMPONENT STANDARD)
+  if (!cta?.enabled || !cta.channels.filter(c => c.value).length) return `
+==================================================
+CTA — โปรเจกต์นี้ยังไม่ได้ตั้งค่าช่องทางติดต่อ
+==================================================
+ห้ามใส่กล่อง .content-cta และห้ามใส่เบอร์โทร / LINE / อีเมล / ลิงก์ติดต่อใด ๆ ทั้งสิ้น
+(เบอร์ในตัวอย่าง COMPONENT STANDARD เป็นเบอร์สมมติ ห้ามนำมาใช้เด็ดขาด)
+`
   const channelLines = cta.channels
     .filter(c => c.value)
     .map(c => `  - ${c.label || c.type}: ${c.value}`)
