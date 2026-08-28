@@ -56,12 +56,14 @@ import {
   type DFSMetric,
 } from '@/lib/wordgod/services/dataForSeoService';
 import {
+  adjudicateSlugConflicts,
   buildBusinessBlueprint,
   classifyCandidatesBatch,
   CLASSIFY_BATCH_SIZE,
   generateTitlesBatch,
   TITLE_BATCH_SIZE,
   type CandidateClassification,
+  type SlugConflictVerdict,
   type TitleBatchRow,
 } from '@/lib/wordgod/online/blueprint';
 import { scanWebsiteContext } from '@/lib/wordgod/online/siteScan';
@@ -82,6 +84,8 @@ import {
   buildSitemapPlacement,
   detectCannibalization,
   resolveSlugStatus,
+  buildExistingPageIndex,
+  matchesExistingPage,
   selectWithClusterQuota,
   themeOfStage,
   type ClusterableRow,
@@ -625,7 +629,7 @@ export async function POST(req: NextRequest) {
         siteContext = await scanWebsiteContext(input.websiteUrl);
         if (siteContext.status === 'ok') {
           progress(
-            `อ่านบริบทเว็บไซต์สำเร็จ — H1 ${siteContext.h1.length}, เมนู ${siteContext.navLabels.length}, path เดิม ${siteContext.existingPaths.length} (slug แบบ ${siteContext.slugConvention})`,
+            `อ่านบริบทเว็บไซต์ + sitemap สำเร็จ — เจอหน้าที่มีอยู่แล้ว ${siteContext.existingPaths.length} หน้า (slug แบบ ${siteContext.slugConvention}, อ่านชื่อเรื่องได้ ${siteContext.existingTitles.length} รายการ) จะไม่เสนอคีย์เวิร์ดซ้ำกับหน้าเหล่านี้`,
             stepOf('site_scan')
           );
         } else {
@@ -710,6 +714,20 @@ export async function POST(req: NextRequest) {
           for (const idea of ideasRes.ideas) {
             if (!relevantToBusiness(idea.keyword)) continue;
             if (addToPool(idea.keyword, 'dfs_ideas', seedGroups[groupIdx][0] ?? null, input.products[0] ?? '', 42)) added++;
+            // volume จริงติดมากับ ideas อยู่แล้ว (จ่ายค่า task ไปแล้ว) — เก็บเข้า dfsByKey เลย
+            // ไม่งั้นคำพวกนี้ถูกนับเป็น "ไม่มี volume" จนกว่า cross-check จะสุ่มเจอ
+            if (typeof idea.searchVolume === 'number' && idea.searchVolume > 0) {
+              const ideaKey = dedupeKey(normalizeThaiSpacing(idea.keyword));
+              if ((dfsByKey.get(ideaKey)?.searchVolume ?? 0) <= 0) {
+                dfsByKey.set(ideaKey, {
+                  searchVolume: idea.searchVolume, monthlySearches: null,
+                  cpc: idea.cpc ?? null, competition: null,
+                  competitionIndex: idea.competitionIndex ?? null,
+                  keywordDifficulty: idea.keywordDifficulty ?? null,
+                  locationCode: 2764, language, retrievedAt: new Date().toISOString(), status: 'ok',
+                });
+              }
+            }
           }
           groupIdx++;
           if (added > 0) progress(`DataForSEO ideas ชุด ${groupIdx}/${seedGroups.length}: +${added} คำ (pool ${pool.size})`, { ...stepOf('discovery_dfs'), count: pool.size });
@@ -752,8 +770,55 @@ export async function POST(req: NextRequest) {
     // AI มีหน้าที่แค่ "เสนอ candidate string" — ตัวเลขทุกตัวต้องผ่าน KP/DFS จริงเสมอ ──
     if (needs('expand')) {
       const startWave = cursor('expand', 'expandWave', 0);
-      if (pool.size < poolTarget || startWave > 0) {
-        if (startWave === 0) progress(`ขยาย candidate pool ด้วย AI (เป้า pool ~${poolTarget} คำ) …`, stepOf('normalize'));
+
+      // ── KP-first: แตกคำจาก Keyword Planner ก่อนถึง AI — ฟรีและจบในวินาที
+      // ได้ "คำที่คนค้นจริง + volume จริง" ต่างจาก AI expansion (90-115 วิ/รอบ,
+      // คำส่วนใหญ่จบเป็น NO_VOLUME) — AI เหลือหน้าที่เติมส่วนที่ KP ให้ไม่ถึง
+      // (idempotent: KP ตอบจาก cache + addToPool กันซ้ำ — resume ซ้ำได้ไม่เสียเงิน)
+      if (cursor('expand', 'kpFirstDone', 0) === 0) {
+        const kpSeeds = [
+          ...input.products,
+          ...blueprint.taxonomy.flatMap(t => t.seedKeywords.slice(0, 2)),
+          ...blueprint.problemMap.flatMap(pm => pm.searchBehaviors.slice(0, 1)),
+        ].map(s => s.trim()).filter(Boolean);
+        const seedGroups: string[][] = [];
+        for (let i = 0; i < kpSeeds.length && seedGroups.length < 4; i += 10) seedGroups.push(kpSeeds.slice(i, i + 10));
+        if (seedGroups.length > 0) {
+          progress(`แตกคำจาก Keyword Planner ${seedGroups.length} ชุด seed (คำที่คนค้นจริง) …`, stepOf('normalize'));
+          let kpFirstAdded = 0;
+          for (const seeds of seedGroups) {
+            try {
+              const ideas = await getKeywordPlannerRows({
+                seed_keywords: seeds,
+                target_language: language === 'en' ? 'en' : 'th',
+                target_country: input.country ?? 'Thailand',
+                number_of_results: Math.max(500, targetCount),
+                force_refresh: false,
+              });
+              if (ideas.success) {
+                for (const row of ideas.rows) {
+                  if (!row.volume || row.volume <= 0) continue;
+                  if (!relevantToBusiness(row.keyword)) continue;
+                  if (addToPool(row.keyword, 'kp_ideas', seeds[0] ?? null, input.products[0] ?? '', 46)) kpFirstAdded++;
+                }
+              } else if (ideas.error) {
+                warnings.push(`Keyword Planner ideas (ก่อน AI) ไม่สำเร็จ: ${ideas.error.slice(0, 80)}`);
+              }
+            } catch (err) {
+              if (err instanceof YieldSignal) throw err;
+              warnings.push(`Keyword Planner ideas (ก่อน AI) ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+            }
+          }
+          progress(`Keyword Planner ideas: +${kpFirstAdded} คำที่คนค้นจริง (pool ${pool.size})`, { ...stepOf('normalize'), count: pool.size });
+        }
+        await checkpoint('expand', { expandWave: startWave, kpFirstDone: 1 });
+      }
+
+      // AI หยุดที่ ~3× เป้าพอ — จากรันจริง pool 3× ส่งงานครบแล้ว ที่เกินจากนี้เพิ่มแต่
+      // ค่า classification/เวลา (KP-first เติม pool มาก่อนแล้ว AI จึงมักเหลืองานน้อยลงมาก)
+      const aiPoolCap = Math.min(poolTarget, targetCount * 3);
+      if (pool.size < aiPoolCap || startWave > 0) {
+        if (startWave === 0) progress(`ขยาย candidate pool ด้วย AI (เป้า pool ~${aiPoolCap} คำ) …`, stepOf('normalize'));
         const salesRatio = { informational: 40, commercial: 35, transactional: 20, navigational: 5, update: 0 };
         const genNiche = `${input.products.join(' / ')}${input.targetCustomer ? ` — ลูกค้า: ${input.targetCustomer}` : ''}${input.businessContext ? ` — ${input.businessContext}` : ''}`;
         const genSeed = input.products[0] ?? '';
@@ -764,43 +829,134 @@ export async function POST(req: NextRequest) {
           ...blueprint.problemMap.map(pm => pm.searchBehaviors[0]).filter(Boolean),
         ];
         const BATCH = 50;
-        const PARALLEL = targetCount <= 100 ? 2 : targetCount <= 400 ? 4 : 6;
-        const MAX_WAVES = 6;
+        // ยิงขนานมากเกินโดนผู้ให้บริการ AI ปฏิเสธเป็นชุด (เคยเสีย 4/6 batch ทุกรอบจน
+        // pool เหลือ 0.5× ของเป้า) — เริ่มตามเป้า แล้วลดอัตโนมัติเมื่อเจอ batch เสีย
+        const PARALLEL_MAX = targetCount <= 100 ? 2 : targetCount <= 400 ? 4 : 6;
+        let parallelNow = PARALLEL_MAX;
+        // เป้าใหญ่ต้อง pool ใหญ่ — 600 คำต้องการ survivors ~750+ หลังหักคำเจตนาซ้ำ/Relevance Guard
+        const MAX_WAVES = targetCount >= 500 ? 10 : 6;
         let genAdded = cursor('expand', 'expandAdded', 0);
         let genFailed = cursor('expand', 'expandFailed', 0);
-        for (let wave = startWave; wave < MAX_WAVES && pool.size < poolTarget; wave++) {
-          const need = poolTarget - pool.size;
-          const batches = Math.min(PARALLEL, Math.max(1, Math.ceil(need / BATCH)));
+        let zeroStreak = 0;
+        let transientStreak = 0;
+        let failedWaveNote: string | null = null;
+        for (let wave = startWave; wave < MAX_WAVES && pool.size < aiPoolCap; wave++) {
+          const need = aiPoolCap - pool.size;
+          const batches = Math.min(parallelNow, Math.max(1, Math.ceil(need / BATCH)));
           // exclude เฉพาะชุดล่าสุด — กัน prompt บวมเมื่อ pool ใหญ่ (คำซ้ำถูกกันด้วย addToPool อยู่แล้ว)
           const exclude = Array.from(pool.values()).map(it => it.keyword).slice(-400);
           const prompts = Array.from({ length: batches }, (_, bi) => {
-            const angle = angleRing.length ? angleRing[(wave * PARALLEL + bi) % angleRing.length] : genSeed;
+            const angle = angleRing.length ? angleRing[(wave * PARALLEL_MAX + bi) % angleRing.length] : genSeed;
             return KEYWORD_RESEARCH_PROMPT(genNiche, angle || genSeed, BATCH, exclude, [], salesRatio, false);
           });
           const settled = await Promise.allSettled(prompts.map(pr => callGemini(pr)));
           let waveAdded = 0;
+          let waveFailed = 0;
+          const failReasons: string[] = [];
           for (const st of settled) {
-            if (st.status !== 'fulfilled') { genFailed++; continue; }
+            if (st.status !== 'fulfilled') {
+              genFailed++; waveFailed++;
+              const r = st.reason;
+              failReasons.push(r instanceof Error ? r.message.slice(0, 90) : String(r).slice(0, 90));
+              continue;
+            }
             const text = typeof st.value === 'string' ? st.value : JSON.stringify(st.value);
             const m = text.match(/\{[\s\S]*\}/);
-            if (!m) continue;
+            if (!m) { waveFailed++; failReasons.push(`ตอบไม่ใช่ JSON: ${text.slice(0, 60)}`); continue; }
             let parsed: { keywords?: Array<{ keyword?: string }> };
-            try { parsed = JSON.parse(m[0]); } catch { continue; }
+            try { parsed = JSON.parse(m[0]); } catch { waveFailed++; failReasons.push('JSON ไม่สมบูรณ์ (ตอบไม่จบ)'); continue; }
             for (const row of parsed.keywords ?? []) {
               const kw = String(row?.keyword ?? '').trim();
               if (!kw) continue;
               if (addToPool(kw, 'ai_expand', genSeed || null, input.products[0] ?? '', 44)) { waveAdded++; genAdded++; }
             }
           }
-          progress(`AI expansion รอบ ${wave + 1}: +${waveAdded} คำ (pool ${pool.size})`, { ...stepOf('normalize'), count: pool.size });
-          const stop = waveAdded === 0; // กันลูปเปล่า (AI ตอบซ้ำ/ล้มเหลวทั้งหมด)
-          await checkpoint('expand', { expandWave: stop ? MAX_WAVES : wave + 1, expandAdded: genAdded, expandFailed: genFailed });
+          progress(`AI expansion รอบ ${wave + 1}: +${waveAdded} คำ${waveFailed > 0 ? ` (batch เสีย ${waveFailed}/${batches} — ${failReasons[0] ?? 'ไม่ทราบสาเหตุ'})` : ''} (pool ${pool.size})`, { ...stepOf('normalize'), count: pool.size });
+          if (waveFailed > 0 && failedWaveNote === null) {
+            failedWaveNote = failReasons[0] ?? 'ไม่ทราบสาเหตุ';
+          }
+          // เสียเป็นชุดแปลว่ายิงถี่เกิน — ลดขนานลงครึ่งหนึ่ง (ต่ำสุด 2) แล้วไปต่อ
+          if (waveFailed >= Math.ceil(batches / 2) && parallelNow > 2) {
+            parallelNow = Math.max(2, Math.floor(parallelNow / 2));
+            progress(`ลดการยิงขนานเหลือ ${parallelNow} ชุด/รอบ — ผู้ให้บริการ AI ปฏิเสธเป็นชุด`, stepOf('normalize'));
+          }
+          // แยก "คำหมดจริง" ออกจาก "ผู้ให้บริการ AI ล่มชั่วคราว" — เคยเกิด: batch เสีย
+          // ทั้งชุดสองรอบติดถูกนับเป็นคำหมด ระบบเลิกขยายทั้งที่ pool แค่ 0.5× แล้วส่งงาน
+          // 331/600 — รอบที่เสียทั้งชุดให้พัก 5 วิแล้วยิงรอบเดิมใหม่ ไม่นับเป็น zeroStreak
+          if (waveAdded === 0 && waveFailed >= batches) {
+            transientStreak++;
+            if (transientStreak >= 3) {
+              warnings.push('AI expansion ล้มเหลวติดกันหลายรอบ (ผู้ให้บริการ AI ขัดข้อง) — ใช้ pool เท่าที่มี');
+              await checkpoint('expand', { expandWave: MAX_WAVES, expandAdded: genAdded, expandFailed: genFailed, kpFirstDone: 1 });
+              break;
+            }
+            await new Promise(r => setTimeout(r, 5000));
+            wave--;
+            continue;
+          }
+          transientStreak = 0;
+          // รอบเสียรอบเดียว (AI ตอบซ้ำ/parse ไม่ได้) ห้ามฆ่าทั้ง pipeline — pool เคยพังจาก
+          // +0 รอบเดียวจน pool เหลือ 0.9× แล้วส่งงานขาด 130 คำ ให้หยุดเมื่อเสียติดกัน 2 รอบ
+          // (รอบถัดไปได้ angle ใหม่จาก angleRing จึงมีโอกาสฟื้นจริง ไม่ใช่ยิงซ้ำ prompt เดิม)
+          zeroStreak = waveAdded === 0 ? zeroStreak + 1 : 0;
+          const stop = zeroStreak >= 2;
+          await checkpoint('expand', { expandWave: stop ? MAX_WAVES : wave + 1, expandAdded: genAdded, expandFailed: genFailed, kpFirstDone: 1 });
           if (stop) break;
+        }
+        if (failedWaveNote) {
+          warnings.push(`AI expansion มีบาง batch ไม่สำเร็จระหว่างทาง (${failedWaveNote}) — ระบบลดการยิงขนานและขยายเพิ่มชดเชยแล้ว`);
         }
         if (genAdded > 0) {
           warnings.push(`ขยายคำที่เกี่ยวกับธุรกิจด้วย AI อีก ${genAdded} คำ (pool รวม ${pool.size} คำ) — AI เสนอเฉพาะ "คำ" ตัวเลขทุกตัวจะดึงจาก Keyword Planner/DataForSEO จริงต่อไป`);
         } else if (genFailed > 0) {
           warnings.push('ขยายคำด้วย AI ไม่สำเร็จรอบนี้ — ใช้คำจาก seed/discovery ที่มีอยู่');
+        }
+
+        // ── Safety net: pool ต้องถึงอย่างน้อย ~1.5× ของเป้า ไม่งั้นส่งงานขาดแน่นอน
+        // (เกิดจริง: รอบ generic ตอบซ้ำ/ตันจน pool 0.5× → ส่งงาน 331/600) — ยิง prompt
+        // แยกทีละกิ่ง taxonomy พร้อมชื่อกิ่งกำกับ ให้มุมคำต่างจากรอบ generic ที่ตันไปแล้ว
+        const poolFloor = Math.min(aiPoolCap, Math.round(targetCount * 1.5));
+        if (pool.size < poolFloor && cursor('expand', 'branchTopupDone', 0) === 0) {
+          const branches = blueprint.taxonomy.filter(t => t.seedKeywords.length > 0);
+          if (branches.length > 0) {
+            progress(`pool ยังไม่ถึงขั้นต่ำ (${pool.size}/${poolFloor}) — ขยายเจาะรายกิ่ง taxonomy ${branches.length} กิ่ง …`, stepOf('normalize'));
+            let topupAdded = 0;
+            const topupStart = cursor('expand', 'branchTopupIdx', 0);
+            for (let i = topupStart; i < branches.length && pool.size < poolFloor; i += 3) {
+              const group = branches.slice(i, i + 3);
+              const exclude = Array.from(pool.values()).map(it => it.keyword).slice(-400);
+              const settled = await Promise.allSettled(group.map(br =>
+                callGemini(KEYWORD_RESEARCH_PROMPT(
+                  `${genNiche} — เจาะเฉพาะหมวด "${br.branch}" (${br.product})`,
+                  br.seedKeywords[0] ?? genSeed, BATCH, exclude, [], salesRatio, false,
+                ))));
+              let groupAdded = 0;
+              for (const st of settled) {
+                if (st.status !== 'fulfilled') { genFailed++; continue; }
+                const text = typeof st.value === 'string' ? st.value : JSON.stringify(st.value);
+                const m = text.match(/\{[\s\S]*\}/);
+                if (!m) continue;
+                try {
+                  const parsed = JSON.parse(m[0]) as { keywords?: Array<{ keyword?: string }> };
+                  for (const row of parsed.keywords ?? []) {
+                    const kw = String(row?.keyword ?? '').trim();
+                    if (kw && addToPool(kw, 'ai_expand', group[0]?.seedKeywords[0] ?? null, input.products[0] ?? '', 44)) { groupAdded++; topupAdded++; genAdded++; }
+                  }
+                } catch { /* batch เสีย ข้ามชุดนี้ */ }
+              }
+              progress(`เจาะกิ่ง taxonomy ${Math.min(i + 3, branches.length)}/${branches.length}: +${groupAdded} คำ (pool ${pool.size})`, { ...stepOf('normalize'), count: pool.size });
+              // ต้อง checkpoint ทุกชุด — เป็นจุดเดียวที่ต่ออายุ lock และเช็คงบเวลา
+              // ถ้าไม่มี รอบยาว ๆ จะทำให้ lock หมดอายุแล้วมี worker ที่สองรันซ้อน + จ่าย LLM ซ้ำ
+              await checkpoint('expand', {
+                expandWave: MAX_WAVES, expandAdded: genAdded, expandFailed: genFailed,
+                kpFirstDone: 1, branchTopupIdx: i + 3,
+              });
+            }
+            if (topupAdded > 0) {
+              warnings.push(`pool จากรอบปกติไม่ถึงขั้นต่ำ — ขยายเจาะรายกิ่ง taxonomy เพิ่มได้อีก ${topupAdded} คำ (pool รวม ${pool.size} คำ)`);
+            }
+          }
+          await checkpoint('expand', { expandWave: MAX_WAVES, expandAdded: genAdded, expandFailed: genFailed, kpFirstDone: 1, branchTopupDone: 1 });
         }
       }
       candidateCount = pool.size;
@@ -977,6 +1133,128 @@ export async function POST(req: NextRequest) {
               if (waveIdx > 0) {
                 candidateCount = pool.size;
                 warnings.push(`แตกคำจาก topic universe ${waveIdx} ชุด seed — คำที่มี volume จริงรวม ${volumeWords} คำ (เป้า ${targetCount})`);
+              }
+              // ── KP rescue waves (ฟรี): topic universe ใช้ข้อความจาก blueprint เป็น seed
+              // ซึ่งรอบที่ blueprint อ่อนจะได้ +0 — แต่ "คำที่มี volume จริงที่เจอแล้ว"
+              // เป็น seed ที่พิสูจน์ตัวเองแล้ว หมุนป้อนกลับเข้า Keyword Planner ทีละชุด ──
+              if (volumeWords < targetCount && cursor('kp', 'kpRescueDone', 0) === 0) {
+                const volSeedList = Array.from(pool.keys())
+                  .map(key => ({
+                    kw: pool.get(key)!.keyword,
+                    vol: Math.max(googleByKey.get(key)?.avgMonthlySearches ?? 0, dfsByKey.get(key)?.searchVolume ?? 0),
+                  }))
+                  .filter(x => x.vol > 0)
+                  .sort((a, b) => b.vol - a.vol)
+                  .map(x => x.kw);
+                const KP_RESCUE_MAX_WAVES = 5;
+                let kpRescueAdded = 0;
+                for (let batch = 0; batch < KP_RESCUE_MAX_WAVES && volumeWords < targetCount; batch++) {
+                  const batchSeeds = volSeedList.slice(batch * 10, batch * 10 + 10);
+                  if (batchSeeds.length < 3) break;
+                  let added = 0;
+                  try {
+                    const rescueIdeas = await getKeywordPlannerRows({
+                      seed_keywords: batchSeeds,
+                      target_language: language === 'en' ? 'en' : 'th',
+                      target_country: input.country ?? 'Thailand',
+                      number_of_results: Math.max(500, targetCount),
+                      force_refresh: false,
+                    });
+                    if (rescueIdeas.success) {
+                      for (const row of rescueIdeas.rows) {
+                        if (!row.volume || row.volume <= 0) continue;
+                        if (!relevantToBusiness(row.keyword)) continue;
+                        const ideaKey = dedupeKey(normalizeThaiSpacing(row.keyword));
+                        const isNew = addToPool(row.keyword, 'kp_ideas', batchSeeds[0] ?? null, input.products[0] ?? '', 46);
+                        if (!googleByKey.has(ideaKey)) {
+                          googleByKey.set(ideaKey, googleFromIdeaRow(row, geoInfo, language));
+                          kpEnriched++;
+                        }
+                        if (isNew) added++;
+                      }
+                      kpCalls += rescueIdeas.rows.length;
+                    } else if (rescueIdeas.error) {
+                      warnings.push(`KP rescue ชุดที่ ${batch + 1} ไม่สำเร็จ: ${rescueIdeas.error.slice(0, 80)}`);
+                    }
+                  } catch (err) {
+                    if (err instanceof YieldSignal) throw err;
+                    warnings.push(`KP rescue ชุดที่ ${batch + 1} ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+                  }
+                  volumeWords = countVolumeWords();
+                  kpRescueAdded += added;
+                  progress(
+                    `KP rescue ชุด ${batch + 1} (seed = คำ volume จริง): +${added} คำใหม่ (รวมคำมี volume ${volumeWords}, pool ${pool.size})`,
+                    { ...stepOf('kp_volume'), count: volumeWords }
+                  );
+                  // ต่ออายุ lock ระหว่างลูป (KP ฟรี + addToPool กันซ้ำ → resume ยิงใหม่ได้ไม่เสียหาย)
+                  await checkpoint('kp', { kpChunk: totalChunks, kpIdeasDone: 1, volWaveIdx: waveIdx, kpRescueDone: 0 });
+                }
+                if (kpRescueAdded > 0) {
+                  candidateCount = pool.size;
+                  warnings.push(`ขุดคำเพิ่มจาก Keyword Planner โดยใช้คำ volume จริงเป็น seed — ได้คำมี volume เพิ่ม ${kpRescueAdded} คำ (รวมคำมี volume ${volumeWords})`);
+                }
+                await checkpoint('kp', { kpChunk: totalChunks, kpIdeasDone: 1, volWaveIdx: waveIdx, kpRescueDone: 1 });
+              }
+              // ── ตัวกู้คืนขั้นสุดท้าย (เสียเงิน ~$0.09): seed เดียวกันป้อนเข้า DFS keyword
+              // ideas ซึ่งคืนคำเรียงตาม volume พร้อมตัวเลขติดมาสูงสุด 1,000 คำ ──
+              if (volumeWords < targetCount && hasDataForSeoCreds() && cursor('kp', 'dfsRescueDone', 0) === 0) {
+                const rescueSeeds = Array.from(pool.keys())
+                  .map(key => ({
+                    kw: pool.get(key)!.keyword,
+                    vol: Math.max(googleByKey.get(key)?.avgMonthlySearches ?? 0, dfsByKey.get(key)?.searchVolume ?? 0),
+                  }))
+                  .filter(x => x.vol > 0)
+                  .sort((a, b) => b.vol - a.vol)
+                  .slice(0, 30)
+                  .map(x => x.kw);
+                if (rescueSeeds.length >= 5) {
+                  progress(
+                    `คำมี volume จริงมี ${volumeWords} คำ ยังไม่ถึงเป้า ${targetCount} — ใช้คำ volume สูงสุด ${rescueSeeds.length} คำเป็น seed ขุด DataForSEO ideas …`,
+                    stepOf('kp_volume')
+                  );
+                  try {
+                    const rescue = await getDataForSeoKeywordIdeas(rescueSeeds, {
+                      limit: 1000,
+                      locationCode: 2764,
+                      languageCode: language,
+                    });
+                    dfsExtraCostUsd += rescue.costUsd;
+                    dfsExtraCalls += 1;
+                    if (rescue.error) {
+                      warnings.push(`DataForSEO rescue ideas ไม่สำเร็จ: ${rescue.error.slice(0, 80)}`);
+                    }
+                    let rescueAdded = 0;
+                    for (const idea of rescue.ideas) {
+                      if (typeof idea.searchVolume !== 'number' || idea.searchVolume <= 0) continue;
+                      if (!relevantToBusiness(idea.keyword)) continue;
+                      const ideaKey = dedupeKey(normalizeThaiSpacing(idea.keyword));
+                      const isNew = addToPool(idea.keyword, 'dfs_ideas', rescueSeeds[0] ?? null, input.products[0] ?? '', 44);
+                      if ((dfsByKey.get(ideaKey)?.searchVolume ?? 0) <= 0) {
+                        dfsByKey.set(ideaKey, {
+                          searchVolume: idea.searchVolume, monthlySearches: null,
+                          cpc: idea.cpc ?? null, competition: null,
+                          competitionIndex: idea.competitionIndex ?? null,
+                          keywordDifficulty: idea.keywordDifficulty ?? null,
+                          locationCode: 2764, language, retrievedAt: new Date().toISOString(), status: 'ok',
+                        });
+                      }
+                      if (isNew) rescueAdded++;
+                    }
+                    volumeWords = countVolumeWords();
+                    candidateCount = pool.size;
+                    if (rescueAdded > 0) {
+                      warnings.push(`ขุดคำเพิ่มจาก DataForSEO ideas โดยใช้คำ volume จริงเป็น seed — ได้คำมี volume เพิ่ม ${rescueAdded} คำ (รวมคำมี volume ${volumeWords})`);
+                    }
+                    progress(
+                      `DataForSEO rescue: +${rescueAdded} คำมี volume จริง (รวมคำมี volume ${volumeWords}, pool ${pool.size})`,
+                      { ...stepOf('kp_volume'), count: volumeWords }
+                    );
+                  } catch (err) {
+                    if (err instanceof YieldSignal) throw err;
+                    warnings.push(`DataForSEO rescue ideas ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+                  }
+                  await checkpoint('kp', { kpChunk: totalChunks, kpIdeasDone: 1, volWaveIdx: waveIdx, kpRescueDone: 1, dfsRescueDone: 1 });
+                }
               }
               if (volumeWords < targetCount) {
                 warnings.push(`คำที่มี volume จริงมี ${volumeWords} คำ น้อยกว่าเป้า ${targetCount} — ตลาดนี้คำค้นจริงมีจำกัด แนะนำเพิ่มบริการ/หัวข้อให้กว้างขึ้น`);
@@ -1328,6 +1606,10 @@ export async function POST(req: NextRequest) {
             }
             for (const [kw, cls] of mapToEntries(res.value)) classByKey.set(dedupeKey(kw), cls);
           }
+          // ต่ออายุ lock + เปิดช่องยิลด์ระหว่างทาง — ขั้น scoring กินเวลาเกิน LOCK_STALE_MS ได้ง่าย
+          // ถ้าปล่อยให้ lock ค้าง client จะ resume แล้วเกิด worker ตัวที่สองทับ จ่าย LLM ซ้ำ
+          // (stage นี้ snapshot ไม่ lean → classes/shortlist ถูกเก็บ resume จึงไม่ classify ซ้ำ)
+          await checkpoint('scoring', {});
         }
         for (const key of newKeys) pushWorkRow(key);
       }
@@ -1344,6 +1626,7 @@ export async function POST(req: NextRequest) {
           .slice(0, Math.max(MAX_KEYWORDS_PER_CALL * 3, targetCount * 2)).map(w => w.item.keyword);
         if (guardTargets.length > 0) {
           progress(`ตรวจคำนอกธุรกิจ ${guardTargets.length} คำ (Relevance Guard) …`, stepOf('scoring'));
+          await checkpoint('scoring', {}); // ต่ออายุ lock ก่อนบล็อกยาว
           const guardInput = {
             services: input.products.filter(Boolean),
             businessContext: [input.brandName, input.targetCustomer].filter(Boolean).join(' — '),
@@ -1362,6 +1645,7 @@ export async function POST(req: NextRequest) {
               guard.unanswered.push(...g.value.unanswered);
             } else guardFailedChunks++;
           }
+          await checkpoint('scoring', {}); // ต่ออายุ lock หลังบล็อกยาว
           if (guardFailedChunks > 0) warnings.push(`Relevance Guard ตรวจไม่ครบ (${guardFailedChunks}/${chunks.length} ชุดล้มเหลว) — ชุดที่ล้มเหลวไม่ถูกตัดคำ`);
           const dropped: string[] = [];
           guard.verdicts.forEach((v, kw) => { if (v.verdict !== 'ok') dropped.push(kw); });
@@ -1376,6 +1660,35 @@ export async function POST(req: NextRequest) {
         }
       } catch (err) {
         warnings.push(`Relevance Guard ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 100) : String(err)} — ไม่มีการตัดคำ`);
+      }
+
+      // ── กันซ้ำกับหน้าที่ลูกค้ามีอยู่แล้ว (sitemap + ลิงก์หน้าแรก + หน้าที่กรอกเอง)
+      // ต้องตัดก่อนทั้งการยุบคำซ้ำและการคัดเลือก — ถ้าตัดทีหลัง คำที่ถูกยุบเป็นคำรองของ
+      // คำที่ซ้ำหน้าเดิมจะหายไปทั้งกลุ่มทั้งที่เป็นบทความใหม่ที่ใช้ได้
+      const existingPagePaths = [
+        ...(siteContext?.existingPaths ?? []),
+        ...(input.existingPages ?? []),
+      ];
+      const existingIndex = buildExistingPageIndex(existingPagePaths, siteContext?.existingTitles ?? []);
+      if (existingIndex.size > 0) {
+        const beforeExisting = guardedWork.length;
+        const droppedExisting: string[] = [];
+        guardedWork = guardedWork.filter(w => {
+          if (matchesExistingPage(w.clusterable.keyword, existingIndex)) {
+            if (droppedExisting.length < 8) droppedExisting.push(w.clusterable.keyword);
+            return false;
+          }
+          return true;
+        });
+        const removedExisting = beforeExisting - guardedWork.length;
+        progress(
+          `เทียบกับหน้าที่มีอยู่บนเว็บ ${existingIndex.size} หน้า — ตัดคำที่ซ้ำกับบทความเดิม ${removedExisting} คำ (เหลือ ${guardedWork.length} คำให้คัด)`,
+          stepOf('scoring')
+        );
+        if (removedExisting > 0) {
+          const enough = guardedWork.length >= targetCount;
+          warnings.push(`ตัดคำที่ซ้ำกับหน้าที่มีอยู่แล้วบนเว็บ ${removedExisting} คำ (เทียบจาก sitemap/ลิงก์ ${existingIndex.size} หน้า)${droppedExisting.length ? ` เช่น ${droppedExisting.join(', ')}` : ''} — ${enough ? `ยังเหลือ candidate ${guardedWork.length} คำ มากพอสำหรับเป้า ${targetCount} คำ (ใช้คำถัดไปแทนคำที่ถูกตัด)` : `เหลือ candidate ${guardedWork.length} คำ ต่ำกว่าเป้า ${targetCount}`}`);
+        }
       }
 
       // กันคำกินกันเอง: ยุบคำซ้ำเจตนาเป็นคำรอง + โทษคะแนนคำเสี่ยง
@@ -1416,10 +1729,14 @@ export async function POST(req: NextRequest) {
       // (QA @500: niche เล็ก คำ NO_VOLUME เคยกินถึง 42% ของตารางทั้งที่ไม่ได้ถูกบังคับ)
       const volSurvivors = survivors.filter(w => (w.clusterable.referenceVolume ?? 0) > 0);
       const zeroSurvivors = survivors.filter(w => (w.clusterable.referenceVolume ?? 0) <= 0);
-      let picked = selectWithClusterQuota(volSurvivors.map(w => w.clusterable), targetCount);
-      if (picked.length < targetCount && zeroSurvivors.length > 0) {
+      // เลือกเผื่อสำรอง ~4% — แถวที่ถูกยุบตอนแก้ slug ชนกัน (สองแถว = บทความเดียวกัน)
+      // จะมีตัวแทนเสียบให้ครบเป้า ไม่ต้องส่งงานขาดจำนวน
+      const reservePad = Math.max(15, Math.ceil(targetCount * 0.04));
+      const selectTarget = targetCount + reservePad;
+      let picked = selectWithClusterQuota(volSurvivors.map(w => w.clusterable), selectTarget);
+      if (picked.length < selectTarget && zeroSurvivors.length > 0) {
         const alreadyPicked = new Set(picked.map(p => p.keyword));
-        const fill = selectWithClusterQuota(zeroSurvivors.map(w => w.clusterable), targetCount - picked.length)
+        const fill = selectWithClusterQuota(zeroSurvivors.map(w => w.clusterable), selectTarget - picked.length)
           .filter(p => !alreadyPicked.has(p.keyword));
         if (fill.length > 0) {
           picked = [...picked, ...fill];
@@ -1427,8 +1744,11 @@ export async function POST(req: NextRequest) {
         }
       }
       const pickedSet = new Set(picked.map(p => p.keyword));
-      qualifiedCount = picked.length;
-      progress(`คัดเหลือ ${picked.length} คีย์เวิร์ด (จาก candidate ${pool.size} คำ) — cluster quota ไม่ใช่ top-N ล้วน`, { ...stepOf('scoring'), count: picked.length });
+      qualifiedCount = Math.min(picked.length, targetCount);
+      progress(
+        `คัดเหลือ ${Math.min(picked.length, targetCount)} คีย์เวิร์ด + สำรอง ${Math.max(0, picked.length - targetCount)} (จาก candidate ${pool.size} คำ) — cluster quota ไม่ใช่ top-N ล้วน`,
+        { ...stepOf('scoring'), count: Math.min(picked.length, targetCount) }
+      );
 
       const clusterAssign = assignClusters(picked);
       const waves = assignWaves(picked, targetCount);
@@ -1534,6 +1854,82 @@ export async function POST(req: NextRequest) {
         await checkpoint('titles', { titleIdx });
       }
       if (titleFailures > 0) warnings.push(`เขียน title ไม่สำเร็จ ${titleFailures} คำ — คำเหล่านั้นถูกตั้งสถานะ REVIEW (ไม่แต่งข้อมูลแทน)`);
+
+      // ── กันบทความซ้ำ: slug ชนกันภายในชุด = เสี่ยงได้สองบทความเรื่องเดียวกัน ──
+      // ลูกค้าซื้อเป็น "1 คีย์เวิร์ด = 1 บทความ" — AI ตัดสินทีละกลุ่ม (MERGE ยุบเป็นคำรอง /
+      // DISTINCT เขียน slug ใหม่) เหลือชนหลัง 2 รอบ → ยุบเข้าคำหลักเสมอ แล้วใช้ตัวสำรองเติมให้ครบเป้า
+      let slugMerged = 0;
+      let slugRenamed = 0;
+      for (let round = 0; round < 2; round++) {
+        const bySlug = new Map<string, SelectedRow[]>();
+        for (const r of selected) {
+          if (!r.title || !r.slug) continue;
+          const list = bySlug.get(r.slug);
+          if (list) list.push(r); else bySlug.set(r.slug, [r]);
+        }
+        const dupGroups = Array.from(bySlug.entries()).filter(([, rows]) => rows.length > 1);
+        if (dupGroups.length === 0) break;
+        progress(`ตรวจ slug ชนกัน ${dupGroups.length} กลุ่ม — กันสองบทความเรื่องเดียวกัน …`, stepOf('titles'));
+        let verdicts = new Map<string, SlugConflictVerdict>();
+        try {
+          verdicts = await adjudicateSlugConflicts(
+            dupGroups.map(([slug, rows]) => ({ slug, items: rows.map(r => ({ keyword: r.keyword, title: r.title ?? '' })) })),
+            input,
+            slugConvention
+          );
+        } catch { /* ตัดสินไม่ได้ → ถือเป็น MERGE (ปลอดภัยกว่าได้บทความซ้ำ) */ }
+        const usedSlugs = new Set(selected.filter(r => r.slug).map(r => r.slug!));
+        const drop = new Set<SelectedRow>();
+        for (const [slug, rows] of dupGroups) {
+          const verdict = verdicts.get(slug);
+          const winner = rows[0]; // เรียงตามคะแนนอยู่แล้ว — ตัวแรกคง slug เดิม
+          const losers = rows.slice(1);
+          if (verdict?.verdict === 'DISTINCT') {
+            losers.forEach((loser, j) => {
+              const newSlug = verdict.newSlugs[j];
+              if (newSlug && newSlug !== slug && !usedSlugs.has(newSlug)) {
+                loser.slug = newSlug;
+                usedSlugs.add(newSlug);
+                slugRenamed++;
+              }
+              // slug ใหม่ใช้ไม่ได้/ซ้ำ → ปล่อยไว้ให้รอบถัดไปหรือ fallback ยุบ
+            });
+          } else {
+            for (const loser of losers) {
+              winner.secondaryKeywords = Array.from(new Set([...winner.secondaryKeywords, loser.keyword, ...loser.secondaryKeywords]));
+              drop.add(loser);
+              slugMerged++;
+            }
+          }
+        }
+        if (drop.size > 0) selected = selected.filter(r => !drop.has(r));
+      }
+      // fallback เด็ดขาด: ชนที่เหลือยุบเข้าคำหลัก — การันตี slug ไม่ซ้ำกันทั้งชุด
+      {
+        const seen = new Map<string, SelectedRow>();
+        const drop = new Set<SelectedRow>();
+        for (const r of selected) {
+          if (!r.slug) continue;
+          const winner = seen.get(r.slug);
+          if (!winner) { seen.set(r.slug, r); continue; }
+          winner.secondaryKeywords = Array.from(new Set([...winner.secondaryKeywords, r.keyword, ...r.secondaryKeywords]));
+          drop.add(r);
+          slugMerged++;
+        }
+        if (drop.size > 0) selected = selected.filter(r => !drop.has(r));
+      }
+      if (slugMerged > 0 || slugRenamed > 0) {
+        warnings.push(
+          `Slug ชนกัน: ยุบคำที่เป็นบทความเดียวกัน ${slugMerged} คำเข้าเป็นคำรอง + เขียน slug ใหม่ให้คำที่เป็นคนละเรื่อง ${slugRenamed} คำ — การันตี 1 คีย์เวิร์ด = 1 บทความ ไม่กินกันเอง`
+        );
+      }
+      // ตัดกลับเหลือเป้าพอดี — ตัวสำรองที่ไม่ได้ใช้ตัดออกตามคะแนน
+      if (selected.length > targetCount) {
+        selected.sort((a, b) => b.scores.finalScore - a.scores.finalScore);
+        selected = selected.slice(0, targetCount);
+      } else if (selected.length < targetCount) {
+        warnings.push(`หลังยุบบทความซ้ำเหลือ ${selected.length} จากเป้า ${targetCount} — ตัวสำรองไม่พอชดเชย (ยุบเยอะผิดปกติ ควรตรวจ cluster ที่ชนกัน)`);
+      }
       await checkpoint('finalize');
     }
 

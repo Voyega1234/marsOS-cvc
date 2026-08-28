@@ -79,12 +79,17 @@ ${numbered}`
 
   let parsed: ParsedDigest | null = null
   for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
-    const result = await orChat({
-      model: OR_MODELS.default(),
-      maxTokens: 3000,
-      messages: [{ role: 'user', content: prompt }],
-    })
-    parsed = tryParse(result.text)
+    try {
+      const result = await orChat({
+        model: OR_MODELS.default(),
+        maxTokens: 3000,
+        jsonMode: true,
+        messages: [{ role: 'user', content: prompt }],
+      })
+      parsed = tryParse(result.text)
+    } catch {
+      // ตอบว่าง/พังชั่วคราว — ปล่อยให้ลูป retry รอบถัดไป (เดิม orChat คืน '' ลูปจึงวนได้เอง)
+    }
   }
   if (!parsed) throw new Error('AI ไม่คืน JSON สรุปข่าวที่อ่านได้')
 

@@ -246,15 +246,23 @@ export async function generateTitlesBatch(
       ? 'slug เป็นภาษาไทยได้ (คั่นด้วย -) ตาม convention เดิมของเว็บ'
       : 'slug เป็นภาษาอังกฤษตัวเล็กคั่นด้วย - (a-z0-9-) เท่านั้น แปลความหมายของคีย์เวิร์ด';
 
-  const prompt = `เขียน SEO title + slug + เหตุผลสั้น ให้คีย์เวิร์ดของธุรกิจนี้ ตอบ JSON เท่านั้น
+  // กติกาชุดเดียวกับ SEO Title skill (seoTitleAiSkill / keyword-seo-title) — บทบาท
+  // copywriter + SEO specialist ไม่ใช่แค่ "ตั้งชื่อ": title คือสิ่งแรกที่ลูกค้าเห็นในตาราง
+  const prompt = `คุณคือ SEO copywriter มืออาชีพภาษาไทย เขียน SEO title + slug + เหตุผลสั้น ให้คีย์เวิร์ดของธุรกิจนี้ ตอบ JSON เท่านั้น
 ธุรกิจ: ${input.brandName || input.products.join(', ')} (${input.products.join(', ')})
-ภาษา: ไทย มนุษย์อ่านแล้วอยากคลิก ไม่ยัดคีย์เวิร์ด ห้ามซ้ำกันระหว่างข้อ
+
+กติกา copywriting:
+1. title ต้องมีคีย์เวิร์ดหรือรูปธรรมชาติของมัน อ่านเป็นภาษาคนจริง ไม่ robotic ไม่ยัดคีย์เวิร์ด
+2. เลือกโครง title ตามเจตนา: informational → อธิบาย/คู่มือ/how it works, commercial → วิธีเลือก/ก่อนซื้อ/เหมาะกับใคร, transactional → ราคา/บริการ/ขั้นตอน, comparison → เปรียบเทียบ/ต่างกันอย่างไร, problem → สาเหตุ/วิธีแก้, question stage → ตั้งเป็นคำถามธรรมชาติ (ดี ต่อ AEO/featured snippet)
+3. สลับโครงประโยค ห้ามใช้แพทเทิร์นเดียวกันติดกันหลายข้อ ห้าม title ซ้ำกันระหว่างข้อ
+4. คำต้องห้าม: ดีที่สุด, อันดับ 1, 100%, การันตี, เห็นผลแน่นอน, ผ่านแน่นอน และห้ามมีชื่อเว็บอื่น (pantip, sanook, wongnai ฯลฯ)
+5. ความยาวเป้า ≤60 ตัวอักษร (ไม่เกิน 100) — ส่วนที่เกินจะโดน Google ตัด
 ${slugRule}
 
 รายการ (${rows.length} ข้อ) — facts คือข้อมูลจริงของแต่ละคำ ใช้เขียน why ห้ามแต่งตัวเลขเพิ่ม:
 ${rows.map((r, i) => `${i + 1}. "${r.keyword}" | stage=${r.journeyStage} | page=${r.pageType} | facts: ${r.facts}`).join('\n')}
 
-ตอบ: {"items":[{"i":เลขข้อ,"title":"≤60 ตัวอักษรถ้าทำได้","slug":"...","why":"เหตุผล 1-2 ประโยคว่าทำไมคำนี้คุ้มทำ อิง facts เท่านั้น"}]}`;
+ตอบ: {"items":[{"i":เลขข้อ,"title":"...","slug":"...","why":"เหตุผล 1-2 ประโยคว่าทำไมคำนี้คุ้มทำ อิง facts เท่านั้น"}]}`;
 
   const raw = (await callGemini(prompt)) as { items?: any[] };
   const out = new Map<string, TitleResult>();
@@ -266,6 +274,59 @@ ${rows.map((r, i) => `${i + 1}. "${r.keyword}" | stage=${r.journeyStage} | page=
     if (slugConvention !== 'thai') slug = slug.replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-|-$/g, '');
     if (!title) continue;
     out.set(rows[idx].keyword, { title, slug, why: str(item?.why) });
+  }
+  return out;
+}
+
+// ── 4) Slug conflict adjudication ───────────────────────────────────────────
+// สองคีย์เวิร์ดที่ได้ slug เดียวกัน = เสี่ยงกลายเป็น "บทความเดียวกันสองแถว"
+// (ลูกค้าซื้อเป็นบทความต่อคีย์เวิร์ด — ยอมไม่ได้) ให้ AI ตัดสินทีละกลุ่ม:
+// เจตนาเดียวกันจริง → MERGE (ยุบเป็นคำรอง) / คนละเรื่อง → DISTINCT + slug ใหม่
+
+export interface SlugConflictGroupInput {
+  slug: string;
+  /** เรียงตามคะแนน — ตัวแรกคือคำหลักที่จะคง slug เดิม */
+  items: { keyword: string; title: string }[];
+}
+
+export interface SlugConflictVerdict {
+  verdict: 'MERGE' | 'DISTINCT';
+  /** DISTINCT: slug ใหม่ของ items[1..] ตามลำดับ (ตัวแรกคงเดิม) */
+  newSlugs: string[];
+}
+
+export async function adjudicateSlugConflicts(
+  groups: SlugConflictGroupInput[],
+  input: OnlineResearchInput,
+  slugConvention: 'latin' | 'thai' | 'mixed' | 'unknown'
+): Promise<Map<string, SlugConflictVerdict>> {
+  const slugRule =
+    slugConvention === 'thai'
+      ? 'slug ใหม่เป็นภาษาไทยได้ (คั่นด้วย -)'
+      : 'slug ใหม่เป็นอังกฤษตัวเล็ก a-z0-9- เท่านั้น';
+  const prompt = `คีย์เวิร์ดกลุ่มต่อไปนี้ถูกตั้ง slug ซ้ำกัน — แต่ละคีย์เวิร์ดจะเป็นบทความ 1 บทความ ห้ามมีสองบทความที่ตอบเจตนาค้นหาเดียวกัน ตัดสินทีละกลุ่ม ตอบ JSON เท่านั้น
+ธุรกิจ: ${input.brandName || input.products.join(', ')} (${input.products.join(', ')})
+กติกา:
+- ถ้าทุกคำในกลุ่มตอบได้ด้วยบทความเดียว (เจตนาเดียวกัน แค่สะกด/เรียบเรียงต่าง) → "verdict":"MERGE"
+- ถ้าเป็นคนละเรื่องจริง (มุมมอง/ขั้นการตัดสินใจ/บริการต่างกันชัด) → "verdict":"DISTINCT" และตั้ง slug ใหม่ให้คำที่ 2 เป็นต้นไป สะท้อนมุมเฉพาะของคำนั้น ${slugRule} ห้ามซ้ำกับ slug เดิมของกลุ่มและห้ามซ้ำกันเอง
+
+กลุ่ม (${groups.length} กลุ่ม):
+${groups.map((g, i) => `${i + 1}. slug "${g.slug}" ← ${g.items.map(it => `"${it.keyword}" (title: ${it.title || '-'})`).join(' | ')}`).join('\n')}
+
+ตอบ: {"items":[{"i":เลขกลุ่ม,"verdict":"MERGE"|"DISTINCT","slugs":["slug ใหม่ของคำที่ 2 เป็นต้นไป"]}]}`;
+
+  const raw = (await callGemini(prompt)) as { items?: any[] };
+  const out = new Map<string, SlugConflictVerdict>();
+  for (const item of raw.items ?? []) {
+    const idx = Number(item?.i) - 1;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= groups.length) continue;
+    const verdict = item?.verdict === 'DISTINCT' ? 'DISTINCT' : 'MERGE';
+    const newSlugs = asStringArray(item?.slugs, 20).map(s => {
+      let slug = s.toLowerCase().replace(/\s+/g, '-');
+      if (slugConvention !== 'thai') slug = slug.replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-|-$/g, '');
+      return slug;
+    });
+    out.set(groups[idx].slug, { verdict, newSlugs });
   }
   return out;
 }

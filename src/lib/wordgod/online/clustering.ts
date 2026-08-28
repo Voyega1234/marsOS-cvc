@@ -160,13 +160,16 @@ export function detectCannibalization(rows: ClusterableRow[]): CannibalizationRe
   // ข้อความแทบเหมือนกัน (≥ MERGE_SIM) หรือ SERP ทับกันหนัก (≥ 0.75)
   const GLOBAL_SERP_MERGE = 0.75;
   const allSorted = [...rows].sort((a, b) => b.finalScore - a.finalScore);
+  // ลูปนี้เป็น O(n²) — ที่เป้า 600 คำคือหลักล้านคู่ ถ้าคำนวณ orderFreeKey ใหม่ทุกคู่จะบล็อก
+  // event loop เป็นสิบวินาที (heartbeat ไม่ยิง / lock ไม่ถูกต่ออายุ) จึงคำนวณล่วงหน้าไว้ครั้งเดียว
+  const ofKeys = allSorted.map(r => orderFreeKey(r.keyword));
   for (let i = 0; i < allSorted.length; i++) {
     const hi = allSorted[i];
     if (actions.has(hi.keyword)) continue;
     for (let j = i + 1; j < allSorted.length; j++) {
       const lo = allSorted[j];
       if (actions.has(lo.keyword)) continue;
-      const sameTokens = orderFreeKey(hi.keyword) === orderFreeKey(lo.keyword);
+      const sameTokens = ofKeys[i] === ofKeys[j];
       if (!sameTokens
         && textSimilarity(hi.keyword, lo.keyword) < MERGE_SIM
         && serpOverlap(hi.topUrls, lo.topUrls) < GLOBAL_SERP_MERGE) continue;
@@ -215,6 +218,83 @@ export function assignClusters(rows: ClusterableRow[]): Map<string, ClusterAssig
     }
   }
   return out;
+}
+
+// ── หน้าที่มีอยู่แล้วบนเว็บลูกค้า (จาก sitemap/ลิงก์หน้าแรก) ────────────────────
+// ใช้กันไม่ให้ระบบเสนอคีย์เวิร์ดที่ลูกค้าเขียนบทความไปแล้ว — เทียบตั้งแต่ตอนคัดเลือก
+// ไม่ใช่มาติดป้าย EXISTING ตอนท้าย (ตอนท้ายสายไป จำนวนที่ส่งจะกลายเป็นบทความซ้ำ)
+
+export interface ExistingPageIndex {
+  compact: Set<string>;   // สตริงไม่มีช่องว่างของ path segment ทุกหน้า
+  list: string[];         // ชุดเดียวกันแบบ array — วนเทียบต่อคำโดยไม่ alloc ใหม่
+  size: number;
+}
+
+function compactText(raw: string): string {
+  let t = raw;
+  try { t = decodeURIComponent(t); } catch { /* path ที่ decode ไม่ได้ ใช้ตามเดิม */ }
+  return t
+    .toLowerCase()
+    .replace(/\.(?:html?|php|aspx?)$/i, '')
+    .replace(/[-_+/.,()[\]{}"'?!:;|]/g, ' ')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+export function buildExistingPageIndex(existingPaths: string[], existingTitles: string[] = []): ExistingPageIndex {
+  const compact = new Set<string>();
+  for (const p of existingPaths) {
+    const segs = p.split('/').filter(Boolean);
+    const last = segs[segs.length - 1] ?? '';
+    const c = compactText(last);
+    // สั้นเกินไปเป็นหน้าโครงสร้าง (about, blog, th) ไม่ใช่หัวข้อบทความ — กันตัดคำเกินจริง
+    if (c.length >= 6) compact.add(c);
+  }
+  // title/H1 ของหน้าเดิม — เว็บไทยจำนวนมากใช้ slug อังกฤษ (/accounting-service)
+  // ถ้าเทียบแค่ slug จะไม่ตรงกับคีย์เวิร์ดไทยเลยสักคำ แล้วเงียบ ๆ เหมือนไม่มีหน้าเดิม
+  for (const t of existingTitles) {
+    const c = compactText(t);
+    if (c.length >= 6) compact.add(c);
+  }
+  return { compact, list: Array.from(compact), size: compact.size };
+}
+
+/**
+ * คีย์เวิร์ดนี้ตรงกับหน้าที่มีอยู่แล้วหรือไม่
+ * เกณฑ์แน่น: ตรงกันเป๊ะ หรือฝั่งหนึ่งครอบอีกฝั่งโดยความยาวต่างกันไม่เกิน 20%
+ * (กัน "รับทำบัญชี" ไปตัด "รับทำบัญชีบริษัทต่างชาติราคา" ที่เป็นคนละบทความ)
+ */
+// คำที่ทำให้ search intent เปลี่ยนไปเป็นอีกบทความ แม้ตัวคำหลักจะซ้อนกันเกือบทั้งคำ
+// "ประกันรถยนต์ชั้น1" กับหน้าเดิม "ประกันรถยนต์ชั้น1ราคา" คนละ intent → ยังเขียนได้
+// ต่างจาก "รับทำบัญชีราคา" กับหน้าเดิม "รับทำบัญชีราคาถูก" ที่ส่วนต่าง ("ถูก") แค่ขยายความ
+const INTENT_SHIFT_TERMS = [
+  'ราคา', 'ค่าบริการ', 'ค่าใช้จ่าย', 'รีวิว', 'เปรียบเทียบ', 'ที่ไหน', 'ดีไหม',
+  'ดีที่สุด', 'แนะนำ', 'อันดับ', 'วิธี', 'ขั้นตอน', 'ยังไง', 'อย่างไร', 'ต่างกัน',
+];
+
+function shiftsIntent(residual: string): boolean {
+  if (!residual) return false;
+  return INTENT_SHIFT_TERMS.some(t => residual.includes(t));
+}
+
+export function matchesExistingPage(keyword: string, index: ExistingPageIndex): boolean {
+  if (index.size === 0) return false;
+  const k = compactText(keyword);
+  if (k.length < 6) return false;
+  if (index.compact.has(k)) return true;
+  for (const c of index.list) {
+    const [short, long] = c.length <= k.length ? [c, k] : [k, c];
+    if (!long.includes(short)) continue;
+    // เกือบตรงกันทั้งคำ — ต่างกันไม่กี่อักษร (เช่น มี/ไม่มี "บริการ" นำหน้า)
+    if (long.length - short.length <= 2 && short.length / long.length >= 0.9) return true;
+    // ซ้อนกันเกิน 80% และฝั่งสั้นยาวพอจะเป็นหัวข้อจริง — "รับทำบัญชีราคา" กับหน้า
+    // "รับทำบัญชีราคาถูก" คือบทความเดียวกันในสายตาลูกค้า ต้องไม่เขียนซ้ำ
+    // กัน short สั้น ๆ อย่าง "สำนักงานบัญชี" ไปกลืน "สำนักงานบัญชีหาดใหญ่" ที่เป็นคนละหน้า
+    // ด้วยเพดานสัดส่วน 0.8 (วัดกับผลจริง 600 คำ: 0.8 = ซ้ำจริง 4 คำ, 0.6 = ลากคำคนละเรื่องเข้ามา)
+    // แต่ถ้าส่วนที่ต่างกันเป็นคำที่เปลี่ยน search intent (ราคา/รีวิว/วิธี …) = คนละบทความ ต้องเก็บไว้
+    if (short.length >= 10 && short.length / long.length >= 0.8 && !shiftsIntent(long.replace(short, ''))) return true;
+  }
+  return false;
 }
 
 // ── Slug status ─────────────────────────────────────────────────────────────

@@ -230,17 +230,66 @@ function SourcePill({ name, status, detail }: { name: string; status: string; de
   );
 }
 
-/** checklist ~24 ขั้นของ pipeline — ไฮไลต์ตาม step จริงที่ server รายงาน */
-function StepChecklist({ current }: { current: number }) {
+// ── โมเดลประเมินเวลา: สอบเทียบจากรันจริง (เป้า 600 ≈ 22–32 นาที) ──
+// แต่ละขั้น = เวลาคงที่ + ส่วนที่โตตามจำนวนคีย์เวิร์ดเป้าหมาย (วินาทีต่อ 100 คำ)
+const STEP_TIME_MODEL: Record<number, { fixed: number; per100: number }> = {
+  1: { fixed: 2, per100: 0 }, 2: { fixed: 3, per100: 0 }, 3: { fixed: 45, per100: 0 },
+  4: { fixed: 1, per100: 0 }, 5: { fixed: 1, per100: 0 }, 6: { fixed: 1, per100: 0 },
+  7: { fixed: 1, per100: 0 }, 8: { fixed: 1, per100: 0 }, 9: { fixed: 1, per100: 0 },
+  10: { fixed: 1, per100: 0 }, 11: { fixed: 1, per100: 0 },
+  12: { fixed: 20, per100: 0 }, 13: { fixed: 10, per100: 0 },
+  14: { fixed: 60, per100: 60 }, 15: { fixed: 30, per100: 12 },
+  16: { fixed: 15, per100: 0 }, 17: { fixed: 5, per100: 0 }, 18: { fixed: 5, per100: 0 },
+  19: { fixed: 30, per100: 35 }, 20: { fixed: 60, per100: 0 },
+  21: { fixed: 60, per100: 8 }, 22: { fixed: 10, per100: 0 },
+  23: { fixed: 60, per100: 55 }, 24: { fixed: 10, per100: 0 },
+};
+
+function estStepSec(index: number, target: number): number {
+  const m = STEP_TIME_MODEL[index];
+  return m ? m.fixed + (m.per100 * target) / 100 : 10;
+}
+
+function estTotalSec(target: number): number {
+  return ONLINE_STEPS.reduce((sum, st) => sum + estStepSec(st.index, target), 0);
+}
+
+function fmtClock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** ช่วงเวลาโดยประมาณของทั้งรัน เช่น "~24–34 นาที" (ขอบบนเผื่อรอบที่ AI ขยายคำหลายรอบ) */
+function estRangeLabel(target: number): string {
+  const mins = estTotalSec(target) / 60;
+  return `~${Math.max(1, Math.round(mins))}–${Math.round(mins * 1.4)} นาที`;
+}
+
+// ── เฟสใหญ่ 6 เฟส (ยุบจาก 24 ขั้น) ให้ทีมอ่านง่ายว่าระบบอยู่ตรงไหน ──
+const RESEARCH_PHASES: { label: string; desc: string; from: number; to: number }[] = [
+  { label: 'วิเคราะห์ธุรกิจ + สร้าง Blueprint', desc: 'AI ตีความธุรกิจ ลูกค้า ปัญหา และวาง Customer Journey 19 ขั้น (ขั้นนี้ยังไม่มีตัวเลขใด ๆ)', from: 1, to: 11 },
+  { label: 'ขุด + ขยายคีย์เวิร์ด', desc: 'ดึงคำที่คนค้นจริงจาก DataForSEO / คู่แข่ง แล้วให้ AI ขยาย pool หลายรอบ — เฟสนี้ใช้เวลานานเป็นอันดับต้น ๆ', from: 12, to: 14 },
+  { label: 'ดึง Volume จริง + Intent / KD', desc: 'ตัวเลขทุกตัวมาจาก Google Keyword Planner + DataForSEO — AI ไม่มีสิทธิ์แต่งตัวเลข', from: 15, to: 18 },
+  { label: 'จัดหมวด Journey + ตรวจ SERP', desc: 'จัดทุกคำเข้า Journey 19 ขั้น / Funnel แล้วเช็คหน้าแข่งจริงบน Google เฉพาะคำสำคัญ', from: 19, to: 20 },
+  { label: 'ให้คะแนน + กันซ้ำหน้าเดิม + จัด Cluster', desc: 'คำนวณ Business / SEO / AEO / GEO scores ตัดคำที่ซ้ำกับหน้าที่มีอยู่บนเว็บ (จาก sitemap) แล้วคัดให้ครบเป้า กันคำกินกันเอง', from: 21, to: 22 },
+  { label: 'เขียน Title / Slug + สรุปผล', desc: 'ตั้งชื่อบทความทุกคำด้วยหลัก SEO copywriting + กัน slug ชนกัน — การันตี 1 คีย์เวิร์ด = 1 บทความ', from: 23, to: 24 },
+];
+
+/** checklist ~24 ขั้นของ pipeline — ไฮไลต์ตาม step จริงที่ server รายงาน + เวลาโดยประมาณของขั้นหนัก */
+function StepChecklist({ current, target }: { current: number; target: number }) {
   return (
     <div className="mx-auto mt-6 grid w-full max-w-2xl grid-cols-1 gap-x-6 gap-y-1 text-left sm:grid-cols-2">
       {ONLINE_STEPS.map(step => {
         const done = step.index < current;
         const active = step.index === current;
+        const est = estStepSec(step.index, target);
         return (
           <div key={step.key} className={`flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] ${active ? 'bg-[#eef4ff] font-bold text-[#0d4fd8]' : done ? 'text-[#157347]' : 'text-[#a7b1c4]'}`}>
             <span className="w-4 text-center">{done ? '✓' : active ? '●' : '○'}</span>
             <span>{step.index}. {step.label}</span>
+            {!done && est >= 45 ? (
+              <span className="ml-auto shrink-0 text-[10px] tabular-nums opacity-70">~{Math.max(1, Math.round(est / 60))} นาที</span>
+            ) : null}
           </div>
         );
       })}
@@ -291,6 +340,62 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
   const [statusMessage, setStatusMessage] = useState('');
   const [progressLogs, setProgressLogs] = useState<string[]>([]);
   const [progressStep, setProgressStep] = useState(1);
+  // จับเวลาจริงระหว่างรัน: เวลาเริ่มรัน + เวลาที่แต่ละ step เริ่ม (ใช้คำนวณ % และเวลาที่เหลือ)
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const runStartedAtRef = useRef<number>(0);
+  const stepTimesRef = useRef<Record<number, number>>({});
+  useEffect(() => {
+    if (status !== 'running') return;
+    const timer = setInterval(() => {
+      setElapsedSec(Math.round((Date.now() - runStartedAtRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [status]);
+
+  // สรุปความคืบหน้าให้ทีมอ่านง่าย: เฟสไหน กี่ % ผ่านไปเท่าไหร่ เหลืออีกประมาณเท่าไหร่
+  // ประเมินจากโมเดลเวลาที่สอบเทียบจากรันจริง แล้วปรับตาม pace จริงของรอบนี้
+  const progressMeta = useMemo(() => {
+    if (status !== 'running') return undefined;
+    const target = clampTargetCount(targetCount);
+    const total = estTotalSec(target);
+    const current = Math.min(progressStep, ONLINE_STEPS.length);
+    let doneEst = 0;
+    for (const st of ONLINE_STEPS) if (st.index < current) doneEst += estStepSec(st.index, target);
+    const stepStart = stepTimesRef.current[current];
+    const inStep = stepStart
+      ? Math.min((Date.now() - stepStart) / 1000, estStepSec(current, target) * 0.95)
+      : 0;
+    const progressedEst = doneEst + inStep;
+    const pace = doneEst > 60 && elapsedSec > 90
+      ? Math.min(2.5, Math.max(0.7, elapsedSec / Math.max(progressedEst, 1)))
+      : 1;
+    const remaining = Math.max(0, (total - progressedEst) * pace);
+    const phases = RESEARCH_PHASES.map(ph => {
+      const state = current > ph.to ? ('done' as const) : current >= ph.from ? ('active' as const) : ('pending' as const);
+      let est = 0;
+      for (let i = ph.from; i <= ph.to; i++) est += estStepSec(i, target);
+      let started: number | undefined;
+      for (let i = ph.from; i <= ph.to; i++) { const t = stepTimesRef.current[i]; if (t) { started = t; break; } }
+      let ended: number | undefined;
+      for (let i = ph.to + 1; i <= ONLINE_STEPS.length; i++) { const t = stepTimesRef.current[i]; if (t) { ended = t; break; } }
+      return {
+        label: ph.label,
+        desc: ph.desc,
+        state,
+        estLabel: `~${Math.max(1, Math.round(est / 60))} นาที`,
+        actualLabel: state === 'done' && started && ended ? fmtClock((ended - started) / 1000) : undefined,
+      };
+    });
+    return {
+      stepLabel: ONLINE_STEPS.find(s => s.index === current)?.label ?? 'กำลังประมวลผล',
+      stepIndex: current,
+      stepTotal: ONLINE_STEPS.length,
+      percent: Math.min(99, Math.round((progressedEst / total) * 100)),
+      elapsedLabel: fmtClock(elapsedSec),
+      remainingLabel: current >= ONLINE_STEPS.length ? 'อีกไม่ถึง 1 นาที' : `~${Math.max(1, Math.ceil(remaining / 60))} นาที`,
+      phases,
+    };
+  }, [status, progressStep, targetCount, elapsedSec]);
   const [data, setData] = useState<OnlineResearchResponse | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -470,6 +575,9 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
     setStatusMessage('กำลังเริ่มวิเคราะห์ธุรกิจ…');
     setProgressLogs([]);
     setProgressStep(1);
+    runStartedAtRef.current = Date.now();
+    stepTimesRef.current = { 1: Date.now() };
+    setElapsedSec(0);
     setData(null);
     setDrawerKeyword(null);
     setSelectedKeys(new Set());
@@ -539,7 +647,10 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
                 if (event.type === 'progress' && typeof event.message === 'string') {
                   setProgressLogs(prev => [...prev, event.message]);
                   setStatusMessage(event.message);
-                  if (typeof event.step === 'number') setProgressStep(s => Math.max(s, event.step));
+                  if (typeof event.step === 'number') {
+                    if (!stepTimesRef.current[event.step]) stepTimesRef.current[event.step] = Date.now();
+                    setProgressStep(s => Math.max(s, event.step));
+                  }
                 } else if (event.type === 'run' && typeof event.runId === 'string') {
                   resumeRunId = event.runId;
                 } else if (event.type === 'yield' && typeof event.runId === 'string') {
@@ -938,13 +1049,17 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
             </div>
 
             <div className="mt-4">
-              <label className={labelClass}>สินค้า / บริการหลัก * (บรรทัดละรายการ)</label>
-              <textarea rows={3} className={fieldClass} value={productsText} onChange={e => setProductsText(e.target.value)} placeholder={'เช่น\nรับทำ SEO\nเครื่องฟอกอากาศ'} />
+              <label className={labelClass}>สินค้า / บริการหลัก * (บรรทัดละรายการ — แนะนำ 3–8 รายการ)</label>
+              <textarea rows={4} className={fieldClass} value={productsText} onChange={e => setProductsText(e.target.value)} placeholder={'เช่น\nรับทำ SEO\nรับเขียนบทความ\nรับดูแลเว็บไซต์'} />
+              <p className="mt-1 text-[10px] leading-4 text-[#91a0b8]">
+                รายการนี้คือจุดตั้งต้นของการขุดคำทั้งหมด — ยิ่งใส่ครบทุกบริการ/หมวดสินค้า คำที่ได้ยิ่งครบและตรงกับธุรกิจ
+              </p>
             </div>
 
             <div className="mt-4">
-              <label className={labelClass}>เว็บไซต์ (ไม่บังคับ — ใช้อ่านบริบท ไม่ใช่ตรวจเทคนิค)</label>
+              <label className={labelClass}>เว็บไซต์ (แนะนำอย่างยิ่งถ้ามีเว็บอยู่แล้ว)</label>
               <input className={fieldClass} value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://example.com" />
+              <p className="mt-1 text-[11px] text-[#71809c]">ระบบจะอ่าน sitemap ของเว็บ เพื่อไม่เสนอคีย์เวิร์ด/slug ซ้ำกับหน้าที่มีอยู่แล้ว — ธุรกิจที่ยังไม่มีเว็บเว้นว่างได้</p>
             </div>
 
             <div className="mt-4">
@@ -1010,6 +1125,28 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
                   </button>
                 ))}
               </div>
+              <p className="mt-2 text-[11px] leading-5 text-[#71809c]">
+                เป้า {targetCount} คำ ใช้เวลาประมาณ <span className="font-bold text-[#17233a]">{estRangeLabel(clampTargetCount(targetCount))}</span> —
+                ระหว่างรันจะเห็นทุกขั้นตอน + เวลาที่เหลือแบบ real-time
+              </p>
+              {websiteUrl.trim() ? (
+                <div className="mt-2 rounded-xl border border-[#cfe3d3] bg-[#f2f9f4] px-3 py-2 text-[11px] leading-5 text-[#1c6b3f]">
+                  ✓ ระบบจะอ่าน sitemap ของ {websiteUrl.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '')} ก่อนเริ่ม
+                  แล้วตัดคำที่ซ้ำกับหน้าที่มีอยู่แล้วออก — จำนวนที่ส่งยังครบ {clampTargetCount(targetCount)} คำตามเป้า ใช้คำถัดไปแทนคำที่ซ้ำ
+                </div>
+              ) : (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+                  ยังไม่ได้ใส่เว็บไซต์ — ระบบจะไม่รู้ว่าลูกค้ามีบทความอะไรอยู่แล้ว และอาจเสนอคำที่ซ้ำกับหน้าเดิม
+                  ถ้ามีเว็บอยู่แล้วแนะนำให้ใส่ (ไม่มีค่าใช้จ่ายเพิ่ม ใช้เวลาเพิ่มไม่ถึงนาที)
+                </div>
+              )}
+              {clampTargetCount(targetCount) >= 500 && parseLines(productsText).length < 3 ? (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+                  เป้าคำเยอะ ({clampTargetCount(targetCount)} คำ) แต่ใส่บริการ/สินค้าแค่ {parseLines(productsText).length} รายการ —
+                  ตลาดแคบจะหาคำที่มีคนค้นจริงครบเป้ายาก แนะนำใส่บริการ/หัวข้อให้ครบทุกด้าน (3–8 รายการ)
+                  เพื่อให้ได้คำครบและมี volume จริงมากที่สุด
+                </div>
+              ) : null}
             </div>
 
             <button
@@ -1026,7 +1163,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
                   <textarea rows={2} className={fieldClass} value={competitorsText} onChange={e => setCompetitorsText(e.target.value)} placeholder={'competitor1.com\ncompetitor2.co.th'} />
                 </div>
                 <div>
-                  <label className={labelClass}>หน้าที่มีอยู่แล้วบนเว็บ (บรรทัดละ path — กันแนะนำหน้าซ้ำ)</label>
+                  <label className={labelClass}>หน้าที่มีอยู่แล้วบนเว็บ (บรรทัดละ path — เพิ่มเองนอกเหนือจากที่อ่านได้จาก sitemap)</label>
                   <textarea rows={2} className={fieldClass} value={existingPagesText} onChange={e => setExistingPagesText(e.target.value)} placeholder={'/services/seo\n/blog/what-is-seo'} />
                 </div>
                 <div className="space-y-1.5 text-xs text-[#495975]">
@@ -1042,7 +1179,9 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
               disabled={status === 'running'}
               className="mt-5 w-full rounded-xl bg-[#155eef] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0d4fd8] disabled:opacity-50"
             >
-              {status === 'running' ? 'กำลังวิเคราะห์…' : `เริ่มวิเคราะห์ (เป้า ${targetCount} คำ · ${preset.label})`}
+              {status === 'running'
+                ? `กำลังวิเคราะห์… (${progressMeta ? `เหลือ ${progressMeta.remainingLabel}` : 'เริ่มต้น'})`
+                : `เริ่มวิเคราะห์ (เป้า ${targetCount} คำ · ${preset.label} · ${estRangeLabel(clampTargetCount(targetCount))})`}
             </button>
             {status === 'error' ? (
               <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700">
@@ -1057,10 +1196,10 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
         <main className="min-w-0 flex-1">
           {status === 'running' ? (
             <div>
-              <KeywordResearchProgress title="กำลังวิเคราะห์ธุรกิจ + ดึงข้อมูลจริง" logs={progressLogs} />
+              <KeywordResearchProgress title="กำลังวิเคราะห์ธุรกิจ + ดึงข้อมูลจริง" logs={progressLogs} progressMeta={progressMeta} />
               <div className={`${cardClass} mt-4 p-5`}>
-                <p className="text-xs font-bold text-[#17233a]">ขั้นตอน ({Math.min(progressStep, ONLINE_STEPS.length)}/{ONLINE_STEPS.length})</p>
-                <StepChecklist current={progressStep} />
+                <p className="text-xs font-bold text-[#17233a]">ขั้นตอนละเอียด ({Math.min(progressStep, ONLINE_STEPS.length)}/{ONLINE_STEPS.length})</p>
+                <StepChecklist current={progressStep} target={clampTargetCount(targetCount)} />
               </div>
             </div>
           ) : !data ? (

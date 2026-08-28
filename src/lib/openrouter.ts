@@ -58,6 +58,13 @@ export async function orChat(params: {
   temperature?: number
   /** เปิด web search plugin (แทน Google Search grounding ของ Gemini เดิม) */
   webSearch?: boolean
+  /**
+   * บังคับให้โมเดลตอบเป็น JSON object
+   * จำเป็นกับ gemini ผ่าน OpenRouter: โหมดปกติจะคืน finish_reason=error /
+   * MALFORMED_FUNCTION_CALL พร้อม content ว่าง (output 0 token) เป็นระยะ
+   * เปิดโหมดนี้แล้วตอบครบทุกครั้ง — ใช้กับ call ที่ปลายทาง parse JSON เท่านั้น
+   */
+  jsonMode?: boolean
   timeoutMs?: number
 }): Promise<ORChatResult> {
   const messages = params.messages ?? [{ role: 'user' as const, content: params.prompt ?? '' }]
@@ -69,6 +76,9 @@ export async function orChat(params: {
   if (params.maxTokens) body.max_tokens = params.maxTokens
   if (typeof params.temperature === 'number') body.temperature = params.temperature
   if (params.webSearch) body.plugins = [{ id: 'web', max_results: 8 }]
+  // json_object ใช้ร่วมกับ web plugin ไม่ได้ — gemini จะคืน finish_reason=error content ว่างทุกครั้ง
+  // (ทดสอบแล้ว: ws อย่างเดียว = STOP ปกติ, ws+json = error 2/2) จึงยอมถอย jsonMode ให้ web search
+  if (params.jsonMode && !params.webSearch) body.response_format = { type: 'json_object' }
 
   const res = await fetch(OR_URL, {
     method: 'POST',
@@ -87,7 +97,19 @@ export async function orChat(params: {
   const citations = annotations
     .filter((a) => a.url_citation?.url)
     .map((a) => ({ url: String(a.url_citation!.url), title: String(a.url_citation!.title ?? '') }))
-  return { text: msg?.content ?? '', usage: parseUsage(data.usage), citations }
+  // บาง provider คืน content เป็น array ของ content part — กันไว้ไม่ให้ .trim() ระเบิดเป็น TypeError
+  const text: string = typeof msg?.content === 'string' ? msg.content : ''
+  const usage = parseUsage(data.usage)
+  // content ว่างเปล่ามีค่าเท่ากับล้มเหลว — โยนออกไปให้ withRetry ยิงใหม่ พร้อมบอกสาเหตุจริง
+  // (เคยเงียบ ๆ กลายเป็น "AI response is not JSON:" ทำให้ไล่ต้นตอไม่เจอ)
+  if (!text.trim()) {
+    const finish = data.choices?.[0]?.finish_reason ?? data.choices?.[0]?.native_finish_reason ?? 'unknown'
+    const err = new Error(`OpenRouter ตอบว่าง (finish_reason=${finish}, output_tokens=${usage.outputTokens})`)
+    // call ที่ล้มก็ถูกเรียกเก็บเงินค่า input — แนบ usage ไปให้ผู้เรียกบันทึกต้นทุนได้ครบ
+    ;(err as Error & { usage?: ORUsage }).usage = usage
+    throw err
+  }
+  return { text, usage, citations }
 }
 
 /** stream แบบ SSE — คืน ReadableStream ของ text delta + promise ของ usage ตอนจบ */

@@ -93,15 +93,24 @@ export interface GroundedResult {
   grounding: GroundingMetadata;
 }
 
-async function generateOpenRouterText(prompt: string, useWebSearch = false, _options: GeminiCallOptions = {}) {
-  const result = await orChat({
-    prompt,
-    model: OR_MODELS.default(),
-    webSearch: useWebSearch,
-    timeoutMs: CALL_TIMEOUT_MS,
-  });
-  trackUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.costUsd);
-  return result;
+async function generateOpenRouterText(prompt: string, useWebSearch = false, _options: GeminiCallOptions = {}, jsonMode = false) {
+  try {
+    const result = await orChat({
+      prompt,
+      model: OR_MODELS.default(),
+      webSearch: useWebSearch,
+      jsonMode,
+      timeoutMs: CALL_TIMEOUT_MS,
+    });
+    trackUsage(result.usage.inputTokens, result.usage.outputTokens, result.usage.costUsd);
+    return result;
+  } catch (err) {
+    // call ที่ล้มกลางทางก็เสียเงินค่า input แล้ว — ถ้ามี usage แนบมาให้นับเข้าต้นทุนด้วย
+    // ไม่งั้นตัวเลขต้นทุนที่รายงานจะต่ำกว่าจริงทุกครั้งที่มี retry
+    const u = (err as { usage?: { inputTokens: number; outputTokens: number; costUsd: number } }).usage;
+    if (u) trackUsage(u.inputTokens, u.outputTokens, u.costUsd);
+    throw err;
+  }
 }
 
 // แยก JSON schema ออกจาก prompt วิจัย เพื่อให้โมเดลตั้งใจค้นเว็บก่อนค่อย format
@@ -123,7 +132,8 @@ export async function callGeminiWithGrounding(prompt: string, returnGrounding: t
 export async function callGeminiWithGrounding(prompt: string, returnGrounding?: boolean, options: GeminiCallOptions = {}): Promise<any> {
   if (!returnGrounding) {
     return withRetry(async () => {
-      const result = await generateOpenRouterText(prompt, true, options);
+      // ใช้ web search — jsonMode ร่วมด้วยไม่ได้ (orChat จะตัดทิ้งอยู่แล้ว) จึงพึ่ง parseJSON + retry ตามเดิม
+      const result = await generateOpenRouterText(prompt, true, options, false);
       return parseJSON(result.text);
     });
   }
@@ -142,7 +152,7 @@ export async function callGeminiWithGrounding(prompt: string, returnGrounding?: 
   if (jsonSchema) {
     const formatPrompt = `Based on this research:\n\n${researchText}\n\nReturn ONLY valid JSON matching this schema (no markdown):\n${jsonSchema}`;
     data = await withRetry(async () => {
-      const formatResult = await generateOpenRouterText(formatPrompt, false, options);
+      const formatResult = await generateOpenRouterText(formatPrompt, false, options, true);
       return parseJSON(formatResult.text);
     });
   } else {
@@ -154,7 +164,7 @@ export async function callGeminiWithGrounding(prompt: string, returnGrounding?: 
 
 export async function callGemini(prompt: string, options: GeminiCallOptions = {}) {
   return withRetry(async () => {
-    const result = await generateOpenRouterText(prompt, false, options);
+    const result = await generateOpenRouterText(prompt, false, options, true);
     return parseJSON(result.text);
   });
 }

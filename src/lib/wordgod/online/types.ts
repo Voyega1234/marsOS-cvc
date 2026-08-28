@@ -224,6 +224,8 @@ export interface WebsiteContext {
   navLabels: string[];
   /** path ภายในที่เจอ — ใช้เรียนรู้ slug convention + เช็ค slug ซ้ำ */
   existingPaths: string[];
+  /** title/H1 ของหน้าที่มีอยู่แล้ว — ใช้กันซ้ำกับเว็บที่ slug เป็นอังกฤษแต่เนื้อหาไทย */
+  existingTitles: string[];
   slugConvention: 'latin' | 'thai' | 'mixed' | 'unknown';
   fetchedAt: string;
   status: 'ok' | 'failed' | 'skipped';
