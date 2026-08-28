@@ -91,14 +91,23 @@ export async function getDataForSeoVolumes(
   keywords: string[],
   languageCode = 'th',
   locationCode = 2764, // Thailand
-  onWarning?: (warning: string) => void
+  onWarning?: (warning: string) => void,
+  onCost?: (usd: number) => void // บิลจริงต่อ task จาก API — ไว้ log ต้นทุนแทนค่าประมาณต่อคำ
 ): Promise<Map<string, DFSMetric>> {
   const creds = getCredentials();
   if (!creds) return new Map();
 
   const resultMap = new Map<string, DFSMetric>();
   const auth = makeBasicAuth(creds.login, creds.password);
-  const chunks = chunk(keywords, KEYWORDS_PER_TASK);
+  // Google Ads endpoint: คำที่มีสัญลักษณ์ต้องห้าม/ยาวเกิน 80 ตัวอักษร/เกิน 10 คำ ทำให้ "ทั้ง task" ล้ม (40501)
+  // เจอจริง: pool มีคำจาก AI ลงท้าย "?" หนึ่งคำ → volume หายทั้งชุด 517 คำแบบเงียบ — คัดออกก่อนส่ง
+  const invalidSymbol = /[!@%^()={};~`<>?\\|]/;
+  const validKeywords = keywords.filter(k => k.length <= 80 && !invalidSymbol.test(k) && k.trim().split(/\s+/).length <= 10);
+  const droppedCount = keywords.length - validKeywords.length;
+  if (droppedCount > 0) {
+    onWarning?.(`ข้าม ${droppedCount} คำที่รูปแบบไม่ผ่านเงื่อนไข Google Ads (อักขระพิเศษ/ยาวเกิน) — กันคำเดียวทำให้ทั้งชุดไม่ได้ volume`);
+  }
+  const chunks = chunk(validKeywords, KEYWORDS_PER_TASK);
   let cpcConversion: Awaited<ReturnType<typeof getCpcConversion>> | null = null;
   try {
     cpcConversion = await getCpcConversion('USD');
@@ -156,7 +165,12 @@ export async function getDataForSeoVolumes(
         }
 
         for (const task of data.tasks || []) {
-          if (task.status_code !== 20000) continue;
+          if (typeof task.cost === 'number' && task.cost > 0) onCost?.(task.cost);
+          if (task.status_code !== 20000) {
+            // ห้ามกลืนเงียบ — 40501 (คำผิด format) เคยทำ volume หายทั้งชุดโดยไม่มีใครรู้
+            lastError = `task ${task.status_code}: ${task.status_message || 'unknown'}`;
+            continue;
+          }
           for (const result of task.result || []) {
             // API returns either result.items[] (some endpoints) or result is the item directly
             // For search_volume/live: Thai keywords come as flat result objects, not nested in items
@@ -201,6 +215,8 @@ export async function getDataForSeoVolumes(
 
     if (lastError) {
       console.error(`[DataForSEO] chunk failed: ${lastError}`);
+      // ต้องโผล่ถึงผู้ใช้ด้วย — ไม่งั้นเห็นแค่ "ตอบ 0 คำ" โดยไม่รู้สาเหตุ
+      onWarning?.(`DataForSEO volume (${kwChunk.length} คำ): ${lastError}`);
     }
     })); // end Promise.all wave
   } // end wave loop
