@@ -65,7 +65,7 @@ import {
   type TitleBatchRow,
 } from '@/lib/wordgod/online/blueprint';
 import { scanWebsiteContext } from '@/lib/wordgod/online/siteScan';
-import { callGemini } from '@/lib/wordgod/gemini';
+import { callGemini, getSessionUsage } from '@/lib/wordgod/gemini';
 import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
 import {
@@ -435,6 +435,14 @@ export async function POST(req: NextRequest) {
     let resolvedGeoLite: { name: string; level: string; resourceName: string } | null = ckptData?.kp?.resolvedGeo ?? null;
 
     let dfsCalls: number = ckptData?.c?.dfsCalls ?? 0;
+    let dfsVolumeCostUsd: number = ckptData?.c?.dfsVolumeCostUsd ?? 0; // บิลจริงจาก task.cost — แทนค่าประมาณต่อคำ
+    // ต้นทุน LLM สะสมของ run นี้ (ข้าม yield/resume ได้) — delta จาก session tracker ของ OpenRouter
+    // หมายเหตุ: tracker เป็น global ต่อ process ถ้ามี run ขนานกัน ตัวเลขจะปนกันได้เล็กน้อย (เพดาน 2 run)
+    const llmBaseCostUsd: number = ckptData?.c?.llmCostUsd ?? 0;
+    const llmBaseTokens: number = ckptData?.c?.llmTokens ?? 0;
+    const llmUsageStart = getSessionUsage();
+    const llmCostSoFar = () => llmBaseCostUsd + Math.max(0, getSessionUsage().cost_usd - llmUsageStart.cost_usd);
+    const llmTokensSoFar = () => llmBaseTokens + Math.max(0, getSessionUsage().total_tokens - llmUsageStart.total_tokens);
     let dfsError: string | undefined = ckptData?.c?.dfsError ?? undefined;
     let dfsFetchedAt: string | null = ckptData?.c?.dfsFetchedAt ?? null;
     let dfsExtraCostUsd: number = ckptData?.c?.dfsExtraCostUsd ?? 0;
@@ -469,7 +477,8 @@ export async function POST(req: NextRequest) {
         shortlist: lean ? [] : shortlistKeys,
         kp: { status: kpStatus, message: kpMessage, calls: kpCalls, fetchedAt: kpFetchedAt, enriched: kpEnriched, resolvedGeo: resolvedGeoLite },
         c: {
-          dfsCalls, dfsError, dfsFetchedAt, dfsExtraCostUsd, dfsExtraCalls,
+          dfsCalls, dfsVolumeCostUsd, dfsError, dfsFetchedAt, dfsExtraCostUsd, dfsExtraCalls,
+          llmCostUsd: llmCostSoFar(), llmTokens: llmTokensSoFar(),
           serpChecked, serpErrors, candidateCount, qualifiedCount, titleFailures,
         },
         selected,
@@ -681,13 +690,14 @@ export async function POST(req: NextRequest) {
       if (discStep === 0 && flags.useDfsIdeas && flags.useDataForSeo && hasDataForSeoCreds()) {
         const seedGroups: string[][] = [];
         const allSeeds = [
-          ...blueprint.taxonomy.flatMap(t => t.seedKeywords),
+          ...input.products,
+          ...blueprint.taxonomy.flatMap(t => [t.branch, ...t.seedKeywords]),
           ...blueprint.problemMap.flatMap(pm => pm.searchBehaviors),
         ];
         for (let i = 0; i < allSeeds.length; i += 20) seedGroups.push(allSeeds.slice(i, i + 20));
         let groupIdx = cursor('discovery', 'ideaGroupIdx', 0);
         if (groupIdx === 0) progress(`ขยายคำจาก DataForSEO keyword ideas (${seedGroups.length} ชุด seed) …`, stepOf('discovery_dfs'));
-        while (groupIdx < seedGroups.length && pool.size < poolTarget && groupIdx < 8) {
+        while (groupIdx < seedGroups.length && pool.size < poolTarget && groupIdx < Math.max(8, Math.ceil(targetCount / 60))) {
           const ideasRes = await getDataForSeoKeywordIdeas(seedGroups[groupIdx], {
             limit: 1000, locationCode: 2764, languageCode: language,
           });
@@ -885,6 +895,94 @@ export async function POST(req: NextRequest) {
             }
             await checkpoint('kp', { kpChunk: totalChunks, kpIdeasDone: 1 });
           }
+
+          // ── Volume Coverage Loop: เลือก 500 ต้องได้ 500 คำที่มี volume จริง ──
+          // วิธี: ใช้ seed + topic universe (กิ่ง taxonomy + พฤติกรรมค้นจาก problem map)
+          // แตก KP keyword ideas เป็นชุด ๆ — แต่ละแถวมี volume จริงจาก Google ติดมา —
+          // วนจนคำมี volume ≥ 1.5× ของเป้า (KP/DFS ideas ดึงได้หลักพัน-หมื่นคำถ้า seed กว้างพอ)
+          {
+            const countVolumeWords = () => {
+              let n = 0;
+              for (const key of Array.from(pool.keys())) {
+                if ((googleByKey.get(key)?.avgMonthlySearches ?? 0) > 0) n++;
+                else if ((dfsByKey.get(key)?.searchVolume ?? 0) > 0) n++;
+              }
+              return n;
+            };
+            const needVolumeWords = Math.ceil(targetCount * 1.5);
+            let volumeWords = countVolumeWords();
+            if (volumeWords < needVolumeWords) {
+              const usedSeedKeys = new Set(input.products.map(pd => dedupeKey(pd)));
+              const universeSeeds = Array.from(new Map(
+                [
+                  ...(blueprint?.taxonomy ?? []).flatMap(t => [t.branch, ...t.seedKeywords]),
+                  ...(blueprint?.problemMap ?? []).flatMap(pm => pm.searchBehaviors),
+                ]
+                  .map(sd => String(sd ?? '').trim())
+                  .filter(sd => sd.length >= 2)
+                  .map(sd => [dedupeKey(sd), sd] as const)
+              ).values()).filter(sd => !usedSeedKeys.has(dedupeKey(sd)));
+              const SEEDS_PER_WAVE = 10;
+              const waves: string[][] = [];
+              for (let i = 0; i < universeSeeds.length; i += SEEDS_PER_WAVE) {
+                waves.push(universeSeeds.slice(i, i + SEEDS_PER_WAVE));
+              }
+              const MAX_VOL_WAVES = 10;
+              let waveIdx = cursor('kp', 'volWaveIdx', 0);
+              if (waveIdx === 0 && waves.length) {
+                progress(
+                  `คำที่มี volume จริงมี ${volumeWords} คำ ยังไม่พอเป้า ${targetCount} — แตก keyword จาก topic universe ${Math.min(waves.length, MAX_VOL_WAVES)} ชุด seed …`,
+                  stepOf('kp_volume')
+                );
+              }
+              while (volumeWords < needVolumeWords && waveIdx < waves.length && waveIdx < MAX_VOL_WAVES) {
+                const waveSeeds = waves[waveIdx];
+                let added = 0;
+                try {
+                  const waveIdeas = await getKeywordPlannerRows({
+                    seed_keywords: waveSeeds,
+                    target_language: language === 'en' ? 'en' : 'th',
+                    target_country: input.country ?? 'Thailand',
+                    number_of_results: Math.max(500, targetCount),
+                    force_refresh: false,
+                  });
+                  if (waveIdeas.success) {
+                    for (const row of waveIdeas.rows) {
+                      if (!row.volume || row.volume <= 0) continue;
+                      if (!relevantToBusiness(row.keyword)) continue;
+                      const ideaKey = dedupeKey(normalizeThaiSpacing(row.keyword));
+                      const isNew = addToPool(row.keyword, 'kp_ideas', waveSeeds[0] ?? null, input.products[0] ?? '', 46);
+                      if (!googleByKey.has(ideaKey)) {
+                        googleByKey.set(ideaKey, googleFromIdeaRow(row, geoInfo, language));
+                        kpEnriched++;
+                      }
+                      if (isNew) added++;
+                    }
+                    kpCalls += waveIdeas.rows.length;
+                  } else if (waveIdeas.error) {
+                    warnings.push(`topic universe ideas ชุดที่ ${waveIdx + 1} ไม่สำเร็จ: ${waveIdeas.error.slice(0, 80)}`);
+                  }
+                } catch (err) {
+                  if (err instanceof YieldSignal) throw err;
+                  warnings.push(`topic universe ideas ชุดที่ ${waveIdx + 1} ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+                }
+                volumeWords = countVolumeWords();
+                waveIdx++;
+                progress(
+                  `topic universe ชุด ${waveIdx}: +${added} คำใหม่มี volume (รวมคำมี volume ${volumeWords}, pool ${pool.size})`,
+                  { ...stepOf('kp_volume'), count: volumeWords }
+                );
+                await checkpoint('kp', { kpChunk: totalChunks, kpIdeasDone: 1, volWaveIdx: waveIdx });
+              }
+              if (waveIdx > 0) {
+                candidateCount = pool.size;
+                warnings.push(`แตกคำจาก topic universe ${waveIdx} ชุด seed — คำที่มี volume จริงรวม ${volumeWords} คำ (เป้า ${targetCount})`);
+              }
+              if (volumeWords < targetCount) {
+                warnings.push(`คำที่มี volume จริงมี ${volumeWords} คำ น้อยกว่าเป้า ${targetCount} — ตลาดนี้คำค้นจริงมีจำกัด แนะนำเพิ่มบริการ/หัวข้อให้กว้างขึ้น`);
+              }
+            }
+          }
           // ── รวมกลุ่ม close variants ตามที่ Google จัดให้ (planner_canonical) ──
           // หลายคำใน pool ที่ KP ตอบ canonical เดียวกัน = คำเดียวกันในสายตา Google
           // เก็บไว้แค่ตัวแทนเดียว ที่เหลือเป็น variant (โผล่เป็นคำรองตอน finalize)
@@ -970,7 +1068,7 @@ export async function POST(req: NextRequest) {
       try {
         while (dfsChunk < totalChunks) {
           const chunk = targets.slice(dfsChunk * CHUNK, (dfsChunk + 1) * CHUNK);
-          const dfsMap = await getDataForSeoVolumes(chunk, language, 2764, w => warnings.push(w));
+          const dfsMap = await getDataForSeoVolumes(chunk, language, 2764, w => warnings.push(w), usd => { dfsVolumeCostUsd += usd; });
           dfsCalls += chunk.length;
           for (const kw of chunk) {
             const hit = dfsMap.get(kw.trim().toLowerCase());
@@ -994,7 +1092,9 @@ export async function POST(req: NextRequest) {
     if (needs('dfs_volumes')) await checkpoint('intent');
 
     // shortlist สำหรับชั้น intelligence (intent/kd/classify/serp)
-    const computeShortlist = () => {
+    // depth ปรับได้ — รอบเติม (refill) ใช้ขยาย shortlist ลึกลงเมื่อคำ relevant ไม่พอเป้า
+    const SHORTLIST_STEP = Math.min(3000, Math.max(targetCount * 3, 300));
+    const computeShortlist = (depth: number = SHORTLIST_STEP) => {
       const scored = Array.from(pool.values()).map(it => {
         const key = dedupeKey(it.keyword);
         const ref = resolveReferenceVolume(
@@ -1004,7 +1104,7 @@ export async function POST(req: NextRequest) {
         return { key, prelim: demandScore(ref) * 0.55 + it.heuristic * 0.45 };
       });
       scored.sort((a, b) => b.prelim - a.prelim);
-      return scored.slice(0, Math.min(scored.length, Math.min(3000, targetCount * 3))).map(s => s.key);
+      return scored.slice(0, Math.min(scored.length, depth)).map(s => s.key);
     };
 
     // ── intent (DataForSEO — search intent จริง) ────────────────────────────
@@ -1151,14 +1251,17 @@ export async function POST(req: NextRequest) {
 
       type WorkRow = { item: PoolItem; key: string; cls: CandidateClassification; clusterable: ClusterableRow };
       const work: WorkRow[] = [];
-      for (const key of shortlistKeys) {
+      const workTried = new Set<string>();
+      const pushWorkRow = (key: string): void => {
+        if (workTried.has(key)) return;
+        workTried.add(key);
         const item = pool.get(key);
         const cls = classByKey.get(key);
-        if (!item || !cls) continue;
-        if (cls.relevanceTier === 0) continue; // ไม่เกี่ยวกับธุรกิจ — ตัดทิ้ง
-        if (input.includeBrandKeywords === false && brandKey && key.includes(brandKey)) continue;
-        if (input.includeProblemKeywords === false && themeOfStage(cls.journeyStage).key === 'problem') continue;
-        if (input.includeComparisonKeywords === false && ['VENDOR_COMPARISON', 'SOLUTION_COMPARISON'].includes(cls.journeyStage)) continue;
+        if (!item || !cls) return;
+        if (cls.relevanceTier === 0) return; // ไม่เกี่ยวกับธุรกิจ — ตัดทิ้ง
+        if (input.includeBrandKeywords === false && brandKey && key.includes(brandKey)) return;
+        if (input.includeProblemKeywords === false && themeOfStage(cls.journeyStage).key === 'problem') return;
+        if (input.includeComparisonKeywords === false && ['VENDOR_COMPARISON', 'SOLUTION_COMPARISON'].includes(cls.journeyStage)) return;
 
         const google = googleByKey.get(key) ?? emptyGoogleMetric(language);
         const dfs = dfsByKey.get(key) ?? emptyDfsMetric(language);
@@ -1187,15 +1290,58 @@ export async function POST(req: NextRequest) {
             pageType,
           },
         });
+      };
+      for (const key of shortlistKeys) pushWorkRow(key);
+
+      // ── Refill: คำ relevant ไม่พอเป้า → ขยาย shortlist ลึกลงแล้ว classify เพิ่มจนพอ ──
+      // สาเหตุที่เคยได้ 24/50: shortlist เที่ยวเดียว ×3 ของเป้า ถูก brand/tier0/guard กินจนไม่เหลือ
+      // ทั้งที่ pool ยังมีคำ relevant อยู่ — ต้องเติมจนได้ ~1.8× ของเป้าก่อนเข้า guard/cluster quota
+      const needWork = Math.ceil(targetCount * 1.8);
+      let refillRound = 0;
+      while (work.length < needWork && refillRound < 4) {
+        const deeper = computeShortlist(shortlistKeys.length + SHORTLIST_STEP);
+        const known = new Set(shortlistKeys);
+        const newKeys = deeper.filter(k => !known.has(k));
+        if (newKeys.length === 0) break; // pool หมดจริง — ยอมรับเท่าที่มี
+        shortlistKeys = deeper;
+        refillRound += 1;
+        const refillTargets = newKeys
+          .filter(k => !classByKey.has(k))
+          .map(k => pool.get(k)?.keyword)
+          .filter((k): k is string => !!k);
+        progress(
+          `คำเข้าเกณฑ์ยังไม่พอเป้า (${work.length}/${needWork}) — ขยายชุดวิเคราะห์รอบ ${refillRound}: +${refillTargets.length} คำ …`,
+          stepOf('scoring')
+        );
+        const rBatches: string[][] = [];
+        for (let i = 0; i < refillTargets.length; i += CLASSIFY_BATCH_SIZE) {
+          rBatches.push(refillTargets.slice(i, i + CLASSIFY_BATCH_SIZE));
+        }
+        for (let i = 0; i < rBatches.length; i += 3) {
+          const settled = await Promise.allSettled(
+            rBatches.slice(i, i + 3).map(batch => classifyCandidatesBatch(batch, input, blueprint!))
+          );
+          for (const res of settled) {
+            if (res.status !== 'fulfilled') {
+              warnings.push(`จัดหมวดรอบเติมชุดหนึ่งไม่สำเร็จ: ${res.reason instanceof Error ? res.reason.message.slice(0, 80) : String(res.reason)}`);
+              continue;
+            }
+            for (const [kw, cls] of mapToEntries(res.value)) classByKey.set(dedupeKey(kw), cls);
+          }
+        }
+        for (const key of newKeys) pushWorkRow(key);
+      }
+      if (refillRound > 0) {
+        warnings.push(`ขยายชุดวิเคราะห์เพิ่ม ${refillRound} รอบเพื่อให้คำเข้าเกณฑ์พอเป้า — ได้ ${work.length} คำก่อนคัดจริง`);
       }
 
       // Relevance Guard: ตัดคำที่ไม่ใช่ลูกค้าของธุรกิจ (เช่น คำค้นหาหน่วยงานราชการ/สถานที่)
       // ที่รอดชั้นกรอง n-gram มาได้ — LLM ตัดสินเจตนา, fail-open (พัง = ไม่ตัดอะไร + warning)
       let guardedWork = work;
       try {
-        // ตรวจ "ทุกคำ" ที่มีสิทธิ์ถูกคัด (แบ่งชุดละ 400 — cap 3 ชุด) ไม่ใช่แค่ top คะแนน
+        // ตรวจ "ทุกคำ" ที่มีสิทธิ์ถูกคัด (แบ่งชุดละ 400 — เพดานโตตามเป้า) ไม่ใช่แค่ top คะแนน
         const guardTargets = work.slice().sort((a, b) => b.clusterable.finalScore - a.clusterable.finalScore)
-          .slice(0, MAX_KEYWORDS_PER_CALL * 3).map(w => w.item.keyword);
+          .slice(0, Math.max(MAX_KEYWORDS_PER_CALL * 3, targetCount * 2)).map(w => w.item.keyword);
         if (guardTargets.length > 0) {
           progress(`ตรวจคำนอกธุรกิจ ${guardTargets.length} คำ (Relevance Guard) …`, stepOf('scoring'));
           const guardInput = {
@@ -1265,7 +1411,21 @@ export async function POST(req: NextRequest) {
         w.clusterable.finalScore = scores.finalScore;
       }
 
-      const picked = selectWithClusterQuota(survivors.map(w => w.clusterable), targetCount);
+      // คำที่มี volume จริง (KP/DFS) ได้สิทธิ์ก่อนเสมอ — คำที่ยังไม่มี volume (ส่วนใหญ่มาจาก
+      // AI expansion ที่ KP ไม่ตอบตัวเลข) เป็นตัวเติมเมื่อคำมี volume ไม่พอเป้า พร้อมแจ้งจำนวนตรง ๆ
+      // (QA @500: niche เล็ก คำ NO_VOLUME เคยกินถึง 42% ของตารางทั้งที่ไม่ได้ถูกบังคับ)
+      const volSurvivors = survivors.filter(w => (w.clusterable.referenceVolume ?? 0) > 0);
+      const zeroSurvivors = survivors.filter(w => (w.clusterable.referenceVolume ?? 0) <= 0);
+      let picked = selectWithClusterQuota(volSurvivors.map(w => w.clusterable), targetCount);
+      if (picked.length < targetCount && zeroSurvivors.length > 0) {
+        const alreadyPicked = new Set(picked.map(p => p.keyword));
+        const fill = selectWithClusterQuota(zeroSurvivors.map(w => w.clusterable), targetCount - picked.length)
+          .filter(p => !alreadyPicked.has(p.keyword));
+        if (fill.length > 0) {
+          picked = [...picked, ...fill];
+          warnings.push(`คำที่มี volume จริงมี ${picked.length - fill.length} คำ — เติมคำที่ยังไม่มี volume จากแหล่งข้อมูลอีก ${fill.length} คำเพื่อให้ครบเป้า (คำกลุ่มนี้ AI เสนอ/คนค้นน้อยเกินระบบวัด — ใช้เป็นบทความเสริมได้ แต่อย่าคาดหวัง traffic เร็ว)`);
+        }
+      }
       const pickedSet = new Set(picked.map(p => p.keyword));
       qualifiedCount = picked.length;
       progress(`คัดเหลือ ${picked.length} คีย์เวิร์ด (จาก candidate ${pool.size} คำ) — cluster quota ไม่ใช่ top-N ล้วน`, { ...stepOf('scoring'), count: picked.length });
@@ -1620,7 +1780,7 @@ export async function POST(req: NextRequest) {
         modelProvider: 'DATAFORSEO',
         modelName: 'dataforseo/search_volume/live',
         status: 'SUCCESS',
-        externalCost: dfsCalls * DFS_COST_PER_KEYWORD,
+        externalCost: dfsVolumeCostUsd > 0 ? dfsVolumeCostUsd : dfsCalls * DFS_COST_PER_KEYWORD,
         externalCalls: dfsCalls,
         externalApi: 'DataForSEO',
         createdById: userId,
@@ -1655,6 +1815,20 @@ export async function POST(req: NextRequest) {
         externalApi: 'GoogleKeywordPlanner',
         createdById: userId,
         inputSummary: `WordGod Online — ${input.products.join(', ')} · ${kpCalls} lookups`,
+      }).catch(() => {});
+    }
+    if (llmTokensSoFar() > 0 || llmCostSoFar() > 0) {
+      logAIJob({
+        organizationId: orgId,
+        projectId: flags.projectId,
+        jobType: 'RESEARCH_LLM',
+        modelProvider: 'OPENROUTER',
+        modelName: 'openrouter (ตีความ/จัดหมวด/ตั้งชื่อ — ไม่ใช่แหล่งตัวเลข)',
+        status: 'SUCCESS',
+        tokenUsed: Math.round(llmTokensSoFar()),
+        estimatedCost: llmCostSoFar(), // cost จริงจาก OpenRouter usage accounting
+        createdById: userId,
+        inputSummary: `WordGod Online LLM — ${input.products.join(', ')} · เป้า ${targetCount} คำ`,
       }).catch(() => {});
     }
 
