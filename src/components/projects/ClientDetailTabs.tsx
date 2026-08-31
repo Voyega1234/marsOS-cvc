@@ -33,10 +33,11 @@ import { ProjectContentEngine } from '@/components/projects/workspace/ProjectCon
 import { ReportConnectPanel } from '@/components/report/ReportConnectPanel'
 import { ProjectWebsitePanel } from '@/components/projects/ProjectWebsitePanel'
 import { ProjectSetupChecklist } from '@/components/projects/ProjectSetupChecklist'
+import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGapTab'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'timeline-view' | 'keyword-research' | 'keywords' | 'keyword-bank' | 'content-map' | 'articles' | 'content-refresh' | 'lab' | 'push' | 'review' | 'publish' | 'report' | 'on-page' | 'technical' | 'indexing' | 'proj-ce'
+type Tab = 'overview' | 'timeline-view' | 'competitor-gap' | 'keyword-research' | 'keywords' | 'keyword-bank' | 'content-map' | 'articles' | 'content-refresh' | 'lab' | 'push' | 'review' | 'publish' | 'report' | 'on-page' | 'technical' | 'indexing' | 'proj-ce'
 
 export interface ProjectData {
   id: string
@@ -7095,6 +7096,7 @@ function PushTab({
 // ─── Nav 2 ชั้น: 5 หน้าหลักต่อ project + Content Studio มี subtabs ───────────────
 // (Article Lab / Report ไม่อยู่ในสเปก 7 subtabs แต่เก็บไว้เพื่อไม่ให้ฟีเจอร์เดิมหาย)
 const STUDIO_TABS: { id: Tab; label: string }[] = [
+  { id: 'competitor-gap',    label: 'Competitor Gap' },
   { id: 'keyword-research',  label: 'Keyword Research' },
   { id: 'keywords',          label: 'Keywords Input' },
   { id: 'keyword-bank',      label: 'Keyword' },
@@ -7142,7 +7144,7 @@ const SIDEBAR_GROUPS: { label?: string; items: { id: Tab | 'studio'; label: stri
 ]
 
 // เนื้อหาที่กว้างเต็มจอ (ที่เหลือใช้ px-8 max-w-5xl)
-const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'publish', 'articles', 'content-map', 'proj-ce', 'review', 'report']
+const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'competitor-gap', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'publish', 'articles', 'content-map', 'proj-ce', 'review', 'report']
 
 const CLIENT_TABS: Tab[] = ['review', 'publish', 'report']
 
@@ -7226,7 +7228,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       setSettingsDrawerOpen(true)
       return
     }
-    const allowed = isClient ? CLIENT_TABS : ['overview','timeline-view','keyword-research','keywords','keyword-bank','content-map','articles','content-refresh','push','review','publish','report','on-page','technical','indexing']
+    const allowed = isClient ? CLIENT_TABS : ['overview','timeline-view','competitor-gap','keyword-research','keywords','keyword-bank','content-map','articles','content-refresh','push','review','publish','report','on-page','technical','indexing']
     if (t && allowed.includes(t as Tab)) {
       setTab(t as Tab)
     }
@@ -7617,6 +7619,9 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
         )}
         {tab === 'indexing' && (
           <IndexingCrawling project={project} userRole={userRole} />
+        )}
+        {tab === 'competitor-gap' && (
+          <CompetitorGapTab project={project} />
         )}
         <div className={tab === 'keyword-research' ? '' : 'hidden'}>
           <WordGodTab project={project} onSendToBank={() => setTab('keyword-bank')} />
