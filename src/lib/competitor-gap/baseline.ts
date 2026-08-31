@@ -11,7 +11,7 @@ import type {
   DomainInventory, DomainState, GapAction, KeywordGapResult, MetricRow,
   PageRecord, PageType, Priority, TopicCluster,
 } from './types'
-import { isCommercialType, tokens } from './classify'
+import { isCommercialType, labelLooksLikeService, tokens } from './classify'
 import { DIM_LABELS, type QualityBenchmark, scoreDomain, weaknessesFrom } from './quality'
 import { slugify } from './urls'
 
@@ -451,14 +451,19 @@ export function buildPhase1Actions(input: Phase1Input): GapAction[] {
     }
 
     usedClusters.add(c.id)
+    // คู่แข่งวางหน้างานบริการไว้ใต้ /products/ ได้ แต่หน้าที่เราควรสร้างคือหน้าบริการ
+    const createType: PageType =
+      labelLooksLikeService(c.label) && (c.dominantType === 'product' || c.dominantType === 'category')
+        ? 'service'
+        : c.dominantType
     push({
       priority, action: 'CREATE',
       title: c.label,
       primaryKeyword: kw.keyword ?? c.label, primaryKeywordVolume: kw.volume,
-      secondaryKeywords: kw.secondary, searchIntent: kw.intent, pageType: c.dominantType,
+      secondaryKeywords: kw.secondary, searchIntent: kw.intent, pageType: createType,
       competitorCoverage: coverageLabel, existingUrl: null,
       // slug มาจากหัวข้อของคลัสเตอร์เสมอ — ถ้าใช้คีย์เวิร์ดหลักของรอบสแกน URL จะไม่ตรงกับหน้าที่แนะนำ
-      recommendedUrl: recommendUrl(c.label, c.dominantType),
+      recommendedUrl: recommendUrl(c.label, createType),
       reason: `คู่แข่งเทียบเคียง ${coverageLabel} มีหน้าในหัวข้อนี้ แต่เว็บเรายังไม่มีหน้าที่ตอบเจตนานี้`,
       evidence: [
         `คู่แข่งเทียบเคียงที่มีหัวข้อนี้: ${coverageLabel}`,

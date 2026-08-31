@@ -91,7 +91,7 @@ ${JSON.stringify(items, null, 1)}
 ตอบ JSON:
 {"summary":"สรุป 2-3 ประโยคว่าตอนนี้เว็บเราขาดอะไรถึงยังไม่เท่า Top 5 และงานชุดนี้แก้อะไร",
  "items":[{"id":"...","reason":"ทำไมงานนี้จำเป็นเชิงการแข่งขัน 1-2 ประโยค","searchIntent":"transactional|commercial|informational|navigational","secondaryKeywords":["..."],"topicsToCover":["หัวข้อย่อยที่หน้านี้ต้องมี"],"internalLinks":["URL จากลิสต์ด้านบนเท่านั้น"],"differentiation":"มุมที่ทำให้หน้านี้ดีกว่าของคู่แข่งโดยไม่ลอก"}]}`,
-    maxTokens: 6000,
+    maxTokens: 8000,
   })
 
   if (!res.data) return { usage: res.usage, summary: null, error: res.error }
@@ -122,7 +122,8 @@ ${JSON.stringify(items, null, 1)}
   const summary = typeof res.data.summary === 'string' && res.data.summary.trim()
     ? res.data.summary.trim()
     : null
-  return { usage: res.usage, summary, error: null }
+  // res.error มีค่าได้แม้ data ใช้ได้ (คำตอบถูกตัดกลางทางแล้วซ่อมมา) — ส่งต่อให้ผู้ใช้เห็นตามจริง
+  return { usage: res.usage, summary, error: res.error }
 }
 
 // ── คู่แข่งรายเจ้า + Phase 2 ─────────────────────────────────────────────────
@@ -276,7 +277,7 @@ ${thinTopics.join(', ') || '(ไม่มีข้อมูล)'}
 เสนอ 4-6 ไอเดีย ตอบ JSON:
 {"summary":"1-2 ประโยคว่าโอกาสแซงอยู่ตรงไหน",
  "ideas":[{"title":"...","competitorWeakness":"จุดอ่อนที่ใช้ประโยชน์ (อ้างจากข้อมูลที่ให้)","userValue":"ผู้ใช้ได้อะไรเพิ่ม","whyDifferent":"ต่างจากคู่แข่งยังไง","seoOpportunity":"โอกาสเชิง SEO","effort":"Low|Medium|High"}]}`,
-    maxTokens: 3000,
+    maxTokens: 5000,
     temperature: 0.4,
   })
 

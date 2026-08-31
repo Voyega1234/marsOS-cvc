@@ -24,6 +24,37 @@ function extractJson(text: string): string {
   return end > start ? body.slice(start, end + 1) : body.slice(start)
 }
 
+/**
+ * ซ่อม JSON ที่ถูกตัดกลางทางเพราะชนเพดาน token — ตัดถึงสมาชิกตัวสุดท้ายที่ปิดครบ
+ * แล้วปิดวงเล็บที่ค้างอยู่ ไม่เติมค่าใหม่เอง ใช้เฉพาะข้อมูลที่โมเดลส่งมาจริง
+ */
+function repairTruncatedJson(raw: string): string | null {
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+  let lastSafe = -1
+  let stackAtSafe: string[] = []
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{') stack.push('}')
+    else if (ch === '[') stack.push(']')
+    else if (ch === '}' || ch === ']') {
+      stack.pop()
+      if (stack.length > 0) { lastSafe = i; stackAtSafe = [...stack] }
+    }
+  }
+  if (lastSafe < 0) return null
+  return raw.slice(0, lastSafe + 1) + stackAtSafe.reverse().join('')
+}
+
 export async function askJson<T>(params: {
   system: string
   user: string
@@ -43,9 +74,16 @@ export async function askJson<T>(params: {
       jsonMode: true,
       timeoutMs: params.timeoutMs ?? 120_000,
     })
+    const body = extractJson(res.text)
     try {
-      return { data: JSON.parse(extractJson(res.text)) as T, usage: res.usage, error: null }
+      return { data: JSON.parse(body) as T, usage: res.usage, error: null }
     } catch {
+      const repaired = repairTruncatedJson(body)
+      if (repaired) {
+        try {
+          return { data: JSON.parse(repaired) as T, usage: res.usage, error: 'AI ตอบกลับถูกตัดกลางทาง — ใช้เฉพาะส่วนที่อ่านได้' }
+        } catch { /* ซ่อมไม่ขึ้น — ตกไปที่ error ด้านล่าง */ }
+      }
       return { data: null, usage: res.usage, error: 'AI ตอบกลับไม่ใช่ JSON ที่อ่านได้' }
     }
   } catch (e) {

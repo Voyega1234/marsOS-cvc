@@ -74,6 +74,16 @@ const COMMERCIAL_TYPES: PageType[] = ['service', 'product', 'category', 'locatio
 const CONTENT_TYPES: PageType[] = ['article', 'guide', 'case-study', 'glossary', 'tool']
 const NON_SEO_TYPES: PageType[] = ['about', 'contact', 'career', 'legal']
 
+/**
+ * หัวข้อที่ข้อความบอกว่าเป็น "งานบริการ" เช่น "รับทำ Backlink", "บริการดูแลเว็บ"
+ * ใช้ตอนแนะนำหน้าใหม่ — คู่แข่งอาจวางหน้าแบบนี้ไว้ใต้ /products/ แต่หน้าที่เราควรสร้างคือหน้าบริการ
+ */
+const SERVICE_LABEL = /(รับทำ|รับจ้าง|รับ[ก-๙]{2,}|บริการ|ให้เช่า|ดูแล|ออกแบบ|service)/i
+
+export function labelLooksLikeService(label: string): boolean {
+  return SERVICE_LABEL.test(label)
+}
+
 export function isCommercialType(t: PageType): boolean { return COMMERCIAL_TYPES.includes(t) }
 export function isContentType(t: PageType): boolean { return CONTENT_TYPES.includes(t) }
 
