@@ -113,6 +113,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
   const [website, setWebsite] = useState(project.website ?? '')
   const [keyword, setKeyword] = useState('')
   const [country, setCountry] = useState(DEFAULT_COUNTRY)
+  const [manualCompetitors, setManualCompetitors] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [maxPages, setMaxPages] = useState(300)
   const [competitorCount, setCompetitorCount] = useState(5)
@@ -141,6 +142,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           setKeyword(d.report.input.keyword)
           setCountry(d.report.input.country)
           setWebsite(d.report.input.ourWebsite)
+          setManualCompetitors((d.report.input.manualCompetitors ?? []).join('\n'))
         } else if (d.projectWebsite) {
           setWebsite(d.projectWebsite)
         }
@@ -167,6 +169,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           keyword: keyword.trim(),
           country,
           ourWebsite: website.trim(),
+          manualCompetitors: manualCompetitors.split('\n').map(v => v.trim()).filter(Boolean),
           advanced: { maxPagesPerDomain: maxPages, competitorCount, includeKeywordGap, jsFallback },
         }),
       })
@@ -217,7 +220,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
             <div className="text-right text-xs text-gray-500 shrink-0">
               <div>สแกนล่าสุด</div>
               <div className="font-medium text-gray-700">{new Date(report.generatedAt).toLocaleString('th-TH')}</div>
-              <div className="mt-1">ค่าใช้จ่ายรอบนั้น ${report.costUsd.toFixed(4)}</div>
+              <div className="mt-1">ค่าใช้จ่ายดูรวมที่ Settings → AI Cost</div>
             </div>
           )}
         </div>
@@ -244,6 +247,18 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           </div>
         </div>
 
+        <div className="mt-4">
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            คู่แข่งที่ระบุเอง (ไม่บังคับ) — บรรทัดละ 1 URL สูงสุด 5 เว็บ
+          </label>
+          <textarea value={manualCompetitors} onChange={e => setManualCompetitors(e.target.value)}
+            rows={3} placeholder={'https://competitor-a.com\nhttps://competitor-b.co.th'}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/30" />
+          <p className="text-xs text-gray-500 mt-1">
+            ใส่ไม่ครบตามจำนวนคู่แข่งที่ตั้งไว้ ระบบจะเติมจาก Google Top N ให้เองด้วยกระบวนการเดิม · เว็บที่ปิดด้วยหน้าล็อกอิน (เช่น Facebook) สแกนไม่ได้ จะถูกข้าม
+          </p>
+        </div>
+
         <div className="mt-4 flex items-center gap-3 flex-wrap">
           <button onClick={startRun} disabled={running}
             className="px-5 py-2.5 rounded-lg bg-brand-blue text-white text-sm font-medium disabled:opacity-50">
@@ -252,7 +267,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           <button onClick={() => setShowAdvanced(v => !v)} className="text-sm text-gray-500 hover:text-gray-700">
             ตั้งค่าขั้นสูง {showAdvanced ? '▲' : '▼'}
           </button>
-          {run && <span className="text-xs text-gray-500">ค่าใช้จ่ายสะสมรอบนี้ ${run.costUsd.toFixed(4)}</span>}
+
         </div>
 
         {showAdvanced && (
@@ -603,9 +618,16 @@ function CompetitorsSection({ report }: { report: GapReport }) {
         <div key={c.domain} className="bg-white border border-gray-200 rounded-2xl p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h4 className="font-semibold text-brand-navy">{c.domain}</h4>
+              <h4 className="font-semibold text-brand-navy">
+                {c.domain}
+                {c.manual && (
+                  <span className="ml-2 align-middle text-[11px] font-normal px-2 py-0.5 rounded-full bg-brand-mist text-brand-navy border border-gray-200">
+                    ระบุเอง
+                  </span>
+                )}
+              </h4>
               <div className="text-xs text-gray-500 mt-0.5">
-                อันดับ {fmt(c.position)} · ประเภท {c.kind} · {c.comparable ? 'ใช้ตั้งมาตรฐาน' : 'ไม่ใช้ตั้งมาตรฐาน'}
+                อันดับ {c.position === null ? 'ไม่ติด Top ที่ดึงมา' : fmt(c.position)} · ประเภท {c.kind} · {c.comparable ? 'ใช้ตั้งมาตรฐาน' : 'ไม่ใช้ตั้งมาตรฐาน'}
               </div>
             </div>
             <a href={c.rankingUrl ?? '#'} target="_blank" rel="noreferrer" className="text-xs text-brand-blue">หน้าที่ติดอันดับ</a>

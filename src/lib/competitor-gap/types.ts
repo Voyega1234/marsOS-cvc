@@ -25,6 +25,11 @@ export interface RunInput {
   projectId: string
   ourWebsite: string
   keyword: string
+  /**
+   * คู่แข่งที่ผู้ใช้ระบุเอง (origin ที่ normalize แล้ว) — ถูกใส่เข้ารอบสแกนก่อนเสมอ
+   * ถ้าระบุไม่ครบตาม competitorCount ระบบจะเติมจาก Google Top N ด้วยกระบวนการเดิม
+   */
+  manualCompetitors?: string[]
   /** key ของ COUNTRIES ใน locations.ts */
   country: string
   advanced: AdvancedSettings
@@ -123,6 +128,8 @@ export interface CrawlCoverage {
 export interface DomainState {
   /** index 0 = เว็บเรา */
   isOurs: boolean
+  /** true = ผู้ใช้กรอก URL นี้เอง ไม่ได้มาจากผล SERP */
+  manual?: boolean
   label: string
   domain: string
   origin: string
@@ -249,6 +256,8 @@ export interface SurpassIdea {
 
 export interface CompetitorSummary {
   domain: string
+  /** true = คู่แข่งที่ผู้ใช้ระบุเอง */
+  manual?: boolean
   position: number | null
   rankingUrl: string | null
   kind: CompetitorKind

@@ -39,6 +39,25 @@ function toStatus(state: RunState) {
   }
 }
 
+/**
+ * คู่แข่งที่ผู้ใช้ระบุเอง — รับได้สูงสุด 5 เว็บ, ตัดค่าที่ไม่ใช่ URL ทิ้ง, กันซ้ำ
+ * ไม่ตัดเว็บของเราออกตรงนี้ (runner กันซ้ำกับเว็บเราอีกชั้น)
+ */
+function sanitizeManualCompetitors(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[\n,]/) : []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of list) {
+    const origin = toOrigin(String(item ?? '').trim())
+    const domain = toDomain(origin)
+    if (!origin || !domain || seen.has(domain)) continue
+    seen.add(domain)
+    out.push(origin)
+    if (out.length >= 5) break
+  }
+  return out
+}
+
 function sanitizeAdvanced(raw: unknown): AdvancedSettings {
   const a = (raw ?? {}) as Partial<AdvancedSettings>
   return {
@@ -78,6 +97,7 @@ export async function POST(req: NextRequest) {
     keyword?: string
     country?: string
     ourWebsite?: string
+    manualCompetitors?: unknown
     advanced?: unknown
   }
 
@@ -117,6 +137,7 @@ export async function POST(req: NextRequest) {
     ourWebsite: origin,
     keyword,
     country: country.key,
+    manualCompetitors: sanitizeManualCompetitors(body.manualCompetitors),
     advanced: sanitizeAdvanced(body.advanced),
   }, runId)
 

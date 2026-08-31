@@ -40,6 +40,16 @@ export function classifyDomain(domain: string): CompetitorKind {
   return 'business'
 }
 
+/**
+ * เว็บที่สแกนไม่ได้จริง — ปิดด้วย login wall ทำให้ crawler เห็นแต่หน้าล็อกอิน
+ * ยังแสดงในตาราง SERP ตามจริง แต่ไม่ถูกเลือกมาเป็นคู่แข่งให้เสียเวลา/เสียเงินสแกน
+ */
+const UNSCANNABLE = ['facebook.com', 'fb.com', 'm.me', 'messenger.com']
+
+export function isScannableDomain(domain: string): boolean {
+  return !inList(domain, UNSCANNABLE)
+}
+
 /** เทียบเคียงกับเว็บธุรกิจของลูกค้าได้ไหม — ใช้ตัดสิน baseline เท่านั้น ไม่ตัดผลออกจากตาราง */
 export function isComparable(kind: CompetitorKind): boolean {
   return kind === 'business' || kind === 'content'
@@ -100,7 +110,7 @@ export async function fetchTopCompetitors(params: {
       locationCode: params.locationCode,
       languageCode: params.languageCode,
       fetchedAt: new Date().toISOString(),
-      top: all.slice(0, params.take),
+      top: all.filter(e => isScannableDomain(e.domain)).slice(0, params.take),
       all,
     },
     costUsd: billed,

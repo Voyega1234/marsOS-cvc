@@ -24,7 +24,7 @@ import { crawlDomain } from './crawler'
 import { attachDomainMetrics, buildKeywordGap, emptyKeywordGap, fetchRankedKeywords, type DomainKeywords } from './keywordGap'
 import { resolveCountry } from './locations'
 import { buildBenchmark } from './quality'
-import { fetchTopCompetitors, isComparable } from './serp'
+import { classifyDomain, fetchTopCompetitors, isComparable, isScannableDomain } from './serp'
 import { getCache, hashKey, saveReport, saveRun, setCache, TTL } from './store'
 import { buildClusters, nameClusters } from './topics'
 import type {
@@ -180,10 +180,43 @@ async function phaseSerp(state: RunState, ctx: RunContext) {
     estimatedTraffic: null,
   }]
 
-  for (const entry of serp.top) {
-    if (entry.domain === ourDomain) continue         // เว็บเราติด Top 5 อยู่แล้ว ไม่นับเป็นคู่แข่งซ้ำ
+  // คู่แข่งที่ผู้ใช้ระบุเองมาก่อนเสมอ — ถ้าเว็บนั้นติด SERP อยู่แล้วก็ผูกอันดับจริงให้ด้วย
+  const taken = new Set<string>([ourDomain])
+  for (const raw of state.input.manualCompetitors ?? []) {
+    const domain = toDomain(raw)
+    if (!domain || taken.has(domain)) continue
+    taken.add(domain)
+    if (!isScannableDomain(domain)) {
+      state.warnings.push(`ข้าม ${domain} ที่ระบุมา — เว็บนี้ปิดด้วยหน้าล็อกอิน สแกนเนื้อหาไม่ได้`)
+      continue
+    }
+    const onSerp = serp.all.find(e => e.domain === domain) ?? null
+    const kind = onSerp?.kind ?? classifyDomain(domain)
     domains.push({
       isOurs: false,
+      manual: true,
+      label: onSerp ? `ระบุเอง · อันดับ ${onSerp.position}` : 'ระบุเอง',
+      domain,
+      origin: onSerp ? toOrigin(onSerp.url) : toOrigin(raw),
+      serpPosition: onSerp?.position ?? null,
+      serpUrl: onSerp?.url ?? null,
+      kind,
+      comparable: isComparable(kind),
+      pages: [],
+      coverage: emptyCoverage(),
+      organicKeywords: null,
+      estimatedTraffic: null,
+    })
+  }
+
+  // เติมจาก Google Top N ด้วยกระบวนการเดิมจนครบจำนวนคู่แข่งที่ตั้งไว้
+  for (const entry of serp.top) {
+    if (domains.length - 1 >= take) break
+    if (taken.has(entry.domain)) continue            // เว็บเราหรือเว็บที่ผู้ใช้ระบุไว้แล้ว ไม่นับซ้ำ
+    taken.add(entry.domain)
+    domains.push({
+      isOurs: false,
+      manual: false,
       label: `อันดับ ${entry.position}`,
       domain: entry.domain,
       origin: toOrigin(entry.url),
@@ -436,6 +469,7 @@ function buildReportSkeleton(state: RunState): GapReport {
   const comparable = state.domains.filter(d => !d.isOurs && d.comparable).map(d => d.domain)
   const competitors: CompetitorSummary[] = state.domains.filter(d => !d.isOurs).map((d, i) => ({
     domain: d.domain,
+    manual: d.manual === true,
     position: d.serpPosition,
     rankingUrl: d.serpUrl,
     kind: d.kind,
