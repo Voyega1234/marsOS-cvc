@@ -41,6 +41,9 @@ import type {
   LocalResearchResponse,
 } from '@/lib/wordgod/local/types';
 import { dedupeKey, hasForbiddenTerm, normalizeThaiSpacing, orderFreeKey } from '@/lib/wordgod/local/normalize';
+import { KeywordGuard, summarize, toExcludedKeyword, toGuardInfo } from '@/lib/keyword-guard/guard';
+import { loadMemory, parseExcludeLines, parseExistingLines } from '@/lib/keyword-guard/store';
+import type { ExcludedKeyword, GuardSummary, GuardVerdict } from '@/lib/keyword-guard/types';
 import {
   emptyDfsMetric,
   emptyGoogleMetric,
@@ -394,6 +397,12 @@ export async function POST(req: NextRequest) {
       serviceRadiusKm: typeof body.serviceRadiusKm === 'number' ? body.serviceRadiusKm : null,
       language,
       businessContext: body.businessContext ? String(body.businessContext) : undefined,
+      existingKeywords: Array.isArray(body.existingKeywords)
+        ? body.existingKeywords.map((v: unknown) => String(v ?? '').trim()).filter(Boolean).slice(0, 2000)
+        : undefined,
+      excludeKeywords: Array.isArray(body.excludeKeywords)
+        ? body.excludeKeywords.map((v: unknown) => String(v ?? '').trim()).filter(Boolean).slice(0, 1000)
+        : undefined,
     };
     flags = {
       useProblemFirst: body.useProblemFirst !== false,
@@ -449,6 +458,8 @@ export async function POST(req: NextRequest) {
 
     // ── State ทั้งหมดต่อไปนี้ serialize เป็น JSON checkpoint ได้ (โหมด resumable) ──
     const warnings: string[] = Array.isArray(ckptData?.warnings) ? ckptData.warnings : [];
+    // คำที่ Cannibalization Guard ตัดออกในคำขอนี้ พร้อมเหตุผล (§11)
+    const guardExcluded: ExcludedKeyword[] = [];
 
     // ── ชั้นข้อมูลแยกแหล่งต่อคีย์เวิร์ด (key = dedupeKey) — ห้ามเฉลี่ยรวมข้ามแหล่ง ──
     const googleByKey = new Map<string, GoogleMetricData>(ckptData?.google ?? []);
@@ -1388,6 +1399,51 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         warnings.push(`Relevance Guard ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)} — ไม่มีการตัดคำ`);
       }
 
+      // ── CANNIBALIZATION-FIRST: เทียบ candidate กับของเดิมก่อนคัดเข้าตาราง ──────────
+      // ลำดับ: exclude list → คีย์เวิร์ด/หัวข้อ/หน้าเดิมของโปรเจกต์ → คำที่ผ่านไปแล้วในรอบนี้
+      // ตัดก่อนคัดเลือกเสมอ เพื่อให้คำถัดไปเลื่อนขึ้นมาแทน (จำนวนที่ส่งมอบเท่าเดิม)
+      {
+        const kwMemory = await loadMemory(flags.projectId);
+        const nowIso = new Date().toISOString();
+        const runGuard = new KeywordGuard({
+          existing: kwMemory.existing,
+          exclude: [
+            ...kwMemory.exclude,
+            ...parseExcludeLines((input.excludeKeywords ?? []).join('\n'), 'form'),
+          ],
+          extra: parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
+        });
+        const refCount = runGuard.size;
+        const exclCount = runGuard.excludeSize;
+        if (refCount > 0 || exclCount > 0) {
+          const before = primaries.length;
+          const kept: KeywordResearchResult[] = [];
+          const verdicts: GuardVerdict[] = [];
+          for (const r of [...primaries].sort((a, b) => scoreOf(b) - scoreOf(a))) {
+            const verdict = runGuard.evaluate(r.keyword);
+            verdicts.push(verdict);
+            if (verdict.decision === 'EXCLUDE' || verdict.decision === 'MERGE'
+              || verdict.decision === 'MAP_TO_EXISTING_PAGE' || verdict.decision === 'MAP_TO_EXISTING_TOPIC') {
+              guardExcluded.push(toExcludedKeyword(verdict));
+              continue;
+            }
+            runGuard.claim(r.keyword);
+            kept.push(r);
+          }
+          primaries = kept;
+          const removed = before - primaries.length;
+          const summary = summarize(verdicts, refCount, exclCount);
+          progress(`เทียบกับของเดิม ${refCount} รายการ + คำที่ไม่เอา ${exclCount} คำ — ตัดคำซ้ำ/คำต้องห้าม ${removed} คำ (เหลือ ${primaries.length} คำให้คัด)`);
+          if (removed > 0) {
+            const sample = guardExcluded.slice(0, 5).map(e => `${e.keyword} (${e.matchedKeyword ?? e.reason})`).join(', ');
+            warnings.push(`Cannibalization Guard ตัดคำที่ซ้ำกับคีย์เวิร์ด/หน้าที่มีอยู่แล้ว หรืออยู่ในรายการคำที่ไม่เอา ${removed} คำ${sample ? ` เช่น ${sample}` : ''} — คำถัดไปเลื่อนขึ้นมาแทน จำนวนที่ส่งมอบเท่าเดิม`);
+          }
+          if (summary.needsReview > 0) {
+            warnings.push(`มีคำที่ความเสี่ยงกินกันเองอยู่ระดับต้องตรวจ ${summary.needsReview} คำ — ติดป้าย “ต้องให้คนตรวจ” ไว้ในตาราง ไม่สร้างหน้าใหม่อัตโนมัติ`);
+          }
+        }
+      }
+
       const verified = primaries.filter(r => r.intel!.referenceSource !== 'none' || r.intel!.zeroVolumeLocalOpportunity);
       const unverified = primaries.filter(r => r.intel!.referenceSource === 'none' && !r.intel!.zeroVolumeLocalOpportunity);
 
@@ -1581,6 +1637,29 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     }
     if (needs('clusters')) await checkpoint('finalize');
 
+    // ── Keyword Guard: ป้ายกำกับรายแถว (Intent / Existing Match / Risk / Action) ──
+    // สร้าง index ใหม่จาก memory ของโปรเจกต์ แล้วไล่ตามลำดับคะแนน เพื่อให้แถวที่มาทีหลัง
+    // ถูกจับว่าซ้ำกับแถวก่อนหน้าในชุดเดียวกันด้วย (§19) — ทำงานได้แม้ run นี้ resume มา
+    const finalMemory = await loadMemory(flags.projectId);
+    const finalGuard = new KeywordGuard({
+      existing: finalMemory.existing,
+      exclude: [
+        ...finalMemory.exclude,
+        ...parseExcludeLines((input.excludeKeywords ?? []).join('\n'), 'form'),
+      ],
+      extra: parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
+    });
+    const guardRefCount = finalGuard.size;
+    const guardExcludeCount = finalGuard.excludeSize;
+    const guardVerdicts: GuardVerdict[] = [];
+    for (const r of results) {
+      const verdict = finalGuard.evaluate(r.keyword);
+      guardVerdicts.push(verdict);
+      r.guard = toGuardInfo(verdict);
+      finalGuard.claim(r.keyword);
+    }
+    const guardSummary: GuardSummary = summarize(guardVerdicts, guardRefCount, guardExcludeCount);
+
     // ── sitemap: 1 keyword = 1 บทความ/หน้า (โมเดลของโปรเจกต์) ──
     const seenSitemapKey = new Set<string>();
     const sitemap = results
@@ -1668,6 +1747,8 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         },
         clientReady,
         verifiedVolumeCoverage: coverage,
+        guardSummary,
+        excludedKeywords: guardExcluded.slice(0, 500),
       },
     };
 

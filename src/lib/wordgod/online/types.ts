@@ -22,6 +22,7 @@ import type {
   SerpSignals,
   MetricStatus,
 } from '@/lib/wordgod/local/metrics';
+import type { ExcludedKeyword, GuardSummary, KeywordGuardInfo } from '@/lib/keyword-guard/types';
 
 // ── Business input ───────────────────────────────────────────────────────────
 
@@ -86,6 +87,12 @@ export interface OnlineResearchInput {
   targetCount: number; // 50–1000
   competitorDomains?: string[]; // 1–10
   existingPages?: string[];
+  /** คำที่ Competitor Gap ส่งต่อมาให้วิจัย — เข้า pool เป็นคำตั้งต้นก่อนขยาย */
+  seedKeywords?: string[];
+  /** คีย์เวิร์ด/หัวข้อที่ลูกค้ามีอยู่แล้ว — ใช้กันคำใหม่ไปกินคำเดิม (Keyword Guard) */
+  existingKeywords?: string[];
+  /** คีย์เวิร์ดที่ห้ามเข้าตาราง — คนละช่องกับ existing เสมอ */
+  excludeKeywords?: string[];
   includeBrandKeywords?: boolean;      // default true
   includeComparisonKeywords?: boolean; // default true
   includeProblemKeywords?: boolean;    // default true
@@ -306,6 +313,8 @@ export interface OnlineKeywordResult {
   sitemap: SitemapPlacement;
   priorityWave: 1 | 2 | 3;
   handoffStatus: HandoffStatus;
+  /** ผล Keyword Guard ของแถวนี้ (optional — ผลรุ่นเก่าไม่มีฟิลด์นี้) */
+  guard?: KeywordGuardInfo;
 }
 
 // ── Progress steps (~24 ขั้น ให้ UI แสดง checklist จริง ไม่มี blank loading) ──
@@ -380,6 +389,10 @@ export interface OnlineResearchResponse {
     customerSource: 'USER' | 'AI_INFERRED';
     warnings: string[];
     shortfallReason: string | null;
+    /** สรุปผล Keyword Guard ของรอบนี้ (optional — ผลรุ่นเก่าไม่มี) */
+    guardSummary?: GuardSummary;
+    /** คำที่ถูกตัดออกพร้อมเหตุผล (optional) */
+    excludedKeywords?: ExcludedKeyword[];
   };
   blueprint: BusinessBlueprint;
   websiteContext: WebsiteContext | null;

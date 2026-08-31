@@ -16,6 +16,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import KeywordMemoryFields, { parseGuardLines } from '@/components/projects/keyword-guard/KeywordMemoryFields';
+import { DECISION_LABEL_TH, MATCH_SOURCE_LABEL_TH } from '@/lib/keyword-guard/types';
 import { toast } from 'sonner';
 import { KeywordResearchProgress } from './KeywordResearchProgress';
 import { referenceSourceLabel } from '@/lib/wordgod/local/metrics';
@@ -315,6 +317,30 @@ function sortValue(row: OnlineKeywordResult, key: SortKey): number {
   }
 }
 
+const GUARD_BAND_STYLE: Record<string, string> = {
+  LOW: 'bg-emerald-50 text-emerald-700',
+  REVIEW: 'bg-amber-50 text-amber-700',
+  LIKELY: 'bg-orange-50 text-orange-700',
+  STRONG: 'bg-red-50 text-red-700',
+};
+
+const GUARD_BAND_LABEL: Record<string, string> = {
+  LOW: 'ต่ำ', REVIEW: 'ต้องตรวจ', LIKELY: 'น่าจะซ้ำ', STRONG: 'ซ้ำแน่',
+};
+
+/** ความเสี่ยงกินกันเอง 0–100 — ไม่มีข้อมูล guard = "—" */
+function GuardRiskCell({ row }: { row: OnlineKeywordResult }) {
+  if (!row.guard) return <span className="text-[#c2cad9]">—</span>;
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${GUARD_BAND_STYLE[row.guard.band] ?? ''}`}
+      title={row.guard.reasons.join(' · ')}
+    >
+      {row.guard.risk} {GUARD_BAND_LABEL[row.guard.band] ?? row.guard.band}
+    </span>
+  );
+}
+
 export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
   // ── ฟอร์มซ้าย ──
   const [businessType, setBusinessType] = useState<OnlineBusinessType>('ONLINE_SERVICE');
@@ -334,6 +360,10 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
   const [includeBrand, setIncludeBrand] = useState(true);
   const [includeComparison, setIncludeComparison] = useState(true);
   const [includeProblem, setIncludeProblem] = useState(true);
+  // Keyword Guard — คีย์เวิร์ดเดิม/คำที่ไม่เอา ผูกกับโปรเจกต์ ใช้ร่วมกับ Competitor Gap
+  const [existingKwText, setExistingKwText] = useState('');
+  const [excludeKwText, setExcludeKwText] = useState('');
+  const [cgSeeds, setCgSeeds] = useState<string[]>([]);
 
   // ── สถานะรัน + ผลลัพธ์ ──
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
@@ -597,6 +627,9 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
       targetCount: clampTargetCount(targetCount),
       competitorDomains: parseLines(competitorsText).slice(0, 10),
       existingPages: parseLines(existingPagesText),
+      existingKeywords: parseGuardLines(existingKwText),
+      excludeKeywords: parseGuardLines(excludeKwText),
+      seedKeywords: cgSeeds,
       includeBrandKeywords: includeBrand,
       includeComparisonKeywords: includeComparison,
       includeProblemKeywords: includeProblem,
@@ -898,8 +931,32 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
         </button>
       </div>
 
+      {data?.meta?.guardSummary ? (
+        <div className="border-b border-[#eef1f7] bg-[#fafbfe] px-4 py-2.5 text-[11px] text-[#495975]">
+          <span className="font-semibold text-[#17233a]">กันคำกินกันเอง:</span>{' '}
+          เทียบกับของเดิม {data.meta.guardSummary.existingCount.toLocaleString('th-TH')} รายการ · ตรวจ {data.meta.guardSummary.checked.toLocaleString('th-TH')} คำ ·
+          คำใหม่ {data.meta.guardSummary.createNew.toLocaleString('th-TH')} · รวมกับของเดิม {data.meta.guardSummary.merged.toLocaleString('th-TH')} ·
+          ใช้เป็นคำรอง {data.meta.guardSummary.secondary.toLocaleString('th-TH')} · ชี้ไปหน้าเดิม {data.meta.guardSummary.mappedExisting.toLocaleString('th-TH')} ·
+          ต้องตรวจเอง {data.meta.guardSummary.needsReview.toLocaleString('th-TH')} · ตัดออก {data.meta.guardSummary.excluded.toLocaleString('th-TH')}
+          {data.meta.excludedKeywords && data.meta.excludedKeywords.length > 0 ? (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[#155eef]">ดูคำที่ตัดออกพร้อมเหตุผล ({data.meta.excludedKeywords.length.toLocaleString('th-TH')})</summary>
+              <ul className="mt-1 max-h-48 space-y-0.5 overflow-y-auto">
+                {data.meta.excludedKeywords.map(x => (
+                  <li key={x.keyword} className="text-[10px]">
+                    <span className="font-semibold text-[#17233a]">{x.keyword}</span> — {x.reason}
+                    {x.matchedKeyword ? ` (ชนกับ “${x.matchedKeyword}”)` : ''}
+                    {x.matchedUrl ? ` ${x.matchedUrl}` : ''} · เสี่ยง {x.risk}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1750px] text-left text-xs">
+        <table className="w-full min-w-[2150px] text-left text-xs">
           <thead>
             <tr className="border-b border-[#eef1f7] text-[10px] uppercase tracking-wide text-[#91a0b8]">
               <th className="px-3 py-2.5">
@@ -917,6 +974,9 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
               <th className="px-3 py-2.5">Funnel</th>
               <th className="px-3 py-2.5">Obj</th>
               <th className="px-3 py-2.5">Cluster</th>
+              <th className="px-3 py-2.5" title="คีย์เวิร์ด/หน้าเดิมที่คำนี้ไปชน">ของเดิมที่ชน</th>
+              <th className="px-3 py-2.5" title="ความเสี่ยงกินกันเอง (cannibalization) 0–100">เสี่ยงซ้ำ</th>
+              <th className="px-3 py-2.5" title="สิ่งที่ควรทำกับคำนี้ตามผลตรวจ">คำแนะนำ</th>
               <th className="px-3 py-2.5">ปัญหา</th>
               <th className="cursor-pointer px-3 py-2.5" onClick={() => toggleSort('kd')}>KD{sortIndicator('kd')}</th>
               <th className="cursor-pointer px-3 py-2.5" onClick={() => toggleSort('cpc')}>CPC{sortIndicator('cpc')}</th>
@@ -976,7 +1036,21 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
                       {OBJECTIVE_LABEL[row.objective] ?? row.objective}
                     </span>
                   </td>
-                  <td className="max-w-[160px] truncate px-3 py-2.5 text-[#495975]" title={row.cluster}>{row.cluster}</td>
+                  <td className="max-w-[160px] truncate px-3 py-2.5 text-[#495975]" title={row.guard ? `${row.cluster} · หัวข้อ: ${row.guard.topic}` : row.cluster}>
+                    {row.cluster}
+                    {row.guard ? <span className="block truncate text-[10px] text-[#91a0b8]">{row.guard.topic}</span> : null}
+                  </td>
+                  <td className="max-w-[160px] px-3 py-2.5 text-[#495975]">
+                    {row.guard?.existingMatch || row.guard?.existingUrl
+                      ? <span className="block truncate text-[11px]" title={`${row.guard.existingMatch ?? ''} ${row.guard.existingUrl ?? ''} (${row.guard.matchSource ? MATCH_SOURCE_LABEL_TH[row.guard.matchSource] : ''})`}>
+                          {row.guard.existingMatch || row.guard.existingUrl}
+                        </span>
+                      : <span className="text-[#c2cad9]">—</span>}
+                  </td>
+                  <td className="px-3 py-2.5"><GuardRiskCell row={row} /></td>
+                  <td className="max-w-[140px] px-3 py-2.5 text-[11px] text-[#495975]">
+                    {row.guard ? <span className="block truncate" title={row.guard.reasons.join(' · ')}>{DECISION_LABEL_TH[row.guard.decision]}</span> : <span className="text-[#c2cad9]">—</span>}
+                  </td>
                   <td className="max-w-[150px] truncate px-3 py-2.5 text-[#495975]" title={row.problemGroup ?? undefined}>{row.problemGroup ?? '—'}</td>
                   <td className="px-3 py-2.5 tabular-nums">{row.dfs.keywordDifficulty ?? '—'}</td>
                   <td className="px-3 py-2.5 tabular-nums">{row.dfs.cpc ? row.dfs.cpc.toLocaleString('th-TH', { maximumFractionDigits: 1 }) : '—'}</td>
@@ -1173,6 +1247,26 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
                 </div>
               </div>
             ) : null}
+
+            <div className="mt-4 rounded-xl border border-[#eef1f7] bg-[#fafbfe] p-3">
+              <p className="mb-2 text-[11px] font-bold text-[#17233a]">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
+              <KeywordMemoryFields
+                projectId={project.id}
+                existingText={existingKwText}
+                onExistingText={setExistingKwText}
+                excludeText={excludeKwText}
+                onExcludeText={setExcludeKwText}
+                onSeeds={kws => setCgSeeds(prev => Array.from(new Set([...prev, ...kws])))}
+                fieldClass={fieldClass}
+                labelClass={labelClass}
+              />
+              {cgSeeds.length > 0 ? (
+                <p className="mt-2 text-[11px] text-[#495975]">
+                  คำตั้งต้นจาก Competitor Gap {cgSeeds.length} คำ
+                  <button type="button" onClick={() => setCgSeeds([])} className="ml-2 text-[#155eef] underline">ล้าง</button>
+                </p>
+              ) : null}
+            </div>
 
             <button
               onClick={runResearch}

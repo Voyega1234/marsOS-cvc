@@ -353,7 +353,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           {section === 'start-here' && <StartHereSection report={report} />}
           {section === 'competitors' && <CompetitorsSection report={report} />}
           {section === 'page-gap' && <PageGapSection report={report} compDomains={compDomains} />}
-          {section === 'keyword-gap' && <KeywordGapSection report={report} compDomains={compDomains} />}
+          {section === 'keyword-gap' && <KeywordGapSection report={report} compDomains={compDomains} projectId={project.id} />}
           {section === 'opportunities' && <OpportunitiesSection report={report} />}
           {section === 'structure' && <StructureSection report={report} />}
           {section === 'surpass' && <SurpassSection report={report} />}
@@ -738,9 +738,125 @@ function PageGapSection({ report, compDomains }: { report: GapReport; compDomain
 
 // ── ช่องว่างคีย์เวิร์ด ───────────────────────────────────────────────────────
 
-function KeywordGapSection({ report, compDomains }: { report: GapReport; compDomains: string[] }) {
+const OPP_ACTION_LABEL: Record<string, string> = {
+  CREATE_NEW: 'สร้างหน้าใหม่',
+  ADD_TO_EXISTING: 'เสริมหน้าเดิม',
+  MERGE_WITH_EXISTING_TOPIC: 'รวมกับหัวข้อเดิม',
+  SEND_TO_KEYWORD_RESEARCH: 'ส่งเข้า Keyword Research',
+  ADD_TO_EXISTING_KEYWORDS: 'เก็บเป็นคำที่มีอยู่แล้ว',
+  ADD_TO_EXCLUDE: 'ใส่รายการไม่เอา',
+  IGNORE: 'ข้าม',
+  NEEDS_REVIEW: 'ต้องตรวจเอง',
+}
+
+const OPP_ACTION_STYLE: Record<string, string> = {
+  CREATE_NEW: 'bg-green-50 text-green-700',
+  ADD_TO_EXISTING: 'bg-blue-50 text-blue-700',
+  MERGE_WITH_EXISTING_TOPIC: 'bg-yellow-50 text-yellow-700',
+  SEND_TO_KEYWORD_RESEARCH: 'bg-indigo-50 text-indigo-700',
+  ADD_TO_EXISTING_KEYWORDS: 'bg-gray-100 text-gray-700',
+  ADD_TO_EXCLUDE: 'bg-red-50 text-red-700',
+  IGNORE: 'bg-gray-100 text-gray-500',
+  NEEDS_REVIEW: 'bg-amber-50 text-amber-700',
+}
+
+/** แถบความเสี่ยงกินกันเอง 0–100 ตามเกณฑ์เดียวกับฝั่ง Keyword Research */
+function RiskCell({ score }: { score: number | null | undefined }) {
+  if (score === null || score === undefined || Number.isNaN(score)) return <span className="text-gray-400">—</span>
+  const band = score >= 80 ? { label: 'สูงมาก', cls: 'bg-red-50 text-red-700' }
+    : score >= 60 ? { label: 'น่าจะซ้ำ', cls: 'bg-orange-50 text-orange-700' }
+      : score >= 40 ? { label: 'ต้องตรวจ', cls: 'bg-amber-50 text-amber-700' }
+        : { label: 'ต่ำ', cls: 'bg-green-50 text-green-700' }
+  return <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${band.cls}`}>{score} {band.label}</span>
+}
+
+function KeywordGapSection({ report, compDomains, projectId }: { report: GapReport; compDomains: string[]; projectId: string }) {
   const [filter, setFilter] = useState<string>('ALL')
+  const [actionFilter, setActionFilter] = useState<string>('ALL')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
   const kg = report.keywordGap
+  const rowsAll: KeywordGapRow[] = kg.available ? kg.rows : []
+
+  const rows = rowsAll
+    .filter(r => (filter === 'ALL' || r.state === filter))
+    .filter(r => (actionFilter === 'ALL' || r.recommendedAction === actionFilter))
+    .filter(r => !hidden.has(r.keyword))
+  const hasOpportunity = rowsAll.some(r => r.recommendedAction)
+  const shown = hasOpportunity
+    ? [...rows].sort((a, b) => (b.opportunityScore ?? -1) - (a.opportunityScore ?? -1)).slice(0, 200)
+    : rows.slice(0, 200)
+
+  const actionCounts = new Map<string, number>()
+  rowsAll.forEach(r => { if (r.recommendedAction) actionCounts.set(r.recommendedAction, (actionCounts.get(r.recommendedAction) ?? 0) + 1) })
+
+  const toggle = (k: string) => setSelected(prev => {
+    const next = new Set(prev)
+    if (next.has(k)) next.delete(k); else next.add(k)
+    return next
+  })
+  const pageAllSelected = shown.length > 0 && shown.every(r => selected.has(r.keyword))
+  const toggleAll = () => setSelected(prev => {
+    const next = new Set(prev)
+    if (pageAllSelected) shown.forEach(r => next.delete(r.keyword))
+    else shown.forEach(r => next.add(r.keyword))
+    return next
+  })
+
+  const selectedRows = rowsAll.filter(r => selected.has(r.keyword))
+
+  async function post(body: Record<string, unknown>, okText: string) {
+    setBusy(true); setNote(null)
+    try {
+      const res = await fetch('/api/keyword-guard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, source: 'competitor_gap', ...body }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+      setNote(okText)
+      setSelected(new Set())
+    } catch (e) {
+      setNote(`ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const addExisting = () => post({
+    action: 'add_existing',
+    entries: selectedRows.map(r => ({ keyword: r.keyword, url: r.ourUrl ?? r.existingUrl ?? null, kind: r.ourUrl ? 'page' : 'keyword' })),
+  }, `เก็บเป็นคำที่มีอยู่แล้ว ${selectedRows.length} คำ`)
+
+  const addExclude = () => post({
+    action: 'add_exclude',
+    entries: selectedRows.map(r => ({ keyword: r.keyword, mode: 'exact', reason: 'ตัดจาก Competitor Gap' })),
+  }, `ใส่รายการไม่เอา ${selectedRows.length} คำ`)
+
+  const sendToResearch = () => post({
+    action: 'send_to_research',
+    items: selectedRows.map(r => ({
+      keyword: r.keyword,
+      competitor: r.bestCompetitorDomain ?? null,
+      intent: r.guardIntent ?? r.intent ?? null,
+      topic: r.guardTopic ?? null,
+      suggestedAction: r.recommendedAction ?? null,
+      existingMatch: r.existingMatch ?? null,
+      existingUrl: r.existingUrl ?? r.ourUrl ?? null,
+      cannibalizationScore: r.cannibalizationRisk ?? null,
+      volume: r.searchVolume ?? null,
+    })),
+  }, `ส่งเข้า Keyword Research ${selectedRows.length} คำ`)
+
+  const ignore = () => {
+    setHidden(prev => new Set([...Array.from(prev), ...selectedRows.map(r => r.keyword)]))
+    setSelected(new Set())
+    setNote('ซ่อนในหน้านี้แล้ว (ไม่ได้บันทึกถาวร)')
+  }
+
   if (!kg.available) {
     return (
       <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-500">
@@ -748,12 +864,16 @@ function KeywordGapSection({ report, compDomains }: { report: GapReport; compDom
       </div>
     )
   }
-  const rows: KeywordGapRow[] = filter === 'ALL' ? kg.rows : kg.rows.filter(r => r.state === filter)
+
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-6">
-      <h3 className="font-semibold text-brand-navy mb-1">ช่องว่างคีย์เวิร์ด</h3>
-      <p className="text-xs text-gray-500 mb-3">ข้อมูลอันดับและปริมาณค้นหาจาก DataForSEO — ช่องที่ไม่มีข้อมูลแสดง “—”</p>
-      <div className="flex flex-wrap gap-2 mb-4">
+      <h3 className="font-semibold text-brand-navy mb-1">คำแนะนำโอกาสคีย์เวิร์ด</h3>
+      <p className="text-xs text-gray-500 mb-3">
+        ข้อมูลอันดับและปริมาณค้นหาจาก DataForSEO — ช่องที่ไม่มีข้อมูลแสดง “—”
+        {hasOpportunity ? ' · คู่แข่งติดอันดับคือหลักฐานว่ามีโอกาส ไม่ใช่หลักฐานว่าต้องสร้างหน้าใหม่' : ''}
+      </p>
+
+      <div className="flex flex-wrap gap-2 mb-2">
         {['ALL', ...Object.keys(kg.counts)].map(k => (
           <button key={k} onClick={() => setFilter(k)}
             className={`text-xs px-3 py-1.5 rounded-lg border ${filter === k ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200'}`}>
@@ -761,35 +881,87 @@ function KeywordGapSection({ report, compDomains }: { report: GapReport; compDom
           </button>
         ))}
       </div>
+
+      {hasOpportunity ? (
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button onClick={() => setActionFilter('ALL')}
+            className={`text-xs px-3 py-1.5 rounded-lg border ${actionFilter === 'ALL' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}`}>
+            ทุกคำแนะนำ
+          </button>
+          {Array.from(actionCounts.entries()).map(([a, n]) => (
+            <button key={a} onClick={() => setActionFilter(a)}
+              className={`text-xs px-3 py-1.5 rounded-lg border ${actionFilter === a ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}`}>
+              {OPP_ACTION_LABEL[a] ?? a} ({n})
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+        <span className="text-gray-500">เลือกแล้ว {selected.size} คำ</span>
+        <button disabled={busy || selected.size === 0} onClick={addExisting}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 disabled:opacity-40">เก็บเป็นคำที่มีอยู่แล้ว</button>
+        <button disabled={busy || selected.size === 0} onClick={addExclude}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 disabled:opacity-40">ใส่รายการไม่เอา</button>
+        <button disabled={busy || selected.size === 0} onClick={sendToResearch}
+          className="px-3 py-1.5 rounded-lg bg-brand-navy text-white disabled:opacity-40">ส่งเข้า Keyword Research</button>
+        <button disabled={busy || selected.size === 0} onClick={ignore}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 disabled:opacity-40">ข้าม</button>
+        {note ? <span className="text-gray-500">{note}</span> : null}
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
+              <th className="py-2 pr-2"><input type="checkbox" checked={pageAllSelected} onChange={toggleAll} title="เลือกทั้งหน้านี้" /></th>
               <th className="py-2 pr-4">คีย์เวิร์ด</th>
+              <th className="py-2 px-3">คู่แข่งที่ติด</th>
               <th className="py-2 px-3">volume</th>
               <th className="py-2 px-3">อันดับเรา</th>
               {compDomains.map(d => <th key={d} className="py-2 px-3 font-normal">{d}</th>)}
               <th className="py-2 px-3">เรา vs คู่แข่งที่ดีที่สุด</th>
               <th className="py-2 px-3">สถานะ</th>
               <th className="py-2 px-3">เจตนา</th>
-              <th className="py-2 px-3">หน้าเราที่ติด</th>
+              <th className="py-2 px-3">หัวข้อ</th>
+              <th className="py-2 px-3">ของเดิมที่ชน</th>
+              <th className="py-2 px-3">URL เดิม</th>
+              <th className="py-2 px-3">ความเสี่ยงกินกันเอง</th>
+              <th className="py-2 px-3">คะแนนโอกาส</th>
+              <th className="py-2 px-3">คำแนะนำ</th>
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, 200).map(r => (
-              <tr key={r.keyword} className="border-b border-gray-100">
-                <td className="py-2 pr-4 text-gray-800">{r.keyword}</td>
-                <td className="py-2 px-3">{fmt(r.searchVolume)}</td>
-                <td className="py-2 px-3 font-medium">{fmt(r.ourPosition)}</td>
-                {r.competitorPositions.map((p, i) => <td key={i} className="py-2 px-3 text-gray-600">{fmt(p)}</td>)}
-                <td className="py-2 px-3 text-xs"><Delta ours={r.ourPosition} reference={r.bestCompetitorPosition} lowerIsBetter suffix=" อันดับ" /></td>
-                <td className="py-2 px-3 text-xs">{KW_STATE_LABEL[r.state] ?? r.state}</td>
-                <td className="py-2 px-3 text-xs text-gray-500">{r.intent ?? '—'}</td>
-                <td className="py-2 px-3 text-xs">
-                  {r.ourUrl ? <a href={r.ourUrl} target="_blank" rel="noreferrer" className="text-brand-blue break-all">{r.ourUrl}</a> : '—'}
-                </td>
-              </tr>
-            ))}
+            {shown.map(r => {
+              const existingUrl = r.existingUrl ?? r.ourUrl
+              return (
+                <tr key={r.keyword} className={`border-b border-gray-100 ${selected.has(r.keyword) ? 'bg-blue-50/40' : ''}`}>
+                  <td className="py-2 pr-2"><input type="checkbox" checked={selected.has(r.keyword)} onChange={() => toggle(r.keyword)} /></td>
+                  <td className="py-2 pr-4 text-gray-800">{r.keyword}</td>
+                  <td className="py-2 px-3 text-xs text-gray-600">{r.bestCompetitorDomain ?? '—'}</td>
+                  <td className="py-2 px-3">{fmt(r.searchVolume)}</td>
+                  <td className="py-2 px-3 font-medium">{fmt(r.ourPosition)}</td>
+                  {r.competitorPositions.map((p, i) => <td key={i} className="py-2 px-3 text-gray-600">{fmt(p)}</td>)}
+                  <td className="py-2 px-3 text-xs"><Delta ours={r.ourPosition} reference={r.bestCompetitorPosition} lowerIsBetter suffix=" อันดับ" /></td>
+                  <td className="py-2 px-3 text-xs">{KW_STATE_LABEL[r.state] ?? r.state}</td>
+                  <td className="py-2 px-3 text-xs text-gray-500">{r.guardIntent ?? r.intent ?? '—'}</td>
+                  <td className="py-2 px-3 text-xs text-gray-500">{r.guardTopic ?? '—'}</td>
+                  <td className="py-2 px-3 text-xs text-gray-600" title={r.actionReasons?.join(' · ')}>{r.existingMatch ?? '—'}</td>
+                  <td className="py-2 px-3 text-xs">
+                    {existingUrl ? <a href={existingUrl} target="_blank" rel="noreferrer" className="text-brand-blue break-all">{existingUrl}</a> : '—'}
+                  </td>
+                  <td className="py-2 px-3 text-xs"><RiskCell score={r.cannibalizationRisk} /></td>
+                  <td className="py-2 px-3 text-xs font-medium">{r.opportunityScore ?? '—'}</td>
+                  <td className="py-2 px-3 text-xs">
+                    {r.recommendedAction
+                      ? <span className={`px-1.5 py-0.5 rounded font-medium ${OPP_ACTION_STYLE[r.recommendedAction] ?? 'bg-gray-100 text-gray-700'}`} title={r.actionReasons?.join(' · ')}>
+                          {OPP_ACTION_LABEL[r.recommendedAction] ?? r.recommendedAction}
+                        </span>
+                      : '—'}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

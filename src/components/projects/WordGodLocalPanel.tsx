@@ -17,6 +17,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { KeywordResearchProgress } from './KeywordResearchProgress';
+import KeywordMemoryFields, { parseGuardLines } from '@/components/projects/keyword-guard/KeywordMemoryFields';
+import { DECISION_LABEL_TH, MATCH_SOURCE_LABEL_TH } from '@/lib/keyword-guard/types';
 import {
   INTENT_TAG_LABELS,
   SUGGESTED_PAGE_LABELS,
@@ -288,6 +290,27 @@ function sortValue(row: KeywordResearchResult, key: SortKey): number {
   }
 }
 
+const GUARD_BAND_STYLE: Record<string, string> = {
+  LOW: 'bg-emerald-50 text-emerald-700',
+  REVIEW: 'bg-amber-50 text-amber-700',
+  LIKELY: 'bg-orange-50 text-orange-700',
+  STRONG: 'bg-red-50 text-red-700',
+};
+
+const GUARD_BAND_LABEL: Record<string, string> = {
+  LOW: 'ต่ำ', REVIEW: 'ต้องตรวจ', LIKELY: 'น่าจะซ้ำ', STRONG: 'ซ้ำแน่',
+};
+
+/** ความเสี่ยงกินกันเอง 0–100 — ยังไม่ได้ตรวจ = "—" */
+function GuardRiskCell({ guard }: { guard?: KeywordResearchResult['guard'] }) {
+  if (!guard) return <span className="text-[#c7cfde]">—</span>;
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${GUARD_BAND_STYLE[guard.band] ?? ''}`} title={guard.reasons.join(' · ')}>
+      {guard.risk} {GUARD_BAND_LABEL[guard.band] ?? guard.band}
+    </span>
+  );
+}
+
 export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
   // ── ฟอร์มซ้าย ──
   const [serviceText, setServiceText] = useState('');
@@ -300,6 +323,9 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
   const [language, setLanguage] = useState<'th' | 'th_en'>('th');
   const [expandWithKP, setExpandWithKP] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Keyword Guard — คีย์เวิร์ดเดิม/คำที่ไม่เอา ผูกกับโปรเจกต์ ใช้ร่วมกับ Competitor Gap
+  const [existingKwText, setExistingKwText] = useState('');
+  const [excludeKwText, setExcludeKwText] = useState('');
   const [targetCount, setTargetCount] = useState(50);
   // น้ำหนัก Sales (%) — Traffic = 100 − sales, ค่าเริ่มต้น 60/40
   const [salesWeightPct, setSalesWeightPct] = useState(60);
@@ -494,6 +520,8 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
       salesWeight: salesWeightPct / 100,
       trafficWeight: (100 - salesWeightPct) / 100,
       expandWithKeywordPlanner: expandWithKP,
+      existingKeywords: parseGuardLines(existingKwText),
+      excludeKeywords: parseGuardLines(excludeKwText),
       projectId: project.id,
       stream: true,
       resumable: true, // run ยาวถูกซอยเป็นหลาย request ฝั่ง server (กัน Vercel maxDuration ตัด)
@@ -780,8 +808,32 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
         <span className="ml-auto text-[11px] text-[#91a0b8]">{filtered.length.toLocaleString('th-TH')} คำ</span>
       </div>
 
+      {data?.meta?.guardSummary ? (
+        <div className="border-t border-[#eef1f7] bg-[#f9fbff] px-3 py-2.5 text-[11px] text-[#495975]">
+          <span className="font-semibold text-[#17233a]">กันคำกินกันเอง:</span>{' '}
+          เทียบกับของเดิม {data.meta.guardSummary.existingCount.toLocaleString('th-TH')} รายการ · ตรวจ {data.meta.guardSummary.checked.toLocaleString('th-TH')} คำ ·
+          คำใหม่ {data.meta.guardSummary.createNew.toLocaleString('th-TH')} · รวมกับของเดิม {data.meta.guardSummary.merged.toLocaleString('th-TH')} ·
+          ใช้เป็นคำรอง {data.meta.guardSummary.secondary.toLocaleString('th-TH')} · ชี้ไปหน้าเดิม {data.meta.guardSummary.mappedExisting.toLocaleString('th-TH')} ·
+          ต้องตรวจเอง {data.meta.guardSummary.needsReview.toLocaleString('th-TH')} · ตัดออก {data.meta.guardSummary.excluded.toLocaleString('th-TH')}
+          {data.meta.excludedKeywords && data.meta.excludedKeywords.length > 0 ? (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[#0d4fd8]">ดูคำที่ตัดออกพร้อมเหตุผล ({data.meta.excludedKeywords.length.toLocaleString('th-TH')})</summary>
+              <ul className="mt-1 max-h-48 space-y-0.5 overflow-y-auto">
+                {data.meta.excludedKeywords.map(x => (
+                  <li key={x.keyword} className="text-[10px]">
+                    <span className="font-semibold text-[#17233a]">{x.keyword}</span> — {x.reason}
+                    {x.matchedKeyword ? ` (ชนกับ “${x.matchedKeyword}”)` : ''}
+                    {x.matchedUrl ? ` ${x.matchedUrl}` : ''} · เสี่ยง {x.risk}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1280px] border-collapse text-xs">
+        <table className="w-full min-w-[1620px] border-collapse text-xs">
           <thead className="bg-[#f7f9fd] text-left text-[11px] uppercase tracking-wide text-[#71809c]">
             <tr>
               <th className="px-3 py-2.5 font-semibold">#</th>
@@ -806,6 +858,9 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
                 Final{sortIndicator('final')}
               </th>
               <th className="px-3 py-2.5 font-semibold">Trend</th>
+              <th className="px-3 py-2.5 font-semibold" title="คีย์เวิร์ด/หน้าเดิมที่คำนี้ไปชน">ของเดิมที่ชน</th>
+              <th className="px-3 py-2.5 font-semibold" title="ความเสี่ยงกินกันเอง (cannibalization) 0–100">เสี่ยงซ้ำ</th>
+              <th className="px-3 py-2.5 font-semibold" title="สิ่งที่ควรทำกับคำนี้ตามผลตรวจ">คำแนะนำ</th>
               <th className="px-3 py-2.5 font-semibold">หน้า</th>
               <th className="px-3 py-2.5 font-semibold" title="ลำดับการเผยแพร่: Wave 1 ≈15% แรก → Wave 2 ≈30% → Wave 3 ที่เหลือ">Wave</th>
             </tr>
@@ -856,6 +911,19 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
                     </span>
                   </td>
                   <td className="px-3 py-2.5"><TrendSpark trend={row.trend} /></td>
+                  <td className="max-w-[150px] px-3 py-2.5 text-[#495975]">
+                    {row.guard?.existingMatch || row.guard?.existingUrl
+                      ? <span className="block truncate text-[11px]" title={`${row.guard.existingMatch ?? ''} ${row.guard.existingUrl ?? ''} (${row.guard.matchSource ? MATCH_SOURCE_LABEL_TH[row.guard.matchSource] : ''})`}>
+                          {row.guard.existingMatch || row.guard.existingUrl}
+                        </span>
+                      : <span className="text-[#c7cfde]">—</span>}
+                  </td>
+                  <td className="px-3 py-2.5"><GuardRiskCell guard={row.guard} /></td>
+                  <td className="max-w-[130px] px-3 py-2.5 text-[11px] text-[#495975]">
+                    {row.guard
+                      ? <span className="block truncate" title={row.guard.reasons.join(' · ')}>{DECISION_LABEL_TH[row.guard.decision]}</span>
+                      : <span className="text-[#c7cfde]">—</span>}
+                  </td>
                   <td className="px-3 py-2.5 text-[#495975]">{row.suggestedPage ? SUGGESTED_PAGE_LABELS[row.suggestedPage] : '—'}</td>
                   <td className="px-3 py-2.5">
                     {i?.wave ? (
@@ -1097,6 +1165,19 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
                 </label>
               </div>
             ) : null}
+
+            <div className="space-y-3 rounded-2xl border border-[#cfdefa] bg-[#f4f8fe] p-4">
+              <p className="text-[11px] font-bold text-[#17233a]">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
+              <KeywordMemoryFields
+                projectId={project.id}
+                existingText={existingKwText}
+                onExistingText={setExistingKwText}
+                excludeText={excludeKwText}
+                onExcludeText={setExcludeKwText}
+                fieldClass={fieldClass}
+                labelClass={labelClass}
+              />
+            </div>
 
             <button
               disabled={status === 'running'}

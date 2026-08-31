@@ -21,6 +21,9 @@ import { getSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { logAIJob, DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
 import { dedupeKey, hasForbiddenTerm, normalizeThaiSpacing, orderFreeKey } from '@/lib/wordgod/local/normalize';
+import { KeywordGuard, summarize, toExcludedKeyword, toGuardInfo } from '@/lib/keyword-guard/guard';
+import { loadMemory, parseExcludeLines, parseExistingLines } from '@/lib/keyword-guard/store';
+import type { ExcludedKeyword, GuardSummary, GuardVerdict, KeywordGuardInfo } from '@/lib/keyword-guard/types';
 import {
   computeVolumeConfidence,
   emptyDfsMetric,
@@ -84,8 +87,6 @@ import {
   buildSitemapPlacement,
   detectCannibalization,
   resolveSlugStatus,
-  buildExistingPageIndex,
-  matchesExistingPage,
   selectWithClusterQuota,
   themeOfStage,
   type ClusterableRow,
@@ -354,6 +355,15 @@ export async function POST(req: NextRequest) {
       competitorDomains: Array.isArray(body.competitorDomains)
         ? body.competitorDomains.map((s: unknown) => String(s ?? '').trim()).filter(Boolean).slice(0, 10)
         : undefined,
+      seedKeywords: Array.isArray(body.seedKeywords)
+        ? body.seedKeywords.map((s: unknown) => String(s ?? '').trim()).filter(Boolean).slice(0, 500)
+        : undefined,
+      existingKeywords: Array.isArray(body.existingKeywords)
+        ? body.existingKeywords.map((s: unknown) => String(s ?? '').trim()).filter(Boolean).slice(0, 2000)
+        : undefined,
+      excludeKeywords: Array.isArray(body.excludeKeywords)
+        ? body.excludeKeywords.map((s: unknown) => String(s ?? '').trim()).filter(Boolean).slice(0, 1000)
+        : undefined,
       existingPages: Array.isArray(body.existingPages)
         ? body.existingPages.map((s: unknown) => String(s ?? '').trim()).filter(Boolean).slice(0, 50)
         : undefined,
@@ -410,6 +420,8 @@ export async function POST(req: NextRequest) {
       emit({ type: 'progress', at: new Date().toISOString(), message, ...(extra ?? {}) });
 
     const warnings: string[] = Array.isArray(ckptData?.warnings) ? ckptData.warnings : [];
+    // คำที่ Cannibalization Guard ตัดออกในคำขอนี้ พร้อมเหตุผลที่ตรวจย้อนกลับได้ (§11)
+    const guardExcluded: ExcludedKeyword[] = [];
 
     // ── State (ทุกอย่าง serialize เป็น checkpoint ได้) ──────────────────────
     let siteContext: WebsiteContext | null = ckptData?.site ?? null;
@@ -680,6 +692,12 @@ export async function POST(req: NextRequest) {
           addToPool(`${input.brandName} รีวิว`, 'pattern', null, product, 35);
         }
       }
+      // คำที่ส่งมาจาก Competitor Gap — มีหลักฐานว่าคู่แข่งติดอันดับจริง จึงให้ heuristic สูงกว่า pattern
+      let cgSeeded = 0;
+      for (const kw of input.seedKeywords ?? []) {
+        if (addToPool(kw, 'competitor_gap', kw, input.products[0] ?? '', 58)) cgSeeded++;
+      }
+      if (cgSeeded > 0) progress(`รับคำจาก Competitor Gap ${cgSeeded} คำเข้าชุดคำตั้งต้น`, stepOf('seeds'));
       progress(`สร้าง Seed Keywords + pattern candidates ${pool.size} คำ`, { ...stepOf('seeds'), count: pool.size });
       await checkpoint('discovery');
     }
@@ -1662,32 +1680,65 @@ export async function POST(req: NextRequest) {
         warnings.push(`Relevance Guard ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 100) : String(err)} — ไม่มีการตัดคำ`);
       }
 
-      // ── กันซ้ำกับหน้าที่ลูกค้ามีอยู่แล้ว (sitemap + ลิงก์หน้าแรก + หน้าที่กรอกเอง)
+      // ── CANNIBALIZATION-FIRST: เทียบ candidate ทุกคำก่อนสร้างกลุ่ม/หน้าใหม่ ────────
+      // ลำดับการเทียบ: exclude list → คีย์เวิร์ด/หัวข้อ/หน้าเดิมของโปรเจกต์ → หน้าจริงบนเว็บ
+      // (sitemap + ลิงก์หน้าแรก + หน้าที่กรอกเอง) → candidate ที่ผ่านไปแล้วในรอบเดียวกัน
       // ต้องตัดก่อนทั้งการยุบคำซ้ำและการคัดเลือก — ถ้าตัดทีหลัง คำที่ถูกยุบเป็นคำรองของ
       // คำที่ซ้ำหน้าเดิมจะหายไปทั้งกลุ่มทั้งที่เป็นบทความใหม่ที่ใช้ได้
       const existingPagePaths = [
         ...(siteContext?.existingPaths ?? []),
         ...(input.existingPages ?? []),
       ];
-      const existingIndex = buildExistingPageIndex(existingPagePaths, siteContext?.existingTitles ?? []);
-      if (existingIndex.size > 0) {
-        const beforeExisting = guardedWork.length;
-        const droppedExisting: string[] = [];
-        guardedWork = guardedWork.filter(w => {
-          if (matchesExistingPage(w.clusterable.keyword, existingIndex)) {
-            if (droppedExisting.length < 8) droppedExisting.push(w.clusterable.keyword);
-            return false;
+      const memory = await loadMemory(flags.projectId);
+      const nowIso = new Date().toISOString();
+      const runGuard = new KeywordGuard({
+        existing: memory.existing,
+        exclude: [
+          ...memory.exclude,
+          ...parseExcludeLines((input.excludeKeywords ?? []).join('\n'), 'form'),
+        ],
+        extra: [
+          ...existingPagePaths.map(pth => ({ keyword: pth, url: pth, source: 'EXISTING_PAGE' as const })),
+          ...(siteContext?.existingTitles ?? []).map(t => ({ keyword: t, source: 'EXISTING_PAGE' as const })),
+          ...parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
+        ],
+      });
+      const referenceCount = runGuard.size;
+      const excludeCount = runGuard.excludeSize;
+      if (referenceCount > 0 || excludeCount > 0) {
+        // คำคะแนนสูงได้สิทธิ์เป็นตัวหลักก่อน คำที่มาทีหลังจึงถูกจับเป็นคำซ้ำในรอบเดียวกัน
+        guardedWork.sort((a, b) => b.clusterable.finalScore - a.clusterable.finalScore);
+        const beforeGuard = guardedWork.length;
+        const kept: typeof guardedWork = [];
+        const verdicts: GuardVerdict[] = [];
+        for (const w of guardedWork) {
+          const verdict = runGuard.evaluate(w.clusterable.keyword);
+          verdicts.push(verdict);
+          if (verdict.decision === 'EXCLUDE' || verdict.decision === 'MERGE'
+            || verdict.decision === 'MAP_TO_EXISTING_PAGE' || verdict.decision === 'MAP_TO_EXISTING_TOPIC') {
+            guardExcluded.push(toExcludedKeyword(verdict));
+            continue;
           }
-          return true;
-        });
-        const removedExisting = beforeExisting - guardedWork.length;
+          runGuard.claim(w.clusterable.keyword);
+          kept.push(w);
+        }
+        guardedWork = kept;
+        const removed = beforeGuard - guardedWork.length;
+        const summary = summarize(verdicts, referenceCount, excludeCount);
         progress(
-          `เทียบกับหน้าที่มีอยู่บนเว็บ ${existingIndex.size} หน้า — ตัดคำที่ซ้ำกับบทความเดิม ${removedExisting} คำ (เหลือ ${guardedWork.length} คำให้คัด)`,
+          `เทียบกับของเดิม ${referenceCount} รายการ + คำที่ไม่เอา ${excludeCount} คำ — ตัดคำที่ซ้ำ/ถูกห้าม ${removed} คำ (เหลือ ${guardedWork.length} คำให้คัด)`,
           stepOf('scoring')
         );
-        if (removedExisting > 0) {
+        if (removed > 0) {
+          const sample = guardExcluded.slice(0, 5).map(e => `${e.keyword} (${e.matchedKeyword ?? e.reason})`).join(', ');
           const enough = guardedWork.length >= targetCount;
-          warnings.push(`ตัดคำที่ซ้ำกับหน้าที่มีอยู่แล้วบนเว็บ ${removedExisting} คำ (เทียบจาก sitemap/ลิงก์ ${existingIndex.size} หน้า)${droppedExisting.length ? ` เช่น ${droppedExisting.join(', ')}` : ''} — ${enough ? `ยังเหลือ candidate ${guardedWork.length} คำ มากพอสำหรับเป้า ${targetCount} คำ (ใช้คำถัดไปแทนคำที่ถูกตัด)` : `เหลือ candidate ${guardedWork.length} คำ ต่ำกว่าเป้า ${targetCount}`}`);
+          warnings.push(
+            `Cannibalization Guard ตัดคำที่ซ้ำกับของเดิม/คำที่ไม่เอา ${removed} คำ${sample ? ` เช่น ${sample}` : ''}` +
+            ` — ${enough ? `ยังเหลือ candidate ${guardedWork.length} คำ มากพอสำหรับเป้า ${targetCount} คำ (ใช้คำถัดไปแทนคำที่ถูกตัด)` : `เหลือ candidate ${guardedWork.length} คำ ต่ำกว่าเป้า ${targetCount}`}`
+          );
+        }
+        if (summary.needsReview > 0) {
+          warnings.push(`มีคำที่ยังตัดสินไม่ขาด ${summary.needsReview} คำ (ความเสี่ยงกินกันเอง 40–79) — ติดป้าย “ต้องให้คนตรวจ” ไว้ในตาราง ไม่สร้างหน้าใหม่อัตโนมัติ`);
         }
       }
 
@@ -1946,9 +1997,36 @@ export async function POST(req: NextRequest) {
       if (r.clusterRole === 'PRIMARY') primaryByCluster.set(r.clusterId, r.keyword);
     }
 
+    // ── Keyword Guard: ป้ายกำกับรายแถว (Intent / Existing Match / Risk / Action) ────
+    // สร้าง index ใหม่จาก memory + หน้าจริงบนเว็บ แล้วไล่ตามลำดับคะแนน เพื่อให้แถวที่มาทีหลัง
+    // ถูกจับว่าซ้ำกับแถวก่อนหน้าในชุดเดียวกันด้วย (§19) — ทำงานได้แม้ run นี้ resume มา
+    const finalMemory = await loadMemory(flags.projectId);
+    const finalGuard = new KeywordGuard({
+      existing: finalMemory.existing,
+      exclude: [
+        ...finalMemory.exclude,
+        ...parseExcludeLines((input.excludeKeywords ?? []).join('\n'), 'form'),
+      ],
+      extra: [
+        ...existingPaths.map(pth => ({ keyword: pth, url: pth, source: 'EXISTING_PAGE' as const })),
+        ...(siteContext?.existingTitles ?? []).map(t => ({ keyword: t, source: 'EXISTING_PAGE' as const })),
+        ...parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
+      ],
+    });
+    const finalRefCount = finalGuard.size;
+    const finalExcludeCount = finalGuard.excludeSize;
+    const guardVerdicts = new Map<string, GuardVerdict>();
+    for (const r of [...selected].sort((a, b) => b.scores.finalScore - a.scores.finalScore)) {
+      const verdict = finalGuard.evaluate(r.keyword);
+      guardVerdicts.set(dedupeKey(r.keyword), verdict);
+      finalGuard.claim(r.keyword);
+    }
+    const guardSummary: GuardSummary = summarize(Array.from(guardVerdicts.values()), finalRefCount, finalExcludeCount);
+
     const results: OnlineKeywordResult[] = selected.map((r, idx) => {
       const slug = r.slug ?? null;
       const slugStatus = resolveSlugStatus(slug, existingPaths, seenSlugs);
+      const guardVerdict = guardVerdicts.get(dedupeKey(r.keyword)) ?? null;
       const clusterable: ClusterableRow = {
         keyword: r.keyword,
         serviceOrProduct: r.serviceOrProduct,
@@ -1996,11 +2074,19 @@ export async function POST(req: NextRequest) {
         serp: r.serp,
         scores: r.scores,
         pageType: r.pageType,
-        cannibalizationAction: slugStatus === 'EXISTING' ? 'OPTIMIZE_EXISTING' : r.cannibalizationAction,
-        cannibalizationTarget: r.cannibalizationTarget,
+        cannibalizationAction: slugStatus === 'EXISTING'
+          ? 'OPTIMIZE_EXISTING'
+          : guardVerdict?.decision === 'MAP_TO_EXISTING_PAGE' || guardVerdict?.decision === 'MAP_TO_EXISTING_TOPIC'
+            ? 'OPTIMIZE_EXISTING'
+            : guardVerdict?.decision === 'ADD_AS_SECONDARY'
+              ? 'USE_AS_SECONDARY'
+              : r.cannibalizationAction,
+        cannibalizationTarget: r.cannibalizationTarget ?? guardVerdict?.match?.keyword ?? null,
         recommendedTitle: r.title ?? null,
         suggestedSlug: slug,
-        slugStatus: r.title ? slugStatus : 'REVIEW',
+        // ความเสี่ยงกินกันเองระดับต้องตรวจ = ห้ามปล่อยเป็นหน้าใหม่เงียบ ๆ
+        slugStatus: !r.title ? 'REVIEW' : guardVerdict && guardVerdict.risk >= 40 && slugStatus === 'NEW' ? 'REVIEW' : slugStatus,
+        guard: guardVerdict ? toGuardInfo(guardVerdict) : undefined,
         whyThisKeyword: r.why ?? null,
         sitemap,
         priorityWave: r.priorityWave,
@@ -2064,6 +2150,8 @@ export async function POST(req: NextRequest) {
         customerSource: blueprint.customerSource,
         warnings,
         shortfallReason,
+        guardSummary,
+        excludedKeywords: guardExcluded.slice(0, 500),
       },
       blueprint,
       websiteContext: siteContext,

@@ -132,6 +132,8 @@ export interface KeywordResearchResult {
    * optional เพื่อ backward compatibility กับผลลัพธ์รุ่นเก่า
    */
   intel?: import('./intelligence').KeywordIntel;
+  /** ผล Keyword Guard ของแถวนี้ — Intent / Existing Match / Risk / Action (optional) */
+  guard?: import('@/lib/keyword-guard/types').KeywordGuardInfo;
 }
 
 export interface LocalClusterSummary {
@@ -163,6 +165,10 @@ export interface LocalResearchInput {
   language?: LocalLanguage;
   /** บริบทธุรกิจเพิ่มเติม ใช้คิด Relevance (ชื่อแบรนด์/คำอธิบาย) */
   businessContext?: string;
+  /** คีย์เวิร์ด/หัวข้อที่ลูกค้ามีอยู่แล้ว — กันคำใหม่ไปกินคำเดิม (Keyword Guard) */
+  existingKeywords?: string[];
+  /** คีย์เวิร์ดที่ห้ามเข้าตาราง — คนละช่องกับ existing เสมอ */
+  excludeKeywords?: string[];
 }
 
 export interface LocalResearchMeta {
@@ -200,6 +206,10 @@ export interface LocalResearchMeta {
   clientReady?: boolean;
   /** สัดส่วนคำที่มี volume ตรวจสอบแล้ว (LOCAL zero-volume ที่มีหลักฐานไม่นับว่าขาด) */
   verifiedVolumeCoverage?: number;
+  /** สรุปผล Keyword Guard ของรอบนี้ (optional — ผลรุ่นเก่าไม่มี) */
+  guardSummary?: import('@/lib/keyword-guard/types').GuardSummary;
+  /** คำที่ถูกตัดออกพร้อมเหตุผลที่ตรวจย้อนกลับได้ (optional) */
+  excludedKeywords?: import('@/lib/keyword-guard/types').ExcludedKeyword[];
 }
 
 export interface LocalResearchResponse {

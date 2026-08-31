@@ -206,6 +206,22 @@ export interface TopicCluster {
 export type KeywordState =
   | 'MISSING' | 'WEAK' | 'NEAR_WIN' | 'WINNING' | 'DEFEND' | 'UNIQUE_OPPORTUNITY'
 
+/**
+ * สิ่งที่ควรทำกับคีย์เวิร์ดหนึ่งคำ (Keyword Opportunity Recommendation)
+ *
+ * COMPETITOR GAP DECISION RULE: คู่แข่งติดอันดับคำนี้ = หลักฐานว่ามี "โอกาส"
+ * ไม่ใช่หลักฐานว่าต้องสร้างหน้าใหม่ — ถ้าเรามีหน้า/คำที่รองรับอยู่แล้ว ให้เสริมของเดิม
+ */
+export type KeywordOpportunityAction =
+  | 'CREATE_NEW'
+  | 'ADD_TO_EXISTING'
+  | 'MERGE_WITH_EXISTING_TOPIC'
+  | 'SEND_TO_KEYWORD_RESEARCH'
+  | 'ADD_TO_EXISTING_KEYWORDS'
+  | 'ADD_TO_EXCLUDE'
+  | 'IGNORE'
+  | 'NEEDS_REVIEW'
+
 export interface KeywordGapRow {
   keyword: string
   searchVolume: number | null
@@ -216,6 +232,22 @@ export interface KeywordGapRow {
   bestCompetitorPosition: number | null
   state: KeywordState
   intent: string | null
+  // ── ชั้น Keyword Opportunity Recommendation (optional — รายงานรุ่นเก่าไม่มีฟิลด์เหล่านี้) ──
+  /** คู่แข่งเจ้าที่ติดอันดับดีที่สุดของคำนี้ */
+  bestCompetitorDomain?: string | null
+  /** เจตนาที่อ่านได้จากตัวคีย์เวิร์ดเอง (คนละชั้นกับ intent ของ DataForSEO) */
+  guardIntent?: string | null
+  guardTopic?: string | null
+  /** คีย์เวิร์ด/หน้าเดิมที่รองรับคำนี้อยู่แล้ว */
+  existingMatch?: string | null
+  existingUrl?: string | null
+  /** 0–100 — 0–39 ต่ำ · 40–59 ต้องตรวจ · 60–79 น่าจะกินกันเอง · 80–100 กินกันเองแน่ */
+  cannibalizationRisk?: number | null
+  /** 0–100 โอกาสของคำนี้หลังหักความเสี่ยงกินกันเอง */
+  opportunityScore?: number | null
+  recommendedAction?: KeywordOpportunityAction
+  /** เหตุผลที่อ่านรู้เรื่องว่าทำไมถึงแนะนำแบบนี้ */
+  actionReasons?: string[]
 }
 
 export interface KeywordGapResult {

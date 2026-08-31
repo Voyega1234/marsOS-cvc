@@ -23,6 +23,9 @@ import { buildArticleStructure } from './articleStructure'
 import { applyRuleClassification, buildVocabulary } from './classify'
 import { crawlDomain } from './crawler'
 import { attachDomainMetrics, buildKeywordGap, emptyKeywordGap, fetchRankedKeywords, type DomainKeywords } from './keywordGap'
+import { annotateKeywordOpportunities } from './opportunity'
+import { KeywordGuard } from '@/lib/keyword-guard/guard'
+import { loadMemory } from '@/lib/keyword-guard/store'
 import { resolveCountry } from './locations'
 import { buildBenchmark } from './quality'
 import { classifyDomain, fetchTopCompetitors, isComparable, isScannableDomain } from './serp'
@@ -438,6 +441,29 @@ async function phaseKeywords(state: RunState, ctx: RunContext) {
         vocab,
       })
     : emptyKeywordGap('ไม่มีข้อมูลคีย์เวิร์ดของเว็บเรา')
+
+  // ── Keyword Opportunity Recommendation ─────────────────────────────────────
+  // เทียบทุกแถวกับของเดิมของลูกค้า: คีย์เวิร์ด/หัวข้อ/หน้าที่บันทึกไว้ในโปรเจกต์
+  // + คำที่เว็บเราติดอันดับอยู่จริง (พร้อม URL) แล้วสรุปว่าควรทำอะไร
+  // ไม่มีค่าใช้จ่ายเพิ่ม — ใช้ข้อมูลที่ดึงมาแล้วทั้งหมด
+  try {
+    const memory = await loadMemory(ctx.projectId)
+    const ourRanked: Array<{ keyword: string; url: string | null; source: 'EXISTING_PAGE' }> = []
+    ours?.rows.forEach((v, k) => ourRanked.push({ keyword: k, url: v.url, source: 'EXISTING_PAGE' }))
+    const guard = new KeywordGuard({
+      existing: memory.existing,
+      exclude: memory.exclude,
+      extra: ourRanked,
+    })
+    state.keywordGap = annotateKeywordOpportunities({
+      gap: state.keywordGap,
+      competitorDomains: state.domains.slice(1).map(d => d.domain),
+      guard,
+    })
+  } catch (e) {
+    // ชั้นแนะนำการทำงานพังต้องไม่ทำให้ตาราง keyword gap หายทั้งชุด
+    state.warnings.push(`สรุปคำแนะนำรายคีย์เวิร์ดไม่สำเร็จ: ${e instanceof Error ? e.message.slice(0, 120) : String(e)} — ตารางยังใช้ได้แต่ไม่มีคอลัมน์คำแนะนำ`)
+  }
 
   if (calls > 0) {
     await logCost(ctx, {
