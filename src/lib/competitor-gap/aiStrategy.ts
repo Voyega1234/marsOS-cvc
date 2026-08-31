@@ -9,8 +9,8 @@
 import type { ORUsage } from '@/lib/openrouter'
 import { addUsage, askJson, emptyUsage } from './ai'
 import type {
-  CompetitorSummary, DomainInventory, DomainState, GapAction, KeywordGapResult,
-  MetricRow, PageRecord, SurpassIdea, TopicCluster,
+  ArticleStructureReport, CompetitorSummary, DomainInventory, DomainState, GapAction,
+  KeywordGapResult, MetricRow, PageRecord, SurpassIdea, TopicCluster,
 } from './types'
 import { weaknessesFrom } from './quality'
 
@@ -298,6 +298,75 @@ ${thinTopics.join(', ') || '(ไม่มีข้อมูล)'}
     usage: res.usage,
     ideas,
     summary: res.data?.summary?.trim() || null,
+    error: res.error,
+  }
+}
+
+// ── โครงสร้างบทความ: ให้ AI อธิบายสิ่งที่ตัวเลขบอก (ไม่ให้แต่งตัวเลขเอง) ─────
+
+export async function explainStructure(params: {
+  keyword: string
+  ourDomain: string
+  report: ArticleStructureReport
+}): Promise<{
+  usage: ORUsage
+  summary: string | null
+  notes: ArticleStructureReport['aiNotes']
+  error: string | null
+}> {
+  const r = params.report
+  if (!r.available || r.findings.length === 0) {
+    return { usage: emptyUsage(), summary: null, notes: [], error: null }
+  }
+
+  const findingLines = r.findings.map(f =>
+    `[${f.pillar}] ${f.label}: เรา ${f.ours ?? 'ไม่มีข้อมูล'}${f.unit === '%' ? '%' : ` ${f.unit}`} · ` +
+    `median คู่แข่ง ${f.median}${f.unit === '%' ? '%' : ` ${f.unit}`} · ${f.status}`
+  ).join('\n')
+
+  const exemplarLines = r.exemplars
+    .map(e => `${e.domain} — ${trim(e.title, 80)} (${e.why})`)
+    .join('\n')
+
+  const res = await askJson<{ summary?: string; notes?: Array<Record<string, string>> }>({
+    system:
+      'คุณคือ Content Architect ที่ดูโครงสร้างบทความเพื่อ SEO (อันดับ), AEO (ถูกหยิบไปตอบคำถาม), ' +
+      'GEO (ถูกอ้างในคำตอบของ AI) และ E-E-A-T (ความน่าเชื่อถือ) ' +
+      'ตัวเลขทั้งหมดวัดมาแล้วจากหน้าจริง ห้ามสร้างตัวเลขใหม่หรือแก้ตัวเลขที่ให้มา ' +
+      'ห้ามแนะนำให้ลอกคู่แข่ง ตอบภาษาไทย เป็นรูปธรรม JSON เท่านั้น',
+    user: `คีย์เวิร์ด: ${params.keyword}
+เว็บเรา: ${params.ourDomain}
+หน้าบทความที่สแกนได้: เรา ${r.ours?.contentPages ?? 0} หน้า · คู่แข่งเฉลี่ย ${r.median?.contentPages ?? 0} หน้าต่อเว็บ
+
+ผลวัดโครงสร้างบทความ (เทียบ median คู่แข่งที่เทียบเคียงได้):
+${findingLines}
+
+บทความคู่แข่งที่โครงสร้างครบที่สุด:
+${exemplarLines || '(ไม่มี)'}
+
+ตอบ JSON:
+{"summary":"2-3 ประโยคว่าคู่แข่งวางโครงบทความแบบไหน และโครงของเราต่างตรงไหน อ้างตัวเลขที่ให้มาเท่านั้น",
+ "notes":[{"pillar":"SEO|AEO|GEO|E-E-A-T","title":"สิ่งที่ต้องแก้ในโครงบทความ","whatToDo":"ทำอย่างไรให้เป็นรูปธรรม 1-2 ประโยค อ้างตัวเลขที่ให้มา"}]}
+notes ให้ครบทั้ง 4 เสา เสาละ 1 ข้อ`,
+    maxTokens: 3000,
+    temperature: 0.3,
+  })
+
+  const allowed: ArticleStructureReport['aiNotes'][number]['pillar'][] = ['SEO', 'AEO', 'GEO', 'E-E-A-T']
+  const notes = (res.data?.notes ?? [])
+    .filter(n => n && typeof n.title === 'string' && n.title.trim())
+    .filter(n => (allowed as string[]).includes(String(n.pillar)))
+    .slice(0, 6)
+    .map(n => ({
+      pillar: n.pillar as ArticleStructureReport['aiNotes'][number]['pillar'],
+      title: n.title.trim(),
+      whatToDo: n.whatToDo?.trim() || '—',
+    }))
+
+  return {
+    usage: res.usage,
+    summary: res.data?.summary?.trim() || null,
+    notes,
     error: res.error,
   }
 }

@@ -105,6 +105,16 @@ export interface PageRecord {
   sample?: string
   qualityScore: number | null
   qualityDims?: Record<string, number>
+  // ── สัญญาณโครงสร้างบทความ (ไม่มีในผลสแกนรุ่นก่อน จึงเป็น optional) ──
+  h3?: string[]
+  questionHeadings?: number
+  citationLinks?: number
+  authorName?: string | null
+  hasSummaryBlock?: boolean
+  leadWordCount?: number
+  answersInLead?: boolean
+  images?: number
+  imagesWithAlt?: number
 }
 
 export interface CrawlCoverage {
@@ -272,6 +282,63 @@ export interface CompetitorSummary {
   howToBeat: string | null
 }
 
+// ── โครงสร้างบทความ (SEO / AEO / GEO / E-E-A-T) ─────────────────────────────
+
+/** เสาที่ใช้จัดกลุ่มข้อค้นพบ — SEO=อันดับ, AEO=ตอบคำถาม, GEO=ถูกอ้างในคำตอบ AI, EEAT=ความน่าเชื่อถือ */
+export type StructurePillar = 'SEO' | 'AEO' | 'GEO' | 'E-E-A-T'
+
+export interface StructureProfile {
+  domain: string
+  isOurs: boolean
+  /** จำนวนหน้าเนื้อหาที่ใช้คิดค่าเหล่านี้ (บทความ/ไกด์/เคส/คำศัพท์) */
+  contentPages: number
+  medianWordCount: number | null
+  medianH2: number | null
+  medianH3: number | null
+  /** คำก่อนหัวข้อแรก — ย่อหน้านำที่ตอบคำถามทันที */
+  medianLeadWords: number | null
+  medianCitations: number | null
+  questionHeadingPct: number | null
+  faqSchemaPct: number | null
+  howToSchemaPct: number | null
+  articleSchemaPct: number | null
+  authorNamedPct: number | null
+  datedPct: number | null
+  summaryBlockPct: number | null
+  answersInLeadPct: number | null
+  listPct: number | null
+  tablePct: number | null
+  imageAltPct: number | null
+}
+
+export interface StructureFinding {
+  pillar: StructurePillar
+  label: string
+  ours: number | null
+  median: number | null
+  /** true = ค่าน้อยกว่าดีกว่า (ยังไม่มีตัวไหนใช้ แต่กันไว้ให้ตารางอ่านถูก) */
+  lowerIsBetter: boolean
+  unit: '%' | 'คำ' | 'หัวข้อ' | 'ลิงก์'
+  status: 'ตามมาตรฐาน' | 'ต่ำกว่ามาตรฐาน' | 'ไม่มีข้อมูล'
+  /** สิ่งที่คู่แข่งทำจริง อ้างตัวเลขที่วัดได้ */
+  whatCompetitorsDo: string
+  /** สิ่งที่ต้องทำเพิ่ม — เขียนจากตัวเลข ไม่ใช่คำแนะนำลอย ๆ */
+  fix: string
+}
+
+export interface ArticleStructureReport {
+  available: boolean
+  note: string | null
+  ours: StructureProfile | null
+  competitors: StructureProfile[]
+  median: StructureProfile | null
+  findings: StructureFinding[]
+  /** ตัวอย่างหน้าเนื้อหาของคู่แข่งที่โครงสร้างครบที่สุด (ดูของจริงได้) */
+  exemplars: { domain: string; url: string; title: string; why: string }[]
+  summary: string | null
+  aiNotes: { pillar: StructurePillar; title: string; whatToDo: string }[]
+}
+
 export interface GapReport {
   version: 1
   runId: string
@@ -299,6 +366,8 @@ export interface GapReport {
     ideas: SurpassIdea[]
     summary: string | null
   }
+  /** วิเคราะห์โครงสร้างบทความเทียบคู่แข่ง (ไม่มีในรายงานรุ่นก่อน จึงเป็น optional) */
+  articleStructure?: ArticleStructureReport
   costUsd: number
   warnings: string[]
 }
@@ -307,7 +376,7 @@ export interface GapReport {
 
 export type RunPhase =
   | 'serp' | 'crawl' | 'classify' | 'topics' | 'keywords'
-  | 'baseline' | 'phase1' | 'phase2' | 'done'
+  | 'baseline' | 'phase1' | 'phase2' | 'structure' | 'done'
 
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
 

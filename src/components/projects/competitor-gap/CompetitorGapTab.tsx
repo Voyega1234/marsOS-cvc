@@ -4,7 +4,7 @@
  * Competitor Gap — แท็บเดียวจบในตัวเอง
  *
  * โครงหน้า: ฟอร์มสั้น ๆ → สถานะการสแกนตามจริง → รายงาน
- * รายงานมี 7 ส่วนย่อย (เป็น section ภายในหน้านี้เท่านั้น ไม่เพิ่มแท็บระดับระบบ)
+ * รายงานมี 8 ส่วนย่อย (เป็น section ภายในหน้านี้เท่านั้น ไม่เพิ่มแท็บระดับระบบ)
  *
  * กติกาแสดงผล: ค่าไหนไม่มีข้อมูลจริงให้แสดง "—" ห้ามเดา
  */
@@ -12,10 +12,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { COUNTRIES, DEFAULT_COUNTRY } from '@/lib/competitor-gap/locations'
 import type {
-  GapAction, GapReport, KeywordGapRow, Priority, RunStep,
+  GapAction, GapReport, KeywordGapRow, Priority, RunStep, StructureFinding, StructurePillar,
 } from '@/lib/competitor-gap/types'
 
-type SectionId = 'overview' | 'start-here' | 'competitors' | 'page-gap' | 'keyword-gap' | 'opportunities' | 'surpass'
+type SectionId = 'overview' | 'start-here' | 'competitors' | 'page-gap' | 'keyword-gap' | 'opportunities' | 'structure' | 'surpass'
 
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: 'overview',      label: 'ภาพรวม' },
@@ -24,6 +24,7 @@ const SECTIONS: { id: SectionId; label: string }[] = [
   { id: 'page-gap',      label: 'ช่องว่างหน้าเว็บ' },
   { id: 'keyword-gap',   label: 'ช่องว่างคีย์เวิร์ด' },
   { id: 'opportunities', label: 'โอกาสคอนเทนต์' },
+  { id: 'structure',     label: 'โครงสร้างบทความ' },
   { id: 'surpass',       label: 'แซง Top 5' },
 ]
 
@@ -354,6 +355,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           {section === 'page-gap' && <PageGapSection report={report} compDomains={compDomains} />}
           {section === 'keyword-gap' && <KeywordGapSection report={report} compDomains={compDomains} />}
           {section === 'opportunities' && <OpportunitiesSection report={report} />}
+          {section === 'structure' && <StructureSection report={report} />}
           {section === 'surpass' && <SurpassSection report={report} />}
         </>
       )}
@@ -876,6 +878,174 @@ function SurpassSection({ report }: { report: GapReport }) {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── โครงสร้างบทความ (SEO / AEO / GEO / E-E-A-T) ─────────────────────────────
+
+const PILLARS: { id: StructurePillar; label: string; what: string }[] = [
+  { id: 'SEO',    label: 'SEO',    what: 'โครงหัวข้อและความลึกที่ทำให้ติดอันดับ' },
+  { id: 'AEO',    label: 'AEO',    what: 'รูปแบบที่เครื่องมือค้นหาหยิบไปตอบคำถามได้ทันที' },
+  { id: 'GEO',    label: 'GEO',    what: 'รูปแบบที่ AI หยิบไปอ้างในคำตอบ' },
+  { id: 'E-E-A-T', label: 'E-E-A-T', what: 'สัญญาณความน่าเชื่อถือ ผู้เขียน วันที่ แหล่งอ้างอิง' },
+]
+
+const STRUCTURE_STATUS_STYLE: Record<StructureFinding['status'], string> = {
+  'ต่ำกว่ามาตรฐาน': 'bg-red-50 text-red-700 border-red-200',
+  'ตามมาตรฐาน': 'bg-green-50 text-green-700 border-green-200',
+  'ไม่มีข้อมูล': 'bg-gray-100 text-gray-500 border-gray-200',
+}
+
+function unitSuffix(unit: StructureFinding['unit']): string {
+  return unit === '%' ? '%' : ` ${unit}`
+}
+
+function StructureSection({ report }: { report: GapReport }) {
+  const st = report.articleStructure
+
+  if (!st) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-400">
+        รายงานรอบนี้สแกนก่อนมีการวิเคราะห์โครงสร้างบทความ — สแกนใหม่อีกครั้งเพื่อดูส่วนนี้
+      </div>
+    )
+  }
+
+  if (!st.available) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-500">
+        {st.note ?? 'ข้อมูลไม่พอสำหรับเทียบโครงสร้างบทความ'}
+      </div>
+    )
+  }
+
+  const below = st.findings.filter(f => f.status === 'ต่ำกว่ามาตรฐาน')
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <h3 className="font-semibold text-brand-navy">โครงสร้างบทความ — คู่แข่งทำยังไง เราขาดอะไร</h3>
+        <p className="text-xs text-gray-500 mt-1">
+          วัดจากหน้าเนื้อหาที่ index ได้จริง (บทความ/ไกด์/เคสศึกษา/คำศัพท์) — เรา {fmt(st.ours?.contentPages ?? null)} หน้า ·
+          คู่แข่งที่เทียบเคียงได้ {st.competitors.length} เว็บ · ต่ำกว่ามาตรฐาน {below.length} จาก {st.findings.length} ตัวชี้วัด
+        </p>
+        {st.note && <p className="text-xs text-amber-700 mt-2">{st.note}</p>}
+        {st.summary && <p className="text-sm text-gray-700 mt-3">{st.summary}</p>}
+      </div>
+
+      {PILLARS.map(pillar => {
+        const rows = st.findings.filter(f => f.pillar === pillar.id)
+        if (rows.length === 0) return null
+        const note = st.aiNotes.find(n => n.pillar === pillar.id) ?? null
+        return (
+          <div key={pillar.id} className="bg-white border border-gray-200 rounded-2xl p-6">
+            <div className="flex items-baseline gap-3">
+              <h4 className="font-semibold text-brand-navy">{pillar.label}</h4>
+              <span className="text-xs text-gray-500">{pillar.what}</span>
+            </div>
+            <div className="overflow-x-auto mt-3">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b border-gray-200">
+                    <th className="py-2 pr-3">ตัวชี้วัด</th>
+                    <th className="py-2 px-3">เรา</th>
+                    <th className="py-2 px-3">median คู่แข่ง</th>
+                    <th className="py-2 px-3">ต่าง</th>
+                    <th className="py-2 px-3">สถานะ</th>
+                    <th className="py-2 px-3">คู่แข่งทำอะไร</th>
+                    <th className="py-2 px-3">ต้องทำอะไรเพิ่ม</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(f => (
+                    <tr key={`${f.pillar}-${f.label}`} className="border-b border-gray-100 align-top">
+                      <td className="py-2 pr-3 text-gray-800">{f.label}</td>
+                      <td className="py-2 px-3">{fmt(f.ours, unitSuffix(f.unit))}</td>
+                      <td className="py-2 px-3">{fmt(f.median, unitSuffix(f.unit))}</td>
+                      <td className="py-2 px-3"><Delta ours={f.ours} reference={f.median} lowerIsBetter={f.lowerIsBetter} suffix={unitSuffix(f.unit)} /></td>
+                      <td className="py-2 px-3">
+                        <span className={`text-xs px-2 py-0.5 rounded border ${STRUCTURE_STATUS_STYLE[f.status]}`}>{f.status}</span>
+                      </td>
+                      <td className="py-2 px-3 text-xs text-gray-600 max-w-xs">{f.whatCompetitorsDo}</td>
+                      <td className="py-2 px-3 text-xs text-gray-600 max-w-sm">{f.fix}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {note && (
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                <div className="text-xs font-medium text-gray-700">{note.title}</div>
+                <div className="text-xs text-gray-600 mt-1">{note.whatToDo}</div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <h4 className="font-semibold text-brand-navy">โครงบทความรายเว็บ</h4>
+        <p className="text-xs text-gray-500 mt-1">ค่าที่วัดได้ต่อเว็บ — เว็บที่มีหน้าเนื้อหาน้อยกว่า 3 หน้าไม่ถูกนับเข้า median</p>
+        <div className="overflow-x-auto mt-3">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-500 border-b border-gray-200">
+                <th className="py-2 pr-3">เว็บ</th>
+                <th className="py-2 px-3">หน้าเนื้อหา</th>
+                <th className="py-2 px-3">คำ (median)</th>
+                <th className="py-2 px-3">H2</th>
+                <th className="py-2 px-3">H3</th>
+                <th className="py-2 px-3">หัวข้อคำถาม</th>
+                <th className="py-2 px-3">FAQ schema</th>
+                <th className="py-2 px-3">บล็อกสรุป</th>
+                <th className="py-2 px-3">ตาราง</th>
+                <th className="py-2 px-3">ผู้เขียน</th>
+                <th className="py-2 px-3">วันที่</th>
+                <th className="py-2 px-3">อ้างแหล่งนอก</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[st.ours, ...st.competitors, st.median].filter(Boolean).map((p, i) => (
+                <tr key={`${p!.domain}-${i}`} className={`border-b border-gray-100 ${p!.isOurs ? 'bg-blue-50/40' : ''}`}>
+                  <td className="py-2 pr-3 text-gray-800">
+                    {p!.domain}
+                    {p!.isOurs && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-brand-navy text-white">เรา</span>}
+                  </td>
+                  <td className="py-2 px-3">{fmt(p!.contentPages)}</td>
+                  <td className="py-2 px-3">{fmt(p!.medianWordCount)}</td>
+                  <td className="py-2 px-3">{fmt(p!.medianH2)}</td>
+                  <td className="py-2 px-3">{fmt(p!.medianH3)}</td>
+                  <td className="py-2 px-3">{fmt(p!.questionHeadingPct, '%')}</td>
+                  <td className="py-2 px-3">{fmt(p!.faqSchemaPct, '%')}</td>
+                  <td className="py-2 px-3">{fmt(p!.summaryBlockPct, '%')}</td>
+                  <td className="py-2 px-3">{fmt(p!.tablePct, '%')}</td>
+                  <td className="py-2 px-3">{fmt(p!.authorNamedPct, '%')}</td>
+                  <td className="py-2 px-3">{fmt(p!.datedPct, '%')}</td>
+                  <td className="py-2 px-3">{fmt(p!.medianCitations)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <h4 className="font-semibold text-brand-navy">บทความคู่แข่งที่โครงสร้างครบที่สุด</h4>
+        {st.exemplars.length === 0 ? (
+          <p className="text-sm text-gray-400 mt-2">ไม่พบบทความคู่แข่งที่โครงสร้างครบพอจะยกเป็นตัวอย่าง</p>
+        ) : (
+          <ul className="mt-3 space-y-3">
+            {st.exemplars.map(e => (
+              <li key={e.url} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                <div className="text-sm text-gray-800">{e.title}</div>
+                <a href={e.url} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-blue break-all hover:underline">{e.url}</a>
+                <div className="text-xs text-gray-500 mt-1">{e.domain} · {e.why}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
 }

@@ -24,6 +24,23 @@ export interface ExtractedPage {
   hasList: boolean
   hasTable: boolean
   numberDensity: number
+  // ── สัญญาณโครงสร้างบทความ (ใช้กับ SEO / AEO / GEO / E-E-A-T) ──
+  h3: string[]
+  /** หัวข้อที่เขียนเป็นคำถาม (AEO: เครื่องมือตอบคำถามหยิบไปตอบได้ตรง ๆ) */
+  questionHeadings: number
+  /** ลิงก์ออกนอกโดเมนที่ไม่ใช่โซเชียล — ใช้เป็นสัญญาณการอ้างอิงแหล่งข้อมูล */
+  citationLinks: number
+  /** ชื่อผู้เขียนที่อ่านได้จริงจาก schema/meta/ข้อความ byline */
+  authorName: string | null
+  /** มีบล็อกสรุป/TL;DR ให้หยิบไปตอบ */
+  hasSummaryBlock: boolean
+  /** จำนวนคำก่อนหัวข้อ H2 แรก — ย่อหน้าตอบคำถามต้นหน้า */
+  leadWordCount: number
+  /** ต้นหน้าตอบนิยาม/คำถามตรง ๆ ("X คือ ...") */
+  answersInLead: boolean
+  /** มีรูปในเนื้อหา และมีคำอธิบายภาพกี่รูป */
+  images: number
+  imagesWithAlt: number
 }
 
 function decodeEntities(s: string): string {
@@ -120,6 +137,33 @@ function extractDates(html: string): { published: string | null; modified: strin
   return { published, modified }
 }
 
+const QUESTION_RE = /\?|\bคือ\s*อะไร|คืออะไร|อย่างไร|ยังไง|ทำไม|เมื่อไห?ร่|ที่ไหน|ไหม|หรือไม่|กี่|เท่าไห?ร่|^(what|why|how|when|where|which|who|is|are|does|do|can)\b/i
+
+const SUMMARY_RE = /(tl;?dr|สรุป|บทสรุป|ใจความสำคัญ|key takeaways?|สรุปสั้น|สาระสำคัญ)/i
+
+/** โซเชียล/แชร์ปุ่ม ไม่ใช่การอ้างอิงแหล่งข้อมูล */
+const SOCIAL_HOSTS = /(facebook|twitter|x\.com|instagram|linkedin|line\.me|tiktok|youtube|youtu\.be|pinterest|threads|whatsapp|telegram|reddit)\./i
+
+function countQuestionHeadings(headings: string[]): number {
+  return headings.filter(h => QUESTION_RE.test(h)).length
+}
+
+function extractAuthor(html: string, text: string): string | null {
+  const schemaAuthor = /"author"\s*:\s*{[^}]*?"name"\s*:\s*"([^"]{2,80})"/i.exec(html)?.[1]
+    ?? /"author"\s*:\s*"([^"]{2,80})"/i.exec(html)?.[1]
+  if (schemaAuthor) return decodeEntities(schemaAuthor).trim()
+  const meta = metaContent(html, 'author') || metaContent(html, 'article:author', 'property')
+  if (meta && !/^https?:/i.test(meta)) return meta.slice(0, 80)
+  // ภาษาไทยไม่เว้นวรรคระหว่างคำ คำว่า "โดย" จึงโผล่กลางประโยคได้ตลอด — ห้ามเดาชื่อจากเนื้อความ
+  // เอาเฉพาะที่หน้าเว็บทำเครื่องหมายไว้ชัดว่าเป็นบล็อกผู้เขียน
+  const tagged = /<(?:a|span|div|p)[^>]*(?:rel|class|id)=["'][^"']*\bauthor\b[^"']*["'][^>]*>([\s\S]{2,120}?)<\//i.exec(html)?.[1]
+  if (!tagged) return null
+  const name = clean(tagged).trim()
+  if (!name || name.length > 60) return null
+  if (/^(?:โดย|by|author|เขียนโดย|ผู้เขียน)$/i.test(name)) return null
+  return name
+}
+
 export function extractPage(html: string, pageUrl: string, domain: string): ExtractedPage {
   const title = firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i)
   const metaDescription = metaContent(html, 'description') || metaContent(html, 'og:description', 'property')
@@ -131,6 +175,14 @@ export function extractPage(html: string, pageUrl: string, domain: string): Extr
   while ((hm = h2re.exec(html)) !== null && h2.length < 25) {
     const t = clean(hm[1])
     if (t) h2.push(t.slice(0, 160))
+  }
+
+  const h3: string[] = []
+  const h3re = /<h3[^>]*>([\s\S]*?)<\/h3>/gi
+  let h3m: RegExpExecArray | null
+  while ((h3m = h3re.exec(html)) !== null && h3.length < 40) {
+    const t = clean(h3m[1])
+    if (t) h3.push(t.slice(0, 160))
   }
 
   const canonicalRaw = /<link[^>]+rel=["']canonical["'][^>]*href=["']([^"']+)["']/i.exec(html)?.[1]
@@ -154,6 +206,36 @@ export function extractPage(html: string, pageUrl: string, domain: string): Extr
     if (seen.has(abs)) continue
     seen.add(abs)
     if (internalHrefs.length < 400) internalHrefs.push(abs)
+  }
+
+  // ── สัญญาณโครงสร้างบทความ ──
+  const firstH2 = /<h2[^>]*>/i.exec(body)
+  const lead = clean(firstH2 ? body.slice(0, firstH2.index) : body.slice(0, 4000))
+  const leadWordCount = countWords(lead)
+  const answersInLead = /(คือ|หมายถึง|is a|refers to|ได้แก่)/i.test(lead.slice(0, 600))
+
+  let citationLinks = 0
+  const ext = /<a[^>]+href=["'](https?:\/\/[^"'#]+)["']/gi
+  const extSeen = new Set<string>()
+  let em: RegExpExecArray | null
+  while ((em = ext.exec(body)) !== null) {
+    try {
+      const host = new URL(em[1]).hostname.replace(/^www\./i, '').toLowerCase()
+      if (host === domain || host.endsWith(`.${domain}`)) continue
+      if (SOCIAL_HOSTS.test(`${host}.`)) continue
+      if (extSeen.has(host)) continue
+      extSeen.add(host)
+      citationLinks++
+    } catch { /* href พัง — ข้าม */ }
+  }
+
+  let images = 0
+  let imagesWithAlt = 0
+  const imgRe = /<img[^>]*>/gi
+  let im: RegExpExecArray | null
+  while ((im = imgRe.exec(body)) !== null) {
+    images++
+    if (/\salt=["'][^"']+["']/i.test(im[0])) imagesWithAlt++
   }
 
   const dates = extractDates(html)
@@ -182,6 +264,15 @@ export function extractPage(html: string, pageUrl: string, domain: string): Extr
     hasList: /<(ul|ol)[^>]*>[\s\S]*?<li/i.test(body),
     hasTable: /<table[^>]*>/i.test(body),
     numberDensity,
+    h3,
+    questionHeadings: countQuestionHeadings([...h2, ...h3]),
+    citationLinks,
+    authorName: extractAuthor(html, text),
+    hasSummaryBlock: [...h2, ...h3].some(h => SUMMARY_RE.test(h)),
+    leadWordCount,
+    answersInLead,
+    images,
+    imagesWithAlt,
   }
 }
 

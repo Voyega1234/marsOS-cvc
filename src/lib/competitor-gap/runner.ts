@@ -18,7 +18,8 @@ import {
   projectCoverage, summarizeCounts,
 } from './baseline'
 import { aiClassifyAmbiguous } from './aiClassify'
-import { buildSurpassIdeas, enrichPhase1, summarizeCompetitors } from './aiStrategy'
+import { buildSurpassIdeas, enrichPhase1, explainStructure, summarizeCompetitors } from './aiStrategy'
+import { buildArticleStructure } from './articleStructure'
 import { applyRuleClassification, buildVocabulary } from './classify'
 import { crawlDomain } from './crawler'
 import { attachDomainMetrics, buildKeywordGap, emptyKeywordGap, fetchRankedKeywords, type DomainKeywords } from './keywordGap'
@@ -46,6 +47,7 @@ const BASE_STEPS: RunStep[] = [
   { id: 'baseline', label: 'คำนวณมาตรฐาน Top 5 (median)', status: 'pending' },
   { id: 'phase1',   label: 'สร้างแผน START HERE (Phase 1)', status: 'pending' },
   { id: 'phase2',   label: 'หาแนวทางแซง Top 5 (Phase 2)', status: 'pending' },
+  { id: 'structure', label: 'วิเคราะห์โครงสร้างบทความ (SEO/AEO/GEO/E-E-A-T)', status: 'pending' },
 ]
 
 export function createRun(input: RunInput, runId: string): RunState {
@@ -252,7 +254,8 @@ async function phaseCrawl(state: RunState, ctx: RunContext) {
   const stepId = `crawl:${d.domain}`
   setStep(state, stepId, 'running')
   const budget = state.input.advanced.maxPagesPerDomain
-  const cacheId = hashKey(`${d.domain}|${budget}|${state.input.advanced.jsFallback ? 1 : 0}`)
+  // v3 = เก็บสัญญาณโครงสร้างบทความ + อ่านชื่อผู้เขียนจากบล็อกที่ทำเครื่องหมายไว้เท่านั้น
+  const cacheId = hashKey(`v3|${d.domain}|${budget}|${state.input.advanced.jsFallback ? 1 : 0}`)
 
   try {
     const cached = await getCache<{ pages: DomainState['pages']; coverage: DomainState['coverage'] }>('crawl', cacheId)
@@ -636,6 +639,51 @@ async function phasePhase2(state: RunState, ctx: RunContext) {
   report.generatedAt = new Date().toISOString()
 
   setStep(state, 'phase2', 'done', `${surpass.ideas.length} แนวทาง`)
+  state.phase = 'structure'
+  await saveReport(state.projectId, report)
+}
+
+async function phaseStructure(state: RunState, ctx: RunContext) {
+  setStep(state, 'structure', 'running')
+  const report = state.report!
+
+  // ตัวเลขทุกตัวคำนวณจากหน้าที่สแกนได้จริงก่อน แล้วค่อยให้ AI อธิบาย
+  const structure = buildArticleStructure(state.domains)
+
+  if (structure.available) {
+    const explained = await explainStructure({
+      keyword: state.input.keyword,
+      ourDomain: state.domains[0].domain,
+      report: structure,
+    })
+    state.costUsd += explained.usage.costUsd
+    structure.summary = explained.summary
+    structure.aiNotes = explained.notes
+    if (explained.error) state.warnings.push(`AI ส่วนโครงสร้างบทความไม่สมบูรณ์: ${explained.error}`)
+    await logCost(ctx, {
+      jobType: 'competitor_gap_structure',
+      provider: 'openrouter',
+      model: OR_MODELS.default(),
+      ok: !explained.error,
+      aiUsage: explained.usage,
+      summary: `Competitor Gap โครงสร้างบทความ · ข้อค้นพบ ${structure.findings.length} ข้อ · ตัวอย่างคู่แข่ง ${structure.exemplars.length} หน้า`,
+      error: explained.error ?? undefined,
+    })
+  } else if (structure.note) {
+    state.warnings.push(structure.note)
+  }
+
+  report.articleStructure = structure
+  report.costUsd = state.costUsd
+  report.warnings = state.warnings
+  report.generatedAt = new Date().toISOString()
+
+  const below = structure.findings.filter(f => f.status === 'ต่ำกว่ามาตรฐาน').length
+  setStep(state, 'structure', structure.available ? 'done' : 'skipped',
+    structure.available
+      ? `เทียบ ${structure.findings.length} ตัวชี้วัด · ต่ำกว่ามาตรฐาน ${below} ข้อ`
+      : structure.note ?? 'ข้อมูลไม่พอเทียบโครงสร้างบทความ')
+
   state.phase = 'done'
   state.status = 'done'
   await saveReport(state.projectId, report)
@@ -654,6 +702,7 @@ export async function advanceRun(state: RunState, ctx: RunContext): Promise<RunS
       case 'baseline': phaseBaseline(state); break
       case 'phase1': await phasePhase1(state, ctx); break
       case 'phase2': await phasePhase2(state, ctx); break
+      case 'structure': await phaseStructure(state, ctx); break
       default: state.status = 'done'
     }
   } catch (e) {

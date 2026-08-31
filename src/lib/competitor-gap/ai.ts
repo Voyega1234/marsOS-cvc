@@ -55,6 +55,11 @@ function repairTruncatedJson(raw: string): string | null {
   return raw.slice(0, lastSafe + 1) + stackAtSafe.reverse().join('')
 }
 
+/** ความล้มเหลวระดับการเชื่อมต่อ — ลองใหม่ได้เพราะยังไม่มีการนับโทเคน */
+function isTransport(msg: string): boolean {
+  return /fetch failed|aborted|timeout|timed out|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|502|503|504/i.test(msg)
+}
+
 export async function askJson<T>(params: {
   system: string
   user: string
@@ -63,7 +68,7 @@ export async function askJson<T>(params: {
   timeoutMs?: number
 }): Promise<AICall<T>> {
   try {
-    const res = await orChat({
+    const res = await orChatWithRetry({
       messages: [
         { role: 'system', content: params.system },
         { role: 'user', content: params.user },
@@ -89,6 +94,17 @@ export async function askJson<T>(params: {
   } catch (e) {
     const usage = (e as Error & { usage?: ORUsage }).usage ?? ZERO_USAGE
     return { data: null, usage, error: e instanceof Error ? e.message.slice(0, 200) : String(e) }
+  }
+}
+
+/** เรียก OpenRouter โดยลองซ้ำได้ 1 ครั้งเมื่อสายหลุด/หมดเวลา (ไม่ลองซ้ำกับ error ฝั่งโมเดล) */
+async function orChatWithRetry(args: Parameters<typeof orChat>[0]): Promise<Awaited<ReturnType<typeof orChat>>> {
+  try {
+    return await orChat(args)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!isTransport(msg)) throw e
+    return await orChat(args)
   }
 }
 
