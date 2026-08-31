@@ -7120,6 +7120,27 @@ const PRIMARY_TABS: { id: Tab | 'studio'; label: string }[] = [
   { id: 'indexing',      label: 'Indexing & Crawling' },
 ]
 
+// Sidebar ซ้ายของโปรเจกต์ — จัดกลุ่มให้กวาดตาจากบนลงล่างได้ว่าอันไหนงานเนื้อหา อันไหนงานสุขภาพเว็บ
+// (เมนูชุดเดียวกับ PRIMARY_TABS แค่เรียงเป็นแนวตั้งและมีหัวข้อกลุ่มคั่น)
+const SIDEBAR_GROUPS: { label?: string; items: { id: Tab | 'studio'; label: string }[] }[] = [
+  { items: [{ id: 'overview', label: 'Overview' }] },
+  {
+    label: 'Content',
+    items: [
+      { id: 'timeline-view', label: 'Project Timeline' },
+      { id: 'studio',        label: 'Content Studio' },
+    ],
+  },
+  {
+    label: 'Site Performance',
+    items: [
+      { id: 'on-page',   label: 'On-Page SEO' },
+      { id: 'technical', label: 'Technical SEO' },
+      { id: 'indexing',  label: 'Indexing & Crawling' },
+    ],
+  },
+]
+
 // เนื้อหาที่กว้างเต็มจอ (ที่เหลือใช้ px-8 max-w-5xl)
 const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'publish', 'articles', 'content-map', 'proj-ce', 'review', 'report']
 
@@ -7474,61 +7495,103 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             ))}
           </nav>
         ) : (
-          <nav className="flex gap-0 -mb-px overflow-x-auto">
-            {PRIMARY_TABS.map(t => {
-              const active =
-                t.id === 'studio' ? STUDIO_TAB_IDS.includes(tab)
-                : tab === t.id
-              return (
-                <button key={t.id}
-                  onClick={() => setTab(
-                    t.id === 'studio' ? lastStudioTabRef.current
-                    : t.id as Tab
-                  )}
-                  className={`relative px-5 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    active ? 'border-brand-blue text-brand-blue' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}>
-                  {t.label}
-                  {t.id === 'studio' && reviewCount > 0 && (
-                    <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{reviewCount}</span>
-                  )}
-                </button>
-              )
-            })}
-          </nav>
+          <>
+            {/* Content Studio subtabs — ย้ายขึ้นมาไว้บนสุด (เมนูหลักลงไปอยู่ sidebar ซ้ายแล้ว) */}
+            {STUDIO_TAB_IDS.includes(tab) && (
+              <nav className="flex gap-1 pb-3 overflow-x-auto">
+                {STUDIO_TABS.map(t => (
+                  <button key={t.id} onClick={() => setTab(t.id)}
+                    className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors whitespace-nowrap ${
+                      tab === t.id ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
+                    }`}>
+                    {t.label}
+                    {t.id === 'keywords' && keywords.length > 0 && (
+                      <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">{keywords.length}</span>
+                    )}
+                    {t.id === 'content-map' && timeline.length > 0 && (
+                      <span className="ml-1.5 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-bold">{timeline.length}</span>
+                    )}
+                    {t.id === 'review' && reviewCount > 0 && (
+                      <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{reviewCount}</span>
+                    )}
+                  </button>
+                ))}
+              </nav>
+            )}
+
+            {/* จอแคบไม่มีที่ให้ sidebar — เมนูหลักกลับมาเป็นแถบเลื่อนแนวนอนแทน */}
+            <nav className="flex gap-0 -mb-px overflow-x-auto md:hidden">
+              {PRIMARY_TABS.map(t => {
+                const active =
+                  t.id === 'studio' ? STUDIO_TAB_IDS.includes(tab)
+                  : tab === t.id
+                return (
+                  <button key={t.id}
+                    onClick={() => setTab(
+                      t.id === 'studio' ? lastStudioTabRef.current
+                      : t.id as Tab
+                    )}
+                    className={`relative px-5 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                      active ? 'border-brand-blue text-brand-blue' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}>
+                    {t.label}
+                    {t.id === 'studio' && reviewCount > 0 && (
+                      <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{reviewCount}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </nav>
+          </>
         )}
       </div>
-
-      {/* Content Studio subtabs */}
-      {!isClient && STUDIO_TAB_IDS.includes(tab) && (
-        <div className="bg-white border-b border-gray-200 px-8">
-          <nav className="flex gap-1 py-2 overflow-x-auto">
-            {STUDIO_TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors whitespace-nowrap ${
-                  tab === t.id ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
-                }`}>
-                {t.label}
-                {t.id === 'keywords' && keywords.length > 0 && (
-                  <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">{keywords.length}</span>
-                )}
-                {t.id === 'content-map' && timeline.length > 0 && (
-                  <span className="ml-1.5 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-bold">{timeline.length}</span>
-                )}
-                {t.id === 'review' && reviewCount > 0 && (
-                  <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{reviewCount}</span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
-      )}
 
       {/* Project Settings ย้ายไปเป็น slide bar ด้านขวา (เปิดด้วยฟันเฟือง) —
           กฎ: ห้ามนำ Project Settings v1 (/projects/[id]/settings) กลับมาเด็ดขาด */}
 
-      {/* Tab content */}
-      <div className={`py-6 ${WIDE_TABS.includes(tab) ? 'px-6' : 'px-8 max-w-5xl'}`}>
+      {/* Body: sidebar เมนูโปรเจกต์ (ซ้าย) + เนื้อหา (ขวา) */}
+      <div className="flex min-h-[70vh]">
+        {/* เมนูหลักของโปรเจกต์ — แนวตั้งบนลงล่าง ซ่อนบนจอแคบ (จอแคบใช้แถบแนวนอนใน header) */}
+        {!isClient && (
+          <aside className="hidden md:block w-56 shrink-0 border-r border-gray-200 bg-white px-3 py-4">
+            <nav className="sticky top-4 space-y-5">
+              {SIDEBAR_GROUPS.map((group, gi) => (
+                <div key={group.label ?? `g${gi}`}>
+                  {group.label && (
+                    <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                      {group.label}
+                    </p>
+                  )}
+                  <div className="space-y-0.5">
+                    {group.items.map(t => {
+                      const active =
+                        t.id === 'studio' ? STUDIO_TAB_IDS.includes(tab)
+                        : tab === t.id
+                      return (
+                        <button key={t.id}
+                          onClick={() => setTab(
+                            t.id === 'studio' ? lastStudioTabRef.current
+                            : t.id as Tab
+                          )}
+                          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors ${
+                            active ? 'bg-brand-mist text-brand-blue' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                          }`}>
+                          <span className="flex-1 truncate">{t.label}</span>
+                          {t.id === 'studio' && reviewCount > 0 && (
+                            <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{reviewCount}</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </nav>
+          </aside>
+        )}
+
+        {/* Tab content */}
+        <div className={`min-w-0 flex-1 py-6 ${WIDE_TABS.includes(tab) ? 'px-6' : 'px-8 max-w-5xl'}`}>
         {tab === 'overview' && (
           <ClientOverview
             project={project}
@@ -7622,6 +7685,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             onAdjustRewrite={(entryIdx, note) => writeArticleRef.current?.(entryIdx, note)}
           />
         )}
+        </div>
       </div>
 
       {/* ── Project Settings — slide bar ด้านขวา (Apollo style) ──────────────── */}
