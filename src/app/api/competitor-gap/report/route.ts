@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { latestRunId, loadReport } from '@/lib/competitor-gap/store'
+import { latestRunId, loadReport, loadSnapshots } from '@/lib/competitor-gap/store'
 
 export async function GET(req: NextRequest) {
   const session = await getSession()
@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
   const report = await loadReport(projectId)
   return NextResponse.json({
     report,
+    history: await loadSnapshots(projectId),
     lastRunId: await latestRunId(projectId),
     projectWebsite: project.website ?? null,
   })

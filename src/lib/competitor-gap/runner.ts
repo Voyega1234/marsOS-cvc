@@ -29,7 +29,7 @@ import { loadBankKeywords, loadMemory } from '@/lib/keyword-guard/store'
 import { resolveCountry } from './locations'
 import { buildBenchmark } from './quality'
 import { classifyDomain, fetchTopCompetitors, isComparable, isScannableDomain } from './serp'
-import { getCache, hashKey, saveReport, saveRun, setCache, TTL } from './store'
+import { appendSnapshot, getCache, hashKey, saveReport, saveRun, setCache, TTL } from './store'
 import { buildClusters, nameClusters } from './topics'
 import type {
   CompetitorSummary, DomainInventory, DomainState, GapReport, RunInput, RunState, RunStep,
@@ -714,6 +714,8 @@ async function phaseStructure(state: RunState, ctx: RunContext) {
   state.phase = 'done'
   state.status = 'done'
   await saveReport(state.projectId, report)
+  // บันทึกเฉพาะตอนจบจริง — snapshot ระหว่างทางจะได้ตัวเลขไม่ครบ
+  await appendSnapshot(state.projectId, report)
 }
 
 /** เดินหน้าหนึ่งเฟสแล้วบันทึก checkpoint — เรียกซ้ำจนกว่า status จะเป็น done/error */

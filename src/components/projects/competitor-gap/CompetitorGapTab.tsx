@@ -12,14 +12,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { COUNTRIES, DEFAULT_COUNTRY } from '@/lib/competitor-gap/locations'
 import type {
-  GapAction, GapReport, KeywordGapRow, Priority, RunStep, StructureFinding, StructurePillar,
+  DomainInventory, GapAction, GapReport, GapSnapshot, KeywordGapRow, Priority, RunStep, StructureFinding, StructurePillar,
 } from '@/lib/competitor-gap/types'
+import { CONTENT_PAGE_TYPES } from '@/lib/competitor-gap/types'
 
-type SectionId = 'overview' | 'start-here' | 'competitors' | 'page-gap' | 'keyword-gap' | 'opportunities' | 'structure' | 'surpass'
+type SectionId = 'overview' | 'start-here' | 'parity' | 'competitors' | 'page-gap' | 'keyword-gap' | 'opportunities' | 'structure' | 'surpass'
 
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: 'overview',      label: 'ภาพรวม' },
   { id: 'start-here',    label: 'เริ่มตรงนี้' },
+  { id: 'parity',        label: 'เท่าคู่แข่งหรือยัง' },
   { id: 'competitors',   label: 'คู่แข่ง' },
   { id: 'page-gap',      label: 'ช่องว่างหน้าเว็บ' },
   { id: 'keyword-gap',   label: 'ช่องว่างคีย์เวิร์ด' },
@@ -122,6 +124,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
   const [jsFallback, setJsFallback] = useState(true)
 
   const [report, setReport] = useState<GapReport | null>(null)
+  const [history, setHistory] = useState<GapSnapshot[]>([])
   const [loadingReport, setLoadingReport] = useState(true)
   const [run, setRun] = useState<RunStatus | null>(null)
   const [running, setRunning] = useState(false)
@@ -136,8 +139,9 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
     let alive = true
     fetch(`/api/competitor-gap/report?projectId=${encodeURIComponent(project.id)}`)
       .then(r => r.json())
-      .then((d: { report: GapReport | null; projectWebsite: string | null }) => {
+      .then((d: { report: GapReport | null; history?: GapSnapshot[]; projectWebsite: string | null }) => {
         if (!alive) return
+        if (Array.isArray(d.history)) setHistory(d.history)
         if (d.report) {
           setReport(d.report)
           setKeyword(d.report.input.keyword)
@@ -195,7 +199,11 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
 
       if ((data as RunStatus).status === 'done') {
         const r = await fetch(`/api/competitor-gap/report?projectId=${encodeURIComponent(project.id)}`).then(x => x.json())
-        if (!cancelled.current && r.report) { setReport(r.report as GapReport); setSection('overview') }
+        if (!cancelled.current && r.report) {
+          setReport(r.report as GapReport)
+          if (Array.isArray(r.history)) setHistory(r.history as GapSnapshot[])
+          setSection('overview')
+        }
       }
     } catch (e) {
       if (!cancelled.current) setFormError(e instanceof Error ? e.message : String(e))
@@ -351,6 +359,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
 
           {section === 'overview' && <OverviewSection report={report} compDomains={compDomains} />}
           {section === 'start-here' && <StartHereSection report={report} />}
+          {section === 'parity' && <ParitySection report={report} history={history} />}
           {section === 'competitors' && <CompetitorsSection report={report} />}
           {section === 'page-gap' && <PageGapSection report={report} compDomains={compDomains} />}
           {section === 'keyword-gap' && <KeywordGapSection report={report} compDomains={compDomains} projectId={project.id} />}
@@ -359,6 +368,217 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           {section === 'surpass' && <SurpassSection report={report} />}
         </>
       )}
+    </div>
+  )
+}
+
+// ── เท่าคู่แข่งหรือยัง (parity checklist + ความคืบหน้าข้ามรอบ) ────────────────
+
+/** หน้าเนื้อหาตามนิยามเดียวกับ snapshot ฝั่งเซิร์ฟเวอร์ — บทความ/ไกด์/เคส/คำศัพท์/เครื่องมือ */
+function contentPagesOf(inv: DomainInventory): number {
+  return CONTENT_PAGE_TYPES.reduce((s, t) => s + (inv.byType[t] ?? 0), 0)
+}
+
+/**
+ * เป้าช่วงแรกของ SEO: "มี ≥ คู่แข่ง" ก่อน แล้วค่อยแซง
+ * ตารางนี้ตอบตรง ๆ ต่อคู่แข่งแต่ละเจ้า: ขาดอีกกี่หน้า / กี่คำ ถึงจะเท่าเขา
+ * ทุกตัวเลขมาจากผลสแกนจริง — มิติไหนไม่มีข้อมูล (เช่น ไม่ได้ดึงคีย์เวิร์ด) แสดง "—" ไม่นับแทน
+ */
+function ParitySection({ report, history }: { report: GapReport; history: GapSnapshot[] }) {
+  const ours = report.domains.find(d => d.isOurs) ?? null
+  const ourContent = ours ? contentPagesOf(ours) : null
+  const kw = report.keywordGap
+  const ourTop10 = kw.available
+    ? kw.rows.filter(r => r.ourPosition !== null && r.ourPosition <= 10).length
+    : null
+
+  const rows = report.competitors.map((c, i) => {
+    const theirContent = contentPagesOf(c.inventory)
+    const theirTop10 = kw.available
+      ? kw.rows.filter(r => { const p = r.competitorPositions[i]; return p !== null && p <= 10 }).length
+      : null
+    // คำที่เขาติด Top 10 แต่เรายังไม่ติด — จำนวนคำที่ต้องตามเก็บถึงจะเท่าเจ้านี้
+    const kwDeficit = kw.available
+      ? kw.rows.filter(r => {
+          const p = r.competitorPositions[i]
+          return p !== null && p <= 10 && !(r.ourPosition !== null && r.ourPosition <= 10)
+        }).length
+      : null
+    const pageDeficit = ours ? Math.max(0, c.inventory.relevant - ours.relevant) : null
+    const contentDeficit = ours !== null && ourContent !== null
+      ? Math.max(0, theirContent - ourContent)
+      : null
+    const measured = [pageDeficit, contentDeficit, kwDeficit].filter(v => v !== null)
+    const reached = measured.length > 0 && measured.every(v => v === 0)
+    return { c, theirContent, theirTop10, kwDeficit, pageDeficit, contentDeficit, reached }
+  })
+
+  const comparableRows = rows.filter(r => r.c.comparable)
+  const reachedCount = comparableRows.filter(r => r.reached).length
+  const worstContent = comparableRows.reduce<typeof rows[number] | null>(
+    (worst, r) => (r.contentDeficit !== null && (worst === null || (r.contentDeficit > (worst.contentDeficit ?? 0))) ? r : worst),
+    null,
+  )
+
+  const latest = history.length > 0 ? history[history.length - 1] : null
+  const prev = history.length > 1 ? history[history.length - 2] : null
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <div className="text-xs text-gray-500">คู่แข่งเทียบเคียงที่เราตามทันแล้ว</div>
+          <div className="text-4xl font-bold text-brand-navy mt-1">
+            {comparableRows.length === 0 ? '—' : `${reachedCount}/${comparableRows.length}`}
+          </div>
+          <div className="text-xs text-gray-400 mt-1">"ตามทัน" = มี ≥ เขาในทุกมิติที่วัดได้ (หน้า relevant · หน้าเนื้อหา · คำ Top 10)</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <div className="text-xs text-gray-500">ช่องว่างหน้าเนื้อหาที่กว้างที่สุด</div>
+          <div className="text-4xl font-bold text-orange-600 mt-1">
+            {worstContent === null || worstContent.contentDeficit === null ? '—' : fmt(worstContent.contentDeficit, ' หน้า')}
+          </div>
+          <div className="text-xs text-gray-400 mt-1">
+            {worstContent === null ? 'ไม่มีคู่แข่งเทียบเคียงในรอบนี้' : `เทียบกับ ${worstContent.c.domain}`}
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <div className="text-xs text-gray-500">คำที่เราติด Top 10 ตอนนี้</div>
+          <div className="text-4xl font-bold text-brand-navy mt-1">{fmt(ourTop10)}</div>
+          <div className="text-xs text-gray-400 mt-1">
+            {kw.available ? 'นับจากข้อมูลอันดับจริงของรอบสแกนนี้' : 'รอบนี้ไม่ได้ดึงข้อมูลคีย์เวิร์ด — เปิดในตั้งค่าขั้นสูง'}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-2xl p-6 overflow-x-auto">
+        <h3 className="font-semibold text-brand-navy mb-1">Parity checklist ต่อคู่แข่ง</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          เป้าช่วงแรก: มี ≥ คู่แข่งก่อน — คอลัมน์ "ขาดอีก" คือระยะทางที่เหลือถึงจะเท่าเจ้านั้น (0 = เท่าหรือนำแล้ว)
+        </p>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
+              <th className="py-2 pr-4">คู่แข่ง</th>
+              <th className="py-2 px-3">หน้า relevant (เขา/เรา)</th>
+              <th className="py-2 px-3">ขาดอีก</th>
+              <th className="py-2 px-3">หน้าเนื้อหา (เขา/เรา)</th>
+              <th className="py-2 px-3">ขาดอีก</th>
+              <th className="py-2 px-3">คำ Top 10 (เขา/เรา)</th>
+              <th className="py-2 px-3">คำที่ต้องตามเก็บ</th>
+              <th className="py-2 px-3">สถานะ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.c.domain} className="border-b border-gray-100">
+                <td className="py-2.5 pr-4">
+                  <div className="font-medium text-gray-800">{r.c.domain}</div>
+                  {!r.c.comparable && <div className="text-[11px] text-gray-400">เทียบเคียงไม่ได้ (ไม่ใช่ธุรกิจแบบเดียวกัน) — ไม่ใช้ตั้งเป้า</div>}
+                </td>
+                <td className="py-2.5 px-3 tabular-nums">{fmt(r.c.inventory.relevant)} / {fmt(ours?.relevant ?? null)}</td>
+                <td className="py-2.5 px-3 tabular-nums">
+                  {r.pageDeficit === null ? '—' : r.pageDeficit === 0
+                    ? <span className="text-green-600 font-medium">0</span>
+                    : <span className="text-red-600 font-medium">{fmt(r.pageDeficit)}</span>}
+                </td>
+                <td className="py-2.5 px-3 tabular-nums">{fmt(r.theirContent)} / {fmt(ourContent)}</td>
+                <td className="py-2.5 px-3 tabular-nums">
+                  {r.contentDeficit === null ? '—' : r.contentDeficit === 0
+                    ? <span className="text-green-600 font-medium">0</span>
+                    : <span className="text-red-600 font-medium">{fmt(r.contentDeficit)}</span>}
+                </td>
+                <td className="py-2.5 px-3 tabular-nums">{fmt(r.theirTop10)} / {fmt(ourTop10)}</td>
+                <td className="py-2.5 px-3 tabular-nums">
+                  {r.kwDeficit === null ? '—' : r.kwDeficit === 0
+                    ? <span className="text-green-600 font-medium">0</span>
+                    : <span className="text-red-600 font-medium">{fmt(r.kwDeficit)}</span>}
+                </td>
+                <td className="py-2.5 px-3">
+                  {r.reached
+                    ? <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-100 text-green-700">≥ เจ้านี้แล้ว</span>
+                    : <span className="px-2 py-0.5 rounded-full text-[11px] bg-orange-100 text-orange-700">ยังตามไม่ทัน</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="text-[11px] text-gray-400 mt-3">
+          จำนวนหน้าเป็นตัวชี้วัดความครอบคลุม ไม่ใช่คำสั่งให้ปั๊มหน้า — ดูว่าควรสร้าง/รวม/อัปเกรดหน้าไหนที่ "โอกาสคอนเทนต์"
+          · "คำที่ต้องตามเก็บ" กดดูรายคำได้ที่ "ช่องว่างคีย์เวิร์ด"
+        </p>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-2xl p-6 overflow-x-auto">
+        <h3 className="font-semibold text-brand-navy mb-1">ความคืบหน้าข้ามรอบสแกน</h3>
+        <p className="text-xs text-gray-500 mb-4">เทียบรอบล่าสุดกับรอบก่อนหน้า — ดูว่า gap แคบลงจริงหรือไม่</p>
+        {history.length === 0 ? (
+          <p className="text-sm text-gray-400">ยังไม่มีประวัติ — ระบบเริ่มเก็บ snapshot ตั้งแต่รอบสแกนถัดไปเป็นต้นไป</p>
+        ) : (
+          <>
+            {latest && prev && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div className="p-4 rounded-xl bg-brand-mist">
+                  <div className="text-xs text-gray-500">ความพร้อมแข่งขัน</div>
+                  <div className="text-2xl font-bold text-brand-navy">{fmt(latest.readiness)}</div>
+                  <Delta ours={latest.readiness} reference={prev.readiness} />
+                </div>
+                <div className="p-4 rounded-xl bg-brand-mist">
+                  <div className="text-xs text-gray-500">ห่างจากมาตรฐาน Top 5</div>
+                  <div className="text-2xl font-bold text-brand-navy">{fmt(latest.gapToBaselinePct, '%')}</div>
+                  <Delta ours={latest.gapToBaselinePct} reference={prev.gapToBaselinePct} lowerIsBetter suffix="%" />
+                </div>
+                <div className="p-4 rounded-xl bg-brand-mist">
+                  <div className="text-xs text-gray-500">หน้าเนื้อหาของเรา</div>
+                  <div className="text-2xl font-bold text-brand-navy">{fmt(latest.ourContentPages)}</div>
+                  <Delta ours={latest.ourContentPages} reference={prev.ourContentPages} />
+                </div>
+                <div className="p-4 rounded-xl bg-brand-mist">
+                  <div className="text-xs text-gray-500">คำที่เราติด Top 10</div>
+                  <div className="text-2xl font-bold text-brand-navy">{fmt(latest.ourTop10Keywords)}</div>
+                  <Delta ours={latest.ourTop10Keywords} reference={prev.ourTop10Keywords} />
+                </div>
+              </div>
+            )}
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
+                  <th className="py-2 pr-4">วันที่สแกน</th>
+                  <th className="py-2 px-3">คีย์เวิร์ด</th>
+                  <th className="py-2 px-3">ความพร้อม</th>
+                  <th className="py-2 px-3">ห่าง Top 5</th>
+                  <th className="py-2 px-3">หน้า relevant เรา</th>
+                  <th className="py-2 px-3">หน้าเนื้อหาเรา</th>
+                  <th className="py-2 px-3">คำ Top 10 เรา</th>
+                  <th className="py-2 px-3">คำยังไม่มีอันดับ</th>
+                  <th className="py-2 px-3">คลัสเตอร์ที่ขาด</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...history].reverse().map(s => (
+                  <tr key={s.runId} className="border-b border-gray-100">
+                    <td className="py-2 pr-4 whitespace-nowrap">{new Date(s.generatedAt).toLocaleDateString('th-TH')}</td>
+                    <td className="py-2 px-3">{s.keyword}</td>
+                    <td className="py-2 px-3 tabular-nums">{fmt(s.readiness)}</td>
+                    <td className="py-2 px-3 tabular-nums">{fmt(s.gapToBaselinePct, '%')}</td>
+                    <td className="py-2 px-3 tabular-nums">{fmt(s.ourRelevantPages)}</td>
+                    <td className="py-2 px-3 tabular-nums">{fmt(s.ourContentPages)}</td>
+                    <td className="py-2 px-3 tabular-nums">{fmt(s.ourTop10Keywords)}</td>
+                    <td className="py-2 px-3 tabular-nums">{fmt(s.keywordCounts?.MISSING ?? null)}</td>
+                    <td className="py-2 px-3 tabular-nums">{fmt(s.missingClusters)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {history.length === 1 && (
+              <p className="text-xs text-gray-400 mt-3">มีรอบเดียว — สแกนรอบถัดไปจะเห็นว่าตัวเลขขยับทางไหน</p>
+            )}
+            <p className="text-[11px] text-gray-400 mt-2">
+              คีย์เวิร์ดเป้าหมายต่างกัน = คนละสนามแข่ง เทียบแถวที่คีย์เวิร์ดเดียวกันเป็นหลัก
+            </p>
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -404,6 +404,31 @@ export interface GapReport {
   warnings: string[]
 }
 
+// ── Snapshot ประวัติ (ไว้เทียบความคืบหน้าข้ามรอบสแกน) ───────────────────────
+
+/** ประเภทหน้าที่นับเป็น "หน้าเนื้อหา" เวลาคิด parity กับคู่แข่ง */
+export const CONTENT_PAGE_TYPES: PageType[] = ['article', 'guide', 'case-study', 'glossary', 'tool']
+
+/**
+ * สรุปย่อของรายงานหนึ่งรอบ — เก็บเฉพาะตัวเลขที่วัดได้จริง ไม่เก็บรายงานเต็ม
+ * ใช้ตอบคำถาม "สแกนรอบก่อน gap แคบลงหรือยัง" โดยไม่ต้องเก็บรายงานเก่าทั้งก้อน
+ */
+export interface GapSnapshot {
+  runId: string
+  generatedAt: string
+  keyword: string
+  readiness: number | null
+  gapToBaselinePct: number | null
+  ourRelevantPages: number | null
+  ourContentPages: number | null
+  /** จำนวนคำที่เว็บเราติด Top 10 (null = รอบนั้นไม่ได้ดึงข้อมูลคีย์เวิร์ด) */
+  ourTop10Keywords: number | null
+  keywordCounts: Record<KeywordState, number> | null
+  missingClusters: number
+  weakClusters: number
+  actionCounts: Record<string, number>
+}
+
 // ── Run state (เก็บใน AppSetting) ────────────────────────────────────────────
 
 export type RunPhase =

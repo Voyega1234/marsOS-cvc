@@ -9,7 +9,8 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import type { GapReport, RunState } from './types'
+import type { GapReport, GapSnapshot, RunState } from './types'
+import { CONTENT_PAGE_TYPES } from './types'
 
 const PREFIX = 'competitor_gap'
 export const TTL = {
@@ -140,5 +141,58 @@ export async function loadReport(projectId: string): Promise<GapReport | null> {
     return (JSON.parse(raw) as Envelope<GapReport>).data
   } catch {
     return null
+  }
+}
+
+// ── ประวัติ snapshot ต่อรอบสแกน (ไว้ดูว่า gap แคบลงหรือยัง) ─────────────────
+// เก็บเป็น array เล็ก ๆ ไม่มีวันหมดอายุ — รายงานเต็มหมดอายุได้ แต่เส้นความคืบหน้าต้องอยู่
+
+const MAX_SNAPSHOTS = 12
+
+function buildSnapshot(report: GapReport): GapSnapshot {
+  const ours = report.domains.find(d => d.isOurs) ?? null
+  const kw = report.keywordGap
+  return {
+    runId: report.runId,
+    generatedAt: report.generatedAt,
+    keyword: report.input.keyword,
+    readiness: report.readiness,
+    gapToBaselinePct: report.gapToBaselinePct,
+    ourRelevantPages: ours?.relevant ?? null,
+    ourContentPages: ours ? CONTENT_PAGE_TYPES.reduce((s, t) => s + (ours.byType[t] ?? 0), 0) : null,
+    ourTop10Keywords: kw.available
+      ? kw.rows.filter(r => r.ourPosition !== null && r.ourPosition <= 10).length
+      : null,
+    keywordCounts: kw.available ? kw.counts : null,
+    missingClusters: report.clusters.filter(c => c.state === 'missing').length,
+    weakClusters: report.clusters.filter(c => c.state === 'weak').length,
+    actionCounts: report.phase1.counts,
+  }
+}
+
+export async function appendSnapshot(projectId: string, report: GapReport): Promise<void> {
+  const key = `${PREFIX}:history:${projectId}`
+  let list: GapSnapshot[] = []
+  const raw = await readRaw(key)
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) list = parsed as GapSnapshot[]
+    } catch { /* ประวัติเดิมอ่านไม่ได้ = เริ่มเก็บใหม่ ไม่ทำให้ run ล้ม */ }
+  }
+  list = list.filter(s => s.runId !== report.runId)
+  list.push(buildSnapshot(report))
+  list.sort((a, b) => a.generatedAt.localeCompare(b.generatedAt))
+  await writeRaw(key, JSON.stringify(list.slice(-MAX_SNAPSHOTS)))
+}
+
+export async function loadSnapshots(projectId: string): Promise<GapSnapshot[]> {
+  const raw = await readRaw(`${PREFIX}:history:${projectId}`)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as GapSnapshot[]) : []
+  } catch {
+    return []
   }
 }
