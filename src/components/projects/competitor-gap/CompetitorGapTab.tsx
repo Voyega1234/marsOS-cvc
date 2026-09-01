@@ -354,7 +354,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           {section === 'competitors' && <CompetitorsSection report={report} />}
           {section === 'page-gap' && <PageGapSection report={report} compDomains={compDomains} />}
           {section === 'keyword-gap' && <KeywordGapSection report={report} compDomains={compDomains} projectId={project.id} />}
-          {section === 'opportunities' && <OpportunitiesSection report={report} />}
+          {section === 'opportunities' && <OpportunitiesSection report={report} projectId={project.id} />}
           {section === 'structure' && <StructureSection report={report} />}
           {section === 'surpass' && <SurpassSection report={report} />}
         </>
@@ -972,18 +972,90 @@ function KeywordGapSection({ report, compDomains, projectId }: { report: GapRepo
 
 // ── โอกาสคอนเทนต์ ───────────────────────────────────────────────────────────
 
-function OpportunitiesSection({ report }: { report: GapReport }) {
+function OpportunitiesSection({ report, projectId }: { report: GapReport; projectId: string }) {
   const items = report.phase1.actions.filter(a => a.action === 'CREATE' || a.action === 'UPGRADE' || a.action === 'REFRESH')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
+  const [sending, setSending] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+
+  // ส่งเข้า Keyword Bank ได้เฉพาะแถวที่มีคีย์เวิร์ดหลักจริง (title อย่างเดียวไม่พอ)
+  const sendable = items.filter(a => a.primaryKeyword)
+  const toggle = (id: string) => setSelected(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+  const allSelected = sendable.length > 0 && sendable.every(a => selected.has(a.id) || sentIds.has(a.id))
+  const toggleAll = () => setSelected(prev => {
+    const next = new Set(prev)
+    if (allSelected) sendable.forEach(a => next.delete(a.id))
+    else sendable.forEach(a => { if (!sentIds.has(a.id)) next.add(a.id) })
+    return next
+  })
+
+  async function sendToKeywordPage() {
+    const chosen = sendable.filter(a => selected.has(a.id))
+    if (chosen.length === 0) return
+    setSending(true); setNote(null)
+    try {
+      const rows = chosen.map(a => ({
+        keyword: a.primaryKeyword!,
+        title: a.title || undefined,
+        volume: a.primaryKeywordVolume ?? undefined,
+        intent: a.searchIntent
+          ? /trans/i.test(a.searchIntent) ? 'TRANSACTIONAL'
+            : /commercial/i.test(a.searchIntent) ? 'COMMERCIAL'
+              : /navi/i.test(a.searchIntent) ? 'NAVIGATIONAL' : 'INFORMATIONAL'
+          : undefined,
+        priority: a.priority === 'P0' ? 3 : a.priority === 'P1' ? 2 : 1,
+        meta: {
+          action: a.action,
+          page_type: a.pageType ?? undefined,
+          recommendedUrl: a.recommendedUrl ?? undefined,
+          existingUrl: a.existingUrl ?? undefined,
+          competitorCoverage: a.competitorCoverage ?? undefined,
+          secondaryKeywords: a.secondaryKeywords,
+          differentiation: a.differentiation ?? undefined,
+          notes: a.reason,
+        },
+      }))
+      const res = await fetch(`/api/projects/${projectId}/keyword-bank`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows, source: 'competitor-gap' }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`)
+      setSentIds(prev => new Set([...Array.from(prev), ...chosen.map(a => a.id)]))
+      setSelected(new Set())
+      setNote(`ส่งไปหน้า Keyword แล้ว ${chosen.length} คำ (สร้างใหม่ ${payload.created ?? 0} • อัปเดต ${payload.updated ?? 0})`)
+    } catch (e) {
+      setNote(`ส่งไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setSending(false)
+    }
+  }
   if (items.length === 0) {
     return <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-400">ยังไม่มีรายการคอนเทนต์ที่ต้องทำจากข้อมูลที่เก็บได้</div>
   }
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-6 overflow-x-auto">
       <h3 className="font-semibold text-brand-navy mb-1">โอกาสคอนเทนต์</h3>
-      <p className="text-xs text-gray-500 mb-4">ทุกแถวถูกเช็คกับหน้าที่มีอยู่แล้วบนเว็บเรา — ถ้าเจอหน้าที่ตอบเจตนาเดียวกันจะเป็น UPGRADE ไม่ใช่ CREATE</p>
+      <p className="text-xs text-gray-500 mb-3">ทุกแถวถูกเช็คกับหน้าที่มีอยู่แล้วบนเว็บเรา — ถ้าเจอหน้าที่ตอบเจตนาเดียวกันจะเป็น UPGRADE ไม่ใช่ CREATE</p>
+      <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+        <span className="text-gray-500">เลือกแล้ว {selected.size} รายการ</span>
+        <button disabled={sending || selected.size === 0} onClick={sendToKeywordPage}
+          className="px-3 py-1.5 rounded-lg bg-brand-navy text-white disabled:opacity-40">
+          {sending ? 'กำลังส่ง…' : 'ส่งไปหน้า Keyword'}
+        </button>
+        <span className="text-gray-400">คีย์เวิร์ด + Title ที่เลือกจะเข้า Keyword Bank ของโปรเจกต์ (คำซ้ำจะอัปเดตของเดิม ไม่สร้างซ้ำ)</span>
+        {note ? <span className="text-gray-600">{note}</span> : null}
+      </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
+            <th className="py-2 pr-2"><input type="checkbox" checked={allSelected} onChange={toggleAll} title="เลือกทุกแถวที่มีคีย์เวิร์ดหลัก" /></th>
             <th className="py-2 pr-3">ลำดับ</th>
             <th className="py-2 px-3">งาน</th>
             <th className="py-2 px-3">หน้า/บทความที่แนะนำ</th>
@@ -998,7 +1070,14 @@ function OpportunitiesSection({ report }: { report: GapReport }) {
         </thead>
         <tbody>
           {items.map(a => (
-            <tr key={a.id} className="border-b border-gray-100 align-top">
+            <tr key={a.id} className={`border-b border-gray-100 align-top ${selected.has(a.id) ? 'bg-blue-50/40' : ''}`}>
+              <td className="py-2 pr-2">
+                {sentIds.has(a.id)
+                  ? <span className="text-[10px] font-bold text-emerald-600" title="ส่งเข้า Keyword Bank แล้ว">✓</span>
+                  : a.primaryKeyword
+                    ? <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} />
+                    : <span className="text-gray-300" title="ไม่มีคีย์เวิร์ดหลัก — ส่งเข้า Keyword Bank ไม่ได้">—</span>}
+              </td>
               <td className="py-2 pr-3"><span className={`text-xs px-2 py-0.5 rounded border ${PRIORITY_STYLE[a.priority]}`}>{a.priority}</span></td>
               <td className="py-2 px-3"><span className={`text-xs px-2 py-0.5 rounded ${ACTION_STYLE[a.action]}`}>{a.action}</span></td>
               <td className="py-2 px-3 text-gray-800 max-w-xs">{a.title}</td>

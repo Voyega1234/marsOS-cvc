@@ -42,7 +42,7 @@ import type {
 } from '@/lib/wordgod/local/types';
 import { dedupeKey, hasForbiddenTerm, normalizeThaiSpacing, orderFreeKey } from '@/lib/wordgod/local/normalize';
 import { KeywordGuard, summarize, toExcludedKeyword, toGuardInfo } from '@/lib/keyword-guard/guard';
-import { loadMemory, parseExcludeLines, parseExistingLines } from '@/lib/keyword-guard/store';
+import { loadBankKeywords, loadMemory, parseExcludeLines, parseExistingLines } from '@/lib/keyword-guard/store';
 import type { ExcludedKeyword, GuardSummary, GuardVerdict } from '@/lib/keyword-guard/types';
 import {
   emptyDfsMetric,
@@ -1404,6 +1404,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
       // ตัดก่อนคัดเลือกเสมอ เพื่อให้คำถัดไปเลื่อนขึ้นมาแทน (จำนวนที่ส่งมอบเท่าเดิม)
       {
         const kwMemory = await loadMemory(flags.projectId);
+        const bankSeeds = await loadBankKeywords(flags.projectId);
         const nowIso = new Date().toISOString();
         const runGuard = new KeywordGuard({
           existing: kwMemory.existing,
@@ -1411,7 +1412,10 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
             ...kwMemory.exclude,
             ...parseExcludeLines((input.excludeKeywords ?? []).join('\n'), 'form'),
           ],
-          extra: parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
+          extra: [
+            ...bankSeeds,
+            ...parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
+          ],
         });
         const refCount = runGuard.size;
         const exclCount = runGuard.excludeSize;
@@ -1641,13 +1645,17 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     // สร้าง index ใหม่จาก memory ของโปรเจกต์ แล้วไล่ตามลำดับคะแนน เพื่อให้แถวที่มาทีหลัง
     // ถูกจับว่าซ้ำกับแถวก่อนหน้าในชุดเดียวกันด้วย (§19) — ทำงานได้แม้ run นี้ resume มา
     const finalMemory = await loadMemory(flags.projectId);
+    const finalBankSeeds = await loadBankKeywords(flags.projectId);
     const finalGuard = new KeywordGuard({
       existing: finalMemory.existing,
       exclude: [
         ...finalMemory.exclude,
         ...parseExcludeLines((input.excludeKeywords ?? []).join('\n'), 'form'),
       ],
-      extra: parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
+      extra: [
+        ...finalBankSeeds,
+        ...parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
+      ],
     });
     const guardRefCount = finalGuard.size;
     const guardExcludeCount = finalGuard.excludeSize;

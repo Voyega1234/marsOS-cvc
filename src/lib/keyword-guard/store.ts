@@ -19,6 +19,29 @@ export const MAX_HANDOFF = 500;
 
 const EMPTY: KeywordMemory = { existing: [], exclude: [], updatedAt: null };
 
+/**
+ * คีย์เวิร์ดที่ approve เข้า Keyword Bank แล้ว (ตาราง Keyword) — นับเป็น "ของเดิม" เสมอ
+ * ใช้กันคำใหม่จาก Keyword Research / Competitor Gap ไปกินคำที่วางแผนบทความไว้แล้ว
+ */
+export async function loadBankKeywords(
+  projectId: string | null | undefined
+): Promise<Array<{ keyword: string; url: string | null; source: 'APPROVED_KEYWORD' }>> {
+  if (!projectId) return [];
+  try {
+    const rows = await prisma.keyword.findMany({
+      where: { projectId },
+      select: { keyword: true },
+      take: MAX_EXISTING,
+    });
+    return rows
+      .map(r => ({ keyword: cleanKeyword(r.keyword), url: null, source: 'APPROVED_KEYWORD' as const }))
+      .filter(r => r.keyword);
+  } catch {
+    return []; // อ่านไม่ได้ = ไม่มีชั้นกันเพิ่ม แต่ห้ามทำให้ run ล้ม
+  }
+}
+
+
 function memoryKey(projectId: string): string {
   return `${PREFIX}:memory:${projectId}`;
 }

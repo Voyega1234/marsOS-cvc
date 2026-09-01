@@ -25,7 +25,7 @@ import { crawlDomain } from './crawler'
 import { attachDomainMetrics, buildKeywordGap, emptyKeywordGap, fetchRankedKeywords, type DomainKeywords } from './keywordGap'
 import { annotateKeywordOpportunities } from './opportunity'
 import { KeywordGuard } from '@/lib/keyword-guard/guard'
-import { loadMemory } from '@/lib/keyword-guard/store'
+import { loadBankKeywords, loadMemory } from '@/lib/keyword-guard/store'
 import { resolveCountry } from './locations'
 import { buildBenchmark } from './quality'
 import { classifyDomain, fetchTopCompetitors, isComparable, isScannableDomain } from './serp'
@@ -448,12 +448,13 @@ async function phaseKeywords(state: RunState, ctx: RunContext) {
   // ไม่มีค่าใช้จ่ายเพิ่ม — ใช้ข้อมูลที่ดึงมาแล้วทั้งหมด
   try {
     const memory = await loadMemory(ctx.projectId)
+    const bankSeeds = await loadBankKeywords(ctx.projectId)
     const ourRanked: Array<{ keyword: string; url: string | null; source: 'EXISTING_PAGE' }> = []
     ours?.rows.forEach((v, k) => ourRanked.push({ keyword: k, url: v.url, source: 'EXISTING_PAGE' }))
     const guard = new KeywordGuard({
       existing: memory.existing,
       exclude: memory.exclude,
-      extra: ourRanked,
+      extra: [...bankSeeds, ...ourRanked],
     })
     state.keywordGap = annotateKeywordOpportunities({
       gap: state.keywordGap,

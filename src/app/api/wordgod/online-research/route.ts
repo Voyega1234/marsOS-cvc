@@ -22,7 +22,7 @@ import { prisma } from '@/lib/prisma';
 import { logAIJob, DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
 import { dedupeKey, hasForbiddenTerm, normalizeThaiSpacing, orderFreeKey } from '@/lib/wordgod/local/normalize';
 import { KeywordGuard, summarize, toExcludedKeyword, toGuardInfo } from '@/lib/keyword-guard/guard';
-import { loadMemory, parseExcludeLines, parseExistingLines } from '@/lib/keyword-guard/store';
+import { loadBankKeywords, loadMemory, parseExcludeLines, parseExistingLines } from '@/lib/keyword-guard/store';
 import type { ExcludedKeyword, GuardSummary, GuardVerdict, KeywordGuardInfo } from '@/lib/keyword-guard/types';
 import {
   computeVolumeConfidence,
@@ -1690,6 +1690,7 @@ export async function POST(req: NextRequest) {
         ...(input.existingPages ?? []),
       ];
       const memory = await loadMemory(flags.projectId);
+      const bankSeeds = await loadBankKeywords(flags.projectId);
       const nowIso = new Date().toISOString();
       const runGuard = new KeywordGuard({
         existing: memory.existing,
@@ -1698,6 +1699,7 @@ export async function POST(req: NextRequest) {
           ...parseExcludeLines((input.excludeKeywords ?? []).join('\n'), 'form'),
         ],
         extra: [
+          ...bankSeeds,
           ...existingPagePaths.map(pth => ({ keyword: pth, url: pth, source: 'EXISTING_PAGE' as const })),
           ...(siteContext?.existingTitles ?? []).map(t => ({ keyword: t, source: 'EXISTING_PAGE' as const })),
           ...parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
@@ -2001,6 +2003,7 @@ export async function POST(req: NextRequest) {
     // สร้าง index ใหม่จาก memory + หน้าจริงบนเว็บ แล้วไล่ตามลำดับคะแนน เพื่อให้แถวที่มาทีหลัง
     // ถูกจับว่าซ้ำกับแถวก่อนหน้าในชุดเดียวกันด้วย (§19) — ทำงานได้แม้ run นี้ resume มา
     const finalMemory = await loadMemory(flags.projectId);
+    const finalBankSeeds = await loadBankKeywords(flags.projectId);
     const finalGuard = new KeywordGuard({
       existing: finalMemory.existing,
       exclude: [
@@ -2008,6 +2011,7 @@ export async function POST(req: NextRequest) {
         ...parseExcludeLines((input.excludeKeywords ?? []).join('\n'), 'form'),
       ],
       extra: [
+        ...finalBankSeeds,
         ...existingPaths.map(pth => ({ keyword: pth, url: pth, source: 'EXISTING_PAGE' as const })),
         ...(siteContext?.existingTitles ?? []).map(t => ({ keyword: t, source: 'EXISTING_PAGE' as const })),
         ...parseExistingLines((input.existingKeywords ?? []).join('\n'), 'keyword', 'form').map(e => ({ keyword: e.keyword, url: e.url, source: e.kind === 'page' ? ('EXISTING_PAGE' as const) : ('EXISTING_KEYWORD' as const) })),
