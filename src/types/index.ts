@@ -36,6 +36,8 @@ export interface AuthorProfile {
   title: string;
   gender: AuthorGender;
   image: string;      // base64 data URL or ""
+  /** วุฒิ/ใบรับรอง/ประสบการณ์ บรรทัดละข้อ — แสดงเป็นรายการติดเครื่องหมายถูกในการ์ดผู้เขียน */
+  credentials?: string[];
 }
 
 // ── Enriched types ────────────────────────────────────────────────────────────

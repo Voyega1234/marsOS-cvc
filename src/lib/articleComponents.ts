@@ -12,6 +12,7 @@
  * push/scan detector และ CSS builder ในไฟล์นี้ให้ครบกันเสมอ
  */
 import type { ArticleElementStyles } from '@/lib/articleTheme'
+import { buildAuthorCardCss } from '@/lib/articleAuthorCard'
 
 export type ArticleStyleMode = 'embed' | 'clean'
 
@@ -170,11 +171,8 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
   lines.push(`.content-article .content-faq__item[open] .content-faq__question::after{content:"−";}`)
   lines.push(`.content-article .content-faq__answer{padding:0 1.2em .9em;}`)
 
-  // Author box
-  lines.push(`.content-article .content-author{display:flex;align-items:center;gap:16px;padding:1.2em 1.4em;margin-top:2.4em;border-top:2px solid ${border};background:color-mix(in srgb, ${border} 22%, transparent);border-radius:12px;}`)
-  lines.push(`.content-article .content-author img{width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0;}`)
-  lines.push(`.content-article .content-author__name{font-weight:700;display:block;}`)
-  lines.push(`.content-article .content-author__title{font-size:.85em;opacity:.65;display:block;}`)
+  // Author box — 3 สไตล์ให้เลือก (ดู articleAuthorCard.ts) ใส่ CSS ครบทุกแบบเสมอ
+  lines.push(...buildAuthorCardCss({ theme, text, border, accent }))
 
   // ค่าราย element จาก Article Lab ทับท้ายสุด (ชนะค่า default ข้างบน)
   const fontFallback = "', sans-serif"

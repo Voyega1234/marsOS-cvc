@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import type { AuthorProfile } from '@/types'
+import { AUTHOR_CARD_STYLES, DEFAULT_AUTHOR_CARD_STYLE, normalizeAuthorCardStyle } from '@/lib/articleAuthorCard'
 import { ClientReportClient } from '@/components/report/ClientReportClient'
 import ArticleFrame from '@/components/shared/ArticleFrame'
 import ScopedEditable from '@/components/shared/ScopedEditable'
@@ -5920,6 +5921,35 @@ ${cover}${html}
             )}
 
             {authorEnabled && (
+              <div className="mb-4">
+                <p className="text-xs font-semibold text-gray-500 mb-2">สไตล์การ์ดผู้เขียน</p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {AUTHOR_CARD_STYLES.map(opt => {
+                    const active = normalizeAuthorCardStyle(articleColors.authorCard) === opt.key
+                    return (
+                      <button
+                        key={opt.key}
+                        onClick={() => setArticleColor('authorCard', opt.key)}
+                        className={`text-left rounded-xl border p-3 transition-colors ${active ? 'border-brand-blue bg-blue-50' : 'border-gray-200 hover:border-gray-400'}`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <span className={`text-xs font-bold ${active ? 'text-brand-blue' : 'text-gray-700'}`}>{opt.label}</span>
+                          {opt.key === DEFAULT_AUTHOR_CARD_STYLE && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">ค่าเริ่มต้น</span>
+                          )}
+                        </span>
+                        <span className="block text-[11px] text-gray-500 mt-1 leading-snug">{opt.description}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">
+                  มีผลกับบทความที่เขียนใหม่หลังบันทึก — บทความเดิมยังใช้สไตล์ที่ถูกเขียนไว้ตอนนั้น
+                </p>
+              </div>
+            )}
+
+            {authorEnabled && (
               <div className="space-y-3">
                 {authors.map((author, idx) => (
                   <div key={author.id} className="border border-gray-100 rounded-xl p-4 bg-gray-50 space-y-3">
@@ -5981,6 +6011,16 @@ ${cover}${html}
                             </button>
                           ))}
                         </div>
+                        <textarea
+                          value={(author.credentials ?? []).join('\n')}
+                          onChange={e => setAuthors(prev => prev.map(a => a.id === author.id
+                            ? { ...a, credentials: e.target.value.split('\n').map(l => l.trim()).filter(Boolean) }
+                            : a))}
+                          rows={3}
+                          placeholder={'วุฒิ/ใบรับรอง บรรทัดละ 1 ข้อ เช่น\nวุฒิบัตรทันตแพทย์เฉพาะทางสาขาทันตกรรมจัดฟัน\nCertification of Invisalign Provider'}
+                          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200 resize-y"
+                        />
+                        <p className="text-[11px] text-gray-400">รายการนี้แสดงติดเครื่องหมายถูกในการ์ด (แบบ Profile และ Banner) — แบบ Byline จะไม่แสดง</p>
                       </div>
                     </div>
                     {(author.name || author.title) && (

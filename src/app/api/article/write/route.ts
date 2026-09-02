@@ -6,6 +6,7 @@ import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
 import { type ArticleElementStyles, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, type ArticleStyleMode } from '@/lib/articleComponents'
+import { buildAuthorCardHtml, DEFAULT_AUTHOR_CARD_STYLE, normalizeAuthorCardStyle, type AuthorCardStyle } from '@/lib/articleAuthorCard'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 
@@ -80,17 +81,11 @@ INSTRUCTION: วาง CTA 3 จุด และทุกจุดต้อง�
 `
 }
 
-function buildAuthorHtml(name: string, title: string, imageBase64: string): string {
-  if (!name && !title) return ''
-  const imgTag = imageBase64 ? `<img src="${imageBase64}" alt="${name}">` : ''
-  return `
-<div class="content-author">
-  ${imgTag}
-  <div>
-    ${name ? `<span class="content-author__name">${name}</span>` : ''}
-    ${title ? `<span class="content-author__title">${title}</span>` : ''}
-  </div>
-</div>`
+function buildAuthorHtml(
+  name: string, title: string, imageBase64: string,
+  credentials: string[] = [], style: AuthorCardStyle = DEFAULT_AUTHOR_CARD_STYLE,
+): string {
+  return buildAuthorCardHtml({ name, title, image: imageBase64, credentials, style })
 }
 
 function shuffleSeed<T>(arr: T[], seed: string): T[] {
@@ -515,6 +510,9 @@ export async function POST(req: NextRequest) {
   let resolvedAuthorTitle = ''
   let resolvedAuthorImage = ''
   let resolvedAuthorGender: string = 'none'
+  let resolvedAuthorCredentials: string[] = []
+  // สไตล์การ์ดผู้เขียน — ไม่ได้ตั้งใน Article Lab = ค่า default ของระบบ
+  let resolvedAuthorCardStyle: AuthorCardStyle = DEFAULT_AUTHOR_CARD_STYLE
   let _dbProj: Record<string, unknown> | null = null
   if (projectId && orgId) {
     try {
@@ -536,7 +534,7 @@ export async function POST(req: NextRequest) {
       }
       if (proj?.authorEnabled) {
         // Try assignedAuthorId from article first, fallback to first author, fallback to legacy fields
-        let pickedAuthor: { name: string; title: string; image: string; gender: string } | null = null
+        let pickedAuthor: { name: string; title: string; image: string; gender: string; credentials?: string[] } | null = null
         if (articleId) {
           try {
             const art = await (prisma.article as any).findUnique({ where: { id: articleId }, select: { assignedAuthorId: true } })
@@ -555,6 +553,7 @@ export async function POST(req: NextRequest) {
           resolvedAuthorTitle = pickedAuthor.title ?? ''
           resolvedAuthorImage = pickedAuthor.image ?? ''
           resolvedAuthorGender = pickedAuthor.gender ?? 'none'
+          resolvedAuthorCredentials = Array.isArray(pickedAuthor.credentials) ? pickedAuthor.credentials : []
         } else {
           resolvedAuthorName = proj?.authorName ?? ''
           resolvedAuthorTitle = proj?.authorTitle ?? ''
@@ -616,6 +615,9 @@ export async function POST(req: NextRequest) {
     if (!resolvedColorAccent) resolvedColorAccent = labPalette.accentColor
     if (!resolvedColorBackground) resolvedColorBackground = labPalette.backgroundColor
     if ((projColors as Record<string, unknown>).styleMode === 'clean') resolvedStyleMode = 'clean'
+    if ((projColors as Record<string, unknown>).authorCard) {
+      resolvedAuthorCardStyle = normalizeAuthorCardStyle((projColors as Record<string, unknown>).authorCard)
+    }
     // accentColor/theme ใน body มี default — ใช้ค่าโปรเจกต์เมื่อผู้เรียกไม่ได้ตั้งใจส่งมา
     if (accentColor === '#2563eb' && dbP?.accentColor) resolvedAccentColor = dbP.accentColor
     if (theme === 'professional' && dbP?.articleTheme) resolvedTheme = dbP.articleTheme
@@ -833,7 +835,7 @@ export async function POST(req: NextRequest) {
     html = injectMidImages(html, midResults, title || keyword)
 
     // Append author box at the very end
-    const authorHtml = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage)
+    const authorHtml = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage, resolvedAuthorCredentials, resolvedAuthorCardStyle)
     if (authorHtml) html = html + authorHtml
 
     // ครอบ wrapper มาตรฐาน + CSS ตามโหมดของ client (ทำหลังใส่รูป/author ให้สไตล์คลุมถึง)
@@ -961,7 +963,7 @@ export async function POST(req: NextRequest) {
       fullHtml = injectMidImages(fullHtml, midResults, title || keyword)
 
       // Append author box at the very end
-      const authorHtmlBlock = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage)
+      const authorHtmlBlock = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage, resolvedAuthorCredentials, resolvedAuthorCardStyle)
       if (authorHtmlBlock) fullHtml = fullHtml + authorHtmlBlock
 
       // ครอบ wrapper มาตรฐาน + CSS ตามโหมดของ client
