@@ -55,6 +55,23 @@ export function orTrace(action: string, client?: string): ORTrace {
   return { generation_name: traceName(action, client), environment: orEnvironment() }
 }
 
+/**
+ * ฟิลด์ป้ายกำกับที่ OpenRouter "เก็บจริง"
+ *
+ * ตรวจกับ API แล้ว (2026-09-03): ยิง trace + metadata + user + session_id พร้อมกัน
+ * แล้วอ่าน GET /api/v1/generation กลับมา — trace กับ metadata หายเกลี้ยง ไม่มีในเรคอร์ด
+ * เหลือแค่ user (โผล่เป็น external_user) และ session_id เท่านั้นที่ค้นย้อนหลังได้
+ * จึงต้องส่งชื่อ generation ลงช่อง user และเอา environment ไปไว้ที่ session_id
+ * ส่วน trace ยังส่งต่อไปตาม SOP เผื่อวันหนึ่ง OpenRouter รองรับ (ส่งเกินไม่เสียหาย)
+ */
+function labelFields(action: string, client?: string): Record<string, unknown> {
+  return {
+    trace: orTrace(action, client),
+    user: traceName(action, client),
+    session_id: orEnvironment(),
+  }
+}
+
 function requireKey(): string {
   const key = process.env.OPENROUTER_API_KEY
   if (!key) throw new Error('OPENROUTER_API_KEY is not set — ใส่ key ใน .env.development.local (local) และ Vercel env (prod)')
@@ -148,7 +165,7 @@ export async function orChat(params: {
     model: params.model || OR_MODELS.default(),
     messages,
     usage: { include: true },
-    trace: orTrace(params.trace, params.client),
+    ...labelFields(params.trace, params.client),
   }
   if (params.maxTokens) body.max_tokens = params.maxTokens
   if (typeof params.temperature === 'number') body.temperature = params.temperature
@@ -213,7 +230,7 @@ export async function orChatStream(params: {
     messages: params.messages,
     stream: true,
     usage: { include: true },
-    trace: orTrace(params.trace, params.client),
+    ...labelFields(params.trace, params.client),
   }
   if (params.maxTokens) body.max_tokens = params.maxTokens
   if (typeof params.temperature === 'number') body.temperature = params.temperature
@@ -308,7 +325,7 @@ export async function orImage(params: {
         model: params.model || OR_MODELS.image(),
         prompt: params.prompt,
         ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
-        trace: orTrace(params.trace, params.client),
+        ...labelFields(params.trace, params.client),
       }),
       signal: AbortSignal.timeout(params.timeoutMs ?? 300_000),
     })
