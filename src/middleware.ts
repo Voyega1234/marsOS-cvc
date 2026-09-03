@@ -13,7 +13,16 @@ export async function middleware(request: NextRequest) {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) return NextResponse.next();
 
-  let response = NextResponse.next({ request });
+
+  // ส่ง path + method ลงไปให้ฝั่ง server รู้ (getSession ใช้บังคับ allowlist ของ role CLIENT)
+  const withCtx = () => {
+    const headers = new Headers(request.headers);
+    headers.set("x-pathname", request.nextUrl.pathname);
+    headers.set("x-method", request.method);
+    return NextResponse.next({ request: { headers } });
+  };
+
+  let response = withCtx();
   const supabase = createServerClient(url, key, {
     cookies: {
       getAll() {
@@ -21,7 +30,7 @@ export async function middleware(request: NextRequest) {
       },
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({ request });
+        response = withCtx();
         cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
       },
     },

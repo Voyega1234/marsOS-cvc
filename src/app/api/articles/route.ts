@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/utils";
 
@@ -10,6 +11,10 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");
+  // CLIENT ต้องระบุ projectId และต้องเป็นโปรเจกต์ของตัวเองเท่านั้น
+  if (!(await clientCanAccessProject(session, projectId))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const where: Record<string, unknown> = { project: { organizationId: session.user.organizationId } };
   if (projectId) where.projectId = projectId;

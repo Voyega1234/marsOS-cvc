@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, getSessionRaw } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { MorningBrief, BriefAlert } from "@/lib/mock-data/morning-brief";
 import { getGSCAuth } from "@/lib/google-auth";
@@ -9,6 +9,9 @@ import { google } from "googleapis";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  // role CLIENT ไม่มีสิทธิ์ใน endpoint นี้ (route เดิมไม่ได้ปิดเคส session ว่าง)
+  if ((await getSessionRaw())?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const session = await getSession();
   const orgId = session!.user.organizationId ?? "";
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { clientCanAccessGa4 } from "@/lib/client-access";
 import { getGA4Auth, getGoogleAccessToken } from "@/lib/google-auth";
 
 export async function POST(req: NextRequest) {
@@ -7,6 +8,10 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { propertyId, days = 28, startDate, endDate } = await req.json();
+  // CLIENT ดูได้เฉพาะเว็บของโปรเจกต์ตัวเอง — กันดึงข้อมูลของลูกค้ารายอื่น
+  if (!(await clientCanAccessGa4(session, propertyId))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   if (!propertyId) return NextResponse.json({ error: "propertyId required" }, { status: 400 });
 
   try {

@@ -5,7 +5,7 @@
 export const maxDuration = 800 // Vercel Pro max — supports 3000 keyword runs
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSession } from '@/lib/auth'
+import { getSession, getSessionRaw } from '@/lib/auth'
 import { logAIJob, estimateGeminiCost } from '@/lib/logAIJob'
 import { logActivity } from '@/lib/logActivity'
 import { loadGoogleAdsConfig, getAccessToken, getKPVolumes, getKPKeywordIdeas } from '@/lib/googleKeywordPlannerService'
@@ -723,6 +723,9 @@ function intentBucketOf(intent: string): IntentBucket {
 // ── POST handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // role CLIENT ไม่มีสิทธิ์ใน endpoint นี้ (route เดิมไม่ได้ปิดเคส session ว่าง)
+  if ((await getSessionRaw())?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   resetTokenAccum()
   _kpKeywordCount = 0
   _dfsKeywordCount = 0

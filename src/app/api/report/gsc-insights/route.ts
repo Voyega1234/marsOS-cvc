@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { clientCanAccessSite } from "@/lib/client-access";
 import { getGSCAuth } from "@/lib/google-auth";
 import { google } from "googleapis";
 import type { GscInsightItem } from "@/lib/report/seo-insights";
@@ -20,6 +21,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { siteUrl, days = 28 } = await req.json();
+  // CLIENT ดูได้เฉพาะเว็บของโปรเจกต์ตัวเอง — กันดึงข้อมูลของลูกค้ารายอื่น
+  if (!(await clientCanAccessSite(session, siteUrl))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   if (!siteUrl) return NextResponse.json({ error: "siteUrl required" }, { status: 400 });
 
   try {

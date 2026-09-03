@@ -1,8 +1,10 @@
 import { cache } from "react";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import type { AppSession } from "@/lib/session-types";
 import type { Role } from "@/types";
+import { isClientApiAllowed } from "@/lib/client-access";
 
 export type { AppSession };
 
@@ -54,7 +56,7 @@ function toSession(user: {
   };
 }
 
-export const getSession = cache(async (): Promise<AppSession | null> => {
+export const getSessionRaw = cache(async (): Promise<AppSession | null> => {
   const supabase = createSupabaseServer();
 
   // ── โหมด local dev (ไม่มี env Supabase) — พฤติกรรมเดิมก่อนมี login ──
@@ -99,3 +101,31 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
 
   return null;
 });
+
+/**
+ * getSession — session ปกติ + ด่านของ role CLIENT
+ *
+ * CLIENT ถูกจำกัดให้ยิงได้เฉพาะ API ใน allowlist (src/lib/client-access.ts) เท่านั้น
+ * path นอกลิสต์จะได้ session = null → route เดิมตอบ 401 ตามตรรกะที่มีอยู่แล้ว
+ * (deny by default โดยไม่ต้องแก้ route ทั้ง 127 ไฟล์)
+ *
+ * role อื่นไม่ถูกแตะเลย — คืนค่าเท่ากับ getSessionRaw ทุกกรณี
+ * หน้าเว็บ (non-/api) ไม่กรองที่นี่ ใช้ด่านฝั่ง layout ของกลุ่ม (app) แทน
+ * เพื่อให้ redirect ได้สวย ๆ แทนที่จะ render หน้าเปล่า
+ */
+export async function getSession(): Promise<AppSession | null> {
+  const session = await getSessionRaw();
+  if (session?.user?.role !== "CLIENT") return session;
+
+  let pathname: string | null = null;
+  let method = "GET";
+  try {
+    const h = headers();
+    pathname = h.get("x-pathname");
+    method = h.get("x-method") ?? "GET";
+  } catch {
+    return session; // ไม่มี request context (build/prerender) — ไม่มีอะไรต้องกัน
+  }
+  if (!pathname || !pathname.startsWith("/api/")) return session;
+  return isClientApiAllowed(pathname, method) ? session : null;
+}

@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession, getSessionRaw } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  // role CLIENT ไม่มีสิทธิ์ใน endpoint นี้ (route เดิมไม่ได้ปิดเคส session ว่าง)
+  if ((await getSessionRaw())?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const session = await getSession();
   
 
@@ -26,6 +29,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  // role CLIENT ไม่มีสิทธิ์ใน endpoint นี้ (route เดิมไม่ได้ปิดเคส session ว่าง)
+  if ((await getSessionRaw())?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const session = await getSession();
   
 

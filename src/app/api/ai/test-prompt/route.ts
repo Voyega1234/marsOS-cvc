@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession, getSessionRaw } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
+  // role CLIENT ไม่มีสิทธิ์ใน endpoint นี้ (route เดิมไม่ได้ปิดเคส session ว่าง)
+  if ((await getSessionRaw())?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const session = await getSession();
   
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
 import { notifyArticleStatusChange } from "@/services/notify";
 import { logActivity } from "@/lib/logActivity";
@@ -14,6 +15,9 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     include: { project: true, keyword: true, assignedTo: true, reviewer: true, versions: true, reviews: true },
   });
   if (!article) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!(await clientCanAccessProject(session, article.projectId))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   return NextResponse.json(article);
 }
 

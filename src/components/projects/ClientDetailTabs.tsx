@@ -2130,7 +2130,7 @@ function ContentMapTab({
   keywords: KeywordRow[]
   selectedKws: Set<string>
   timeline: TimelineEntry[]
-  setTimeline: (t: TimelineEntry[]) => void
+  setTimeline: React.Dispatch<React.SetStateAction<TimelineEntry[]>>
   onClearTimeline: () => void
   onDone: () => void
   userRole?: string
@@ -2162,7 +2162,7 @@ function ContentMapTab({
     const { thaiDate, dayOfWeek, weekLabel } = describeTimelineDate(newDate, anchorDate)
     if (!thaiDate) return
 
-    setTimeline(timeline.map((e, i) => i === absIdx
+    setTimeline(prev => prev.map((e, i) => i === absIdx
       ? { ...e, date: newDate, thaiDate, dayOfWeek, weekLabel, isManualDateOverride: true }
       : e))
 
@@ -2975,9 +2975,9 @@ function ArticlesTab({
   /** false = ยังโหลดคิวจาก DB ไม่เสร็จ — แสดง loading แทน empty state กันเข้าใจผิดว่าไม่มีข้อมูล */
   timelineLoaded?: boolean
   timeline: TimelineEntry[]
-  setTimeline: (t: TimelineEntry[]) => void
+  setTimeline: React.Dispatch<React.SetStateAction<TimelineEntry[]>>
   jobs: ArticleJob[]
-  setJobs: (j: ArticleJob[]) => void
+  setJobs: React.Dispatch<React.SetStateAction<ArticleJob[]>>
   autoSchedule: boolean
   onAutoScheduleToggle: (enabled: boolean) => void
   writeArticleRef: React.MutableRefObject<((idx: number, adjustNote?: string) => void) | null>
@@ -3042,6 +3042,11 @@ function ArticlesTab({
         // Find timeline entries that match WRITING articles but aren't in local writing state
         const updated: ArticleJob[] = [...jobs]
         let changed = false
+        // เก็บ "สิ่งที่จะเปลี่ยน" แยกจาก snapshot แล้วค่อย apply แบบ updater ตอนท้าย
+        // ไม่งั้นผลของ fetch ที่ค้างอยู่จะทับ job ที่เพิ่งอัปเดตระหว่างรอ
+        const patchOps = new Map<number, Partial<ArticleJob>>()
+        const addOps: ArticleJob[] = []
+        const removeOps = new Set<number>()
         for (let idx = 0; idx < timeline.length; idx++) {
           const entry = timeline[idx]
           if (!writingTitles.includes(entry.title)) continue
@@ -3051,14 +3056,17 @@ function ArticlesTab({
             if (existing.status !== 'writing' && existing.status !== 'cover') {
               const i = updated.indexOf(existing)
               updated[i] = { ...existing, status: 'writing' }
+              patchOps.set(idx, { status: 'writing' })
               changed = true
             }
           } else {
-            updated.push({
+            const newJob: ArticleJob = {
               entryIdx: idx, date: entry.date, keyword: entry.keyword, title: entry.title,
               status: 'writing', html: '', coverImage: '', coverMimeType: 'image/webp',
               midImage: '', midMimeType: 'image/webp', error: '',
-            })
+            }
+            updated.push(newJob)
+            addOps.push(newJob)
             changed = true
           }
         }
@@ -3082,21 +3090,36 @@ function ArticlesTab({
               const i = updated.indexOf(job)
               if (dbStatus === 'ERROR') {
                 updated[i] = { ...job, status: 'error', error: 'การเขียนล้มเหลว (ดูรายละเอียดใน AI Jobs) — กดเขียนใหม่ได้เลย' }
+                patchOps.set(job.entryIdx, { status: 'error', error: 'การเขียนล้มเหลว (ดูรายละเอียดใน AI Jobs) — กดเขียนใหม่ได้เลย' })
                 changed = true
               } else if (dbStatus && dbStatus !== 'WRITING') {
                 // server เขียนเสร็จหลัง connection หลุด — บทความอยู่ใน DB แล้ว
                 updated[i] = { ...job, status: 'review', error: '' }
+                patchOps.set(job.entryIdx, { status: 'review', error: '' })
                 changed = true
               } else if (!dbStatus) {
                 // ไม่มีบทความใน DB เลย — job ผี ลบทิ้งให้กดเขียนใหม่ได้
                 updated.splice(i, 1)
+                removeOps.add(job.entryIdx)
                 changed = true
               }
             }
           }
         }
 
-        if (changed) setJobs(updated)
+        if (changed) setJobs(prev => {
+          const next = prev
+            .filter(j => !removeOps.has(j.entryIdx))
+            .map(j => {
+              const patch = patchOps.get(j.entryIdx)
+              if (!patch) return j
+              // job ที่เขียนจบไปแล้วระหว่างรอ fetch ห้ามถูกดันกลับเป็น 'writing'
+              if (patch.status === 'writing' && (j.status === 'review' || j.status === 'error')) return j
+              return { ...j, ...patch }
+            })
+          for (const nj of addOps) if (!next.some(j => j.entryIdx === nj.entryIdx)) next.push(nj)
+          return next
+        })
       } catch { /* non-fatal */ }
     }
     pollWritingStatus()
@@ -3120,13 +3143,17 @@ function ArticlesTab({
       if (Date.now() - lastActivity > 120_000) abort.abort()
     }, 15_000)
 
+    // ต้องอ่าน jobs ล่าสุดเสมอ (updater form) — การเขียนบทความกินเวลาหลายนาที
+    // ถ้าใช้ snapshot ตอนเริ่ม job ของบทความอื่นที่เขียนพร้อมกันจะถูกทับหาย
     const updateJob = (patch: Partial<ArticleJob>) => {
-      const rest = jobs.filter((j: ArticleJob) => j.entryIdx !== entryIdx)
-      const existing: ArticleJob = jobs.find((j: ArticleJob) => j.entryIdx === entryIdx) ?? {
-        entryIdx, date: entry.date, keyword: entry.keyword, title: entry.title,
-        status: 'writing' as const, html: '', coverImage: '', coverMimeType: 'image/webp', midImage: '', midMimeType: 'image/webp', error: '',
-      }
-      setJobs([...rest, { ...existing, ...patch }])
+      setJobs(prev => {
+        const rest = prev.filter((j: ArticleJob) => j.entryIdx !== entryIdx)
+        const existing: ArticleJob = prev.find((j: ArticleJob) => j.entryIdx === entryIdx) ?? {
+          entryIdx, date: entry.date, keyword: entry.keyword, title: entry.title,
+          status: 'writing' as const, html: '', coverImage: '', coverMimeType: 'image/webp', midImage: '', midMimeType: 'image/webp', error: '',
+        }
+        return [...rest, { ...existing, ...patch }]
+      })
     }
 
     updateJob({ status: 'writing', html: '', error: '' })
@@ -3209,9 +3236,9 @@ function ArticlesTab({
 
       updateJob({ status: 'review', html, coverImage, coverMimeType, midImage, midMimeType })
 
-      const updated = [...timeline]
-      updated[entryIdx] = { ...updated[entryIdx], articleStatus: 'review' }
-      setTimeline(updated)
+      // updater form — ระหว่างเขียน (หลายนาที) ผู้ใช้อาจ Approve บทความอื่นไปแล้ว
+      // ถ้าทับด้วย snapshot ตอนเริ่ม สถานะที่เพิ่งกดจะหาย แล้ว effect จะบันทึกของเก่าลง DB ตาม
+      setTimeline(prev => prev.map((e, i) => i === entryIdx ? { ...e, articleStatus: 'review' as const } : e))
 
       // Auto-open drawer
       setDrawerHtml(html)
@@ -3225,7 +3252,7 @@ function ArticlesTab({
       if (e instanceof DOMException && e.name === 'AbortError') {
         // Drop the aborted job so the entry reverts to 'pending' and can be
         // written again (a half-finished article isn't worth keeping).
-        setJobs(jobs.filter(j => j.entryIdx !== entryIdx))
+        setJobs(prev => prev.filter(j => j.entryIdx !== entryIdx))
       } else {
         updateJob({ status: 'error', error: e instanceof Error ? e.message : String(e) })
       }
@@ -3249,8 +3276,8 @@ function ArticlesTab({
     setStepLabels(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
     const job = jobs.find(j => j.entryIdx === entryIdx)
     if (job && (job.status === 'writing' || job.status === 'cover')) {
-      if (job.html) setJobs([...jobs.filter(j => j.entryIdx !== entryIdx), { ...job, status: 'review', error: '' }])
-      else setJobs(jobs.filter(j => j.entryIdx !== entryIdx))
+      if (job.html) setJobs(prev => [...prev.filter(j => j.entryIdx !== entryIdx), { ...job, status: 'review', error: '' }])
+      else setJobs(prev => prev.filter(j => j.entryIdx !== entryIdx))
     }
   }
 
@@ -3293,7 +3320,7 @@ function ArticlesTab({
     }
 
     async function changeAuthor(authorId: string) {
-      setTimeline(timeline.map((e, i) => i === idx ? { ...e, assignedAuthorId: authorId } : e))
+      setTimeline(prev => prev.map((e, i) => i === idx ? { ...e, assignedAuthorId: authorId } : e))
       // Persist to DB article if it exists
       try {
         const res = await fetch(`/api/articles/by-title?projectId=${encodeURIComponent(project.id)}&title=${encodeURIComponent(entry.title)}`)
@@ -3412,11 +3439,13 @@ function ArticlesTab({
                     if (res.ok) {
                       const data = await res.json()
                       if (data.htmlContent) {
-                        const existing: ArticleJob = jobs.find((jj: ArticleJob) => jj.entryIdx === idx) ?? {
-                          entryIdx: idx, date: entry.date, keyword: entry.keyword, title: entry.title,
-                          status: 'review' as const, html: '', coverImage: '', coverMimeType: 'image/webp', midImage: '', midMimeType: 'image/webp', error: '',
-                        }
-                        setJobs([...jobs.filter((jj: ArticleJob) => jj.entryIdx !== idx), { ...existing, html: data.htmlContent, status: 'review' as const, ...(data.slug && { slug: data.slug }), ...(data.id && { articleId: data.id }) }])
+                        setJobs(prev => {
+                          const existing: ArticleJob = prev.find((jj: ArticleJob) => jj.entryIdx === idx) ?? {
+                            entryIdx: idx, date: entry.date, keyword: entry.keyword, title: entry.title,
+                            status: 'review' as const, html: '', coverImage: '', coverMimeType: 'image/webp', midImage: '', midMimeType: 'image/webp', error: '',
+                          }
+                          return [...prev.filter((jj: ArticleJob) => jj.entryIdx !== idx), { ...existing, html: data.htmlContent, status: 'review' as const, ...(data.slug && { slug: data.slug }), ...(data.id && { articleId: data.id }) }]
+                        })
                         setDrawerHtml(data.htmlContent)
                         setDrawerViewMode('preview')
                         setDrawerIdx(idx)
@@ -3509,7 +3538,7 @@ function ArticlesTab({
     const entry = timeline[idx]
     const html = drawerEditorRef.current?.innerHTML ?? drawerHtml
     setDrawerHtml(html)
-    setJobs(jobs.map(j => (j.entryIdx === idx ? { ...j, html } : j)))
+    setJobs(prev => prev.map(j => (j.entryIdx === idx ? { ...j, html } : j)))
 
     setSavingDrawer(true)
     try {
@@ -3529,7 +3558,7 @@ function ArticlesTab({
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const savedId = articleId
-      setJobs(jobs.map(j => (j.entryIdx === idx ? { ...j, html, articleId: savedId } : j)))
+      setJobs(prev => prev.map(j => (j.entryIdx === idx ? { ...j, html, articleId: savedId } : j)))
       toast.success('บันทึกบทความลงฐานข้อมูลแล้ว')
     } catch (e) {
       toast.error(`บันทึกไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
@@ -3998,8 +4027,11 @@ function ArticlesTab({
                         }).join('\n').replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`)
                         setDrawerHtml(html)
                         if (drawerIdx !== null) {
-                          const existing = jobs.find(j => j.entryIdx === drawerIdx)
-                          if (existing) setJobs([...jobs.filter(j => j.entryIdx !== drawerIdx), { ...existing, html }])
+                          setJobs(prev => {
+                            const existing = prev.find(j => j.entryIdx === drawerIdx)
+                            if (!existing) return prev
+                            return [...prev.filter(j => j.entryIdx !== drawerIdx), { ...existing, html }]
+                          })
                         }
                         setDrawerViewMode('preview')
                       }}
@@ -4177,13 +4209,15 @@ function GoogleSerpPreview({ device, siteHost, siteName, slug, title, descriptio
 
 interface ReviewComment { id: string; body: string; createdAt: string; user: { name: string | null; role: string } }
 
-function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewrite }: {
+function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewrite, isClient = false }: {
   project: ProjectData
   timeline: TimelineEntry[]
-  setTimeline: (t: TimelineEntry[]) => void
+  setTimeline: React.Dispatch<React.SetStateAction<TimelineEntry[]>>
   jobs: ArticleJob[]
   setJobs: React.Dispatch<React.SetStateAction<ArticleJob[]>>
   onAdjustRewrite: (entryIdx: number, note: string) => void
+  /** โหมดลูกค้า: ดู + คอมเมนต์ + Approve เท่านั้น เครื่องมือของทีมถูกซ่อนทั้งหมด */
+  isClient?: boolean
 }) {
   const [expanded, setExpanded] = useState<number | null>(null)
   const [loadingHtml, setLoadingHtml] = useState<number | null>(null)
@@ -4195,6 +4229,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
   const [commentDraft, setCommentDraft] = useState<Record<number, string>>({})
   const [savingComment, setSavingComment] = useState<Record<number, boolean>>({})
   const [rewriting, setRewriting] = useState<Record<number, boolean>>({})
+  const [approving, setApproving] = useState<Record<number, boolean>>({})
   // โหมดดูบทความ: preview = หน้าตาจริง / text = อ่านเป็นตัวหนังสือ / edit = ลูกค้าแก้ข้อความตรงบนบทความ
   const [viewMode, setViewMode] = useState<'preview' | 'text' | 'edit'>('preview')
   const [editSaving, setEditSaving] = useState(false)
@@ -4335,7 +4370,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
       }
       setSeoDraft(prev => ({ ...prev, [entryIdx]: { seoTitle, metaDescription, slug: cleanSlug } }))
       // override ที่ Push ใช้ก่อนทุกแหล่ง (timeline auto-save ลง DB ให้เอง)
-      setTimeline(timeline.map((e, i) => i === entryIdx ? {
+      setTimeline(prev => prev.map((e, i) => i === entryIdx ? {
         ...e,
         ...(cleanSlug ? { slug: cleanSlug } : {}),
         reviewSeoTitle: seoTitle,
@@ -4422,29 +4457,75 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
       .trim()
   }
 
+  /**
+   * Approve = ต้องลง DB สำเร็จก่อนถึงจะเปลี่ยนสถานะบนหน้าจอ
+   * เดิมอัปเดตหน้าจอทันทีแล้ว catch เงียบ ๆ ผู้ใช้จึงเห็น "Approved" ทั้งที่ DB ยังเป็น REVIEW
+   * และพอโหลดใหม่ก็กลับไปเป็นรอ Review เหมือนเดิม
+   */
   async function approve(entryIdx: number) {
+    if (approving[entryIdx]) return
     const entry = timeline[entryIdx]
-    // Optimistically update the local timeline so the UI reacts immediately…
-    const updated = [...timeline]
-    updated[entryIdx] = { ...updated[entryIdx], articleStatus: 'approved' }
-    setTimeline(updated)
-
-    // …but the source of truth for cross-tab handoff (Push/Published) is the DB.
-    // Persist status=APPROVED so the Push tab can pick it up on a fresh load.
+    setApproving(prev => ({ ...prev, [entryIdx]: true }))
     try {
       let artId = articleIds[entryIdx]
       if (!artId && entry) {
         const data = await fetchArticle(entryIdx, entry)
         if (data?.id) { artId = data.id; setArticleIds(prev => ({ ...prev, [entryIdx]: data.id })) }
       }
-      if (artId) {
-        await fetch(`/api/articles/${artId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'APPROVED' }),
-        })
+      if (!artId) {
+        toast.error('ไม่พบบทความนี้ใน DB — Approve ไม่สำเร็จ (ต้องเขียนบทความให้เสร็จก่อน)')
+        return
       }
-    } catch { /* non-fatal — timeline already reflects approval locally */ }
+      const res = isClient
+        ? await fetch(`/api/articles/${artId}/client-review`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'approve', comment: (commentDraft[entryIdx] ?? '').trim() || undefined }),
+          })
+        : await fetch(`/api/articles/${artId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'APPROVED' }),
+          })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (isClient) setCommentDraft(prev => ({ ...prev, [entryIdx]: '' }))
+      // timeline เป็น updater form — ไม่ทับสถานะบทความอื่นที่เปลี่ยนระหว่างรอ PATCH
+      setTimeline(prev => prev.map((e, i) => i === entryIdx ? { ...e, articleStatus: 'approved' as const } : e))
+      toast.success('Approve แล้ว — บันทึกลงฐานข้อมูลเรียบร้อย')
+    } catch (e) {
+      toast.error(`Approve ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)} — สถานะยังเป็นรอ Review`)
+    } finally {
+      setApproving(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
+    }
+  }
+
+  /** ลูกค้าขอแก้ไข: บันทึก comment + ตั้งสถานะ CLIENT_REVISION ให้ทีมเห็นว่าต้องแก้ */
+  async function requestRevision(entryIdx: number, entry: TimelineEntry) {
+    const body = (commentDraft[entryIdx] ?? '').trim()
+    if (!body || savingComment[entryIdx]) return
+    setSavingComment(prev => ({ ...prev, [entryIdx]: true }))
+    try {
+      let artId = articleIds[entryIdx]
+      if (!artId) {
+        const data = await fetchArticle(entryIdx, entry)
+        if (data?.id) { artId = data.id; setArticleIds(prev => ({ ...prev, [entryIdx]: data.id })) }
+      }
+      if (!artId) { toast.error('ไม่พบบทความนี้ใน DB — ส่งคำขอแก้ไขไม่สำเร็จ'); return }
+      const res = await fetch(`/api/articles/${artId}/client-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'revision', comment: body }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const fresh = await fetchArticle(entryIdx, entry)
+      if (fresh?.comments) setComments(prev => ({ ...prev, [entryIdx]: fresh.comments }))
+      setCommentDraft(prev => ({ ...prev, [entryIdx]: '' }))
+      toast.success('ส่งคำขอแก้ไขให้ทีมงานแล้ว')
+    } catch (e) {
+      toast.error(`ส่งคำขอแก้ไขไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setSavingComment(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
+    }
   }
 
   async function saveComment(entryIdx: number, entry: TimelineEntry) {
@@ -4568,9 +4649,9 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                 </button>
                 {/* Approve button */}
                 {!isApproved && (
-                  <button onClick={() => approve(entryIdx)}
-                    className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors">
-                    <CheckCircle2 size={12} /> Approve
+                  <button onClick={() => approve(entryIdx)} disabled={!!approving[entryIdx]}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-60">
+                    <CheckCircle2 size={12} /> {approving[entryIdx] ? 'กำลังบันทึก…' : 'Approve'}
                   </button>
                 )}
               </div>
@@ -4578,13 +4659,14 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
 
             {/* Expanded panel */}
             {expanded === entryIdx && (
-              <div className="border-t border-gray-200 p-5 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
+              <div className={`border-t border-gray-200 p-5 grid grid-cols-1 gap-5 items-start ${isClient ? '' : 'xl:grid-cols-[minmax(0,1fr)_400px]'}`}>
                 <div className="space-y-5 min-w-0">
 
                 {/* ภาพปกบทความ — เปลี่ยนได้ตรงนี้ เห็นผลทันทีก่อน Approve */}
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                     <div className="text-xs font-semibold text-gray-500">🖼 ภาพปกบทความ</div>
+                    {!isClient && (
                     <button
                       disabled={coverBusy === entryIdx}
                       onClick={() => regenerateCover(entryIdx, entry)}
@@ -4593,6 +4675,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                         ? <><RefreshCw size={11} className="animate-spin" /> กำลังสร้างภาพใหม่...</>
                         : <><ImageIcon size={11} /> เปลี่ยนภาพปก</>}
                     </button>
+                    )}
                   </div>
                   {(job?.coverImage || coverUrl[entryIdx]) ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -4618,7 +4701,10 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                     <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                       <div className="text-xs font-semibold text-gray-500">📄 บทความ</div>
                       <div className="flex items-center gap-1.5">
-                        {([['preview', '👁 Preview'], ['text', '📃 Text'], ['edit', '✏️ แก้ไข']] as const).map(([m, label]) => (
+                        {(isClient
+                          ? ([['preview', '👁 Preview'], ['text', '📃 Text']] as const)
+                          : ([['preview', '👁 Preview'], ['text', '📃 Text'], ['edit', '✏️ แก้ไข']] as const)
+                        ).map(([m, label]) => (
                           <button key={m} onClick={() => setViewMode(m)}
                             className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${
                               viewMode === m ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
@@ -4683,18 +4769,30 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                       <textarea
                         value={commentDraft[entryIdx] ?? ''}
                         onChange={e => setCommentDraft(prev => ({ ...prev, [entryIdx]: e.target.value }))}
-                        placeholder="ระบุสิ่งที่ต้องแก้ไข... comment จะถูกบันทึกไว้ในบทความและใช้เป็น instruction ในการ regenerate"
+                        placeholder={isClient
+                          ? 'อยากให้แก้ตรงไหน พิมพ์บอกทีมงานได้เลย แล้วกด "ขอแก้ไข"'
+                          : 'ระบุสิ่งที่ต้องแก้ไข... comment จะถูกบันทึกไว้ในบทความและใช้เป็น instruction ในการ regenerate'}
                         rows={3}
                         className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none"
                       />
                     </div>
                     <div className="flex gap-2 flex-wrap">
                       {/* Approve */}
-                      <button onClick={() => approve(entryIdx)}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors">
-                        <CheckCircle2 size={12} /> Approve
+                      <button onClick={() => approve(entryIdx)} disabled={!!approving[entryIdx]}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-60">
+                        <CheckCircle2 size={12} /> {approving[entryIdx] ? 'กำลังบันทึก…' : 'Approve'}
                       </button>
                       {/* Save comment only */}
+                      {isClient ? (
+                      <button
+                        disabled={!(commentDraft[entryIdx] ?? '').trim() || savingComment[entryIdx]}
+                        onClick={() => requestRevision(entryIdx, entry)}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 transition-colors disabled:opacity-40">
+                        {savingComment[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
+                        ขอแก้ไข
+                      </button>
+                      ) : (
+                      <>
                       <button
                         disabled={!(commentDraft[entryIdx] ?? '').trim() || savingComment[entryIdx]}
                         onClick={() => saveComment(entryIdx, entry)}
@@ -4710,13 +4808,16 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                         {rewriting[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
                         🔄 เขียนใหม่ตาม Comment{entryComments.length > 0 ? ` (${entryComments.length + (commentDraft[entryIdx]?.trim() ? 1 : 0)} รอบ)` : ''}
                       </button>
+                      </>
+                      )}
                     </div>
                   </div>
                 )}
                 </div>
 
-                {/* ── Search appearance (Yoast style) — meta ที่ใช้ตอน Push จริง ── */}
-                {(() => {
+                {/* ── Search appearance (Yoast style) — meta ที่ใช้ตอน Push จริง ──
+                    เครื่องมือของทีมงาน ลูกค้าไม่เห็นและแก้ไม่ได้ ── */}
+                {!isClient && (() => {
                   const draft = seoDraft[entryIdx] ?? { seoTitle: entry.title ?? '', metaDescription: '', slug: entry.slug ?? '' }
                   const setDraft = (patch: Partial<typeof draft>) =>
                     setSeoDraft(prev => ({ ...prev, [entryIdx]: { ...draft, ...patch } }))
@@ -6725,12 +6826,18 @@ function PushTab({
         : p
       ))
       // Save wordpressUrl back to DB so Publish tab can show it persistently
+      // ถ้าขั้นนี้ล้ม แท็บ Publish จะไม่ขึ้นรายการทั้งที่ขึ้นเว็บไปแล้ว — ต้องแจ้ง ไม่ใช่กลืนเงียบ
       if (data.postUrl && title) {
-        fetch('/api/articles/by-title', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: project.id, title, wordpressUrl: data.postUrl, status: publishMode === 'publish' ? 'POSTED' : 'WORDPRESS_DRAFTED' }),
-        }).catch(() => {})
+        try {
+          const wb = await fetch('/api/articles/by-title', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId: project.id, title, wordpressUrl: data.postUrl, status: publishMode === 'publish' ? 'POSTED' : 'WORDPRESS_DRAFTED' }),
+          })
+          if (!wb.ok) throw new Error(`HTTP ${wb.status}`)
+        } catch (e) {
+          toast.error(`ขึ้นเว็บสำเร็จ แต่บันทึกสถานะลงฐานข้อมูลไม่สำเร็จ (${e instanceof Error ? e.message : String(e)}) — แท็บ Publish จะยังไม่ขึ้นรายการนี้`)
+        }
       }
     } catch (e) {
       setPushJobs(prev => prev.map(p => p.entryIdx === jobEntryIdx ? { ...p, status: 'error', error: String(e) } : p))
@@ -7186,12 +7293,21 @@ const SIDEBAR_GROUPS: { label?: string; items: { id: Tab | 'studio'; label: stri
 // เนื้อหาที่กว้างเต็มจอ (ที่เหลือใช้ px-8 max-w-5xl)
 const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'competitor-gap', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'publish', 'articles', 'content-map', 'proj-ce', 'review', 'report']
 
-const CLIENT_TABS: Tab[] = ['review', 'publish', 'report']
+const CLIENT_TABS: Tab[] = ['timeline-view', 'review', 'publish', 'report']
+
+// เมนูฝั่งลูกค้า (role CLIENT) — เห็นได้แค่ 4 อย่างนี้เท่านั้น ตามคำสั่งเจ้าของ
+// ฝั่งเซิร์ฟเวอร์บังคับซ้ำอีกชั้นที่ src/lib/client-access.ts (หน้าเว็บ + API)
+const CLIENT_NAV: { id: Tab; label: string; hint: string }[] = [
+  { id: 'timeline-view', label: 'Project Timeline', hint: 'แผนงานทั้งหมด' },
+  { id: 'review',        label: 'Review',           hint: 'บทความรออนุมัติ' },
+  { id: 'publish',       label: 'Publish',          hint: 'บทความที่ขึ้นเว็บแล้ว' },
+  { id: 'report',        label: 'Report',           hint: 'ผลการทำ SEO' },
+]
 
 export default function ClientDetailTabs({ project: initialProject, userRole = 'MEMBER' }: { project: ProjectData; userRole?: string }) {
   const isClient = userRole === 'CLIENT'
   const storageKey = `mars-project-${initialProject.id}`
-  const [tab, setTab] = useState<Tab>(isClient ? 'review' : 'overview')
+  const [tab, setTab] = useState<Tab>(isClient ? 'timeline-view' : 'overview')
   const [keywords, setKeywords] = useState<KeywordRow[]>([])
   const [selectedKws, setSelectedKws] = useState<Set<string>>(new Set())
   const kwPriorityScorerRef = useRef<((kw: KeywordRow) => number) | undefined>(undefined)
@@ -7336,6 +7452,8 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       .finally(() => setTimelineLoaded(true))
 
     // Load keywordRows from dedicated endpoint (DB is source of truth)
+    // ลูกค้าไม่มีสิทธิ์ในคลัง keyword — ข้ามไปเลย ไม่ต้องยิงให้โดน 401
+    if (isClient) return
     fetch(`/api/projects/${initialProject.id}/keywords-cache`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
@@ -7350,6 +7468,8 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
   // Save timeline to DB whenever it changes
   useEffect(() => {
     if (!timeline.length) return
+    // มุมมองลูกค้าเป็น read-only — ห้ามเขียน timeline ทับของทีม
+    if (isClient) return
     fetch(`/api/scheduler`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -7360,7 +7480,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
 
   // Save keywordRows to DB (debounced 1.5s to avoid hammering on every keystroke)
   useEffect(() => {
-    if (!keywords.length) return
+    if (!keywords.length || isClient) return
     const t = setTimeout(() => {
       fetch(`/api/projects/${initialProject.id}/keywords-cache`, {
         method: 'PATCH',
@@ -7428,6 +7548,8 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
 
   useEffect(() => {
     if (schedulerRef.current) clearInterval(schedulerRef.current)
+    // ลูกค้าต้องไม่สั่งเขียนบทความ (ทั้งเปลืองเงินและไม่ใช่หน้าที่) — ไม่ต้องเดินตัวจับเวลา
+    if (isClient) return
     schedulerRef.current = setInterval(async () => {
       if (!autoScheduleRef.current) return
       if (stopRef.current) return
@@ -7495,11 +7617,13 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-8 pt-6 pb-0">
-        <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
-          <Link href="/projects" className="hover:text-gray-600">Clients</Link>
-          <ChevronRight size={12} />
-          <span className="text-gray-700 font-medium">{project.clientName ?? project.name}</span>
-        </div>
+        {!isClient && (
+          <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
+            <Link href="/projects" className="hover:text-gray-600">Clients</Link>
+            <ChevronRight size={12} />
+            <span className="text-gray-700 font-medium">{project.clientName ?? project.name}</span>
+          </div>
+        )}
         {!isClient && (
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
@@ -7522,20 +7646,38 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
         )}
 
         {isClient ? (
-          // CLIENT เห็นเฉพาะ Review / Publish / Report แถวเดียวแบบเดิม
-          <nav className="flex gap-0 -mb-px">
-            {STUDIO_TABS.filter(t => CLIENT_TABS.includes(t.id)).map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={`relative px-5 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  tab === t.id ? 'border-brand-blue text-brand-blue' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}>
-                {t.label}
-                {t.id === 'review' && reviewCount > 0 && (
-                  <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{reviewCount}</span>
-                )}
-              </button>
-            ))}
-          </nav>
+          // ── มุมมองลูกค้า: หัวโปรเจกต์ + เมนู 4 อย่าง จบในหน้าเดียว ────────────
+          <>
+            <div className="pb-4">
+              <h1 className="text-2xl font-bold text-brand-navy">{project.clientName ?? project.name}</h1>
+              <p className="text-sm text-gray-500 mt-1">
+                {project.website}
+                {project.industry ? <span className="text-gray-300"> · </span> : null}
+                {project.industry}
+              </p>
+            </div>
+            <nav className="flex gap-1.5 -mb-px overflow-x-auto pb-0">
+              {CLIENT_NAV.map(t => {
+                const active = tab === t.id
+                return (
+                  <button key={t.id} onClick={() => setTab(t.id)}
+                    className={`group relative text-left px-4 py-2.5 rounded-t-xl border border-b-0 transition-colors whitespace-nowrap ${
+                      active
+                        ? 'bg-white border-gray-200 text-brand-blue shadow-[0_-1px_0_0_rgba(0,0,0,0.02)]'
+                        : 'bg-gray-50 border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    }`}>
+                    <span className="flex items-center gap-1.5 text-sm font-semibold">
+                      {t.label}
+                      {t.id === 'review' && reviewCount > 0 && (
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{reviewCount}</span>
+                      )}
+                    </span>
+                    <span className={`block text-[11px] mt-0.5 ${active ? 'text-gray-400' : 'text-gray-400/80'}`}>{t.hint}</span>
+                  </button>
+                )
+              })}
+            </nav>
+          </>
         ) : (
           <>
             {/* Content Studio subtabs — ย้ายขึ้นมาไว้บนสุด (เมนูหลักลงไปอยู่ sidebar ซ้ายแล้ว) */}
@@ -7727,6 +7869,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             setTimeline={setTimeline}
             jobs={jobs}
             setJobs={setJobs}
+            isClient={isClient}
             onAdjustRewrite={(entryIdx, note) => writeArticleRef.current?.(entryIdx, note)}
           />
         )}

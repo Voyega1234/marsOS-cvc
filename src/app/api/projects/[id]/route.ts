@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession();
+  // CLIENT อ่านได้เฉพาะโปรเจกต์ที่ถูก assign เท่านั้น (role อื่นไม่เปลี่ยน)
+  if (!(await clientCanAccessProject(session, params.id))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   
 
   const project = await prisma.project.findFirst({

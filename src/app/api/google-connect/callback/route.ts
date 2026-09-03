@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import { getSession, getSessionRaw } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getGoogleOauthClient } from "@/lib/googleOauthConfig";
 
 // รับ code จาก Google → แลก token → เก็บ refresh_token ผูกกับอีเมลที่เชื่อม
 // ใช้สำหรับดึงข้อมูล GSC/GA4 หน้า Report เท่านั้น (ไม่ใช่ login)
 export async function GET(req: NextRequest) {
+  // role CLIENT ไม่มีสิทธิ์ใน endpoint นี้ (route เดิมไม่ได้ปิดเคส session ว่าง)
+  if ((await getSessionRaw())?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const session = await getSession();
   if (!session?.user || session.user.role !== "ADMIN") {
     return NextResponse.redirect(new URL("/morning-brief?gconn=forbidden", req.nextUrl.origin));

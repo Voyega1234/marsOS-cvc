@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSessionRaw } from '@/lib/auth'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -29,6 +30,10 @@ function readSiteReportsForDate(date: string) {
 }
 
 export async function GET(req: NextRequest) {
+  // route นี้ไม่มีด่าน auth เดิม — กัน role CLIENT ไว้ตรง ๆ (role อื่นไม่เปลี่ยนพฤติกรรม)
+  const session = await getSessionRaw()
+  if (session?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const { searchParams } = new URL(req.url)
   const requestedDate = searchParams.get('date')
 

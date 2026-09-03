@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionRaw } from '@/lib/auth'
 
 interface ScrapedStyle {
   colors: {
@@ -126,6 +127,10 @@ function extractSpacing(css: string): { paragraphMargin: string | null; sectionP
 }
 
 export async function POST(req: NextRequest) {
+  // route นี้ไม่มีด่าน auth เดิม — กัน role CLIENT ไว้ตรง ๆ (role อื่นไม่เปลี่ยนพฤติกรรม)
+  const session = await getSessionRaw()
+  if (session?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   try {
     const { url } = await req.json();
     if (!url || typeof url !== "string") {

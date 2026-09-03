@@ -9,6 +9,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
+import { clientCanAccessProject } from '@/lib/client-access'
 import { prisma } from '@/lib/prisma'
 import { logActivity } from '@/lib/logActivity'
 
@@ -26,6 +27,9 @@ export async function GET(req: NextRequest) {
 
   const projectId = req.nextUrl.searchParams.get('projectId')
   if (!projectId) return NextResponse.json({ error: 'projectId required' }, { status: 400 })
+  if (!(await clientCanAccessProject(session, projectId))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const project = await prisma.project.findFirst({
     where: { id: projectId, organizationId: session.user.organizationId },

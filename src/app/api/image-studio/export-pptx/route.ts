@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSessionRaw } from '@/lib/auth'
 import PptxGenJS from 'pptxgenjs'
 
 export async function POST(req: NextRequest) {
+  // route นี้ไม่มีด่าน auth เดิม — กัน role CLIENT ไว้ตรง ๆ (role อื่นไม่เปลี่ยนพฤติกรรม)
+  const session = await getSessionRaw()
+  if (session?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const body = await req.json()
   const { imageBase64, mimeType, title, keyword, type, accentColor, siteName, w, h } = body
 

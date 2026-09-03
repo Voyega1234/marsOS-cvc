@@ -3,6 +3,7 @@
  * POST { keywords: KeywordRow[], days: number, startDate?: string }
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { getSessionRaw } from '@/lib/auth'
 
 const THAI_HOLIDAYS: Record<string, string> = {
   '01-01': 'วันขึ้นปีใหม่', '04-06': 'วันจักรี',
@@ -62,6 +63,10 @@ function seoScore(k: any) {
 }
 
 export async function POST(req: NextRequest) {
+  // route นี้ไม่มีด่าน auth เดิม — กัน role CLIENT ไว้ตรง ๆ (role อื่นไม่เปลี่ยนพฤติกรรม)
+  const session = await getSessionRaw()
+  if (session?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   const { keywords, days, startDate: rawStart } = await req.json()
   if (!keywords?.length || !days) return NextResponse.json({ error: 'keywords[] and days required' }, { status: 400 })
 

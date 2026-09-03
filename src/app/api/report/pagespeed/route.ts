@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { clientCanAccessSite } from "@/lib/client-access";
 
 const PSI_ENDPOINT = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed";
 
@@ -69,6 +70,10 @@ export async function POST(req: NextRequest) {
 
   const { url } = await req.json();
   if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
+  // CLIENT ดูได้เฉพาะเว็บของโปรเจกต์ตัวเอง — กันดึงข้อมูลของลูกค้ารายอื่น
+  if (!(await clientCanAccessSite(session, url))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
     const [mobile, desktop] = await Promise.all([
