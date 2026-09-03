@@ -11,7 +11,7 @@
 //   - SCOPE=studio (ค่าเริ่มต้น) แตะเฉพาะ Studio (projectId=null) → ลูกค้าใหม่ได้ตาม
 //     SCOPE=all  แตะ Studio + ทุกโปรเจกต์ที่มีอยู่
 //   - ONLY_UNEDITED=1 (ค่าเริ่มต้น) แตะเฉพาะแถวที่ยังเป็นบรีฟ default ชุดเก่าเป๊ะๆ
-//     (IMAGE_DEFAULT_LEGACY) = "ไม่มีใครแก้" — แถวที่ทีมแก้เองไว้จะไม่ถูกทับ
+//     (KNOWN_DEFAULTS) = "ไม่มีใครแก้" — แถวที่ทีมแก้เองไว้จะไม่ถูกทับ
 //     ONLY_UNEDITED=0 ทับทุกแถวรวมถึงที่แก้เองแล้ว (อันตราย ต้องสั่งเอง)
 //   - อัปเดตแค่ฟิลด์ promptText ของแถวเดิม (id เดิม) ไม่แตะ layer อื่นเลย
 //
@@ -23,7 +23,10 @@
 
 import { PrismaClient } from '@prisma/client'
 import { writeFileSync } from 'fs'
-import { IMAGE_DEFAULT, IMAGE_DEFAULT_LEGACY } from './_image-default-brief'
+import { IMAGE_DEFAULT, IMAGE_DEFAULT_LEGACY, IMAGE_DEFAULT_POSTER } from './_image-default-brief'
+
+// ข้อความที่ถือว่า "เป็นค่า default ที่ระบบเคยเขียนไว้" (ไม่ใช่ของที่ทีมแก้เอง)
+const KNOWN_DEFAULTS = [IMAGE_DEFAULT_LEGACY, IMAGE_DEFAULT_POSTER]
 
 const prisma = new PrismaClient()
 
@@ -48,14 +51,14 @@ async function main() {
     const scope = r.projectId ? `project:${r.projectId}` : 'STUDIO'
     const already =
       r.promptText === IMAGE_DEFAULT ? ' [ตรงกับบรีฟใหม่แล้ว]'
-      : r.promptText === IMAGE_DEFAULT_LEGACY ? ' [ยังเป็น default เก่า — จะอัปเดต]'
+      : KNOWN_DEFAULTS.includes(r.promptText) ? ' [ยังเป็น default เก่า — จะอัปเดต]'
       : ' [แก้เอง — ข้าม]'
     console.log(`  - ${scope}  "${r.name}"  (${r.promptText.length} chars)${already}`)
   }
 
   const toChange = rows.filter(r =>
     r.promptText !== IMAGE_DEFAULT &&
-    (!ONLY_UNEDITED || r.promptText === IMAGE_DEFAULT_LEGACY)
+    (!ONLY_UNEDITED || KNOWN_DEFAULTS.includes(r.promptText))
   )
   console.log(`\nต้องแก้ ${toChange.length} แถว`)
 
