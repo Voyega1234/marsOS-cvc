@@ -41,6 +41,7 @@ Never translate the brief itself, never explain your choices, never offer multip
 /** เรียก Claude แปลงบรีฟ (CE) เป็น prompt ภาษาอังกฤษ — ล้มเหลว = โยน error ไม่มี fallback */
 async function compileImagePrompt(brief: string): Promise<string> {
   const result = await orChat({
+    trace: 'image_prompt_compile',
     model: OR_MODELS.default(),
     maxTokens: 1500,
     messages: [
@@ -216,7 +217,7 @@ export async function callGeminiImage(params: {
 
   // เลือกสัดส่วนที่โมเดลรองรับให้ใกล้เป้าหมายที่สุด — crop ปลายทางจะเหลือน้อยลงมาก
   const aspectRatio = isSquare ? '1:1' as const : (width > height ? '3:2' as const : '2:3' as const)
-  const result = await orImage({ prompt, aspectRatio })
+  const result = await orImage({ trace: type === 'cover' ? 'image_cover' : 'image_inline', prompt, aspectRatio })
 
   const promptTokens = result.usage.inputTokens
   const totalTokens = result.usage.totalTokens

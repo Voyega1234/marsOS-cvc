@@ -787,6 +787,7 @@ export async function POST(req: NextRequest) {
 
   if (!doStream) {
     const msg = await orChat({
+      trace: 'article_write',
       model, maxTokens: 20000, timeoutMs: 600_000,
       messages: [{ role: 'user', content: articlePrompt }],
     })
@@ -891,6 +892,7 @@ export async function POST(req: NextRequest) {
       send({ type: 'status', step: 'writing', message: `📚 Content Engine (${ce.scope === 'studio' ? 'ของ Studio' : 'ของโปรเจกต์นี้'}): ${ceInfo}` })
       send({ type: 'status', step: 'writing', message: `✍️ ${model} กำลังเขียนบทความ...` })
       const streamed = await orChatStream({
+        trace: 'article_write_stream',
         model, maxTokens: 20000,
         messages: [{ role: 'user', content: articlePrompt }],
         onDelta: (text) => { fullHtml += text; send({ type: 'chunk', content: text }) },

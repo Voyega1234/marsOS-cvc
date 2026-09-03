@@ -139,6 +139,7 @@ export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJo
   try {
     // 5. Call AI provider (mock or real)
     const aiResult = await callAIProvider({
+      trace:       `ai_job_${jobType}`,
       provider:    prompt.modelProvider as "CLAUDE" | "OPENAI" | "GEMINI" | "CUSTOM",
       model:       prompt.modelName,
       prompt:      compiled,

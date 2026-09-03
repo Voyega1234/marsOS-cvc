@@ -71,6 +71,7 @@ ${OUTPUT_CONTRACT}`
     // 2000 ไม่พอแล้วหลังต่อ Content Engine เข้ามา (suggestion ภาษาไทยกินโทเคนเยอะ)
     // ตอบไม่จบ → JSON ขาดกลาง → parse ไม่ผ่าน
     const message = await orChat({
+      trace: 'article_review',
       model,
       maxTokens: 8000,
       messages: [{ role: 'user', content: prompt }],

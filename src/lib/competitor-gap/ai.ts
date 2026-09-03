@@ -61,6 +61,8 @@ function isTransport(msg: string): boolean {
 }
 
 export async function askJson<T>(params: {
+  /** SOP §3: ชื่อฟังก์ชันที่เรียก (บังคับ) — ส่งต่อเป็น generation_name ของ OpenRouter */
+  trace: string
   system: string
   user: string
   maxTokens?: number
@@ -69,6 +71,7 @@ export async function askJson<T>(params: {
 }): Promise<AICall<T>> {
   try {
     const res = await orChatWithRetry({
+      trace: params.trace,
       messages: [
         { role: 'system', content: params.system },
         { role: 'user', content: params.user },

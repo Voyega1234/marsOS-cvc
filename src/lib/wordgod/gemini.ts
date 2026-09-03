@@ -93,9 +93,12 @@ export interface GroundedResult {
   grounding: GroundingMetadata;
 }
 
-async function generateOpenRouterText(prompt: string, useWebSearch = false, _options: GeminiCallOptions = {}, jsonMode = false) {
+async function generateOpenRouterText(prompt: string, useWebSearch = false, options: GeminiCallOptions = {}, jsonMode = false, stage = '') {
+  // SOP §3: ป้ายชื่อฟังก์ชันมาจาก functionLabel ที่ผู้เรียกส่งมา (มีอยู่แล้วเดิม)
+  const label = (options.functionLabel || '').trim() || 'wordgod_call'
   try {
     const result = await orChat({
+      trace: stage ? `${label}_${stage}` : label,
       prompt,
       model: OR_MODELS.default(),
       webSearch: useWebSearch,
@@ -140,7 +143,7 @@ export async function callGeminiWithGrounding(prompt: string, returnGrounding?: 
 
   const { researchPrompt, jsonSchema } = splitResearchPrompt(prompt);
 
-  const researchResult = await withRetry(() => generateOpenRouterText(researchPrompt, true, options));
+  const researchResult = await withRetry(() => generateOpenRouterText(researchPrompt, true, options, false, 'research'));
   const researchText = researchResult.text;
   const grounding: GroundingMetadata = {
     webSearchQueries: [], // OpenRouter ไม่เปิดเผย search query ภายในของโมเดล
@@ -152,7 +155,7 @@ export async function callGeminiWithGrounding(prompt: string, returnGrounding?: 
   if (jsonSchema) {
     const formatPrompt = `Based on this research:\n\n${researchText}\n\nReturn ONLY valid JSON matching this schema (no markdown):\n${jsonSchema}`;
     data = await withRetry(async () => {
-      const formatResult = await generateOpenRouterText(formatPrompt, false, options, true);
+      const formatResult = await generateOpenRouterText(formatPrompt, false, options, true, 'format');
       return parseJSON(formatResult.text);
     });
   } else {

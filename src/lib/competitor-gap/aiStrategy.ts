@@ -71,6 +71,7 @@ export async function enrichPhase1(params: {
     .join('\n')
 
   const res = await askJson<{ summary?: string; items?: EnrichItem[] }>({
+    trace: 'competitor_gap_enrich',
     system:
       'คุณคือ Senior SEO Strategist ทำงานกับข้อมูลที่วัดมาแล้วเท่านั้น ' +
       'ห้ามสร้างตัวเลขใหม่ทุกชนิด (traffic, ปริมาณค้นหา, อันดับ, จำนวนหน้า, วันที่, สถานะ HTTP) ' +
@@ -191,6 +192,7 @@ export async function summarizeCompetitors(params: {
     : `เว็บเรา ${params.ourDomain}: ไม่มีข้อมูล`
 
   const res = await askJson<{ competitors?: Array<Record<string, string>> }>({
+    trace: 'competitor_gap_summarize_competitors',
     system:
       'คุณคือ Senior SEO Strategist วิเคราะห์คู่แข่งจากข้อมูลที่วัดมาแล้วเท่านั้น ' +
       'ห้ามแต่งตัวเลขหรืออ้างข้อมูลที่ไม่ได้ให้มา ห้ามแนะนำให้ลอกคู่แข่ง ตอบภาษาไทย สั้น ตรง JSON เท่านั้น',
@@ -258,6 +260,7 @@ export async function buildSurpassIdeas(params: {
     .map(c => c.label)
 
   const res = await askJson<{ summary?: string; ideas?: Array<Record<string, string>> }>({
+    trace: 'competitor_gap_surpass_ideas',
     system:
       'คุณคือ Head of SEO Strategy เสนอวิธี "ทำให้ดีกว่า Top 5" หลังจากที่งาน baseline ถูกวางแผนแยกไว้แล้ว ' +
       'กติกา: ห้ามเสนอ "ทำหน้าให้เยอะกว่าคู่แข่ง" ห้ามลอกคู่แข่ง ห้ามแต่งตัวเลข ทุกข้อต้องอิงจุดอ่อนที่ให้มาจริง ' +
@@ -329,6 +332,7 @@ export async function explainStructure(params: {
     .join('\n')
 
   const res = await askJson<{ summary?: string; notes?: Array<Record<string, string>> }>({
+    trace: 'competitor_gap_explain_structure',
     system:
       'คุณคือ Content Architect ที่ดูโครงสร้างบทความเพื่อ SEO (อันดับ), AEO (ถูกหยิบไปตอบคำถาม), ' +
       'GEO (ถูกอ้างในคำตอบของ AI) และ E-E-A-T (ความน่าเชื่อถือ) ' +

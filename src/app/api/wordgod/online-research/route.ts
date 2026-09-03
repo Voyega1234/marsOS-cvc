@@ -867,7 +867,7 @@ export async function POST(req: NextRequest) {
             const angle = angleRing.length ? angleRing[(wave * PARALLEL_MAX + bi) % angleRing.length] : genSeed;
             return KEYWORD_RESEARCH_PROMPT(genNiche, angle || genSeed, BATCH, exclude, [], salesRatio, false);
           });
-          const settled = await Promise.allSettled(prompts.map(pr => callGemini(pr)));
+          const settled = await Promise.allSettled(prompts.map(pr => callGemini(pr, { functionLabel: 'online_keyword_research' })));
           let waveAdded = 0;
           let waveFailed = 0;
           const failReasons: string[] = [];
@@ -947,7 +947,7 @@ export async function POST(req: NextRequest) {
                 callGemini(KEYWORD_RESEARCH_PROMPT(
                   `${genNiche} — เจาะเฉพาะหมวด "${br.branch}" (${br.product})`,
                   br.seedKeywords[0] ?? genSeed, BATCH, exclude, [], salesRatio, false,
-                ))));
+                ), { functionLabel: 'online_keyword_research_branch' })));
               let groupAdded = 0;
               for (const st of settled) {
                 if (st.status !== 'fulfilled') { genFailed++; continue; }
@@ -1652,7 +1652,7 @@ export async function POST(req: NextRequest) {
           const chunks: string[][] = [];
           for (let i = 0; i < guardTargets.length; i += MAX_KEYWORDS_PER_CALL) chunks.push(guardTargets.slice(i, i + MAX_KEYWORDS_PER_CALL));
           const settledGuard = await Promise.allSettled(chunks.map(async chunk => {
-            const raw = await callGemini(buildRelevanceGuardPrompt(guardInput, chunk));
+            const raw = await callGemini(buildRelevanceGuardPrompt(guardInput, chunk), { functionLabel: 'online_relevance_guard' });
             return parseRelevanceGuardResponse(typeof raw === 'string' ? raw : JSON.stringify(raw), chunk);
           }));
           const guard = { verdicts: new Map<string, { verdict: string; reason: string }>(), unanswered: [] as string[] };

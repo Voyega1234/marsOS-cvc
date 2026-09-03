@@ -91,7 +91,7 @@ ${stageList}
 - ต้องมีกิ่ง taxonomy ที่ stage เป็น AEO_QUESTION (คำถาม คือ/ทำไม/ยังไง/ไหม) และ GEO_AI_TOPIC (หัวข้อ entity/authority สำหรับ AI search) อย่างละอย่างน้อย 1 กิ่ง
 - ถ้าเจ้าของเปิด comparison (${input.includeComparisonKeywords !== false ? 'เปิด' : 'ปิด'}) ให้มีกิ่งเทียบ/vs ด้วย`;
 
-  const raw = (await callGemini(prompt)) as Record<string, unknown>;
+  const raw = (await callGemini(prompt, { functionLabel: 'business_blueprint' })) as Record<string, unknown>;
 
   const segments: BusinessSegment[] = (Array.isArray(raw.segments) ? raw.segments : [])
     .map((s: any): BusinessSegment => ({
@@ -193,7 +193,7 @@ ${keywords.map((k, i) => `${i + 1}. ${k}`).join('\n')}
 กติกา: tier 4=คำซื้อ/จ้างตรงธุรกิจ, 3=เกี่ยวชัดเจน, 2=เกี่ยวทางอ้อม, 1=แตะขอบ, 0=ไม่เกี่ยว
 ห้ามใส่ตัวเลข volume/metric ใด ๆ ตอบครบทุกข้อ`;
 
-  const raw = (await callGemini(prompt)) as { items?: any[] };
+  const raw = (await callGemini(prompt, { functionLabel: 'classify_candidates' })) as { items?: any[] };
   const out = new Map<string, CandidateClassification>();
   for (const item of raw.items ?? []) {
     const idx = Number(item?.i) - 1;
@@ -264,7 +264,7 @@ ${rows.map((r, i) => `${i + 1}. "${r.keyword}" | stage=${r.journeyStage} | page=
 
 ตอบ: {"items":[{"i":เลขข้อ,"title":"...","slug":"...","why":"เหตุผล 1-2 ประโยคว่าทำไมคำนี้คุ้มทำ อิง facts เท่านั้น"}]}`;
 
-  const raw = (await callGemini(prompt)) as { items?: any[] };
+  const raw = (await callGemini(prompt, { functionLabel: 'generate_titles' })) as { items?: any[] };
   const out = new Map<string, TitleResult>();
   for (const item of raw.items ?? []) {
     const idx = Number(item?.i) - 1;
@@ -315,7 +315,7 @@ ${groups.map((g, i) => `${i + 1}. slug "${g.slug}" ← ${g.items.map(it => `"${i
 
 ตอบ: {"items":[{"i":เลขกลุ่ม,"verdict":"MERGE"|"DISTINCT","slugs":["slug ใหม่ของคำที่ 2 เป็นต้นไป"]}]}`;
 
-  const raw = (await callGemini(prompt)) as { items?: any[] };
+  const raw = (await callGemini(prompt, { functionLabel: 'adjudicate_slug_conflicts' })) as { items?: any[] };
   const out = new Map<string, SlugConflictVerdict>();
   for (const item of raw.items ?? []) {
     const idx = Number(item?.i) - 1;

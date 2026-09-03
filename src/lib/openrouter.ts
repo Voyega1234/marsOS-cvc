@@ -15,6 +15,37 @@ export const OR_MODELS = {
   default: () => process.env.OPENROUTER_MODEL_DEFAULT || 'google/gemini-3.7-flash',
 }
 
+/**
+ * SOP §3 "Label Function usage" — ทุก request ที่ยิงออก OpenRouter ต้องติดป้ายกำกับ
+ *   generation_name  = ชื่อฟังก์ชันที่เรียก (ขึ้นต้น marsos_ เสมอ) ใช้แยกต้นทุนรายฟีเจอร์
+ *   environment      = 'production' เฉพาะตอนรันบน Vercel production เท่านั้น นอกนั้น 'develop'
+ * ทำให้ dashboard แยกยอดของ prod กับของที่ทีมกดทดสอบเองออกจากกันได้
+ */
+export type ORTraceEnvironment = 'production' | 'develop'
+
+export interface ORTrace {
+  generation_name: string
+  environment: ORTraceEnvironment
+}
+
+/** prefix ประจำระบบนี้ — ระบบอื่นของทีมใช้ prefix ของตัวเอง (เช่น mercy_) ห้ามปนกัน */
+export const OR_TRACE_PREFIX = 'marsos_'
+
+export function orEnvironment(): ORTraceEnvironment {
+  return process.env.VERCEL_ENV === 'production' ? 'production' : 'develop'
+}
+
+/** normalize ชื่อให้เป็น snake_case ตัวเล็ก + ใส่ prefix ให้ (ไม่ซ้ำถ้าใส่มาแล้ว) */
+export function traceName(fn: string): string {
+  const slug = fn.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  const safe = slug || 'unlabeled'
+  return safe.startsWith(OR_TRACE_PREFIX) ? safe : `${OR_TRACE_PREFIX}${safe}`
+}
+
+export function orTrace(fn: string): ORTrace {
+  return { generation_name: traceName(fn), environment: orEnvironment() }
+}
+
 function requireKey(): string {
   const key = process.env.OPENROUTER_API_KEY
   if (!key) throw new Error('OPENROUTER_API_KEY is not set — ใส่ key ใน .env.development.local (local) และ Vercel env (prod)')
@@ -27,6 +58,38 @@ function headers(): Record<string, string> {
     'Content-Type': 'application/json',
     'HTTP-Referer': 'https://convertcake.com',
     'X-Title': 'MarsOS',
+  }
+}
+
+/**
+ * SOP §4 "Request Protection" — กันยิงถล่ม OpenRouter จาก instance เดียว
+ *   OPENROUTER_MAX_CONCURRENCY  จำนวน request พร้อมกันสูงสุดต่อ instance (default 8)
+ *   OPENROUTER_MIN_INTERVAL_MS  เว้นระยะระหว่างการยิงแต่ละครั้ง (default 0 = ปิด)
+ * ตัว stream ถือ slot ไว้จนอ่านจบ เพราะสายยังเปิดค้างและนับเป็น request ที่ปลายทางจริง
+ * (timeout อยู่ที่ params.timeoutMs ของแต่ละฟังก์ชัน, retry เป็นหน้าที่ของผู้เรียก)
+ */
+const MAX_CONCURRENCY = Math.max(1, Number(process.env.OPENROUTER_MAX_CONCURRENCY ?? 8) || 8)
+const MIN_INTERVAL_MS = Math.max(0, Number(process.env.OPENROUTER_MIN_INTERVAL_MS ?? 0) || 0)
+
+let inFlight = 0
+let lastStart = 0
+const waiting: Array<() => void> = []
+
+function releaseSlot(): void {
+  inFlight--
+  const next = waiting.shift()
+  if (next) next()
+}
+
+async function acquireSlot(): Promise<void> {
+  if (inFlight >= MAX_CONCURRENCY) {
+    await new Promise<void>((resolve) => waiting.push(resolve))
+  }
+  inFlight++
+  if (MIN_INTERVAL_MS > 0) {
+    const wait = lastStart + MIN_INTERVAL_MS - Date.now()
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+    lastStart = Date.now()
   }
 }
 
@@ -51,6 +114,8 @@ function parseUsage(u: Record<string, unknown> | undefined): ORUsage {
 }
 
 export async function orChat(params: {
+  /** SOP §3: ชื่อฟังก์ชันที่เรียก เช่น 'article_review' — ระบบเติม prefix marsos_ ให้เอง (บังคับ) */
+  trace: string
   prompt?: string
   messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   model?: string
@@ -72,6 +137,7 @@ export async function orChat(params: {
     model: params.model || OR_MODELS.default(),
     messages,
     usage: { include: true },
+    trace: orTrace(params.trace),
   }
   if (params.maxTokens) body.max_tokens = params.maxTokens
   if (typeof params.temperature === 'number') body.temperature = params.temperature
@@ -80,12 +146,18 @@ export async function orChat(params: {
   // (ทดสอบแล้ว: ws อย่างเดียว = STOP ปกติ, ws+json = error 2/2) จึงยอมถอย jsonMode ให้ web search
   if (params.jsonMode && !params.webSearch) body.response_format = { type: 'json_object' }
 
-  const res = await fetch(OR_URL, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(params.timeoutMs ?? 240_000),
-  })
+  await acquireSlot()
+  let res: Response
+  try {
+    res = await fetch(OR_URL, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(params.timeoutMs ?? 240_000),
+    })
+  } finally {
+    releaseSlot()
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(`OpenRouter ${res.status}: ${detail.slice(0, 300)}`)
@@ -114,6 +186,8 @@ export async function orChat(params: {
 
 /** stream แบบ SSE — คืน ReadableStream ของ text delta + promise ของ usage ตอนจบ */
 export async function orChatStream(params: {
+  /** SOP §3: ชื่อฟังก์ชันที่เรียก (บังคับ) */
+  trace: string
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   model?: string
   maxTokens?: number
@@ -126,17 +200,26 @@ export async function orChatStream(params: {
     messages: params.messages,
     stream: true,
     usage: { include: true },
+    trace: orTrace(params.trace),
   }
   if (params.maxTokens) body.max_tokens = params.maxTokens
   if (typeof params.temperature === 'number') body.temperature = params.temperature
 
-  const res = await fetch(OR_URL, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(params.timeoutMs ?? 600_000),
-  })
+  await acquireSlot()
+  let res: Response
+  try {
+    res = await fetch(OR_URL, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(params.timeoutMs ?? 600_000),
+    })
+  } catch (e) {
+    releaseSlot()
+    throw e
+  }
   if (!res.ok || !res.body) {
+    releaseSlot()
     const detail = await res.text().catch(() => '')
     throw new Error(`OpenRouter ${res.status}: ${detail.slice(0, 300)}`)
   }
@@ -146,6 +229,7 @@ export async function orChatStream(params: {
   let buffer = ''
   let full = ''
   let usage: ORUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 }
+  try {
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -171,6 +255,9 @@ export async function orChatStream(params: {
       }
     }
   }
+  } finally {
+    releaseSlot()
+  }
   if (!full.trim()) {
     // สตรีมจบแบบไม่มีเนื้อหาเลย — ถือว่าล้มเหลว ไม่ปล่อยค่าว่างไปให้ pipeline ทำต่อ
     throw new Error(`OpenRouter คืนคำตอบว่าง (model: ${String(body.model)}, output tokens: ${usage.outputTokens})`)
@@ -186,6 +273,8 @@ export interface ORImageResult {
 
 /** สร้างรูปผ่าน chat completions + modalities image — คืน base64 */
 export async function orImage(params: {
+  /** SOP §3: ชื่อฟังก์ชันที่เรียก (บังคับ) */
+  trace: string
   prompt: string
   model?: string
   timeoutMs?: number
@@ -194,16 +283,23 @@ export async function orImage(params: {
   aspectRatio?: '1:1' | '3:2' | '2:3'
 }): Promise<ORImageResult> {
   // ใช้ Image API เฉพาะทางของ OpenRouter — chat completions ไม่รับพารามิเตอร์ขนาดภาพ
-  const res = await fetch('https://openrouter.ai/api/v1/images', {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({
-      model: params.model || OR_MODELS.image(),
-      prompt: params.prompt,
-      ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
-    }),
-    signal: AbortSignal.timeout(params.timeoutMs ?? 300_000),
-  })
+  await acquireSlot()
+  let res: Response
+  try {
+    res = await fetch('https://openrouter.ai/api/v1/images', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({
+        model: params.model || OR_MODELS.image(),
+        prompt: params.prompt,
+        ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
+        trace: orTrace(params.trace),
+      }),
+      signal: AbortSignal.timeout(params.timeoutMs ?? 300_000),
+    })
+  } finally {
+    releaseSlot()
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(`OpenRouter image ${res.status}: ${detail.slice(0, 300)}`)

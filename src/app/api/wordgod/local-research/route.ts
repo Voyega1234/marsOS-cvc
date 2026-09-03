@@ -627,7 +627,7 @@ export async function POST(req: NextRequest) {
         progress('วิเคราะห์ปัญหาจริงของลูกค้า (problem-first) …');
         const niche = services.join(' / ');
         const excludeSet = new Set(Array.from(items.keys()));
-        const groundedCb = (p: string) => callGeminiWithGrounding(p, true);
+        const groundedCb = (p: string) => callGeminiWithGrounding(p, true, { functionLabel: 'local_problem_discovery' });
         const { problems } = await runLocalProblemDiscovery(
           { services, primaryLocation, nearbyLocations, businessContext: input.businessContext, language },
           { callGeminiWithGrounding: groundedCb }
@@ -676,7 +676,7 @@ export async function POST(req: NextRequest) {
           const prompts = Array.from({ length: batches }, () =>
             KEYWORD_RESEARCH_PROMPT(genNiche, genSeed, BATCH, exclude, [], salesRatio, false)
           );
-          const settled = await Promise.allSettled(prompts.map(p => callGemini(p)));
+          const settled = await Promise.allSettled(prompts.map(p => callGemini(p, { functionLabel: 'local_keyword_research' })));
           let waveAdded = 0;
           for (const s of settled) {
             if (s.status !== 'fulfilled') { genFailed++; continue; }
@@ -1032,7 +1032,7 @@ export async function POST(req: NextRequest) {
 ตอบเป็น JSON array ของ keyword ที่เลือกเท่านั้น: ["...","..."]
 Keywords:
 ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
-                  const raw = await callGemini(relevancePrompt);
+                  const raw = await callGemini(relevancePrompt, { functionLabel: 'local_relevance_filter' });
                   const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
                   const jsonMatch = text.match(/\[[\s\S]*\]/);
                   if (jsonMatch) {
@@ -1361,7 +1361,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
           const chunks: string[][] = [];
           for (let i = 0; i < guardTargets.length; i += MAX_KEYWORDS_PER_CALL) chunks.push(guardTargets.slice(i, i + MAX_KEYWORDS_PER_CALL));
           const settledGuard = await Promise.allSettled(chunks.map(async chunk => {
-            const raw = await callGemini(buildRelevanceGuardPrompt(guardInput, chunk));
+            const raw = await callGemini(buildRelevanceGuardPrompt(guardInput, chunk), { functionLabel: 'local_relevance_guard' });
             return parseRelevanceGuardResponse(typeof raw === 'string' ? raw : JSON.stringify(raw), chunk);
           }));
           const guard = { verdicts: new Map<string, { verdict: string; reason: string }>(), unanswered: [] as string[] };
@@ -1542,7 +1542,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         const titleStart = cursor('titles', 'titleCursor', 0);
         for (let i = titleStart; i < titleBatches.length; i += 3) {
           const wave = titleBatches.slice(i, i + 3);
-          const settled = await Promise.allSettled(wave.map(batch => callGemini(titlePromptFor(batch))));
+          const settled = await Promise.allSettled(wave.map(batch => callGemini(titlePromptFor(batch), { functionLabel: 'local_title_generation' })));
           for (const s of settled) {
             if (s.status !== 'fulfilled') { titleFailures++; continue; }
             const text = typeof s.value === 'string' ? s.value : JSON.stringify(s.value);
@@ -1613,7 +1613,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
             intent: r.intents?.[0] ?? 'informational',
             aeo_question: '',
           }));
-          const clusterResult = await clusterKeywords(pipelineKws, niche, (p: string) => callGemini(p));
+          const clusterResult = await clusterKeywords(pipelineKws, niche, (p: string) => callGemini(p, { functionLabel: 'local_keyword_clustering' }));
           for (const c of clusterResult.clusters) {
             const clusterId = ci * 1000 + c.cluster_id;
             const pillarSlug = c.pillar.slug;

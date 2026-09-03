@@ -20,6 +20,7 @@ async function generateAISummary(
   try {
     const model = OR_MODELS.default()
     const msg = await orChat({
+      trace: 'data_brain_file_summary',
       model,
       maxTokens: 400,
       messages: [{

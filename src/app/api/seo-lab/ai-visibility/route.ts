@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
   for (const prompt of prompts.slice(0, 5)) {
     try {
       const msg = await orChat({
+        trace: 'seo_lab_ai_visibility',
         model:     OR_MODELS.default(),
         maxTokens: 300,
         messages:  [{ role: 'user', content: buildPrompt(brand, domain, prompt) }],

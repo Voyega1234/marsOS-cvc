@@ -145,6 +145,7 @@ export async function nameClusters(clusters: TopicCluster[], keyword: string): P
   if (targets.length === 0) return { usage: emptyUsage(), error: null }
 
   const res = await askJson<{ clusters?: Array<{ id: string; label: string }> }>({
+    trace: 'competitor_gap_name_clusters',
     system: `คุณคือ Senior SEO Specialist ตั้งชื่อกลุ่มหัวข้อให้สั้น ชัด เป็นภาษาที่ลูกค้าใช้จริง
 ตอบ JSON เท่านั้น: {"clusters":[{"id":"c1","label":"ชื่อกลุ่ม"}]}
 ใช้ข้อมูลที่ให้เท่านั้น ห้ามเพิ่มกลุ่มใหม่ ห้ามอธิบาย ชื่อยาวไม่เกิน 40 ตัวอักษร`,
