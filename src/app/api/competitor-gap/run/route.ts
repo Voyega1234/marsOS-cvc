@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { clientSlugFromProject, withOrClient } from '@/lib/orClient'
 import { DEFAULT_COUNTRY, resolveCountry } from '@/lib/competitor-gap/locations'
 import { advanceRun, createRun, type RunContext } from '@/lib/competitor-gap/runner'
 import { loadRun, saveRun } from '@/lib/competitor-gap/store'
@@ -108,7 +109,8 @@ export async function POST(req: NextRequest) {
     const project = await prisma.project.findFirst({ where: { id: state.projectId, organizationId: orgId } })
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     const ctx: RunContext = { organizationId: orgId, userId: session.user.id, projectId: state.projectId }
-    return NextResponse.json(toStatus(await advanceRun(state, ctx)))
+    const client = clientSlugFromProject(project)
+    return NextResponse.json(toStatus(await withOrClient(client, () => advanceRun(state, ctx))))
   }
 
   // ── เริ่มรอบใหม่ ──
@@ -143,5 +145,5 @@ export async function POST(req: NextRequest) {
 
   await saveRun(state)
   const ctx: RunContext = { organizationId: orgId, userId: session.user.id, projectId }
-  return NextResponse.json(toStatus(await advanceRun(state, ctx)))
+  return NextResponse.json(toStatus(await withOrClient(clientSlugFromProject(project), () => advanceRun(state, ctx))))
 }

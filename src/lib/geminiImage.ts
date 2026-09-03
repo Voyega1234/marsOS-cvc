@@ -39,9 +39,10 @@ Output ONLY the final English image-generation prompt as plain prose.
 Never translate the brief itself, never explain your choices, never offer multiple options, never use markdown, headings, labels, or surrounding quotes.`
 
 /** เรียก Claude แปลงบรีฟ (CE) เป็น prompt ภาษาอังกฤษ — ล้มเหลว = โยน error ไม่มี fallback */
-async function compileImagePrompt(brief: string): Promise<string> {
+async function compileImagePrompt(brief: string, client?: string): Promise<string> {
   const result = await orChat({
     trace: 'image_prompt_compile',
+    client,
     model: OR_MODELS.default(),
     maxTokens: 1500,
     messages: [
@@ -134,6 +135,8 @@ export async function callGeminiImage(params: {
   coverSubtitle?: string
   /** จุดขาย/หัวข้อเด่นบนปก (เช่น H2 จริงของบทความ) สูงสุด 3 ข้อ — ใช้เฉพาะ overlay ฟอนต์จริง */
   coverBullets?: string[]
+  /** SOP §3: ลูกค้าเจ้าของงาน — ใช้ประกอบ generation_name mars_<client>_<action> */
+  client?: string
 }): Promise<GeminiImageResult> {
   const {
     keyword, title, type,
@@ -145,6 +148,7 @@ export async function callGeminiImage(params: {
     imageStyleGuide = '',
     coverSubtitle = '',
     coverBullets = [],
+    client,
   } = params
 
   if (!promptTemplate?.trim()) {
@@ -178,7 +182,7 @@ export async function callGeminiImage(params: {
       : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีของภาพต้องเป็นชุดสีธีมบทความจาก Article Lab เท่านั้น: ${palette} — บล็อกข้อความใหญ่ใช้สีธีม/สีหลัก, แถบ sub-headline ใช้เฉดเข้มของสีธีมเดียวกัน, ไอคอน/เส้นกราฟิกใช้สี accent หรือสีขาว, ตัวอักษรเลือกสีที่คอนทราสต์สูงกับพื้นที่รองรับ; ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของกราฟิก และให้เกรดโทนภาพถ่ายให้เข้ากับชุดสีนี้]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
   ].join('\n')
-  const compiled = await compileImagePrompt(`${rendered}\n\n${briefFacts}`)
+  const compiled = await compileImagePrompt(`${rendered}\n\n${briefFacts}`, client)
 
   // รูปปกต้องมีตัวหนังสือประกอบเสมอ (คำสั่งเจ้าของระบบ 2026-08-19, ปรับ 2026-08-21:
   // ไม่จำกัดภาษาไทย — ใช้ภาษาเดียวกับ title ไทย/อังกฤษ/ผสม) — เป็นข้อบังคับรูปแบบ
@@ -217,7 +221,7 @@ export async function callGeminiImage(params: {
 
   // เลือกสัดส่วนที่โมเดลรองรับให้ใกล้เป้าหมายที่สุด — crop ปลายทางจะเหลือน้อยลงมาก
   const aspectRatio = isSquare ? '1:1' as const : (width > height ? '3:2' as const : '2:3' as const)
-  const result = await orImage({ trace: type === 'cover' ? 'image_cover' : 'image_inline', prompt, aspectRatio })
+  const result = await orImage({ trace: type === 'cover' ? 'image_cover' : 'image_inline', client, prompt, aspectRatio })
 
   const promptTokens = result.usage.inputTokens
   const totalTokens = result.usage.totalTokens

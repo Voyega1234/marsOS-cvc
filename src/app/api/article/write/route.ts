@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { orChat, orChatStream, OR_MODELS } from '@/lib/openrouter'
+import { clientSlugFromProject } from '@/lib/orClient'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
@@ -244,6 +245,7 @@ const IMAGE_TIMEOUT_MS = 75_000
 
 async function generateGeminiImage(params: {
   keyword: string; title: string; type: 'cover' | 'mid'
+  client?: string
   siteName?: string; brandTone?: string; accentColor?: string
   themeColor?: string; backgroundColor?: string; textColor?: string
   imagePromptTemplate: string
@@ -254,6 +256,7 @@ async function generateGeminiImage(params: {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const result = await withTimeout(callGeminiImage({
+        client: params.client,
         keyword: params.keyword, title: params.title, type: params.type,
         siteName: params.siteName ?? '', brandTone: params.brandTone ?? '',
         accentColor: params.accentColor ?? '',
@@ -563,6 +566,12 @@ export async function POST(req: NextRequest) {
       _dbProj = proj ?? null
     } catch { /* non-fatal */ }
   }
+  // SOP §3: ป้ายกำกับทุก call ของ request นี้เป็น mars_<client>_<action>
+  const orClient = clientSlugFromProject({
+    id: projectId || null,
+    name: (_dbProj as { name?: string | null } | null)?.name ?? null,
+    clientName: (_dbProj as { clientName?: string | null } | null)?.clientName ?? null,
+  })
   // หน้า Settings > Prompts ถูกลบทิ้งแล้ว (2026-08-10) พร้อม override จาก
   // project.writingPrompt / org.studioPrompt — prompt มาจาก Content Engine เท่านั้น
   // ส่วนค่าเฉพาะโปรเจกต์ (style, forbidden words, บริบท ฯลฯ) มาจาก Article Lab
@@ -788,6 +797,7 @@ export async function POST(req: NextRequest) {
   if (!doStream) {
     const msg = await orChat({
       trace: 'article_write',
+      client: orClient,
       model, maxTokens: 20000, timeoutMs: 600_000,
       messages: [{ role: 'user', content: articlePrompt }],
     })
@@ -803,9 +813,9 @@ export async function POST(req: NextRequest) {
     const midCount = Math.min(midCountRaw, countMidImageSpots(html))
     const coverExtras = extractCoverExtras(html)
     const [coverResult, ...midResults] = await Promise.all([
-      generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets }),
+      generateGeminiImage({ client: orClient, keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets }),
       ...Array.from({ length: midCount }, () =>
-        generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
+        generateGeminiImage({ client: orClient, keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
     ])
     const midResult = midResults[0]
 
@@ -893,6 +903,7 @@ export async function POST(req: NextRequest) {
       send({ type: 'status', step: 'writing', message: `✍️ ${model} กำลังเขียนบทความ...` })
       const streamed = await orChatStream({
         trace: 'article_write_stream',
+        client: orClient,
         model, maxTokens: 20000,
         messages: [{ role: 'user', content: articlePrompt }],
         onDelta: (text) => { fullHtml += text; send({ type: 'chunk', content: text }) },
@@ -929,9 +940,9 @@ export async function POST(req: NextRequest) {
       const coverExtras = extractCoverExtras(fullHtml)
       send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
       const [coverResult, ...midResults] = await Promise.all([
-        generateGeminiImage({ keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets }),
+        generateGeminiImage({ client: orClient, keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets }),
         ...Array.from({ length: midCount }, () =>
-          generateGeminiImage({ keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
+          generateGeminiImage({ client: orClient, keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
       ])
       const midResult = midResults[0]
       const midOk = midResults.filter(r => r.imageBase64).length

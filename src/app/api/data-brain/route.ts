@@ -10,6 +10,7 @@ import { orChat, OR_MODELS } from "@/lib/openrouter";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAIJob } from "@/lib/logAIJob";
+import { clientSlugForProject } from "@/lib/orClient";
 
 // Claude Opus 4.8 pricing: $5/1M input, $25/1M output
 
@@ -21,6 +22,7 @@ async function generateAISummary(
     const model = OR_MODELS.default()
     const msg = await orChat({
       trace: 'data_brain_file_summary',
+      client: await clientSlugForProject(projectId),
       model,
       maxTokens: 400,
       messages: [{

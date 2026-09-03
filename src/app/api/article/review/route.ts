@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { orChat, OR_MODELS } from '@/lib/openrouter'
+import { clientSlugForProject } from '@/lib/orClient'
 import { getSession } from '@/lib/auth'
 import { logAIJob } from '@/lib/logAIJob'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
@@ -72,6 +73,7 @@ ${OUTPUT_CONTRACT}`
     // ตอบไม่จบ → JSON ขาดกลาง → parse ไม่ผ่าน
     const message = await orChat({
       trace: 'article_review',
+      client: await clientSlugForProject(projectId),
       model,
       maxTokens: 8000,
       messages: [{ role: 'user', content: prompt }],

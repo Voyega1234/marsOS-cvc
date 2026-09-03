@@ -11,6 +11,7 @@ import { resolveImagePalette } from '@/lib/articleTheme'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
+import { clientSlugForProject } from '@/lib/orClient'
 import { OR_MODELS } from '@/lib/openrouter'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
 
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
     // ข้อมูลเสริมบนปก (คำโปรย + bullet) — ผู้เรียกส่งมาเอง เช่น หน้า UI ที่มีบทความอยู่แล้ว
     const coverSubtitle = typeof subtitle === 'string' ? subtitle : ''
     const coverBullets = Array.isArray(bullets) ? bullets.filter((b: unknown): b is string => typeof b === 'string').slice(0, 3) : []
-    const result = await callGeminiImage({ keyword, title, type, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets })
+    const result = await callGeminiImage({ client: await clientSlugForProject(projectId), keyword, title, type, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets })
 
     // Log AI job for cost tracking
     try {

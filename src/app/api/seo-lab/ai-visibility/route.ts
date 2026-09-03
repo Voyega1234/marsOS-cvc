@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { orChat, OR_MODELS } from '@/lib/openrouter'
 import { logAIJob } from '@/lib/logAIJob'
+import { slugifyClient, OR_CLIENT_SYSTEM } from '@/lib/orClient'
 
 const DEFAULT_PROMPTS = [
   'What are the best SEO agencies in Thailand?',
@@ -41,7 +42,8 @@ export async function POST(req: NextRequest) {
   for (const prompt of prompts.slice(0, 5)) {
     try {
       const msg = await orChat({
-        trace: 'seo_lab_ai_visibility',
+        trace: 'ai_visibility',
+        client: slugifyClient(brand) || OR_CLIENT_SYSTEM,
         model:     OR_MODELS.default(),
         maxTokens: 300,
         messages:  [{ role: 'user', content: buildPrompt(brand, domain, prompt) }],

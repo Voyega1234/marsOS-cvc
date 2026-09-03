@@ -8,6 +8,8 @@ export interface AIProviderOptions {
   maxTokens?: number;
   /** SOP §3: ชื่อฟังก์ชันที่เรียก — ปกติคือ jobType ของ AIJob */
   trace?: string;
+  /** SOP §3: ลูกค้าเจ้าของงาน (slug) — ไม่ส่ง = อ่านจากบริบท request */
+  client?: string;
 }
 
 export interface AIProviderResult {
@@ -26,11 +28,12 @@ function delay(ms: number) {
  * ไม่ว่าค่า provider/model เดิมใน PromptTemplate จะเป็นอะไร
  */
 export async function callAIProvider(opts: AIProviderOptions): Promise<AIProviderResult> {
-  const { prompt, temperature = 0.7, maxTokens = 4000, trace = "ai_job" } = opts;
+  const { prompt, temperature = 0.7, maxTokens = 4000, trace = "ai_job", client } = opts;
 
   if (process.env.OPENROUTER_API_KEY) {
     const msg = await orChat({
       trace,
+      client,
       model: OR_MODELS.default(),
       maxTokens,
       temperature,

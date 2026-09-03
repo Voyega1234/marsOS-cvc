@@ -81,7 +81,7 @@ ${numbered}`
   for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
     try {
       const result = await orChat({
-        trace: 'mars_news_digest',
+        trace: 'news_digest',
         model: OR_MODELS.default(),
         maxTokens: 3000,
         jsonMode: true,

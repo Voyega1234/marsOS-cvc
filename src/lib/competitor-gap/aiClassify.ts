@@ -59,7 +59,7 @@ export async function aiClassifyAmbiguous(params: {
     }))
 
     const res = await askJson<{ pages?: AiPageAnswer[] }>({
-      trace: 'competitor_gap_classify_pages',
+      trace: 'gap_classify_pages',
       system: SYSTEM,
       user: `keyword เป้าหมาย: ${params.keyword}\nเว็บไซต์: ${params.domainLabel}\n\nหน้าที่ต้องจัดประเภท:\n${JSON.stringify(payload)}`,
       maxTokens: 2500,

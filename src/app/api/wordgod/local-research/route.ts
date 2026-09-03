@@ -92,6 +92,7 @@ import {
   type DFSMetric,
 } from '@/lib/wordgod/services/dataForSeoService';
 import { callGemini, callGeminiWithGrounding, getSessionUsage } from '@/lib/wordgod/gemini';
+import { clientSlugForProject, withOrClient } from '@/lib/orClient';
 import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
 import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
@@ -448,6 +449,8 @@ export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   const budgetMs = resumable ? Math.min(600_000, Math.max(30_000, flags.stepBudgetMs)) : Infinity;
 
+  // SOP §3: บริบทลูกค้าของรอบนี้ — ทุก call ของ wordgod ข้างในติดป้าย mars_<client>_<action>
+  const orClientSlug = await clientSlugForProject(flags.projectId)
   const runPipeline = async (emit: ProgressEmit) => {
     const progress = (message: string, extra?: Record<string, unknown>) =>
       emit({ type: 'progress', at: new Date().toISOString(), message, ...(extra ?? {}) });
@@ -1917,7 +1920,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
           }
         }, 20_000);
         if (resumable && runId) emit({ type: 'run', runId });
-        runPipeline(emit)
+        withOrClient(orClientSlug, () => runPipeline(emit))
           .then(response => {
             emit({ type: 'result', data: response });
             closed = true;
@@ -1955,7 +1958,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
   }
 
   try {
-    const response = await runPipeline(() => {});
+    const response = await withOrClient(orClientSlug, () => runPipeline(() => {}));
     return NextResponse.json(response);
   } catch (err) {
     if (resumable && runId) {

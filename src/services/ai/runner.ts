@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import { compilePrompt } from "./compiler";
 import { callAIProvider } from "./provider";
+import { clientSlugForProject } from '@/lib/orClient';
 import { AINoPromptError, AIProviderError } from "./errors";
 import { autoAssignArticle, checkCostAlert, notifyAIJobDone } from "@/services/notify";
 import type { RunAIJobOptions, AIJobResult } from "./types";
@@ -140,6 +141,7 @@ export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJo
     // 5. Call AI provider (mock or real)
     const aiResult = await callAIProvider({
       trace:       `ai_job_${jobType}`,
+      client:      await clientSlugForProject(projectId ?? null),
       provider:    prompt.modelProvider as "CLAUDE" | "OPENAI" | "GEMINI" | "CUSTOM",
       model:       prompt.modelName,
       prompt:      compiled,

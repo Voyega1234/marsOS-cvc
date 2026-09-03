@@ -7,6 +7,8 @@
  *   จุดอื่น ๆ ทั้งหมด     → OPENROUTER_MODEL_DEFAULT (default: google/gemini-3.7-flash)
  */
 
+import { currentOrClient, OR_CLIENT_SYSTEM } from '@/lib/orClient'
+
 const OR_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 export const OR_MODELS = {
@@ -29,21 +31,28 @@ export interface ORTrace {
 }
 
 /** prefix ประจำระบบนี้ — ระบบอื่นของทีมใช้ prefix ของตัวเอง (เช่น mercy_) ห้ามปนกัน */
-export const OR_TRACE_PREFIX = 'marsos_'
+export const OR_TRACE_PREFIX = 'mars'
 
 export function orEnvironment(): ORTraceEnvironment {
   return process.env.VERCEL_ENV === 'production' ? 'production' : 'develop'
 }
 
-/** normalize ชื่อให้เป็น snake_case ตัวเล็ก + ใส่ prefix ให้ (ไม่ซ้ำถ้าใส่มาแล้ว) */
-export function traceName(fn: string): string {
-  const slug = fn.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-  const safe = slug || 'unlabeled'
-  return safe.startsWith(OR_TRACE_PREFIX) ? safe : `${OR_TRACE_PREFIX}${safe}`
+function snake(v: string): string {
+  return v.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
 
-export function orTrace(fn: string): ORTrace {
-  return { generation_name: traceName(fn), environment: orEnvironment() }
+/**
+ * ชื่อ generation ตามรูปแบบที่ตกลงไว้: mars_<client>_<action>
+ * client ไม่ส่งมา = อ่านจากบริบท request ปัจจุบัน (orClient) ไม่มีบริบท = 'system'
+ */
+export function traceName(action: string, client?: string): string {
+  const c = snake(client ?? currentOrClient()) || OR_CLIENT_SYSTEM
+  const a = snake(action) || 'unlabeled'
+  return `${OR_TRACE_PREFIX}_${c}_${a}`
+}
+
+export function orTrace(action: string, client?: string): ORTrace {
+  return { generation_name: traceName(action, client), environment: orEnvironment() }
 }
 
 function requireKey(): string {
@@ -114,8 +123,10 @@ function parseUsage(u: Record<string, unknown> | undefined): ORUsage {
 }
 
 export async function orChat(params: {
-  /** SOP §3: ชื่อฟังก์ชันที่เรียก เช่น 'article_review' — ระบบเติม prefix marsos_ ให้เอง (บังคับ) */
+  /** SOP §3: action ที่กำลังทำ เช่น 'article_review' — ได้ชื่อจริงเป็น mars_<client>_<action> (บังคับ) */
   trace: string
+  /** ลูกค้าเจ้าของงาน — ไม่ส่ง = อ่านจากบริบท request (withOrClient) */
+  client?: string
   prompt?: string
   messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   model?: string
@@ -137,7 +148,7 @@ export async function orChat(params: {
     model: params.model || OR_MODELS.default(),
     messages,
     usage: { include: true },
-    trace: orTrace(params.trace),
+    trace: orTrace(params.trace, params.client),
   }
   if (params.maxTokens) body.max_tokens = params.maxTokens
   if (typeof params.temperature === 'number') body.temperature = params.temperature
@@ -186,8 +197,10 @@ export async function orChat(params: {
 
 /** stream แบบ SSE — คืน ReadableStream ของ text delta + promise ของ usage ตอนจบ */
 export async function orChatStream(params: {
-  /** SOP §3: ชื่อฟังก์ชันที่เรียก (บังคับ) */
+  /** SOP §3: action ที่กำลังทำ — ได้ชื่อจริงเป็น mars_<client>_<action> (บังคับ) */
   trace: string
+  /** ลูกค้าเจ้าของงาน — ไม่ส่ง = อ่านจากบริบท request (withOrClient) */
+  client?: string
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   model?: string
   maxTokens?: number
@@ -200,7 +213,7 @@ export async function orChatStream(params: {
     messages: params.messages,
     stream: true,
     usage: { include: true },
-    trace: orTrace(params.trace),
+    trace: orTrace(params.trace, params.client),
   }
   if (params.maxTokens) body.max_tokens = params.maxTokens
   if (typeof params.temperature === 'number') body.temperature = params.temperature
@@ -273,8 +286,10 @@ export interface ORImageResult {
 
 /** สร้างรูปผ่าน chat completions + modalities image — คืน base64 */
 export async function orImage(params: {
-  /** SOP §3: ชื่อฟังก์ชันที่เรียก (บังคับ) */
+  /** SOP §3: action ที่กำลังทำ — ได้ชื่อจริงเป็น mars_<client>_<action> (บังคับ) */
   trace: string
+  /** ลูกค้าเจ้าของงาน — ไม่ส่ง = อ่านจากบริบท request (withOrClient) */
+  client?: string
   prompt: string
   model?: string
   timeoutMs?: number
@@ -293,7 +308,7 @@ export async function orImage(params: {
         model: params.model || OR_MODELS.image(),
         prompt: params.prompt,
         ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
-        trace: orTrace(params.trace),
+        trace: orTrace(params.trace, params.client),
       }),
       signal: AbortSignal.timeout(params.timeoutMs ?? 300_000),
     })
