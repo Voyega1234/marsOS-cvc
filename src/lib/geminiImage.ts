@@ -7,9 +7,11 @@ import sharp from 'sharp'
 import { orChat, orImage, OR_MODELS } from '@/lib/openrouter'
 import { composeCoverOverlay } from '@/lib/coverOverlay'
 
-// ตัวหนังสือบนปกวาดเองด้วยฟอนต์จริง (ดู coverOverlay.ts) — โมเดลภาพสะกดไทยผิดเสมอ
-// ปิดได้ด้วย COVER_TEXT_OVERLAY=off ถ้าอยากกลับไปให้โมเดลเขียนตัวอักษรเอง
-const COVER_TEXT_OVERLAY = process.env.COVER_TEXT_OVERLAY !== 'off'
+// ปกโหมดใหม่ (คำสั่งเจ้าของ 2026-09-07): แบนเนอร์อินโฟกราฟิกที่โมเดลวาดตัวอักษรเอง
+// ตามตัวอย่างที่เจ้าของส่งมา — headline บนแผงสีทึบ + ตรามุมขวาบน + การ์ดแถบล่าง
+// ทดสอบกับ gpt-5-image แล้ว: ตัวใหญ่สะกดไทยถูก ตัวเล็กยังพลาดได้เป็นครั้งคราว
+// กลับไปโหมดวาดตัวอักษรด้วยฟอนต์จริง (coverOverlay.ts, สะกดถูก 100%) ด้วย COVER_TEXT_OVERLAY=on
+const COVER_TEXT_OVERLAY = process.env.COVER_TEXT_OVERLAY === 'on'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const NEXT_YEAR    = CURRENT_YEAR + 1
@@ -30,11 +32,13 @@ The brief is the ONLY source of style, subject, composition, and constraints —
 The one exception: lines wrapped in brackets and marked ข้อบังคับเอาต์พุต are hard platform output constraints — they OVERRIDE any conflicting line in the brief, and the compiled prompt must never ask for anything they forbid.
 
 CRAFT — how to WRITE the prompt. These rules govern wording and level of detail only; they never introduce subject matter, style or colour of your own:
-- Be specific, never generic. Name the concrete subject and the real objects, materials and props the topic implies. Banned vague fillers: "modern setup", "professional scene", "technology background", "beautiful", "high quality", "stunning", "4k", "masterpiece".
-- Cover these facets in order, each with real information: (1) the main subject and what it is doing, (2) the environment and supporting props around it, (3) materials and surface texture, (4) lighting — direction, quality, colour temperature, how highlights roll off and how shadows fall, (5) camera angle and framing, (6) lens, focal length and depth of field, (7) overall mood.
+- Be specific, never generic. Name the concrete subject, the real place, and the real objects, materials and props the topic implies. Banned vague fillers: "modern setup", "professional scene", "technology background", "beautiful", "high quality", "stunning", "4k", "masterpiece".
+- If the brief asks for a DESIGNED LAYOUT (panels, cards, badges, typography over a photograph), write the prompt as a layout specification: walk the zones in reading order and, for each zone, state what sits there, its exact shape, its exact fill colour (quote the hex codes given), and the exact text string it carries — copy every quoted string character-for-character, never translate, paraphrase, shorten, reorder or invent text.
+- If the brief asks for a plain photograph, cover these facets in order, each with real information: (1) the main subject and what it is doing, (2) the environment and supporting props around it, (3) materials and surface texture, (4) lighting — direction, quality, colour temperature, how highlights roll off and how shadows fall, (5) camera angle and framing, (6) lens, focal length and depth of field, (7) overall mood.
 - Use concrete photographic language ("85mm at f/2, soft window key light from camera left, warm practical rim light behind the subject, deep but open shadows") instead of adjectives.
-- Demand fine detail that survives close inspection: micro-texture, edge highlights, dust, fine grain, reflections, subtle wear and imperfection — a real commissioned photograph, not a clean CGI render and not an AI-smooth plastic look.
-- Length: 120–200 words in ONE dense paragraph. Every clause must add new information; no repetition, no filler.
+- Photographic parts must survive close inspection: micro-texture, edge highlights, dust, fine grain, reflections, subtle wear and imperfection — a real commissioned photograph, not a clean CGI render and not an AI-smooth plastic look.
+- Graphic parts must read as work by a senior designer: crisp geometry, consistent corner radii, deliberate hierarchy, generous padding, soft realistic drop shadows, everything inside the safe margin and nothing clipped by the frame.
+- Length: 220–340 words for a designed layout, 120–200 words for a plain photograph. ONE dense paragraph. Every clause must add new information; no repetition, no filler.
 Output ONLY the final English image-generation prompt as plain prose.
 Never translate the brief itself, never explain your choices, never offer multiple options, never use markdown, headings, labels, or surrounding quotes.`
 
@@ -168,6 +172,26 @@ export async function callGeminiImage(params: {
     textColor.trim() && `สีตัวอักษร ${textColor.trim()}`,
   ].filter(Boolean).join(', ')
 
+  // การ์ดแถบล่างของปกแบนเนอร์ — ใช้หัวข้อจริงในบทความ (H2) ไม่ให้โมเดลคิดข้อความเอง
+  // ข้อความยาวจะถูกวาดเป็นตัวเล็กแล้วสะกดเพี้ยน จึงตัดที่ขอบคำให้สั้นก่อนเสมอ
+  const bannerCards = coverBullets
+    .map((b) => b.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .map((b) => (b.length <= 26 ? b : b.slice(0, 26).replace(/\s+\S*$/, '') || b.slice(0, 26)))
+    .slice(0, 3)
+
+  // ข้อความทุกชิ้นที่อนุญาตให้ปรากฏบนปกแบนเนอร์ — โมเดลคัดลอกได้อย่างเดียว ห้ามแต่งเพิ่ม
+  const coverTextInventory = [
+    `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ข้อความบนภาพต้องเป็นสตริงต่อไปนี้เท่านั้น คัดลอกทีละตัวอักษร ห้ามเพิ่มข้อความอื่นใดในภาพ`,
+    `- หัวเรื่องหลัก (เด่นที่สุด ต้องแสดงครบทุกคำ): "${title}"`,
+    keyword.trim() ? `- ป้ายคีย์เวิร์ดเล็ก 1 ชิ้นเหนือหัวเรื่อง: "${keyword.trim()}" — ถ้าคำนี้ปรากฏอยู่ในหัวเรื่องหลักแล้ว ให้ตัดป้ายนี้ทิ้งไปเลย ไม่ต้องวาด` : '',
+    `- ตรามุมขวาบน: "อัปเดต ${CURRENT_YEAR}"`,
+    bannerCards.length
+      ? `- การ์ดแถบล่าง ${bannerCards.length} ใบ เรียงแถวเดียว ใบละ 1 ข้อความบรรทัดเดียว ตามลำดับนี้: ${bannerCards.map((c) => `"${c}"`).join(' | ')}`
+      : `- ไม่มีการ์ดแถบล่าง ให้ตัดแถบการ์ดออกทั้งแถบ`,
+    `ตัวอักษรทุกตัวในภาพต้องสูงอย่างน้อย 4% ของความสูงภาพ ถ้าข้อความไหนจะเล็กกว่านั้นให้ตัดข้อความนั้นทิ้งเหลือแต่ไอคอน ห้ามเติมคำอธิบายบรรทัดที่สองในการ์ด ห้ามตัดคำใดออกจากสตริงที่ให้ไว้ ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`,
+  ].filter(Boolean).join('\n')
+
   // ข้อเท็จจริงประกอบบรีฟ (ไม่ใช่ทิศทางงานภาพ — ทิศทางมาจาก Content Engine เท่านั้น)
   const briefFacts = [
     `[ประเภทภาพ: ${type === 'cover' ? 'ภาพหน้าปกบทความ (cover)' : 'ภาพประกอบกลางบทความ (in-article)'}]`,
@@ -175,11 +199,11 @@ export async function callGeminiImage(params: {
     `[ปีปัจจุบัน: ${CURRENT_YEAR}]`,
     ...(type === 'cover' ? [COVER_TEXT_OVERLAY
       ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพนี้คือ "ภาพถ่ายพื้นหลังของปก" เท่านั้น ระบบจะวางหัวเรื่องและป้ายคีย์เวิร์ดทับด้วยฟอนต์จริงในขั้นตอนถัดไป จึงห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ, บล็อกข้อความ, แถบสีสำหรับใส่ข้อความ หรือข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline บล็อกข้อความ หรือป้ายคำ ให้ตัดออกทั้งหมด; องค์ประกอบภาพ: เป็นภาพถ่ายจริงเต็มเฟรม วางตัวแบบหลักไว้ครึ่งบนของเฟรม และเว้นครึ่งล่างให้เป็นพื้นที่เรียบสงบ (พื้น ผนัง ท้องฟ้า ระยะเบลอ) ไม่มีรายละเอียดสำคัญ เพราะจะถูกแผงสีทับ]`
-      : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ตัวอักษรบนภาพมีได้ไม่เกิน 2 ชุด (headline + sub-headline สั้น 1 บรรทัด) ทั้งสองชุดต้องวางบนบล็อก/แถบสีทึบเพื่อคอนทราสต์ และทุกตัวอักษรต้องสูงอย่างน้อย 5% ของความสูงภาพ — ถ้าบรีฟสั่งให้มีป้ายคำใต้ไอคอน แถบข้อความล่าง ชิป แท็ก หรือคำบรรยายย่อย ให้เปลี่ยนเป็นไอคอน/กราฟิกล้วนไม่มีตัวอักษร ห้าม prompt ที่คอมไพล์ออกมามีคำสั่งให้ใส่ข้อความเล็ก]`] : []),
+      : coverTextInventory] : []),
     ...(type === 'mid' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: นี่คือภาพประกอบกลางบทความ ไม่ใช่ภาพปก ต้องเป็นภาพถ่ายจริง (photorealistic photography) เต็มเฟรม ไม่มีบล็อกข้อความ ไม่มีแถบสี และห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ หรือ ข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline หรือป้ายคำ ให้ตัดออกทั้งหมดแล้วเล่าด้วยภาพล้วน โดยคงสไตล์และชุดสีตามบรีฟไว้]`] : []),
     ...(palette ? [(type === 'cover' && COVER_TEXT_OVERLAY)
       ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพถ่ายต้องคุมสีแบบธรรมชาติสมจริง (natural true-to-life colours) — คน อาคาร ท้องฟ้า วัตถุ วัสดุ ให้เป็นสีจริงตามธรรมชาติทั้งหมด ห้ามย้อม ห้ามเกรด ห้าม wash ทั้งภาพให้เป็นสีธีม/สีแบรนด์ใด ๆ เด็ดขาด ถ้าบรีฟสั่งให้ใช้ชุดสีธีม (${palette}) กับภาพถ่าย ให้ตีความว่าใช้ได้แค่กับพร็อพชิ้นเล็กหรือเสื้อผ้าอย่างพอดีตามธรรมชาติเท่านั้น — สีธีมของแบรนด์จะถูกระบบใส่เองในแผงกราฟิกและตัวหนังสือขั้นตอนถัดไป]`
-      : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีของภาพต้องเป็นชุดสีธีมบทความจาก Article Lab เท่านั้น: ${palette} — บล็อกข้อความใหญ่ใช้สีธีม/สีหลัก, แถบ sub-headline ใช้เฉดเข้มของสีธีมเดียวกัน, ไอคอน/เส้นกราฟิกใช้สี accent หรือสีขาว, ตัวอักษรเลือกสีที่คอนทราสต์สูงกับพื้นที่รองรับ; ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของกราฟิก และให้เกรดโทนภาพถ่ายให้เข้ากับชุดสีนี้]`] : []),
+      : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีนี้ใช้กับ "ชั้นกราฟิก" เท่านั้น (แผงข้อความ การ์ด ไอคอน ตรา เส้นคั่น ไล่เฉดฝั่งซ้าย): ${palette} — สีธีมเป็นสีนำของแผงและแถบ, สี accent ใช้เน้นและใช้กับไอคอน, ขาวใช้เป็นพื้นการ์ดและตัวอักษรบนพื้นเข้ม, ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของกราฟิก; ส่วนที่เป็น "ภาพถ่าย" ต้องคงสีธรรมชาติสมจริงเสมอ ท้องฟ้าเป็นสีฟ้าหรือสีทองตอนเย็นตามจริง ผิวคนเป็นสีผิวจริง อาคารและวัสดุเป็นสีจริง ห้ามย้อม ห้ามเกรด ห้าม wash ภาพถ่ายให้เป็นสีธีมเด็ดขาด]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
   ].join('\n')
   const compiled = await compileImagePrompt(`${rendered}\n\n${briefFacts}`, client)
@@ -204,17 +228,20 @@ export async function callGeminiImage(params: {
 - COMPOSITION (hard requirement): keep the subject and every important detail in the UPPER TWO THIRDS of the frame. The BOTTOM HALF must be calm, simple, uncluttered negative space (floor, wall, sky, water, blurred background, plain gradient) because a solid colour panel is composited over it. Nothing important may sit in the bottom half
 - Leave the frame edges clean: no borders, frames, vignette text, collage panels or split-screen layouts`
     : type === 'cover'
-    ? `\n\nCOVER TEXT OVERLAY (CRITICAL): This is a WIDE 16:9 LANDSCAPE marketing cover built on a REAL PHOTOGRAPH with flat graphic panels on top — it MUST include readable text rendered inside the image:
-- Main headline (dominant focal element, large bold legible typography): "${title}"
-- Use the SAME language(s) as the headline above — Thai, English, or a mix, exactly as written. Do NOT force one language and do NOT translate the title
-- TEXT BUDGET (hard limit): the whole image contains AT MOST 2 text elements — the headline above, plus an optional single-line sub-headline whose text must be EXACTLY "${keyword}" and nothing else. You may leave the sub-headline out entirely, but you may NEVER write your own words for it: any other phrase, slogan, benefit line or made-up wording is forbidden because invented text always comes out as broken glyphs. Nothing else in the image carries text
-- TEXT PLATE (hard limit): every text element sits on its own opaque solid-colour panel, band or pill painted in the article theme colours listed above (main block = theme colour, sub-headline band = a darker shade of the same theme colour), never directly on top of busy photographic detail — contrast must stay high and the letterforms must stay crisp
-- MINIMUM TEXT SIZE (hard limit): every single glyph in the image must be at least 5% of the image height (about 50px at 1024×1024). Small text is ALWAYS rendered as broken, misspelled glyphs, so if a label, badge, caption, footer strip, chip, or icon caption would end up smaller than that, DROP THE TEXT COMPLETELY and leave the icon or graphic element with no label at all. An unlabelled icon is always better than small broken text. This overrides any instruction above that asks for labelled icon rows, medallion captions, footer text bars, chips, tags, or body copy
-- THAI TYPOGRAPHY (when any Thai character appears): use a plain, modern Thai UI sans-serif (Noto Sans Thai / IBM Plex Sans Thai / Sarabun style). NO condensed, handwritten, script, outlined, 3D, distressed or decorative faces. No extra letter-spacing. Line height at least 1.6 so tone marks (วรรณยุกต์) and upper/lower vowels (สระบน/สระล่าง) have room and are never cut, merged, or collided
-- Render every character as clean, correctly-formed glyphs in whatever script is used — for Thai keep every tone mark and vowel attached to its own base letter in the correct position, for Latin spell every word correctly; never split, merge, duplicate, mirror, warp, or drop characters
+    ? `\n\nDESIGNED BANNER COVER (CRITICAL): This is a WIDE 16:9 LANDSCAPE article cover designed like an agency service banner — a real full-bleed PHOTOGRAPH with flat graphic panels, cards and typography composited on top. It MUST include readable text rendered inside the image:
+- TEXT INVENTORY (hard limit — these are the ONLY strings allowed anywhere in the image, copy them character-for-character):
+  · headline, the dominant element: "${title}"
+  · top-right circular badge: "อัปเดต ${CURRENT_YEAR}"${keyword.trim() ? `\n  · small keyword pill above the headline: "${keyword.trim()}" — but if that phrase already appears inside the headline, DROP the pill entirely and never draw it twice` : ''}${bannerCards.length ? `\n  · bottom card row, one single-line string per card, in this exact order: ${bannerCards.map((c) => `"${c}"`).join(' | ')}` : `\n  · no bottom card row at all — omit that band`}
+- Do NOT invent, translate, shorten, reorder or repeat any string, and never write a phrase twice in the image. No phone numbers, LINE ids, emails, URLs, company names, slogans, benefit lines, prices or filler words. Copy digits, decimal points and punctuation exactly
+- LAYOUT: left ~58% carries the headline stacked over 2–4 short lines, each line on its own opaque rounded-rectangle plate with a soft drop shadow, plates alternating between the theme colour with white type, white with dark type, and one accent-coloured plate for the line worth emphasising. Right ~35% carries a photorealistic cut-out person (or, if the topic has no people, the topic's hero object) lit to match the background. Bottom ~26% carries the card row: one single row only, never a second row, equal width, equal height, equal gaps, one flat icon in a coloured circle plus one short bold line of text per card, white rounded cards with soft shadows
+- LAYERING: the card row sits in front of everything, including the person — nothing may cover a card or any part of a card's text; every card must show its full string
+- MINIMUM TEXT SIZE (hard limit): every glyph in the image must be at least 4% of the image height. Small text is ALWAYS rendered as broken, misspelled glyphs, so if any label, caption, footer strip, chip or icon caption would end up smaller than that, DROP THE TEXT COMPLETELY and leave the icon with no label. An unlabelled icon is always better than small broken text
+- TEXT PLATE (hard limit): every text element sits on its own opaque solid-colour plate, band, pill or card, never directly over busy photographic detail — contrast stays high and letterforms stay crisp
+- THAI TYPOGRAPHY (when any Thai character appears): a plain, heavy, modern Thai sans-serif (Kanit / IBM Plex Sans Thai / Noto Sans Thai style). NO condensed, handwritten, script, outlined, 3D, distressed or decorative faces. No extra letter-spacing. Line height at least 1.6 so tone marks (วรรณยุกต์) and upper/lower vowels (สระบน/สระล่าง) have room and are never cut, merged or collided
+- Render every character as clean, correctly-formed glyphs — keep every Thai tone mark and vowel attached to its own base letter in the correct position, spell every Latin word correctly; never split, merge, duplicate, mirror, warp or drop characters, and never swap look-alike Thai consonants (ด/ต, ป/บ, ภ/ท)
 - Keep each Thai phrase on ONE unbroken line; never hyphenate Thai and never break a Thai word across lines. Break the headline into short lines of about 2–4 words each — short lines are rendered far more accurately than long ones
-- Do NOT invent text of your own: no phone numbers, LINE ids, emails, URLs, company names, slogans, benefit lines or filler words — the ONLY strings allowed anywhere in the image are the headline and (optionally) the exact keyword line above
-- Clean layout with clear hierarchy, text sitting on a calm uncluttered area; keep every character fully inside a safe margin of at least 8% from all four edges, never clipped by the frame or covered by graphic elements
+- NATURAL PHOTOGRAPHIC COLOUR (hard requirement): the photographic layer keeps true-to-life colour — sky stays blue (or a real golden-hour sky), skin stays natural, buildings and materials keep their real colours. The theme colour appears ONLY in the graphic layer and as a soft translucent gradient down the left side for legibility; never tint, duotone or colour-grade the whole frame toward the theme colour
+- SAFE MARGIN (hard requirement): every panel, card, badge and glyph sits fully inside a margin of at least 4% from all four edges — nothing clipped by the frame, no borders, no vignette text, no collage or split-screen layout, no watermark
 - Spell every word EXACTLY as provided — do not invent, translate, or misspell any text`
     : `\n\nNO TEXT (CRITICAL): This is an in-article illustration, not a cover. Render ZERO text: no headline, no article title, no labels, captions, chips, tags, numbers, units, logos, watermarks, signatures, and no text on screens, signs, or documents inside the scene. Tell the story with visuals only — objects, people, scenes, icons, graphic elements — keeping the style and colour palette from the brief. DETAIL (hard requirement): tack-sharp focus on the subject, rich micro-texture and real material surfaces, deliberate directional lighting with soft fill and a separating rim light, believable lens character (natural bokeh, fine grain) — editorial photography, never a CGI render, a stock cliché, or an AI-smooth plastic look. If the brief asks for a headline or captions, ignore that part.`
   const prompt = compiled + coverTextLine + orientationLine
