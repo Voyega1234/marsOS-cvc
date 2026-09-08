@@ -23,10 +23,10 @@
 
 import { PrismaClient } from '@prisma/client'
 import { writeFileSync } from 'fs'
-import { IMAGE_DEFAULT, IMAGE_DEFAULT_LEGACY, IMAGE_DEFAULT_POSTER, IMAGE_DEFAULT_PHOTO } from './_image-default-brief'
+import { IMAGE_DEFAULT, IMAGE_DEFAULT_LEGACY, IMAGE_DEFAULT_POSTER, IMAGE_DEFAULT_PHOTO, IMAGE_DEFAULT_BANNER_V1 } from './_image-default-brief'
 
 // ข้อความที่ถือว่า "เป็นค่า default ที่ระบบเคยเขียนไว้" (ไม่ใช่ของที่ทีมแก้เอง)
-const KNOWN_DEFAULTS = [IMAGE_DEFAULT_LEGACY, IMAGE_DEFAULT_POSTER, IMAGE_DEFAULT_PHOTO]
+const KNOWN_DEFAULTS = [IMAGE_DEFAULT_LEGACY, IMAGE_DEFAULT_POSTER, IMAGE_DEFAULT_PHOTO, IMAGE_DEFAULT_BANNER_V1]
 
 const prisma = new PrismaClient()
 
