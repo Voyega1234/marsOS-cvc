@@ -174,21 +174,68 @@ export async function callGeminiImage(params: {
 
   // การ์ดแถบล่างของปกแบนเนอร์ — ใช้หัวข้อจริงในบทความ (H2) ไม่ให้โมเดลคิดข้อความเอง
   // ข้อความยาวจะถูกวาดเป็นตัวเล็กแล้วสะกดเพี้ยน จึงตัดที่ขอบคำให้สั้นก่อนเสมอ
+  // เพดาน 20 ตัวอักษร (ลดจาก 26 เมื่อ 2026-09-08): สตริงยาวถูกวาดเป็นตัวเล็กแล้วตกตัวอักษร
+  // ("วงเงินเหมาจ่ายคืออะไร" → "วงเงินเหมาจ่ากอไร") — ตัดให้สั้นในโค้ดเท่านั้น
+  // ห้ามสั่งให้โมเดลตัดคำเอง: ทดสอบแล้วมันลามไปตัดคำในหัวเรื่องและตัดการ์ดหายทั้งใบ
+  const CARD_MAX_CHARS = 20
   const bannerCards = coverBullets
     .map((b) => b.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
-    .map((b) => (b.length <= 26 ? b : b.slice(0, 26).replace(/\s+\S*$/, '') || b.slice(0, 26)))
+    .map((b) => (b.length <= CARD_MAX_CHARS ? b : b.slice(0, CARD_MAX_CHARS).replace(/\s+\S*$/, '') || b.slice(0, CARD_MAX_CHARS)))
     .slice(0, 3)
+
+  // แตกหัวเรื่องเป็นบรรทัดสั้นให้เสร็จในโค้ด แล้วส่งเป็นสตริงต่อบรรทัด —
+  // ทดสอบจริงพบว่าถ้าปล่อยให้โมเดลตัดบรรทัดจากสตริงยาวเอง มันจะตกพยางค์
+  // ("ประกันสุขภาพเหมาจ่าย" → "ประกันสุขภาพเหมจ่าย") ส่วนสตริงสั้น ๆ สะกดถูกแทบทุกครั้ง
+  const headlineLines = (() => {
+    const LINE_CHARS = 22
+    const seg = (v: string): string[] => {
+      try {
+        const it = new Intl.Segmenter('th', { granularity: 'word' })
+        return Array.from(it.segment(v), (t: { segment: string }) => t.segment).filter((t) => t.trim())
+      } catch {
+        return [v]
+      }
+    }
+    // ตัดที่ช่องว่าง (ขอบวลีที่คนเขียนตั้งใจ) ก่อนเสมอ แล้วค่อยซอยวลีที่ยังยาวเกิน —
+    // การตัดกลางคำทำให้โมเดลทำพยางค์ที่โดดไปอยู่ต้นบรรทัดหล่นหาย ("เหมาจ่าย" → "เหมา")
+    const out: string[] = []
+    for (const phrase of title.trim().split(/\s+/).filter(Boolean)) {
+      if (phrase.length <= LINE_CHARS) { out.push(phrase); continue }
+      let cur = ''
+      for (const tok of seg(phrase)) {
+        if (cur && (cur + tok).length > LINE_CHARS) { out.push(cur); cur = tok }
+        else cur += tok
+      }
+      if (cur) out.push(cur)
+      // กันเศษท้ายโดด ๆ ("ที่สุด") ที่โมเดลชอบทำหาย — ยอมให้บรรทัดยาวเกินเพดานเล็กน้อยแทน
+      const tail = out[out.length - 1]
+      const prev = out[out.length - 2]
+      if (out.length >= 2 && tail.length <= 8 && (prev + tail).length <= LINE_CHARS + 6) {
+        out.splice(out.length - 2, 2, prev + tail)
+      }
+    }
+    return out.slice(0, 4)
+  })()
+
+  // ป้ายคีย์เวิร์ด: ตัดทิ้งในโค้ดเมื่อคำนี้อยู่ในหัวเรื่องแล้ว — ถ้าปล่อยให้โมเดลตัดสินเอง
+  // มันจะวาดทั้งป้ายและหัวเรื่อง แล้วลากตัวอักษรของสองชิ้นมาปนกันจนหัวเรื่องเพี้ยน (ทดสอบ 2026-09-08)
+  const normalizeThai = (v: string) => v.replace(/\s+/g, '').toLowerCase()
+  const keywordPill = keyword.trim() && !normalizeThai(title).includes(normalizeThai(keyword))
+    ? keyword.trim()
+    : ''
 
   // ข้อความทุกชิ้นที่อนุญาตให้ปรากฏบนปกแบนเนอร์ — โมเดลคัดลอกได้อย่างเดียว ห้ามแต่งเพิ่ม
   const coverTextInventory = [
     `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ข้อความบนภาพต้องเป็นสตริงต่อไปนี้เท่านั้น คัดลอกทีละตัวอักษร ห้ามเพิ่มข้อความอื่นใดในภาพ`,
-    `- หัวเรื่องหลัก (เด่นที่สุด ต้องแสดงครบทุกคำ): "${title}"`,
-    keyword.trim() ? `- ป้ายคีย์เวิร์ดเล็ก 1 ชิ้นเหนือหัวเรื่อง: "${keyword.trim()}" — ถ้าคำนี้ปรากฏอยู่ในหัวเรื่องหลักแล้ว ให้ตัดป้ายนี้ทิ้งไปเลย ไม่ต้องวาด` : '',
+    `- หัวเรื่องหลัก (เด่นที่สุด ต้องแสดงครบทุกคำ) แตกเป็น ${headlineLines.length} บรรทัด บรรทัดละ 1 แผง ตามลำดับนี้เป๊ะ ๆ ห้ามรวมบรรทัด ห้ามย้ายคำข้ามบรรทัด: ${headlineLines.map((l) => `"${l}"`).join(' / ')}`,
+    keywordPill ? `- ป้ายคีย์เวิร์ดเล็ก 1 ชิ้นเหนือหัวเรื่อง: "${keywordPill}"` : `- ไม่มีป้ายคีย์เวิร์ด ห้ามวาดป้ายคำใดเหนือหัวเรื่อง`,
     `- ตรามุมขวาบน: "อัปเดต ${CURRENT_YEAR}"`,
     bannerCards.length
       ? `- การ์ดแถบล่าง ${bannerCards.length} ใบ เรียงแถวเดียว ใบละ 1 ข้อความบรรทัดเดียว ตามลำดับนี้: ${bannerCards.map((c) => `"${c}"`).join(' | ')}`
       : `- ไม่มีการ์ดแถบล่าง ให้ตัดแถบการ์ดออกทั้งแถบ`,
+    `ทุกสตริงข้างต้นต้องปรากฏบนภาพครบทุกตัวอักษร ห้ามตัดคำใดออกจากหัวเรื่องหรือจากการ์ดเด็ดขาด จำนวนการ์ดต้องเท่ากับจำนวนสตริงที่ให้มาเป๊ะ ข้อความในการ์ดขึ้นได้ไม่เกิน 2 บรรทัด และทุกบรรทัดต้องสูงอย่างน้อย 4% ของความสูงภาพ`,
+    `แถบการ์ดต้องลอยอยู่เหนือขอบล่างของภาพ ขอบล่างของการ์ดทุกใบต้องห่างจากขอบภาพอย่างน้อย 4% ของความสูงภาพ ห้ามให้การ์ดชนขอบหรือถูกขอบภาพตัดแม้แต่ใบเดียว`,
     `ตัวอักษรทุกตัวในภาพต้องสูงอย่างน้อย 4% ของความสูงภาพ ถ้าข้อความไหนจะเล็กกว่านั้นให้ตัดข้อความนั้นทิ้งเหลือแต่ไอคอน ห้ามเติมคำอธิบายบรรทัดที่สองในการ์ด ห้ามตัดคำใดออกจากสตริงที่ให้ไว้ ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`,
   ].filter(Boolean).join('\n')
 
@@ -230,11 +277,13 @@ export async function callGeminiImage(params: {
     : type === 'cover'
     ? `\n\nDESIGNED BANNER COVER (CRITICAL): This is a WIDE 16:9 LANDSCAPE article cover designed like an agency service banner — a real full-bleed PHOTOGRAPH with flat graphic panels, cards and typography composited on top. It MUST include readable text rendered inside the image:
 - TEXT INVENTORY (hard limit — these are the ONLY strings allowed anywhere in the image, copy them character-for-character):
-  · headline, the dominant element: "${title}"
-  · top-right circular badge: "อัปเดต ${CURRENT_YEAR}"${keyword.trim() ? `\n  · small keyword pill above the headline: "${keyword.trim()}" — but if that phrase already appears inside the headline, DROP the pill entirely and never draw it twice` : ''}${bannerCards.length ? `\n  · bottom card row, one single-line string per card, in this exact order: ${bannerCards.map((c) => `"${c}"`).join(' | ')}` : `\n  · no bottom card row at all — omit that band`}
-- Do NOT invent, translate, shorten, reorder or repeat any string, and never write a phrase twice in the image. No phone numbers, LINE ids, emails, URLs, company names, slogans, benefit lines, prices or filler words. Copy digits, decimal points and punctuation exactly
-- LAYOUT: left ~58% carries the headline stacked over 2–4 short lines, each line on its own opaque rounded-rectangle plate with a soft drop shadow, plates alternating between the theme colour with white type, white with dark type, and one accent-coloured plate for the line worth emphasising. Right ~35% carries a photorealistic cut-out person (or, if the topic has no people, the topic's hero object) lit to match the background. Bottom ~26% carries the card row: one single row only, never a second row, equal width, equal height, equal gaps, one flat icon in a coloured circle plus one short bold line of text per card, white rounded cards with soft shadows
+  · headline, the dominant element, split into ${headlineLines.length} plates in exactly this order, one string per plate, never merged and never re-wrapped: ${headlineLines.map((l) => `"${l}"`).join(' / ')}
+  · top-right circular badge: "อัปเดต ${CURRENT_YEAR}"${keywordPill ? `\n  · small keyword pill above the headline: "${keywordPill}"` : `\n  · no keyword pill at all — draw no chip or label above the headline`}${bannerCards.length ? `\n  · bottom card row, one single-line string per card, in this exact order: ${bannerCards.map((c) => `"${c}"`).join(' | ')}` : `\n  · no bottom card row at all — omit that band`}
+- Do NOT invent, translate, shorten, truncate, drop words from, reorder or repeat any string, and never write a phrase twice in the image. No phone numbers, LINE ids, emails, URLs, company names, slogans, benefit lines, prices or filler words. Copy digits, decimal points and punctuation exactly
+- LAYOUT: left ~58% carries the headline stacked as the exact plate strings listed above, one plate per string, each on its own opaque rounded-rectangle plate with a soft drop shadow, plates alternating between the theme colour with white type, white with dark type, and one accent-coloured plate for the line worth emphasising. Right ~35% carries a photorealistic cut-out person (or, if the topic has no people, the topic's hero object) lit to match the background. Bottom ~26% carries the card row, floating clear of the bottom edge: one single row only, never a second row, equal width, equal height, equal gaps, one flat icon in a coloured circle plus one short bold line of text per card, white rounded cards with soft shadows
 - LAYERING: the card row sits in front of everything, including the person — nothing may cover a card or any part of a card's text; every card must show its full string
+- CARD BAND POSITION (hard limit): the whole card row floats clear of the bottom edge — the bottom of every card is at least 4% of the image height above the frame bottom, and no card is ever cropped, bled off, or flush with the edge
+- CARD TEXT (hard limit): every provided string appears complete — never drop, shorten or abbreviate a word anywhere in the image, headline included, and draw exactly as many cards as there are strings. A card string may wrap onto at most 2 lines; both lines stay at full size (at least 4% of the image height). Make the cards wider and the band taller if that is what it takes to fit the text at full size
 - MINIMUM TEXT SIZE (hard limit): every glyph in the image must be at least 4% of the image height. Small text is ALWAYS rendered as broken, misspelled glyphs, so if any label, caption, footer strip, chip or icon caption would end up smaller than that, DROP THE TEXT COMPLETELY and leave the icon with no label. An unlabelled icon is always better than small broken text
 - TEXT PLATE (hard limit): every text element sits on its own opaque solid-colour plate, band, pill or card, never directly over busy photographic detail — contrast stays high and letterforms stay crisp
 - THAI TYPOGRAPHY (when any Thai character appears): a plain, heavy, modern Thai sans-serif (Kanit / IBM Plex Sans Thai / Noto Sans Thai style). NO condensed, handwritten, script, outlined, 3D, distressed or decorative faces. No extra letter-spacing. Line height at least 1.6 so tone marks (วรรณยุกต์) and upper/lower vowels (สระบน/สระล่าง) have room and are never cut, merged or collided
