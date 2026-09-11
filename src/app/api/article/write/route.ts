@@ -7,6 +7,7 @@ import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, type ArticleStyleMode } from '@/lib/articleComponents'
+import { sampleForPrompt } from '@/lib/articleSample'
 import { buildAuthorCardHtml, DEFAULT_AUTHOR_CARD_STYLE, normalizeAuthorCardStyle, type AuthorCardStyle } from '@/lib/articleAuthorCard'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
@@ -191,7 +192,7 @@ cover_image_alt: [alt text ภาษาไทยของภาพหน้า�
 `
 
   const sampleBlock = opts.sampleArticle
-    ? `\n==================================================\nEXAMPLE ARTICLE (ใช้เป็น pattern สำหรับโปรเจคนี้ — ทำตาม structure, tone, style ทุกอย่าง)\n==================================================\n${opts.sampleArticle.slice(0, 6000)}\n\n--- END OF EXAMPLE ---\n`
+    ? `\n==================================================\nEXAMPLE ARTICLE (ใช้เป็น pattern สำหรับโปรเจคนี้ — ทำตาม structure, tone, style ทุกอย่าง)\n==================================================\n${sampleForPrompt(opts.sampleArticle).slice(0, 6000)}\n\n--- END OF EXAMPLE ---\n`
     : ''
 
   const ctaBlock = buildCtaBlock(opts.cta)

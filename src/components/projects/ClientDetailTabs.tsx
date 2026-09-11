@@ -37,6 +37,8 @@ import { ProjectSetupChecklist } from '@/components/projects/ProjectSetupCheckli
 import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGapTab'
 import { LabSiteScanCard } from '@/components/projects/workspace/LabSiteScanCard'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
+import { stripInlineImages } from '@/lib/articleSample'
+import { downscaleDataUrl, fileToDownscaledDataUrl } from '@/lib/imageDownscale'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -5291,6 +5293,16 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   async function persistSettings(includeSample: boolean) {
     const words = forbiddenWords.split('\n').map((w: string) => w.trim()).filter(Boolean)
     const links = parseInternalLinks()
+    // รูปผู้เขียน/CTA ที่อัปโหลดไว้ก่อนมีการย่อรูป อาจเป็น base64 หลาย MB — ย่อก่อนส่งทุกครั้ง
+    const slimAuthors = await Promise.all(authors.map(async a => (
+      a.image ? { ...a, image: await downscaleDataUrl(a.image, 512) } : a
+    )))
+    const slimCta: CtaSettings = {
+      ...cta,
+      channels: await Promise.all(cta.channels.map(async c => (
+        c.imageUrl ? { ...c, imageUrl: await downscaleDataUrl(c.imageUrl, 600) } : c
+      ))),
+    }
     const common = {
       styleGuide,
       projectContext,
@@ -5299,21 +5311,34 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
       themeColors: JSON.stringify({ ...articleColors, elements: elementStyles }),
       forbiddenWords: JSON.stringify(words),
       internalLinks: JSON.stringify(links),
-      ctaSetting: JSON.stringify(cta),
+      ctaSetting: JSON.stringify(slimCta),
       authorEnabled,
     }
-    const body: Record<string, unknown> = { ...common, authors }
-    if (includeSample && html) body.sampleArticle = html
+    // บทความตัวอย่างจาก Generate มีรูปฝังเป็น base64 — ตัดออก เก็บแค่โครงบทความไว้เป็น Pattern
+    const sample = includeSample && html ? stripInlineImages(html) : ''
+    const body: Record<string, unknown> = { ...common, authors: slimAuthors }
+    if (sample) body.sampleArticle = sample
+    const payload = JSON.stringify(body)
+    // Vercel รับ request body ได้ไม่เกิน 4.5MB — เกินแล้วจะตอบ 413 ก่อนถึงโค้ดเรา
+    if (payload.length > 4_000_000) {
+      throw new Error(`ข้อมูลใหญ่เกินไป (${(payload.length / 1_000_000).toFixed(1)}MB) — ลองลดรูปผู้เขียน/รูป CTA หรือข้อความ Style Guide`)
+    }
     const res = await fetch(`/api/projects/${project.id}/style`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: payload,
     })
-    if (!res.ok) throw new Error('บันทึกค่า Article Lab ไม่สำเร็จ')
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null)
+      if (res.status === 413) throw new Error('ข้อมูลใหญ่เกินไป เซิร์ฟเวอร์ไม่รับ — ลองลดรูปผู้เขียน/รูป CTA')
+      throw new Error(`บันทึกค่า Article Lab ไม่สำเร็จ (${detail?.error ?? `HTTP ${res.status}`})`)
+    }
+    setAuthors(slimAuthors)
+    setCta(slimCta)
     onSaved({
       ...common,
-      authors: JSON.stringify(authors),
-      ...(includeSample && html ? { sampleArticle: html } : {}),
+      authors: JSON.stringify(slimAuthors),
+      ...(sample ? { sampleArticle: sample } : {}),
     })
   }
 
@@ -5322,7 +5347,11 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
     try {
       await persistSettings(true)
       setSaved(true)
+      toast.success('บันทึกค่า Article Lab แล้ว')
       setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      // เดิมไม่มี catch — บันทึกพังแล้วปุ่มแค่เด้งกลับ ผู้ใช้ไม่รู้ว่าไม่ได้บันทึก
+      toast.error(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
@@ -5518,7 +5547,11 @@ ${cover}${html}
         onSaved({ internalLinks: payload })
         setIlSaved(true)
         setTimeout(() => setIlSaved(false), 2500)
+      } else {
+        toast.error(`บันทึก Internal Link ไม่สำเร็จ (HTTP ${res.status})`)
       }
+    } catch (e) {
+      toast.error(`บันทึก Internal Link ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setIlSaving(false)
     }
@@ -6039,12 +6072,9 @@ ${cover}${html}
                                       onChange={e => {
                                         const file = e.target.files?.[0]
                                         if (!file) return
-                                        const reader = new FileReader()
-                                        reader.onload = ev => {
-                                          const url = ev.target?.result as string
-                                          setCta(p => ({ ...p, channels: p.channels.map(c => c.type === ch.type ? { ...c, imageUrl: url } : c) }))
-                                        }
-                                        reader.readAsDataURL(file)
+                                        fileToDownscaledDataUrl(file, 600)
+                                          .then(url => setCta(p => ({ ...p, channels: p.channels.map(c => c.type === ch.type ? { ...c, imageUrl: url } : c) })))
+                                          .catch(err => toast.error(err instanceof Error ? err.message : String(err)))
                                         e.target.value = ''
                                       }}
                                     />
@@ -6170,11 +6200,11 @@ ${cover}${html}
                           type="file" accept="image/*" className="hidden"
                           onChange={e => {
                             const file = e.target.files?.[0]; if (!file) return
-                            const reader = new FileReader()
-                            reader.onload = ev => setAuthors(prev => prev.map(a =>
-                              a.id === author.id ? { ...a, image: ev.target?.result as string ?? '' } : a
-                            ))
-                            reader.readAsDataURL(file)
+                            fileToDownscaledDataUrl(file, 512)
+                              .then(url => setAuthors(prev => prev.map(a =>
+                                a.id === author.id ? { ...a, image: url } : a
+                              )))
+                              .catch(err => toast.error(err instanceof Error ? err.message : String(err)))
                           }}
                         />
                       </div>
