@@ -11,8 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { BUSINESS_SKILL_CARDS, RISK_OPTIONS, STATUS_OPTIONS } from "./constants";
+import { BusinessSkillScanCard, mergeScanIntoSkill, suggestNaming, type ScanMergeMode } from "./BusinessSkillScanCard";
 import { ObjectCardForm, RepeatableCardForm, computeCompleteness } from "./FieldRenderer";
 import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, StatusBadge } from "./shared";
+import type { BusinessSkillScanResult } from "@/lib/business-skill-scan";
 import type { BusinessSkillData, CEMode, CEScope, PromptRow } from "./types";
 import { CE_TYPES, emptyBusinessSkill, scopeProjectId, tryParse } from "./types";
 
@@ -97,6 +99,15 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
   function startFreshForm() {
     setDraft({ ...draft, mode: "form", data: emptyBusinessSkill() });
     setRawToFormNotice(false);
+  }
+
+  // สแกนเว็บ → เติมฟอร์ม (ร่างเท่านั้น ยังไม่บันทึกจนกว่าทีมกดบันทึก)
+  function applyScan(scan: BusinessSkillScanResult, mode: ScanMergeMode) {
+    setDraft((d) => ({
+      ...d,
+      ...suggestNaming(d.name, d.description, scan),
+      data: mergeScanIntoSkill(d.data, scan.draft, mode),
+    }));
   }
 
   async function call(url: string, init: RequestInit, label: string) {
@@ -327,6 +338,20 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
               <p className="mt-2 text-xs text-gray-400">Completeness: {completeness}%</p>
             )}
           </div>
+
+          {canEdit && !locked && draft.mode === "form" && (
+            <BusinessSkillScanCard
+              key={selectedId ?? "new"}
+              projectId={scopeProjectId(scope)}
+              initialUrl={draft.data.businessProfile?.website ?? ""}
+              onApply={applyScan}
+            />
+          )}
+          {canEdit && !locked && draft.mode === "raw" && (
+            <p className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs text-gray-400">
+              สลับเป็นโหมดฟอร์มก่อน ถึงจะใช้ “กรอกอัตโนมัติจากเว็บไซต์” ได้
+            </p>
+          )}
 
           {draft.mode === "form" && (
             <CompiledPromptPanel
