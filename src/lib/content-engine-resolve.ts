@@ -11,6 +11,7 @@
 //    Content Engine ก่อน (ดู resolveContentEngine.missing)
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { CE_COMPILED_KEY } from "@/lib/ce-compiled-fields";
 import { prisma } from "@/lib/prisma";
 
 export interface ResolvedLayer {
@@ -158,6 +159,14 @@ function renderImagePrompt(raw: string): string {
   return text || raw;
 }
 
+/** ดึง _compiledPrompt ออกจาก promptText ที่เป็น JSON ของฟอร์ม (ไม่ใช่ JSON → null) */
+function readCompiledText(raw: string): string | null {
+  const d = tryParse(raw);
+  if (!d) return null;
+  const v = d[CE_COMPILED_KEY];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
 const RENDERERS: Record<string, (raw: string) => string> = {
   CE_BUSINESS_SKILL: renderBusinessSkill,
   CE_MASTER_PROMPT: renderMasterPrompt,
@@ -179,6 +188,10 @@ interface CERow {
 
 function toLayer(row: CERow | undefined | null): ResolvedLayer | null {
   if (!row) return null;
+  // โหมดกรอกฟอร์มที่ compile แล้ว → ใช้ prompt ที่เรียบเรียงไว้แทนบรรทัด key: value
+  // (คำสั่งเจ้าของ 2026-09-11 — ดู src/lib/ce-compile.ts)
+  const compiled = readCompiledText(row.promptText);
+  if (compiled) return { id: row.id, name: row.name, version: row.version, text: compiled };
   const render = RENDERERS[row.type] ?? ((t: string) => t);
   const text = render(row.promptText).trim();
   if (!text) return null;

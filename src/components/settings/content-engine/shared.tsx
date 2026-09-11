@@ -1,7 +1,12 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Loader2, Sparkles, Trash2, X } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { isCompiledStale, readCompiled, withCompiled, CE_COMPILED_KEY, CE_COMPILED_AT_KEY, CE_COMPILED_SOURCE_KEY } from "@/lib/ce-compiled-fields";
 import { cn } from "@/lib/utils";
 import { STATUS_COLORS, RISK_COLORS } from "./constants";
 import type { CEMode, CEStatus, RiskLevel } from "./types";
@@ -168,4 +173,124 @@ export function Drawer({
 export function completeness(filled: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((filled / total) * 100);
+}
+
+/**
+ * แผง "Prompt ที่เรียบเรียงแล้ว" ของโหมดกรอกฟอร์ม
+ *
+ * คำตอบจากฟอร์มถูกส่งไปให้ LLM เรียบเรียงเป็น prompt เต็มหนึ่งครั้ง แล้วเก็บไว้ในชั้นเดิม
+ * ตอนเขียนบทความระบบใช้ข้อความนี้แทนบรรทัด key: value (ดู src/lib/ce-compile.ts)
+ */
+export function CompiledPromptPanel({
+  promptId,
+  data,
+  canEdit,
+  locked,
+  onChange,
+}: {
+  /** id ของแถวที่บันทึกแล้ว — ยังไม่บันทึกจะ compile ไม่ได้ */
+  promptId: string | null;
+  data: Record<string, unknown>;
+  canEdit: boolean;
+  locked: boolean;
+  onChange: (next: Record<string, unknown>) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const compiled = readCompiled(data);
+  const stale = isCompiledStale(data);
+
+  async function compile() {
+    if (!promptId) {
+      toast.error("บันทึกชั้นนี้ก่อน แล้วค่อยสั่งเรียบเรียง");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/prompts/${promptId}/compile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ promptText: JSON.stringify(data) }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+      onChange(withCompiled(data, String(body.compiled ?? "")));
+      setOpen(true);
+      toast.success("เรียบเรียงเป็น Prompt เต็มแล้ว");
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function clear() {
+    const next = { ...data };
+    delete next[CE_COMPILED_KEY];
+    delete next[CE_COMPILED_AT_KEY];
+    delete next[CE_COMPILED_SOURCE_KEY];
+    onChange(next);
+    setOpen(false);
+    toast.success("ลบผลเรียบเรียงแล้ว — กลับไปใช้คำตอบฟอร์มตรง ๆ");
+  }
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-brand-navy">Prompt ที่ใช้จริงตอนเขียนบทความ</h3>
+          <p className="mt-0.5 text-xs text-gray-500">
+            {compiled
+              ? stale
+                ? "คำตอบในฟอร์มถูกแก้หลังเรียบเรียงครั้งล่าสุด — สั่งเรียบเรียงใหม่ให้ตรงกัน"
+                : "ระบบจะส่งข้อความนี้ให้ AI นักเขียนแทนคำตอบดิบจากฟอร์ม"
+              : "ยังไม่ได้เรียบเรียง — ตอนนี้ระบบส่งคำตอบจากฟอร์มเป็นบรรทัด key: value ซึ่งได้ผลสู้ prompt เต็มไม่ได้"}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {compiled && (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                stale ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700",
+              )}
+            >
+              {stale ? "ล้าสมัย" : "พร้อมใช้"}
+            </span>
+          )}
+          {canEdit && !locked && (
+            <Button size="sm" variant={compiled && !stale ? "outline" : "default"} className="gap-1.5" disabled={busy} onClick={compile}>
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+              {compiled ? "เรียบเรียงใหม่" : "เรียบเรียงเป็น Prompt เต็ม"}
+            </Button>
+          )}
+          {compiled && (
+            <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}>
+              {open ? "ซ่อน" : "ดู/แก้"}
+            </Button>
+          )}
+          {compiled && canEdit && !locked && (
+            <Button size="sm" variant="outline" className="gap-1.5 text-red-600" disabled={busy} onClick={clear}>
+              <Trash2 className="size-3.5" />
+              ลบ
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {compiled && open && (
+        <>
+          <Textarea
+            value={compiled}
+            disabled={!canEdit || locked}
+            onChange={(e) => onChange({ ...data, [CE_COMPILED_KEY]: e.target.value })}
+            className="mt-3 min-h-[260px] text-xs"
+          />
+          <p className="mt-2 text-xs text-gray-400">
+            แก้ข้อความตรงนี้ได้ตามต้องการ ระบบใช้ข้อความในกล่องนี้ตามที่เห็น กด &quot;บันทึก&quot; ด้านบนเพื่อเก็บ
+          </p>
+        </>
+      )}
+    </div>
+  );
 }

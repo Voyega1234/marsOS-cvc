@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ARTICLE_BRIEF_CARDS, CONTENT_TYPES, STATUS_OPTIONS } from "./constants";
 import { ObjectCardForm, computeCompleteness } from "./FieldRenderer";
-import { EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, StatusBadge } from "./shared";
+import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, StatusBadge } from "./shared";
 import type { ArticleBriefData, CEMode, CEScope, PromptRow } from "./types";
 import { CE_TYPES, emptyArticleBrief, scopeProjectId, tryParse } from "./types";
 
@@ -245,7 +245,7 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
                     {selected.isActive ? "ปิดใช้งาน" : "ใช้ชุดนี้"}
                   </Button>
                 )}
-                {canEdit && locked && (
+                {canEdit && selected && (
                   <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={cloneAsDraft}>
                     {busy === "clone" ? <Loader2 className="size-3.5 animate-spin" /> : <Copy className="size-3.5" />}
                     Clone เป็น Draft ใหม่
@@ -298,6 +298,16 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
             </div>
             {draft.mode === "form" && <p className="mt-2 text-xs text-gray-400">Completeness: {completeness}%</p>}
           </div>
+
+          {draft.mode === "form" && (
+            <CompiledPromptPanel
+              promptId={selectedId}
+              data={draft.data as unknown as Record<string, unknown>}
+              canEdit={canEdit}
+              locked={locked}
+              onChange={(next) => setDraft({ ...draft, data: next as unknown as typeof draft.data })}
+            />
+          )}
 
           {draft.mode === "raw" ? (
             <div className="rounded-2xl border border-gray-200 bg-white p-4">

@@ -18,7 +18,7 @@ import {
   RISK_OPTIONS,
   STATUS_OPTIONS,
 } from "./constants";
-import { EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge } from "./shared";
+import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge } from "./shared";
 import type { CEMode, CEScope, MasterPromptData, PromptRow } from "./types";
 import { CE_TYPES, emptyMasterPrompt, scopeProjectId, tryParse } from "./types";
 
@@ -311,7 +311,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                     {selected.isActive ? "ปิดใช้งาน" : "ใช้ชุดนี้"}
                   </Button>
                 )}
-                {canEdit && locked && (
+                {canEdit && selected && (
                   <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={cloneAsDraft}>
                     {busy === "clone" ? <Loader2 className="size-3.5 animate-spin" /> : <Copy className="size-3.5" />}
                     Clone เป็น Draft ใหม่
@@ -386,6 +386,16 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               </div>
             </div>
           </div>
+
+          {draft.mode === "form" && (
+            <CompiledPromptPanel
+              promptId={selectedId}
+              data={draft.data as unknown as Record<string, unknown>}
+              canEdit={canEdit}
+              locked={locked}
+              onChange={(next) => setDraft({ ...draft, data: next as unknown as typeof draft.data })}
+            />
+          )}
 
           {draft.mode === "raw" ? (
             <div className="rounded-2xl border border-gray-200 bg-white p-4">
