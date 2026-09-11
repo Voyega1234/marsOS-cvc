@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { timelineEntries } from "@/lib/project-timeline";
+import { parseTimeline, type TimelinePlan } from "@/lib/project-timeline";
 import { CalendarClient } from "@/components/calendar/CalendarClient";
 
 export const metadata: Metadata = { title: "Content Calendar" };
@@ -37,10 +37,13 @@ export default async function CalendarPage() {
   });
 
   // Flatten timeline entries → CalendarClient article shape
+  // sourceProjectId + entryIndex ทำให้หน้าปฏิทินเขียนวันกลับเข้า timeline ของโปรเจกต์ได้ตรงรายการ
   const articles = projects.flatMap((p) => {
-    const entries = timelineEntries<TimelineEntry>((p as any).timeline);
+    const entries = parseTimeline<TimelineEntry>(p.timeline).entries;
     return entries.map((e, idx) => ({
       id: `${p.id}-${idx}`,
+      sourceProjectId: p.id,
+      entryIndex: idx,
       title: e.title || e.keyword,
       status: STATUS_MAP[e.articleStatus] ?? "NEW",
       funnelStage: e.funnel ?? "TOFU",
@@ -52,10 +55,14 @@ export default async function CalendarPage() {
     }));
   });
 
+  // ช่วงเวลาทำงานที่ทีมตั้งไว้ในหน้า Project Timeline — ใช้จำกัดวันที่เลือกได้ในปฏิทิน
+  const plans: Record<string, TimelinePlan> = {};
+  for (const p of projects) plans[p.id] = parseTimeline(p.timeline).plan;
+
   const projectList = projects.map((p) => ({
     id: p.id,
     name: p.clientName ?? p.name,
   }));
 
-  return <CalendarClient articles={articles as never} projects={projectList} />;
+  return <CalendarClient articles={articles as never} projects={projectList} plans={plans} />;
 }

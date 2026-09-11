@@ -5,9 +5,19 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, CalendarDays, List, Plus, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  EMPTY_PLAN,
+  planViolation,
+  timelineEntries,
+  type TimelinePlan,
+} from "@/lib/project-timeline";
 
 type ArticleRow = {
   id: string;
+  /** โปรเจกต์ต้นทางของรายการนี้ใน Project.timeline */
+  sourceProjectId: string;
+  /** ตำแหน่งของรายการใน timeline.entries ของโปรเจกต์นั้น */
+  entryIndex: number;
   title: string;
   status: string;
   funnelStage: string;
@@ -55,9 +65,12 @@ const DAY_TH   = ["จ","อ","พ","พฤ","ศ","ส","อา"];
 export function CalendarClient({
   articles,
   projects,
+  plans,
 }: {
   articles: ArticleRow[];
   projects: ProjectRow[];
+  /** ช่วงเวลาทำงานของแต่ละโปรเจกต์ (คีย์คือ project id) */
+  plans?: Record<string, TimelinePlan>;
 }) {
   const now = new Date();
   const [year, setYear]   = useState(now.getFullYear());
@@ -113,16 +126,37 @@ export function CalendarClient({
     else setMonth(m => m + 1);
   }
 
-  async function saveSchedule(articleId: string) {
+  function planOf(projectId: string): TimelinePlan {
+    return plans?.[projectId] ?? EMPTY_PLAN;
+  }
+
+  /**
+   * เขียนวันเผยแพร่กลับเข้า Project.timeline ของโปรเจกต์ต้นทาง
+   * (รายการในปฏิทินนี้มาจาก timeline ไม่ใช่ตาราง Article จึงอัปเดตผ่าน /api/projects/[id])
+   * วันที่ต้องอยู่ในช่วงงานที่ทีมตั้งไว้ในหน้า Project Timeline
+   */
+  async function saveSchedule(row: ArticleRow) {
     if (!dateInput) return;
+    const violation = planViolation(planOf(row.sourceProjectId), dateInput);
+    if (violation) {
+      toast.error(`เลือกวันนี้ไม่ได้ — ${violation} ของโปรเจกต์ แก้ช่วงเวลาได้ที่หน้า Project Timeline`);
+      return;
+    }
     setSaving(true);
     try {
-      const res = await fetch(`/api/articles/${articleId}`, {
+      const res = await fetch(`/api/projects/${row.sourceProjectId}`);
+      if (!res.ok) throw new Error();
+      const proj = await res.json();
+      const entries = timelineEntries<Record<string, unknown>>(proj?.timeline);
+      const entry = entries[row.entryIndex];
+      if (!entry) throw new Error();
+      entries[row.entryIndex] = { ...entry, date: dateInput };
+      const save = await fetch(`/api/projects/${row.sourceProjectId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduledAt: new Date(dateInput).toISOString() }),
+        body: JSON.stringify({ timeline: { entries } }),
       });
-      if (!res.ok) throw new Error();
+      if (!save.ok) throw new Error();
       toast.success("กำหนดวันเผยแพร่แล้ว");
       // Optimistic update — reload page to reflect
       window.location.reload();
@@ -323,12 +357,20 @@ export function CalendarClient({
                         <input
                           type="date"
                           value={dateInput}
+                          min={planOf(a.sourceProjectId).startDate ?? undefined}
+                          max={planOf(a.sourceProjectId).endDate ?? undefined}
                           onChange={(e) => setDateInput(e.target.value)}
                           className="w-full text-xs border border-gray-100 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-400/30"
                         />
+                        {(planOf(a.sourceProjectId).startDate || planOf(a.sourceProjectId).endDate) && (
+                          <p className="text-[10px] text-gray-400">
+                            ช่วงงานโปรเจกต์ {planOf(a.sourceProjectId).startDate ?? "ไม่กำหนด"} ถึง{" "}
+                            {planOf(a.sourceProjectId).endDate ?? "ไม่กำหนด"}
+                          </p>
+                        )}
                         <div className="flex gap-1.5">
                           <button
-                            onClick={() => saveSchedule(a.id)}
+                            onClick={() => saveSchedule(a)}
                             disabled={saving || !dateInput}
                             className="flex-1 text-xs font-semibold bg-green-600 text-white py-1 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
                           >
