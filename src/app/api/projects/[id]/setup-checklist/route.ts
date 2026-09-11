@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { timelineEntries } from '@/lib/project-timeline'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
 
 export interface ChecklistItem {
@@ -60,7 +61,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   const authorsList = parse(p.authors, []) as unknown[]
   const authorOk = !!p.authorEnabled && authorsList.length > 0
   const keywordRows = parse(p.keywordRows, []) as unknown[]
-  const timeline = parse(p.timeline, []) as unknown[]
+  const timeline = timelineEntries(p.timeline)
 
   const items: ChecklistItem[] = [
     {

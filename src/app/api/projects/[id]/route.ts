@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
+import { mergeTimelineWrite } from "@/lib/project-timeline";
 import { logActivity } from "@/lib/logActivity";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
@@ -32,7 +33,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const orgId = session!.user.organizationId;
-  const existing = await prisma.project.findFirst({ where: { id: params.id, organizationId: orgId }, select: { id: true } });
+  const existing = await prisma.project.findFirst({ where: { id: params.id, organizationId: orgId }, select: { id: true, timeline: true } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
@@ -48,6 +49,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     "styleGuide", "accentColor", "articleTheme", "forbiddenWords", "sampleArticle"];
   const data: Record<string, unknown> = {};
   for (const key of allowed) { if (key in body) data[key] = body[key]; }
+  // timeline เก็บทั้งช่วงเวลาโปรเจกต์ (plan) และรายการบทความ — normalize ให้อยู่รูปเดียวเสมอ
+  // และถ้าผู้เรียกส่งมาแค่ array ให้คง plan เดิมไว้ (ดู src/lib/project-timeline.ts)
+  if ("timeline" in data) data.timeline = mergeTimelineWrite(existing.timeline, data.timeline);
 
   const project = await prisma.project.update({ where: { id: params.id }, data });
   const skipLog = Object.keys(data).length === 1 && ('timeline' in data || 'autoSchedule' in data)

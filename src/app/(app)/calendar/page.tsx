@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { timelineEntries } from "@/lib/project-timeline";
 import { CalendarClient } from "@/components/calendar/CalendarClient";
 
 export const metadata: Metadata = { title: "Content Calendar" };
@@ -37,8 +38,7 @@ export default async function CalendarPage() {
 
   // Flatten timeline entries → CalendarClient article shape
   const articles = projects.flatMap((p) => {
-    let entries: TimelineEntry[] = [];
-    try { entries = JSON.parse((p as any).timeline || "[]"); } catch { /* ignore */ }
+    const entries = timelineEntries<TimelineEntry>((p as any).timeline);
     return entries.map((e, idx) => ({
       id: `${p.id}-${idx}`,
       title: e.title || e.keyword,

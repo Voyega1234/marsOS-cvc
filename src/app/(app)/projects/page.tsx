@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { timelineEntries } from "@/lib/project-timeline";
 import { CreateProjectButton } from "@/components/projects/CreateProjectButton";
 import ProjectsTable from "@/components/projects/ProjectsTable";
 
@@ -91,8 +92,7 @@ export default async function ProjectsPage() {
 
   const projects = rawProjects.map((p) => {
     // Build statusMap from timeline JSON (new system) + Article model (legacy)
-    let timeline: TimelineEntry[] = []
-    try { timeline = JSON.parse((p as any).timeline || '[]') } catch { /* ignore */ }
+    const timeline = timelineEntries<TimelineEntry>((p as any).timeline)
 
     const timelineStats = { total: 0, writing: 0, review: 0, approved: 0, pushed: 0 }
     const workload = {

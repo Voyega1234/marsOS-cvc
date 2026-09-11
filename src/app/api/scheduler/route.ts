@@ -12,6 +12,7 @@ import { getSession } from '@/lib/auth'
 import { clientCanAccessProject } from '@/lib/client-access'
 import { prisma } from '@/lib/prisma'
 import { logActivity } from '@/lib/logActivity'
+import { mergeTimelineWrite, timelineEntries } from '@/lib/project-timeline'
 
 interface TimelineEntry {
   date: string        // YYYY-MM-DD
@@ -38,8 +39,8 @@ export async function GET(req: NextRequest) {
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const today = new Date().toISOString().slice(0, 10)
-  let timeline: TimelineEntry[] = []
-  try { timeline = JSON.parse(project.timeline || '[]') } catch { timeline = [] }
+  // Project.timeline อาจเป็น array เก่า หรือ object { plan, entries } แบบใหม่
+  const timeline: TimelineEntry[] = timelineEntries<TimelineEntry>(project.timeline)
 
   // Return entries due today or earlier that are still pending
   // keywordRows are NOT included here — use GET /api/projects/[id]/keywords-cache instead
@@ -60,12 +61,13 @@ export async function PATCH(req: NextRequest) {
 
   const existing = await prisma.project.findFirst({
     where: { id: projectId, organizationId: session.user.organizationId },
-    select: { id: true },
+    select: { id: true, timeline: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const data: Record<string, unknown> = {}
-  if (timeline !== undefined) data.timeline = JSON.stringify(timeline)
+  // ตัวเขียนเดิมส่ง array มาอย่างเดียว — merge เพื่อไม่ให้ช่วงเวลาโปรเจกต์ (plan) หาย
+  if (timeline !== undefined) data.timeline = mergeTimelineWrite(existing.timeline, timeline)
   if (autoSchedule !== undefined) data.autoSchedule = autoSchedule
   // keywordRows must be saved via PATCH /api/projects/[id]/keywords-cache — not here
 
@@ -73,7 +75,7 @@ export async function PATCH(req: NextRequest) {
 
   // Log timeline generate/clear (skip routine autoSchedule-only saves)
   if (timeline !== undefined) {
-    const tl = Array.isArray(timeline) ? timeline : []
+    const tl = timelineEntries(data.timeline)
     const action = tl.length === 0 ? 'CLEAR_TIMELINE' : 'GENERATE_TIMELINE'
     logActivity({ organizationId: session.user.organizationId, userId: session.user.id, action, entityType: 'Project', entityId: projectId, newValue: tl.length > 0 ? `${tl.length} entries` : undefined }).catch(() => {})
   }

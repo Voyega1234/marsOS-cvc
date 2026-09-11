@@ -21,6 +21,7 @@ import type {
   SeoTaskArea,
   SeoTaskPriority,
 } from "@/lib/seo-check-templates";
+import { EMPTY_PLAN, parseTimeline, type TimelinePlan } from "@/lib/project-timeline";
 import { notifySeoTaskChange, useSeoTaskSync } from "./useSeoTaskSync";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,6 +125,8 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
   const [evidencePromptTask, setEvidencePromptTask] = useState<SeoTask | null>(null);
   const [seedingTemplates, setSeedingTemplates] = useState(false);
   const instanceId = useId(); // กันไม่ให้ตัวเอง refetch ซ้ำจาก event ที่ตัวเองแจ้ง
+  // ช่วงเวลาโปรเจกต์จากหน้า Project Timeline — ใช้จำกัดวันกำหนดส่งของงาน SEO
+  const [plan, setPlan] = useState<TimelinePlan>(EMPTY_PLAN);
 
   const fetchTasks = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -143,6 +146,19 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/projects/${projectId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d) setPlan(parseTimeline(d.timeline).plan);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   // sync ข้ามหน้า/แท็บ/หน้าต่าง — refetch เงียบ ๆ ไม่ให้ skeleton กระพริบ
   const quietRefetch = useCallback(() => fetchTasks(true), [fetchTasks]);
@@ -395,6 +411,7 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
       {drawerTask && (
         <TaskDrawer
           task={drawerTask}
+          plan={plan}
           readOnly={readOnly}
           onClose={() => setDrawerTaskId(null)}
           onSave={async (patch) => {
@@ -833,11 +850,13 @@ function CategorySection({
 
 function TaskDrawer({
   task,
+  plan,
   readOnly,
   onClose,
   onSave,
 }: {
   task: SeoTask;
+  plan: TimelinePlan;
   readOnly: boolean;
   onClose: () => void;
   onSave: (patch: Record<string, unknown>) => void;
@@ -955,9 +974,16 @@ function TaskDrawer({
               type="date"
               value={dueDate}
               disabled={readOnly}
+              min={plan.startDate ?? undefined}
+              max={plan.endDate ?? undefined}
               onChange={(e) => setDueDate(e.target.value)}
               className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
             />
+            {(plan.startDate || plan.endDate) && (
+              <p className="mt-1 text-[11px] text-gray-400">
+                ต้องอยู่ในช่วงงานโปรเจกต์ {plan.startDate ?? "ไม่กำหนด"} ถึง {plan.endDate ?? "ไม่กำหนด"}
+              </p>
+            )}
           </div>
 
           <div>

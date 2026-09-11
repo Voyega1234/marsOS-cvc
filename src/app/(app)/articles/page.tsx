@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { timelineEntries } from "@/lib/project-timeline";
 import { AllArticlesClient } from "@/components/articles/AllArticlesClient";
 
 export const metadata: Metadata = { title: "บทความทั้งหมด" };
@@ -31,8 +32,7 @@ export default async function ArticlesPage() {
 
   // Flatten all timeline entries across projects
   const allArticles = projects.flatMap((p) => {
-    let entries: TimelineEntry[] = [];
-    try { entries = JSON.parse((p as any).timeline || "[]"); } catch { /* ignore */ }
+    const entries = timelineEntries<TimelineEntry>((p as any).timeline);
     return entries.map((e, idx) => ({
       ...e,
       projectId: p.id,

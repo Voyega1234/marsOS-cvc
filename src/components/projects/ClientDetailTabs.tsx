@@ -35,6 +35,8 @@ import { ReportConnectPanel } from '@/components/report/ReportConnectPanel'
 import { ProjectWebsitePanel } from '@/components/projects/ProjectWebsitePanel'
 import { ProjectSetupChecklist } from '@/components/projects/ProjectSetupChecklist'
 import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGapTab'
+import { LabSiteScanCard } from '@/components/projects/workspace/LabSiteScanCard'
+import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2139,12 +2141,37 @@ function ContentMapTab({
   const [days, setDays] = useState(90)
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10))
   const [loading, setLoading] = useState(false)
+  // ช่วงเวลาโปรเจกต์ที่ทีมตั้งไว้ในหน้า Project Timeline — วันของบทความต้องอยู่ในช่วงนี้
+  const [plan, setPlan] = useState<TimelinePlan>(EMPTY_PLAN)
   const [groupBy, setGroupBy] = useState<'week' | 'date'>('week')
   const [expandedReason, setExpandedReason] = useState<number | null>(null)
   const [dateSyncNote, setDateSyncNote] = useState<string | null>(null)
 
   // วันแรกสุดใน timeline คือจุดอ้างอิงของ "สัปดาห์ที่ 1" — ใช้คำนวณ weekLabel ใหม่ตอนย้ายวัน
   const anchorDate = timeline.map(e => e.date).filter(Boolean).sort()[0] ?? ''
+
+  // โหลดช่วงเวลาโปรเจกต์ครั้งเดียวตอนเปิดแท็บ แล้วตั้งวันเริ่มต้นให้ตรงกับที่ทีมกำหนด
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/projects/${project.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (cancelled || !d) return
+        const p = parseTimeline(d.timeline).plan
+        setPlan(p)
+        if (p.startDate) {
+          const today = new Date().toISOString().slice(0, 10)
+          const initial = today > p.startDate ? today : p.startDate
+          setStartDate(prev => (p.endDate && initial > p.endDate) ? p.startDate ?? prev : initial)
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [project.id])
+
+  const planRangeLabel = plan.startDate || plan.endDate
+    ? `${plan.startDate ?? 'ไม่กำหนด'} ถึง ${plan.endDate ?? 'ไม่กำหนด'}`
+    : null
 
   /**
    * แก้วันขึ้นบทความจาก Content Map
@@ -2159,6 +2186,12 @@ function ContentMapTab({
   async function changeEntryDate(absIdx: number, newDate: string) {
     const entry = timeline[absIdx]
     if (!entry || !newDate || newDate === entry.date) return
+    // วันของบทความต้องอยู่ในช่วงงานที่ทีมตั้งไว้ในหน้า Project Timeline
+    const violation = planViolation(plan, newDate)
+    if (violation) {
+      toast.error(`เลือกวันนี้ไม่ได้ — ${violation} ของโปรเจกต์ แก้ช่วงเวลาได้ที่หน้า Project Timeline`)
+      return
+    }
     const { thaiDate, dayOfWeek, weekLabel } = describeTimelineDate(newDate, anchorDate)
     if (!thaiDate) return
 
@@ -2314,14 +2347,17 @@ function ContentMapTab({
         const ws = new Date(ys); ws.setDate(ys.getDate() - ysdow)
         return Math.ceil(((thu.getTime() - ws.getTime()) / 86400000 + 1) / 7)
       }
-      const startWeek = getISOWeekLocal(startDate)
-      const startYear = new Date(startDate + 'T00:00:00').getFullYear()
+      // เริ่มงานไม่ก่อนวันที่ทีมตั้งไว้ และหยุดสร้างวันทำงานเมื่อเลยวันจบงาน
+      const effectiveStart = plan.startDate && startDate < plan.startDate ? plan.startDate : startDate
+      const startWeek = getISOWeekLocal(effectiveStart)
+      const startYear = new Date(effectiveStart + 'T00:00:00').getFullYear()
 
       const workingDays: { dateStr: string; thaiDate: string; dayOfWeek: string; weekLabel: string }[] = []
       for (let di = 0; workingDays.length < Math.max(movable.length + fixed.length, 1) || di < days; di++) {
-        const d = new Date(startDate + 'T00:00:00'); d.setDate(d.getDate() + di)
+        const d = new Date(effectiveStart + 'T00:00:00'); d.setDate(d.getDate() + di)
         const dateStr = d.toISOString().slice(0, 10)
         if (di >= days + 180) break
+        if (plan.endDate && dateStr > plan.endDate) break
         const dow = d.getDay()
         if (dow === 0 || dow === 6) continue
         if (THAI_HOLIDAYS_SET.has(dateStr.slice(5))) continue
@@ -2340,6 +2376,18 @@ function ContentMapTab({
         const weekLabel = `สัปดาห์ที่ ${diffWeeks + 1}`
         workingDays.push({ dateStr, thaiDate, dayOfWeek, weekLabel })
         if (workingDays.length >= movable.length + 10 && di >= days - 1) break
+      }
+
+      // ช่วงงานสั้นมากจนไม่เหลือวันทำงานเลย — ใช้วันเริ่มงานเป็นวันเดียวกันหมด ไม่ปล่อยให้ array ว่าง
+      if (workingDays.length === 0) {
+        const d = new Date(effectiveStart + 'T00:00:00')
+        const be = (d.getFullYear() + 543) % 100
+        workingDays.push({
+          dateStr: effectiveStart,
+          thaiDate: `${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${be < 10 ? '0' + be : be}`,
+          dayOfWeek: THAI_DAYS_ARR[d.getDay()],
+          weekLabel: 'สัปดาห์ที่ 1',
+        })
       }
 
       // 20/80 split
@@ -2461,13 +2509,21 @@ function ContentMapTab({
     <div className="space-y-5">
       {/* ─── Config Card ─── */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-5">
-        <div className="text-sm font-semibold text-brand-navy">⚙️ ตั้งค่า Project Timeline</div>
+        <div className="text-sm font-semibold text-brand-navy">⚙️ ตั้งค่าตารางลงบทความ</div>
+
+        {/* ช่วงงานของโปรเจกต์มาจากหน้า Project Timeline — ที่นี่แค่จัดบทความลงในช่วงนั้น */}
+        <div className={`rounded-xl px-3 py-2 text-xs ${planRangeLabel ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
+          {planRangeLabel
+            ? <>ช่วงงานโปรเจกต์: <strong>{planRangeLabel}</strong> — วันลงบทความทั้งหมดจะถูกจำกัดให้อยู่ในช่วงนี้</>
+            : <>ทีมยังไม่ได้ตั้งวันเริ่ม/วันจบของโปรเจกต์ — ตั้งได้ที่หน้า Project Timeline แล้วตารางบทความจะยึดตามนั้น</>}
+        </div>
 
         {/* Row 1: original fields */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">วันเริ่มต้น</label>
             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+              min={plan.startDate ?? undefined} max={plan.endDate ?? undefined}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-300" />
           </div>
           <div>
@@ -2784,6 +2840,7 @@ function ContentMapTab({
                               type="date"
                               value={e.date}
                               onChange={ev => changeEntryDate(absIdx, ev.target.value)}
+                              min={plan.startDate ?? undefined} max={plan.endDate ?? undefined}
                               title="เปลี่ยนวันขึ้นบทความ — หน้า article จะอัปเดตตามอัตโนมัติ"
                               className="mt-1 w-full text-[10px] text-gray-500 border border-gray-200 rounded px-1 py-0.5 cursor-pointer hover:border-gray-300 focus:border-blue-400 focus:outline-none"
                             />
@@ -2913,6 +2970,7 @@ function ContentMapTab({
                             type="date"
                             value={e.date}
                             onChange={ev => changeEntryDate(i, ev.target.value)}
+                            min={plan.startDate ?? undefined} max={plan.endDate ?? undefined}
                             title="เปลี่ยนวันขึ้นบทความ — หน้า article จะอัปเดตตามอัตโนมัติ"
                             className="mt-1 text-[10px] text-gray-500 border border-gray-200 rounded px-1 py-0.5 cursor-pointer hover:border-gray-300 focus:border-blue-400 focus:outline-none"
                           />
@@ -5051,6 +5109,29 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   const [forbiddenWords, setForbiddenWords] = useState(() => {
     try { return JSON.parse(project.forbiddenWords ?? '[]').join('\n') } catch { return '' }
   })
+
+  // รับผลสแกนเว็บไซต์มาเติมฟอร์ม — เฉพาะส่วนที่ทีมติ๊กเลือก ค่าที่ว่างคือไม่เอา
+  // ทีมยังแก้ต่อได้ทุกช่อง และต้องกดบันทึกเองถึงจะลง DB
+  const applyScan = (r: import('@/components/projects/workspace/LabSiteScanCard').LabScanApply) => {
+    if (r.articleTheme) setTheme(r.articleTheme)
+    if (r.accentColor) setAccentColor(r.accentColor)
+    const colorEntries = Object.entries(r.colors).filter(([, v]) => Boolean(v))
+    if (colorEntries.length) {
+      setArticleColors(prev => ({ ...prev, ...Object.fromEntries(colorEntries) }))
+    }
+    if (Object.keys(r.elements).length) {
+      setElementStyles(prev => {
+        const next = { ...prev }
+        for (const [k, v] of Object.entries(r.elements)) {
+          next[k] = { ...(next[k] ?? {}), ...v }
+        }
+        return next
+      })
+    }
+    if (r.projectContext) setProjectContext(r.projectContext)
+    if (r.styleGuide) setStyleGuide(r.styleGuide)
+    if (r.forbiddenWords.length) setForbiddenWords(r.forbiddenWords.join('\n'))
+  }
   const [internalLinksText, setInternalLinksText] = useState(() => {
     try {
       const links: InternalLink[] = JSON.parse(project.internalLinks ?? '[]')
@@ -5486,6 +5567,13 @@ ${cover}${html}
         <div className="flex gap-6 items-start">
           {/* Left settings */}
           <div className="w-72 shrink-0 space-y-4">
+            {/* สแกนเว็บไซต์ — เติมธีม สี ฟอนต์ บริบทธุรกิจ Style Guide คำต้องห้ามให้อัตโนมัติ */}
+            <LabSiteScanCard
+              projectId={project.id}
+              defaultUrl={project.website}
+              onApply={applyScan}
+            />
+
             {/* Theme */}
             <div className="bg-white border border-gray-200 rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -7418,7 +7506,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
           ])
           if (proj?.timeline) {
             try {
-              const tl: TimelineEntry[] = JSON.parse(proj.timeline)
+              const tl = timelineEntries<TimelineEntry>(proj.timeline)
               if (tl.length) {
                 const reviewStatuses = new Set(['SEO_REVIEW', 'REVIEWING', 'REVIEW', 'APPROVED', 'ARTICLE_DONE'])
                 const approvedStatuses = new Set(['APPROVED'])

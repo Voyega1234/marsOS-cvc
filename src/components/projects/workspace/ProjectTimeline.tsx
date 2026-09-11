@@ -1,9 +1,13 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ProjectTimeline — Content schedule จากแท็บ Content Map (Project.timeline)
-//  + สถานะบทความจริงจาก /api/articles + งาน SEO จริงจาก /api/projects/[id]/seo-tasks
+//  ProjectTimeline — แผนงานทั้งโปรเจกต์
 //
+//  คำสั่งเจ้าของ 2026-09-11: ทีมเป็นคนกำหนดวันเริ่มงาน/วันจบงานเอง งานไม่ได้เริ่ม
+//  จากการลงบทความ ตารางลงบทความจึงเป็นแค่งานย่อยที่ต้องอยู่ในช่วงที่ทีมตั้งไว้
+//  ส่วนงาน On-Page / Technical / Indexing เป็นงานหลักในไทม์ไลน์เดียวกัน
+//
+//  ช่วงเวลาโปรเจกต์เก็บใน Project.timeline (ดู src/lib/project-timeline.ts)
 //  ไม่มี mock data — ทุกอย่างมาจาก API จริงของโปรเจกต์
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -16,8 +20,15 @@ import {
   LayoutGrid,
   List as ListIcon,
   RefreshCw,
+  Save,
   X,
 } from "lucide-react";
+import {
+  EMPTY_PLAN,
+  parseTimeline,
+  planViolation,
+  type TimelinePlan,
+} from "@/lib/project-timeline";
 import type { WorkspaceProject } from "./types";
 import { useSeoTaskSync } from "./useSeoTaskSync";
 
@@ -180,6 +191,12 @@ export function ProjectTimeline({ project, userRole }: Props) {
   const [articles, setArticles] = useState<ArticleLite[]>([]);
   const [seoTasks, setSeoTasks] = useState<SeoTaskLite[]>([]);
 
+  // ช่วงเวลาโปรเจกต์ที่ทีมตั้งเอง — plan คือค่าที่บันทึกแล้ว, draft คือค่าที่กำลังแก้
+  const [plan, setPlan] = useState<TimelinePlan>(EMPTY_PLAN);
+  const [planDraft, setPlanDraft] = useState<TimelinePlan>(EMPTY_PLAN);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+
   const [viewMode, setViewMode] = useState<ViewMode>("gantt");
   const [statusFilter, setStatusFilter] = useState<DerivedStatus | "all">("all");
   const [monthFilter, setMonthFilter] = useState<string>("all");
@@ -201,16 +218,12 @@ export function ProjectTimeline({ project, userRole }: Props) {
       const articlesJson = artRes.ok ? await artRes.json() : [];
       const seoTasksJson = taskRes.ok ? await taskRes.json() : [];
 
-      let entries: RawTimelineEntry[] = [];
-      if (proj?.timeline) {
-        try {
-          const parsed = JSON.parse(proj.timeline);
-          if (Array.isArray(parsed)) entries = parsed;
-        } catch {
-          entries = [];
-        }
-      }
+      const doc = parseTimeline<RawTimelineEntry>(proj?.timeline);
+      const entries = doc.entries;
 
+      setPlan(doc.plan);
+      // refetch เงียบ ๆ ห้ามลบสิ่งที่ทีมกำลังพิมพ์อยู่ในช่องวันที่
+      if (!quiet) setPlanDraft(doc.plan);
       setRawEntries(entries);
       setArticles(Array.isArray(articlesJson) ? articlesJson : []);
       setSeoTasks(Array.isArray(seoTasksJson) ? seoTasksJson : []);
@@ -228,6 +241,46 @@ export function ProjectTimeline({ project, userRole }: Props) {
   // งาน SEO ถูกแก้จากแท็บ On-Page/Technical/Indexing หรือแท็บ browser อื่น → refetch เงียบ ๆ
   const quietRefetch = useCallback(() => fetchData(true), [fetchData]);
   useSeoTaskSync(project.id, quietRefetch);
+
+  /**
+   * บันทึกช่วงเวลาโปรเจกต์
+   * ส่งเฉพาะ plan — ฝั่ง API จะ merge เข้ากับรายการบทความเดิมให้เอง
+   * (mergeTimelineWrite ใน src/lib/project-timeline.ts) จึงไม่มีทางทับตารางบทความหาย
+   */
+  const savePlan = useCallback(async () => {
+    if (planDraft.startDate && planDraft.endDate && planDraft.endDate < planDraft.startDate) {
+      setPlanError("วันจบงานต้องไม่มาก่อนวันเริ่มงาน");
+      return;
+    }
+    setSavingPlan(true);
+    setPlanError(null);
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeline: { plan: planDraft } }),
+      });
+      if (!res.ok) throw new Error("บันทึกช่วงเวลาไม่สำเร็จ");
+      const saved = await res.json();
+      const doc = parseTimeline<RawTimelineEntry>(saved?.timeline);
+      setPlan(doc.plan);
+      setPlanDraft(doc.plan);
+    } catch (e) {
+      setPlanError(e instanceof Error ? e.message : "บันทึกช่วงเวลาไม่สำเร็จ");
+    } finally {
+      setSavingPlan(false);
+    }
+  }, [project.id, planDraft]);
+
+  const planDays =
+    plan.startDate && plan.endDate
+      ? Math.round((toDate(plan.endDate).getTime() - toDate(plan.startDate).getTime()) / 86400000) + 1
+      : 0;
+
+  const planDirty =
+    planDraft.startDate !== plan.startDate ||
+    planDraft.endDate !== plan.endDate ||
+    (planDraft.note ?? "") !== (plan.note ?? "");
 
   // ── Derive content items: match timeline entry ↔ real article by trimmed title ──
   const items: TimelineItem[] = useMemo(() => {
@@ -276,6 +329,20 @@ export function ProjectTimeline({ project, userRole }: Props) {
   }, [seoTasks, monthFilter]);
 
   const seoTasksNoDue = useMemo(() => seoTasks.filter((t) => !t.dueDate), [seoTasks]);
+
+  // งานที่วันหลุดช่วงที่ทีมตั้งไว้ — เตือนให้เห็น ไม่ซ่อน เพราะเป็นของจริงใน DB
+  const outOfRange = useMemo(() => {
+    const rows: { key: string; kind: "content" | "seo"; title: string; date: string; reason: string }[] = [];
+    for (const it of items) {
+      const reason = planViolation(plan, it.date);
+      if (reason) rows.push({ key: `c-${it.id}`, kind: "content", title: it.title, date: it.date, reason });
+    }
+    for (const t of seoTasks) {
+      const reason = planViolation(plan, t.dueDate);
+      if (reason) rows.push({ key: `s-${t.id}`, kind: "seo", title: t.title, date: t.dueDate as string, reason });
+    }
+    return rows;
+  }, [items, seoTasks, plan]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<DerivedStatus, number> = {
@@ -331,7 +398,8 @@ export function ProjectTimeline({ project, userRole }: Props) {
     setMonthFilter("all");
   }
 
-  const hasAnyData = items.length > 0;
+  const hasPlan = Boolean(plan.startDate || plan.endDate);
+  const hasAnyData = items.length > 0 || seoTasks.length > 0 || hasPlan;
 
   // ── Loading skeleton ─────────────────────────────────────────────────────
   if (loading) {
@@ -362,7 +430,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
           <div>
             <h2 className="text-lg font-semibold text-brand-navy">Project Timeline</h2>
             <p className="text-sm text-gray-500">
-              {project.clientName ?? project.name} · ตารางเวลาเนื้อหาจากแท็บ Content Map + งาน SEO จริง
+              {project.clientName ?? project.name} · งาน SEO ทั้งหมด + ตารางลงบทความ ภายในช่วงเวลาที่ทีมกำหนด
             </p>
           </div>
 
@@ -447,6 +515,100 @@ export function ProjectTimeline({ project, userRole }: Props) {
         )}
       </div>
 
+      {/* ── ช่วงเวลาโปรเจกต์ — ทีมกำหนดเอง งานทุกอย่างยึดตามช่วงนี้ ── */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-brand-navy">
+              <CalendarDays className="h-4 w-4 text-indigo-600" />
+              ช่วงเวลาทำงานของโปรเจกต์
+            </h3>
+            <p className="mt-1 text-xs text-gray-500">
+              ทีมเลือกวันเริ่มงานและวันจบงานเอง งาน SEO และตารางลงบทความทั้งหมดต้องอยู่ในช่วงนี้
+            </p>
+          </div>
+          {!isReadOnly && (
+            <button
+              type="button"
+              onClick={savePlan}
+              disabled={savingPlan || !planDirty}
+              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-40"
+            >
+              {savingPlan ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {savingPlan ? "กำลังบันทึก" : "บันทึกช่วงเวลา"}
+            </button>
+          )}
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">วันเริ่มงาน</label>
+            <input
+              type="date"
+              value={planDraft.startDate ?? ""}
+              max={planDraft.endDate ?? undefined}
+              disabled={isReadOnly}
+              onChange={(e) => setPlanDraft((p) => ({ ...p, startDate: e.target.value || null }))}
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">วันจบงาน</label>
+            <input
+              type="date"
+              value={planDraft.endDate ?? ""}
+              min={planDraft.startDate ?? undefined}
+              disabled={isReadOnly}
+              onChange={(e) => setPlanDraft((p) => ({ ...p, endDate: e.target.value || null }))}
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">บันทึกของทีม (ไม่บังคับ)</label>
+            <input
+              type="text"
+              value={planDraft.note ?? ""}
+              disabled={isReadOnly}
+              placeholder="เช่น งวดที่ 1 — SEO ฐานราก + บทความชุดแรก"
+              onChange={(e) => setPlanDraft((p) => ({ ...p, note: e.target.value }))}
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+            />
+          </div>
+        </div>
+
+        {planError && <p className="mt-2 text-xs text-red-600">{planError}</p>}
+
+        {hasPlan ? (
+          <p className="mt-2 text-xs text-gray-500">
+            ช่วงงานปัจจุบัน: <span className="font-medium text-brand-navy">{formatDateTh(plan.startDate)}</span> ถึง{" "}
+            <span className="font-medium text-brand-navy">{formatDateTh(plan.endDate)}</span>
+            {planDays ? ` · รวม ${planDays} วัน` : ""}
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-amber-600">
+            ยังไม่ได้ตั้งช่วงเวลา — ตั้งก่อน แล้วแท็บ Content Map จะจำกัดวันลงบทความให้อยู่ในช่วงนี้อัตโนมัติ
+          </p>
+        )}
+
+        {outOfRange.length > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-semibold text-amber-800">
+              มี {outOfRange.length} รายการที่วันอยู่นอกช่วงงาน — แก้วันในแท็บต้นทางหรือขยายช่วงงาน
+            </p>
+            <ul className="mt-1.5 space-y-0.5">
+              {outOfRange.slice(0, 8).map((r) => (
+                <li key={r.key} className="text-[11px] text-amber-700">
+                  · [{r.kind === "content" ? "บทความ" : "งาน SEO"}] {r.title} — {formatDateTh(r.date)} {r.reason}
+                </li>
+              ))}
+              {outOfRange.length > 8 && (
+                <li className="text-[11px] text-amber-600">· และอีก {outOfRange.length - 8} รายการ</li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+
       {error ? (
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           <div className="flex items-center gap-2">
@@ -465,9 +627,11 @@ export function ProjectTimeline({ project, userRole }: Props) {
       ) : !hasAnyData ? (
         <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
           <CalendarDays className="mx-auto h-10 w-10 text-gray-300" />
-          <p className="mt-3 text-sm font-medium text-gray-700">ยังไม่มี timeline</p>
+          <p className="mt-3 text-sm font-medium text-gray-700">ยังไม่มีแผนงาน</p>
           <p className="mt-1 text-sm text-gray-500">
-            สร้างจากแท็บ Content Map (เลือก keywords → Generate Content Map)
+            เริ่มจากตั้งวันเริ่มงาน/วันจบงานด้านบน แล้วเพิ่มงาน SEO ในแท็บ On-Page / Technical / Indexing
+            <br />
+            ตารางลงบทความสร้างได้จากแท็บ Content Map (เลือก keywords → Generate Content Map)
           </p>
           {seoTasks.length > 0 && (
             <p className="mt-4 text-xs text-gray-400">
@@ -584,6 +748,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             {viewMode === "gantt" && (
               <GanttView
+                plan={plan}
                 groupedByMonth={groupedByMonth}
                 seoTasksWithDue={seoTasksWithDue}
                 onItemClick={(item) => setSelected({ kind: "content", item })}
@@ -591,7 +756,12 @@ export function ProjectTimeline({ project, userRole }: Props) {
               />
             )}
             {viewMode === "list" && (
-              <ListView items={filteredItems} onItemClick={(item) => setSelected({ kind: "content", item })} />
+              <ListView
+                items={filteredItems}
+                seoTasks={seoTasksWithDue}
+                onItemClick={(item) => setSelected({ kind: "content", item })}
+                onSeoClick={(task) => setSelected({ kind: "seo", item: task })}
+              />
             )}
             {viewMode === "kanban" && (
               <KanbanView items={monthFilteredItems} onItemClick={(item) => setSelected({ kind: "content", item })} />
@@ -638,11 +808,13 @@ export function ProjectTimeline({ project, userRole }: Props) {
 // ── Gantt View ───────────────────────────────────────────────────────────────
 
 function GanttView({
+  plan,
   groupedByMonth,
   seoTasksWithDue,
   onItemClick,
   onSeoClick,
 }: {
+  plan: TimelinePlan;
   groupedByMonth: { key: string; label: string; entries: TimelineItem[] }[];
   seoTasksWithDue: SeoTaskLite[];
   onItemClick: (item: TimelineItem) => void;
@@ -651,6 +823,8 @@ function GanttView({
   const allDates: Date[] = [
     ...groupedByMonth.flatMap((g) => g.entries.map((e) => toDate(e.date))),
     ...seoTasksWithDue.map((t) => toDate(t.dueDate as string)),
+    ...(plan.startDate ? [toDate(plan.startDate)] : []),
+    ...(plan.endDate ? [toDate(plan.endDate)] : []),
   ];
 
   const today = new Date();
@@ -662,6 +836,7 @@ function GanttView({
     rangeStart = new Date(today.getTime() - 14 * 86400000);
     rangeEnd = new Date(today.getTime() + 14 * 86400000);
   } else {
+    // ช่วงของกราฟยึดวันที่จริงทั้งหมด รวมช่วงงานที่ทีมตั้งไว้ด้วย
     const times = allDates.map((d) => d.getTime());
     rangeStart = new Date(Math.min(...times) - 7 * 86400000);
     rangeEnd = new Date(Math.max(...times) + 7 * 86400000);
@@ -684,7 +859,7 @@ function GanttView({
     markers.push({ label: date.toLocaleDateString("th-TH", { day: "numeric", month: "short" }), offset: d });
   }
 
-  const noData = groupedByMonth.length === 0 && seoTasksWithDue.length === 0;
+  const noData = groupedByMonth.length === 0 && seoTasksWithDue.length === 0 && !plan.startDate && !plan.endDate;
 
   return (
     <div className="overflow-x-auto">
@@ -706,6 +881,63 @@ function GanttView({
             </div>
           </div>
 
+          {/* แถบช่วงงานของโปรเจกต์ — ทุกงานควรอยู่ในแถบนี้ */}
+          {(plan.startDate || plan.endDate) && (
+            <div className="flex items-center border-b border-gray-200 py-1.5">
+              <div className="w-48 shrink-0 pr-2 text-xs font-semibold text-brand-navy">ช่วงงานโปรเจกต์</div>
+              <div className="relative h-6 flex-1">
+                <div
+                  className="absolute top-1.5 h-3 rounded-full bg-indigo-200 ring-1 ring-indigo-300"
+                  title={`${formatDateTh(plan.startDate)} — ${formatDateTh(plan.endDate)}`}
+                  style={{
+                    left: `${pct(plan.startDate ? dayOffset(plan.startDate) : 0)}%`,
+                    width: `${Math.max(
+                      pct(
+                        (plan.endDate ? dayOffset(plan.endDate) : rangeDays) -
+                          (plan.startDate ? dayOffset(plan.startDate) : 0)
+                      ),
+                      1
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {seoTasksWithDue.length > 0 && (
+            <div className="relative">
+              <div className="sticky left-0 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
+                งาน SEO (On-Page / Technical / Indexing)
+              </div>
+              {seoTasksWithDue.map((task) => {
+                const offset = dayOffset(task.dueDate as string);
+                const meta = seoTaskStatusMeta(task.status);
+                return (
+                  <div key={task.id} className="flex items-center border-b border-gray-100 py-1.5">
+                    <div className="w-48 shrink-0 truncate pr-2 text-xs text-gray-700" title={task.title}>
+                      {task.title}
+                    </div>
+                    <div className="relative h-6 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => onSeoClick(task)}
+                        title={`${task.title}\nกำหนดส่ง: ${formatDateTh(task.dueDate)}\nสถานะ: ${meta.label}`}
+                        className={`absolute top-1 h-4 w-4 -translate-x-1/2 rotate-45 cursor-pointer ${meta.dot} ring-2 ring-white transition hover:scale-125`}
+                        style={{ left: `${pct(offset)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {groupedByMonth.length > 0 && (
+            <div className="relative mt-2 border-t border-gray-200 pt-1">
+              {/* ตารางลงบทความเป็นงานย่อยของแผนงานหลัก (คำสั่งเจ้าของ 2026-09-11) */}
+              <div className="sticky left-0 bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-700">
+                ตารางลงบทความ (งานย่อย)
+              </div>
           {groupedByMonth.map((group) => (
             <div key={group.key} className="relative">
               <div className="sticky left-0 bg-gray-50 px-2 py-1 text-xs font-semibold text-gray-700">{group.label}</div>
@@ -731,30 +963,6 @@ function GanttView({
               })}
             </div>
           ))}
-
-          {seoTasksWithDue.length > 0 && (
-            <div className="relative mt-2 border-t border-gray-200 pt-1">
-              <div className="sticky left-0 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">งาน SEO</div>
-              {seoTasksWithDue.map((task) => {
-                const offset = dayOffset(task.dueDate as string);
-                const meta = seoTaskStatusMeta(task.status);
-                return (
-                  <div key={task.id} className="flex items-center border-b border-gray-100 py-1.5">
-                    <div className="w-48 shrink-0 truncate pr-2 text-xs text-gray-700" title={task.title}>
-                      {task.title}
-                    </div>
-                    <div className="relative h-6 flex-1">
-                      <button
-                        type="button"
-                        onClick={() => onSeoClick(task)}
-                        title={`${task.title}\nกำหนดส่ง: ${formatDateTh(task.dueDate)}\nสถานะ: ${meta.label}`}
-                        className={`absolute top-1 h-4 w-4 -translate-x-1/2 rotate-45 cursor-pointer ${meta.dot} ring-2 ring-white transition hover:scale-125`}
-                        style={{ left: `${pct(offset)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           )}
 
@@ -767,19 +975,54 @@ function GanttView({
 
 // ── List View ────────────────────────────────────────────────────────────────
 
-function ListView({ items, onItemClick }: { items: TimelineItem[]; onItemClick: (item: TimelineItem) => void }) {
+function ListView({
+  items,
+  seoTasks,
+  onItemClick,
+  onSeoClick,
+}: {
+  items: TimelineItem[];
+  seoTasks: SeoTaskLite[];
+  onItemClick: (item: TimelineItem) => void;
+  onSeoClick: (task: SeoTaskLite) => void;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[700px] text-left text-sm">
         <thead>
           <tr className="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500">
-            <th className="py-2 pr-3">Title</th>
+            <th className="py-2 pr-3">งาน</th>
             <th className="py-2 pr-3">วันที่</th>
             <th className="py-2 pr-3">สถานะจริง</th>
             <th className="py-2 pr-3">บทความที่เชื่อม</th>
           </tr>
         </thead>
         <tbody>
+          {seoTasks.map((t) => {
+            const meta = seoTaskStatusMeta(t.status);
+            return (
+              <tr
+                key={t.id}
+                onClick={() => onSeoClick(t)}
+                className="cursor-pointer border-b border-gray-100 bg-indigo-50/40 transition hover:bg-indigo-50"
+              >
+                <td className="py-2 pr-3">
+                  <p className="font-medium text-brand-navy">{t.title}</p>
+                  <p className="text-xs text-gray-400">
+                    งาน SEO · {t.area} · {t.category}
+                  </p>
+                </td>
+                <td className="py-2 pr-3 text-gray-600">{formatDateTh(t.dueDate)}</td>
+                <td className="py-2 pr-3">
+                  <span className={`inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-xs font-medium ${meta.text}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                    {meta.label}
+                  </span>
+                </td>
+                <td className="py-2 pr-3 text-center text-gray-300">—</td>
+              </tr>
+            );
+          })}
           {items.map((item) => (
             <tr
               key={item.id}
@@ -808,7 +1051,7 @@ function ListView({ items, onItemClick }: { items: TimelineItem[]; onItemClick: 
               </td>
             </tr>
           ))}
-          {items.length === 0 && (
+          {items.length === 0 && seoTasks.length === 0 && (
             <tr>
               <td colSpan={4} className="py-6 text-center text-sm text-gray-500">
                 ไม่พบรายการตามตัวกรองที่เลือก

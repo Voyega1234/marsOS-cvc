@@ -9,6 +9,7 @@ import {
   RefreshCw, ChevronDown, ChevronUp, Info,
 } from "lucide-react";
 import type { ContentMapOutput, ContentMapEntry } from "@/services/ai/types";
+import { timelineEntries } from "@/lib/project-timeline";
 
 type Props = {
   project: { id: string; name: string; website: string };
@@ -206,8 +207,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
       const projRes = await fetch(`/api/projects/${project.id}`);
       if (!projRes.ok) throw new Error();
       const proj = await projRes.json();
-      let timeline: Array<Record<string, unknown>> = [];
-      try { timeline = JSON.parse(proj.timeline || "[]"); } catch { /* เริ่มใหม่ */ }
+      const timeline: Array<Record<string, unknown>> = timelineEntries(proj.timeline);
       const existingTitles = new Set(timeline.map(t => String(t.title ?? "").toLowerCase()));
 
       // นัดวันต่อจากรายการล่าสุด (หรือพรุ่งนี้) เว้นวันละ 2 วันต่อบทความ
