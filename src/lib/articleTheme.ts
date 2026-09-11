@@ -81,3 +81,86 @@ export function buildElementStyleSpec(elements: ArticleElementStyles | undefined
 ELEMENT STYLES (ผู้ใช้กำหนดเอง — บังคับใช้ใน inline CSS/style ของ element เหล่านี้ให้ตรงทุกจุด):
 ${lines.join('\n')}${importLine}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ธีม/ฟอนต์/สี → ทิศทางการ "เขียน" (คำสั่งเจ้าของ 2026-09-11)
+//
+//  หน้า Article Lab ต้องมีผลกับตัวบทความ ไม่ใช่แค่ CSS ที่ครอบทีหลัง
+//  บล็อกนี้แปลงตัวเลือกภาพลักษณ์เป็นคำสั่งเรื่องโทนเสียงและโครงสร้าง
+//  (ยังคงกฎเดิม: ห้ามให้โมเดลใส่ style/<style> เอง สีจริงใส่ผ่าน buildArticleCss)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const THEME_VOICE: Record<string, string> = {
+  professional: 'เป็นทางการพอประมาณ น้ำเสียงผู้เชี่ยวชาญ อ้างเหตุผลและตัวเลขมากกว่าอารมณ์ ย่อหน้า 3-5 บรรทัด',
+  modern: 'กระชับ ประโยคสั้น ตัดคำฟุ่มเฟือย ใช้หัวข้อย่อยถี่ และ bullet มากกว่าย่อหน้ายาว',
+  warm: 'เป็นกันเอง เหมือนคุยกับคนอ่านตรง ๆ ใช้สรรพนามที่อบอุ่น ยกตัวอย่างสถานการณ์จริงบ่อย ๆ',
+  bold: 'มั่นใจ ชี้ชัด ขึ้นต้นหัวข้อด้วยข้อสรุปก่อนเหตุผล กล้าฟันธงเมื่อมีข้อมูลรองรับ',
+  minimal: 'เรียบ ตรงประเด็น ไม่มีคำขยายเกินจำเป็น หนึ่งหัวข้อหนึ่งประเด็น ตัดบทนำยาว ๆ ทิ้ง',
+  editorial: 'เชิงบทความนิตยสาร มีบทนำดึงความสนใจ ร้อยเรียงเป็นเรื่องเล่า มีบทสรุปปิดที่ให้มุมมอง',
+};
+
+const FONT_VOICE: Record<string, string> = {
+  Sarabun: 'ฟอนต์ราชการ/อ่านง่าย — เขียนให้อ่านสบาย ประโยคไม่ซับซ้อน',
+  Prompt: 'ฟอนต์เรขาคณิตสมัยใหม่ — เขียนกระชับ ทันสมัย ไม่เยิ่นเย้อ',
+  Kanit: 'ฟอนต์หนักแน่นทันสมัย — หัวข้อต้องคมและชัด ใช้ประโยคบอกเล่าเด็ดขาด',
+  Mitr: 'ฟอนต์เป็นมิตร — โทนสุภาพเข้าถึงง่าย เหมาะกับการอธิบายทีละขั้น',
+  Pridi: 'ฟอนต์มีเชิง อ่านยาวสบาย — เขียนเชิงบทความ ร้อยเรียงต่อเนื่อง',
+  'Noto Sans Thai': 'ฟอนต์กลาง อ่านง่ายทุกอุปกรณ์ — เขียนให้เป็นกลางและชัดเจน',
+  'IBM Plex Sans Thai': 'ฟอนต์สายเทคโนโลยี — อธิบายเชิงระบบ มีลำดับขั้นชัด',
+  'Bai Jamjuree': 'ฟอนต์คมสมัยใหม่ — โทนมืออาชีพ กระชับ',
+  'Chakra Petch': 'ฟอนต์เหลี่ยมคม — โทนเฉียบขาด เหมาะกับหัวข้อเชิงเทคนิค',
+  Anuphan: 'ฟอนต์สะอาดร่วมสมัย — เขียนเรียบแต่ดูพรีเมียม',
+};
+
+/**
+ * แปลงธีม ฟอนต์ และสีหลัก เป็นคำสั่งเรื่องโทนการเขียน
+ * คืน '' เมื่อไม่มีข้อมูลพอ
+ */
+export function buildBrandIdentityBlock(opts: {
+  theme?: string | null;
+  elements?: ArticleElementStyles | null;
+  themeColor?: string | null;
+  accentColor?: string | null;
+  backgroundColor?: string | null;
+}): string {
+  const lines: string[] = [];
+
+  const voice = opts.theme ? THEME_VOICE[opts.theme] : '';
+  if (voice) lines.push(`- ธีมที่ทีมเลือก: ${opts.theme} → ${voice}`);
+
+  const els = opts.elements ?? {};
+  const headingFont = els.h1?.font || els.h2?.font || '';
+  const bodyFont = els.body?.font || '';
+  const fontNote = (f: string) => FONT_VOICE[f] ?? 'ให้โทนการเขียนสอดคล้องกับบุคลิกของฟอนต์นี้';
+  if (headingFont) lines.push(`- ฟอนต์หัวข้อ: ${headingFont} → ${fontNote(headingFont)}`);
+  if (bodyFont && bodyFont !== headingFont) lines.push(`- ฟอนต์เนื้อความ: ${bodyFont} → ${fontNote(bodyFont)}`);
+
+  const dark = isDarkColor(opts.backgroundColor);
+  if (opts.backgroundColor && dark) {
+    lines.push('- พื้นหลังบทความเป็นโทนเข้ม → ย่อหน้าสั้นลง เว้นจังหวะถี่ขึ้น อ่านบนพื้นเข้มแล้วไม่ล้าตา');
+  }
+  if (opts.themeColor) {
+    lines.push(`- สีหลักของแบรนด์: ${opts.themeColor} → เลือกคำและตัวอย่างให้เข้ากับอารมณ์ของสีนี้ ไม่ขัดกับภาพลักษณ์แบรนด์`);
+  }
+
+  if (!lines.length) return '';
+  return `
+==================================================
+BRAND IDENTITY (มีผลกับ "วิธีเขียน" — ไม่ใช่ให้ใส่ CSS)
+==================================================
+${lines.join('\n')}
+หมายเหตุ: ยังห้ามใส่ style attribute หรือแท็ก <style> ในบทความเด็ดขาด ระบบใส่สี/ฟอนต์จริงให้เองหลังเขียนเสร็จ
+`;
+}
+
+/** สีเข้มหรือไม่ (ใช้ตัดสินจังหวะย่อหน้า) — รองรับ hex 3/6 หลัก */
+function isDarkColor(hex?: string | null): boolean {
+  if (!hex) return false;
+  const m = hex.trim().replace('#', '');
+  const full = m.length === 3 ? m.split('').map((c) => c + c).join('') : m;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return false;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+}

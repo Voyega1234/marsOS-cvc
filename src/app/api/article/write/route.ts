@@ -5,7 +5,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
-import { type ArticleElementStyles, resolveImagePalette } from '@/lib/articleTheme'
+import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, type ArticleStyleMode } from '@/lib/articleComponents'
 import { buildAuthorCardHtml, DEFAULT_AUTHOR_CARD_STYLE, normalizeAuthorCardStyle, type AuthorCardStyle } from '@/lib/articleAuthorCard'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
@@ -128,6 +128,15 @@ function buildArticlePrompt(opts: {
   const effectiveBackgroundColor = opts.colorBackground || '#ffffff'
 
   // Typography ไม่ส่งเข้า prompt แล้ว — ระบบใส่ให้เองผ่าน buildArticleCss
+  // แต่ "ธีม/ฟอนต์/สี" ที่ทีมเลือกในหน้า Article Lab ต้องมีผลกับวิธีเขียน
+  // (คำสั่งเจ้าของ 2026-09-11) — ดู buildBrandIdentityBlock ใน src/lib/articleTheme.ts
+  const brandBlock = buildBrandIdentityBlock({
+    theme: opts.theme,
+    elements: opts.elementStyles,
+    themeColor: effectiveThemeColor,
+    accentColor: effectiveAccentColor,
+    backgroundColor: effectiveBackgroundColor,
+  })
 
   const siteBlock = `
 ==================================================
@@ -146,6 +155,7 @@ COLOR SYSTEM (ข้อมูลประกอบเท่านั้น — �
 ห้ามใส่ style attribute หรือแท็ก <style> ใด ๆ ในบทความ):
 - Theme Color: ${effectiveThemeColor} · Text: ${effectiveTextColor} · Accent: ${effectiveAccentColor}
 ${MARS_COMPONENT_SPEC}
+${brandBlock}
 ==================================================
 SITE STYLE GUIDE
 ==================================================
