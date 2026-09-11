@@ -11,6 +11,22 @@ import { assertCrawlable } from './urls'
 const TIMEOUT_MS = 12_000
 const MAX_BYTES = 1_500_000
 const UA = 'Mozilla/5.0 (compatible; MarsOS-CompetitorGap/1.0; +https://convertcake.com/bot)'
+/**
+ * header แบบเบราว์เซอร์ — ใช้เฉพาะเมื่อผู้เรียกขอ (browserLike)
+ * บางเว็บตีกลับทุก user agent ที่หน้าตาเหมือนบอทด้วย 403 สแกน Article Lab / Business Skill
+ * อ่านเว็บของลูกค้าเองตามที่ทีมสั่ง จึงลองซ้ำด้วย header ชุดนี้หนึ่งครั้ง
+ * Competitor Gap ยังใช้ UA บอทตามจริงด้านบนเหมือนเดิม
+ */
+const BROWSER_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'th-TH,th;q=0.9,en;q=0.8',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1',
+}
 
 export interface FetchResult {
   ok: boolean
@@ -29,7 +45,7 @@ const EMPTY: FetchResult = {
   blocked: false, error: null, rendered: false, bytes: 0,
 }
 
-export async function fetchHtml(url: string): Promise<FetchResult> {
+export async function fetchHtml(url: string, opts: { browserLike?: boolean } = {}): Promise<FetchResult> {
   const guard = await assertCrawlable(url)
   if (!guard.ok) return { ...EMPTY, blocked: true, error: `blocked: ${guard.reason}` }
 
@@ -37,11 +53,13 @@ export async function fetchHtml(url: string): Promise<FetchResult> {
     const res = await fetch(url, {
       redirect: 'follow',
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: {
-        'User-Agent': UA,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'th,en;q=0.8',
-      },
+      headers: opts.browserLike
+        ? BROWSER_HEADERS
+        : {
+            'User-Agent': UA,
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'th,en;q=0.8',
+          },
     })
 
     const status = res.status

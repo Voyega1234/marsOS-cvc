@@ -39,6 +39,8 @@ interface ScanResult {
     topColors: Array<{ hex: string; count: number }>
     fonts: Array<{ name: string; count: number }>
     navLabels: string[]
+    /** web_search = เว็บกันเซิร์ฟเวอร์ ใช้ผลค้นหาแทน — ไม่มีสี/ฟอนต์จริงจาก CSS */
+    source?: 'site' | 'web_search'
   }
   warnings: string[]
 }
@@ -84,7 +86,10 @@ export function LabSiteScanCard({
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`)
-      setResult(body as ScanResult)
+      const scanned = body as ScanResult
+      setResult(scanned)
+      // สี/ฟอนต์จากผลค้นหาเป็นแค่ค่าตั้งต้น — ไม่ติ๊กไว้ก่อน กันทับค่าจริงที่ทีมตั้งไว้
+      setParts((p) => ({ ...p, look: scanned.evidence.source !== 'web_search' }))
       setShowDetail(true)
       toast.success('สแกนเสร็จแล้ว — ตรวจค่าที่เสนอก่อนกดนำไปใส่')
     } catch (err) {
@@ -184,6 +189,9 @@ export function LabSiteScanCard({
                   onChange={(e) => setParts((p) => ({ ...p, [k]: e.target.checked }))}
                 />
                 {PART_LABELS[k]}
+                {k === 'look' && result?.evidence.source === 'web_search' && (
+                  <span className="text-amber-600">(อ่านจากเว็บไม่ได้ — เป็นค่าตั้งต้น)</span>
+                )}
                 {k === 'forbidden' && <span className="text-gray-400">({s.forbiddenWords.length} คำ)</span>}
                 {k === 'context' && <span className="text-gray-400">({s.projectContext.length} ตัวอักษร)</span>}
                 {k === 'styleGuide' && <span className="text-gray-400">({s.styleGuide.length} ตัวอักษร)</span>}
@@ -213,7 +221,7 @@ export function LabSiteScanCard({
                 <span className="font-semibold">หน้าที่อ่าน ({result.evidence.pages.length}):</span>
                 <ul className="mt-0.5 space-y-0.5">
                   {result.evidence.pages.map((p) => (
-                    <li key={p.url} className="truncate">· {p.title || p.url} <span className="text-gray-400">({p.words} คำ)</span></li>
+                    <li key={p.url} className="truncate">· {p.title || p.url} {p.words > 0 && <span className="text-gray-400">({p.words} คำ)</span>}</li>
                   ))}
                 </ul>
               </div>

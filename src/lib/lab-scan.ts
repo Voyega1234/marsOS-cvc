@@ -10,7 +10,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { askJson } from '@/lib/competitor-gap/ai'
-import { fetchHtml } from '@/lib/competitor-gap/fetcher'
+import { orChat } from '@/lib/openrouter'
+import { fetchHtml, type FetchResult } from '@/lib/competitor-gap/fetcher'
 import { extractPage } from '@/lib/competitor-gap/pageExtract'
 import { assertCrawlable, normalizeUrl, toOrigin } from '@/lib/competitor-gap/urls'
 import { THAI_FONTS } from '@/lib/articleTheme'
@@ -28,6 +29,11 @@ export interface LabScanEvidence {
   /** ข้อความตัวอย่างจากเว็บ ใช้เป็นหลักฐานของบริบทธุรกิจ */
   textSample: string
   navLabels: string[]
+  /**
+   * site = อ่านจากหน้าเว็บตรง
+   * web_search = เว็บกันเซิร์ฟเวอร์ (เช่น Cloudflare challenge) จึงใช้ผลค้นหาเว็บแทน — ไม่มีสี/ฟอนต์จาก CSS
+   */
+  source: 'site' | 'web_search'
 }
 
 export interface LabScanSuggestion {
@@ -181,6 +187,110 @@ function navLabelsOf(html: string): string[] {
   return out
 }
 
+/** status ที่แปลว่าเว็บกันเซิร์ฟเวอร์ ไม่ใช่ว่าหน้าไม่มีอยู่จริง */
+const SITE_BLOCK_STATUSES = [401, 403, 429, 503]
+
+/**
+ * true เมื่อเว็บปฏิเสธเซิร์ฟเวอร์ (firewall / bot protection / rate limit / ช้าจนหมดเวลา)
+ * SSRF guard ที่ปฏิเสธ URL คืน status 0 + error 'blocked: ...' จึงไม่เข้าเงื่อนไขนี้
+ */
+function isSiteBlock(res: FetchResult): boolean {
+  return SITE_BLOCK_STATUSES.includes(res.status) || res.error === 'timeout'
+}
+
+/**
+ * ดึงหน้าเว็บลูกค้า — ลองแบบปกติก่อน ถ้าโดนกันให้ลองซ้ำหนึ่งครั้งด้วย header แบบเบราว์เซอร์
+ * (บางเว็บตีกลับทุก user agent ที่หน้าตาเหมือนบอทด้วย 403)
+ */
+async function fetchScanPage(url: string): Promise<FetchResult> {
+  const first = await fetchHtml(url)
+  if (first.ok || !isSiteBlock(first)) return first
+  return fetchHtml(url, { browserLike: true })
+}
+
+const WEB_SEARCH_MIN_CHARS = 300
+
+function webSearchPrompt(url: string, domain: string): string {
+  return `ค้นหาข้อมูลของธุรกิจเจ้าของเว็บไซต์ ${url} (โดเมน ${domain}) แล้วเขียนสรุปภาษาไทยแบบละเอียดตามหัวข้อนี้
+
+1. ชื่อธุรกิจ/แบรนด์ และธุรกิจทำอะไร
+2. สินค้า/บริการหลักทีละรายการ (รวมราคา ถ้าเจอ)
+3. กลุ่มลูกค้า และพื้นที่/สาขาที่ให้บริการ
+4. จุดเด่นที่ธุรกิจโฆษณาเอง — ยกข้อความตรงจากเว็บของธุรกิจในเครื่องหมายคำพูด
+5. ช่องทางติดต่อ
+6. ใบอนุญาต รางวัล หรือหน่วยงานกำกับที่เกี่ยวข้อง
+7. โทนภาษาที่แบรนด์ใช้สื่อสาร
+
+กฎ
+- ใช้เฉพาะข้อมูลที่ค้นเจอและเป็นของธุรกิจนี้จริง ระวังธุรกิจที่ชื่อคล้ายกัน
+- ห้ามเดา หัวข้อไหนไม่เจอให้เขียนว่า "ไม่พบ"
+- ท้ายแต่ละหัวข้อใส่ URL แหล่งที่มา`
+}
+
+/**
+ * ทางสำรองเมื่อเซิร์ฟเวอร์เปิดเว็บตรงไม่ได้ — ให้ AI ค้นเว็บ (OpenRouter web plugin) แล้วสรุปข้อมูลธุรกิจ
+ * ได้เฉพาะข้อความ ไม่ได้สี ฟอนต์ หรือเมนูจาก CSS/HTML จริง
+ */
+async function collectEvidenceViaWebSearch(
+  url: string,
+  domain: string,
+  reason: string,
+): Promise<{ evidence: LabScanEvidence; warnings: string[] }> {
+  let res: Awaited<ReturnType<typeof orChat>>
+  try {
+    res = await orChat({
+      trace: 'site_scan_web_search_fallback',
+      prompt: webSearchPrompt(url, domain),
+      webSearch: true,
+      maxTokens: 6_000,
+      temperature: 0.2,
+      timeoutMs: 120_000,
+    })
+  } catch (err) {
+    throw new Error(`เปิดเว็บไม่ได้ (${reason}) และค้นข้อมูลแทนไม่สำเร็จ: ${(err as Error).message}`)
+  }
+
+  const text = res.text.trim()
+  if (text.length < WEB_SEARCH_MIN_CHARS) {
+    throw new Error(`เปิดเว็บไม่ได้ (${reason}) — เว็บนี้กันการอ่านจากเซิร์ฟเวอร์ และค้นข้อมูลของ ${domain} จากเว็บไม่เจอ`)
+  }
+
+  // แหล่งอ้างอิงที่เป็นโดเมนของธุรกิจขึ้นก่อน — URL มักเป็นลิงก์ redirect ของ search provider
+  // ส่วน title เป็นชื่อโดเมนจริง จึงเช็คทั้งสองค่า
+  const hostOf = (u: string) => {
+    try { return new URL(u).hostname.replace(/^www\./, '') } catch { return '' }
+  }
+  const isOwn = (c: { url: string; title: string }) =>
+    hostOf(c.url).endsWith(domain) || c.title.trim().replace(/^www\./, '').endsWith(domain)
+  const seen = new Set<string>()
+  const cited = [...res.citations]
+    .sort((a, b) => Number(isOwn(b)) - Number(isOwn(a)))
+    .filter((c) => (seen.has(c.url) ? false : (seen.add(c.url), true)))
+    .slice(0, 8)
+
+  return {
+    evidence: {
+      source: 'web_search',
+      pages: cited.map((c) => ({ url: c.url, title: c.title, h1: '', words: 0 })),
+      stylesheets: [],
+      topColors: [],
+      fonts: [],
+      textSample: text.slice(0, 12_000),
+      navLabels: [],
+    },
+    warnings: [
+      `เว็บ ${domain} กันการอ่านจากเซิร์ฟเวอร์ (${reason} — มักเป็น Cloudflare) จึงใช้ผลค้นหาเว็บแทน ข้อมูลอาจไม่ครบหรือปนเว็บอื่น ตรวจทุกช่องก่อนบันทึก`,
+    ],
+  }
+}
+
+/** หัวข้อของข้อความหลักฐานใน prompt — บอก AI ให้ชัดว่ามาจากเว็บตรงหรือจากผลค้นหา */
+export function evidenceTextHeading(evidence: LabScanEvidence): string {
+  return evidence.source === 'web_search'
+    ? 'สรุปจากผลค้นหาเว็บ (เซิร์ฟเวอร์เปิดเว็บตรงไม่ได้ ข้อความนี้ไม่ใช่ข้อความจากเว็บโดยตรง — ใช้เฉพาะข้อมูลที่เป็นของธุรกิจนี้ และข้ามหัวข้อที่เขียนว่า "ไม่พบ"):'
+    : 'ข้อความจริงจากเว็บ:'
+}
+
 export async function collectLabScanEvidence(rawUrl: string): Promise<{ evidence: LabScanEvidence; warnings: string[] }> {
   const warnings: string[] = []
   const start = normalizeUrl(rawUrl, rawUrl) ?? rawUrl
@@ -189,8 +299,9 @@ export async function collectLabScanEvidence(rawUrl: string): Promise<{ evidence
     try { return new URL(start).hostname.replace(/^www\./, '') } catch { return '' }
   })()
 
-  const home = await fetchHtml(start)
+  const home = await fetchScanPage(start)
   if (!home.ok || !home.html) {
+    if (isSiteBlock(home)) return collectEvidenceViaWebSearch(start, domain, home.error ?? `HTTP ${home.status}`)
     throw new Error(home.error ? `เปิดเว็บไม่ได้: ${home.error}` : 'เปิดเว็บไม่ได้')
   }
 
@@ -213,7 +324,7 @@ export async function collectLabScanEvidence(rawUrl: string): Promise<{ evidence
 
   const cssBundles: string[] = [inlineStyles(home.html)]
   for (const url of candidates) {
-    const res = await fetchHtml(url)
+    const res = await fetchScanPage(url)
     if (!res.ok || !res.html) {
       warnings.push(`ข้ามหน้า ${url} (${res.error ?? 'เปิดไม่ได้'})`)
       continue
@@ -258,6 +369,7 @@ export async function collectLabScanEvidence(rawUrl: string): Promise<{ evidence
 
   return {
     evidence: {
+      source: 'site',
       pages,
       stylesheets: sheets,
       topColors,
@@ -324,7 +436,7 @@ export async function suggestLabSettings(params: {
     '',
     `ฟอนต์ที่อนุญาตให้เลือก (ต้องเลือกจากรายการนี้เท่านั้น): ${THAI_FONTS.join(', ')}`,
     '',
-    'ข้อความจริงจากเว็บ:',
+    evidenceTextHeading(params.evidence),
     params.evidence.textSample || '(ไม่มีข้อความ)',
   ].join('\n')
 
@@ -393,5 +505,8 @@ export function sanitizeSuggestion(raw: LabScanSuggestion, evidence: LabScanEvid
 export async function runLabScan(rawUrl: string, client?: string): Promise<LabScanResult> {
   const { evidence, warnings } = await collectLabScanEvidence(rawUrl)
   const suggestion = await suggestLabSettings({ url: rawUrl, evidence, client })
+  if (evidence.source === 'web_search') {
+    warnings.push('อ่านสีและฟอนต์จาก CSS ของเว็บไม่ได้ — ค่าสี/ฟอนต์เป็นค่าตั้งต้น ปรับเองให้ตรงแบรนด์')
+  }
   return { url: rawUrl, suggestion, evidence, warnings }
 }

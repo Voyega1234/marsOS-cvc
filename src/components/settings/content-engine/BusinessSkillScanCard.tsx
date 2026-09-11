@@ -210,6 +210,10 @@ export function BusinessSkillScanCard({
             Claim และแหล่งอ้างอิงที่ร่างให้เป็นสถานะ Draft ทุกแถว — ต้องตรวจกับเว็บจริงและให้ผู้รับผิดชอบอนุมัติก่อนใช้
           </p>
 
+          {result.warnings.length > 0 && (
+            <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700">ข้อควรทราบ: {result.warnings.join(" · ")}</p>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={apply}>
               <Check className="size-3.5" /> นำไปใส่ในฟอร์ม
@@ -224,13 +228,10 @@ export function BusinessSkillScanCard({
               <ul className="space-y-0.5">
                 {result.evidence.pages.map((p) => (
                   <li key={p.url} className="truncate">
-                    · {p.title || p.url} <span className="text-gray-400">({p.words} คำ)</span>
+                    · {p.title || p.url} {p.words > 0 && <span className="text-gray-400">({p.words} คำ)</span>}
                   </li>
                 ))}
               </ul>
-              {result.warnings.length > 0 && (
-                <p className="text-amber-600">ข้อควรทราบ: {result.warnings.join(" · ")}</p>
-              )}
             </div>
           )}
         </div>

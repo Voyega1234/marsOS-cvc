@@ -13,7 +13,7 @@
 import { BUSINESS_SKILL_CARDS, RISK_OPTIONS } from '@/components/settings/content-engine/constants'
 import type { BusinessSkillData, CardConfig, FieldValues, RiskLevel } from '@/components/settings/content-engine/types'
 import { askJson } from '@/lib/competitor-gap/ai'
-import { collectLabScanEvidence, type LabScanEvidence } from '@/lib/lab-scan'
+import { collectLabScanEvidence, evidenceTextHeading, type LabScanEvidence } from '@/lib/lab-scan'
 
 /** ส่วนของ Business Skill ที่สแกนเติมให้ได้ (status เป็นของทีม ไม่แตะ) */
 export type BusinessSkillDraft = Omit<BusinessSkillData, 'status'>
@@ -163,7 +163,7 @@ export async function runBusinessSkillScan(url: string): Promise<BusinessSkillSc
     '',
     `เมนูหลัก: ${evidence.navLabels.join(' · ') || '(ไม่พบ)'}`,
     '',
-    'ข้อความจริงจากเว็บ:',
+    evidenceTextHeading(evidence),
     evidence.textSample || '(ไม่มีข้อความ)',
   ].join('\n')
 
@@ -178,7 +178,7 @@ export async function runBusinessSkillScan(url: string): Promise<BusinessSkillSc
   if (!res.data) throw new Error(res.error ?? 'AI สรุปผลไม่สำเร็จ')
   if (res.error) warnings.push(res.error)
 
-  if (!evidence.textSample || evidence.textSample.length < 300) {
+  if (evidence.source === 'site' && (!evidence.textSample || evidence.textSample.length < 300)) {
     warnings.push('เว็บนี้มีข้อความให้อ่านน้อยมาก (อาจเป็นเว็บที่โหลดเนื้อหาด้วย JavaScript) — ช่องส่วนใหญ่อาจว่าง')
   }
 
