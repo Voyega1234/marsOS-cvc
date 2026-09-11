@@ -45,6 +45,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           detail: t.detail ?? null,
           url: t.url ?? null,
           priority: t.priority ?? "MEDIUM",
+          // หลักฐานจากปุ่มสแกน — ทีมเปิดดูได้ว่าทำไมงานนี้ถึงถูกสร้าง
+          evidence: t.evidence ?? null,
         })),
     });
     return NextResponse.json({ count: created.count }, { status: 201 });

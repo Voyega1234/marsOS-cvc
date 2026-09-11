@@ -6,6 +6,7 @@ import { Globe, ListChecks } from "lucide-react";
 import type { WorkspaceProject } from "./types";
 import { ONPAGE_CATEGORIES, ONPAGE_TEMPLATES } from "@/lib/seo-check-templates";
 import { SeoTaskChecklist, type SeoTaskStats } from "./SeoTaskChecklist";
+import { SeoScanPanel } from "./SeoScanPanel";
 
 interface Props {
   project: WorkspaceProject;
@@ -51,6 +52,13 @@ export function OnPageSeo({ project, userRole }: Props) {
           </div>
         </div>
       </div>
+
+      <SeoScanPanel
+        projectId={project.id}
+        area="ONPAGE"
+        categories={ONPAGE_CATEGORIES}
+        readOnly={readOnly}
+      />
 
       <SeoTaskChecklist
         projectId={project.id}
