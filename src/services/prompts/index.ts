@@ -4,16 +4,19 @@ import type { PromptVariables } from "@/services/ai/compiler";
 
 // ── Role guards ───────────────────────────────────────────────────────────────
 
+// ทุก role ยกเว้น CLIENT แก้ Content Engine ได้ — คำสั่งเจ้าของ 2026-09-11
 export function canViewPrompts(role: string) {
-  return ["ADMIN", "SEO_MANAGER"].includes(role);
+  return Boolean(role) && role !== "CLIENT";
 }
 
+// ทุก role ยกเว้น CLIENT แก้ Content Engine ได้ — คำสั่งเจ้าของ 2026-09-11
 export function canEditPrompts(role: string) {
-  return role === "ADMIN";
+  return Boolean(role) && role !== "CLIENT";
 }
 
+// ทุก role ยกเว้น CLIENT แก้ Content Engine ได้ — คำสั่งเจ้าของ 2026-09-11
 export function canActivatePrompts(role: string) {
-  return role === "ADMIN";
+  return Boolean(role) && role !== "CLIENT";
 }
 
 // ── Snapshot helper ───────────────────────────────────────────────────────────

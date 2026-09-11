@@ -221,7 +221,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
                     {selected.isActive ? "ปิดใช้งาน" : "ใช้ชุดนี้"}
                   </Button>
                 )}
-                {canEdit && locked && (
+                {canEdit && selected && (
                   <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={cloneAsDraft}>
                     {busy === "clone" ? <Loader2 className="size-3.5 animate-spin" /> : <Copy className="size-3.5" />}
                     Clone เป็น Draft ใหม่

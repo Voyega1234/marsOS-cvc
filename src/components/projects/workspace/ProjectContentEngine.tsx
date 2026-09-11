@@ -115,7 +115,7 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
 
   return (
     <div className="space-y-4">
-      {userRole === "ADMIN" && items.length === 0 && (
+      {userRole !== "CLIENT" && items.length === 0 && (
         <div className="flex items-center justify-between rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-3">
           <p className="text-sm text-indigo-700">Project นี้ยังไม่มีชุด Content Engine — เริ่มต้นได้เร็วขึ้นด้วยการคัดลอกชุด Active จาก Studio</p>
           <Button size="sm" className="gap-1.5" disabled={copying} onClick={copyFromStudio}>

@@ -73,7 +73,7 @@ const CONFIG_FLOW = [
 
 export function ContentEngineSettingsClient({ items, scope, userRole }: Props) {
   const [tab, setTab] = useState<TabKey>("overview");
-  const canEdit = userRole === "ADMIN";
+  const canEdit = userRole !== "CLIENT";
 
   const businessSkills = useMemo(() => items.filter((i) => i.type === CE_TYPES.BUSINESS_SKILL), [items]);
   const masterPrompts = useMemo(() => items.filter((i) => i.type === CE_TYPES.MASTER_PROMPT), [items]);

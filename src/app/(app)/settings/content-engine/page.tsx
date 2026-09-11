@@ -26,7 +26,7 @@ export default async function ContentEngineSettingsPage() {
   const orgId = session.user.organizationId;
   if (!orgId) redirect("/setup");
 
-  if (session.user.role !== "ADMIN" && session.user.role !== "SEO_MANAGER") {
+  if (session.user.role === "CLIENT") {
     redirect("/settings");
   }
 
