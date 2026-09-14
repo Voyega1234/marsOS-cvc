@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { History, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Drawer, ErrorBanner, StatusBadge } from "./shared";
+import { Drawer, ErrorBanner, StatusBadge, useCERefresh } from "./shared";
 import type { PromptRow } from "./types";
 import { CE_TYPES, tryParse } from "./types";
 
@@ -31,7 +30,7 @@ interface VersionEntry {
 }
 
 export function VersionsAuditTab({ items }: Props) {
-  const router = useRouter();
+  const refresh = useCERefresh();
   const [openId, setOpenId] = useState<string | null>(null);
   const [versions, setVersions] = useState<VersionEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -68,7 +67,7 @@ export function VersionsAuditTab({ items }: Props) {
       }
       toast.success("Restore เวอร์ชันแล้ว");
       setOpenId(null);
-      router.refresh();
+      refresh();
     } catch (err) {
       setError((err as Error).message);
     } finally {

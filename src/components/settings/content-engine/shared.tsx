@@ -1,13 +1,23 @@
 "use client";
 
 import { Loader2, Sparkles, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { isCompiledStale, readCompiled, withCompiled, CE_COMPILED_KEY, CE_COMPILED_AT_KEY, CE_COMPILED_SOURCE_KEY } from "@/lib/ce-compiled-fields";
 import { cn } from "@/lib/utils";
+
+// ── รีเฟรชรายการ prompt หลังบันทึก/clone/activate ─────────────────────────
+// หน้า Studio ดึงแถวจาก server component → router.refresh() พอ
+// แต่ใน Project Settings (ฟันเฟือง) รายการถูก fetch ฝั่ง client แล้วถือไว้ใน state
+// router.refresh() จึงไม่เคยดึงใหม่ → กดบันทึกแล้วรายการไม่ขยับ สลับแท็บแล้วชุดที่เพิ่งสร้าง
+// หายจากหน้าจอ (ทั้งที่อยู่ใน DB) — ทุกแท็บต้องเรียก refresh จาก context นี้แทน
+export const CERefreshContext = createContext<() => void>(() => {});
+export function useCERefresh(): () => void {
+  return useContext(CERefreshContext);
+}
 import { STATUS_COLORS, RISK_COLORS } from "./constants";
 import type { CEMode, CEStatus, RiskLevel } from "./types";
 

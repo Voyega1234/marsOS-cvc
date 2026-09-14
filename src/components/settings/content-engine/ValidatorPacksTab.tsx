@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Check, Copy, Loader2, Plus, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { DEFAULT_VALIDATORS, RISK_OPTIONS, STATUS_OPTIONS, VALIDATOR_OUTPUT_SCHEMA } from "./constants";
-import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge } from "./shared";
+import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge, useCERefresh } from "./shared";
 import type { CEMode, CEScope, PromptRow, ValidatorPackData } from "./types";
 import { CE_TYPES, scopeProjectId, tryParse } from "./types";
 
@@ -50,7 +49,7 @@ function newDraft(): Draft {
 }
 
 export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
-  const router = useRouter();
+  const refresh = useCERefresh();
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null);
   const [draft, setDraft] = useState<Draft>(items[0] ? parseItem(items[0]) : newDraft());
   const [busy, setBusy] = useState<string | null>(null);
@@ -58,7 +57,8 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
   const [rawToFormNotice, setRawToFormNotice] = useState(false);
 
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? null, [items, selectedId]);
-  const locked = !!selected?.isActive;
+  // ชุด Active แก้ทับได้ (คำสั่งเจ้าของ 2026-09-14: บันทึกแล้วต้องมีผลทันที) — ทุกการบันทึกเก็บเวอร์ชันเดิมไว้ใน Versions & Audit
+  const isActiveRow = !!selected?.isActive;
 
   useEffect(() => {
     if (!selectedId) return;
@@ -151,14 +151,14 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
           await call(`/api/prompts/${selectedId}/activate`, { method: "POST", body: JSON.stringify({ action: "deactivate" }) }, "save");
         }
         toast.success("บันทึก Validator Pack แล้ว");
-        router.refresh();
+        refresh();
       }
     } else {
       const created = await call("/api/prompts", { method: "POST", body: JSON.stringify(payload) }, "save");
       if (created?.id) {
         setSelectedId(created.id);
         toast.success("สร้าง Validator Pack แล้ว");
-        router.refresh();
+        refresh();
       }
     }
   }
@@ -177,7 +177,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
     if (created?.id) {
       setSelectedId(created.id);
       toast.success("Clone เป็น Draft ใหม่แล้ว");
-      router.refresh();
+      refresh();
     }
   }
 
@@ -189,7 +189,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
     );
     if (done) {
       toast.success(item.isActive ? "ปิดใช้งานแล้ว" : "ใช้งานชุดนี้แล้ว");
-      router.refresh();
+      refresh();
     }
   }
 
@@ -200,7 +200,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
     });
   }
 
-  const disabled = !canEdit || locked;
+  const disabled = !canEdit;
 
   return (
     <div className="space-y-4">
@@ -248,7 +248,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-brand-navy">{selectedId ? "แก้ไข Validator Pack" : "สร้าง Validator Pack ใหม่"}</h2>
-                {locked && <p className="mt-0.5 text-xs text-amber-600">ชุดนี้กำลัง Active อยู่ — ห้ามแก้ทับ ต้อง Clone เป็น Draft ใหม่ก่อนแก้ไข</p>}
+                {isActiveRow && <p className="mt-0.5 text-xs text-amber-600">ชุดนี้ Active อยู่ — บันทึกแล้วมีผลกับบทความใหม่ทันที (เวอร์ชันเดิมดูได้ที่ Versions &amp; Audit)</p>}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <ModeToggle mode={draft.mode} onChange={changeMode} disabled={disabled} />
@@ -270,7 +270,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                     Clone เป็น Draft ใหม่
                   </Button>
                 )}
-                {canEdit && !locked && (
+                {canEdit && (
                   <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={save}>
                     {busy === "save" ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
                     บันทึก
@@ -331,7 +331,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
               promptId={selectedId}
               data={draft.data as unknown as Record<string, unknown>}
               canEdit={canEdit}
-              locked={locked}
+              locked={false}
               onChange={(next) => setDraft({ ...draft, data: next as unknown as typeof draft.data })}
             />
           )}

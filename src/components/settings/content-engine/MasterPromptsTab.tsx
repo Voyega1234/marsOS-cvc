@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Check, Copy, Loader2, Plus, Save, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,7 +17,7 @@ import {
   RISK_OPTIONS,
   STATUS_OPTIONS,
 } from "./constants";
-import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge } from "./shared";
+import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge, useCERefresh } from "./shared";
 import type { CEMode, CEScope, MasterPromptData, PromptRow } from "./types";
 import { CE_TYPES, emptyMasterPrompt, scopeProjectId, tryParse } from "./types";
 
@@ -90,7 +89,7 @@ function VariableChips({
 }
 
 export function MasterPromptsTab({ items, scope, canEdit }: Props) {
-  const router = useRouter();
+  const refresh = useCERefresh();
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null);
   const [draft, setDraft] = useState<Draft>(items[0] ? parseItem(items[0]) : newDraft());
   const [busy, setBusy] = useState<string | null>(null);
@@ -98,7 +97,8 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
   const [rawToFormNotice, setRawToFormNotice] = useState(false);
 
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? null, [items, selectedId]);
-  const locked = !!selected?.isActive;
+  // ชุด Active แก้ทับได้ (คำสั่งเจ้าของ 2026-09-14: บันทึกแล้วต้องมีผลทันที) — ทุกการบันทึกเก็บเวอร์ชันเดิมไว้ใน Versions & Audit
+  const isActiveRow = !!selected?.isActive;
 
   useEffect(() => {
     if (!selectedId) return;
@@ -194,14 +194,14 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
           await call(`/api/prompts/${selectedId}/activate`, { method: "POST", body: JSON.stringify({ action: "deactivate" }) }, "save");
         }
         toast.success("บันทึก Master Prompt แล้ว");
-        router.refresh();
+        refresh();
       }
     } else {
       const created = await call("/api/prompts", { method: "POST", body: JSON.stringify(payload) }, "save");
       if (created?.id) {
         setSelectedId(created.id);
         toast.success("สร้าง Master Prompt แล้ว");
-        router.refresh();
+        refresh();
       }
     }
   }
@@ -220,7 +220,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
     if (created?.id) {
       setSelectedId(created.id);
       toast.success("Clone เป็น Draft ใหม่แล้ว");
-      router.refresh();
+      refresh();
     }
   }
 
@@ -232,7 +232,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
     );
     if (done) {
       toast.success(item.isActive ? "ปิดใช้งานแล้ว" : "ใช้งานชุดนี้แล้ว");
-      router.refresh();
+      refresh();
     }
   }
 
@@ -290,11 +290,11 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-brand-navy">{selectedId ? "แก้ไข Master Prompt" : "สร้าง Master Prompt ใหม่"}</h2>
-                {locked && <p className="mt-0.5 text-xs text-amber-600">ชุดนี้กำลัง Active อยู่ — ห้ามแก้ทับ ต้อง Clone เป็น Draft ใหม่ก่อนแก้ไข</p>}
+                {isActiveRow && <p className="mt-0.5 text-xs text-amber-600">ชุดนี้ Active อยู่ — บันทึกแล้วมีผลกับบทความใหม่ทันที (เวอร์ชันเดิมดูได้ที่ Versions &amp; Audit)</p>}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <ModeToggle mode={draft.mode} onChange={changeMode} disabled={!canEdit || locked} />
-                {canEdit && !locked && (
+                <ModeToggle mode={draft.mode} onChange={changeMode} disabled={!canEdit} />
+                {canEdit && (
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={useDefault}>
                     <Sparkles className="size-3.5" /> ใช้ Default Master Prompt
                   </Button>
@@ -317,7 +317,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                     Clone เป็น Draft ใหม่
                   </Button>
                 )}
-                {canEdit && !locked && (
+                {canEdit && (
                   <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={save}>
                     {busy === "save" ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
                     บันทึก
@@ -329,13 +329,13 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <div className="space-y-1 lg:col-span-2">
                 <Label className="text-xs text-gray-600">Prompt Name</Label>
-                <Input value={draft.name} disabled={!canEdit || locked} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="h-9 text-sm" />
+                <Input value={draft.name} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="h-9 text-sm" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-gray-600">Content Type</Label>
                 <select
                   value={draft.data.contentType}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, contentType: e.target.value } })}
                   className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
                 >
@@ -348,7 +348,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                 <Label className="text-xs text-gray-600">Industry Scope</Label>
                 <Input
                   value={draft.data.industryScope}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   placeholder="All Industries"
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, industryScope: e.target.value } })}
                   className="h-9 text-sm"
@@ -358,7 +358,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                 <Label className="text-xs text-gray-600">Risk Level</Label>
                 <select
                   value={draft.data.riskLevel}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, riskLevel: e.target.value as any } })}
                   className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
                 >
@@ -371,7 +371,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                 <Label className="text-xs text-gray-600">Status</Label>
                 <select
                   value={draft.data.status}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, status: e.target.value as any } })}
                   className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
                 >
@@ -382,7 +382,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               </div>
               <div className="space-y-1 sm:col-span-2 lg:col-span-4">
                 <Label className="text-xs text-gray-600">Description</Label>
-                <Input value={draft.description} disabled={!canEdit || locked} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="h-9 text-sm" />
+                <Input value={draft.description} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="h-9 text-sm" />
               </div>
             </div>
           </div>
@@ -392,7 +392,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               promptId={selectedId}
               data={draft.data as unknown as Record<string, unknown>}
               canEdit={canEdit}
-              locked={locked}
+              locked={false}
               onChange={(next) => setDraft({ ...draft, data: next as unknown as typeof draft.data })}
             />
           )}
@@ -402,7 +402,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               {rawToFormNotice && <RawToFormNotice onStartFresh={startFreshForm} />}
               <Textarea
                 value={draft.rawText}
-                disabled={!canEdit || locked}
+                disabled={!canEdit}
                 onChange={(e) => setDraft({ ...draft, rawText: e.target.value })}
                 className="min-h-[300px] font-mono text-xs"
               />
@@ -418,14 +418,14 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                     label="Required Variables"
                     selected={draft.data.requiredVariables}
                     other={draft.data.optionalVariables}
-                    disabled={!canEdit || locked}
+                    disabled={!canEdit}
                     onToggle={(v) => toggleVariable("requiredVariables", v)}
                   />
                   <VariableChips
                     label="Optional Variables"
                     selected={draft.data.optionalVariables}
                     other={draft.data.requiredVariables}
-                    disabled={!canEdit || locked}
+                    disabled={!canEdit}
                     onToggle={(v) => toggleVariable("optionalVariables", v)}
                   />
                 </div>
@@ -434,7 +434,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               <SectionCard title="System Instruction">
                 <Textarea
                   value={draft.data.systemInstruction}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, systemInstruction: e.target.value } })}
                   className="min-h-[160px] font-mono text-xs"
                 />
@@ -443,7 +443,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               <SectionCard title="Writing Instruction">
                 <Textarea
                   value={draft.data.writingInstruction}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, writingInstruction: e.target.value } })}
                   className="min-h-[260px] font-mono text-xs"
                 />
@@ -453,7 +453,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                 <SectionCard title="Output Format">
                   <Textarea
                     value={draft.data.outputFormat}
-                    disabled={!canEdit || locked}
+                    disabled={!canEdit}
                     onChange={(e) => setDraft({ ...draft, data: { ...draft.data, outputFormat: e.target.value } })}
                     className="min-h-[100px] font-mono text-xs"
                   />
@@ -461,7 +461,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                 <SectionCard title="Prohibited Behavior">
                   <Textarea
                     value={draft.data.prohibitedBehavior}
-                    disabled={!canEdit || locked}
+                    disabled={!canEdit}
                     onChange={(e) => setDraft({ ...draft, data: { ...draft.data, prohibitedBehavior: e.target.value } })}
                     className="min-h-[100px] font-mono text-xs"
                   />
@@ -469,7 +469,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                 <SectionCard title="Fallback Behavior">
                   <Textarea
                     value={draft.data.fallbackBehavior}
-                    disabled={!canEdit || locked}
+                    disabled={!canEdit}
                     onChange={(e) => setDraft({ ...draft, data: { ...draft.data, fallbackBehavior: e.target.value } })}
                     className="min-h-[80px] text-xs"
                   />
@@ -477,7 +477,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
                 <SectionCard title="Test Cases">
                   <Textarea
                     value={draft.data.testCases}
-                    disabled={!canEdit || locked}
+                    disabled={!canEdit}
                     onChange={(e) => setDraft({ ...draft, data: { ...draft.data, testCases: e.target.value } })}
                     className="min-h-[80px] text-xs"
                   />
@@ -487,7 +487,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               <SectionCard title="Version Note">
                 <Input
                   value={draft.data.versionNote}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, versionNote: e.target.value } })}
                   className="h-9 text-sm"
                 />

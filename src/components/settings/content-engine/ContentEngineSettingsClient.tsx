@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   BookOpen,
   CheckCircle2,
@@ -21,7 +22,7 @@ import { BusinessSkillsTab } from "./BusinessSkillsTab";
 import { ImagePromptsTab } from "./ImagePromptsTab";
 import { MasterPromptsTab } from "./MasterPromptsTab";
 import { PromptComposerTab } from "./PromptComposerTab";
-import { SectionCard } from "./shared";
+import { CERefreshContext, SectionCard } from "./shared";
 import { ValidatorPacksTab } from "./ValidatorPacksTab";
 import { VersionsAuditTab } from "./VersionsAuditTab";
 import type { BusinessSkillData, CEScope, MasterPromptData, PromptRow } from "./types";
@@ -31,6 +32,8 @@ interface Props {
   items: PromptRow[];
   scope: CEScope;
   userRole: string;
+  /** ดึงรายการใหม่หลังบันทึก — ไม่ส่ง = router.refresh() (หน้าที่ดึงแถวจาก server component) */
+  onRefresh?: () => void;
 }
 
 type TabKey =
@@ -71,8 +74,13 @@ const CONFIG_FLOW = [
   "Verify",
 ];
 
-export function ContentEngineSettingsClient({ items, scope, userRole }: Props) {
+export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh }: Props) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabKey>("overview");
+  const refresh = useCallback(() => {
+    if (onRefresh) onRefresh();
+    else router.refresh();
+  }, [onRefresh, router]);
   const canEdit = userRole !== "CLIENT";
 
   const businessSkills = useMemo(() => items.filter((i) => i.type === CE_TYPES.BUSINESS_SKILL), [items]);
@@ -82,6 +90,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole }: Props) {
   const imagePrompts = useMemo(() => items.filter((i) => i.type === CE_TYPES.IMAGE_PROMPT), [items]);
 
   return (
+    <CERefreshContext.Provider value={refresh}>
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-brand-navy">Content Engine</h1>
@@ -179,6 +188,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole }: Props) {
         </div>
       </div>
     </div>
+    </CERefreshContext.Provider>
   );
 }
 

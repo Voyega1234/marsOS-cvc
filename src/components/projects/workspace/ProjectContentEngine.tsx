@@ -51,7 +51,8 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
       setError("ไม่พบ Project ID — ไม่สามารถโหลด Content Engine ได้");
       return;
     }
-    setItems(null);
+    // รีเฟรชหลังบันทึก (refreshKey เปลี่ยน) ห้ามล้าง items — ถ้า items เป็น null
+    // จะ unmount ContentEngineSettingsClient แล้ว state แท็บ/ร่างที่กำลังแก้หายหมด
     setError(null);
     fetch(`/api/prompts?projectId=${resolvedProjectId}`)
       .then(async (res) => {
@@ -124,7 +125,12 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
           </Button>
         </div>
       )}
-      <ContentEngineSettingsClient items={items} scope={{ projectId: resolvedProjectId }} userRole={userRole} />
+      <ContentEngineSettingsClient
+        items={items}
+        scope={{ projectId: resolvedProjectId }}
+        userRole={userRole}
+        onRefresh={() => setRefreshKey((k) => k + 1)}
+      />
     </div>
   );
 }

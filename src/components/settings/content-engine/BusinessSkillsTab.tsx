@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Check, Copy, Loader2, Plus, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { BUSINESS_SKILL_CARDS, RISK_OPTIONS, STATUS_OPTIONS } from "./constants";
 import { BusinessSkillScanCard, mergeScanIntoSkill, suggestNaming, type ScanMergeMode } from "./BusinessSkillScanCard";
 import { ObjectCardForm, RepeatableCardForm, computeCompleteness } from "./FieldRenderer";
-import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, StatusBadge } from "./shared";
+import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, StatusBadge, useCERefresh } from "./shared";
 import type { BusinessSkillScanResult } from "@/lib/business-skill-scan";
 import type { BusinessSkillData, CEMode, CEScope, PromptRow } from "./types";
 import { CE_TYPES, emptyBusinessSkill, scopeProjectId, tryParse } from "./types";
@@ -45,7 +44,7 @@ function newDraft(): Draft {
 }
 
 export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
-  const router = useRouter();
+  const refresh = useCERefresh();
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null);
   const [draft, setDraft] = useState<Draft>(items[0] ? parseItem(items[0]) : newDraft());
   const [busy, setBusy] = useState<string | null>(null);
@@ -53,7 +52,8 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
   const [rawToFormNotice, setRawToFormNotice] = useState(false);
 
   const selected = useMemo(() => items.find((i) => i.id === selectedId) ?? null, [items, selectedId]);
-  const locked = !!selected?.isActive; // Active ห้ามแก้ทับ
+  // ชุด Active แก้ทับได้ (คำสั่งเจ้าของ 2026-09-14: บันทึกแล้วต้องมีผลทันที) — ทุกการบันทึกเก็บเวอร์ชันเดิมไว้ใน Versions & Audit
+  const isActiveRow = !!selected?.isActive;
 
   useEffect(() => {
     if (!selectedId) return;
@@ -155,14 +155,14 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
           await call(`/api/prompts/${selectedId}/activate`, { method: "POST", body: JSON.stringify({ action: "deactivate" }) }, "save");
         }
         toast.success("บันทึก Business Skill แล้ว");
-        router.refresh();
+        refresh();
       }
     } else {
       const created = await call("/api/prompts", { method: "POST", body: JSON.stringify(payload) }, "save");
       if (created?.id) {
         setSelectedId(created.id);
         toast.success("สร้าง Business Skill แล้ว");
-        router.refresh();
+        refresh();
       }
     }
   }
@@ -181,7 +181,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
     if (created?.id) {
       setSelectedId(created.id);
       toast.success("Clone เป็น Draft ใหม่แล้ว — แก้ไขต่อได้");
-      router.refresh();
+      refresh();
     }
   }
 
@@ -193,7 +193,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
     );
     if (done) {
       toast.success(item.isActive ? "ปิดใช้งานแล้ว" : "ใช้งานชุดนี้แล้ว");
-      router.refresh();
+      refresh();
     }
   }
 
@@ -247,10 +247,10 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-brand-navy">{selectedId ? "แก้ไข Business Skill" : "สร้าง Business Skill ใหม่"}</h2>
-                {locked && <p className="mt-0.5 text-xs text-amber-600">ชุดนี้กำลัง Active อยู่ — ห้ามแก้ทับ ต้อง Clone เป็น Draft ใหม่ก่อนแก้ไข</p>}
+                {isActiveRow && <p className="mt-0.5 text-xs text-amber-600">ชุดนี้ Active อยู่ — บันทึกแล้วมีผลกับบทความใหม่ทันที (เวอร์ชันเดิมดูได้ที่ Versions &amp; Audit)</p>}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <ModeToggle mode={draft.mode} onChange={changeMode} disabled={!canEdit || locked} />
+                <ModeToggle mode={draft.mode} onChange={changeMode} disabled={!canEdit} />
                 {selected && canEdit && (
                   <Button
                     variant={selected.isActive ? "secondary" : "outline"}
@@ -269,7 +269,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
                     Clone เป็น Draft ใหม่
                   </Button>
                 )}
-                {canEdit && !locked && (
+                {canEdit && (
                   <Button size="sm" className="gap-1.5" disabled={busy !== null} onClick={save}>
                     {busy === "save" ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
                     บันทึก
@@ -283,7 +283,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
                 <Label className="text-xs text-gray-600">ชื่อ Business Skill</Label>
                 <Input
                   value={draft.name}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   className="h-9 text-sm"
                 />
@@ -292,7 +292,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
                 <Label className="text-xs text-gray-600">Industry</Label>
                 <Input
                   value={draft.data.industry}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   placeholder="คลินิกเวชกรรม / ผิวหนัง / เลเซอร์"
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, industry: e.target.value } })}
                   className="h-9 text-sm"
@@ -302,7 +302,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
                 <Label className="text-xs text-gray-600">Risk Level</Label>
                 <select
                   value={draft.data.riskLevel}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, riskLevel: e.target.value as any } })}
                   className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
                 >
@@ -315,7 +315,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
                 <Label className="text-xs text-gray-600">Status</Label>
                 <select
                   value={draft.data.status}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, status: e.target.value as any } })}
                   className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
                 >
@@ -328,7 +328,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
                 <Label className="text-xs text-gray-600">คำอธิบายสั้น</Label>
                 <Input
                   value={draft.description}
-                  disabled={!canEdit || locked}
+                  disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                   className="h-9 text-sm"
                 />
@@ -339,7 +339,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
             )}
           </div>
 
-          {canEdit && !locked && draft.mode === "form" && (
+          {canEdit && draft.mode === "form" && (
             <BusinessSkillScanCard
               key={selectedId ?? "new"}
               projectId={scopeProjectId(scope)}
@@ -347,7 +347,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
               onApply={applyScan}
             />
           )}
-          {canEdit && !locked && draft.mode === "raw" && (
+          {canEdit && draft.mode === "raw" && (
             <p className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs text-gray-400">
               สลับเป็นโหมดฟอร์มก่อน ถึงจะใช้ “กรอกอัตโนมัติจากเว็บไซต์” ได้
             </p>
@@ -358,7 +358,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
               promptId={selectedId}
               data={draft.data as unknown as Record<string, unknown>}
               canEdit={canEdit}
-              locked={locked}
+              locked={false}
               onChange={(next) => setDraft({ ...draft, data: next as unknown as typeof draft.data })}
             />
           )}
@@ -368,7 +368,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
               {rawToFormNotice && <RawToFormNotice onStartFresh={startFreshForm} />}
               <Textarea
                 value={draft.rawText}
-                disabled={!canEdit || locked}
+                disabled={!canEdit}
                 onChange={(e) => setDraft({ ...draft, rawText: e.target.value })}
                 className="min-h-[300px] font-mono text-xs"
               />
@@ -384,7 +384,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
                     key={card.key}
                     card={card}
                     rows={(draft.data as any)[card.key] ?? []}
-                    disabled={!canEdit || locked}
+                    disabled={!canEdit}
                     onChange={(rows) => setDraft({ ...draft, data: { ...draft.data, [card.key]: rows } as BusinessSkillData })}
                   />
                 ) : (
@@ -392,7 +392,7 @@ export function BusinessSkillsTab({ items, scope, canEdit }: Props) {
                     key={card.key}
                     card={card}
                     value={(draft.data as any)[card.key] ?? {}}
-                    disabled={!canEdit || locked}
+                    disabled={!canEdit}
                     onChange={(v) => setDraft({ ...draft, data: { ...draft.data, [card.key]: v } as BusinessSkillData })}
                   />
                 )
