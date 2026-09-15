@@ -41,8 +41,8 @@ export default function LanguageModeSelect({ projectId, projectLanguage, value, 
       .then(d => {
         if (cancelled || !d) return
         const raw = typeof d.pushPrefs === 'string' ? d.pushPrefs : d.project?.pushPrefs
-        if (!raw) return
-        onChange(readLanguagePrefs(raw, projectLanguage))
+        // เรียก onChange เสมอ (แม้ยังไม่เคยบันทึก) — parent ใช้เป็นสัญญาณว่าโหลดค่าจาก DB เสร็จแล้ว
+        onChange(readLanguagePrefs(raw ?? null, projectLanguage))
       })
       .catch(() => { /* เงียบ — ใช้ค่า default */ })
     return () => { cancelled = true }

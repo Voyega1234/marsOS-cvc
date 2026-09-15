@@ -610,6 +610,16 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
       return;
     }
 
+    // โหมด both: ส่วนแบ่งภาษานี้เป็น 0 ตามสัดส่วน — ไม่รัน (กัน clamp ดันขึ้นเป็นขั้นต่ำแล้วเสียเงินรอบเต็ม)
+    if (languageMode === 'both') {
+      const share = language === 'th' ? splitCountByRatio(targetCount, ratioThai).th : splitCountByRatio(targetCount, ratioThai).en;
+      if (share <= 0) {
+        setStatus('error');
+        setStatusMessage(`สัดส่วน${language === 'th' ? 'ไทย' : 'อังกฤษ'}เป็น 0% — ปรับสัดส่วนหรือสลับภาษาก่อนรัน`);
+        return;
+      }
+    }
+
     runningRef.current = true;
     setStatus('running');
     setStatusMessage('กำลังเริ่มวิเคราะห์ธุรกิจ…');
@@ -1180,7 +1190,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                 )}
                 {languageMode === 'both' && (
                   <p className="mt-1 text-[10px] leading-4 text-[#71809c]">
-                    โหมดไทย+อังกฤษ: รอบนี้จะค้น {language === 'th' ? splitCountByRatio(targetCount, ratioThai).th : splitCountByRatio(targetCount, ratioThai).en} คำ
+                    โหมดไทย+อังกฤษ: รอบนี้จะค้น {clampTargetCount(language === 'th' ? splitCountByRatio(targetCount, ratioThai).th : splitCountByRatio(targetCount, ratioThai).en)} คำ
                     ({language === 'th' ? 'ไทย' : 'อังกฤษ'} {language === 'th' ? ratioThai : 100 - ratioThai}% ของ {targetCount}) — สลับภาษาแล้วรันอีกรอบให้ครบสัดส่วน
                   </p>
                 )}

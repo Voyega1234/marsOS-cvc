@@ -518,7 +518,7 @@ export async function POST(req: NextRequest) {
     websiteUrl = '',
     siteName = '',
     brandTone = '',
-    language = 'th',
+    language: languageFromBody = 'th',
     language_mode: languageModeFromBody = null,
     accentColor = '#2563eb',
     theme = 'professional',
@@ -538,6 +538,7 @@ export async function POST(req: NextRequest) {
     cta: ctaFromBody = null,
   } = body
   // โหมดภาษา: ผู้เรียกส่งมาได้ตรง ๆ ถ้าไม่ส่งจะเติมจาก pushPrefs ของโปรเจกต์ด้านล่าง
+  let language: string = languageFromBody
   let language_mode: string | null = languageModeFromBody
 
   // ดึง CTA + ผู้เขียน + ค่า Article Lab ของโปรเจกต์จาก DB
@@ -562,9 +563,11 @@ export async function POST(req: NextRequest) {
           forbiddenWords: true, sampleArticle: true, projectContext: true,
           brandTone: true, website: true, name: true, clientName: true, imageStyleGuide: true,
         themeColors: true, accentColor: true, articleTheme: true, businessType: true,
-          pushPrefs: true,
+          pushPrefs: true, language: true,
         },
       })
+      // ภาษาโปรเจกต์อ่านจาก DB เป็นหลัก — ผู้เรียกที่ไม่ส่ง language มา (default 'th') ต้องไม่ทำให้โปรเจกต์ en เขียนไทย
+      if (proj?.language) language = proj.language
       // โหมดภาษาที่ตั้งไว้ในโปรเจกต์ (LanguageModeSelect) — ใช้เมื่อผู้เรียกไม่ส่ง language_mode มาเอง
       if (!language_mode && proj?.pushPrefs) {
         language_mode = readLanguagePrefs(proj.pushPrefs, language).keywordMode

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { CE_TYPES, tryParse } from "@/components/settings/content-engine/types";
 import type { BusinessSkillData } from "@/components/settings/content-engine/types";
 import { getSession } from "@/lib/auth";
+import { stripCompiledKeys } from "@/lib/ce-compiled-fields";
 import { analyzeContextFiles, businessSkillDraftToText, mergeBusinessSkill } from "@/lib/context-business-skill";
 import { extractText } from "@/lib/context-files";
 import { prisma } from "@/lib/prisma";
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       type: CE_TYPES.BUSINESS_SKILL,
       isActive: true,
     },
+    orderBy: { updatedAt: "desc" },
   });
 
   const existingData = existing ? tryParse<BusinessSkillData>(existing.promptText) : null;
@@ -112,7 +114,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       : existing!.promptText;
   } else {
     merged = mergeBusinessSkill(existingData, ai.businessSkill);
-    promptText = JSON.stringify(merged);
+    // ผล compile รอบก่อน (_compiledPrompt) ผูกกับฟอร์มเก่า — ถ้าปล่อยติดไป resolver จะใช้ข้อความเก่า
+    // และข้อมูลจากไฟล์จะไม่ถูกส่งเข้า prompt เลย จึงตัดออก ให้ทีมกด compile ใหม่จากฟอร์มที่รวมแล้ว
+    promptText = JSON.stringify(stripCompiledKeys(merged as unknown as Record<string, unknown>));
   }
 
   let promptId: string;

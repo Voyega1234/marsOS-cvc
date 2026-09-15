@@ -22,7 +22,7 @@ export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
-  const body = await req.json()
+  const body = await req.json().catch(() => ({}))
   const {
     keyword, title,
     siteName = '', brandTone = '',

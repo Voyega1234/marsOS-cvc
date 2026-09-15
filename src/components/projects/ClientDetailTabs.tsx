@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback, Fragment } from 'react'
 import * as XLSX from 'xlsx'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -3056,6 +3056,9 @@ function ArticlesTab({
   const today = new Date().toISOString().slice(0, 10)
   // โหมดภาษาบทความของโปรเจกต์ en (LanguageModeSelect โหลดค่าที่บันทึกไว้แล้วอัปเดตให้)
   const [langPrefs, setLangPrefs] = useState(() => readLanguagePrefs(null, project.language))
+  // ก่อน LanguageModeSelect โหลดค่าที่บันทึกไว้เสร็จ ห้ามส่ง language_mode (ค่า default อาจไม่ตรง DB) — ให้ route อ่านจาก DB เอง
+  const [langLoaded, setLangLoaded] = useState(false)
+  const onLangChange = useCallback((next: ReturnType<typeof readLanguagePrefs>) => { setLangPrefs(next); setLangLoaded(true) }, [])
   const [writing, setWriting] = useState<Set<number>>(new Set())
   // One AbortController per in-flight article write so the user can Stop it.
   const writeAbortRef = useRef<Map<number, AbortController>>(new Map())
@@ -3239,7 +3242,7 @@ function ArticlesTab({
           projectId: project.id,
           ...(entry.keywordId && { keywordId: entry.keywordId }),
           language: project.language,
-          language_mode: langPrefs.keywordMode,
+          language_mode: langLoaded ? langPrefs.keywordMode : null,
           // ค่าอื่น (สี/สไตล์/CTA/ลิงก์/ชื่อเว็บ) ไม่ส่งจาก body — route อ่านจาก
           // Project Settings (Article Lab + CE) ใน DB เป็นแหล่งเดียว กันค่า stale จากหน้าจอ
           ...(adjustNote?.trim() && { adjustNote: adjustNote.trim() }),
@@ -3564,7 +3567,7 @@ function ArticlesTab({
           projectLanguage={project.language}
           value={langPrefs.keywordMode}
           ratioThai={langPrefs.ratioThai}
-          onChange={setLangPrefs}
+          onChange={onLangChange}
         />
         <ContentEngineReadyBar
           projectId={project.id}
@@ -3659,7 +3662,7 @@ function ArticlesTab({
       projectLanguage={project.language}
       value={langPrefs.keywordMode}
       ratioThai={langPrefs.ratioThai}
-      onChange={setLangPrefs}
+      onChange={onLangChange}
     />
     {/* จอแคบ: list กับ editor ซ้อนเป็นแนวตั้ง (เดิมฝืน 40/60 จนตัวหนังสือเรียงทีละตัวอักษร) */}
     <div className="flex flex-col lg:flex-row gap-5 lg:items-start" style={{ minHeight: 'calc(100vh - 180px)' }}>
@@ -5117,6 +5120,9 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   const [projectContext, setProjectContext] = useState(project.projectContext ?? '')
   // โหมดภาษาสำหรับทดสอบเขียนบทความใน Lab (ตัวเลือกเดียวกับหน้า Articles)
   const [langPrefs, setLangPrefs] = useState(() => readLanguagePrefs(null, project.language))
+  // ก่อน LanguageModeSelect โหลดค่าที่บันทึกไว้เสร็จ ห้ามส่ง language_mode (ค่า default อาจไม่ตรง DB) — ให้ route อ่านจาก DB เอง
+  const [langLoaded, setLangLoaded] = useState(false)
+  const onLangChange = useCallback((next: ReturnType<typeof readLanguagePrefs>) => { setLangPrefs(next); setLangLoaded(true) }, [])
   const [accentColor, setAccentColor] = useState(project.accentColor ?? '#2563eb')
   const [theme, setTheme] = useState(project.articleTheme ?? 'professional')
   // ชุดสีบทความของ client — ใช้กับทุกบทความที่เขียนบนเว็บนั้น (เก็บใน Project.themeColors)
@@ -5264,7 +5270,7 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
           keyword, title, stream: true,
           projectId: project.id,
           language: project.language,
-          language_mode: langPrefs.keywordMode,
+          language_mode: langLoaded ? langPrefs.keywordMode : null,
         }),
       })
       if (!res.ok) {
@@ -5602,7 +5608,7 @@ ${cover}${html}
         projectLanguage={project.language}
         value={langPrefs.keywordMode}
         ratioThai={langPrefs.ratioThai}
-        onChange={setLangPrefs}
+        onChange={onLangChange}
       />
       {/* ── Sub-tab bar ─────────────────────────────── */}
       <div className="flex items-center gap-1 mb-5 bg-gray-100 rounded-2xl p-1 w-fit">

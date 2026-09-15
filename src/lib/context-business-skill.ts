@@ -239,9 +239,7 @@ export function mergeBusinessSkill(existing: BusinessSkillData | null, incoming:
   if (incoming.industry) {
     merged.industry = merged.industry ? (merged.industry.includes(incoming.industry) ? merged.industry : `${merged.industry}\n${incoming.industry}`) : incoming.industry
   }
-  if (!merged.riskLevel || merged.riskLevel === 'medium') {
-    if (incoming.riskLevel) merged.riskLevel = incoming.riskLevel
-  }
+  if (!merged.riskLevel && incoming.riskLevel) merged.riskLevel = incoming.riskLevel
 
   for (const card of BUSINESS_SKILL_CARDS) {
     const key = card.key as keyof BusinessSkillData
