@@ -4,7 +4,9 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertTriangle,
+  ChevronDown,
   ChevronRight,
+  Copy,
   ExternalLink,
   ListChecks,
   Loader2,
@@ -22,6 +24,7 @@ import type {
   SeoTaskPriority,
 } from "@/lib/seo-check-templates";
 import { EMPTY_PLAN, parseTimeline, type TimelinePlan } from "@/lib/project-timeline";
+import { parseTaskDetail, setChosenOption } from "@/lib/seo-task-detail";
 import { notifySeoTaskChange, useSeoTaskSync } from "./useSeoTaskSync";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -414,9 +417,10 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
           plan={plan}
           readOnly={readOnly}
           onClose={() => setDrawerTaskId(null)}
-          onSave={async (patch) => {
+          onSave={async (patch, opts) => {
             const ok = await patchTask(drawerTask.id, patch);
-            if (ok) setDrawerTaskId(null);
+            // เลือกทางเลือกจาก AI = บันทึกแล้วเปิดค้างไว้ ให้เห็นว่าเลือกอันไหน — บันทึกปกติยังปิดเหมือนเดิม
+            if (ok && !opts?.keepOpen) setDrawerTaskId(null);
           }}
         />
       )}
@@ -859,7 +863,7 @@ function TaskDrawer({
   plan: TimelinePlan;
   readOnly: boolean;
   onClose: () => void;
-  onSave: (patch: Record<string, unknown>) => void;
+  onSave: (patch: Record<string, unknown>, opts?: { keepOpen?: boolean }) => void | Promise<void>;
 }) {
   const [title, setTitle] = useState(task.title);
   const [detail, setDetail] = useState(task.detail ?? "");
@@ -869,6 +873,13 @@ function TaskDrawer({
   const [dueDate, setDueDate] = useState(toDateInputValue(task.dueDate));
   const [evidence, setEvidence] = useState(task.evidence ?? "");
   const [saving, setSaving] = useState(false);
+  const [rawDetailOpen, setRawDetailOpen] = useState(false);
+
+  const parsedDetail = useMemo(() => parseTaskDetail(detail), [detail]);
+  const hasParsedSections =
+    Boolean(parsedDetail.current || parsedDetail.issue) ||
+    parsedDetail.fix.length > 0 ||
+    parsedDetail.options.length > 0;
 
   useEffect(() => {
     setTitle(task.title);
@@ -878,20 +889,52 @@ function TaskDrawer({
     setStatus(task.status);
     setDueDate(toDateInputValue(task.dueDate));
     setEvidence(task.evidence ?? "");
+    const initialParsed = parseTaskDetail(task.detail ?? "");
+    const initialHasSections =
+      Boolean(initialParsed.current || initialParsed.issue) ||
+      initialParsed.fix.length > 0 ||
+      initialParsed.options.length > 0;
+    setRawDetailOpen(!initialHasSections);
   }, [task]);
 
-  async function handleSave() {
-    setSaving(true);
-    await onSave({
+  function buildPatch(detailOverride?: string) {
+    const nextDetail = detailOverride ?? detail;
+    return {
       title: title.trim() || task.title,
-      detail: detail.trim() || null,
+      detail: nextDetail.trim() || null,
       url: url.trim() || null,
       priority,
       status,
       dueDate: dueDate || null,
       evidence: evidence.trim() || null,
-    });
+    };
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    await onSave(buildPatch());
     setSaving(false);
+  }
+
+  async function chooseOption(n: number) {
+    if (readOnly) return;
+    const nextDetail = setChosenOption(detail, n);
+    setDetail(nextDetail);
+    setSaving(true);
+    try {
+      await onSave(buildPatch(nextDetail), { keepOpen: true });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function copyOption(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("คัดลอกแล้ว");
+    } catch {
+      toast.error("คัดลอกไม่สำเร็จ");
+    }
   }
 
   return (
@@ -906,6 +949,18 @@ function TaskDrawer({
         </div>
 
         <div className="space-y-4 p-4">
+          {task.url && (
+            <a
+              href={task.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+            >
+              <ExternalLink className="h-4 w-4" />
+              ไปแก้ไขหน้านี้
+            </a>
+          )}
+
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500">ชื่องาน</label>
             <input
@@ -917,15 +972,107 @@ function TaskDrawer({
             />
           </div>
 
+          {(parsedDetail.current || parsedDetail.issue) && (
+            <div className="space-y-2 rounded-xl border border-gray-200 p-3">
+              {parsedDetail.current && (
+                <div>
+                  <p className="text-[11px] font-medium text-gray-500">ปัจจุบัน</p>
+                  <p className="mt-0.5 rounded-lg bg-gray-50 px-2 py-1.5 font-mono text-xs text-gray-700">
+                    {parsedDetail.current}
+                  </p>
+                </div>
+              )}
+              {parsedDetail.issue && (
+                <div>
+                  <p className="text-[11px] font-medium text-gray-500">ปัญหา</p>
+                  <p className="mt-0.5 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                    {parsedDetail.issue}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {parsedDetail.fix.length > 0 && (
+            <div>
+              <p className="mb-1 text-xs font-medium text-gray-500">วิธีแก้</p>
+              <ul className="space-y-1 rounded-xl border border-gray-200 p-3 text-xs text-gray-700">
+                {parsedDetail.fix.map((step, i) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <span className="mt-0.5 text-gray-400">-</span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {parsedDetail.options.length > 0 && (
+            <div>
+              <p className="mb-1 text-xs font-medium text-gray-500">
+                {task.category === "content-expansion" ? "หัวข้อที่แนะนำให้เพิ่ม" : "ทางเลือกที่แนะนำ (เลือก 1)"}
+              </p>
+              <ul className="space-y-2">
+                {parsedDetail.options.map((option, i) => {
+                  const n = i + 1;
+                  const isChosen = parsedDetail.chosen === n;
+                  return (
+                    <li
+                      key={i}
+                      className={`rounded-lg border p-2 text-xs ${
+                        isChosen ? "border-indigo-400 bg-indigo-50" : "border-gray-200"
+                      }`}
+                    >
+                      <p className="text-gray-700">{option}</p>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => copyOption(option)}
+                          className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
+                        >
+                          <Copy className="h-3 w-3" />
+                          คัดลอก
+                        </button>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => chooseOption(n)}
+                            disabled={saving}
+                            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium disabled:opacity-60 ${
+                              isChosen
+                                ? "bg-indigo-600 text-white"
+                                : "border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                            }`}
+                          >
+                            {isChosen ? "ใช้อันนี้แล้ว" : "ใช้อันนี้"}
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500">รายละเอียด</label>
-            <textarea
-              value={detail}
-              disabled={readOnly}
-              onChange={(e) => setDetail(e.target.value)}
-              rows={3}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
-            />
+            <button
+              type="button"
+              onClick={() => setRawDetailOpen((v) => !v)}
+              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+            >
+              {rawDetailOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              แก้ไขรายละเอียดดิบ
+            </button>
+            {rawDetailOpen && (
+              <textarea
+                value={detail}
+                disabled={readOnly}
+                onChange={(e) => setDetail(e.target.value)}
+                rows={hasParsedSections ? 6 : 3}
+                className="mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+              />
+            )}
           </div>
 
           <div>

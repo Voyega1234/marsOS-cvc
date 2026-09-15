@@ -24,6 +24,12 @@ import {
 import type { SeoCheckCategory, SeoTaskArea, SeoTaskPriority } from "@/lib/seo-check-templates";
 import { notifySeoTaskChange } from "./useSeoTaskSync";
 
+interface AffectedPage {
+  url: string;
+  current: string;
+  issue: string;
+}
+
 interface Finding {
   id: string;
   area: SeoTaskArea;
@@ -35,12 +41,28 @@ interface Finding {
   severity: "fail" | "warn";
   url?: string;
   count: number;
+  /** ทุกหน้าที่เจอปัญหานี้ — ว่าง = ปัญหาระดับเว็บ สร้างงานเดียว */
+  affected: AffectedPage[];
+  /** ขั้นตอนแก้แบบทำตามได้เลย */
+  fix: string;
+  /** ชนิดข้อความที่ให้ AI แนะนำ — ไม่มี = ไม่ใช้ AI */
+  aiSuggest?: "title" | "metaDescription" | "h1" | "lead" | "contentTopics";
+}
+
+interface ScanPage {
+  url: string;
+  title: string;
+  metaDescription: string;
+  h1: string;
+  h2: string[];
+  excerpt: string;
+  wordCount: number;
 }
 
 interface ScanResult {
   website: string;
   scannedAt: string;
-  pages: Array<{ url: string; wordCount: number }>;
+  pages: ScanPage[];
   findings: Finding[];
   passed: Array<{ area: SeoTaskArea; category: string; label: string; evidence: string }>;
   needsTools: Array<{ label: string; reason: string }>;
@@ -51,6 +73,22 @@ interface ScanResult {
 // แคชผลสแกนล่าสุดต่อโปรเจกต์ — สแกนที่หน้าไหนก็ใช้ได้ทั้งสามหน้า
 const scanCache = new Map<string, ScanResult>();
 const CHANNEL = "seo-scan:done";
+
+// ตัด URL เหลือแค่ path + query สำหรับแสดงในรายการตัวอย่าง (home = "/")
+function pathLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const p = `${u.pathname}${u.search}`;
+    return p || "/";
+  } catch {
+    return url;
+  }
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}…`;
+}
 
 const PRIORITY_META: Record<SeoTaskPriority, { label: string; badge: string }> = {
   LOW: { label: "ต่ำ", badge: "bg-gray-100 text-gray-600" },
@@ -72,7 +110,9 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openEvidence, setOpenEvidence] = useState<Set<string>>(new Set());
+  const [openAffected, setOpenAffected] = useState<Set<string>>(new Set());
   const [showPassed, setShowPassed] = useState(false);
+  const [useAi, setUseAi] = useState(true);
 
   // หน้าอื่นสแกนเสร็จ — หยิบผลชุดเดียวกันมาแสดงโดยไม่ต้องสแกนซ้ำ
   useEffect(() => {
@@ -91,13 +131,24 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
     [categories]
   );
 
+  // ผลสแกนชุดเก่าในแคชอาจยังไม่มี affected/fix — เติมค่าว่างให้ก่อน จะได้ไม่พังตอน render
   const findings = useMemo(
-    () => (result?.findings ?? []).filter((f) => f.area === area),
+    () =>
+      (result?.findings ?? [])
+        .filter((f) => f.area === area)
+        .map((f) => ({ ...f, affected: f.affected ?? [], fix: f.fix ?? "" })),
     [result, area]
   );
   const passed = useMemo(
     () => (result?.passed ?? []).filter((p) => p.area === area),
     [result, area]
+  );
+  const selectedTaskCount = useMemo(
+    () =>
+      findings
+        .filter((f) => selected.has(f.id))
+        .reduce((sum, f) => sum + Math.max(1, f.affected.length), 0),
+    [findings, selected]
   );
 
   async function scan() {
@@ -125,29 +176,31 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
 
   async function createTasks() {
     const picked = findings.filter((f) => selected.has(f.id));
-    if (!picked.length) return;
+    if (!picked.length || !result) return;
     setCreating(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/seo-tasks`, {
+      const res = await fetch(`/api/projects/${projectId}/seo-tasks/from-scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tasks: picked.map((f) => ({
-            area: f.area,
-            category: f.category,
-            title: f.title,
-            detail: f.detail,
-            url: f.url ?? null,
-            priority: f.priority,
-            evidence: f.evidence,
-          })),
+          findings: picked,
+          pages: result.pages,
+          useAi,
+          website: result.website,
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
       notifySeoTaskChange(projectId);
       setSelected(new Set());
-      toast.success(`สร้างงานจากผลสแกนแล้ว ${body.count ?? picked.length} งาน`);
+      const count = body.count ?? 0;
+      const skipped = body.skipped ?? 0;
+      const aiCostUsd = body.aiCostUsd ?? 0;
+      const aiErrors: string[] = body.aiErrors ?? [];
+      const skippedNote = skipped ? ` · ข้าม ${skipped} งานที่มีอยู่แล้ว` : "";
+      const costNote = aiCostUsd ? ` · ค่า AI $${aiCostUsd.toFixed(4)}` : "";
+      toast.success(`สร้างงานแล้ว ${count} งาน${skippedNote}${costNote}`);
+      if (aiErrors.length > 0) toast.warning(aiErrors[0]);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -208,7 +261,7 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-sm text-gray-600">
                   พบ <span className="font-semibold text-brand-navy">{findings.length}</span> เรื่องที่ควรแก้ในด้านนี้
                   <button
@@ -221,20 +274,35 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
                   </button>
                 </div>
                 {!readOnly && (
-                  <button
-                    onClick={createTasks}
-                    disabled={creating || selected.size === 0}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:opacity-50"
-                  >
-                    {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                    สร้างเป็นงาน ({selected.size})
-                  </button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={useAi}
+                        onChange={(e) => setUseAi(e.target.checked)}
+                      />
+                      ให้ AI แนะนำข้อความใหม่ 1-3 แบบ (ใช้เครดิต)
+                    </label>
+                    <button
+                      onClick={createTasks}
+                      disabled={creating || selected.size === 0}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:opacity-50"
+                    >
+                      {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      {creating
+                        ? useAi
+                          ? "กำลังสร้างงาน + ให้ AI แนะนำ…"
+                          : "กำลังสร้างงาน…"
+                        : `สร้างเป็นงาน (${selected.size} เรื่อง · ${selectedTaskCount} งาน)`}
+                    </button>
+                  </div>
                 )}
               </div>
 
               <ul className="space-y-2">
                 {findings.map((f) => {
                   const open = openEvidence.has(f.id);
+                  const affectedOpen = openAffected.has(f.id);
                   return (
                     <li key={f.id} className="rounded-xl border border-gray-200 p-3">
                       <div className="flex items-start gap-3">
@@ -258,15 +326,45 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
                               <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
                             ) : null}
                             <span className="text-sm font-medium text-brand-navy">{f.title}</span>
+                            {f.aiSuggest && (
+                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
+                                AI แนะนำข้อความ
+                              </span>
+                            )}
                           </div>
+                          <p className="mt-0.5 text-[11px] text-gray-500">
+                            {f.affected.length > 0 ? `จะสร้าง ${f.affected.length} งาน (แยกหน้าละงาน)` : "จะสร้าง 1 งาน"}
+                          </p>
                           <p className="mt-1 text-xs text-gray-500">{f.detail}</p>
-                          <button
-                            onClick={() => setOpenEvidence((s) => toggle(s, f.id))}
-                            className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:underline"
-                          >
-                            {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                            หลักฐาน
-                          </button>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                            {f.affected.length > 0 && (
+                              <button
+                                onClick={() => setOpenAffected((s) => toggle(s, f.id))}
+                                className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:underline"
+                              >
+                                {affectedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                                ดูรายหน้า ({f.affected.length})
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setOpenEvidence((s) => toggle(s, f.id))}
+                              className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:underline"
+                            >
+                              {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                              หลักฐาน
+                            </button>
+                          </div>
+                          {affectedOpen && f.affected.length > 0 && (
+                            <ul className="mt-1.5 max-h-56 space-y-1.5 overflow-auto rounded-lg bg-gray-50 p-2">
+                              {f.affected.map((a, i) => (
+                                <li key={`${a.url}-${i}`} className="text-[11px]">
+                                  <p className="font-medium text-gray-700">{pathLabel(a.url)}</p>
+                                  <p className="text-gray-400">{truncate(a.current, 90)}</p>
+                                  <p className="text-amber-700">{a.issue}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                           {open && (
                             <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-gray-50 p-2 text-[11px] leading-relaxed text-gray-600">
                               {f.evidence}

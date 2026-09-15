@@ -20,7 +20,17 @@
 import { fetchHtml, fetchText } from '@/lib/competitor-gap/fetcher'
 import { extractPage, type ExtractedPage } from '@/lib/competitor-gap/pageExtract'
 import { assertCrawlable, normalizeUrl, toOrigin } from '@/lib/competitor-gap/urls'
+import { SEO_FIX_GUIDE, SEO_AI_SUGGEST, type SeoAiSuggestKind } from '@/lib/seo-fix-guide'
 import type { SeoTaskArea, SeoTaskPriority } from '@/lib/seo-check-templates'
+
+/** หนึ่งหน้าที่เจอปัญหานี้ — ใช้แตกเป็นงานรายหน้า (ดู seo-task-expand.ts) */
+export interface SeoAffectedPage {
+  url: string
+  /** ค่าปัจจุบันที่อ่านได้จากหน้า เช่น title ปัจจุบัน, meta description ปัจจุบัน, "ไม่มี" */
+  current: string
+  /** ปัญหาของหน้านี้แบบสั้น เช่น "72 ตัวอักษร (ควร 50-60)", "ซ้ำกับ /about, /contact" */
+  issue: string
+}
 
 export interface SeoFinding {
   /** id เสถียรพอที่ UI ใช้เป็น key และกันสร้างงานซ้ำได้ */
@@ -38,6 +48,12 @@ export interface SeoFinding {
   url?: string
   /** จำนวนหน้าที่เจอปัญหาเดียวกัน */
   count: number
+  /** ทุกหน้าที่เจอปัญหานี้ (ไม่ตัดที่ 10 เหมือน evidence) — ว่าง = ปัญหาระดับเว็บ สร้างงานเดียว */
+  affected: SeoAffectedPage[]
+  /** ขั้นตอนแก้แบบทำตามได้เลย (ข้อความไทย หลายบรรทัด ขึ้นต้นแต่ละข้อด้วย "- ") */
+  fix: string
+  /** ชนิดข้อความที่ให้ AI แนะนำ 1-3 แบบ — undefined = ไม่ใช้ AI */
+  aiSuggest?: SeoAiSuggestKind
 }
 
 export interface SeoAuditPage {
@@ -59,6 +75,12 @@ export interface SeoAuditPage {
   schemaTypes: string[]
   bytes: number
   ms: number
+  /** H1 แรกของหน้า (ExtractedPage.h1) */
+  h1: string
+  /** หัวข้อ H2 สูงสุด 12 หัวข้อ */
+  h2: string[]
+  /** 400 ตัวอักษรแรกของเนื้อหา — ไว้ให้ AI เข้าใจหน้าโดยไม่ต้องส่งข้อความเต็ม */
+  excerpt: string
 }
 
 export interface SeoAuditResult {
@@ -199,8 +221,16 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
   const passed: SeoAuditResult['passed'] = []
   const needsTools: SeoAuditResult['needsTools'] = []
 
-  const add = (f: Omit<SeoFinding, 'count'> & { count?: number }) => {
-    findings.push({ ...f, count: f.count ?? 1 })
+  const add = (f: Omit<SeoFinding, 'count' | 'affected' | 'fix' | 'aiSuggest'> & { count?: number; affected?: SeoAffectedPage[] }) => {
+    findings.push({
+      ...f,
+      count: f.count ?? 1,
+      // ว่าง = ปัญหาระดับเว็บ สร้างงานเดียว (ไม่แตกรายหน้า)
+      affected: f.affected ?? [],
+      // ขั้นตอนแก้ + ชนิด AI suggest มาจาก seo-fix-guide.ts ตาม id เสมอ (ห้ามเป็น undefined)
+      fix: SEO_FIX_GUIDE[f.id] ?? '',
+      aiSuggest: SEO_AI_SUGGEST[f.id],
+    })
   }
 
   // ── 1. robots.txt ──────────────────────────────────────────────────────────
@@ -345,6 +375,8 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
   const allInternalHrefs = new Set<string>()
   const linkedTo = new Set<string>()
   const serverErrors: Array<{ url: string; status: number }> = []
+  // หน้าแรกที่ลิงก์ไปยัง URL แต่ละตัว — ใช้บอกว่า broken-internal เจอในหน้าไหน (เก็บแค่ตัวแรก ราคาถูก)
+  const linkSource = new Map<string, string>()
 
   while (queue.length && pages.length < maxPages) {
     const url = queue.shift()!
@@ -382,6 +414,9 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       schemaTypes: page.schemaTypes,
       bytes: r.bytes,
       ms,
+      h1: page.h1,
+      h2: page.h2.slice(0, 12),
+      excerpt: page.text.slice(0, 400),
     })
 
     for (const href of page.internalHrefs) {
@@ -389,6 +424,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       if (!n || !sameHost(n, origin)) continue
       allInternalHrefs.add(n)
       linkedTo.add(n)
+      if (!linkSource.has(n)) linkSource.set(n, url)
       push(n)
     }
   }
@@ -399,6 +435,8 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
 
   // ── 6. ปัญหาระดับหน้า ──────────────────────────────────────────────────────
   const group = <T>(items: T[], label: (t: T) => string) => items.map(label)
+  // อ่านค่าเต็มของหน้าจาก URL — ใช้ประกอบ affected ของ finding ต่าง ๆ ด้านล่าง
+  const pageByUrl = new Map(pages.map((p) => [p.url, p]))
 
   const noTitle = pages.filter((p) => !p.title.trim())
   if (noTitle.length) {
@@ -408,6 +446,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'ทุกหน้าต้องมี title ที่ไม่ซ้ำกันและมีคีย์เวิร์ดหลักของหน้านั้น',
       evidence: group(noTitle.slice(0, 10), (p) => p.url).join('\n'),
       url: noTitle[0].url, count: noTitle.length,
+      affected: noTitle.map((p) => ({ url: p.url, current: 'ไม่มี title', issue: `ไม่มี <title> — H1: "${p.h1 || 'ไม่มี'}"` })),
     })
   }
 
@@ -419,6 +458,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'title สั้นเกินไปสื่อไม่ครบ ยาวเกินไปถูกตัดในหน้าผลการค้นหา',
       evidence: group(badTitleLen.slice(0, 10), (p) => `${p.titleLength} ตัวอักษร — ${p.url}\n  "${p.title.slice(0, 80)}"`).join('\n'),
       url: badTitleLen[0].url, count: badTitleLen.length,
+      affected: badTitleLen.map((p) => ({ url: p.url, current: p.title, issue: `${p.titleLength} ตัวอักษร (ควร 50-60)` })),
     })
   }
 
@@ -436,6 +476,14 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'title ซ้ำทำให้ Google แยกไม่ออกว่าหน้าไหนควรติดอันดับ และเสี่ยงถูกมองเป็นเนื้อหาซ้ำ',
       evidence: dupTitleGroups.slice(0, 5).map(([t, urls]) => `"${t.slice(0, 60)}"\n  ${urls.slice(0, 4).join('\n  ')}`).join('\n'),
       url: dupTitleGroups[0][1][0], count: dupTitleGroups.length,
+      // one task per page in each dup group — current = title จริงของหน้านั้น (ไม่ใช่ key ที่ lowercase ไว้)
+      affected: dupTitleGroups.flatMap(([, urls]) =>
+        urls.map((u) => ({
+          url: u,
+          current: pageByUrl.get(u)?.title ?? '',
+          issue: `ซ้ำกับ: ${urls.filter((x) => x !== u).slice(0, 3).join(', ')}`,
+        }))
+      ),
     })
   }
 
@@ -447,6 +495,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'meta description คือข้อความชวนคลิกใต้ title ในหน้าผลการค้นหา ยาว 120-158 ตัวอักษร',
       evidence: group(noDesc.slice(0, 10), (p) => p.url).join('\n'),
       url: noDesc[0].url, count: noDesc.length,
+      affected: noDesc.map((p) => ({ url: p.url, current: 'ไม่มี', issue: 'ไม่มี meta description' })),
     })
   }
 
@@ -458,6 +507,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'สั้นเกินไปไม่พอชวนคลิก ยาวเกินไปถูกตัดกลางประโยค',
       evidence: group(badDescLen.slice(0, 10), (p) => `${p.descriptionLength} ตัวอักษร — ${p.url}`).join('\n'),
       url: badDescLen[0].url, count: badDescLen.length,
+      affected: badDescLen.map((p) => ({ url: p.url, current: p.metaDescription, issue: `${p.descriptionLength} ตัวอักษร (ควร 120-158)` })),
     })
   }
 
@@ -469,6 +519,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'H1 คือหัวข้อหลักของหน้า ควรมีหนึ่งอันและมีคีย์เวิร์ดหลัก',
       evidence: group(noH1.slice(0, 10), (p) => p.url).join('\n'),
       url: noH1[0].url, count: noH1.length,
+      affected: noH1.map((p) => ({ url: p.url, current: 'ไม่มี', issue: `ไม่มี H1 — title: "${p.title}"` })),
     })
   }
 
@@ -480,15 +531,19 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'H1 หลายอันทำให้ลำดับชั้นหัวข้อกำกวม เปลี่ยนอันที่เหลือเป็น H2',
       evidence: group(multiH1.slice(0, 10), (p) => `${p.h1Count} อัน — ${p.url}`).join('\n'),
       url: multiH1[0].url, count: multiH1.length,
+      affected: multiH1.map((p) => ({ url: p.url, current: p.h1, issue: `${p.h1Count} อัน` })),
     })
   }
 
   const skipped: string[] = []
+  const skipAffected: SeoAffectedPage[] = []
   rawHtml.forEach((html, url) => {
     const levels = headingLevels(html)
     for (let i = 1; i < levels.length; i++) {
       if (levels[i] - levels[i - 1] > 1) {
-        skipped.push(`${url} — H${levels[i - 1]} ตามด้วย H${levels[i]}`)
+        const desc = `H${levels[i - 1]} ตามด้วย H${levels[i]}`
+        skipped.push(`${url} — ${desc}`)
+        skipAffected.push({ url, current: desc, issue: desc })
         break
       }
     }
@@ -500,6 +555,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'ไล่ H2 ไป H3 ตามลำดับ อย่ากระโดดข้ามระดับ',
       evidence: skipped.slice(0, 10).join('\n'),
       count: skipped.length,
+      affected: skipAffected,
     })
   }
 
@@ -511,12 +567,21 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'หน้าที่เนื้อหาน้อยกว่า 300 คำมักไม่ถูก index หรือติดอันดับไม่ได้',
       evidence: group(thin.slice(0, 10), (p) => `${p.wordCount} คำ — ${p.url}`).join('\n'),
       url: thin[0].url, count: thin.length,
+      affected: thin.map((p) => ({ url: p.url, current: `${p.wordCount} คำ`, issue: 'เนื้อหาบาง (ควร 300+ คำ)' })),
     })
   }
 
   const weakLead: string[] = []
+  const weakLeadAffected: SeoAffectedPage[] = []
   extracted.forEach((p, url) => {
-    if (p.wordCount >= 300 && !p.answersInLead) weakLead.push(`${url} — ย่อหน้าแรก ${p.leadWordCount} คำ ไม่ได้ตอบคำถามหลักตรง ๆ`)
+    if (p.wordCount >= 300 && !p.answersInLead) {
+      weakLead.push(`${url} — ย่อหน้าแรก ${p.leadWordCount} คำ ไม่ได้ตอบคำถามหลักตรง ๆ`)
+      weakLeadAffected.push({
+        url,
+        current: (pageByUrl.get(url)?.excerpt ?? p.text).slice(0, 200),
+        issue: `ย่อหน้าแรก ${p.leadWordCount} คำ ไม่ตอบคำถามหลัก`,
+      })
+    }
   })
   if (weakLead.length) {
     add({
@@ -525,13 +590,18 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'ย่อหน้าแรกที่ตอบตรงช่วยทั้งผู้อ่านและเครื่องมือตอบคำถาม (AEO)',
       evidence: weakLead.slice(0, 10).join('\n'),
       count: weakLead.length,
+      affected: weakLeadAffected,
     })
   }
 
   const noToc: string[] = []
+  const noTocAffected: SeoAffectedPage[] = []
   rawHtml.forEach((html, url) => {
     const wc = extracted.get(url)?.wordCount ?? 0
-    if (wc > 1000 && !/href=["']#[^"']+["']/i.test(html)) noToc.push(`${url} — ${wc} คำ ไม่พบลิงก์ anchor (#) ในหน้า`)
+    if (wc > 1000 && !/href=["']#[^"']+["']/i.test(html)) {
+      noToc.push(`${url} — ${wc} คำ ไม่พบลิงก์ anchor (#) ในหน้า`)
+      noTocAffected.push({ url, current: `${wc} คำ ไม่มีสารบัญ`, issue: 'ไม่พบลิงก์ anchor (#) ในหน้า' })
+    }
   })
   if (noToc.length) {
     add({
@@ -540,6 +610,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'บทความเกิน 1,000 คำควรมีสารบัญที่ลิงก์ไป anchor ของแต่ละหัวข้อ',
       evidence: noToc.slice(0, 10).join('\n'),
       count: noToc.length,
+      affected: noTocAffected,
     })
   }
 
@@ -552,6 +623,10 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'alt text ช่วยให้ Google เข้าใจรูป และจำเป็นกับผู้ใช้ screen reader',
       evidence: group(missingAlt.slice(0, 10), (p) => `${p.images - p.imagesWithAlt}/${p.images} รูปไม่มี alt — ${p.url}`).join('\n'),
       url: missingAlt[0].url, count: missingAlt.length,
+      affected: missingAlt.map((p) => {
+        const text = `${p.images - p.imagesWithAlt}/${p.images} รูปไม่มี alt`
+        return { url: p.url, current: text, issue: text }
+      }),
     })
   }
 
@@ -563,6 +638,10 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'แต่ละหน้าควรมีลิงก์ไปหน้าที่เกี่ยวข้องอย่างน้อย 3-5 ลิงก์ เพื่อกระจาย authority',
       evidence: group(fewLinks.slice(0, 10), (p) => `${p.internalLinks} ลิงก์ — ${p.url}`).join('\n'),
       url: fewLinks[0].url, count: fewLinks.length,
+      affected: fewLinks.map((p) => {
+        const text = `${p.internalLinks} ลิงก์`
+        return { url: p.url, current: text, issue: text }
+      }),
     })
   }
 
@@ -577,6 +656,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'หน้าที่อยู่ใน sitemap แต่ไม่มีลิงก์ภายในชี้ถึงเลย (orphan page) ถูก crawl ยากและแทบไม่ได้ authority',
       evidence: `จากหน้าที่สแกน ${pages.length} หน้า ไม่พบลิงก์ชี้ไปยัง:\n${orphans.slice(0, 10).join('\n')}`,
       count: orphans.length,
+      affected: orphans.map((u) => ({ url: u, current: 'ไม่มีลิงก์ภายในชี้มา', issue: 'อยู่ใน sitemap แต่ไม่มีลิงก์ภายในชี้ถึง (orphan page)' })),
     })
   }
 
@@ -591,6 +671,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'บทความยาวที่ไม่มีลิงก์อ้างอิงเลยดูขาดหลักฐาน กระทบสัญญาณ E-E-A-T',
       evidence: noCitation.slice(0, 10).join('\n'),
       count: noCitation.length,
+      affected: noCitation.map((u) => ({ url: u, current: 'ไม่มีลิงก์อ้างอิงภายนอก', issue: 'บทความยาวแต่ไม่มีลิงก์อ้างอิงแหล่งข้อมูล (E-E-A-T)' })),
     })
   }
 
@@ -603,6 +684,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'ถ้าไม่ได้ตั้งใจ ให้เอา noindex ออก เพราะหน้านี้จะไม่ขึ้นผลการค้นหาเลย',
       evidence: group(noindexed.slice(0, 10), (p) => p.url).join('\n'),
       url: noindexed[0].url, count: noindexed.length,
+      affected: noindexed.map((p) => ({ url: p.url, current: 'มี noindex', issue: 'หน้านี้ถูกตั้ง noindex — จะไม่ขึ้นผลการค้นหา' })),
     })
   }
 
@@ -614,6 +696,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'เว็บภาษาไทยควรเป็น <html lang="th"> เพื่อบอกภาษาหลักของหน้า',
       evidence: group(noLang.slice(0, 10), (p) => p.url).join('\n'),
       url: noLang[0].url, count: noLang.length,
+      affected: noLang.map((p) => ({ url: p.url, current: 'ไม่มี lang', issue: 'แท็ก <html> ไม่มี lang' })),
     })
   }
 
@@ -625,6 +708,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'ไม่มี viewport หน้าเว็บจะไม่ responsive บนมือถือ กระทบ mobile usability โดยตรง',
       evidence: group(noViewport.slice(0, 10), (p) => p.url).join('\n'),
       url: noViewport[0].url, count: noViewport.length,
+      affected: noViewport.map((p) => ({ url: p.url, current: 'ไม่มี viewport', issue: 'ไม่มี meta viewport — ไม่ responsive บนมือถือ' })),
     })
   }
 
@@ -636,6 +720,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'ทุกหน้าควรมี <link rel="canonical"> ชี้ URL ของตัวเอง กันเนื้อหาซ้ำจาก parameter และ www',
       evidence: group(noCanonical.slice(0, 10), (p) => p.url).join('\n'),
       url: noCanonical[0].url, count: noCanonical.length,
+      affected: noCanonical.map((p) => ({ url: p.url, current: 'ไม่มี canonical', issue: `ไม่มี canonical — ควรเป็น ${p.url}` })),
     })
   }
 
@@ -651,6 +736,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'ถ้าไม่ได้ตั้งใจรวมหน้า หน้านี้จะไม่ถูก index เพราะยกเครดิตให้ URL อื่น',
       evidence: group(crossCanonical.slice(0, 10), (p) => `${p.url}\n  canonical: ${p.canonical}`).join('\n'),
       url: crossCanonical[0].url, count: crossCanonical.length,
+      affected: crossCanonical.map((p) => ({ url: p.url, current: p.canonical ?? '', issue: 'canonical ชี้ไป URL อื่น (หน้านี้จะไม่ถูก index)' })),
     })
   }
 
@@ -662,15 +748,21 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'บทความใช้ Article/FAQPage หน้าองค์กรใช้ Organization หน้าสินค้าใช้ Product เพื่อให้ได้ Rich Snippet',
       evidence: group(noSchema.slice(0, 10), (p) => p.url).join('\n'),
       url: noSchema[0].url, count: noSchema.length,
+      affected: noSchema.map((p) => ({ url: p.url, current: 'ไม่มี schema', issue: 'ไม่มี JSON-LD บนหน้านี้' })),
     })
   } else {
     passed.push({ area: 'TECHNICAL', category: 'structured-data', label: 'Schema Markup', evidence: `ทุกหน้าที่สแกนมี JSON-LD (พบชนิด: ${Array.from(new Set(pages.flatMap((p) => p.schemaTypes))).slice(0, 8).join(', ')})` })
   }
 
   const mixed: string[] = []
+  const mixedAffected: SeoAffectedPage[] = []
   rawHtml.forEach((html, url) => {
     const m = html.match(/(?:src|href)=["']http:\/\/[^"']+["']/i)
-    if (m) mixed.push(`${url} — ${m[0].slice(0, 100)}`)
+    if (m) {
+      const resource = m[0].slice(0, 100)
+      mixed.push(`${url} — ${resource}`)
+      mixedAffected.push({ url, current: resource, issue: 'ทรัพยากรนี้โหลดผ่าน http บนหน้า https' })
+    }
   })
   if (mixed.length) {
     add({
@@ -679,6 +771,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'ไฟล์ที่โหลดผ่าน http บนหน้า https ทำให้เบราว์เซอร์เตือนไม่ปลอดภัยหรือบล็อกทิ้ง',
       evidence: mixed.slice(0, 10).join('\n'),
       count: mixed.length,
+      affected: mixedAffected,
     })
   }
 
@@ -745,6 +838,11 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'แก้ปลายทางให้ถูก หรือทำ 301 ไปหน้าที่เนื้อหาใกล้เคียงที่สุด',
       evidence: broken.slice(0, 15).map((b) => `HTTP ${b.status} — ${b.url}`).join('\n'),
       url: broken[0].url, count: broken.length,
+      affected: broken.map((b) => {
+        const source = linkSource.get(b.url)
+        const issue = `ลิงก์ 404 — เปลี่ยนปลายทางหรือทำ 301 redirect${source ? ` — พบในหน้า ${source}` : ''}`
+        return { url: b.url, current: `HTTP ${b.status}`, issue }
+      }),
     })
   } else if (toCheck.length) {
     passed.push({ area: 'INDEXING', category: 'broken-url-check', label: 'Broken URL', evidence: `ตรวจลิงก์ภายใน ${toCheck.length} ลิงก์ ไม่พบ 404` })
@@ -757,6 +855,7 @@ export async function runSeoAudit(rawUrl: string, opts?: { maxPages?: number }):
       detail: 'หน้า 5xx ทำให้ Googlebot ถอยและลดอัตรา crawl ทั้งเว็บ',
       evidence: serverErrors.slice(0, 15).map((e) => `HTTP ${e.status} — ${e.url}`).join('\n'),
       url: serverErrors[0].url, count: serverErrors.length,
+      affected: serverErrors.map((e) => ({ url: e.url, current: `HTTP ${e.status}`, issue: 'เซิร์ฟเวอร์ตอบ 5xx — ตรวจ log เซิร์ฟเวอร์/ปรับ timeout' })),
     })
   }
 
