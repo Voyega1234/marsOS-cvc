@@ -44,6 +44,7 @@ import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
 import { downscaleDataUrl, fileToDownscaledDataUrl } from '@/lib/imageDownscale'
+import type { CtaMode, CtaCustomDesign, CtaBanner } from '@/lib/articleComponents'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -5092,6 +5093,9 @@ interface CtaSettings {
   channels: CtaChannel[]
   alignment: 'left' | 'center' | 'right'
   buttonLayout: 'row' | 'column'
+  mode?: CtaMode              // undefined = 'buttons' (record เก่า)
+  custom?: CtaCustomDesign    // ใช้เมื่อ mode === 'custom'
+  banners?: CtaBanner[]       // ใช้เมื่อ mode === 'banner' สูงสุด 5 รูป
 }
 const CTA_CHANNEL_OPTS: { type: CtaChannel['type']; icon: string; placeholder: string; defaultLabel: string }[] = [
   { type: 'line',     icon: '💬', placeholder: 'https://line.me/ti/p/~...', defaultLabel: 'Line' },
@@ -5110,8 +5114,27 @@ const DEFAULT_CTA: CtaSettings = {
   alignment: 'center',
   buttonLayout: 'row',
 }
+// ค่าเริ่มต้นตอนสลับไปโหมด "ออกแบบเอง" ครั้งแรก — ยึดสีจาก Article Lab (Style sub-tab) เป็นฐาน
+function defaultCtaCustom(theme: string, border?: string): CtaCustomDesign {
+  return {
+    boxBg: theme,
+    boxText: '#ffffff',
+    boxBorderColor: border || '#e2e8f0',
+    boxBorderWidth: 0,
+    boxRadius: 16,
+    buttonBg: '#ffffff',
+    buttonText: theme,
+    buttonBorderColor: 'transparent',
+    buttonRadius: 10,
+  }
+}
 function parseCta(raw?: string): CtaSettings {
-  try { return raw ? { ...DEFAULT_CTA, ...JSON.parse(raw) } : DEFAULT_CTA } catch { return DEFAULT_CTA }
+  try {
+    const parsed = raw ? JSON.parse(raw) : {}
+    const mode: CtaMode = parsed?.mode === 'custom' || parsed?.mode === 'banner' ? parsed.mode : 'buttons'
+    const banners: CtaBanner[] = Array.isArray(parsed?.banners) ? parsed.banners : []
+    return { ...DEFAULT_CTA, ...parsed, mode, banners }
+  } catch { return DEFAULT_CTA }
 }
 
 function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; onSaved: (updated: Partial<ProjectData>) => void; keywordRows?: KeywordRow[] }) {
@@ -5336,6 +5359,9 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
       ...cta,
       channels: await Promise.all(cta.channels.map(async c => (
         c.imageUrl ? { ...c, imageUrl: await downscaleDataUrl(c.imageUrl, 600) } : c
+      ))),
+      banners: await Promise.all((cta.banners ?? []).map(async b => (
+        b.imageUrl ? { ...b, imageUrl: await downscaleDataUrl(b.imageUrl, 1200) } : b
       ))),
     }
     const common = {
@@ -5988,74 +6014,237 @@ ${cover}${html}
 
             {cta.enabled && (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Headline</label>
-                    <input value={cta.headline} onChange={e => setCta(p => ({ ...p, headline: e.target.value }))}
-                      className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Subtext</label>
-                    <input value={cta.subtext} onChange={e => setCta(p => ({ ...p, subtext: e.target.value }))}
-                      className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
-                  </div>
-                </div>
-
-                {/* Layout controls */}
-                <div className="flex items-center gap-6">
-                  <div>
-                    <p className="text-xs font-medium text-gray-600 mb-1.5">การจัดวาง</p>
-                    <div className="flex gap-1">
-                      {([['left','◀ ซ้าย'],['center','■ กลาง'],['right','ขวา ▶']] as [CtaSettings['alignment'],string][]).map(([v,lbl]) => (
-                        <button key={v} onClick={() => setCta(p => ({ ...p, alignment: v }))}
-                          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${cta.alignment === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-600 mb-1.5">ปุ่มเรียงแนว</p>
-                    <div className="flex gap-1">
-                      {([['row','แนวนอน ▷▷'],['column','แนวตั้ง ↓']] as [CtaSettings['buttonLayout'],string][]).map(([v,lbl]) => (
-                        <button key={v} onClick={() => setCta(p => ({ ...p, buttonLayout: v }))}
-                          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${cta.buttonLayout === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
+                {/* Mode selector — ปุ่มมาตรฐาน / ออกแบบเอง / แบนเนอร์รูป */}
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-1.5">รูปแบบ CTA</p>
+                  <div className="flex gap-1">
+                    {([['buttons','ปุ่มมาตรฐาน'],['custom','ออกแบบเอง'],['banner','แบนเนอร์รูป']] as [CtaMode,string][]).map(([v,lbl]) => (
+                      <button key={v}
+                        onClick={() => setCta(p => ({
+                          ...p, mode: v,
+                          custom: v === 'custom' && !p.custom ? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border) : p.custom,
+                        }))}
+                        className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${(cta.mode ?? 'buttons') === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                        {lbl}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                {/* Preview card */}
-                {(cta.headline || cta.subtext || cta.channels.filter(c => c.value).length > 0) && (
-                  <div className="rounded-2xl border-2 p-4" style={{ borderColor: accentColor + '40', background: accentColor + '08', textAlign: cta.alignment }}>
-                    {cta.headline && <p className="font-bold text-brand-navy text-sm">{cta.headline}</p>}
-                    {cta.subtext && <p className="text-xs text-gray-500 mt-0.5">{cta.subtext}</p>}
-                    {cta.channels.filter(c => c.value).length > 0 && (
-                      <div className={`flex gap-2 mt-3 flex-wrap ${cta.alignment === 'center' ? 'justify-center' : cta.alignment === 'right' ? 'justify-end' : 'justify-start'} ${cta.buttonLayout === 'column' ? 'flex-col items-start' : ''} ${cta.buttonLayout === 'column' && cta.alignment === 'center' ? '!items-center' : ''} ${cta.buttonLayout === 'column' && cta.alignment === 'right' ? '!items-end' : ''}`}>
-                        {cta.channels.filter(c => c.value).map(c => {
-                          const opt = CTA_CHANNEL_OPTS.find(o => o.type === c.type)
-                          const icon = c.icon ?? opt?.icon ?? ''
-                          const style = c.buttonStyle ?? 'filled'
-                          return (
-                            <span key={c.type} className={`text-xs px-3 py-1.5 rounded-full font-medium flex items-center gap-1.5 ${style === 'filled' ? 'text-white' : style === 'outline' ? 'bg-transparent border-2' : 'bg-transparent'}`}
-                              style={style === 'filled' ? { backgroundColor: accentColor } : style === 'outline' ? { borderColor: accentColor, color: accentColor } : { color: accentColor }}>
-                              {c.imageUrl
-                                ? <img src={c.imageUrl} alt="" className="w-4 h-4 rounded-full object-cover shrink-0" />
-                                : icon ? <span>{icon}</span> : null
-                              }
-                              {c.label}
-                            </span>
-                          )
-                        })}
-                      </div>
-                    )}
+                {cta.mode !== 'banner' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Headline</label>
+                      <input value={cta.headline} onChange={e => setCta(p => ({ ...p, headline: e.target.value }))}
+                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Subtext</label>
+                      <input value={cta.subtext} onChange={e => setCta(p => ({ ...p, subtext: e.target.value }))}
+                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+                    </div>
                   </div>
                 )}
 
+                {/* Layout controls */}
+                {cta.mode !== 'banner' && (
+                  <div className="flex items-center gap-6">
+                    <div>
+                      <p className="text-xs font-medium text-gray-600 mb-1.5">การจัดวาง</p>
+                      <div className="flex gap-1">
+                        {([['left','◀ ซ้าย'],['center','■ กลาง'],['right','ขวา ▶']] as [CtaSettings['alignment'],string][]).map(([v,lbl]) => (
+                          <button key={v} onClick={() => setCta(p => ({ ...p, alignment: v }))}
+                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${cta.alignment === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                            {lbl}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-600 mb-1.5">ปุ่มเรียงแนว</p>
+                      <div className="flex gap-1">
+                        {([['row','แนวนอน ▷▷'],['column','แนวตั้ง ↓']] as [CtaSettings['buttonLayout'],string][]).map(([v,lbl]) => (
+                          <button key={v} onClick={() => setCta(p => ({ ...p, buttonLayout: v }))}
+                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${cta.buttonLayout === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                            {lbl}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ออกแบบกล่อง CTA — โหมด custom เท่านั้น */}
+                {cta.mode === 'custom' && (() => {
+                  const custom = cta.custom ?? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border)
+                  const updateCustom = (patch: Partial<CtaCustomDesign>) =>
+                    setCta(p => ({ ...p, custom: { ...(p.custom ?? custom), ...patch } }))
+                  const colorRows: { key: keyof CtaCustomDesign; label: string }[] = [
+                    { key: 'boxBg', label: 'พื้นกล่อง' },
+                    { key: 'boxText', label: 'สีตัวอักษร' },
+                    { key: 'boxBorderColor', label: 'สีกรอบกล่อง' },
+                    { key: 'buttonBg', label: 'พื้นปุ่ม' },
+                    { key: 'buttonText', label: 'สีตัวอักษรปุ่ม' },
+                    { key: 'buttonBorderColor', label: 'สีกรอบปุ่ม' },
+                  ]
+                  return (
+                    <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-gray-700">ออกแบบกล่อง CTA</p>
+                        <button
+                          onClick={() => updateCustom(defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border))}
+                          className="text-[10px] text-gray-400 hover:text-brand-blue">รีเซ็ตเป็นสีธีม</button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        {colorRows.map(({ key, label }) => {
+                          const val = (custom[key] as string) || '#ffffff'
+                          return (
+                            <div key={key} className="flex items-center gap-2">
+                              <label className="relative w-7 h-7 rounded-lg border border-gray-200 cursor-pointer shrink-0 overflow-hidden"
+                                style={{ backgroundColor: val === 'transparent' ? '#fff' : val }} title={label}>
+                                <input type="color" value={val === 'transparent' ? '#ffffff' : val}
+                                  onChange={e => updateCustom({ [key]: e.target.value } as Partial<CtaCustomDesign>)}
+                                  className="absolute inset-0 opacity-0 cursor-pointer" />
+                              </label>
+                              <span className="text-[11px] text-gray-600 flex-1">{label}</span>
+                              <input value={val}
+                                onChange={e => updateCustom({ [key]: e.target.value } as Partial<CtaCustomDesign>)}
+                                className="w-20 text-[10px] font-mono border border-gray-200 rounded-lg px-1.5 py-1 focus:outline-none" />
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 pt-1">
+                        {([
+                          ['boxBorderWidth', 'กรอบกล่อง (px)', 0, 6],
+                          ['boxRadius', 'มุมกล่อง (px)', 0, 32],
+                          ['buttonRadius', 'มุมปุ่ม (px)', 0, 32],
+                        ] as [keyof CtaCustomDesign, string, number, number][]).map(([key, label, min, max]) => (
+                          <div key={key}>
+                            <p className="text-[10px] text-gray-500 mb-1">{label}: {custom[key]}</p>
+                            <input type="range" min={min} max={max} value={custom[key] as number}
+                              onChange={e => updateCustom({ [key]: Number(e.target.value) } as Partial<CtaCustomDesign>)}
+                              className="w-full" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Preview card — buttons/custom เท่านั้น (banner ใช้พรีวิวรูปแทน) */}
+                {cta.mode !== 'banner' && (cta.headline || cta.subtext || cta.channels.filter(c => c.value).length > 0) && (() => {
+                  const custom = cta.mode === 'custom' ? (cta.custom ?? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border)) : null
+                  const boxStyle: React.CSSProperties = custom
+                    ? { background: custom.boxBg, borderColor: custom.boxBorderColor, borderWidth: custom.boxBorderWidth, borderStyle: 'solid', borderRadius: custom.boxRadius, textAlign: cta.alignment }
+                    : { borderColor: accentColor + '40', background: accentColor + '08', textAlign: cta.alignment }
+                  const textColor = custom ? custom.boxText : undefined
+                  return (
+                    <div className={custom ? 'p-4' : 'rounded-2xl border-2 p-4'} style={boxStyle}>
+                      {cta.headline && <p className={`font-bold text-sm ${custom ? '' : 'text-brand-navy'}`} style={custom ? { color: textColor } : undefined}>{cta.headline}</p>}
+                      {cta.subtext && <p className={`text-xs mt-0.5 ${custom ? '' : 'text-gray-500'}`} style={custom ? { color: textColor, opacity: 0.85 } : undefined}>{cta.subtext}</p>}
+                      {cta.channels.filter(c => c.value).length > 0 && (
+                        <div className={`flex gap-2 mt-3 flex-wrap ${cta.alignment === 'center' ? 'justify-center' : cta.alignment === 'right' ? 'justify-end' : 'justify-start'} ${cta.buttonLayout === 'column' ? 'flex-col items-start' : ''} ${cta.buttonLayout === 'column' && cta.alignment === 'center' ? '!items-center' : ''} ${cta.buttonLayout === 'column' && cta.alignment === 'right' ? '!items-end' : ''}`}>
+                          {cta.channels.filter(c => c.value).map((c, i) => {
+                            const opt = CTA_CHANNEL_OPTS.find(o => o.type === c.type)
+                            const icon = c.icon ?? opt?.icon ?? ''
+                            const style = c.buttonStyle ?? 'filled'
+                            const customBtnStyle: React.CSSProperties | null = custom
+                              ? (i === 0
+                                ? { background: custom.buttonBg, color: custom.buttonText, border: `1.5px solid ${custom.buttonBorderColor}`, borderRadius: custom.buttonRadius }
+                                : { background: 'transparent', color: custom.boxText, border: `1.5px solid ${custom.boxText}`, borderRadius: custom.buttonRadius })
+                              : null
+                            return (
+                              <span key={c.type} className={`text-xs px-3 py-1.5 rounded-full font-medium flex items-center gap-1.5 ${customBtnStyle ? '' : (style === 'filled' ? 'text-white' : style === 'outline' ? 'bg-transparent border-2' : 'bg-transparent')}`}
+                                style={customBtnStyle ?? (style === 'filled' ? { backgroundColor: accentColor } : style === 'outline' ? { borderColor: accentColor, color: accentColor } : { color: accentColor })}>
+                                {c.imageUrl
+                                  ? <img src={c.imageUrl} alt="" className="w-4 h-4 rounded-full object-cover shrink-0" />
+                                  : icon ? <span>{icon}</span> : null
+                                }
+                                {c.label}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {/* แบนเนอร์ CTA — โหมด banner เท่านั้น */}
+                {cta.mode === 'banner' && (() => {
+                  const banners = cta.banners ?? []
+                  const addBanner = () => {
+                    if (banners.length >= 5) return
+                    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+                    setCta(p => ({ ...p, banners: [...(p.banners ?? []), { id, imageUrl: '', href: '', alt: '' }] }))
+                  }
+                  const updateBanner = (id: string, patch: Partial<CtaBanner>) =>
+                    setCta(p => ({ ...p, banners: (p.banners ?? []).map(b => b.id === id ? { ...b, ...patch } : b) }))
+                  const removeBanner = (id: string) =>
+                    setCta(p => ({ ...p, banners: (p.banners ?? []).filter(b => b.id !== id) }))
+                  return (
+                    <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-gray-700">แบนเนอร์ CTA (สูงสุด 5 รูป)</p>
+                        <button onClick={addBanner} disabled={banners.length >= 5}
+                          className="text-[11px] px-2.5 py-1 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                          + เพิ่มรูป
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-4">
+                        1 รูป = ใช้รูปนั้นทุกบทความ · หลายรูป = ระบบสุ่มเลือก 1 รูปต่อบทความ · กดที่รูปแล้วไปที่ลิงก์ที่ใส่
+                      </p>
+                      {banners.length === 0 && (
+                        <p className="text-xs text-gray-400 text-center py-4">ยังไม่มีแบนเนอร์ — กด “+ เพิ่มรูป”</p>
+                      )}
+                      <div className="space-y-3">
+                        {banners.map(b => (
+                          <div key={b.id} className="bg-white rounded-xl border border-gray-200 p-3 flex gap-3">
+                            <div className="shrink-0">
+                              {b.imageUrl ? (
+                                <img src={b.imageUrl} alt="" className="max-h-32 rounded-lg border border-gray-100 object-contain" />
+                              ) : (
+                                <label className="w-28 h-20 rounded-lg border border-dashed border-blue-300 flex items-center justify-center cursor-pointer text-[10px] text-blue-500 hover:border-blue-500 transition-colors">
+                                  <span>+ อัพโหลด</span>
+                                  <input type="file" accept="image/*" className="hidden"
+                                    onChange={e => {
+                                      const file = e.target.files?.[0]
+                                      if (!file) return
+                                      fileToDownscaledDataUrl(file, 1200)
+                                        .then(url => updateBanner(b.id, { imageUrl: url }))
+                                        .catch(err => toast.error(err instanceof Error ? err.message : String(err)))
+                                      e.target.value = ''
+                                    }} />
+                                </label>
+                              )}
+                              {b.imageUrl && (
+                                <button onClick={() => updateBanner(b.id, { imageUrl: '' })}
+                                  className="mt-1 text-[10px] text-gray-400 hover:text-red-500">เปลี่ยนรูป</button>
+                              )}
+                            </div>
+                            <div className="flex-1 space-y-1.5 min-w-0">
+                              <input value={b.href} onChange={e => updateBanner(b.id, { href: e.target.value })}
+                                placeholder="ลิงก์เมื่อกด เช่น https://line.me/... / tel:02xxxxxxx"
+                                className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none" />
+                              <input value={b.alt} onChange={e => updateBanner(b.id, { alt: e.target.value })}
+                                placeholder="alt (คำบรรยายรูป)"
+                                className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none" />
+                            </div>
+                            <button onClick={() => removeBanner(b.id)}
+                              className="text-gray-300 hover:text-red-400 text-sm shrink-0 self-start">✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 <div>
                   <p className="text-xs font-semibold text-gray-700 mb-2">ช่องทางติดต่อ <span className="font-normal text-gray-400">(ลากเพื่อเรียงลำดับ)</span></p>
+                  {cta.mode === 'banner' && (
+                    <p className="text-[10px] text-gray-400 -mt-1 mb-2">ช่องทางด้านล่างใช้เฉพาะลิงก์ข้อความหลัง Short Answer (ไม่บังคับ)</p>
+                  )}
                   {/* Active channels — draggable to reorder */}
                   {cta.channels.length > 0 && (
                     <div className="space-y-2 mb-3 pb-3 border-b border-gray-100">

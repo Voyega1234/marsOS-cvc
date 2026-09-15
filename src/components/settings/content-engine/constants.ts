@@ -618,7 +618,7 @@ WRITING REQUIREMENTS
 5. ใช้ตารางและ Checklist เมื่อมีประโยชน์
 6. FAQ ต้องมาจาก Brief
 7. Internal Link ใช้เฉพาะ URL ที่ Website Connection ยืนยันและได้รับอนุมัติ
-8. CTA ใช้ข้อมูลธุรกิจจริง
+8. CTA ใช้ข้อมูลธุรกิจจริงตามบล็อก CTA (มี 3 แบบ: ปุ่มมาตรฐาน / ออกแบบเอง / แบนเนอร์รูป — แบบแบนเนอร์ให้วาง marker ตามที่บล็อก CTA สั่ง ห้ามวาดกล่องเอง)
 9. Source Section ใช้ Approved Sources เท่านั้น
 10. Schema ต้องตรง Visible Content และ CMS Capability
 11. ระบุ Author / Reviewer ตามข้อมูลจริง

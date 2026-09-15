@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { buildArticleCss } from '@/lib/articleComponents'
+import { buildArticleCss, type CtaMode, type CtaCustomDesign } from '@/lib/articleComponents'
 import type { ArticleElementStyles } from '@/lib/articleTheme'
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
@@ -18,12 +18,18 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 
   const project = await prisma.project.findFirst({
     where: { id: params.id, organizationId: session.user.organizationId },
-    select: { name: true, clientName: true, themeColors: true, accentColor: true },
+    select: { name: true, clientName: true, themeColors: true, accentColor: true, ctaSetting: true },
   })
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   let colors: Record<string, unknown> = {}
   try { colors = JSON.parse(project.themeColors || '{}') } catch { /* ใช้ default */ }
+
+  let ctaCss: { mode?: CtaMode; custom?: CtaCustomDesign | null } | null = null
+  try {
+    const parsed = project.ctaSetting ? JSON.parse(project.ctaSetting) : null
+    if (parsed) ctaCss = { mode: parsed.mode, custom: parsed.custom }
+  } catch { /* ใช้ default */ }
 
   const css = buildArticleCss({
     themeColor: (colors.theme as string) || project.accentColor || '#2563eb',
@@ -32,6 +38,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     accentColor: (colors.accent as string) || project.accentColor || '#2563eb',
     backgroundColor: (colors.background as string) || '',
     elementStyles: (colors.elements as ArticleElementStyles) ?? null,
+    cta: ctaCss,
   })
 
   const header = `/* Article CSS — ${project.clientName || project.name}

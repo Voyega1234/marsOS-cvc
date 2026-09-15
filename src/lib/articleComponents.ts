@@ -40,6 +40,8 @@ CTA (กล่องชวนติดต่อ — เบอร์/ลิงก
     <a class="content-cta__button content-cta__button--secondary" href="https://line.me/...">LINE</a>
   </div>
 </div>
+(หมายเหตุ: ยังมี CTA แบบ "แบนเนอร์รูป" อีกแบบ — ห้ามวาดเอง ถ้าบล็อก CTA ในพรอมป์บอกว่าเป็นโหมดแบนเนอร์
+ให้วาง marker <!-- CTA_BANNER --> บนบรรทัดของตัวเองตามจุดที่บล็อก CTA สั่งเท่านั้น ระบบจะแทนที่ marker ด้วยรูปแบนเนอร์เอง)
 
 FAQ (ใช้ <details> — กดเปิด/ปิดได้โดยไม่ต้องมี JavaScript, ห้ามมี wrapper ครอบ):
 <h2 id="faq">คำถามที่พบบ่อย</h2>
@@ -73,6 +75,25 @@ FAQ (ใช้ <details> — กดเปิด/ปิดได้โดยไ�
 <blockquote class="content-quote"><p>...</p></blockquote>
 `
 
+// ── CTA — 3 โหมด (ปุ่มมาตรฐาน / ออกแบบเอง / แบนเนอร์รูป) ─────────────────────
+// นิยามรวมไว้ที่นี่ — route.ts และ ClientDetailTabs.tsx import ไปใช้ ห้าม redefine กันดริฟต์
+
+export type CtaMode = 'buttons' | 'custom' | 'banner'
+
+export interface CtaCustomDesign {
+  boxBg: string          // พื้นกล่อง
+  boxText: string        // สี headline/subtext
+  boxBorderColor: string
+  boxBorderWidth: number // px 0-6
+  boxRadius: number      // px 0-32
+  buttonBg: string
+  buttonText: string
+  buttonBorderColor: string
+  buttonRadius: number   // px 0-32
+}
+
+export interface CtaBanner { id: string; imageUrl: string; href: string; alt: string }
+
 // ── CSS builder — compile ค่าจาก Article Lab เป็น stylesheet เดียว ─────────────
 
 export interface ArticleCssOptions {
@@ -87,7 +108,12 @@ export interface ArticleCssOptions {
     letterSpacing?: string | null; headingFont?: string | null; headingWeight?: string | null
     paragraphMargin?: string | null
   } | null
+  cta?: { mode?: CtaMode; custom?: CtaCustomDesign | null } | null
 }
+
+// ตรวจค่าสีก่อนแปะลง CSS — กัน custom design ที่ผู้ใช้กรอกมั่วหลุดเข้า stylesheet
+const isValidCssColor = (v: unknown): v is string =>
+  typeof v === 'string' && (/^#[0-9a-f]{3,8}$/i.test(v) || v === 'transparent')
 
 const ELEMENT_SELECTOR: Record<string, string> = {
   h1: '.content-article h1',
@@ -162,6 +188,29 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
   lines.push(`.content-article .content-cta__buttons{display:flex;gap:.7em;justify-content:center;flex-wrap:wrap;}`)
   lines.push(`.content-article .content-cta__button{display:inline-block;background:#fff;color:${theme};font-weight:700;padding:.65em 1.5em;border-radius:10px;text-decoration:none;}`)
   lines.push(`.content-article .content-cta__button--secondary{background:transparent;color:#fff;border:1.5px solid #ffffff88;}`)
+
+  // CTA แบนเนอร์รูป — โหมด banner (เป็น <a><img>, ไม่มีกล่อง .content-cta ครอบ)
+  lines.push(`.content-article .content-cta--banner{display:block;padding:0;background:transparent;margin:2.2em 0;text-align:center;}`)
+  lines.push(`.content-article .content-cta--banner img{max-width:100%;height:auto;border-radius:16px;display:inline-block;}`)
+
+  // CTA โหมดออกแบบเอง — ทับค่า default ข้างบน (มาทีหลัง = ชนะ)
+  const c = opts.cta?.mode === 'custom' ? opts.cta.custom : null
+  if (c) {
+    const boxBg = isValidCssColor(c.boxBg) ? c.boxBg : theme
+    const boxText = isValidCssColor(c.boxText) ? c.boxText : '#fff'
+    const boxBorderColor = isValidCssColor(c.boxBorderColor) ? c.boxBorderColor : 'transparent'
+    const boxBorderWidth = Number.isFinite(c.boxBorderWidth) ? Math.min(6, Math.max(0, c.boxBorderWidth)) : 0
+    const boxRadius = Number.isFinite(c.boxRadius) ? Math.min(32, Math.max(0, c.boxRadius)) : 16
+    const buttonBg = isValidCssColor(c.buttonBg) ? c.buttonBg : '#fff'
+    const buttonText = isValidCssColor(c.buttonText) ? c.buttonText : theme
+    const buttonBorderColor = isValidCssColor(c.buttonBorderColor) ? c.buttonBorderColor : 'transparent'
+    const buttonRadius = Number.isFinite(c.buttonRadius) ? Math.min(32, Math.max(0, c.buttonRadius)) : 10
+    lines.push(`.content-article .content-cta{background:${boxBg};color:${boxText};border:${boxBorderWidth}px solid ${boxBorderColor};border-radius:${boxRadius}px;}`)
+    lines.push(`.content-article .content-cta__headline{color:${boxText};}`)
+    lines.push(`.content-article .content-cta__subtext{color:${boxText};}`)
+    lines.push(`.content-article .content-cta__button{background:${buttonBg};color:${buttonText};border:1.5px solid ${buttonBorderColor};border-radius:${buttonRadius}px;}`)
+    lines.push(`.content-article .content-cta__button--secondary{background:transparent;color:${boxText};border-color:${boxText};}`)
+  }
 
   // FAQ (details/summary)
   lines.push(`.content-article .content-faq__item{border:1px solid ${border};border-radius:12px;margin:.7em 0;overflow:hidden;}`)
