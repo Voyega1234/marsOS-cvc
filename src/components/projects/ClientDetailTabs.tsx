@@ -3055,7 +3055,7 @@ function ArticlesTab({
   stopRef: React.MutableRefObject<boolean>
 }) {
   const today = new Date().toISOString().slice(0, 10)
-  // โหมดภาษาบทความของโปรเจกต์ en (LanguageModeSelect โหลดค่าที่บันทึกไว้แล้วอัปเดตให้)
+  // โหมดภาษาบทความ (LanguageModeSelect โหลดค่าที่บันทึกไว้แล้วอัปเดตให้ — ค่าเริ่มต้นตาม project.language th/en/both)
   const [langPrefs, setLangPrefs] = useState(() => readLanguagePrefs(null, project.language))
   // ก่อน LanguageModeSelect โหลดค่าที่บันทึกไว้เสร็จ ห้ามส่ง language_mode (ค่า default อาจไม่ตรง DB) — ให้ route อ่านจาก DB เอง
   const [langLoaded, setLangLoaded] = useState(false)
@@ -3657,7 +3657,7 @@ function ArticlesTab({
 
   return (
     <>
-    {/* โปรเจกต์ en: เลือกโหมดภาษาบทความ (ไทย/อังกฤษ/ไทย+อังกฤษ) — โปรเจกต์ th ตัวเลือกซ่อนตัวเอง */}
+    {/* เลือกโหมดภาษาบทความ (ไทย/อังกฤษ/ไทย+อังกฤษ) — แสดงทุกโปรเจกต์ ค่าเริ่มต้นตามภาษาที่เลือกตอนสร้าง */}
     <LanguageModeSelect
       projectId={project.id}
       projectLanguage={project.language}

@@ -220,7 +220,7 @@ const STRATEGY_MODE_OPTIONS: Array<{ value: 'volume_first' | 'problem_first' | '
 
 export default function WordGodTab({ project, onSendToBank }: Props) {
   const [mode, setMode] = useState<PlanMode>('full_plan');
-  // โหมดภาษา keyword (ข้อ 4): โปรเจกต์ th = ไทยเสมอ, โปรเจกต์ en เลือก th/en/both + สัดส่วนได้
+  // โหมดภาษา keyword (ข้อ 4): ทุกโปรเจกต์เลือก th/en/both + สัดส่วนได้ ค่าเริ่มต้นตาม project.language
   const [languagePrefs, setLanguagePrefs] = useState(() => readLanguagePrefs(project.pushPrefs, project.language));
   const [niche, setNiche] = useState(project.businessType || '');
   const [businessContext, setBusinessContext] = useState(project.name || '');

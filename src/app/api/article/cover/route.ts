@@ -61,8 +61,8 @@ export async function POST(req: NextRequest) {
   let backgroundColor = ''
   let textColor = ''
   let effectiveAccent = accentColor
-  // ภาษาของข้อความบนปก: ผู้เรียกส่งมาได้ตรง ๆ ไม่งั้นคิดจากภาษาโปรเจกต์ + โหมดภาษา + ตัวคีย์เวิร์ด
-  // (โปรเจกต์อังกฤษ = ปกอังกฤษ, โหมดไทย+อังกฤษ = ตามภาษาของ keyword)
+  // ภาษาของข้อความบนปก: ผู้เรียกส่งมาได้ตรง ๆ ไม่งั้นคิดจากภาษาโปรเจกต์ + โหมดภาษา + title/keyword
+  // (โหมดไทย+อังกฤษ = อิงจาก title ก่อน, title อังกฤษล้วน = ปกอังกฤษ — กติกาเดียวกับตัวบทความ)
   let coverLanguage: 'th' | 'en' = languageFromBody === 'en' ? 'en' : 'th'
   if (projectId) {
     try {
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
       })
       if (!languageFromBody) {
         const mode = languageModeFromBody ?? readLanguagePrefs(proj?.pushPrefs, proj?.language).keywordMode
-        coverLanguage = resolveArticleLanguage({ projectLanguage: proj?.language ?? 'th', mode, keyword })
+        coverLanguage = resolveArticleLanguage({ projectLanguage: proj?.language ?? 'th', mode, keyword, title })
       }
       imageStyleGuide = proj?.imageStyleGuide ?? ''
       const palette = resolveImagePalette(proj?.themeColors, proj?.accentColor)

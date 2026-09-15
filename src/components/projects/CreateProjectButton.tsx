@@ -70,6 +70,7 @@ export function CreateProjectButton({ orgId, userId }: Props) {
                   <SelectContent>
                     <SelectItem value="th">ไทย (TH)</SelectItem>
                     <SelectItem value="en">English (EN)</SelectItem>
+                    <SelectItem value="both">ไทย+อังกฤษ (TH+EN)</SelectItem>
                     <SelectItem value="zh">Chinese (ZH)</SelectItem>
                   </SelectContent>
                 </Select>

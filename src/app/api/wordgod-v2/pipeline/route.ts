@@ -13,8 +13,8 @@
  *   targetLanguage?: string   — 'th' | 'en' (ignored when language_mode is set)
  *   language_mode?: string    — 'th' | 'en' | 'both' — overrides targetLanguage.
  *       'both' runs the pipeline once per language and mixes the two keyword
- *       sets by ratio_thai (count split); only supported for projects whose
- *       Project.language is 'en' (see LanguageModeSelect.tsx).
+ *       sets by ratio_thai (count split); available for every project via
+ *       LanguageModeSelect.tsx (default mode comes from Project.language th/en/both).
  *   ratio_thai?: number       — 0-100, % of targetCount in Thai when 'both' (default 50)
  *   targetCount: number       — how many keywords to produce
  *   excludeKeywords?: string[] — keywords to exclude

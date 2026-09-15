@@ -128,8 +128,8 @@ function buildArticlePrompt(opts: {
   const effectiveBorderColor = opts.colorBorder || '#e2e8f0'
   const effectiveAccentColor = opts.colorAccent || opts.accentColor || '#16a34a'
   const effectiveBackgroundColor = opts.colorBackground || '#ffffff'
-  // language_mode 'en' (เฉพาะโปรเจกต์ที่ project.language === 'en') — สลับ META
-  // instructions ที่ hardcode ภาษาไทยไว้เป็นภาษาอังกฤษ; HTML output requirement ไม่แตะ
+  // ภาษาบทความ 'en' (จาก resolveArticleLanguage: โหมดล็อกอังกฤษ หรือโหมดไทย+อังกฤษที่ title
+  // เป็นอังกฤษล้วน) — สลับ META instructions ที่ hardcode ภาษาไทยไว้เป็นภาษาอังกฤษ; HTML output requirement ไม่แตะ
   const isEnglish = opts.language === 'en'
 
   // Typography ไม่ส่งเข้า prompt แล้ว — ระบบใส่ให้เองผ่าน buildArticleCss
@@ -763,9 +763,9 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // language ที่ส่งเข้ามาคือ project.language — language_mode (th/en/both) มีผลเฉพาะเมื่อ
-  // โปรเจกต์เป็น 'en' เท่านั้น (ดู src/lib/keyword-language.ts); โปรเจกต์ th พฤติกรรมเดิมทุกกรณี
-  const effectiveLanguage = resolveArticleLanguage({ projectLanguage: language, mode: language_mode, keyword })
+  // language ที่ส่งเข้ามาคือ project.language (th/en/both) — language_mode ที่ตั้งไว้ทับได้
+  // โหมด both: อิงจาก title ก่อน (อังกฤษล้วน = เขียนอังกฤษ) ไม่มี title ค่อยดู keyword (ดู src/lib/keyword-language.ts)
+  const effectiveLanguage = resolveArticleLanguage({ projectLanguage: language, mode: language_mode, keyword, title })
 
   let articlePrompt = buildArticlePrompt({
     keyword, title, language: effectiveLanguage, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,

@@ -45,7 +45,7 @@ interface OnlineProject {
 interface Props {
   project: OnlineProject;
   onSendToBank?: () => void;
-  /** โหมดภาษาจาก LanguageModeSelect (โปรเจกต์ en): th/en ล็อกภาษา, both = แบ่งจำนวนตาม ratioThai */
+  /** โหมดภาษาจาก LanguageModeSelect (ทุกโปรเจกต์): th/en ล็อกภาษา, both = แบ่งจำนวนตาม ratioThai */
   languageMode?: LanguageMode;
   ratioThai?: number;
 }

@@ -1,11 +1,12 @@
 'use client'
 
 // ─── LanguageModeSelect ─────────────────────────────────────────────────────────
-// เลือกโหมดภาษาสำหรับ keyword research / article write เมื่อ project.language
-// เป็น 'en' เท่านั้น (โปรเจกต์ th ไม่แสดงอะไรเลย — พฤติกรรมเดิม)
+// เลือกโหมดภาษาสำหรับ keyword research / article write — แสดงทุกโปรเจกต์
+// ค่าเริ่มต้นมาจากภาษาที่เลือกตอนสร้างโปรเจกต์ (th / en / both)
 // - th   = ไทยเท่านั้น
 // - en   = อังกฤษเท่านั้น
-// - both = ไทย+อังกฤษ ตามสัดส่วน ratioThai (%)
+// - both = ไทย+อังกฤษ: ค้นคำแบ่งตามสัดส่วน ratioThai (%), เขียนบทความอิงจาก title + keyword
+//          (title อังกฤษล้วน = เขียนอังกฤษ)
 // บันทึกค่าไว้ที่ project.pushPrefs.languagePrefs ผ่าน PUT /api/projects/[id]
 // (merge เข้ากับ pushPrefs เดิมเสมอ — ดู src/app/api/projects/[id]/route.ts)
 
@@ -34,7 +35,6 @@ export default function LanguageModeSelect({ projectId, projectLanguage, value, 
   // โหลดค่าที่เคยเลือกไว้จาก DB ตอน mount — หน้าที่ mount ตัวนี้ (keyword / บทความ / Lab)
   // ไม่ได้ถือ pushPrefs ไว้ใน props ทุกหน้า จึงให้ตัวเลือกดึงเองแล้วส่งขึ้น parent ผ่าน onChange
   useEffect(() => {
-    if (projectLanguage !== 'en') return
     let cancelled = false
     fetch(`/api/projects/${projectId}`)
       .then(r => (r.ok ? r.json() : null))
@@ -48,9 +48,6 @@ export default function LanguageModeSelect({ projectId, projectLanguage, value, 
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, projectLanguage])
-
-  // โปรเจกต์ไทย — ไม่ต้องมี UI เลือกโหมด (พฤติกรรมเดิม)
-  if (projectLanguage !== 'en') return null
 
   async function persist(next: { keywordMode: LanguageMode; ratioThai: number }) {
     setSaving(true)
@@ -114,7 +111,7 @@ export default function LanguageModeSelect({ projectId, projectLanguage, value, 
       )}
       {value === 'both' && (
         <p className="text-[11px] text-gray-500">
-          ค้นคำ: แบ่งจำนวนตามสัดส่วนนี้ · เขียนบทความ: ตามภาษาของ keyword (keyword อังกฤษล้วน = เขียนอังกฤษ)
+          ค้นคำ: แบ่งจำนวนตามสัดส่วนนี้ · เขียนบทความ: อิงจาก title + keyword (title อังกฤษล้วน = เขียนอังกฤษ, ไม่มี title ดูจาก keyword)
         </p>
       )}
     </div>
