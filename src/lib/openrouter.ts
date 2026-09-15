@@ -3,6 +3,7 @@
  *
  * นโยบาย model (override ได้ทาง env):
  *   เขียนบทความทั้งระบบ  → OPENROUTER_MODEL_WRITER  (default: openai/gpt-5.6-sol)
+ *   keyword research     → OPENROUTER_MODEL_KEYWORD (default: openai/gpt-5.6-sol — คำสั่งเจ้าของ 2026-09-15)
  *   สร้างรูปทั้งระบบ      → ล็อกตายที่ IMAGE_MODEL_LOCKED (ไม่รับ env override — คำสั่งเจ้าของ 2026-09-15)
  *   จุดอื่น ๆ ทั้งหมด     → OPENROUTER_MODEL_DEFAULT (default: google/gemini-3.7-flash)
  */
@@ -23,6 +24,8 @@ export const IMAGE_MODEL_LOCKED = 'openai/gpt-image-2.5-flare'
 
 export const OR_MODELS = {
   writer: () => process.env.OPENROUTER_MODEL_WRITER || 'openai/gpt-5.6-sol',
+  /** keyword research ทั้ง online/local (ทุก call ผ่าน src/lib/wordgod/gemini.ts) — แยกจาก default ตามคำสั่งเจ้าของ */
+  keyword: () => process.env.OPENROUTER_MODEL_KEYWORD || 'openai/gpt-5.6-sol',
   image: () => IMAGE_MODEL_LOCKED,
   default: () => process.env.OPENROUTER_MODEL_DEFAULT || 'google/gemini-3.7-flash',
 }

@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
           projectId: projectId || null,
           jobType: 'KEYWORD_RESEARCH',
           modelProvider: 'OPENROUTER',
-          modelName: OR_MODELS.default(),
+          modelName: OR_MODELS.keyword(),
           status: 'SUCCESS',
           tokenUsed: cost.total_tokens,
           estimatedCost: cost.gemini_cost_usd || estimateGeminiCost(cost.total_tokens),

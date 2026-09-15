@@ -1,7 +1,8 @@
 /**
  * WordGod AI caller — ตอนนี้วิ่งผ่าน OpenRouter ทั้งหมด (นโยบาย 2026-08-19:
- * AI ทั้งระบบใช้ OpenRouter key เดียว) — model จุดนี้คือกลุ่ม "จุดอื่น ๆ"
- * = OPENROUTER_MODEL_DEFAULT (google/gemini-3.7-flash)
+ * AI ทั้งระบบใช้ OpenRouter key เดียว) — model จุดนี้คือ OR_MODELS.keyword()
+ * = OPENROUTER_MODEL_KEYWORD (default openai/gpt-5.6-sol — คำสั่งเจ้าของ 2026-09-15
+ * ให้ keyword research ใช้ตัวเดียวกับ writer ส่วนจุดอื่นยังเป็น default gemini-3.7-flash)
  *
  * คง export signature เดิมทุกตัว (callGemini / callGeminiWithGrounding /
  * session usage) เพื่อไม่ต้องแตะ pipeline และ skill ทั้งหมดที่เรียกใช้
@@ -100,7 +101,7 @@ async function generateOpenRouterText(prompt: string, useWebSearch = false, opti
     const result = await orChat({
       trace: stage ? `${label}_${stage}` : label,
       prompt,
-      model: OR_MODELS.default(),
+      model: OR_MODELS.keyword(),
       webSearch: useWebSearch,
       jsonMode,
       timeoutMs: CALL_TIMEOUT_MS,
