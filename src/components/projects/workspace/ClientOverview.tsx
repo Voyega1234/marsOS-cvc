@@ -129,6 +129,12 @@ function formatDateTimeTh(value: string) {
   return new Date(value).toLocaleDateString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+// ค่าที่น้อยกว่า $0.01 แต่ไม่ใช่ศูนย์ ให้แสดง 4 ตำแหน่ง ไม่งั้นจะโชว์ "$0.00" ทำให้ดูเหมือนไม่มีค่าใช้จ่าย
+function formatCost(value: number) {
+  if (value > 0 && value < 0.01) return value.toFixed(4);
+  return value.toFixed(2);
+}
+
 /* ───────────────────────────── Small UI pieces ───────────────────────────── */
 
 interface KpiCardProps {
@@ -454,7 +460,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
             <Wallet className="h-4 w-4 text-indigo-600" /> ค่าใช้จ่าย AI เดือนนี้
           </h2>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-brand-navy">${data.aiCost.totalThisMonth.toFixed(2)}</span>
+            <span className="text-2xl font-bold text-brand-navy">${formatCost(data.aiCost.totalThisMonth)}</span>
             {aiCostLimit ? (
               <span className="text-sm text-gray-500">/ งบ ${aiCostLimit.toFixed(2)}</span>
             ) : null}
@@ -472,7 +478,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
               {data.aiCost.byType.map((item) => (
                 <div key={item.jobType} className="flex items-center justify-between text-sm text-gray-700">
                   <span>{item.jobType}</span>
-                  <span className="font-medium text-gray-800">${item.cost.toFixed(2)}</span>
+                  <span className="font-medium text-gray-800">${formatCost(item.cost)}</span>
                 </div>
               ))}
             </div>

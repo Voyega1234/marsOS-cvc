@@ -26,6 +26,8 @@ export interface BusinessSkillScanResult {
   draft: BusinessSkillDraft
   evidence: Pick<LabScanEvidence, 'pages' | 'navLabels'>
   warnings: string[]
+  /** token/cost จริงรวมทุก AI call ของการสแกนนี้ (หลักฐาน + สรุปฟอร์ม) — ให้ route.ts log ลง AIJob */
+  usage: { totalTokens: number; costUsd: number }
 }
 
 /** เพดานจำนวนแถวของการ์ดที่เพิ่มแถวได้ กันโมเดลลากยาวจนชนเพดาน token */
@@ -152,7 +154,7 @@ function sanitizeDraft(raw: Record<string, unknown>, url: string): BusinessSkill
 }
 
 export async function runBusinessSkillScan(url: string): Promise<BusinessSkillScanResult> {
-  const { evidence, warnings } = await collectLabScanEvidence(url)
+  const { evidence, warnings, usage: evidenceUsage } = await collectLabScanEvidence(url)
 
   const user = [
     `เว็บไซต์: ${url}`,
@@ -189,5 +191,6 @@ export async function runBusinessSkillScan(url: string): Promise<BusinessSkillSc
     draft: sanitizeDraft(res.data, url),
     evidence: { pages: evidence.pages, navLabels: evidence.navLabels },
     warnings,
+    usage: { totalTokens: evidenceUsage.totalTokens + res.usage.totalTokens, costUsd: evidenceUsage.costUsd + res.usage.costUsd },
   }
 }

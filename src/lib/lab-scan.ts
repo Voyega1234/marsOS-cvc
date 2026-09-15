@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { askJson } from '@/lib/competitor-gap/ai'
-import { orChat } from '@/lib/openrouter'
+import { orChat, type ORUsage } from '@/lib/openrouter'
 import { fetchHtml, type FetchResult } from '@/lib/competitor-gap/fetcher'
 import { extractPage } from '@/lib/competitor-gap/pageExtract'
 import { assertCrawlable, normalizeUrl, toOrigin } from '@/lib/competitor-gap/urls'
@@ -62,7 +62,11 @@ export interface LabScanResult {
   suggestion: LabScanSuggestion
   evidence: LabScanEvidence
   warnings: string[]
+  /** token/cost จริงรวมทุก AI call ของการสแกนนี้ — ให้ผู้เรียก log ลง AIJob */
+  usage: { totalTokens: number; costUsd: number }
 }
+
+const ZERO_USAGE: ORUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 }
 
 // ── รวบรวมหลักฐานจากเว็บ ─────────────────────────────────────────────────────
 
@@ -235,7 +239,7 @@ async function collectEvidenceViaWebSearch(
   url: string,
   domain: string,
   reason: string,
-): Promise<{ evidence: LabScanEvidence; warnings: string[] }> {
+): Promise<{ evidence: LabScanEvidence; warnings: string[]; usage: ORUsage }> {
   let res: Awaited<ReturnType<typeof orChat>>
   try {
     res = await orChat({
@@ -281,6 +285,7 @@ async function collectEvidenceViaWebSearch(
     warnings: [
       `เว็บ ${domain} กันการอ่านจากเซิร์ฟเวอร์ (${reason} — มักเป็น Cloudflare) จึงใช้ผลค้นหาเว็บแทน ข้อมูลอาจไม่ครบหรือปนเว็บอื่น ตรวจทุกช่องก่อนบันทึก`,
     ],
+    usage: res.usage,
   }
 }
 
@@ -291,7 +296,7 @@ export function evidenceTextHeading(evidence: LabScanEvidence): string {
     : 'ข้อความจริงจากเว็บ:'
 }
 
-export async function collectLabScanEvidence(rawUrl: string): Promise<{ evidence: LabScanEvidence; warnings: string[] }> {
+export async function collectLabScanEvidence(rawUrl: string): Promise<{ evidence: LabScanEvidence; warnings: string[]; usage: ORUsage }> {
   const warnings: string[] = []
   const start = normalizeUrl(rawUrl, rawUrl) ?? rawUrl
   const origin = toOrigin(start)
@@ -378,6 +383,7 @@ export async function collectLabScanEvidence(rawUrl: string): Promise<{ evidence
       navLabels: navLabelsOf(home.html),
     },
     warnings,
+    usage: ZERO_USAGE,
   }
 }
 
@@ -419,7 +425,7 @@ export async function suggestLabSettings(params: {
   url: string
   evidence: LabScanEvidence
   client?: string
-}): Promise<LabScanSuggestion> {
+}): Promise<{ suggestion: LabScanSuggestion; usage: ORUsage }> {
   const user = [
     `เว็บไซต์: ${params.url}`,
     '',
@@ -450,7 +456,7 @@ export async function suggestLabSettings(params: {
   })
 
   if (!res.data) throw new Error(res.error ?? 'AI สรุปผลไม่สำเร็จ')
-  return sanitizeSuggestion(res.data, params.evidence)
+  return { suggestion: sanitizeSuggestion(res.data, params.evidence), usage: res.usage }
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/
@@ -503,10 +509,14 @@ export function sanitizeSuggestion(raw: LabScanSuggestion, evidence: LabScanEvid
 }
 
 export async function runLabScan(rawUrl: string, client?: string): Promise<LabScanResult> {
-  const { evidence, warnings } = await collectLabScanEvidence(rawUrl)
-  const suggestion = await suggestLabSettings({ url: rawUrl, evidence, client })
+  const { evidence, warnings, usage: evidenceUsage } = await collectLabScanEvidence(rawUrl)
+  const { suggestion, usage: suggestUsage } = await suggestLabSettings({ url: rawUrl, evidence, client })
   if (evidence.source === 'web_search') {
     warnings.push('อ่านสีและฟอนต์จาก CSS ของเว็บไม่ได้ — ค่าสี/ฟอนต์เป็นค่าตั้งต้น ปรับเองให้ตรงแบรนด์')
   }
-  return { url: rawUrl, suggestion, evidence, warnings }
+  const usage = {
+    totalTokens: evidenceUsage.totalTokens + suggestUsage.totalTokens,
+    costUsd: evidenceUsage.costUsd + suggestUsage.costUsd,
+  }
+  return { url: rawUrl, suggestion, evidence, warnings, usage }
 }

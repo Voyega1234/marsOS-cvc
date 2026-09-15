@@ -25,6 +25,7 @@ import {
 import type { CardConfig } from '@/components/settings/content-engine/types'
 import { askJson } from '@/lib/competitor-gap/ai'
 import { collectLabScanEvidence, evidenceTextHeading, type LabScanEvidence } from '@/lib/lab-scan'
+import type { ORUsage } from '@/lib/openrouter'
 
 export type CELayerScanType = 'CE_MASTER_PROMPT' | 'CE_ARTICLE_BRIEF' | 'CE_VALIDATOR_PACK' | 'CE_IMAGE_PROMPT'
 
@@ -37,7 +38,11 @@ export interface LayerScanResult {
   fields: Record<string, string>
   evidence: LayerScanEvidenceSummary
   warnings: string[]
+  /** token/cost จริงรวมทุก AI call ของการสแกนนี้ (หลักฐาน + สรุปฟอร์ม) — ให้ route.ts log ลง AIJob */
+  usage: { totalTokens: number; costUsd: number }
 }
+
+const ZERO_USAGE: ORUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 }
 
 const FIELD_MAX_CHARS = 6000
 const TEXT_EVIDENCE_MAX_CHARS = 12_000
@@ -66,7 +71,7 @@ function toText(v: unknown, max = FIELD_MAX_CHARS): string {
 async function collectEvidence(params: {
   url?: string
   text?: string
-}): Promise<{ heading: string; body: string; summary: LayerScanEvidenceSummary; warnings: string[] }> {
+}): Promise<{ heading: string; body: string; summary: LayerScanEvidenceSummary; warnings: string[]; usage: ORUsage }> {
   const text = (params.text ?? '').trim()
   if (text) {
     return {
@@ -74,6 +79,7 @@ async function collectEvidence(params: {
       body: text.slice(0, TEXT_EVIDENCE_MAX_CHARS),
       summary: { source: 'text', pages: [] },
       warnings: [],
+      usage: ZERO_USAGE,
     }
   }
 
@@ -81,7 +87,7 @@ async function collectEvidence(params: {
   if (!rawUrl) throw new Error('ต้องมี url หรือ text อย่างใดอย่างหนึ่ง')
   const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`
 
-  const { evidence, warnings } = await collectLabScanEvidence(url)
+  const { evidence, warnings, usage } = await collectLabScanEvidence(url)
   const heading = [
     'หน้าเว็บที่อ่านมา:',
     ...evidence.pages.map((p) => `- ${p.url} | title: ${p.title} | h1: ${p.h1} | ${p.words} คำ`),
@@ -97,6 +103,7 @@ async function collectEvidence(params: {
       pages: evidence.pages.map((p) => ({ url: p.url, title: p.title })),
     },
     warnings,
+    usage,
   }
 }
 
@@ -172,7 +179,7 @@ function sanitizeMasterPromptFields(raw: Record<string, unknown>): Record<string
 }
 
 async function scanMasterPrompt(params: { url?: string; text?: string }): Promise<LayerScanResult> {
-  const { heading, body, summary, warnings } = await collectEvidence(params)
+  const { heading, body, summary, warnings, usage: evidenceUsage } = await collectEvidence(params)
   const user = ['บทความตัวอย่าง:', '', heading, body].join('\n')
 
   const res = await askJson<Record<string, unknown>>({
@@ -186,7 +193,10 @@ async function scanMasterPrompt(params: { url?: string; text?: string }): Promis
   if (!res.data) throw new Error(res.error ?? 'AI สรุปผลไม่สำเร็จ')
   if (res.error) warnings.push(res.error)
 
-  return { fields: sanitizeMasterPromptFields(res.data), evidence: summary, warnings }
+  return {
+    fields: sanitizeMasterPromptFields(res.data), evidence: summary, warnings,
+    usage: { totalTokens: evidenceUsage.totalTokens + res.usage.totalTokens, costUsd: evidenceUsage.costUsd + res.usage.costUsd },
+  }
 }
 
 // ── Layer: Article Brief (dot-notation "cardKey.fieldKey") ──────────────────
@@ -231,7 +241,7 @@ function sanitizeArticleBriefFields(raw: Record<string, unknown>): Record<string
 }
 
 async function scanArticleBrief(params: { url?: string; text?: string }): Promise<LayerScanResult> {
-  const { heading, body, summary, warnings } = await collectEvidence(params)
+  const { heading, body, summary, warnings, usage: evidenceUsage } = await collectEvidence(params)
   const user = ['หลักฐาน:', '', heading, body].join('\n')
 
   const res = await askJson<Record<string, unknown>>({
@@ -245,7 +255,10 @@ async function scanArticleBrief(params: { url?: string; text?: string }): Promis
   if (!res.data) throw new Error(res.error ?? 'AI สรุปผลไม่สำเร็จ')
   if (res.error) warnings.push(res.error)
 
-  return { fields: sanitizeArticleBriefFields(res.data), evidence: summary, warnings }
+  return {
+    fields: sanitizeArticleBriefFields(res.data), evidence: summary, warnings,
+    usage: { totalTokens: evidenceUsage.totalTokens + res.usage.totalTokens, costUsd: evidenceUsage.costUsd + res.usage.costUsd },
+  }
 }
 
 // ── Layer: Validator Pack (ปรับ prompt ของแต่ละ validator ให้ตรงบริบท) ───────
@@ -289,7 +302,7 @@ function sanitizeValidatorPackFields(raw: Record<string, unknown>): Record<strin
 }
 
 async function scanValidatorPack(params: { url?: string; text?: string }): Promise<LayerScanResult> {
-  const { heading, body, summary, warnings } = await collectEvidence(params)
+  const { heading, body, summary, warnings, usage: evidenceUsage } = await collectEvidence(params)
   const user = ['หลักฐาน:', '', heading, body].join('\n')
 
   const res = await askJson<Record<string, unknown>>({
@@ -303,7 +316,10 @@ async function scanValidatorPack(params: { url?: string; text?: string }): Promi
   if (!res.data) throw new Error(res.error ?? 'AI สรุปผลไม่สำเร็จ')
   if (res.error) warnings.push(res.error)
 
-  return { fields: sanitizeValidatorPackFields(res.data), evidence: summary, warnings }
+  return {
+    fields: sanitizeValidatorPackFields(res.data), evidence: summary, warnings,
+    usage: { totalTokens: evidenceUsage.totalTokens + res.usage.totalTokens, costUsd: evidenceUsage.costUsd + res.usage.costUsd },
+  }
 }
 
 // ── Layer: Image Prompt (ร่าง prompt สร้างภาพเดียว) ──────────────────────────
@@ -325,7 +341,7 @@ function sanitizeImagePromptFields(raw: Record<string, unknown>): Record<string,
 }
 
 async function scanImagePrompt(params: { url?: string; text?: string }): Promise<LayerScanResult> {
-  const { heading, body, summary, warnings } = await collectEvidence(params)
+  const { heading, body, summary, warnings, usage: evidenceUsage } = await collectEvidence(params)
   const user = ['หลักฐาน:', '', heading, body].join('\n')
 
   const res = await askJson<Record<string, unknown>>({
@@ -339,7 +355,10 @@ async function scanImagePrompt(params: { url?: string; text?: string }): Promise
   if (!res.data) throw new Error(res.error ?? 'AI สรุปผลไม่สำเร็จ')
   if (res.error) warnings.push(res.error)
 
-  return { fields: sanitizeImagePromptFields(res.data), evidence: summary, warnings }
+  return {
+    fields: sanitizeImagePromptFields(res.data), evidence: summary, warnings,
+    usage: { totalTokens: evidenceUsage.totalTokens + res.usage.totalTokens, costUsd: evidenceUsage.costUsd + res.usage.costUsd },
+  }
 }
 
 // ── ทางเข้าใช้งานหลัก ─────────────────────────────────────────────────────

@@ -46,6 +46,8 @@ const COMPILER_SYSTEM = `คุณคือ Prompt Engineer ที่แปล�
 export interface CECompileResult {
   text: string
   model: string
+  /** token/cost จริงจาก OpenRouter — ให้ผู้เรียก log ลง AIJob (ไม่ log ในนี้ เพราะไม่รู้ orgId/userId) */
+  usage: { totalTokens: number; costUsd: number }
 }
 
 /**
@@ -89,7 +91,7 @@ export async function compileCePrompt(params: {
 
   const text = stripFence(res.text).trim()
   if (!text) throw new Error('compiler ตอบว่าง')
-  return { text, model }
+  return { text, model, usage: { totalTokens: res.usage.totalTokens, costUsd: res.usage.costUsd } }
 }
 
 /** ตัด code fence ที่บางโมเดลชอบครอบมาให้ */

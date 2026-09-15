@@ -9,6 +9,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { buildNewsResponse, type NewsItem } from '@/lib/marsNews'
 import { orChat, OR_MODELS } from '@/lib/openrouter'
+import { logAIJob } from '@/lib/logAIJob'
 
 export const maxDuration = 120
 
@@ -35,7 +36,7 @@ function bangkokDateKey(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date())
 }
 
-async function generateDigest(items: NewsItem[]): Promise<Omit<MarsNewsDigest, 'dateKey' | 'generatedAt'>> {
+async function generateDigest(items: NewsItem[]): Promise<Omit<MarsNewsDigest, 'dateKey' | 'generatedAt'> & { usage: { totalTokens: number; costUsd: number } }> {
   // เอาข่าวใหม่สุด ~28 ชิ้น (เน้น 72 ชม.ล่าสุด) พร้อมเนื้อย่อ
   const cutoff = Date.now() - 72 * 3600_000
   const fresh = items.filter(i => new Date(i.publishedAt).getTime() >= cutoff)
@@ -78,6 +79,9 @@ ${numbered}`
   }
 
   let parsed: ParsedDigest | null = null
+  // รวม cost/token ทุกครั้งที่เรียกจริง (รวม attempt ที่ parse ไม่ผ่านด้วย เพราะโดนเรียกเก็บเงินไปแล้ว)
+  let totalTokens = 0
+  let costUsd = 0
   for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
     try {
       const result = await orChat({
@@ -87,6 +91,8 @@ ${numbered}`
         jsonMode: true,
         messages: [{ role: 'user', content: prompt }],
       })
+      totalTokens += result.usage.totalTokens
+      costUsd += result.usage.costUsd
       parsed = tryParse(result.text)
     } catch {
       // ตอบว่าง/พังชั่วคราว — ปล่อยให้ลูป retry รอบถัดไป (เดิม orChat คืน '' ลูปจึงวนได้เอง)
@@ -111,7 +117,7 @@ ${numbered}`
     .filter(sec => sec.title && sec.points.length > 0)
 
   if (sections.length === 0) throw new Error('AI สรุปข่าวไม่สำเร็จ (ไม่มีหมวดข่าว)')
-  return { intro: String(parsed.intro ?? '').trim(), sections }
+  return { intro: String(parsed.intro ?? '').trim(), sections, usage: { totalTokens, costUsd } }
 }
 
 export async function GET(req: NextRequest) {
@@ -140,11 +146,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'ดึงข่าวไม่ได้ในขณะนี้ — ลองใหม่อีกครั้ง' }, { status: 502 })
     }
     const digestBody = await generateDigest(news.items)
+    const { usage, ...digestFields } = digestBody
     const digest: MarsNewsDigest = {
       dateKey,
       generatedAt: new Date().toISOString(),
-      ...digestBody,
+      ...digestFields,
     }
+    logAIJob({
+      organizationId: session.user.organizationId!,
+      projectId: null,
+      jobType: 'NEWS_DIGEST',
+      modelProvider: 'OPENROUTER',
+      modelName: OR_MODELS.default(),
+      status: 'SUCCESS',
+      tokenUsed: usage.totalTokens,
+      estimatedCost: usage.costUsd,
+      createdById: session.user.id,
+    }).catch(() => {})
     await prisma.appSetting.upsert({
       where: { key: SETTING_KEY },
       create: { key: SETTING_KEY, value: JSON.stringify(digest) },

@@ -7,6 +7,7 @@ import {
   stripCompiledKeys,
   withCompiled,
 } from "@/lib/ce-compile";
+import { logAIJob } from "@/lib/logAIJob";
 import { prisma } from "@/lib/prisma";
 import { canEditPrompts } from "@/services/prompts";
 
@@ -64,6 +65,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       client: row.projectId ?? undefined,
     });
     compiled = res.text;
+
+    // ค่าใช้จ่ายจริงของ call นี้ — log ลง AIJob เพื่อให้ขึ้นในยอดรวมของ project (ถ้ามี projectId)
+    logAIJob({
+      organizationId: orgId,
+      projectId: row.projectId ?? null,
+      jobType: "CE_COMPILE",
+      modelProvider: "OPENROUTER",
+      modelName: res.model,
+      status: "SUCCESS",
+      tokenUsed: res.usage.totalTokens,
+      estimatedCost: res.usage.costUsd,
+      createdById: session.user.id,
+    }).catch(() => {});
   } catch (err) {
     return NextResponse.json(
       { error: `compile ไม่สำเร็จ: ${(err as Error).message}` },

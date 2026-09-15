@@ -6,6 +6,8 @@ import { getSession } from "@/lib/auth";
 import { stripCompiledKeys } from "@/lib/ce-compiled-fields";
 import { analyzeContextFiles, businessSkillDraftToText, mergeBusinessSkill } from "@/lib/context-business-skill";
 import { extractText } from "@/lib/context-files";
+import { logAIJob } from "@/lib/logAIJob";
+import { OR_MODELS } from "@/lib/openrouter";
 import { prisma } from "@/lib/prisma";
 import { snapshotPrompt } from "@/services/prompts";
 
@@ -83,6 +85,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let ai;
   try {
     ai = await analyzeContextFiles(inputs.map((f) => f.name), combinedText);
+    logAIJob({
+      organizationId: session.user.organizationId!,
+      projectId: project.id,
+      jobType: "CONTEXT_FILES_ANALYZE",
+      modelProvider: "OPENROUTER",
+      modelName: OR_MODELS.default(),
+      status: "SUCCESS",
+      tokenUsed: ai.usage.totalTokens,
+      estimatedCost: ai.usage.costUsd,
+      createdById: session.user.id,
+    }).catch(() => {});
   } catch (err) {
     return NextResponse.json({ error: `สรุปข้อมูลจากไฟล์ไม่สำเร็จ: ${(err as Error).message}` }, { status: 502 });
   }

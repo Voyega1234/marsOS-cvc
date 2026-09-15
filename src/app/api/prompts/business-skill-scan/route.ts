@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { runBusinessSkillScan } from "@/lib/business-skill-scan";
+import { logAIJob } from "@/lib/logAIJob";
+import { OR_MODELS } from "@/lib/openrouter";
 import { prisma } from "@/lib/prisma";
 import { canEditPrompts } from "@/services/prompts";
 
@@ -40,6 +42,17 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await runBusinessSkillScan(url);
+    logAIJob({
+      organizationId: session.user.organizationId!,
+      projectId: (typeof body.projectId === "string" && body.projectId) || null,
+      jobType: "BUSINESS_SKILL_SCAN",
+      modelProvider: "OPENROUTER",
+      modelName: OR_MODELS.default(),
+      status: "SUCCESS",
+      tokenUsed: result.usage.totalTokens,
+      estimatedCost: result.usage.costUsd,
+      createdById: session.user.id,
+    }).catch(() => {});
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: `สแกนไม่สำเร็จ: ${(err as Error).message}` }, { status: 502 });

@@ -75,15 +75,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     prisma.aIJob
       .aggregate({
         where: { projectId: params.id, createdAt: { gte: monthStart } },
-        _sum: { estimatedCost: true },
+        _sum: { estimatedCost: true, externalCost: true },
         _count: { _all: true },
       })
-      .catch(() => ({ _sum: { estimatedCost: null }, _count: { _all: 0 } })),
+      .catch(() => ({ _sum: { estimatedCost: null, externalCost: null }, _count: { _all: 0 } })),
     prisma.aIJob
       .groupBy({
         by: ["jobType"],
         where: { projectId: params.id, createdAt: { gte: monthStart } },
-        _sum: { estimatedCost: true },
+        _sum: { estimatedCost: true, externalCost: true },
         orderBy: { _sum: { estimatedCost: "desc" } },
         take: AI_COST_BREAKDOWN_LIMIT,
       })
@@ -120,11 +120,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
     keywords: { count: keywordCount },
     aiCost: {
-      totalThisMonth: aiCostAgg._sum.estimatedCost ?? 0,
+      // รวม estimatedCost (LLM) + externalCost (DataForSEO ฯลฯ) ให้ตรงกับหน้า Settings > AI Cost
+      totalThisMonth: (aiCostAgg._sum.estimatedCost ?? 0) + (aiCostAgg._sum.externalCost ?? 0),
       jobCountThisMonth: aiCostAgg._count._all,
       byType: aiCostByType.map((row) => ({
         jobType: row.jobType,
-        cost: row._sum.estimatedCost ?? 0,
+        cost: (row._sum.estimatedCost ?? 0) + (row._sum.externalCost ?? 0),
       })),
     },
     seoTasks: seoTaskGroups.map((row) => ({

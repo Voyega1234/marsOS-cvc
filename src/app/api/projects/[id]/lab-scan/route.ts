@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { runLabScan } from "@/lib/lab-scan";
+import { logAIJob } from "@/lib/logAIJob";
+import { OR_MODELS } from "@/lib/openrouter";
 import { prisma } from "@/lib/prisma";
 
 export const maxDuration = 300;
@@ -31,6 +33,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   try {
     const result = await runLabScan(url, project.id);
+    logAIJob({
+      organizationId: session.user.organizationId!,
+      projectId: project.id,
+      jobType: "LAB_SITE_SCAN",
+      modelProvider: "OPENROUTER",
+      modelName: OR_MODELS.default(),
+      status: "SUCCESS",
+      tokenUsed: result.usage.totalTokens,
+      estimatedCost: result.usage.costUsd,
+      createdById: session.user.id,
+    }).catch(() => {});
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: `สแกนไม่สำเร็จ: ${(err as Error).message}` }, { status: 502 });

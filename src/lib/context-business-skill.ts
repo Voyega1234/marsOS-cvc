@@ -18,6 +18,8 @@ export interface ContextFilesAiResult {
   businessSkill: BusinessSkillDraft
   summary: string
   warnings: string[]
+  /** token/cost จริงจาก OpenRouter — ให้ route.ts log ลง AIJob */
+  usage: { totalTokens: number; costUsd: number }
 }
 
 const ROW_LIMITS: Record<string, number> = {
@@ -164,6 +166,7 @@ export async function analyzeContextFiles(fileNames: string[], combinedText: str
     businessSkill: sanitizeDraft(businessSkillRaw),
     summary: toText(res.data.summary).slice(0, 300),
     warnings,
+    usage: { totalTokens: res.usage.totalTokens, costUsd: res.usage.costUsd },
   }
 }
 

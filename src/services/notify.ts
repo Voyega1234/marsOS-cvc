@@ -308,10 +308,11 @@ export async function checkCostAlert(organizationId: string, projectId: string) 
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const result = await prisma.aIJob.aggregate({
     where: { organizationId, projectId, createdAt: { gte: startOfMonth } },
-    _sum: { estimatedCost: true },
+    _sum: { estimatedCost: true, externalCost: true },
   });
 
-  const spent = result._sum.estimatedCost ?? 0;
+  // รวม estimatedCost (LLM) + externalCost (DataForSEO ฯลฯ) ให้ตรงกับยอดจริงที่ใช้ไป
+  const spent = (result._sum.estimatedCost ?? 0) + (result._sum.externalCost ?? 0);
   const pct = spent / project.aiCostLimit;
 
   if (pct >= 0.9) {

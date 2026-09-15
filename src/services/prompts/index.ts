@@ -137,10 +137,12 @@ export async function testPrompt(
   const missingVars = usedVars.filter((v) => !vars[v] || vars[v] === "");
 
   const mockOutput = buildMockOutput(prompt.type, compiled, vars);
+  // ตัวเลขนี้เป็นแค่ค่าประมาณโชว์ในหน้าทดสอบ ไม่ใช่ค่าใช้จ่ายจริง (mock call ไม่ได้เรียก AI จริง)
   const tokenEstimate = Math.ceil(compiled.length / 4);
   const costEstimate = parseFloat(((tokenEstimate / 1_000_000) * 3).toFixed(6));
 
-  // Record the test run as an AIJob so it appears in AI Jobs log
+  // นี่คือ mock call (ไม่ได้เรียก AI จริง) — ไม่มีค่าใช้จ่ายจริงเกิดขึ้น
+  // เก็บแถว AIJob ไว้ให้ขึ้นใน AI Jobs log ตามเดิม แต่ตั้ง cost/token เป็น 0 กันยอดปลอมไปบวกในสรุปค่าใช้จ่าย
   await prisma.aIJob.create({
     data: {
       organizationId: orgId,
@@ -150,8 +152,8 @@ export async function testPrompt(
       modelName: prompt.modelName,
       input: compiled.slice(0, 2000),
       output: mockOutput.slice(0, 4000),
-      tokenUsed: tokenEstimate,
-      estimatedCost: costEstimate,
+      tokenUsed: 0,
+      estimatedCost: 0,
       createdById: userId,
     },
   });
