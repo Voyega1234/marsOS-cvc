@@ -33,6 +33,7 @@ import {
   type OnlineResearchResponse,
   type StrategyGoal,
 } from '@/lib/wordgod/online/types';
+import { splitCountByRatio, type LanguageMode } from '@/lib/keyword-language';
 
 interface OnlineProject {
   id: string;
@@ -44,6 +45,9 @@ interface OnlineProject {
 interface Props {
   project: OnlineProject;
   onSendToBank?: () => void;
+  /** โหมดภาษาจาก LanguageModeSelect (โปรเจกต์ en): th/en ล็อกภาษา, both = แบ่งจำนวนตาม ratioThai */
+  languageMode?: LanguageMode;
+  ratioThai?: number;
 }
 
 const fieldClass = 'w-full rounded-xl border border-[#cfd9ea] bg-white px-3.5 py-3 text-sm text-[#17233a] placeholder:text-[#91a0b8] shadow-sm outline-none transition focus:border-[#155eef] focus:ring-4 focus:ring-[#155eef]/10';
@@ -341,7 +345,7 @@ function GuardRiskCell({ row }: { row: OnlineKeywordResult }) {
   );
 }
 
-export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
+export default function WordGodOnlinePanel({ project, onSendToBank, languageMode, ratioThai = 50 }: Props) {
   // ── ฟอร์มซ้าย ──
   const [businessType, setBusinessType] = useState<OnlineBusinessType>('ONLINE_SERVICE');
   const [businessTypeOther, setBusinessTypeOther] = useState('');
@@ -352,6 +356,12 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
   const [problemsText, setProblemsText] = useState('');
   const [country, setCountry] = useState('Thailand');
   const [language, setLanguage] = useState<'th' | 'en'>('th');
+  // โหมดภาษาจากโปรเจกต์: th/en บังคับภาษาของรอบนี้, both = ผู้ใช้เลือกภาษาของรอบ
+  // แล้วระบบแบ่งจำนวนคำให้ตามสัดส่วน (รันไทย 1 รอบ + อังกฤษ 1 รอบ รวมกันใน Keyword Bank)
+  useEffect(() => {
+    if (languageMode === 'th' || languageMode === 'en') setLanguage(languageMode);
+  }, [languageMode]);
+  const languageLocked = languageMode === 'th' || languageMode === 'en';
   const [strategyGoal, setStrategyGoal] = useState<StrategyGoal>('BALANCED');
   const [targetCount, setTargetCount] = useState(300);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -613,6 +623,9 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
     setSelectedKeys(new Set());
     setExistingBank(null);
 
+    // โหมด both: จำนวนคำของรอบนี้ = ส่วนแบ่งของภาษาที่เลือกตามสัดส่วนไทย/อังกฤษ
+    const split = splitCountByRatio(targetCount, ratioThai);
+    const runTargetCount = languageMode === 'both' ? (language === 'th' ? split.th : split.en) : targetCount;
     const body = {
       businessType,
       businessTypeOther: businessType === 'OTHER' ? businessTypeOther.trim() || undefined : undefined,
@@ -624,7 +637,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
       country: country.trim() || 'Thailand',
       language,
       strategyGoal,
-      targetCount: clampTargetCount(targetCount),
+      targetCount: clampTargetCount(runTargetCount),
       competitorDomains: parseLines(competitorsText).slice(0, 10),
       existingPages: parseLines(existingPagesText),
       existingKeywords: parseGuardLines(existingKwText),
@@ -1158,10 +1171,19 @@ export default function WordGodOnlinePanel({ project, onSendToBank }: Props) {
               </div>
               <div>
                 <label className={labelClass}>ภาษา</label>
-                <select className={fieldClass} value={language} onChange={e => setLanguage(e.target.value as 'th' | 'en')}>
+                <select className={fieldClass} value={language} disabled={languageLocked} onChange={e => setLanguage(e.target.value as 'th' | 'en')}>
                   <option value="th">ไทย</option>
                   <option value="en">English</option>
                 </select>
+                {languageLocked && (
+                  <p className="mt-1 text-[10px] leading-4 text-[#71809c]">ล็อกตามโหมดภาษาของโปรเจกต์ (เปลี่ยนได้ที่ตัวเลือกด้านบน)</p>
+                )}
+                {languageMode === 'both' && (
+                  <p className="mt-1 text-[10px] leading-4 text-[#71809c]">
+                    โหมดไทย+อังกฤษ: รอบนี้จะค้น {language === 'th' ? splitCountByRatio(targetCount, ratioThai).th : splitCountByRatio(targetCount, ratioThai).en} คำ
+                    ({language === 'th' ? 'ไทย' : 'อังกฤษ'} {language === 'th' ? ratioThai : 100 - ratioThai}% ของ {targetCount}) — สลับภาษาแล้วรันอีกรอบให้ครบสัดส่วน
+                  </p>
+                )}
               </div>
             </div>
 

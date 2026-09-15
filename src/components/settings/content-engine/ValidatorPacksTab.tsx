@@ -11,9 +11,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { DEFAULT_VALIDATORS, RISK_OPTIONS, STATUS_OPTIONS, VALIDATOR_OUTPUT_SCHEMA } from "./constants";
+import { LayerScanCard } from "./LayerScanCard";
 import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge, useCERefresh } from "./shared";
-import type { CEMode, CEScope, PromptRow, ValidatorPackData } from "./types";
+import type { CEMode, CEScope, PromptRow, RiskLevel, ValidatorPackData } from "./types";
 import { CE_TYPES, scopeProjectId, tryParse } from "./types";
+
+// รวมผลสแกน (key = validator id) เข้ากับฟอร์ม Validator Pack ปัจจุบัน — ปรับเฉพาะ prompt ของแต่ละ validator
+// ทับเฉพาะตัวที่สแกนเจอ ตัวที่สแกนไม่เจอยังเก็บ prompt เดิมไว้ — ทีมแก้ต่อได้ทุกช่องก่อนบันทึก
+function applyValidatorPackFields(current: ValidatorPackData, fields: Record<string, string>): ValidatorPackData {
+  const next: ValidatorPackData = { ...current };
+  if (fields.industryScope) next.industryScope = fields.industryScope;
+  if (fields.riskScope && (RISK_OPTIONS as string[]).includes(fields.riskScope)) next.riskScope = fields.riskScope as RiskLevel;
+  next.validators = current.validators.map((v) => (fields[v.id] ? { ...v, prompt: fields[v.id] } : v));
+  return next;
+}
 
 interface Props {
   items: PromptRow[];
@@ -200,6 +211,25 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
     });
   }
 
+  // สแกนเว็บ/ข้อความ → ปรับ prompt ของ validator ให้ตรงบริบทธุรกิจ (ร่างเท่านั้น ยังไม่บันทึกจนกว่าทีมกดบันทึก)
+  function applyLayerScan(fields: Record<string, string>) {
+    setDraft((d) => {
+      if (d.mode === "raw") {
+        const parsed = tryParse<ValidatorPackData>(d.rawText);
+        let base: ValidatorPackData;
+        if (parsed) {
+          const byId = new Map(parsed.validators?.map((v) => [v.id, v]) ?? []);
+          const validators = DEFAULT_VALIDATORS.map((dv) => ({ ...dv, ...(byId.get(dv.id) ?? {}) }));
+          base = { ...emptyValidatorPack(), ...parsed, validators };
+        } else {
+          base = emptyValidatorPack();
+        }
+        return { ...d, mode: "form", data: applyValidatorPackFields(base, fields) };
+      }
+      return { ...d, data: applyValidatorPackFields(d.data, fields) };
+    });
+  }
+
   const disabled = !canEdit;
 
   return (
@@ -325,6 +355,22 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
               </div>
             </div>
           </div>
+
+          {canEdit && draft.mode === "form" && (
+            <LayerScanCard
+              key={selectedId ?? "new"}
+              layer="CE_VALIDATOR_PACK"
+              projectId={scopeProjectId(scope)}
+              onApply={applyLayerScan}
+              title="ปรับ Validator Pack ให้ตรงบริบทธุรกิจ"
+              description="วางลิงก์เว็บลูกค้าหรือวางข้อความบริบท ระบบจะปรับ prompt ของแต่ละ validator ให้ตรงอุตสาหกรรม/ความเสี่ยงของธุรกิจนี้ แก้ต่อได้ทุกช่อง"
+            />
+          )}
+          {canEdit && draft.mode === "raw" && (
+            <p className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs text-gray-400">
+              สลับเป็นโหมดฟอร์มก่อน ถึงจะใช้ “ปรับ Validator Pack ให้ตรงบริบทธุรกิจ” ได้
+            </p>
+          )}
 
           {draft.mode === "form" && (
             <CompiledPromptPanel

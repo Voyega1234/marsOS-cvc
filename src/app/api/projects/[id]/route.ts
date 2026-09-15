@@ -33,7 +33,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const orgId = session!.user.organizationId;
-  const existing = await prisma.project.findFirst({ where: { id: params.id, organizationId: orgId }, select: { id: true, timeline: true } });
+  const existing = await prisma.project.findFirst({ where: { id: params.id, organizationId: orgId }, select: { id: true, timeline: true, pushPrefs: true } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
@@ -52,6 +52,19 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   // timeline เก็บทั้งช่วงเวลาโปรเจกต์ (plan) และรายการบทความ — normalize ให้อยู่รูปเดียวเสมอ
   // และถ้าผู้เรียกส่งมาแค่ array ให้คง plan เดิมไว้ (ดู src/lib/project-timeline.ts)
   if ("timeline" in data) data.timeline = mergeTimelineWrite(existing.timeline, data.timeline);
+  // pushPrefs เก็บ preference หลายชนิดปนกัน (manualChecks, excludeCards, stripH1, languagePrefs ฯลฯ)
+  // — merge เฉพาะ top-level key ที่ส่งมา ห้ามทับ key อื่นที่ agent/แท็บอื่นเขียนไว้
+  if ("pushPrefs" in data) {
+    const parseJson = (v: unknown): Record<string, unknown> => {
+      if (!v) return {};
+      if (typeof v === "string") { try { return JSON.parse(v) || {}; } catch { return {}; } }
+      if (typeof v === "object") return v as Record<string, unknown>;
+      return {};
+    };
+    const existingPrefs = parseJson(existing.pushPrefs);
+    const incomingPrefs = parseJson(data.pushPrefs);
+    data.pushPrefs = JSON.stringify({ ...existingPrefs, ...incomingPrefs });
+  }
 
   const project = await prisma.project.update({ where: { id: params.id }, data });
   const skipLog = Object.keys(data).length === 1 && ('timeline' in data || 'autoSchedule' in data)

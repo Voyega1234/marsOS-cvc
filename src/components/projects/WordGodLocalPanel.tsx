@@ -33,6 +33,7 @@ import type {
 } from '@/lib/wordgod/local/types';
 import { referenceSourceLabel } from '@/lib/wordgod/local/metrics';
 import { findNearbyAreas, normalizeAreaName, type AreaSuggestion } from '@/lib/wordgod/local/thaiAreas';
+import type { LanguageMode } from '@/lib/keyword-language';
 
 interface LocalProject {
   id: string;
@@ -44,6 +45,8 @@ interface LocalProject {
 interface Props {
   project: LocalProject;
   onSendToBank?: () => void;
+  /** โหมดภาษาจากโปรเจกต์ (en): th = ไทยล้วน, en/both = ไทย+อังกฤษ (local research มีแค่ 2 แบบ) */
+  languageMode?: LanguageMode;
 }
 
 const fieldClass = 'w-full rounded-xl border border-[#cfd9ea] bg-white px-3.5 py-3 text-sm text-[#17233a] placeholder:text-[#91a0b8] shadow-sm outline-none transition focus:border-[#155eef] focus:ring-4 focus:ring-[#155eef]/10';
@@ -311,7 +314,7 @@ function GuardRiskCell({ guard }: { guard?: KeywordResearchResult['guard'] }) {
   );
 }
 
-export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
+export default function WordGodLocalPanel({ project, onSendToBank, languageMode }: Props) {
   // ── ฟอร์มซ้าย ──
   const [serviceText, setServiceText] = useState('');
   const [primaryLocation, setPrimaryLocation] = useState('');
@@ -321,6 +324,11 @@ export default function WordGodLocalPanel({ project, onSendToBank }: Props) {
   const [businessType, setBusinessType] = useState<LocalBusinessType>('storefront');
   const [radius, setRadius] = useState<number | null>(null);
   const [language, setLanguage] = useState<'th' | 'th_en'>('th');
+  // ตามโหมดภาษาของโปรเจกต์: local research รองรับแค่ ไทย / ไทย+อังกฤษ
+  useEffect(() => {
+    if (!languageMode) return;
+    setLanguage(languageMode === 'th' ? 'th' : 'th_en');
+  }, [languageMode]);
   const [expandWithKP, setExpandWithKP] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   // Keyword Guard — คีย์เวิร์ดเดิม/คำที่ไม่เอา ผูกกับโปรเจกต์ ใช้ร่วมกับ Competitor Gap

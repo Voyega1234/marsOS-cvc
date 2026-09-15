@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Loader2, Plus, Save } from "lucide-react";
+import { Check, Copy, Loader2, Plus, Save, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { IMAGE_PROMPT_PLACEHOLDER, IMAGE_PROMPT_VARIABLES } from "./constants";
+import { LayerScanCard } from "./LayerScanCard";
 import { EmptyRow, ErrorBanner, ModeToggle, useCERefresh } from "./shared";
 import type { CEMode, CEScope, PromptRow } from "./types";
 import { CE_TYPES, scopeProjectId, tryParse } from "./types";
@@ -20,11 +21,79 @@ interface Props {
   canEdit: boolean;
 }
 
+// ── Reference & Brand assets (คำสั่งเจ้าของ — Image Prompt item 2) ────────────
+// เก็บรวมกับ promptText เดิมในรูป JSON เดียว { promptText, referenceImages, logoImage, brandName, contactInfo, swapPeople }
+// เมื่อไม่มี asset ใดเลยยังบันทึกเป็นข้อความดิบเหมือนเดิม (backward compatible กับ Image Prompt เก่า)
+const MAX_REFERENCE_IMAGES = 5;
+const MAX_LAYER_JSON_BYTES = Math.round(2.5 * 1024 * 1024); // เพดาน ~2.5MB กัน Vercel body limit 4.5MB ตอน save
+
 interface Draft {
   name: string;
   description: string;
   mode: CEMode;
   promptText: string;
+  referenceImages: string[];
+  logoImage: string | null;
+  brandName: string;
+  contactInfo: string;
+  swapPeople: boolean;
+}
+
+function hasAssetData(d: Draft): boolean {
+  return (
+    d.referenceImages.length > 0 ||
+    !!d.logoImage ||
+    d.brandName.trim().length > 0 ||
+    d.contactInfo.trim().length > 0 ||
+    d.swapPeople !== true
+  );
+}
+
+/** ประกอบ promptText ที่จะส่งไปบันทึก — มี asset ค่อยห่อเป็น JSON ไม่งั้นเก็บดิบเหมือนเดิม */
+function buildPromptTextPayload(d: Draft): string {
+  if (!hasAssetData(d)) return d.promptText;
+  return JSON.stringify({
+    promptText: d.promptText,
+    referenceImages: d.referenceImages,
+    logoImage: d.logoImage,
+    brandName: d.brandName,
+    contactInfo: d.contactInfo,
+    swapPeople: d.swapPeople,
+  });
+}
+
+function jsonByteSize(d: Draft): number {
+  return new TextEncoder().encode(buildPromptTextPayload(d)).length;
+}
+
+function formatKB(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(2)} MB` : `${Math.round(bytes / 1024)} KB`;
+}
+
+/** ย่อรูปฝั่ง client ก่อนเก็บเป็น data URL — จำกัดด้านยาวสุดไม่ให้ JSON บวมเกิน */
+function downscaleToDataUrl(file: File, maxSize: number, quality = 0.8): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("อ่านไฟล์ไม่สำเร็จ"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("โหลดรูปไม่สำเร็จ — ไฟล์อาจไม่ใช่รูปภาพ"));
+      img.onload = () => {
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("สร้าง canvas ไม่สำเร็จ")); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // Image Prompt ไม่มีโครง JSON แยก — promptText เป็นข้อความ prompt ตรงๆ อยู่แล้วทั้งสองโหมด
@@ -46,12 +115,27 @@ function writeMidImageCount(promptText: string, count: number): string {
 }
 
 function parseItem(item: PromptRow): Draft {
-  const isJsonObject = tryParse(item.promptText) !== null;
-  return { name: item.name, description: item.description ?? "", mode: isJsonObject ? "form" : "raw", promptText: item.promptText };
+  const parsed = tryParse<Record<string, unknown>>(item.promptText);
+  if (parsed) {
+    const text =
+      (typeof parsed.promptText === "string" && parsed.promptText) ||
+      (typeof parsed.template === "string" && parsed.template) ||
+      (typeof parsed.text === "string" && parsed.text) ||
+      "";
+    const referenceImages = Array.isArray(parsed.referenceImages)
+      ? parsed.referenceImages.filter((v): v is string => typeof v === "string").slice(0, MAX_REFERENCE_IMAGES)
+      : [];
+    const logoImage = typeof parsed.logoImage === "string" && parsed.logoImage ? parsed.logoImage : null;
+    const brandName = typeof parsed.brandName === "string" ? parsed.brandName : "";
+    const contactInfo = typeof parsed.contactInfo === "string" ? parsed.contactInfo : "";
+    const swapPeople = typeof parsed.swapPeople === "boolean" ? parsed.swapPeople : true;
+    return { name: item.name, description: item.description ?? "", mode: "form", promptText: text, referenceImages, logoImage, brandName, contactInfo, swapPeople };
+  }
+  return { name: item.name, description: item.description ?? "", mode: "raw", promptText: item.promptText, referenceImages: [], logoImage: null, brandName: "", contactInfo: "", swapPeople: true };
 }
 
 function newDraft(): Draft {
-  return { name: "Image Prompt ใหม่", description: "", mode: "form", promptText: "" };
+  return { name: "Image Prompt ใหม่", description: "", mode: "form", promptText: "", referenceImages: [], logoImage: null, brandName: "", contactInfo: "", swapPeople: true };
 }
 
 export function ImagePromptsTab({ items, scope, canEdit }: Props) {
@@ -119,7 +203,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
       name: draft.name.trim(),
       description: draft.description.trim(),
       type: CE_TYPES.IMAGE_PROMPT,
-      promptText: draft.promptText,
+      promptText: buildPromptTextPayload(draft),
       projectId: scopeProjectId(scope),
     };
     if (selectedId) {
@@ -144,7 +228,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
       name: `${draft.name} (v${selected.version + 1})`,
       description: draft.description.trim(),
       type: CE_TYPES.IMAGE_PROMPT,
-      promptText: draft.promptText,
+      promptText: buildPromptTextPayload(draft),
       projectId: scopeProjectId(scope),
     };
     const created = await call("/api/prompts", { method: "POST", body: JSON.stringify(payload) }, "clone");
@@ -165,6 +249,62 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
       toast.success(item.isActive ? "ปิดใช้งานแล้ว" : "ใช้งานชุดนี้แล้ว");
       refresh();
     }
+  }
+
+  // ── Reference & Brand assets handlers ────────────────────────────────────────
+
+  async function addReferenceImages(files: FileList | File[]) {
+    if (!canEdit) return;
+    const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (!list.length) return;
+    let next = draft;
+    for (const file of list) {
+      if (next.referenceImages.length >= MAX_REFERENCE_IMAGES) {
+        toast.error(`ใส่ภาพอ้างอิงได้สูงสุด ${MAX_REFERENCE_IMAGES} ภาพ`);
+        break;
+      }
+      try {
+        const dataUrl = await downscaleToDataUrl(file, 768, 0.8);
+        const candidate = { ...next, referenceImages: [...next.referenceImages, dataUrl] };
+        if (jsonByteSize(candidate) > MAX_LAYER_JSON_BYTES) {
+          toast.error("ข้อมูล Image Prompt รวมภาพอ้างอิงจะเกิน 2.5MB — ลบภาพเดิมออกก่อนเพิ่ม");
+          break;
+        }
+        next = candidate;
+      } catch (err) {
+        toast.error((err as Error).message);
+        break;
+      }
+    }
+    if (next !== draft) setDraft(next);
+  }
+
+  function removeReferenceImage(idx: number) {
+    setDraft({ ...draft, referenceImages: draft.referenceImages.filter((_, i) => i !== idx) });
+  }
+
+  async function setLogoImage(file: File) {
+    if (!canEdit || !file.type.startsWith("image/")) return;
+    try {
+      const dataUrl = await downscaleToDataUrl(file, 512, 0.8);
+      const candidate = { ...draft, logoImage: dataUrl };
+      if (jsonByteSize(candidate) > MAX_LAYER_JSON_BYTES) {
+        toast.error("ข้อมูล Image Prompt รวมโลโก้จะเกิน 2.5MB — ลบภาพอ้างอิงบางส่วนก่อน");
+        return;
+      }
+      setDraft(candidate);
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }
+
+  function removeLogoImage() {
+    setDraft({ ...draft, logoImage: null });
+  }
+
+  // ผลสแกน (ลิงก์/ข้อความ) ของชั้น Image Prompt มีช่องเดียวคือ promptText
+  function applyLayerScan(fields: Record<string, string>) {
+    if (fields.promptText) setDraft({ ...draft, promptText: fields.promptText });
   }
 
   return (
@@ -201,6 +341,16 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
         </aside>
 
         <section className="space-y-3">
+          {canEdit && (
+            <LayerScanCard
+              key={selectedId ?? "new"}
+              layer="CE_IMAGE_PROMPT"
+              projectId={scopeProjectId(scope)}
+              onApply={applyLayerScan}
+              title="ร่าง Image Prompt จากเว็บไซต์/ข้อความ"
+              description="วางลิงก์เว็บลูกค้าหรือวางข้อความบริบท ระบบจะร่าง prompt สร้างภาพให้ แก้ต่อได้ทุกช่อง"
+            />
+          )}
           <div className="rounded-2xl border border-gray-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -298,6 +448,124 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
                 วางเป็นข้อความ prompt ตรงๆ ได้เลย — ระบบใช้ข้อความนี้ตามลำดับ layer ตอน compile
               </p>
             )}
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <Label className="text-xs text-gray-600">Reference &amp; Brand assets</Label>
+              <span className="text-[11px] text-gray-400">
+                ขนาดข้อมูลชั้นนี้: {formatKB(jsonByteSize(draft))} / {formatKB(MAX_LAYER_JSON_BYTES)}
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-600">ภาพอ้างอิง (สูงสุด {MAX_REFERENCE_IMAGES} ภาพ)</Label>
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); if (canEdit) addReferenceImages(e.dataTransfer.files); }}
+                className={cn(
+                  "flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50/50 p-3",
+                  !canEdit && "opacity-60"
+                )}
+              >
+                {draft.referenceImages.map((src, idx) => (
+                  <div key={idx} className="relative h-20 w-20 overflow-hidden rounded-md border border-gray-200">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`ภาพอ้างอิง ${idx + 1}`} className="h-full w-full object-cover" />
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => removeReferenceImage(idx)}
+                        className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {canEdit && draft.referenceImages.length < MAX_REFERENCE_IMAGES && (
+                  <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-gray-300 bg-white text-gray-400 hover:bg-gray-50">
+                    <Upload className="size-4" />
+                    <span className="text-[10px]">เพิ่มภาพ</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => { if (e.target.files) addReferenceImages(e.target.files); e.target.value = ""; }}
+                    />
+                  </label>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400">ลากไฟล์มาวาง หรือกด &quot;เพิ่มภาพ&quot; — ระบบย่อภาพให้อัตโนมัติก่อนบันทึก</p>
+            </div>
+
+            <div className="mt-3 space-y-1.5">
+              <Label className="text-xs text-gray-600">โลโก้แบรนด์</Label>
+              <div className="flex items-center gap-2">
+                {draft.logoImage ? (
+                  <div className="relative h-16 w-16 overflow-hidden rounded-md border border-gray-200 bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={draft.logoImage} alt="โลโก้แบรนด์" className="h-full w-full object-contain" />
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={removeLogoImage}
+                        className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  canEdit && (
+                    <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-gray-300 bg-gray-50/50 text-gray-400 hover:bg-gray-50">
+                      <Upload className="size-4" />
+                      <span className="text-[10px]">โลโก้</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => { if (e.target.files?.[0]) setLogoImage(e.target.files[0]); e.target.value = ""; }}
+                      />
+                    </label>
+                  )
+                )}
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-600">ชื่อแบรนด์</Label>
+                <Input
+                  value={draft.brandName}
+                  disabled={!canEdit}
+                  onChange={(e) => setDraft({ ...draft, brandName: e.target.value })}
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-600">ข้อมูลติดต่อ (เบอร์โทร / LINE / เว็บไซต์)</Label>
+                <Textarea
+                  value={draft.contactInfo}
+                  disabled={!canEdit}
+                  onChange={(e) => setDraft({ ...draft, contactInfo: e.target.value })}
+                  className="min-h-[38px] text-sm"
+                  placeholder={"เบอร์โทร\nLINE: @xxx\nwww.example.com"}
+                />
+              </div>
+            </div>
+
+            <label className="mt-3 flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={draft.swapPeople}
+                disabled={!canEdit}
+                onChange={(e) => setDraft({ ...draft, swapPeople: e.target.checked })}
+                className="size-4 rounded border-gray-300"
+              />
+              ถ้าในภาพอ้างอิงมีคน ให้สุ่ม/เปลี่ยนคนใหม่ทุกครั้ง
+            </label>
           </div>
 
           {!canEdit && <p className="text-xs text-gray-400">ดูได้อย่างเดียว — เฉพาะ Admin เท่านั้นที่แก้ไขได้</p>}

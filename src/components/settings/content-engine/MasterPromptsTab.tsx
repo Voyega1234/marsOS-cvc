@@ -17,9 +17,29 @@ import {
   RISK_OPTIONS,
   STATUS_OPTIONS,
 } from "./constants";
+import { LayerScanCard } from "./LayerScanCard";
 import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge, useCERefresh } from "./shared";
-import type { CEMode, CEScope, MasterPromptData, PromptRow } from "./types";
+import type { CEMode, CEScope, MasterPromptData, PromptRow, RiskLevel } from "./types";
 import { CE_TYPES, emptyMasterPrompt, scopeProjectId, tryParse } from "./types";
+
+// รวมผลสแกน (วางลิงก์บทความตัวอย่าง/ข้อความ) เข้ากับฟอร์ม Master Prompt ปัจจุบัน
+// ทับเฉพาะช่องที่สแกนเจอ ช่องที่สแกนไม่เจอยังเก็บค่าเดิมไว้ — ทีมแก้ต่อได้ทุกช่องก่อนบันทึก
+function applyMasterPromptFields(current: MasterPromptData, fields: Record<string, string>): MasterPromptData {
+  const next: MasterPromptData = { ...current };
+  if (fields.contentType) next.contentType = fields.contentType;
+  if (fields.industryScope) next.industryScope = fields.industryScope;
+  if (fields.riskLevel && (RISK_OPTIONS as string[]).includes(fields.riskLevel)) next.riskLevel = fields.riskLevel as RiskLevel;
+  if (fields.requiredVariables) next.requiredVariables = fields.requiredVariables.split("\n").map((s) => s.trim()).filter(Boolean);
+  if (fields.optionalVariables) next.optionalVariables = fields.optionalVariables.split("\n").map((s) => s.trim()).filter(Boolean);
+  if (fields.systemInstruction) next.systemInstruction = fields.systemInstruction;
+  if (fields.writingInstruction) next.writingInstruction = fields.writingInstruction;
+  if (fields.outputFormat) next.outputFormat = fields.outputFormat;
+  if (fields.prohibitedBehavior) next.prohibitedBehavior = fields.prohibitedBehavior;
+  if (fields.fallbackBehavior) next.fallbackBehavior = fields.fallbackBehavior;
+  if (fields.testCases) next.testCases = fields.testCases;
+  if (fields.versionNote) next.versionNote = fields.versionNote;
+  return next;
+}
 
 interface Props {
   items: PromptRow[];
@@ -242,6 +262,18 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
     setDraft({ ...draft, data: { ...draft.data, [list]: next } });
   }
 
+  // สแกนบทความตัวอย่าง (ลิงก์/ข้อความ) → เติมฟอร์ม Master Prompt (ร่างเท่านั้น ยังไม่บันทึกจนกว่าทีมกดบันทึก)
+  function applyLayerScan(fields: Record<string, string>) {
+    setDraft((d) => {
+      if (d.mode === "raw") {
+        const parsed = tryParse<MasterPromptData>(d.rawText);
+        const base = parsed ? { ...emptyMasterPrompt(), ...parsed } : emptyMasterPrompt();
+        return { ...d, mode: "form", data: applyMasterPromptFields(base, fields) };
+      }
+      return { ...d, data: applyMasterPromptFields(d.data, fields) };
+    });
+  }
+
   return (
     <div className="space-y-4">
       <ErrorBanner message={error} />
@@ -386,6 +418,24 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               </div>
             </div>
           </div>
+
+          {canEdit && draft.mode === "form" && (
+            <LayerScanCard
+              key={selectedId ?? "new"}
+              layer="CE_MASTER_PROMPT"
+              projectId={scopeProjectId(scope)}
+              onApply={applyLayerScan}
+              title="สร้าง Master Prompt จากบทความตัวอย่าง (วางลิงก์หรือข้อความบทความ)"
+              description="วางลิงก์บทความตัวอย่าง หรือวางข้อความบทความเต็ม ระบบจะถอดโครง/สไตล์การเขียนแล้วร่าง Master Prompt ให้บทความใหม่เขียนตามแพทเทิร์นเดิม แก้ต่อได้ทุกช่อง"
+              urlPlaceholder="https://example.com/blog/บทความตัวอย่าง"
+              textPlaceholder="หรือวางข้อความบทความเต็มตรงนี้แทน"
+            />
+          )}
+          {canEdit && draft.mode === "raw" && (
+            <p className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs text-gray-400">
+              สลับเป็นโหมดฟอร์มก่อน ถึงจะใช้ “สร้าง Master Prompt จากบทความตัวอย่าง” ได้
+            </p>
+          )}
 
           {draft.mode === "form" && (
             <CompiledPromptPanel

@@ -34,8 +34,12 @@ import { ProjectContentEngine } from '@/components/projects/workspace/ProjectCon
 import { ReportConnectPanel } from '@/components/report/ReportConnectPanel'
 import { ProjectWebsitePanel } from '@/components/projects/ProjectWebsitePanel'
 import { ProjectSetupChecklist } from '@/components/projects/ProjectSetupChecklist'
+import { useSetupChecklistStatus } from '@/components/projects/useSetupChecklistStatus'
 import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGapTab'
 import { LabSiteScanCard } from '@/components/projects/workspace/LabSiteScanCard'
+import { LabContextFilesCard } from '@/components/projects/workspace/LabContextFilesCard'
+import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
+import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
 import { downscaleDataUrl, fileToDownscaledDataUrl } from '@/lib/imageDownscale'
@@ -3050,6 +3054,8 @@ function ArticlesTab({
   stopRef: React.MutableRefObject<boolean>
 }) {
   const today = new Date().toISOString().slice(0, 10)
+  // โหมดภาษาบทความของโปรเจกต์ en (LanguageModeSelect โหลดค่าที่บันทึกไว้แล้วอัปเดตให้)
+  const [langPrefs, setLangPrefs] = useState(() => readLanguagePrefs(null, project.language))
   const [writing, setWriting] = useState<Set<number>>(new Set())
   // One AbortController per in-flight article write so the user can Stop it.
   const writeAbortRef = useRef<Map<number, AbortController>>(new Map())
@@ -3233,6 +3239,7 @@ function ArticlesTab({
           projectId: project.id,
           ...(entry.keywordId && { keywordId: entry.keywordId }),
           language: project.language,
+          language_mode: langPrefs.keywordMode,
           // ค่าอื่น (สี/สไตล์/CTA/ลิงก์/ชื่อเว็บ) ไม่ส่งจาก body — route อ่านจาก
           // Project Settings (Article Lab + CE) ใน DB เป็นแหล่งเดียว กันค่า stale จากหน้าจอ
           ...(adjustNote?.trim() && { adjustNote: adjustNote.trim() }),
@@ -3551,6 +3558,14 @@ function ArticlesTab({
     }
     return (
       <div className="space-y-3">
+        {/* ยังไม่มีคิวบทความ ก็ยังต้องเลือกโหมดภาษาได้ (โปรเจกต์ th ตัวเลือกซ่อนตัวเอง) */}
+        <LanguageModeSelect
+          projectId={project.id}
+          projectLanguage={project.language}
+          value={langPrefs.keywordMode}
+          ratioThai={langPrefs.ratioThai}
+          onChange={setLangPrefs}
+        />
         <ContentEngineReadyBar
           projectId={project.id}
           status={ceStatus.status}
@@ -3637,7 +3652,16 @@ function ArticlesTab({
   )
 
   return (
-    // จอแคบ: list กับ editor ซ้อนเป็นแนวตั้ง (เดิมฝืน 40/60 จนตัวหนังสือเรียงทีละตัวอักษร)
+    <>
+    {/* โปรเจกต์ en: เลือกโหมดภาษาบทความ (ไทย/อังกฤษ/ไทย+อังกฤษ) — โปรเจกต์ th ตัวเลือกซ่อนตัวเอง */}
+    <LanguageModeSelect
+      projectId={project.id}
+      projectLanguage={project.language}
+      value={langPrefs.keywordMode}
+      ratioThai={langPrefs.ratioThai}
+      onChange={setLangPrefs}
+    />
+    {/* จอแคบ: list กับ editor ซ้อนเป็นแนวตั้ง (เดิมฝืน 40/60 จนตัวหนังสือเรียงทีละตัวอักษร) */}
     <div className="flex flex-col lg:flex-row gap-5 lg:items-start" style={{ minHeight: 'calc(100vh - 180px)' }}>
 
       {/* ── LEFT: Article List ── */}
@@ -4140,6 +4164,7 @@ function ArticlesTab({
         </div>
       )}
     </div>
+    </>
   )
 }
 
@@ -5090,6 +5115,8 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   const [styleGuide, setStyleGuide] = useState(project.styleGuide ?? DEFAULT_STYLE_GUIDE)
   // บริบทธุรกิจ — ข้อเท็จจริงที่บทความห้ามเขียนขัด (จุดแก้เดียวของระบบ ตาม Setup Checklist)
   const [projectContext, setProjectContext] = useState(project.projectContext ?? '')
+  // โหมดภาษาสำหรับทดสอบเขียนบทความใน Lab (ตัวเลือกเดียวกับหน้า Articles)
+  const [langPrefs, setLangPrefs] = useState(() => readLanguagePrefs(null, project.language))
   const [accentColor, setAccentColor] = useState(project.accentColor ?? '#2563eb')
   const [theme, setTheme] = useState(project.articleTheme ?? 'professional')
   // ชุดสีบทความของ client — ใช้กับทุกบทความที่เขียนบนเว็บนั้น (เก็บใน Project.themeColors)
@@ -5237,6 +5264,7 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
           keyword, title, stream: true,
           projectId: project.id,
           language: project.language,
+          language_mode: langPrefs.keywordMode,
         }),
       })
       if (!res.ok) {
@@ -5569,6 +5597,13 @@ ${cover}${html}
 
   return (
     <div className="space-y-0">
+      <LanguageModeSelect
+        projectId={project.id}
+        projectLanguage={project.language}
+        value={langPrefs.keywordMode}
+        ratioThai={langPrefs.ratioThai}
+        onChange={setLangPrefs}
+      />
       {/* ── Sub-tab bar ─────────────────────────────── */}
       <div className="flex items-center gap-1 mb-5 bg-gray-100 rounded-2xl p-1 w-fit">
         {LAB_SUBTABS.map(t => (
@@ -5605,6 +5640,15 @@ ${cover}${html}
               projectId={project.id}
               defaultUrl={project.website}
               onApply={applyScan}
+            />
+
+            {/* อ่านไฟล์ธุรกิจลูกค้า (CSV/PDF) — เติม Project Context + เขียนลง Business Skill ให้อัตโนมัติ */}
+            <LabContextFilesCard
+              projectId={project.id}
+              onApply={(r) => {
+                // ต่อท้ายข้อความเดิม ไม่ทับ — ทีมยังแก้ต่อได้ก่อนกดบันทึก
+                setProjectContext((prev) => (prev.trim() ? `${prev}\n\n${r.projectContext}` : r.projectContext))
+              }}
             />
 
             {/* Theme */}
@@ -7491,6 +7535,10 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
   // Project Settings = slide bar ด้านขวา (กดฟันเฟืองเปิด/ปิด — ไม่สลับหน้า)
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false)
   const [settingsDrawerTab, setSettingsDrawerTab] = useState<'checklist' | 'lab' | 'ce' | 'google' | 'website'>('checklist')
+  // มาจากการสร้างโปรเจกต์ใหม่ (?setup=1) — โชว์แบนเนอร์เตือนให้ตั้งค่าให้ครบในแท็บ checklist
+  const [justCreatedSetup, setJustCreatedSetup] = useState(false)
+  // สถานะ checklist แบบเบา ๆ ไว้ทำ badge สีแดงบนฟันเฟือง — refetch ใหม่ทุกครั้งที่ drawer เปิด/ปิด
+  const { status: checklistStatus, refresh: refreshChecklistStatus } = useSetupChecklistStatus(project.id, settingsDrawerOpen)
 
   // Read ?tab= from URL on mount (client-only, avoids SSR/Suspense issues)
   useEffect(() => {
@@ -7505,6 +7553,19 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
     const allowed = isClient ? CLIENT_TABS : ['overview','timeline-view','competitor-gap','keyword-research','keywords','keyword-bank','content-map','articles','content-refresh','push','review','publish','report','on-page','technical','indexing']
     if (t && allowed.includes(t as Tab)) {
       setTab(t as Tab)
+    }
+  }, [])
+
+  // โปรเจกต์ใหม่ (?setup=1 จากหน้าสร้างโปรเจกต์) — เปิด drawer ที่แท็บ checklist ทันที แล้วลบ param ออกจาก URL
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    if (p.get('setup') === '1') {
+      setJustCreatedSetup(true)
+      setSettingsDrawerTab('checklist')
+      setSettingsDrawerOpen(true)
+      p.delete('setup')
+      const qs = p.toString()
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
     }
   }, [])
 
@@ -7752,13 +7813,21 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             <button
               onClick={() => setSettingsDrawerOpen(o => !o)}
               title="Project Settings"
-              className={`p-2 rounded-xl border transition-colors ${
+              className={`relative p-2 rounded-xl border transition-colors ${
                 settingsDrawerOpen
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
                   : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               <SettingsIcon size={16} />
+              {!!checklistStatus?.missingRequired && (
+                <span
+                  title={`ยังตั้งค่าไม่ครบ ${checklistStatus.missingRequired} ข้อ`}
+                  className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none"
+                >
+                  {checklistStatus.missingRequired}
+                </span>
+              )}
             </button>
           </div>
         )}
@@ -8056,13 +8125,19 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
                       ความพร้อมก่อนเริ่มงานกับลูกค้า — เช็คจากข้อมูลจริงทุกข้อ กดปุ่มเพื่อไปตั้งค่าจุดที่ยังขาด
                     </p>
                   </div>
+                  {justCreatedSetup && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-semibold text-red-600">
+                      ตั้งค่าให้ครบก่อนเริ่มใช้งาน — รายการสีแดงคือยังไม่เสร็จ
+                    </div>
+                  )}
                   <ProjectSetupChecklist
                     projectId={project.id}
                     onNavigate={(action) => {
                       if (action.kind === 'drawer') setSettingsDrawerTab(action.tab)
                       else if (action.kind === 'main') { setSettingsDrawerOpen(false); setTab(action.tab as Tab) }
-                      else window.location.href = '/projects'
+                      else if (action.kind === 'clients') window.location.href = '/projects'
                     }}
+                    onStatus={() => { void refreshChecklistStatus() }}
                   />
                 </div>
               )}

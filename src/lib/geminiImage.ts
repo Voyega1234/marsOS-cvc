@@ -4,7 +4,7 @@
  * Avoids internal HTTP fetches that would be blocked by auth middleware.
  */
 import sharp from 'sharp'
-import { orChat, orImage, OR_MODELS } from '@/lib/openrouter'
+import { orChat, orImage, orImageWithRefs, OR_MODELS } from '@/lib/openrouter'
 import { composeCoverOverlay } from '@/lib/coverOverlay'
 
 // ปกโหมดใหม่ (คำสั่งเจ้าของ 2026-09-07): แบนเนอร์อินโฟกราฟิกที่โมเดลวาดตัวอักษรเอง
@@ -139,8 +139,19 @@ export async function callGeminiImage(params: {
   coverSubtitle?: string
   /** จุดขาย/หัวข้อเด่นบนปก (เช่น H2 จริงของบทความ) สูงสุด 3 ข้อ — ใช้เฉพาะ overlay ฟอนต์จริง */
   coverBullets?: string[]
+  /** Reference & Brand assets จาก Content Engine Image Prompt (ResolvedImageAssets) —
+   *  ไม่ส่งมา/ไม่มีภาพอ้างอิง = generate ตามเดิมด้วย orImage ไม่มีการเปลี่ยนแปลง */
+  imageAssets?: {
+    referenceImages: string[]
+    logoImage: string | null
+    brandName: string
+    contactInfo: string
+    swapPeople: boolean
+  }
   /** SOP §3: ลูกค้าเจ้าของงาน — ใช้ประกอบ generation_name mars_<client>_<action> */
   client?: string
+  /** ภาษาของข้อความบนภาพ — โปรเจกต์อังกฤษต้องได้ปกอังกฤษล้วน (ค่าเริ่มต้น th = พฤติกรรมเดิม) */
+  language?: 'th' | 'en'
 }): Promise<GeminiImageResult> {
   const {
     keyword, title, type,
@@ -152,8 +163,13 @@ export async function callGeminiImage(params: {
     imageStyleGuide = '',
     coverSubtitle = '',
     coverBullets = [],
+    imageAssets,
     client,
+    language = 'th',
   } = params
+  const isEnglishCover = language === 'en'
+  /** ตรามุมขวาบนของปก — ต้องเป็นภาษาเดียวกับบทความ */
+  const updatedBadge = isEnglishCover ? `Updated ${CURRENT_YEAR}` : `อัปเดต ${CURRENT_YEAR}`
 
   if (!promptTemplate?.trim()) {
     throw new Error('CONTENT_ENGINE_NOT_CONFIGURED: ต้องมี Image Prompt จาก Content Engine — ไม่มี fallback')
@@ -230,12 +246,15 @@ export async function callGeminiImage(params: {
     `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ข้อความบนภาพต้องเป็นสตริงต่อไปนี้เท่านั้น คัดลอกทีละตัวอักษร ห้ามเพิ่มข้อความอื่นใดในภาพ`,
     `- หัวเรื่องหลัก (เด่นที่สุด ต้องแสดงครบทุกคำ) แตกเป็น ${headlineLines.length} บรรทัด บรรทัดละ 1 แผง ตามลำดับนี้เป๊ะ ๆ ห้ามรวมบรรทัด ห้ามย้ายคำข้ามบรรทัด: ${headlineLines.map((l) => `"${l}"`).join(' / ')}`,
     keywordPill ? `- ป้ายคีย์เวิร์ดเล็ก 1 ชิ้นเหนือหัวเรื่อง: "${keywordPill}"` : `- ไม่มีป้ายคีย์เวิร์ด ห้ามวาดป้ายคำใดเหนือหัวเรื่อง`,
-    `- ตรามุมขวาบน: "อัปเดต ${CURRENT_YEAR}"`,
+    `- ตรามุมขวาบน: "${updatedBadge}"`,
     bannerCards.length
       ? `- การ์ดแถบล่าง ${bannerCards.length} ใบ เรียงแถวเดียว ใบละ 1 ข้อความบรรทัดเดียว ตามลำดับนี้: ${bannerCards.map((c) => `"${c}"`).join(' | ')}`
       : `- ไม่มีการ์ดแถบล่าง ให้ตัดแถบการ์ดออกทั้งแถบ`,
     `ทุกสตริงข้างต้นต้องปรากฏบนภาพครบทุกตัวอักษร ห้ามตัดคำใดออกจากหัวเรื่องหรือจากการ์ดเด็ดขาด จำนวนการ์ดต้องเท่ากับจำนวนสตริงที่ให้มาเป๊ะ ข้อความในการ์ดขึ้นได้ไม่เกิน 2 บรรทัด และทุกบรรทัดต้องสูงอย่างน้อย 4% ของความสูงภาพ`,
     `แถบการ์ดต้องลอยอยู่เหนือขอบล่างของภาพ ขอบล่างของการ์ดทุกใบต้องห่างจากขอบภาพอย่างน้อย 4% ของความสูงภาพ ห้ามให้การ์ดชนขอบหรือถูกขอบภาพตัดแม้แต่ใบเดียว`,
+    isEnglishCover
+      ? `ข้อความทุกชิ้นบนภาพต้องเป็นภาษาอังกฤษล้วน ห้ามมีตัวอักษรไทยแม้แต่ตัวเดียวบนภาพ`
+      : '',
     `ตัวอักษรทุกตัวในภาพต้องสูงอย่างน้อย 4% ของความสูงภาพ ถ้าข้อความไหนจะเล็กกว่านั้นให้ตัดข้อความนั้นทิ้งเหลือแต่ไอคอน ห้ามเติมคำอธิบายบรรทัดที่สองในการ์ด ห้ามตัดคำใดออกจากสตริงที่ให้ไว้ ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`,
   ].filter(Boolean).join('\n')
 
@@ -252,6 +271,18 @@ export async function callGeminiImage(params: {
       ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพถ่ายต้องคุมสีแบบธรรมชาติสมจริง (natural true-to-life colours) — คน อาคาร ท้องฟ้า วัตถุ วัสดุ ให้เป็นสีจริงตามธรรมชาติทั้งหมด ห้ามย้อม ห้ามเกรด ห้าม wash ทั้งภาพให้เป็นสีธีม/สีแบรนด์ใด ๆ เด็ดขาด ถ้าบรีฟสั่งให้ใช้ชุดสีธีม (${palette}) กับภาพถ่าย ให้ตีความว่าใช้ได้แค่กับพร็อพชิ้นเล็กหรือเสื้อผ้าอย่างพอดีตามธรรมชาติเท่านั้น — สีธีมของแบรนด์จะถูกระบบใส่เองในแผงกราฟิกและตัวหนังสือขั้นตอนถัดไป]`
       : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีนี้ใช้กับ "ชั้นกราฟิก" เท่านั้น (แผงข้อความ การ์ด ไอคอน ตรา เส้นคั่น ไล่เฉดฝั่งซ้าย): ${palette} — สีธีมเป็นสีนำของแผงและแถบ, สี accent ใช้เน้นและใช้กับไอคอน, ขาวใช้เป็นพื้นการ์ดและตัวอักษรบนพื้นเข้ม, ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของกราฟิก; ส่วนที่เป็น "ภาพถ่าย" ต้องคงสีธรรมชาติสมจริงเสมอ ท้องฟ้าเป็นสีฟ้าหรือสีทองตอนเย็นตามจริง ผิวคนเป็นสีผิวจริง อาคารและวัสดุเป็นสีจริง ห้ามย้อม ห้ามเกรด ห้าม wash ภาพถ่ายให้เป็นสีธีมเด็ดขาด]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
+    // ── Reference & Brand assets (คำสั่งเจ้าของ — Image Prompt item 4) ──────────
+    // ภาพอ้างอิงแนบเป็น input_references จริงตอนยิง orImageWithRefs (ดูด้านล่าง) —
+    // ส่วนนี้บอกโมเดลแค่ "วิธีตีความ" ภาพที่แนบมา ไม่ใช่ทิศทางสไตล์ใหม่จาก CE
+    ...(imageAssets && imageAssets.referenceImages.length ? [
+      `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพอ้างอิงที่แนบมาคือระบบภาพลักษณ์ (CI) ของแบรนด์ — ให้จับรูปแบบ layout, จานสี, ความรู้สึกของตัวอักษร และลวดลายกราฟิกจากภาพอ้างอิงมาใช้ แต่ต้องสร้างองค์ประกอบใหม่ทั้งหมด ห้ามลอกภาพอ้างอิงซ้ำเด็ดขาด ไม่ว่าจะทั้งภาพหรือบางส่วน]`,
+      imageAssets.swapPeople
+        ? `[ถ้าภาพอ้างอิงมีคนอยู่ในภาพ ให้เปลี่ยนเป็นคนใหม่ทุกครั้ง — สุ่มหน้าตา ท่าทาง และเครื่องแต่งกายให้ต่างจากภาพอ้างอิงเดิม ห้ามวาดหน้าเดิมซ้ำ]`
+        : '',
+      imageAssets.logoImage ? `[ภาพอ้างอิงลำดับสุดท้ายที่แนบมาคือโลโก้แบรนด์ — วางโลโก้นี้ลงในภาพอย่างเป็นธรรมชาติ ขนาดเหมาะสม ไม่บดบังองค์ประกอบหลัก]` : '',
+      imageAssets.brandName.trim() ? `[ชื่อแบรนด์: "${imageAssets.brandName.trim()}" — แสดงในภาพในตำแหน่งที่เหมาะสม เช่น มุมภาพหรือแถบโลโก้]` : '',
+      imageAssets.contactInfo.trim() ? `[ข้อมูลติดต่อ: "${imageAssets.contactInfo.trim().replace(/\n+/g, ' / ')}" — แสดงในภาพในตำแหน่งที่เหมาะสม เช่น แถบล่างหรือมุมภาพ]` : '',
+    ].filter(Boolean) : []),
   ].join('\n')
   const compiled = await compileImagePrompt(`${rendered}\n\n${briefFacts}`, client)
 
@@ -278,7 +309,7 @@ export async function callGeminiImage(params: {
     ? `\n\nDESIGNED BANNER COVER (CRITICAL): This is a WIDE 16:9 LANDSCAPE article cover designed like an agency service banner — a real full-bleed PHOTOGRAPH with flat graphic panels, cards and typography composited on top. It MUST include readable text rendered inside the image:
 - TEXT INVENTORY (hard limit — these are the ONLY strings allowed anywhere in the image, copy them character-for-character):
   · headline, the dominant element, split into ${headlineLines.length} plates in exactly this order, one string per plate, never merged and never re-wrapped: ${headlineLines.map((l) => `"${l}"`).join(' / ')}
-  · top-right circular badge: "อัปเดต ${CURRENT_YEAR}"${keywordPill ? `\n  · small keyword pill above the headline: "${keywordPill}"` : `\n  · no keyword pill at all — draw no chip or label above the headline`}${bannerCards.length ? `\n  · bottom card row, one single-line string per card, in this exact order: ${bannerCards.map((c) => `"${c}"`).join(' | ')}` : `\n  · no bottom card row at all — omit that band`}
+  · top-right circular badge: "${updatedBadge}"${keywordPill ? `\n  · small keyword pill above the headline: "${keywordPill}"` : `\n  · no keyword pill at all — draw no chip or label above the headline`}${bannerCards.length ? `\n  · bottom card row, one single-line string per card, in this exact order: ${bannerCards.map((c) => `"${c}"`).join(' | ')}` : `\n  · no bottom card row at all — omit that band`}
 - Do NOT invent, translate, shorten, truncate, drop words from, reorder or repeat any string, and never write a phrase twice in the image. No phone numbers, LINE ids, emails, URLs, company names, slogans, benefit lines, prices or filler words. Copy digits, decimal points and punctuation exactly
 - LAYOUT: left ~58% carries the headline stacked as the exact plate strings listed above, one plate per string, each on its own opaque rounded-rectangle plate with a soft drop shadow, plates alternating between the theme colour with white type, white with dark type, and one accent-coloured plate for the line worth emphasising. Right ~35% carries a photorealistic cut-out person (or, if the topic has no people, the topic's hero object) lit to match the background. Bottom ~26% carries the card row, floating clear of the bottom edge: one single row only, never a second row, equal width, equal height, equal gaps, one flat icon in a coloured circle plus one short bold line of text per card, white rounded cards with soft shadows
 - LAYERING: the card row sits in front of everything, including the person — nothing may cover a card or any part of a card's text; every card must show its full string
@@ -297,7 +328,15 @@ export async function callGeminiImage(params: {
 
   // เลือกสัดส่วนที่โมเดลรองรับให้ใกล้เป้าหมายที่สุด — crop ปลายทางจะเหลือน้อยลงมาก
   const aspectRatio = isSquare ? '1:1' as const : (width > height ? '3:2' as const : '2:3' as const)
-  const result = await orImage({ trace: type === 'cover' ? 'image_cover' : 'image_inline', client, prompt, aspectRatio })
+  const trace = type === 'cover' ? 'image_cover' : 'image_inline'
+  // มีภาพอ้างอิงจาก Content Engine → ยิงผ่าน orImageWithRefs (แนบภาพอ้างอิง + โลโก้เป็น input_references)
+  // ไม่มี → พฤติกรรมเดิมทุกประการผ่าน orImage
+  const refImages = imageAssets && imageAssets.referenceImages.length
+    ? [...imageAssets.referenceImages, ...(imageAssets.logoImage ? [imageAssets.logoImage] : [])]
+    : []
+  const result = refImages.length
+    ? await orImageWithRefs({ trace, client, prompt, images: refImages, aspectRatio })
+    : await orImage({ trace, client, prompt, aspectRatio })
 
   const promptTokens = result.usage.inputTokens
   const totalTokens = result.usage.totalTokens

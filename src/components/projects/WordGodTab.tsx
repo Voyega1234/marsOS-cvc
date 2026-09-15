@@ -10,6 +10,8 @@ import type { IntentRatio, PresetKey } from '@/lib/wordgod/skills/intentRatioSki
 import WordGodLocalPanel from './WordGodLocalPanel';
 import WordGodOnlinePanel from './WordGodOnlinePanel';
 import { KeywordResearchProgress } from './KeywordResearchProgress';
+import LanguageModeSelect from './LanguageModeSelect';
+import { readLanguagePrefs } from '@/lib/keyword-language';
 import { threeMonthChange, formatPercentChange } from '@/lib/wordgod/pipeline/kpMetrics';
 
 type Status = 'idle' | 'running' | 'done' | 'error';
@@ -20,6 +22,10 @@ interface WordGodProject {
   name: string;
   website: string;
   businessType: string;
+  /** ภาษาที่เลือกตอนสร้างโปรเจกต์ ('th' | 'en') — โปรเจกต์ en ถึงจะเลือกโหมดภาษาได้ */
+  language?: string;
+  /** JSON string — เก็บ languagePrefs { keywordMode, ratioThai } */
+  pushPrefs?: string | null;
 }
 
 interface Props {
@@ -214,6 +220,8 @@ const STRATEGY_MODE_OPTIONS: Array<{ value: 'volume_first' | 'problem_first' | '
 
 export default function WordGodTab({ project, onSendToBank }: Props) {
   const [mode, setMode] = useState<PlanMode>('full_plan');
+  // โหมดภาษา keyword (ข้อ 4): โปรเจกต์ th = ไทยเสมอ, โปรเจกต์ en เลือก th/en/both + สัดส่วนได้
+  const [languagePrefs, setLanguagePrefs] = useState(() => readLanguagePrefs(project.pushPrefs, project.language));
   const [niche, setNiche] = useState(project.businessType || '');
   const [businessContext, setBusinessContext] = useState(project.name || '');
   const [siteUrl, setSiteUrl] = useState(project.website || '');
@@ -317,7 +325,9 @@ export default function WordGodTab({ project, onSendToBank }: Props) {
       niche: niche.trim(),
       businessContext: businessContext.trim() || niche.trim(),
       category: niche.trim(),
-      targetLanguage: 'th',
+      targetLanguage: languagePrefs.keywordMode === 'en' ? 'en' : 'th',
+      language_mode: languagePrefs.keywordMode,
+      ratio_thai: languagePrefs.ratioThai,
       targetCount,
       metricMode,
       presetKey,
@@ -471,10 +481,17 @@ export default function WordGodTab({ project, onSendToBank }: Props) {
   if (researchMode === 'local_sme') {
     return (
       <div className="min-h-screen bg-[#f7f9fd] text-[#17233a]">
-        <div className="mx-auto max-w-[1600px] px-1 pt-4">
+        <div className="mx-auto max-w-[1600px] px-1 pt-4 space-y-3">
           <ResearchModeSwitch mode={researchMode} onChange={setResearchMode} />
+          <LanguageModeSelect
+            projectId={project.id}
+            projectLanguage={project.language ?? 'th'}
+            value={languagePrefs.keywordMode}
+            ratioThai={languagePrefs.ratioThai}
+            onChange={setLanguagePrefs}
+          />
         </div>
-        <WordGodLocalPanel project={project} onSendToBank={onSendToBank} />
+        <WordGodLocalPanel project={project} onSendToBank={onSendToBank} languageMode={languagePrefs.keywordMode} />
       </div>
     );
   }
@@ -483,10 +500,17 @@ export default function WordGodTab({ project, onSendToBank }: Props) {
   // แทนที่ standard pipeline UI เดิมทั้งก้อน — logic ฝั่ง run เดิมยังอยู่ในไฟล์เผื่ออ้างอิง
   return (
     <div className="min-h-screen bg-[#f7f9fd] text-[#17233a]">
-      <div className="mx-auto max-w-[1600px] px-1 pt-4">
+      <div className="mx-auto max-w-[1600px] px-1 pt-4 space-y-3">
         <ResearchModeSwitch mode={researchMode} onChange={setResearchMode} />
+        <LanguageModeSelect
+          projectId={project.id}
+          projectLanguage={project.language ?? 'th'}
+          value={languagePrefs.keywordMode}
+          ratioThai={languagePrefs.ratioThai}
+          onChange={setLanguagePrefs}
+        />
       </div>
-      <WordGodOnlinePanel project={project} onSendToBank={onSendToBank} />
+      <WordGodOnlinePanel project={project} onSendToBank={onSendToBank} languageMode={languagePrefs.keywordMode} ratioThai={languagePrefs.ratioThai} />
     </div>
   );
 

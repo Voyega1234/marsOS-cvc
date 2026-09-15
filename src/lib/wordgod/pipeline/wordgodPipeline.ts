@@ -739,7 +739,8 @@ async function expandWithGemini(
   siteCategories?: string[],
   cacheKey?: string,
   resume?: ExpandResume,
-  deadlineAt: number = Number.POSITIVE_INFINITY
+  deadlineAt: number = Number.POSITIVE_INFINITY,
+  language: 'th' | 'en' = 'th'
 ): Promise<GeminiExpandResult | { suspended: ExpandResume }> {
   // ── Cache check (skipped when resuming a suspended run) ──────────────────────
   if (cacheKey && !resume) {
@@ -793,7 +794,7 @@ async function expandWithGemini(
           : '';
         const batchSeed = seeds[bi % Math.max(seeds.length, 1)] || niche;
         const seedSection = `\n### RESEARCH PILLARS / SEEDS\nUse the current focus "${batchSeed}" while keeping coverage balanced across: ${Array.from(new Set(seeds)).slice(0, 20).join(', ')}\n`;
-        const prompt = KEYWORD_RESEARCH_PROMPT(niche, batchSeed, need, Array.from(excludeSet), alreadyFound, intentRatio, isKnowledgeMode, problemContext) + seedSection + siteSection;
+        const prompt = KEYWORD_RESEARCH_PROMPT(niche, batchSeed, need, Array.from(excludeSet), alreadyFound, intentRatio, isKnowledgeMode, problemContext, language) + seedSection + siteSection;
         const { data, grounding } = await callGeminiWithGrounding(prompt, true, {
           functionLabel: 'keyword_research',
         });
@@ -1703,7 +1704,8 @@ export async function runWordGodPipeline(input: PipelineInput): Promise<Pipeline
       resolvedSiteCategories.length > 0 ? resolvedSiteCategories : undefined,
       geminiCacheKey,
       ck?.stage === 'expand' ? ck.expandPartial : undefined,
-      deadlineAt
+      deadlineAt,
+      lang === 'en' ? 'en' : 'th'
     );
     if ('suspended' in expandOutcome) {
       log('[2/4] Soft budget reached — continuing keyword expansion in a fresh invocation...');

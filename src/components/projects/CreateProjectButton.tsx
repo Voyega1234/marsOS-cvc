@@ -31,8 +31,10 @@ export function CreateProjectButton({ orgId, userId }: Props) {
         body: JSON.stringify({ ...form, organizationId: orgId, createdById: userId }),
       });
       if (!res.ok) throw new Error("Failed to create project");
+      const project = await res.json();
       toast.success("สร้างโปรเจ็กต์สำเร็จ!");
       setOpen(false);
+      router.push(`/projects/${project.id}?setup=1`);
       router.refresh();
     } catch {
       toast.error("เกิดข้อผิดพลาด ไม่สามารถสร้างโปรเจ็กต์ได้");

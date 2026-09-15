@@ -11,9 +11,31 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ARTICLE_BRIEF_CARDS, CONTENT_TYPES, STATUS_OPTIONS } from "./constants";
 import { ObjectCardForm, computeCompleteness } from "./FieldRenderer";
+import { LayerScanCard } from "./LayerScanCard";
 import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, StatusBadge, useCERefresh } from "./shared";
-import type { ArticleBriefData, CEMode, CEScope, PromptRow } from "./types";
+import type { ArticleBriefData, CEMode, CEScope, FieldValues, PromptRow } from "./types";
 import { CE_TYPES, emptyArticleBrief, scopeProjectId, tryParse } from "./types";
+
+// รวมผลสแกน (dot-notation "cardKey.fieldKey") เข้ากับฟอร์ม Article Brief ปัจจุบัน
+// ทับเฉพาะช่องที่สแกนเจอ ช่องที่สแกนไม่เจอยังเก็บค่าเดิมไว้ — ทีมแก้ต่อได้ทุกช่องก่อนบันทึก
+function applyArticleBriefFields(current: ArticleBriefData, fields: Record<string, string>): ArticleBriefData {
+  const next: ArticleBriefData = { ...current };
+  for (const card of ARTICLE_BRIEF_CARDS) {
+    const key = card.key as keyof ArticleBriefData;
+    const existing = ((current as any)[key] ?? {}) as FieldValues;
+    const merged: FieldValues = { ...existing };
+    let touched = false;
+    for (const f of card.fields) {
+      const value = fields[`${card.key}.${f.key}`];
+      if (value) {
+        merged[f.key] = value;
+        touched = true;
+      }
+    }
+    if (touched) (next as any)[key] = merged;
+  }
+  return next;
+}
 
 interface Props {
   items: PromptRow[];
@@ -184,6 +206,18 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
 
   const completeness = draft.mode === "raw" ? 0 : computeCompleteness(ARTICLE_BRIEF_CARDS, draft.data as unknown as Record<string, any>);
 
+  // สแกนเว็บ/ข้อความ → เติมฟอร์ม Article Brief (ร่างเท่านั้น ยังไม่บันทึกจนกว่าทีมกดบันทึก)
+  function applyLayerScan(fields: Record<string, string>) {
+    setDraft((d) => {
+      if (d.mode === "raw") {
+        const parsed = tryParse<ArticleBriefData>(d.rawText);
+        const base = parsed ? { ...emptyArticleBrief(), ...parsed } : emptyArticleBrief();
+        return { ...d, mode: "form", data: applyArticleBriefFields(base, fields) };
+      }
+      return { ...d, data: applyArticleBriefFields(d.data, fields) };
+    });
+  }
+
   return (
     <div className="space-y-4">
       <ErrorBanner message={error} />
@@ -298,6 +332,22 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
             </div>
             {draft.mode === "form" && <p className="mt-2 text-xs text-gray-400">Completeness: {completeness}%</p>}
           </div>
+
+          {canEdit && draft.mode === "form" && (
+            <LayerScanCard
+              key={selectedId ?? "new"}
+              layer="CE_ARTICLE_BRIEF"
+              projectId={scopeProjectId(scope)}
+              onApply={applyLayerScan}
+              title="กรอกอัตโนมัติจากเว็บไซต์/บทความตัวอย่าง"
+              description="วางลิงก์เว็บลูกค้าหรือบทความตัวอย่าง หรือวางข้อความบริบท ระบบจะร่าง Article Brief ให้ แก้ต่อได้ทุกช่อง"
+            />
+          )}
+          {canEdit && draft.mode === "raw" && (
+            <p className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs text-gray-400">
+              สลับเป็นโหมดฟอร์มก่อน ถึงจะใช้ “กรอกอัตโนมัติจากเว็บไซต์/บทความตัวอย่าง” ได้
+            </p>
+          )}
 
           {draft.mode === "form" && (
             <CompiledPromptPanel

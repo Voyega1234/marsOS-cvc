@@ -11,6 +11,7 @@ import { sampleForPrompt } from '@/lib/articleSample'
 import { buildAuthorCardHtml, DEFAULT_AUTHOR_CARD_STYLE, normalizeAuthorCardStyle, type AuthorCardStyle } from '@/lib/articleAuthorCard'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
+import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-language'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -127,6 +128,9 @@ function buildArticlePrompt(opts: {
   const effectiveBorderColor = opts.colorBorder || '#e2e8f0'
   const effectiveAccentColor = opts.colorAccent || opts.accentColor || '#16a34a'
   const effectiveBackgroundColor = opts.colorBackground || '#ffffff'
+  // language_mode 'en' (เฉพาะโปรเจกต์ที่ project.language === 'en') — สลับ META
+  // instructions ที่ hardcode ภาษาไทยไว้เป็นภาษาอังกฤษ; HTML output requirement ไม่แตะ
+  const isEnglish = opts.language === 'en'
 
   // Typography ไม่ส่งเข้า prompt แล้ว — ระบบใส่ให้เองผ่าน buildArticleCss
   // แต่ "ธีม/ฟอนต์/สี" ที่ทีมเลือกในหน้า Article Lab ต้องมีผลกับวิธีเขียน
@@ -146,7 +150,7 @@ SITE CONFIG
 Site Name: ${opts.siteName || 'ไม่ระบุ'}
 Website URL: ${opts.websiteUrl || 'ไม่ระบุ'}
 Brand Tone: ${opts.brandTone || 'professional, helpful, practical'}
-Language: ${opts.language || 'th'}
+Language: ${opts.language || 'th'}${isEnglish ? '\nWRITE THE ENTIRE ARTICLE BODY IN ENGLISH — title, headings, paragraphs, FAQ, everything (no Thai text anywhere in the output).' : ''}
 Content Type: ${opts.contentType || 'seo_article'}
 หัวข้อ (H1): ${opts.title}
 Keyword หลัก: ${opts.keyword}
@@ -182,13 +186,19 @@ SEO META BLOCK (REQUIRED — ระบบอ่านค่าเหล่าน
 ==================================================
 ในส่วน CONVERT_CAKE_SEO_META comment block ให้ใส่ครบทั้ง 5 field นี้ (ห้ามขาด):
 en_slug: [English URL slug, lowercase, hyphens only, ห้ามมีภาษาไทย เช่น "dental-implant-price-guide"]
-meta_title: [SEO title ภาษาไทย ≤60 ตัวอักษร มี keyword หลัก]
+${isEnglish ? `meta_title: [SEO title in English, ≤60 characters, includes the main keyword]
+meta_description: [meta description in English, 120-155 characters, summarizes the article]
+focus_keyword: ${opts.keyword}
+cover_image_alt: [alt text in English for the cover image, ≤100 characters]
+
+Do NOT include any field other than these 5 in the META block — the image prompt
+comes from the Content Engine (Image Prompt), not from the article.` : `meta_title: [SEO title ภาษาไทย ≤60 ตัวอักษร มี keyword หลัก]
 meta_description: [meta description ภาษาไทย 120-155 ตัวอักษร สรุปเนื้อหาบทความ]
 focus_keyword: ${opts.keyword}
 cover_image_alt: [alt text ภาษาไทยของภาพหน้าปก ≤100 ตัวอักษร]
 
 ห้ามใส่ field อื่นนอกเหนือจากนี้ในบล็อก META — prompt ของภาพมาจาก Content Engine
-(Image Prompt) ไม่ได้มาจากบทความ
+(Image Prompt) ไม่ได้มาจากบทความ`}
 `
 
   const sampleBlock = opts.sampleArticle
@@ -238,6 +248,9 @@ ${validatorBlock}
 OUTPUT: ส่ง HTML ชุดเดียวเท่านั้น ไม่มีคำอธิบาย ไม่มี Markdown ไม่มี diagnostic text
 เริ่มด้วย <!-- CONVERT_CAKE_SEO_META หรือ <script type="application/ld+json">
 ห้ามมีแท็ก <style> และห้ามมี style attribute ในทุก element
+ผลลัพธ์ต้องเป็นเอกสาร HTML เดียว (single HTML document) เสมอ ห้ามเป็นข้อความล้วนหรือ Markdown เด็ดขาด
+ต้องรองรับ JSON-LD schema ครบ Article + BreadcrumbList + FAQPage (เมื่อบทความมี FAQ) และ breadcrumb markup
+(schema ชุดจริงระบบ generate ให้เองหลังบทความเสร็จ — ห้ามเขียน schema เองในผลลัพธ์)
 `
 }
 
@@ -263,6 +276,10 @@ async function generateGeminiImage(params: {
   imageStyleGuide?: string
   coverSubtitle?: string
   coverBullets?: string[]
+  /** Reference & Brand assets จาก Content Engine Image Prompt — ให้ภาพในบทความใช้ CI เดียวกับปกที่สั่งจากหน้า UI */
+  imageAssets?: Parameters<typeof callGeminiImage>[0]['imageAssets']
+  /** ภาษาของข้อความบนปก — ตามภาษาบทความที่ resolve แล้ว */
+  language?: 'th' | 'en'
 }): Promise<{ imageBase64: string; mimeType: string; costUsd: number; totalTokens: number }> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -276,6 +293,8 @@ async function generateGeminiImage(params: {
         imageStyleGuide: params.imageStyleGuide ?? '',
         coverSubtitle: params.coverSubtitle ?? '',
         coverBullets: params.coverBullets ?? [],
+        imageAssets: params.imageAssets,
+        language: params.language ?? 'th',
       }), IMAGE_TIMEOUT_MS, `gemini-image-${params.type}`)
       if (!result.imageBase64) {
         console.error(`[write] generateGeminiImage ${params.type} returned no image`)
@@ -500,6 +519,7 @@ export async function POST(req: NextRequest) {
     siteName = '',
     brandTone = '',
     language = 'th',
+    language_mode: languageModeFromBody = null,
     accentColor = '#2563eb',
     theme = 'professional',
     colorTheme = '',
@@ -517,6 +537,8 @@ export async function POST(req: NextRequest) {
     adjustNote = '',
     cta: ctaFromBody = null,
   } = body
+  // โหมดภาษา: ผู้เรียกส่งมาได้ตรง ๆ ถ้าไม่ส่งจะเติมจาก pushPrefs ของโปรเจกต์ด้านล่าง
+  let language_mode: string | null = languageModeFromBody
 
   // ดึง CTA + ผู้เขียน + ค่า Article Lab ของโปรเจกต์จาก DB
   let cta = ctaFromBody
@@ -540,8 +562,13 @@ export async function POST(req: NextRequest) {
           forbiddenWords: true, sampleArticle: true, projectContext: true,
           brandTone: true, website: true, name: true, clientName: true, imageStyleGuide: true,
         themeColors: true, accentColor: true, articleTheme: true, businessType: true,
+          pushPrefs: true,
         },
       })
+      // โหมดภาษาที่ตั้งไว้ในโปรเจกต์ (LanguageModeSelect) — ใช้เมื่อผู้เรียกไม่ส่ง language_mode มาเอง
+      if (!language_mode && proj?.pushPrefs) {
+        language_mode = readLanguagePrefs(proj.pushPrefs, language).keywordMode
+      }
       if (!cta && proj?.ctaSetting) {
         const parsed = JSON.parse(proj.ctaSetting)
         if (parsed?.enabled) cta = parsed
@@ -733,8 +760,12 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
+  // language ที่ส่งเข้ามาคือ project.language — language_mode (th/en/both) มีผลเฉพาะเมื่อ
+  // โปรเจกต์เป็น 'en' เท่านั้น (ดู src/lib/keyword-language.ts); โปรเจกต์ th พฤติกรรมเดิมทุกกรณี
+  const effectiveLanguage = resolveArticleLanguage({ projectLanguage: language, mode: language_mode, keyword })
+
   let articlePrompt = buildArticlePrompt({
-    keyword, title, language, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,
+    keyword, title, language: effectiveLanguage, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,
     colorTheme: resolvedColorTheme, colorText: resolvedColorText, colorBorder: resolvedColorBorder,
     colorAccent: resolvedColorAccent, colorBackground: resolvedColorBackground,
     elementStyles: resolvedElementStyles, typography,
@@ -824,9 +855,9 @@ export async function POST(req: NextRequest) {
     const midCount = Math.min(midCountRaw, countMidImageSpots(html))
     const coverExtras = extractCoverExtras(html)
     const [coverResult, ...midResults] = await Promise.all([
-      generateGeminiImage({ client: orClient, keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets }),
+      generateGeminiImage({ client: orClient, keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets, imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' }),
       ...Array.from({ length: midCount }, () =>
-        generateGeminiImage({ client: orClient, keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
+        generateGeminiImage({ client: orClient, keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
     ])
     const midResult = midResults[0]
 
@@ -951,9 +982,9 @@ export async function POST(req: NextRequest) {
       const coverExtras = extractCoverExtras(fullHtml)
       send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
       const [coverResult, ...midResults] = await Promise.all([
-        generateGeminiImage({ client: orClient, keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets }),
+        generateGeminiImage({ client: orClient, keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets, imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' }),
         ...Array.from({ length: midCount }, () =>
-          generateGeminiImage({ client: orClient, keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide })),
+          generateGeminiImage({ client: orClient, keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
       ])
       const midResult = midResults[0]
       const midOk = midResults.filter(r => r.imageBase64).length

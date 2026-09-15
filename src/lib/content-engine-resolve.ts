@@ -23,12 +23,25 @@ export interface ResolvedLayer {
 
 export type CEScope = { projectId: string } | "studio";
 
+// ── Reference & Brand assets (คำสั่งเจ้าของ — Image Prompt item 2) ────────────
+// ภาพ base64 ของ Image Prompt ต้องไม่ปนไปกับ text ที่ส่งเข้า writer/compiler
+// (เปลือง token + เสี่ยง blow up) จึงแยกออกมาให้ผู้เรียก (cover/route.ts) ใช้ตรงๆ
+export interface ResolvedImageAssets {
+  referenceImages: string[];
+  logoImage: string | null;
+  brandName: string;
+  contactInfo: string;
+  swapPeople: boolean;
+}
+
 export interface ResolvedCE {
   businessSkill: ResolvedLayer | null;
   masterPrompt: ResolvedLayer | null;
   articleBrief: ResolvedLayer | null;
   validatorPack: ResolvedLayer | null;
   imagePrompt: ResolvedLayer | null;
+  /** ภาพอ้างอิง/โลโก้/แบรนด์ของ Image Prompt ที่ Active — ไม่มีก็เป็นค่าว่าง (ไม่ใช่ null) เรียกใช้ตรงได้เลย */
+  imageAssets: ResolvedImageAssets;
   /** Thai labels ของ required layer ที่ขาดไป (scope นี้ใช้งานไม่ได้ถ้ามีรายการ) */
   missing: string[];
   scope: "project" | "studio";
@@ -148,6 +161,29 @@ function renderValidatorPack(raw: string): string {
     .join("\n\n");
 }
 
+const EMPTY_IMAGE_ASSETS: ResolvedImageAssets = {
+  referenceImages: [],
+  logoImage: null,
+  brandName: "",
+  contactInfo: "",
+  swapPeople: true,
+};
+
+/** ดึง referenceImages/logoImage/brandName/contactInfo/swapPeople จาก JSON ของ Image Prompt (ไม่มี = ค่าว่าง) */
+function extractImageAssets(raw: string | undefined): ResolvedImageAssets {
+  if (!raw) return EMPTY_IMAGE_ASSETS;
+  const d = tryParse(raw);
+  if (!d) return EMPTY_IMAGE_ASSETS;
+  const referenceImages = Array.isArray(d.referenceImages)
+    ? (d.referenceImages as unknown[]).filter((v): v is string => typeof v === "string")
+    : [];
+  const logoImage = typeof d.logoImage === "string" && d.logoImage.trim() ? d.logoImage : null;
+  const brandName = typeof d.brandName === "string" ? d.brandName : "";
+  const contactInfo = typeof d.contactInfo === "string" ? d.contactInfo : "";
+  const swapPeople = typeof d.swapPeople === "boolean" ? d.swapPeople : true;
+  return { referenceImages, logoImage, brandName, contactInfo, swapPeople };
+}
+
 function renderImagePrompt(raw: string): string {
   const d = tryParse(raw);
   if (!d) return raw; // legacy free text — Studio quick-editor บันทึกแบบนี้
@@ -156,7 +192,14 @@ function renderImagePrompt(raw: string): string {
     (typeof d.template === "string" && d.template) ||
     (typeof d.text === "string" && d.text) ||
     "";
-  return text || raw;
+  // ห้ามให้ base64 ของ referenceImages/logoImage หลุดเข้า text ที่ส่งต่อให้ compiler/writer —
+  // แทนที่ด้วยโน้ตสั้นๆ บอกแค่ว่ามีภาพอ้างอิง/โลโก้กี่ภาพ (ข้อมูลจริงอยู่ที่ imageAssets แยกต่างหาก)
+  const assets = extractImageAssets(raw);
+  const noteParts: string[] = [];
+  if (assets.referenceImages.length) noteParts.push(`มีภาพอ้างอิง ${assets.referenceImages.length} ภาพ`);
+  if (assets.logoImage) noteParts.push("มีโลโก้");
+  const note = noteParts.length ? `\n[${noteParts.join(" + ")}]` : "";
+  return (text || raw) + note;
 }
 
 /** ดึง _compiledPrompt ออกจาก promptText ที่เป็น JSON ของฟอร์ม (ไม่ใช่ JSON → null) */
@@ -252,12 +295,15 @@ export async function resolveContentEngine(orgId: string, scope: CEScope): Promi
 
   const missing = requiredTypes.filter((t) => !resolvedByType[t]).map((t) => LABELS[t]);
 
+  const imageAssets = extractImageAssets(imagePromptRow?.promptText);
+
   return {
     businessSkill,
     masterPrompt,
     articleBrief,
     validatorPack,
     imagePrompt,
+    imageAssets,
     missing,
     scope: isStudio ? "studio" : "project",
   };

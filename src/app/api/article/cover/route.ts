@@ -7,6 +7,7 @@
  * Mid:   Keyword-specific editorial photo, NO text, NO infographics
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-language'
 import { resolveImagePalette } from '@/lib/articleTheme'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -31,6 +32,8 @@ export async function POST(req: NextRequest) {
     projectId,
     subtitle = '',
     bullets = [],
+    language: languageFromBody = null,
+    language_mode: languageModeFromBody = null,
   } = body
 
   if (!keyword || !title) {
@@ -58,12 +61,19 @@ export async function POST(req: NextRequest) {
   let backgroundColor = ''
   let textColor = ''
   let effectiveAccent = accentColor
+  // ภาษาของข้อความบนปก: ผู้เรียกส่งมาได้ตรง ๆ ไม่งั้นคิดจากภาษาโปรเจกต์ + โหมดภาษา + ตัวคีย์เวิร์ด
+  // (โปรเจกต์อังกฤษ = ปกอังกฤษ, โหมดไทย+อังกฤษ = ตามภาษาของ keyword)
+  let coverLanguage: 'th' | 'en' = languageFromBody === 'en' ? 'en' : 'th'
   if (projectId) {
     try {
       const proj = await prisma.project.findFirst({
         where: { id: projectId, organizationId: orgId },
-        select: { imageStyleGuide: true, themeColors: true, accentColor: true },
+        select: { imageStyleGuide: true, themeColors: true, accentColor: true, language: true, pushPrefs: true },
       })
+      if (!languageFromBody) {
+        const mode = languageModeFromBody ?? readLanguagePrefs(proj?.pushPrefs, proj?.language).keywordMode
+        coverLanguage = resolveArticleLanguage({ projectLanguage: proj?.language ?? 'th', mode, keyword })
+      }
       imageStyleGuide = proj?.imageStyleGuide ?? ''
       const palette = resolveImagePalette(proj?.themeColors, proj?.accentColor)
       themeColor = palette.themeColor
@@ -77,7 +87,7 @@ export async function POST(req: NextRequest) {
     // ข้อมูลเสริมบนปก (คำโปรย + bullet) — ผู้เรียกส่งมาเอง เช่น หน้า UI ที่มีบทความอยู่แล้ว
     const coverSubtitle = typeof subtitle === 'string' ? subtitle : ''
     const coverBullets = Array.isArray(bullets) ? bullets.filter((b: unknown): b is string => typeof b === 'string').slice(0, 3) : []
-    const result = await callGeminiImage({ client: await clientSlugForProject(projectId), keyword, title, type, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets })
+    const result = await callGeminiImage({ client: await clientSlugForProject(projectId), keyword, title, type, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets, imageAssets: ce.imageAssets, language: coverLanguage })
 
     // Log AI job for cost tracking
     try {

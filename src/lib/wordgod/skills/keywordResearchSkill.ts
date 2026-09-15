@@ -175,7 +175,9 @@ export const KEYWORD_RESEARCH_PROMPT = (
     painPoints?: string[];
     realCustomerQuestions?: string[];
     faqFromSalesTeam?: string[];
-  }
+  },
+  // Language mode — 'th' (default, unchanged behavior) | 'en' (English-only output)
+  language: 'th' | 'en' = 'th'
 ) => {
   const allExclude = Array.from(new Set([...excludeKeywords, ...alreadyFound]));
   const excludeSection = allExclude.length > 0
@@ -185,9 +187,60 @@ export const KEYWORD_RESEARCH_PROMPT = (
   const skill = isKnowledgeMode ? KEYWORD_RESEARCH_SKILL_KNOWLEDGE : KEYWORD_RESEARCH_SKILL_STANDARD;
   const intentLines = buildIntentPromptSection(intentRatio, count, isKnowledgeMode);
   const problemSection = problemContext ? buildProblemContextSection(problemContext) : '';
+  const isEnglish = language === 'en';
+
+  // English mode — override the Thai-specific language directives; the rest
+  // of the skill/priority framework stays identical (behavior, not wording).
+  const languageDirective = isEnglish
+    ? `\n### LANGUAGE — OUTPUT IN ENGLISH ONLY (CRITICAL)\nAll keywords and every text field in the JSON output ("keyword", "reason", "customer_problem", etc.) MUST be in ENGLISH. Do NOT return Thai keywords or Thai text anywhere.\n`
+    : '';
+  const searchLanguageLine = isEnglish
+    ? `1. FIRST use Google Search to research real ENGLISH search queries for "${niche}" — you MUST search before generating keywords`
+    : `1. FIRST use Google Search to research real Thai search queries for "${niche}" — you MUST search before generating keywords`;
+  const volumeIntro = isEnglish
+    ? `Use Google Search grounding to estimate English (global/US) monthly search volume as accurately as possible:\n- Search for the keyword in English and check how many results appear, autocomplete suggestions, and related searches`
+    : `Use Google Search grounding to estimate Thai monthly search volume as accurately as possible:\n- Search for the keyword in Thai and check how many results appear, autocomplete suggestions, and related searches`;
+  const outputExample = isEnglish
+    ? `{
+  "keywords": [
+    {
+      "keyword": "your keyword in English",
+      "volume_estimate": 1000,
+      "volume_score": 7,
+      "competition": "Low",
+      "opportunity_score": 8,
+      "intent": "Informational",
+      "content_type": "Article",
+      "topic_cluster_role": "cluster_topic",
+      "journey_stage": "pre_purchase",
+      "customer_problem": "the customer problem or question this keyword answers (1 sentence, in English)",
+      "money_page_opportunity": false,
+      "reason": "short reason why this keyword was chosen (in English)"
+    }
+  ]
+}`
+    : `{
+  "keywords": [
+    {
+      "keyword": "คำหลักภาษาไทย",
+      "volume_estimate": 1000,
+      "volume_score": 7,
+      "competition": "Low",
+      "opportunity_score": 8,
+      "intent": "Informational",
+      "content_type": "Article",
+      "topic_cluster_role": "cluster_topic",
+      "journey_stage": "pre_purchase",
+      "customer_problem": "ปัญหาหรือคำถามของลูกค้าที่ keyword นี้ตอบ (1 ประโยค)",
+      "money_page_opportunity": false,
+      "reason": "เหตุผลสั้นๆ ว่าทำไมเลือก keyword นี้"
+    }
+  ]
+}`;
 
   return `
 ${skill}
+${languageDirective}
 ${problemSection}
 ### Task
 Using Google Search grounding, find NEW unique keywords for:
@@ -200,7 +253,7 @@ ${intentLines}
 
 ${excludeSection}
 ### Instructions
-1. FIRST use Google Search to research real Thai search queries for "${niche}" — you MUST search before generating keywords
+${searchLanguageLine}
 2. Generate exactly ${count} keywords that are NOT in the Exclude List above
 3. Each keyword must be unique in topic/angle — no near-duplicates
 4. STRICTLY follow the intent distribution above — do NOT over-produce any single intent
@@ -211,8 +264,7 @@ ${excludeSection}
 9. Search Volume is a SUPPORTING signal only — do not rank keywords by volume alone
 
 ### Volume Estimation Rules (CRITICAL — must be realistic)
-Use Google Search grounding to estimate Thai monthly search volume as accurately as possible:
-- Search for the keyword in Thai and check how many results appear, autocomplete suggestions, and related searches
+${volumeIntro}
 - Short-tail (1-2 words), well-known terms: 1,000–50,000+/mo
 - Medium-tail (3-4 words), specific topics: 100–5,000/mo
 - Long-tail (5+ words), very specific questions: 10–500/mo
@@ -239,23 +291,6 @@ Use Google Search grounding to estimate Thai monthly search volume as accurately
 
 ### Output
 After searching Google, return your findings as JSON ONLY (no markdown, no explanation):
-{
-  "keywords": [
-    {
-      "keyword": "คำหลักภาษาไทย",
-      "volume_estimate": 1000,
-      "volume_score": 7,
-      "competition": "Low",
-      "opportunity_score": 8,
-      "intent": "Informational",
-      "content_type": "Article",
-      "topic_cluster_role": "cluster_topic",
-      "journey_stage": "pre_purchase",
-      "customer_problem": "ปัญหาหรือคำถามของลูกค้าที่ keyword นี้ตอบ (1 ประโยค)",
-      "money_page_opportunity": false,
-      "reason": "เหตุผลสั้นๆ ว่าทำไมเลือก keyword นี้"
-    }
-  ]
-}
+${outputExample}
 `;
 };

@@ -301,7 +301,39 @@ export interface ORImageResult {
   usage: ORUsage
 }
 
-/** สร้างรูปผ่าน chat completions + modalities image — คืน base64 */
+/**
+ * ยิง POST /api/v1/images ตัวจริง — ใช้ร่วมกันระหว่าง orImage (ไม่มีภาพอ้างอิง)
+ * กับ orImageWithRefs (มีภาพอ้างอิง ผ่าน input_references)
+ */
+async function postImageRequest(
+  body: Record<string, unknown>,
+  timeoutMs: number,
+  label: string
+): Promise<ORImageResult> {
+  await acquireSlot()
+  let res: Response
+  try {
+    res = await fetch('https://openrouter.ai/api/v1/images', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } finally {
+    releaseSlot()
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`OpenRouter ${label} ${res.status}: ${detail.slice(0, 300)}`)
+  }
+  const data = await res.json()
+  if (data.error) throw new Error(`OpenRouter ${label} error: ${JSON.stringify(data.error).slice(0, 300)}`)
+  const img: { b64_json?: string; media_type?: string } | undefined = data.data?.[0]
+  if (!img?.b64_json) throw new Error(`OpenRouter ${label}: no image returned (${JSON.stringify(data).slice(0, 120)})`)
+  return { base64: img.b64_json, mimeType: img.media_type || 'image/png', usage: parseUsage(data.usage) }
+}
+
+/** สร้างรูปผ่าน Image API เฉพาะทางของ OpenRouter — คืน base64 */
 export async function orImage(params: {
   /** SOP §3: action ที่กำลังทำ — ได้ชื่อจริงเป็น mars_<client>_<action> (บังคับ) */
   trace: string
@@ -314,31 +346,52 @@ export async function orImage(params: {
    *  แล้วค่อย crop ปลายทาง เพื่อลดการตัดตัวหนังสือ/องค์ประกอบ */
   aspectRatio?: '1:1' | '3:2' | '2:3'
 }): Promise<ORImageResult> {
-  // ใช้ Image API เฉพาะทางของ OpenRouter — chat completions ไม่รับพารามิเตอร์ขนาดภาพ
-  await acquireSlot()
-  let res: Response
-  try {
-    res = await fetch('https://openrouter.ai/api/v1/images', {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({
-        model: params.model || OR_MODELS.image(),
-        prompt: params.prompt,
-        ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
-        ...labelFields(params.trace, params.client),
-      }),
-      signal: AbortSignal.timeout(params.timeoutMs ?? 300_000),
-    })
-  } finally {
-    releaseSlot()
-  }
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`OpenRouter image ${res.status}: ${detail.slice(0, 300)}`)
-  }
-  const data = await res.json()
-  if (data.error) throw new Error(`OpenRouter image error: ${JSON.stringify(data.error).slice(0, 300)}`)
-  const img: { b64_json?: string; media_type?: string } | undefined = data.data?.[0]
-  if (!img?.b64_json) throw new Error(`OpenRouter image: no image returned (${JSON.stringify(data).slice(0, 120)})`)
-  return { base64: img.b64_json, mimeType: img.media_type || 'image/png', usage: parseUsage(data.usage) }
+  return postImageRequest(
+    {
+      model: params.model || OR_MODELS.image(),
+      prompt: params.prompt,
+      ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
+      ...labelFields(params.trace, params.client),
+    },
+    params.timeoutMs ?? 300_000,
+    'image'
+  )
+}
+
+/**
+ * สร้างรูปโดยมีภาพอ้างอิง (reference/logo) ประกอบ — ใช้ Content Engine Image Prompt
+ * ที่แนบ referenceImages/logoImage (คำสั่งเจ้าของ — Image Prompt item 3)
+ *
+ * ตรวจกับ OpenRouter docs แล้ว (2026-09-14, /docs/features/multimodal/image-generation):
+ * Image API เฉพาะทาง (POST /api/v1/images ตัวเดียวกับ orImage) รับพารามิเตอร์
+ * `input_references` ตรงๆ อยู่แล้ว (array ของ {type:'image_url', image_url:{url}})
+ * โมเดล openai/gpt-5-image ที่ตั้งเป็นค่า default (OR_MODELS.image) รองรับ
+ * input_references 0-16 ภาพ (เช็คจาก GET /api/v1/images/models) — จึงไม่ต้องสลับไปใช้
+ * chat completions endpoint แบบ multimodal ตามที่คาดไว้แต่แรก ใช้ endpoint เดิมของ
+ * orImage ได้เลย แค่เพิ่มพารามิเตอร์นี้เข้าไป (เอาต์พุตยังเป็น data[0].b64_json เหมือนเดิม)
+ */
+export async function orImageWithRefs(params: {
+  /** SOP §3: action ที่กำลังทำ — ได้ชื่อจริงเป็น mars_<client>_<action> (บังคับ) */
+  trace: string
+  /** ลูกค้าเจ้าของงาน — ไม่ส่ง = อ่านจากบริบท request (withOrClient) */
+  client?: string
+  prompt: string
+  /** ภาพอ้างอิง (data URL หรือ https URL) — ภาพสุดท้ายมักเป็นโลโก้เมื่อผู้เรียกแนบมา */
+  images: string[]
+  model?: string
+  timeoutMs?: number
+  aspectRatio?: '1:1' | '3:2' | '2:3'
+}): Promise<ORImageResult> {
+  if (!params.images.length) throw new Error('orImageWithRefs: ต้องมีภาพอ้างอิงอย่างน้อย 1 ภาพ — ไม่งั้นใช้ orImage')
+  return postImageRequest(
+    {
+      model: params.model || OR_MODELS.image(),
+      prompt: params.prompt,
+      input_references: params.images.map((url) => ({ type: 'image_url', image_url: { url } })),
+      ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
+      ...labelFields(params.trace, params.client),
+    },
+    params.timeoutMs ?? 300_000,
+    'image (refs)'
+  )
 }

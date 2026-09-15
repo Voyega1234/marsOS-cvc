@@ -77,7 +77,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
       }
 
       onClose();
-      router.push(`/projects/${project.id}`);
+      router.push(`/projects/${project.id}?setup=1`);
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "An error occurred");
