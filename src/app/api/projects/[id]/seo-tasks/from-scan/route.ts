@@ -18,6 +18,11 @@ export const maxDuration = 300;
 
 const MAX_AI_CALLS = 40;
 const BATCH_SIZE = 10;
+// นโยบายเจ้าของ (2026-09-15): เว็บใหญ่เอางานเท่าที่ได้ — งานต้องถูกสร้างเสมอ AI เป็นของแถม
+// จึงจำกัดเวลารวมของ AI ให้ต่ำกว่า maxDuration มาก ครบงบแล้วหยุดยิง งานที่เหลือใช้วิธีแก้แบบ static
+const AI_TIME_BUDGET_MS = 150_000;
+const AI_CALL_TIMEOUT_MS = 45_000;
+const AI_CONCURRENCY = 3;
 
 type AiPageInput = {
   url: string;
@@ -135,63 +140,88 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const optionsByKey = new Map<string, string[]>(); // key = `${findingId}::${url}`
     let capped = false;
+    let timedOut = false;
+
+    // แตกทุก finding เป็นชุดละ ≤ BATCH_SIZE หน้า แล้วยิงขนานทีละ AI_CONCURRENCY ชุด
+    type AiJob = { finding: SeoFinding; aiPages: AiPageInput[] };
+    const jobs: AiJob[] = [];
+    for (const { finding, tasks: ftasks } of Array.from(byFinding.values())) {
+      if (!finding.aiSuggest) continue;
+      for (let i = 0; i < ftasks.length; i += BATCH_SIZE) {
+        const aiPages: AiPageInput[] = ftasks.slice(i, i + BATCH_SIZE).map((t) => {
+          const p = pageByUrl.get(t.url ?? "");
+          const affected = (finding.affected ?? []).find((a) => a.url === t.url);
+          return {
+            url: t.url ?? "",
+            title: p?.title ?? "",
+            metaDescription: p?.metaDescription ?? "",
+            h1: p?.h1 ?? "",
+            h2: p?.h2 ?? [],
+            excerpt: p?.excerpt ?? "",
+            wordCount: p?.wordCount ?? 0,
+            issue: affected?.issue ?? "",
+          };
+        });
+        jobs.push({ finding, aiPages });
+      }
+    }
+    if (jobs.length > MAX_AI_CALLS) {
+      capped = true;
+      jobs.length = MAX_AI_CALLS;
+    }
+
+    const startedAt = Date.now();
+    const runJob = async ({ finding, aiPages }: AiJob) => {
+      aiCalls++;
+      anyAttempt = true;
+      const res = await askJson<{ pages: Array<{ url: string; options: string[] }> }>({
+        trace: "seo_task_suggest",
+        system: buildSystemPrompt(finding.aiSuggest!),
+        user: JSON.stringify({ website, pages: aiPages }),
+        // 10 หน้า × 3 ทางเลือกภาษาไทย (meta/lead ยาว) เกิน 3000 token ได้ — เผื่อไว้กันโดนตัดกลางทาง
+        maxTokens: 6000,
+        temperature: 0.5,
+        timeoutMs: AI_CALL_TIMEOUT_MS,
+      });
+      totalUsage = addUsage(totalUsage, res.usage);
+
+      if (!res.data) {
+        aiErrors.push(`${finding.title}: ${res.error ?? "AI ไม่ตอบกลับ"}`);
+        return;
+      }
+      if (res.error) aiErrors.push(`${finding.title}: ${res.error}`);
+      anySuccess = true;
+
+      for (const p of res.data.pages ?? []) {
+        if (!p?.url) continue;
+        const opts = Array.isArray(p.options) ? p.options.map((o) => String(o).trim()).filter(Boolean) : [];
+        const deduped = Array.from(new Set(opts)).slice(0, 3);
+        if (deduped.length) optionsByKey.set(`${finding.id}::${p.url}`, deduped);
+      }
+    };
 
     const orClientSlug = await clientSlugForProject(params.id);
     await withOrClient(orClientSlug, async () => {
-      outer: for (const { finding, tasks: ftasks } of Array.from(byFinding.values())) {
-        if (!finding.aiSuggest) continue;
-        for (let i = 0; i < ftasks.length; i += BATCH_SIZE) {
-          if (aiCalls >= MAX_AI_CALLS) {
-            capped = true;
-            break outer;
+      let next = 0;
+      const worker = async () => {
+        while (next < jobs.length) {
+          // เช็คงบเวลาก่อนหยิบงานใหม่ — งานที่กำลังวิ่งอยู่ปล่อยให้จบเอง (มี timeout ต่อรอบคุมอยู่แล้ว)
+          if (Date.now() - startedAt > AI_TIME_BUDGET_MS) {
+            timedOut = true;
+            return;
           }
-          const batch = ftasks.slice(i, i + BATCH_SIZE);
-          const aiPages: AiPageInput[] = batch.map((t) => {
-            const p = pageByUrl.get(t.url ?? "");
-            const affected = (finding.affected ?? []).find((a) => a.url === t.url);
-            return {
-              url: t.url ?? "",
-              title: p?.title ?? "",
-              metaDescription: p?.metaDescription ?? "",
-              h1: p?.h1 ?? "",
-              h2: p?.h2 ?? [],
-              excerpt: p?.excerpt ?? "",
-              wordCount: p?.wordCount ?? 0,
-              issue: affected?.issue ?? "",
-            };
-          });
-
-          aiCalls++;
-          anyAttempt = true;
-          const res = await askJson<{ pages: Array<{ url: string; options: string[] }> }>({
-            trace: "seo_task_suggest",
-            system: buildSystemPrompt(finding.aiSuggest),
-            user: JSON.stringify({ website, pages: aiPages }),
-            maxTokens: 3000,
-            temperature: 0.5,
-            timeoutMs: 90_000,
-          });
-          totalUsage = addUsage(totalUsage, res.usage);
-
-          if (!res.data) {
-            aiErrors.push(`${finding.title}: ${res.error ?? "AI ไม่ตอบกลับ"}`);
-            continue;
-          }
-          if (res.error) aiErrors.push(`${finding.title}: ${res.error}`);
-          anySuccess = true;
-
-          for (const p of res.data.pages ?? []) {
-            if (!p?.url) continue;
-            const opts = Array.isArray(p.options) ? p.options.map((o) => String(o).trim()).filter(Boolean) : [];
-            const deduped = Array.from(new Set(opts)).slice(0, 3);
-            if (deduped.length) optionsByKey.set(`${finding.id}::${p.url}`, deduped);
-          }
+          const job = jobs[next++];
+          await runJob(job);
         }
-      }
+      };
+      await Promise.all(Array.from({ length: Math.min(AI_CONCURRENCY, jobs.length) }, () => worker()));
     });
 
     if (capped) {
       aiErrors.push(`เกินโควตา AI ต่อคำขอ (${MAX_AI_CALLS} ครั้ง) — งานที่เหลือใช้คำแนะนำแบบ static`);
+    }
+    if (timedOut) {
+      aiErrors.push(`AI ใช้เวลาเกินงบ ${Math.round(AI_TIME_BUDGET_MS / 1000)} วินาที — แนะนำได้ ${aiCalls}/${jobs.length} ชุด ที่เหลือใช้วิธีแก้แบบ static (สร้างงานครบทุกงานแล้ว)`);
     }
 
     tasks = tasks.map((t) => {
