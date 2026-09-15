@@ -38,6 +38,7 @@ import { useSetupChecklistStatus } from '@/components/projects/useSetupChecklist
 import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGapTab'
 import { LabSiteScanCard } from '@/components/projects/workspace/LabSiteScanCard'
 import { LabContextFilesCard } from '@/components/projects/workspace/LabContextFilesCard'
+import { LabTestImageCard } from '@/components/projects/workspace/LabTestImageCard'
 import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
 import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
@@ -5592,13 +5593,14 @@ ${cover}${html}
   }
 
   // ── Lab sub-tab state ──────────────────────────────
-  const [labSubTab, setLabSubTab] = useState<'style' | 'cta' | 'author' | 'sitelink'>('style')
+  const [labSubTab, setLabSubTab] = useState<'style' | 'cta' | 'author' | 'sitelink' | 'image'>('style')
 
   const LAB_SUBTABS = [
     { id: 'style' as const,    label: 'Style',    icon: '🎨' },
     { id: 'cta' as const,      label: 'CTA',      icon: '📣' },
     { id: 'author' as const,   label: 'Author',   icon: '👤' },
     { id: 'sitelink' as const, label: 'Internal Link', icon: '🔗' },
+    { id: 'image' as const,    label: 'Test Image', icon: '🖼️' },
   ]
 
   return (
@@ -6479,6 +6481,11 @@ ${cover}${html}
             </div>
           </div>
         </div>
+      )}
+
+      {/* ══ TEST IMAGE sub-tab ═════════════════════════ */}
+      {labSubTab === 'image' && (
+        <LabTestImageCard projectId={project.id} defaultKeyword={keywordRows[0]?.keyword ?? ''} />
       )}
     </div>
   )

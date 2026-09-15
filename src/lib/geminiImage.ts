@@ -99,6 +99,10 @@ export interface GeminiImageResult {
   promptTokens: number
   totalTokens: number
   costUsd: number
+  /** โมเดลที่ใช้วาดจริง + จำนวนภาพอ้างอิง/โลโก้ที่แนบไป — หน้า Test Image ใน Article Lab ใช้ยืนยันว่าส่งครบ */
+  model: string
+  referenceImageCount: number
+  logoAttached: boolean
 }
 
 // ── Content Engine image prompt template — placeholder substitution ───────────
@@ -369,5 +373,10 @@ export async function callGeminiImage(params: {
 
   console.log(`[image] ${type} via ${OR_MODELS.image()} ${originalKB}KB → ${compressedKB}KB (${Math.round((1 - compressedKB / originalKB) * 100)}% saved)`)
 
-  return { imageBase64: base64, mimeType, promptTokens, totalTokens, costUsd }
+  return {
+    imageBase64: base64, mimeType, promptTokens, totalTokens, costUsd,
+    model: OR_MODELS.image(),
+    referenceImageCount: imageAssets?.referenceImages.length ?? 0,
+    logoAttached: Boolean(imageAssets?.logoImage),
+  }
 }

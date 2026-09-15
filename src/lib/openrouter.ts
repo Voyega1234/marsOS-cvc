@@ -3,7 +3,7 @@
  *
  * นโยบาย model (override ได้ทาง env):
  *   เขียนบทความทั้งระบบ  → OPENROUTER_MODEL_WRITER  (default: openai/gpt-5.6-sol)
- *   สร้างรูปทั้งระบบ      → OPENROUTER_MODEL_IMAGE   (default: openai/gpt-5-image — ผู้ใช้เลือกเอง 2026-08-19)
+ *   สร้างรูปทั้งระบบ      → ล็อกตายที่ IMAGE_MODEL_LOCKED (ไม่รับ env override — คำสั่งเจ้าของ 2026-09-15)
  *   จุดอื่น ๆ ทั้งหมด     → OPENROUTER_MODEL_DEFAULT (default: google/gemini-3.7-flash)
  */
 
@@ -11,9 +11,19 @@ import { currentOrClient, OR_CLIENT_SYSTEM } from '@/lib/orClient'
 
 const OR_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
+/**
+ * โมเดลสร้างรูป — ล็อกตัวเดียว ห้ามใช้โมเดลอื่น (คำสั่งเจ้าของ 2026-09-15: "GPT-5.5 Instant image เท่านั้น")
+ * ในแอป ChatGPT ตัวเลือก "5.5 Instant" เป็นโมเดลแชท ส่วนภาพที่มันวาดมาจาก ChatGPT Images 2.5
+ * (ออก 2026-09-08) ซึ่งบน API/OpenRouter คือ gpt-image-2.5 สองรุ่น: flare (ค่าเริ่มต้นของแอป ChatGPT,
+ * เร็วกว่า) กับ sunburst (ละเอียดกว่า ช้ากว่า) — เลือก flare ให้ตรงกับที่แอปใช้
+ * ตั้งใจไม่อ่าน OPENROUTER_MODEL_IMAGE จาก env เพื่อกันค่าเก่า (gpt-5-image) บน Vercel ทับล็อกนี้
+ * writer/default ไม่เกี่ยว — ยังใช้โมเดลเดิมทุกจุด
+ */
+export const IMAGE_MODEL_LOCKED = 'openai/gpt-image-2.5-flare'
+
 export const OR_MODELS = {
   writer: () => process.env.OPENROUTER_MODEL_WRITER || 'openai/gpt-5.6-sol',
-  image: () => process.env.OPENROUTER_MODEL_IMAGE || 'openai/gpt-5-image',
+  image: () => IMAGE_MODEL_LOCKED,
   default: () => process.env.OPENROUTER_MODEL_DEFAULT || 'google/gemini-3.7-flash',
 }
 

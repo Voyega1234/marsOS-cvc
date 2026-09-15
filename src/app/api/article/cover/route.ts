@@ -1,7 +1,7 @@
 /**
- * Cover image generator — uses Gemini image generation (gemini-3.1-flash-image)
- * POST { keyword, title, siteName?, brandTone?, type?: 'cover'|'mid' }
- * Returns { imageBase64: string, mimeType: string, type, keyword, title }
+ * Cover image generator — วาดผ่าน OpenRouter ด้วยโมเดลที่ล็อกไว้ (IMAGE_MODEL_LOCKED ใน src/lib/openrouter.ts)
+ * POST { keyword, title, siteName?, brandTone?, type?: 'cover'|'mid', projectId? }
+ * Returns { imageBase64: string, mimeType: string, type, keyword, title, meta }
  *
  * Cover: Claude Art Director analyzes topic → detailed infographic prompt → Gemini
  * Mid:   Keyword-specific editorial photo, NO text, NO infographics
@@ -114,6 +114,15 @@ export async function POST(req: NextRequest) {
       imageBase64: result.imageBase64,
       mimeType: result.mimeType,
       type, keyword, title,
+      // ข้อมูลประกอบสำหรับหน้า Test Image (Article Lab) — ใช้ตรวจว่า prompt/ภาพอ้างอิง/โมเดลตรงตามที่ตั้งไว้
+      meta: {
+        model: result.model,
+        imagePrompt: { id: ce.imagePrompt.id, name: ce.imagePrompt.name, version: ce.imagePrompt.version },
+        referenceImageCount: result.referenceImageCount,
+        logoAttached: result.logoAttached,
+        language: coverLanguage,
+        costUsd: result.costUsd,
+      },
     })
   } catch (e: unknown) {
     console.error('[cover] error:', e)
