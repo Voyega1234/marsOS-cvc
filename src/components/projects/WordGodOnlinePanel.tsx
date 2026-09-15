@@ -450,6 +450,8 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
   const [waveFilter, setWaveFilter] = useState('all');
   const [clusterFilter, setClusterFilter] = useState('all');
   const [journeyFilter, setJourneyFilter] = useState('all');
+  // สำรอง (EXTRA) คือส่วน +30% เผื่อเลือก — ซ่อนได้เมื่ออยากดูเฉพาะคำหลัก (CORE) ที่จ่ายเงินจริง
+  const [coreOnly, setCoreOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('final');
   const [sortDesc, setSortDesc] = useState(true);
   const [page, setPage] = useState(1);
@@ -509,13 +511,14 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
       if (waveFilter !== 'all' && String(row.priorityWave) !== waveFilter) return false;
       if (clusterFilter !== 'all' && row.cluster !== clusterFilter) return false;
       if (journeyFilter !== 'all' && row.journeyStage !== journeyFilter) return false;
+      if (coreOnly && row.selectionTier === 'EXTRA') return false;
       return true;
     });
     return [...rows].sort((a, b) => {
       const diff = sortValue(b, sortKey) - sortValue(a, sortKey);
       return sortDesc ? diff : -diff;
     });
-  }, [results, tab, query, confidenceFilter, objectiveFilter, funnelFilter, waveFilter, clusterFilter, journeyFilter, sortKey, sortDesc]);
+  }, [results, tab, query, confidenceFilter, objectiveFilter, funnelFilter, waveFilter, clusterFilter, journeyFilter, coreOnly, sortKey, sortDesc]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = useMemo(
@@ -595,6 +598,14 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
     setSelectedKeys(prev => {
       const next = new Set(prev);
       filtered.forEach(r => next.add(r.keyword));
+      return next;
+    });
+  }
+  const coreFilteredCount = filtered.filter(r => r.selectionTier !== 'EXTRA').length;
+  function selectCoreFiltered(): void {
+    setSelectedKeys(() => {
+      const next = new Set<string>();
+      filtered.forEach(r => { if (r.selectionTier !== 'EXTRA') next.add(r.keyword); });
       return next;
     });
   }
@@ -945,7 +956,17 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
           <option value="all">ทุก Cluster</option>
           {clusterNames.map(name => <option key={name} value={name}>{name}</option>)}
         </select>
+        <label className="flex items-center gap-1.5 text-[11px] text-[#495975]">
+          <input type="checkbox" checked={coreOnly} onChange={e => setCoreOnly(e.target.checked)} />
+          แสดงเฉพาะคำหลัก
+        </label>
         <span className="ml-auto text-[11px] text-[#91a0b8]">{filtered.length.toLocaleString('th-TH')} คำ</span>
+        <button
+          onClick={selectCoreFiltered}
+          className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#155eef] hover:bg-[#f0f5ff]"
+        >
+          เลือกคำหลัก {coreFilteredCount.toLocaleString('th-TH')}
+        </button>
         <button
           onClick={selectAllFiltered}
           className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#155eef] hover:bg-[#f0f5ff]"
@@ -1027,7 +1048,12 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   </td>
                   <td className="px-2 py-2.5 tabular-nums text-[#91a0b8]">{row.rank}</td>
                   <td className="max-w-[230px] px-3 py-2.5">
-                    <p className="truncate font-semibold text-[#17233a]" title={row.keyword}>{row.keyword}</p>
+                    <p className="flex items-center gap-1.5 truncate font-semibold text-[#17233a]" title={row.keyword}>
+                      {row.keyword}
+                      {row.selectionTier === 'EXTRA' ? (
+                        <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-bold text-amber-700">สำรอง</span>
+                      ) : null}
+                    </p>
                     {row.secondaryKeywords.length > 0 ? (
                       <p className="truncate text-[10px] text-[#91a0b8]" title={row.secondaryKeywords.join(', ')}>
                         +{row.secondaryKeywords.length} คำรอง
@@ -1343,7 +1369,15 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             <div className="space-y-4">
               {/* KPI 12 ใบ */}
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
-                <KpiCard label="คีย์เวิร์ด" value={fmtInt(kpi.total)} sub={`จาก candidate ${fmtInt(kpi.candidates)} คำ`} />
+                <KpiCard
+                  label="คีย์เวิร์ด"
+                  value={fmtInt(kpi.total)}
+                  sub={
+                    meta?.coreTarget
+                      ? `เป้า ${fmtInt(meta.coreTarget)} + สำรอง ${fmtInt(kpi.total - meta.coreTarget)}`
+                      : `จาก candidate ${fmtInt(kpi.candidates)} คำ`
+                  }
+                />
                 <KpiCard label="Reference Demand" value={fmtInt(kpi.refDemand)} tooltip="ผลรวม volume เฉพาะคำที่มีข้อมูลจริง — ไม่ใช่คำสัญญา traffic" sub="ครั้ง/เดือน (เฉพาะคำที่มีข้อมูล)" />
                 <KpiCard label="Confidence HIGH" value={`${kpi.highConfPct}%`} tooltip="สัดส่วนคำที่ Google และ DataForSEO ยืนยันตรงกัน" />
                 <KpiCard label="Volume Coverage" value={`${kpi.coveragePct}%`} sub={meta?.clientReady ? 'Client Ready ✓' : 'ต่ำกว่าเกณฑ์ 90%'} tooltip="สัดส่วนคำที่มี volume ยืนยันจากแหล่งจริงอย่างน้อยหนึ่งแหล่ง" />

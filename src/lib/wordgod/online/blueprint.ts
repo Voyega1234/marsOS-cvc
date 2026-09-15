@@ -170,9 +170,9 @@ export interface CandidateClassification {
   serviceOrProduct: string;
 }
 
-export const CLASSIFY_BATCH_SIZE = 150;
+export const CLASSIFY_BATCH_SIZE = 80;
 
-export async function classifyCandidatesBatch(
+async function classifyOnce(
   keywords: string[],
   input: OnlineResearchInput,
   blueprint: BusinessBlueprint
@@ -193,9 +193,11 @@ ${keywords.map((k, i) => `${i + 1}. ${k}`).join('\n')}
 กติกา: tier 4=คำซื้อ/จ้างตรงธุรกิจ, 3=เกี่ยวชัดเจน, 2=เกี่ยวทางอ้อม, 1=แตะขอบ, 0=ไม่เกี่ยว
 ห้ามใส่ตัวเลข volume/metric ใด ๆ ตอบครบทุกข้อ`;
 
-  const raw = (await callGemini(prompt, { functionLabel: 'classify_candidates' })) as { items?: any[] };
+  const raw = (await callGemini(prompt, { functionLabel: 'classify_candidates' })) as { items?: any[] } | any[];
   const out = new Map<string, CandidateClassification>();
-  for (const item of raw.items ?? []) {
+  // กันโมเดลตอบ array ราก (gpt-5.6-sol ทำได้ — callGemini คืนค่าที่ parse แล้ว ไม่ใช่ string)
+  const items: any[] = Array.isArray(raw) ? raw : Array.isArray((raw as { items?: any[] })?.items) ? (raw as { items?: any[] }).items! : [];
+  for (const item of items) {
     const idx = Number(item?.i) - 1;
     if (!Number.isInteger(idx) || idx < 0 || idx >= keywords.length) continue;
     const stage: JourneyStage = VALID_STAGES.has(item?.stage) ? item.stage : 'EDUCATION_BASICS';
@@ -214,6 +216,29 @@ ${keywords.map((k, i) => `${i + 1}. ${k}`).join('\n')}
       problemGroup: typeof item?.problem === 'string' && item.problem.trim() && item.problem !== 'null' ? item.problem.trim() : null,
       serviceOrProduct: str(item?.product, input.products[0] ?? ''),
     });
+  }
+  return out;
+}
+
+/** ถามซ้ำหนึ่งรอบเฉพาะคำที่โมเดลไม่ตอบ — คำที่ไม่มี cls จะถูก pushWorkRow ทิ้งเงียบ ๆ (route.ts) */
+export async function classifyCandidatesBatch(
+  keywords: string[],
+  input: OnlineResearchInput,
+  blueprint: BusinessBlueprint,
+  onNote?: (message: string) => void
+): Promise<Map<string, CandidateClassification>> {
+  const out = await classifyOnce(keywords, input, blueprint);
+  const missing = keywords.filter(k => !out.has(k));
+  if (missing.length === 0) return out;
+  try {
+    const retry = await classifyOnce(missing, input, blueprint); // เลขข้อเริ่มใหม่ที่ 1 ของชุดที่ขาด
+    retry.forEach((v, k) => out.set(k, v));
+  } catch (err) {
+    onNote?.(`จัดหมวดรอบถามซ้ำไม่สำเร็จ (${missing.length} คำ): ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+  }
+  const stillMissing = keywords.filter(k => !out.has(k));
+  if (stillMissing.length > 0) {
+    onNote?.(`โมเดลไม่ตอบหมวดให้ ${stillMissing.length}/${keywords.length} คำ แม้ถามซ้ำแล้ว (เช่น ${stillMissing.slice(0, 3).join(', ')}) — คำเหล่านี้ถูกตัดออกจากชุดคัดเลือก`);
   }
   return out;
 }

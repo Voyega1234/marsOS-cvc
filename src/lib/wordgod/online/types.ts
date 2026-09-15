@@ -315,6 +315,8 @@ export interface OnlineKeywordResult {
   handoffStatus: HandoffStatus;
   /** ผล Keyword Guard ของแถวนี้ (optional — ผลรุ่นเก่าไม่มีฟิลด์นี้) */
   guard?: KeywordGuardInfo;
+  /** CORE = อยู่ใน targetCount ที่ผู้ใช้เลือก, EXTRA = ส่วนสำรอง +30% (optional — ผลรุ่นเก่าไม่มี, ถือเป็น CORE) */
+  selectionTier?: 'CORE' | 'EXTRA';
 }
 
 // ── Progress steps (~24 ขั้น ให้ UI แสดง checklist จริง ไม่มี blank loading) ──
@@ -382,6 +384,10 @@ export interface OnlineResearchResponse {
     country: string;
     language: string;
     targetCount: number;
+    /** เป้าหลัก (CORE) — เท่ากับ targetCount เสมอ (optional — ผลรุ่นเก่าไม่มี) */
+    coreTarget?: number;
+    /** เป้าส่งจริง = targetCount × 1.3 รวมสำรอง EXTRA (optional — ผลรุ่นเก่าไม่มี) */
+    deliverTarget?: number;
     candidateCount: number;
     qualifiedCount: number;
     clientReady: boolean;

@@ -307,6 +307,7 @@ export interface RankedKeywordsResult {
   fetchedAt: string;
   hasCreds: boolean;
   note: string;
+  costUsd: number;
 }
 
 function normalizeDomainForRankedKeywords(domain: string): string {
@@ -350,6 +351,7 @@ export async function getRankedKeywordsForDomain(
       fetchedAt,
       hasCreds: false,
       note: 'no DataForSEO credentials configured',
+      costUsd: 0,
     };
   }
 
@@ -389,11 +391,14 @@ export async function getRankedKeywordsForDomain(
         fetchedAt,
         hasCreds: true,
         note: `request failed: ${message}`,
+        costUsd: 0,
       };
     }
 
     const json = await res.json();
-    const items: any[] = json?.tasks?.[0]?.result?.[0]?.items ?? [];
+    const task = json?.tasks?.[0];
+    const costUsd = typeof task?.cost === 'number' ? task.cost : 0;
+    const items: any[] = task?.result?.[0]?.items ?? [];
     const keywords: RankedKeyword[] = [];
 
     for (const item of items) {
@@ -431,6 +436,7 @@ export async function getRankedKeywordsForDomain(
       fetchedAt,
       hasCreds: true,
       note: 'field names parsed defensively; verify against a live ranked_keywords response before production trust',
+      costUsd,
     };
   } catch (err: any) {
     const message = err?.message ?? String(err);
@@ -442,6 +448,7 @@ export async function getRankedKeywordsForDomain(
       fetchedAt,
       hasCreds: true,
       note: `request failed: ${message}`,
+      costUsd: 0,
     };
   }
 }
