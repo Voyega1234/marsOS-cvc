@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
-import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, type ArticleStyleMode } from '@/lib/articleComponents'
+import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner } from '@/lib/articleComponents'
 import { sampleForPrompt } from '@/lib/articleSample'
 import { buildAuthorCardHtml, DEFAULT_AUTHOR_CARD_STYLE, normalizeAuthorCardStyle, type AuthorCardStyle } from '@/lib/articleAuthorCard'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
@@ -16,7 +16,8 @@ import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-languag
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
 
-// Claude Opus 4.8 pricing (per 1M tokens)
+// Fallback pricing (per 1M tokens) — ใช้เฉพาะตอนที่ OpenRouter ไม่คืน usage.costUsd จริงมาให้
+// (เดิมตั้งราคาแบบ Claude Opus ทั้งที่โมเดลจริงคือ gpt-5.6-sol — ใช้ costUsd จริงจาก orChat/orChatStream ก่อนเสมอ)
 const COST_PER_M_INPUT  = 5.00
 const COST_PER_M_OUTPUT = 25.00
 
@@ -29,9 +30,11 @@ async function logAIJob(opts: {
   jobType: string; modelName: string
   inputTokens: number; outputTokens: number; status: 'COMPLETED' | 'FAILED'
   errorMessage?: string
+  /** ค่าใช้จ่ายจริงจาก OpenRouter (usage.costUsd) — ใช้ก่อนเสมอถ้ามากกว่า 0 */
+  realCostUsd?: number
 }) {
   const tokenUsed = opts.inputTokens + opts.outputTokens
-  const estimatedCost = calcCost(opts.inputTokens, opts.outputTokens)
+  const estimatedCost = (opts.realCostUsd && opts.realCostUsd > 0) ? opts.realCostUsd : calcCost(opts.inputTokens, opts.outputTokens)
   try {
     await (prisma.aIJob as any).create({
       data: {
@@ -52,7 +55,12 @@ async function logAIJob(opts: {
 }
 
 interface CtaChannel { type: string; label: string; value: string }
-interface CtaSettings { enabled: boolean; headline: string; subtext: string; channels: CtaChannel[] }
+interface CtaSettings {
+  enabled: boolean; headline: string; subtext: string; channels: CtaChannel[]
+  mode?: CtaMode              // undefined = 'buttons' (record เก่า)
+  custom?: CtaCustomDesign    // ใช้เมื่อ mode === 'custom'
+  banners?: CtaBanner[]       // ใช้เมื่อ mode === 'banner' สูงสุด 5 รูป
+}
 
 function buildCtaBlock(cta: CtaSettings | null | undefined): string {
   // ไม่มี CTA ที่ตั้งไว้จริง → สั่งห้ามโมเดลแต่งช่องทางติดต่อเอง (กันก๊อปเบอร์ตัวอย่างจาก COMPONENT STANDARD)
@@ -67,6 +75,29 @@ CTA — โปรเจกต์นี้ยังไม่ได้ตั้ง
     .filter(c => c.value)
     .map(c => `  - ${c.label || c.type}: ${c.value}`)
     .join('\n')
+
+  // โหมดแบนเนอร์รูป — โมเดลห้ามวาดกล่องเอง แค่วาง marker ให้ระบบแทนที่ด้วยรูป
+  const usableBanners = (cta.banners ?? []).filter(b => b.imageUrl && b.href)
+  if (cta.mode === 'banner' && usableBanners.length) {
+    const channelLine = cta.channels.find(c => c.value)
+      ? `1. จุดที่ 1 หลังกล่อง Short Answer: ประโยคชวน 1 บรรทัดพร้อมลิงก์ช่องทางหลัก (ข้อความธรรมดา ไม่ใช่กล่อง) — ใช้ข้อมูลจากหัวข้อ "ช่องทาง" ด้านบนเท่านั้น\n`
+      : ''
+    return `
+==================================================
+CTA (Call-to-Action) — โหมดแบนเนอร์รูป
+==================================================
+Headline: ${cta.headline}
+Subtext: ${cta.subtext}
+ช่องทาง:
+${channelLines || '  (ไม่มี)'}
+
+INSTRUCTION: โหมดนี้ CTA เป็นรูปแบนเนอร์ที่ระบบแทรกให้เองทีหลัง ห้ามวาดกล่อง .content-cta เอง และห้ามแต่งเบอร์โทร/LINE/อีเมล/ลิงก์ติดต่อเอง:
+${channelLine}วาง marker <!-- CTA_BANNER --> บนบรรทัดของตัวเอง (ไม่มี tag ครอบ) เป๊ะ 2 ตำแหน่ง:
+  - กลางบทความ (หลังหัวข้อ H2 ลำดับที่ 2 หรือ 3)
+  - ก่อนหัวข้อ FAQ
+`
+  }
+
   return `
 ==================================================
 CTA (Call-to-Action) — ต้องใส่ในบทความ
@@ -80,7 +111,7 @@ INSTRUCTION: วาง CTA 3 จุด และทุกจุดต้อง�
 1. จุดที่ 1 หลังกล่อง Short Answer: ประโยคชวน 1 บรรทัดพร้อมลิงก์ช่องทางหลัก (ข้อความธรรมดา ไม่ใช่กล่อง)
 2. จุดที่ 2 กลางบทความ: .content-cta แบบสั้น (headline + ปุ่มเดียว)
 3. จุดที่ 3 ก่อน FAQ: .content-cta เต็ม (headline + subtext + ปุ่มครบทุกช่องทาง)
-กติกา: ใช้โครง .content-cta จาก COMPONENT STANDARD เท่านั้น / URL → <a class="content-cta__button" href="..."> / phone → tel: / email → mailto: / ปุ่มแรก content-cta__button ปุ่มถัดไปเพิ่ม content-cta__button--secondary / ห้าม hard sell ห้ามใส่สีหรือ style เอง
+กติกา: ใช้โครง .content-cta จาก COMPONENT STANDARD เท่านั้น / URL → <a class="content-cta__button" href="..."> / phone → tel: / email → mailto: / ปุ่มแรก content-cta__button ปุ่มถัดไปเพิ่ม content-cta__button--secondary / ห้าม hard sell ห้ามใส่สีหรือ style เอง${cta.mode === 'custom' ? '\nสีและกรอบของกล่อง CTA ระบบใส่ให้เอง ห้ามใส่ style' : ''}
 `
 }
 
@@ -441,6 +472,51 @@ function injectMidImage(html: string, imageBase64: string, mimeType: string, alt
   }
 
   return html
+}
+
+// sanitise href ของแบนเนอร์ CTA ก่อนแปะลง HTML จริง — กัน javascript: หรือ scheme แปลก ๆ หลุดมาจากฟอร์ม
+function sanitizeCtaHref(href: string): string {
+  const v = (href || '').trim()
+  if (/^(https?:|tel:|mailto:|line:|sms:)/i.test(v)) return v
+  return '#'
+}
+
+// แทรกแบนเนอร์ CTA (โหมด banner) แทน marker <!-- CTA_BANNER --> ที่โมเดลวางไว้
+// ถ้าโมเดลไม่วาง marker มาเลย ระบบหาจุดแทรกเองแบบเดียวกับ injectMidImage
+function injectCtaBanner(html: string, cta: CtaSettings | null | undefined): string {
+  const usable = (cta?.banners ?? []).filter(b => b.imageUrl && b.href)
+  if (!usable.length) {
+    // ไม่มีแบนเนอร์ใช้ได้จริง — ลบ marker ที่หลงเหลือทิ้ง กันโผล่เป็นคอมเมนต์ในหน้าเว็บ
+    return html.replace(/<!--\s*CTA_BANNER\s*-->/gi, '')
+  }
+  // 1 รูป = ใช้รูปนั้นทุกจุด / หลายรูป = สุ่ม 1 รูปต่อบทความ ใช้ตัวเดียวกันทุกจุด
+  const banner = usable.length === 1 ? usable[0] : usable[Math.floor(Math.random() * usable.length)]
+  const href = sanitizeCtaHref(banner.href)
+  const alt = (banner.alt?.trim() || 'ติดต่อเรา').replace(/"/g, '&quot;')
+  const tag = `<a class="content-cta content-cta--banner" href="${href}" target="_blank" rel="noopener"><img src="${banner.imageUrl}" alt="${alt}"></a>`
+
+  const MARKER = /<!--\s*CTA_BANNER\s*-->/gi
+  if (MARKER.test(html)) {
+    MARKER.lastIndex = 0
+    return html.replace(MARKER, tag)
+  }
+
+  // โมเดลไม่ได้วาง marker มา — แทรกเองก่อน FAQ และกลางบทความ (เหมือน injectMidImage)
+  let out = html
+  const faqMatch = out.match(/<h2[^>]*\bid=["']faq["'][^>]*>/i)
+  const faqIdx = faqMatch ? out.indexOf(faqMatch[0]) : out.lastIndexOf('<h2')
+  if (faqIdx > 0) {
+    out = out.slice(0, faqIdx) + `\n${tag}\n` + out.slice(faqIdx)
+  }
+  const h2matches = Array.from(out.matchAll(/<h2[\s>]/gi))
+  if (h2matches.length >= 2) {
+    const insertAt = h2matches[1].index! + h2matches[1][0].length
+    const afterH2 = out.indexOf('</p>', insertAt)
+    if (afterH2 !== -1 && afterH2 - insertAt < 1500) {
+      out = out.slice(0, afterH2 + 4) + `\n${tag}\n` + out.slice(afterH2 + 4)
+    }
+  }
+  return out
 }
 
 function extractEnSlugFromHtml(html: string): string {
@@ -811,6 +887,7 @@ export async function POST(req: NextRequest) {
     backgroundColor: resolvedColorBackground || '',
     elementStyles: resolvedElementStyles,
     typography,
+    cta: { mode: cta?.mode, custom: cta?.custom },
   })
   /** sanitize → ครอบ wrapper มาตรฐาน (+CSS ตามโหมด) → แปะ Schema JSON-LD ที่ generate
    *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="content-article">
@@ -851,7 +928,8 @@ export async function POST(req: NextRequest) {
     if (orgId && userId) {
       await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
         jobType: 'ARTICLE_WRITE', modelName: model,
-        inputTokens: msg.usage.inputTokens, outputTokens: msg.usage.outputTokens, status: 'COMPLETED' })
+        inputTokens: msg.usage.inputTokens, outputTokens: msg.usage.outputTokens, status: 'COMPLETED',
+        realCostUsd: msg.usage.costUsd })
     }
 
     const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
@@ -876,19 +954,24 @@ export async function POST(req: NextRequest) {
           tokenUsed: coverResult.totalTokens, estimatedCost: coverResult.costUsd,
         }}).catch(() => {})
       }
-      if (midResult.totalTokens || midResult.costUsd) {
+      // Log ทุกรูปประกอบที่สร้างสำเร็จจริง (เดิม log แค่ midResults[0] ตัวเดียว ทำให้ต้นทุนรูปที่เหลือหายไปจากยอดรวม)
+      for (const mid of midResults) {
+        if (!mid.totalTokens && !mid.costUsd) continue
         await prisma.aIJob.create({ data: {
           organizationId: orgId, createdById: userId,
           projectId: projectId ?? null, articleId: articleId ?? null,
           jobType: 'IMAGE_MID', status: 'SUCCESS',
           modelProvider: 'OPENROUTER', modelName: imageModel,
-          tokenUsed: midResult.totalTokens, estimatedCost: midResult.costUsd,
+          tokenUsed: mid.totalTokens, estimatedCost: mid.costUsd,
         }}).catch(() => {})
       }
     }
 
     // Inject mid images — กระจายตามหัวข้อ (1 รูป = ตำแหน่งกลางแบบเดิม)
     html = injectMidImages(html, midResults, title || keyword)
+
+    // แทรกแบนเนอร์ CTA (โหมด banner) แทน marker ที่โมเดลวางไว้ — ต้องมาก่อน author box
+    html = injectCtaBanner(html, cta)
 
     // Append author box at the very end
     const authorHtml = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage, resolvedAuthorCredentials, resolvedAuthorCardStyle)
@@ -964,7 +1047,8 @@ export async function POST(req: NextRequest) {
       if (orgId && userId) {
         await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
           jobType: 'ARTICLE_WRITE', modelName: model,
-          inputTokens: streamed.usage.inputTokens, outputTokens: streamed.usage.outputTokens, status: 'COMPLETED' })
+          inputTokens: streamed.usage.inputTokens, outputTokens: streamed.usage.outputTokens, status: 'COMPLETED',
+          realCostUsd: streamed.usage.costUsd })
         // Activity log for tracking
         try {
           await prisma.activityLog.create({
@@ -1006,19 +1090,24 @@ export async function POST(req: NextRequest) {
             tokenUsed: coverResult.totalTokens, estimatedCost: coverResult.costUsd,
           }}).catch(() => {})
         }
-        if (midResult.totalTokens || midResult.costUsd) {
+        // Log ทุกรูปประกอบที่สร้างสำเร็จจริง (เดิม log แค่ midResults[0] ตัวเดียว ทำให้ต้นทุนรูปที่เหลือหายไปจากยอดรวม)
+        for (const mid of midResults) {
+          if (!mid.totalTokens && !mid.costUsd) continue
           prisma.aIJob.create({ data: {
             organizationId: orgId, createdById: userId,
             projectId: projectId ?? null, articleId: articleId ?? null,
             jobType: 'IMAGE_MID', status: 'SUCCESS',
             modelProvider: 'OPENROUTER', modelName: imageModel,
-            tokenUsed: midResult.totalTokens, estimatedCost: midResult.costUsd,
+            tokenUsed: mid.totalTokens, estimatedCost: mid.costUsd,
           }}).catch(() => {})
         }
       }
 
       // Inject mid images — กระจายตามหัวข้อ (1 รูป = ตำแหน่งกลางแบบเดิม)
       fullHtml = injectMidImages(fullHtml, midResults, title || keyword)
+
+      // แทรกแบนเนอร์ CTA (โหมด banner) แทน marker ที่โมเดลวางไว้ — ต้องมาก่อน author box
+      fullHtml = injectCtaBanner(fullHtml, cta)
 
       // Append author box at the very end
       const authorHtmlBlock = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage, resolvedAuthorCredentials, resolvedAuthorCardStyle)

@@ -42,8 +42,10 @@ CRAFT — how to WRITE the prompt. These rules govern wording and level of detai
 Output ONLY the final English image-generation prompt as plain prose.
 Never translate the brief itself, never explain your choices, never offer multiple options, never use markdown, headings, labels, or surrounding quotes.`
 
-/** เรียก Claude แปลงบรีฟ (CE) เป็น prompt ภาษาอังกฤษ — ล้มเหลว = โยน error ไม่มี fallback */
-async function compileImagePrompt(brief: string, client?: string): Promise<string> {
+/** เรียก Claude แปลงบรีฟ (CE) เป็น prompt ภาษาอังกฤษ — ล้มเหลว = โยน error ไม่มี fallback
+ *  คืน usage (tokens/costUsd) มาด้วย — เดิมทิ้งไปเฉย ๆ ทำให้ค่าใช้จ่ายของ Art Director call
+ *  หายไปจากยอดรวมของ IMAGE_COVER / IMAGE_MID */
+async function compileImagePrompt(brief: string, client?: string): Promise<{ text: string; totalTokens: number; costUsd: number }> {
   const result = await orChat({
     trace: 'image_prompt_compile',
     client,
@@ -58,7 +60,7 @@ async function compileImagePrompt(brief: string, client?: string): Promise<strin
   if (text.length < 40) {
     throw new Error('Art Director คืน prompt สั้นผิดปกติ — ตรวจ Image Prompt ใน Content Engine')
   }
-  return text
+  return { text, totalTokens: result.usage.totalTokens, costUsd: result.usage.costUsd }
 }
 
 // ── WebP compression ──────────────────────────────────────────────────────────
@@ -73,8 +75,10 @@ async function compressToWebP(
   try {
     let img = sharp(inputBuf)
     // โมเดลภาพบางตัว (เช่น gpt-5-image) คืนสัดส่วนไม่ตรงที่สั่ง —
-    // crop ให้ได้สัดส่วนเป้าหมายเสมอ (cover = 16:9 แนวนอน, mid = 1.9:1)
+    // crop ให้ได้สัดส่วนเป้าหมายเสมอ (cover = 3:2 แนวนอน, mid = 1.9:1)
     // ปกครอปจากกึ่งกลางเสมอ — saliency ('attention') ชอบเลื่อนกรอบไปตัดตัวหนังสือทิ้ง
+    // หมายเหตุ: ปกตั้งเป้า 3:2 ให้ตรงกับที่สั่งโมเดล (aspect_ratio 3:2) จึงปกติไม่ต้องครอปเลย —
+    // เมื่อก่อนตั้ง 16:9 แล้วครอปบน-ล่างข้างละ ~8% ทำให้โลโก้/การ์ดล่างที่อยู่ใน safe margin 4% หายไป
     if (targetWidth && targetHeight) {
       const meta = await img.metadata()
       const cur = (meta.width ?? 0) / (meta.height ?? 1)
@@ -161,8 +165,9 @@ export async function callGeminiImage(params: {
     keyword, title, type,
     siteName = '', brandTone = '', accentColor = '',
     themeColor = '', backgroundColor = '', textColor = '',
-    width = type === 'cover' ? 1600 : 1200,
-    height = type === 'cover' ? 900 : 630,
+    // ปกใช้ 3:2 (สัดส่วนที่โมเดลวาดจริง) — ห้ามตั้ง 16:9 เพราะจะโดนครอปบน-ล่างจนตัวหนังสือ/โลโก้หาย
+    width = type === 'cover' ? 1536 : 1200,
+    height = type === 'cover' ? 1024 : 630,
     promptTemplate,
     imageStyleGuide = '',
     coverSubtitle = '',
@@ -283,12 +288,13 @@ export async function callGeminiImage(params: {
       imageAssets.swapPeople
         ? `[ถ้าภาพอ้างอิงมีคนอยู่ในภาพ ให้เปลี่ยนเป็นคนใหม่ทุกครั้ง — สุ่มหน้าตา ท่าทาง และเครื่องแต่งกายให้ต่างจากภาพอ้างอิงเดิม ห้ามวาดหน้าเดิมซ้ำ]`
         : '',
-      imageAssets.logoImage ? `[ภาพอ้างอิงลำดับสุดท้ายที่แนบมาคือโลโก้แบรนด์ — วางโลโก้นี้ลงในภาพอย่างเป็นธรรมชาติ ขนาดเหมาะสม ไม่บดบังองค์ประกอบหลัก]` : '',
+      imageAssets.logoImage ? `[ภาพอ้างอิงลำดับสุดท้ายที่แนบมาคือโลโก้แบรนด์ — วางโลโก้นี้ลงในภาพอย่างเป็นธรรมชาติ ขนาดเหมาะสม ไม่บดบังองค์ประกอบหลัก และต้องอยู่ในภาพครบทั้งชิ้น ห่างจากขอบภาพอย่างน้อย 6% ห้ามให้ขอบภาพตัดโลโก้]` : '',
       imageAssets.brandName.trim() ? `[ชื่อแบรนด์: "${imageAssets.brandName.trim()}" — แสดงในภาพในตำแหน่งที่เหมาะสม เช่น มุมภาพหรือแถบโลโก้]` : '',
       imageAssets.contactInfo.trim() ? `[ข้อมูลติดต่อ: "${imageAssets.contactInfo.trim().replace(/\n+/g, ' / ')}" — แสดงในภาพในตำแหน่งที่เหมาะสม เช่น แถบล่างหรือมุมภาพ]` : '',
     ].filter(Boolean) : []),
   ].join('\n')
-  const compiled = await compileImagePrompt(`${rendered}\n\n${briefFacts}`, client)
+  const artDirector = await compileImagePrompt(`${rendered}\n\n${briefFacts}`, client)
+  const compiled = artDirector.text
 
   // รูปปกต้องมีตัวหนังสือประกอบเสมอ (คำสั่งเจ้าของระบบ 2026-08-19, ปรับ 2026-08-21:
   // ไม่จำกัดภาษาไทย — ใช้ภาษาเดียวกับ title ไทย/อังกฤษ/ผสม) — เป็นข้อบังคับรูปแบบ
@@ -310,22 +316,26 @@ export async function callGeminiImage(params: {
 - COMPOSITION (hard requirement): keep the subject and every important detail in the UPPER TWO THIRDS of the frame. The BOTTOM HALF must be calm, simple, uncluttered negative space (floor, wall, sky, water, blurred background, plain gradient) because a solid colour panel is composited over it. Nothing important may sit in the bottom half
 - Leave the frame edges clean: no borders, frames, vignette text, collage panels or split-screen layouts`
     : type === 'cover'
-    ? `\n\nDESIGNED BANNER COVER (CRITICAL): This is a WIDE 16:9 LANDSCAPE article cover designed like an agency service banner — a real full-bleed PHOTOGRAPH with flat graphic panels, cards and typography composited on top. It MUST include readable text rendered inside the image:
+    ? `\n\nDESIGNED BANNER COVER (CRITICAL): This is a WIDE 3:2 LANDSCAPE article cover designed like an agency service banner — a real full-bleed PHOTOGRAPH with flat graphic panels, cards and typography composited on top. It MUST include readable text rendered inside the image:
 - TEXT INVENTORY (hard limit — these are the ONLY strings allowed anywhere in the image, copy them character-for-character):
   · headline, the dominant element, split into ${headlineLines.length} plates in exactly this order, one string per plate, never merged and never re-wrapped: ${headlineLines.map((l) => `"${l}"`).join(' / ')}
   · top-right circular badge: "${updatedBadge}"${keywordPill ? `\n  · small keyword pill above the headline: "${keywordPill}"` : `\n  · no keyword pill at all — draw no chip or label above the headline`}${bannerCards.length ? `\n  · bottom card row, one single-line string per card, in this exact order: ${bannerCards.map((c) => `"${c}"`).join(' | ')}` : `\n  · no bottom card row at all — omit that band`}
 - Do NOT invent, translate, shorten, truncate, drop words from, reorder or repeat any string, and never write a phrase twice in the image. No phone numbers, LINE ids, emails, URLs, company names, slogans, benefit lines, prices or filler words. Copy digits, decimal points and punctuation exactly
 - LAYOUT: left ~58% carries the headline stacked as the exact plate strings listed above, one plate per string, each on its own opaque rounded-rectangle plate with a soft drop shadow, plates alternating between the theme colour with white type, white with dark type, and one accent-coloured plate for the line worth emphasising. Right ~35% carries a photorealistic cut-out person (or, if the topic has no people, the topic's hero object) lit to match the background. Bottom ~26% carries the card row, floating clear of the bottom edge: one single row only, never a second row, equal width, equal height, equal gaps, one flat icon in a coloured circle plus one short bold line of text per card, white rounded cards with soft shadows
 - LAYERING: the card row sits in front of everything, including the person — nothing may cover a card or any part of a card's text; every card must show its full string
-- CARD BAND POSITION (hard limit): the whole card row floats clear of the bottom edge — the bottom of every card is at least 4% of the image height above the frame bottom, and no card is ever cropped, bled off, or flush with the edge
+- CARD BAND POSITION (hard limit): the whole card row floats clear of the bottom edge — the bottom of every card is at least 6% of the image height above the frame bottom, and no card is ever cropped, bled off, or flush with the edge
 - CARD TEXT (hard limit): every provided string appears complete — never drop, shorten or abbreviate a word anywhere in the image, headline included, and draw exactly as many cards as there are strings. A card string may wrap onto at most 2 lines; both lines stay at full size (at least 4% of the image height). Make the cards wider and the band taller if that is what it takes to fit the text at full size
 - MINIMUM TEXT SIZE (hard limit): every glyph in the image must be at least 4% of the image height. Small text is ALWAYS rendered as broken, misspelled glyphs, so if any label, caption, footer strip, chip or icon caption would end up smaller than that, DROP THE TEXT COMPLETELY and leave the icon with no label. An unlabelled icon is always better than small broken text
 - TEXT PLATE (hard limit): every text element sits on its own opaque solid-colour plate, band, pill or card, never directly over busy photographic detail — contrast stays high and letterforms stay crisp
 - THAI TYPOGRAPHY (when any Thai character appears): a plain, heavy, modern Thai sans-serif (Kanit / IBM Plex Sans Thai / Noto Sans Thai style). NO condensed, handwritten, script, outlined, 3D, distressed or decorative faces. No extra letter-spacing. Line height at least 1.6 so tone marks (วรรณยุกต์) and upper/lower vowels (สระบน/สระล่าง) have room and are never cut, merged or collided
 - Render every character as clean, correctly-formed glyphs — keep every Thai tone mark and vowel attached to its own base letter in the correct position, spell every Latin word correctly; never split, merge, duplicate, mirror, warp or drop characters, and never swap look-alike Thai consonants (ด/ต, ป/บ, ภ/ท)
 - Keep each Thai phrase on ONE unbroken line; never hyphenate Thai and never break a Thai word across lines. Break the headline into short lines of about 2–4 words each — short lines are rendered far more accurately than long ones
-- NATURAL PHOTOGRAPHIC COLOUR (hard requirement): the photographic layer keeps true-to-life colour — sky stays blue (or a real golden-hour sky), skin stays natural, buildings and materials keep their real colours. The theme colour appears ONLY in the graphic layer and as a soft translucent gradient down the left side for legibility; never tint, duotone or colour-grade the whole frame toward the theme colour
-- SAFE MARGIN (hard requirement): every panel, card, badge and glyph sits fully inside a margin of at least 4% from all four edges — nothing clipped by the frame, no borders, no vignette text, no collage or split-screen layout, no watermark
+- COLOUR ROLES (hard requirement): two separate layers with two separate colour rules.
+  · GRAPHIC LAYER (plates, cards, badge, icon circles, gradient, typography): use ONLY the article's theme palette${palette ? ` — ${palette}` : ''} plus white and near-black for type. Every headline plate, the badge and every card pick their colour from this palette; do not introduce other brand-like colours
+  · PHOTOGRAPHIC LAYER (person, products, food, plants, scene): true-to-life colour only — foliage is green, sky is blue (or a real golden-hour sky), food looks appetising in its real colours, skin is a natural human skin tone (never purple, blue, green or grey), materials keep their real colours. The theme colour must never tint, duotone, wash or colour-grade the photograph or the person; it may appear on the photo side only as a soft translucent gradient down the left edge for legibility, or on a small prop/garment where it would occur naturally
+- SAFE MARGIN (hard requirement): every panel, card, badge, logo and glyph sits fully inside a margin of at least 6% from all four edges — nothing clipped by the frame, nothing bleeding off the top or bottom, no borders, no vignette text, no collage or split-screen layout, no watermark
+- COMPLETE ELEMENTS (hard requirement): every element is drawn whole — the full logo, the full badge circle, every card with all four corners visible, the person's head and hands inside the frame, every product fully visible. If something would not fit, make it smaller or move it inward; never let the frame cut it
+- FRAME (hard requirement): compose for the exact ${width}×${height} canvas — no letterboxing, no bars, no empty strips; the photograph fills the whole frame edge to edge while all graphic elements stay inside the safe margin
 - Spell every word EXACTLY as provided — do not invent, translate, or misspell any text`
     : `\n\nNO TEXT (CRITICAL): This is an in-article illustration, not a cover. Render ZERO text: no headline, no article title, no labels, captions, chips, tags, numbers, units, logos, watermarks, signatures, and no text on screens, signs, or documents inside the scene. Tell the story with visuals only — objects, people, scenes, icons, graphic elements — keeping the style and colour palette from the brief. DETAIL (hard requirement): tack-sharp focus on the subject, rich micro-texture and real material surfaces, deliberate directional lighting with soft fill and a separating rim light, believable lens character (natural bokeh, fine grain) — editorial photography, never a CGI render, a stock cliché, or an AI-smooth plastic look. If the brief asks for a headline or captions, ignore that part.`
   const prompt = compiled + coverTextLine + orientationLine
@@ -343,8 +353,10 @@ export async function callGeminiImage(params: {
     : await orImage({ trace, client, prompt, aspectRatio })
 
   const promptTokens = result.usage.inputTokens
-  const totalTokens = result.usage.totalTokens
-  const costUsd = Number(result.usage.costUsd.toFixed(6))
+  // รวม token/cost ของ Art Director call (compileImagePrompt) เข้ากับของโมเดลวาดภาพ —
+  // ไม่งั้นทุกแถว IMAGE_COVER / IMAGE_MID จะขาดต้นทุนของขั้นตอนคอมไพล์บรีฟไป
+  const totalTokens = result.usage.totalTokens + artDirector.totalTokens
+  const costUsd = Number((result.usage.costUsd + artDirector.costUsd).toFixed(6))
 
   // วางตัวหนังสือปกด้วยฟอนต์จริงทับภาพถ่าย ก่อนบีบอัด — โมเดลภาพสะกดไทยผิดเป็นประจำ
   // (ป→บ, ภ→ท, วรรณยุกต์หลุด) ส่วนฟอนต์จริงสะกดถูก 100% เสมอ
