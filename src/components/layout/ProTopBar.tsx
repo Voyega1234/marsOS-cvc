@@ -83,7 +83,20 @@ export function ProTopBar() {
       .catch(() => {});
   }, []);
 
+  // ให้ตัวเลือกบนแถบบนสะท้อนโปรเจกต์ที่กำลังเปิดอยู่ (/projects/[id]) — เปลี่ยนหน้าแล้วป้ายต้องตาม
+  useEffect(() => {
+    const m = pathname?.match(/^\/projects\/([^/?#]+)/);
+    setSelectedProject(m ? m[1] : "ALL");
+  }, [pathname]);
+
   const selectedProjectName = projects.find((p) => p.id === selectedProject)?.name ?? "All Projects";
+
+  // กดเลือกโปรเจกต์ = พาไปหน้าโปรเจกต์นั้นจริง ๆ, All Projects = หน้ารวม Clients (/projects)
+  function goToProject(id: string) {
+    setSelectedProject(id);
+    setShowProjectPicker(false);
+    router.push(id === "ALL" ? "/projects" : `/projects/${id}`);
+  }
 
   return (
     <>
@@ -130,15 +143,15 @@ export function ProTopBar() {
             {showProjectPicker && (
               <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-100 rounded-xl shadow-lg z-50 overflow-hidden">
                 <button
-                  onClick={() => { setSelectedProject("ALL"); setShowProjectPicker(false); }}
+                  onClick={() => goToProject("ALL")}
                   className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors ${selectedProject === "ALL" ? "text-green-700 font-medium bg-green-50" : "text-gray-700"}`}
                 >
-                  All Projects
+                  All Projects · หน้ารวม Clients
                 </button>
                 {projects.map((p) => (
                   <button
                     key={p.id}
-                    onClick={() => { setSelectedProject(p.id); setShowProjectPicker(false); }}
+                    onClick={() => goToProject(p.id)}
                     className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors ${selectedProject === p.id ? "text-green-700 font-medium bg-green-50" : "text-gray-700"}`}
                   >
                     <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
