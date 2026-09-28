@@ -98,3 +98,13 @@ export function withHumanVoice(promptText: string): string {
   }
   return `${text}\n\n${humanVoiceSection()}`
 }
+
+/**
+ * ใช้ตอนเขียนบทความ — Master Prompt ที่สร้างก่อนมีกฎนี้ หรือถูกแก้ผ่านหน้า Content Engine (PUT /api/prompts/[id] ไม่แนบให้)
+ * อาจไม่มีกฎภาษามนุษย์ ถ้า text ที่ resolve แล้วยังไม่มีทั้งหัวข้อและกฎข้อแรก ให้แนบท้ายก่อนส่งให้ writer
+ */
+export function ensureHumanVoiceText(masterPromptText: string): string {
+  const text = masterPromptText.trim()
+  if (text.includes(HUMAN_VOICE_HEADING) || text.includes(HUMAN_BODY_RULES_TH[0])) return text
+  return `${text}\n\n${humanVoiceSection()}`
+}

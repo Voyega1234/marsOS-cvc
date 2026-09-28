@@ -19,6 +19,7 @@ import { orChatStream, OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
+import { ensureHumanVoiceText } from '@/lib/upload-article/human-voice'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
 export const maxDuration = 800
@@ -100,7 +101,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing }, { status: 422 })
   }
   // ผ่านเช็ค missing ด้านบนแล้ว — 4 layer นี้มีจริงแน่นอน
-  const masterPrompt = ce.masterPrompt!.text
+  // Master Prompt เก่า/ที่แก้ผ่าน Content Engine อาจยังไม่มีกฎภาษามนุษย์ — แนบให้ถ้ายังไม่มี
+  const masterPrompt = ensureHumanVoiceText(ce.masterPrompt!.text)
   const businessSkill = ce.businessSkill!.text
   const articleBrief = ce.articleBrief!.text
   const validatorPack = ce.validatorPack!.text
