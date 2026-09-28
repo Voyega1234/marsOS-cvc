@@ -3,6 +3,7 @@ import { createSupabaseServer } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
 import { LOGIN_ACTION } from "@/lib/activity-describe";
+import { setActiveCookie } from "@/lib/idle-session";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +12,15 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const next = url.searchParams.get("next");
-  const dest = next && next.startsWith("/") ? next : "/";
+  // path ภายในเว็บเท่านั้น — กัน //evil.com หรือ /\evil.com พาออกไปเว็บอื่น (open redirect)
+  const dest = next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
 
+  let loggedIn = false;
   if (code) {
     const supabase = createSupabaseServer();
     if (supabase) {
       const { data } = await supabase.auth.exchangeCodeForSession(code);
+      loggedIn = !!data?.session;
       // จด "เข้าสู่ระบบ" — เฉพาะ User ที่มีในระบบแล้ว (คนใหม่ถูกสร้างตอนเปิดหน้าแรก จดจากการเปิดหน้าแทน)
       const email = data?.user?.email?.toLowerCase();
       if (email) {
@@ -27,5 +31,8 @@ export async function GET(req: NextRequest) {
       }
     }
   }
-  return NextResponse.redirect(new URL(dest, url.origin));
+  const res = NextResponse.redirect(new URL(dest, url.origin));
+  // เริ่มนับเวลาใช้งานใหม่ (idle logout 12 ชม. ใน middleware)
+  if (loggedIn) setActiveCookie(res);
+  return res;
 }

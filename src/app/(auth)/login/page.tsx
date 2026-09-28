@@ -21,7 +21,7 @@ function LoginForm() {
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback${next && next.startsWith("/") ? `?next=${encodeURIComponent(next)}` : ""}`,
+        redirectTo: `${window.location.origin}/auth/callback${next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? `?next=${encodeURIComponent(next)}` : ""}`,
       },
     });
     if (err) setError(`เข้าสู่ระบบด้วย Google ไม่สำเร็จ: ${err.message}`);
@@ -53,6 +53,10 @@ function LoginForm() {
             </svg>
             เข้าสู่ระบบด้วย Google
           </button>
+
+          {searchParams.get("reason") === "idle" && !error && (
+            <p className="text-[12px] text-brand-navy bg-brand-mist border border-brand-gray rounded-lg px-3 py-2">ไม่ได้ใช้งานเกิน 12 ชั่วโมง ระบบออกจากระบบให้อัตโนมัติ — กรุณาเข้าสู่ระบบใหม่</p>
+          )}
 
           {error && (
             <p className="text-[12px] text-addon-crimson bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
