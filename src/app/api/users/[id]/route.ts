@@ -21,10 +21,29 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     updateData.password = await bcrypt.hash(password, 12);
   }
 
+  const before = role
+    ? await prisma.user.findFirst({ where: { id: params.id, organizationId: session.user.organizationId }, select: { role: true } })
+    : null;
+
   const user = await prisma.user.updateMany({
     where: { id: params.id, organizationId: session.user.organizationId },
     data: updateData,
   });
+
+  // จด ROLE_CHANGED — /api/users/me/role ใช้ log ล่าสุดตัดสินว่าเจ้าตัวสลับกลับเป็น ADMIN เองได้ไหม
+  if (role && before && before.role !== role) {
+    await prisma.activityLog.create({
+      data: {
+        organizationId: session.user.organizationId,
+        userId: session.user.id,
+        action: "ROLE_CHANGED",
+        entityType: "User",
+        entityId: params.id,
+        oldValue: before.role,
+        newValue: String(role),
+      },
+    }).catch(() => {});
+  }
 
   return NextResponse.json(user);
 }
