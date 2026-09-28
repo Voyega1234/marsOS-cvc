@@ -35,6 +35,8 @@ const CLIENT_API_RULES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^\/api\/articles\/[^/]+$/,                methods: ["GET"] },
   { pattern: /^\/api\/articles\/[^/]+\/client-review$/, methods: ["POST"] },
   { pattern: /^\/api\/report\/(gsc|gsc-ai|gsc-insights|ga4|pagespeed)$/, methods: ["POST"] },
+  // จด Activity Log ของตัวเอง (เปิดหน้า / ออกจากระบบ) — เขียนได้แค่ log ของ session ตัวเอง อ่านอะไรไม่ได้
+  { pattern: /^\/api\/activity-logs\/track$/,           methods: ["POST"] },
 ];
 
 function normalize(pathname: string): string {

@@ -5,6 +5,7 @@ import { createSupabaseServer } from "@/lib/supabase/server";
 import type { AppSession } from "@/lib/session-types";
 import type { Role } from "@/types";
 import { isClientApiAllowed } from "@/lib/client-access";
+import { recordApiRequest } from "@/lib/logActivity";
 
 export type { AppSession };
 
@@ -40,6 +41,15 @@ const ALLOWED_EMAILS = new Set([
   "mickey@convertcake.com",
 ]);
 
+/**
+ * ADMIN ที่เจ้าของระบบกำหนดไว้ในโค้ด — login ครั้งแรกสร้างเป็น ADMIN เลย
+ * ถ้ามี User อยู่แล้วแต่ role ยังไม่ใช่ ADMIN จะยกเป็น ADMIN ให้ตอนเข้าใช้ครั้งถัดไป (บันทึกลง DB + Activity Log)
+ * เอาชื่อออกจากชุดนี้ = ไม่ยกให้อีก แต่ role ใน DB ยังอยู่ ต้องไปลดสิทธิ์ที่หน้า Users
+ */
+const ADMIN_EMAILS = new Set([
+  "apps@convertcake.com",
+]);
+
 function toSession(user: {
   id: string; name: string | null; email: string; image: string | null;
   role: string; organizationId: string | null;
@@ -56,7 +66,7 @@ function toSession(user: {
   };
 }
 
-export const getSessionRaw = cache(async (): Promise<AppSession | null> => {
+const resolveSession = cache(async (): Promise<AppSession | null> => {
   const supabase = createSupabaseServer();
 
   // ── โหมด local dev (ไม่มี env Supabase) — พฤติกรรมเดิมก่อนมี login ──
@@ -78,11 +88,28 @@ export const getSessionRaw = cache(async (): Promise<AppSession | null> => {
   if (existing) {
     // INACTIVE = ถูกปิดสิทธิ์ (เช่น adminseo/userseo เก่า) — ห้ามเข้าแม้ login ผ่าน
     if (existing.status !== "ACTIVE") return null;
+    if (ADMIN_EMAILS.has(email) && existing.role !== "ADMIN") {
+      const promoted = await prisma.user.update({ where: { id: existing.id }, data: { role: "ADMIN" } });
+      if (existing.organizationId) {
+        await prisma.activityLog.create({
+          data: {
+            organizationId: existing.organizationId,
+            userId: existing.id,
+            action: "ROLE_CHANGED",
+            entityType: "User",
+            entityId: existing.id,
+            oldValue: existing.role,
+            newValue: "ADMIN",
+          },
+        }).catch(() => {});
+      }
+      return toSession(promoted);
+    }
     return toSession(existing);
   }
 
   // ── auto-provision: เฉพาะรายชื่อที่เจ้าของอนุมัติ เข้าครั้งแรก สร้าง User ให้เอง ──
-  if (ALLOWED_EMAILS.has(email)) {
+  if (ALLOWED_EMAILS.has(email) || ADMIN_EMAILS.has(email)) {
     const org = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" } });
     if (!org) return null;
     const created = await prisma.user.create({
@@ -90,7 +117,7 @@ export const getSessionRaw = cache(async (): Promise<AppSession | null> => {
         email,
         name: (authUser.user_metadata?.full_name as string | undefined)
           ?? email.split("@")[0],
-        role: "SEO_MANAGER",
+        role: ADMIN_EMAILS.has(email) ? "ADMIN" : "SEO_MANAGER",
         status: "ACTIVE",
         organizationId: org.id,
         password: "",
@@ -101,6 +128,16 @@ export const getSessionRaw = cache(async (): Promise<AppSession | null> => {
 
   return null;
 });
+
+/**
+ * getSessionRaw — session จาก Supabase + จด Activity Log อัตโนมัติ
+ * ทุก API ที่แก้ข้อมูล (POST/PUT/PATCH/DELETE) ผ่านจุดนี้ → บันทึกว่าใครทำอะไร (ครั้งเดียวต่อ request)
+ */
+export async function getSessionRaw(): Promise<AppSession | null> {
+  const session = await resolveSession();
+  if (session) await recordApiRequest(session);
+  return session;
+}
 
 /**
  * getSession — session ปกติ + ด่านของ role CLIENT

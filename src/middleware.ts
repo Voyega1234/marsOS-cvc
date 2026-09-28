@@ -11,16 +11,15 @@ import { createServerClient } from "@supabase/ssr";
 export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return NextResponse.next();
-
-
-  // ส่ง path + method ลงไปให้ฝั่ง server รู้ (getSession ใช้บังคับ allowlist ของ role CLIENT)
+  // ส่ง path + method ลงไปให้ฝั่ง server รู้ (getSession ใช้บังคับ allowlist ของ role CLIENT + จด Activity Logs)
   const withCtx = () => {
     const headers = new Headers(request.headers);
     headers.set("x-pathname", request.nextUrl.pathname);
     headers.set("x-method", request.method);
     return NextResponse.next({ request: { headers } });
   };
+
+  if (!url || !key) return withCtx();
 
   let response = withCtx();
   const supabase = createServerClient(url, key, {

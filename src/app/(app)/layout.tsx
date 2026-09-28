@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { PageViewTracker } from "@/components/layout/PageViewTracker";
 import { getSessionRaw } from "@/lib/auth";
 import { isClientPageAllowed } from "@/lib/client-access";
 
@@ -19,5 +20,10 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
     if (pathname && !isClientPageAllowed(pathname)) redirect("/projects");
   }
 
-  return <AppLayout>{children}</AppLayout>;
+  return (
+    <AppLayout>
+      <PageViewTracker />
+      {children}
+    </AppLayout>
+  );
 }

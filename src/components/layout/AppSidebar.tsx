@@ -221,6 +221,8 @@ function SidebarInner() {
               <button
                 title="ออกจากระบบ"
                 onClick={async () => {
+                  // จด "ออกจากระบบ" ลง Activity Log ก่อน session หาย
+                  await fetch("/api/activity-logs/track", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "logout" }) }).catch(() => {});
                   try { await createSupabaseBrowser().auth.signOut(); } catch { /* env ไม่ครบ (dev) */ }
                   window.location.href = "/login";
                 }}

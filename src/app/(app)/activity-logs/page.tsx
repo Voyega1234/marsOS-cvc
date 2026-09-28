@@ -11,33 +11,19 @@ export default async function ActivityLogsPage() {
   const orgId = session?.user?.organizationId;
   if (!orgId) return null;
 
-  const logs = await prisma.activityLog.findMany({
+  const users = await prisma.user.findMany({
     where: { organizationId: orgId },
-    include: {
-      user: { select: { name: true, email: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 500,
+    select: { id: true, name: true, email: true },
+    orderBy: { name: "asc" },
   });
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-bold text-brand-navy">Activity Logs</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Last {logs.length} events in your organization</p>
+        <p className="text-sm text-gray-500 mt-0.5">ทุกการกระทำในระบบ — ใครทำอะไร เมื่อไร</p>
       </div>
-      <ActivityLogsClient
-        logs={logs.map((l) => ({
-          id: l.id,
-          action: l.action,
-          entityType: l.entityType,
-          entityId: l.entityId,
-          oldValue: l.oldValue,
-          newValue: l.newValue,
-          createdAt: l.createdAt,
-          user: l.user,
-        }))}
-      />
+      <ActivityLogsClient users={users} />
     </div>
   );
 }
