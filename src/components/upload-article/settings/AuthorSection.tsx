@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { downscaleDataUrl, fileToDownscaledDataUrl } from "@/lib/imageDownscale";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 import { AUTHOR_CARD_STYLES } from "@/lib/articleAuthorCard";
+import { AuthorCardPreview } from "./AuthorCardPreview";
 import {
   DEFAULT_UPLOAD_AUTHOR, UPLOAD_AUTHOR_MAX, uploadAuthorSummary,
   type AuthorProfile, type UploadAuthorSettings,
@@ -214,6 +215,12 @@ export default function AuthorSection({ client, setClient }: {
                     {s.label}
                   </button>
                 ))}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1.5">
+                {AUTHOR_CARD_STYLES.find((s) => s.key === draft.style)?.description}
+              </p>
+              <div className="mt-2">
+                <AuthorCardPreview style={draft.style} author={draft.authors[0]} />
               </div>
             </div>
 
