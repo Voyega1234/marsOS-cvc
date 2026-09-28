@@ -1073,7 +1073,7 @@ export function ContentStudioClient() {
               )}
 
               {!generating && !articleHtml && (
-                <div className="flex flex-col items-center justify-center h-full gap-8 py-12 px-6">
+                <div className="flex flex-col items-center justify-start h-full gap-8 pt-12 pb-12 px-6">
                   <div className="text-center">
                     <h2 className="text-2xl font-semibold text-brand-navy mb-2">เริ่มเขียนบทความ</h2>
                     <p className="text-sm text-gray-400">ใส่ keyword ในแผงซ้าย แล้วกด เขียนบทความ</p>

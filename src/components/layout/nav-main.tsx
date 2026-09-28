@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useSidebar } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface SubRoute {
   title: string;
@@ -29,6 +31,8 @@ interface Props {
 
 function NavItem({ route }: { route: Route }) {
   const pathname = usePathname();
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
   const hasSubs = !!route.subs?.length;
 
   const isActive =
@@ -40,6 +44,39 @@ function NavItem({ route }: { route: Route }) {
   );
 
   const [open, setOpen] = useState(isActive || !!anySubActive);
+
+  // โหมดพับ (icon-only): แสดงแค่ไอคอน จัดกึ่งกลาง ไม่มีข้อความ/ซับเมนู, มี tooltip ตอน hover
+  if (isCollapsed) {
+    const active = isActive || !!anySubActive;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            href={route.link}
+            className={cn(
+              "relative mx-auto flex h-9 w-9 items-center justify-center rounded-md transition-colors",
+              active
+                ? "text-brand-navy bg-gray-100"
+                : "text-gray-500 hover:text-brand-navy hover:bg-gray-100/60"
+            )}
+          >
+            {route.icon}
+            {route.badge !== undefined && route.badge > 0 && (
+              <span
+                className={cn(
+                  "absolute right-1 top-1 h-1.5 w-1.5 rounded-full",
+                  route.badgeVariant === "red" ? "bg-red-500" : "bg-brand-blue"
+                )}
+              />
+            )}
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right" align="center">
+          {route.title}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
 
   if (hasSubs) {
     return (
