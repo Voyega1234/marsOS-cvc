@@ -57,6 +57,8 @@ const DETECTORS: Record<UploadComponentKey, Detector[]> = {
     { re: /class="[^"]*\bhelpie-faq/i, label: 'Helpie FAQ (ปลั๊กอิน)', element: true },
     { re: /class="[^"]*\bwp-block-details\b/i, label: 'Gutenberg Details block', element: true },
     { re: /class="[^"]*(?<![\w-])faq(?![\w-])[^"]*"|class="[^"]*(?<![\w-])faq[-_][^"]*"/i, label: 'กล่อง FAQ ของธีม', element: true },
+    // details/summary เปล่าไม่มี class — บทความที่ฝัง CSS มาเองมักใช้แบบนี้ (weak: เมนู/ส่วนอื่นของธีมก็ใช้ details ได้)
+    { re: /<details\b[^>]*>\s*<summary\b/i, label: 'FAQ แบบ details/summary ในเนื้อหา', element: true, weak: true },
     { re: /"@type"\s*:\s*"FAQPage"/i, label: 'FAQ schema (FAQPage)', weak: true },
     { re: /คำถามที่พบบ่อย|Frequently Asked Questions/i, label: 'หัวข้อ "คำถามที่พบบ่อย"', weak: true },
   ],
@@ -259,12 +261,30 @@ function findComponent(key: UploadComponentKey, posts: PostSample[], home: strin
 
 // ── FAQ / content style (CSS) ───────────────────────────────────────────────
 
-/** ตัวอย่าง HTML ของ FAQ element จริงบนเว็บ (≤6KB) */
-function extractFaqSnippet(pages: string[]): { html: string; label: string } | null {
-  for (const page of pages) {
-    const doc = stripChrome(page)
+const FAQ_HEADING_RE = /<h([2-4])\b[^>]*>(?:(?!<\/h\1>)[\s\S]){0,300}?(?:คำถามที่พบบ่อย|คำถามยอดฮิต|FAQ|Frequently Asked Questions)(?:(?!<\/h\1>)[\s\S]){0,300}?<\/h\1>/i
+
+/** ส่วน FAQ ใต้หัวข้อ "คำถามที่พบบ่อย" ในบทความ (ถึงหัวข้อระดับเดียวกันถัดไป) — ต้องมีรายการคำถามจริง */
+function faqSectionByHeading(page: string): string | null {
+  const doc = articleRegion(page)
+  const m = FAQ_HEADING_RE.exec(doc)
+  if (!m) return null
+  const start = m.index
+  const after = start + m[0].length
+  const next = doc.slice(after).search(new RegExp(`<h[1-${m[1]}]\\b`, 'i'))
+  const html = doc.slice(start, Math.min(next === -1 ? doc.length : after + next, start + 6000))
+  return /<details\b|<dt\b|<h[3-5]\b|accordion|toggle/i.test(html.slice(m[0].length)) ? html : null
+}
+
+/**
+ * ตัวอย่าง HTML ของ FAQ element จริงบนเว็บ (≤6KB) + index ของหน้าที่เจอ
+ * ลำดับ: กล่อง FAQ ของปลั๊กอิน/ธีมที่มี class ชัด → ส่วนใต้หัวข้อ "คำถามที่พบบ่อย" → details/summary เปล่าในบทความ
+ */
+function extractFaqSnippet(pages: string[]): { html: string; label: string; pageIndex: number } | null {
+  const tidy = (html: string) => html.replace(/\s+/g, ' ')
+  for (let i = 0; i < pages.length; i++) {
+    const doc = stripChrome(pages[i])
     for (const d of DETECTORS.faq) {
-      if (!d.element) continue
+      if (!d.element || d.weak) continue
       const m = d.re.exec(doc)
       if (!m) continue
       const tagStart = doc.lastIndexOf('<', m.index)
@@ -272,10 +292,24 @@ function extractFaqSnippet(pages: string[]): { html: string; label: string } | n
       if (!tag || tagStart < 0) continue
       const end = balancedEnd(doc, tagStart, tag)
       const html = doc.slice(tagStart, end === -1 ? tagStart + 6000 : Math.min(end, tagStart + 6000))
-      return { html: html.replace(/\s+/g, ' '), label: d.label }
+      return { html: tidy(html), label: d.label, pageIndex: i }
     }
   }
+  for (let i = 0; i < pages.length; i++) {
+    const html = faqSectionByHeading(pages[i])
+    if (html) return { html: tidy(html), label: 'ส่วน "คำถามที่พบบ่อย" ในบทความ', pageIndex: i }
+  }
+  for (let i = 0; i < pages.length; i++) {
+    const doc = articleRegion(pages[i])
+    const at = doc.search(/<details\b[^>]*>\s*<summary\b/i)
+    if (at !== -1) return { html: tidy(doc.slice(at, at + 6000)), label: 'FAQ แบบ details/summary ในบทความ', pageIndex: i }
+  }
   return null
+}
+
+/** tag ของ FAQ ที่ไม่มี class (details/summary/dl) — ใช้จับกฎ CSS แบบ `.x details summary` */
+function faqTags(html: string): string[] {
+  return ['details', 'summary', 'dl', 'dt', 'dd'].filter((t) => new RegExp(`<${t}\\b`, 'i').test(html))
 }
 
 const GENERIC_CLASS = /^(?:wp-block-.*|elementor-(?:element|widget-wrap|column|section|container)|e-con.*|has-.*|is-.*|alignwide|alignfull|clearfix|active|open|show|content-.*)$/i
@@ -285,8 +319,20 @@ function classTokens(html: string): string[] {
   return uniq(tokens.filter((t) => t && t.length <= 60 && /^[\w-]+$/.test(t) && !GENERIC_CLASS.test(t))).slice(0, 40)
 }
 
+/**
+ * CSS ที่ฝังมาในเนื้อหน้า (<style> หลัง <body>) — บทความที่วาง HTML สำเร็จรูปมักพก CSS ของตัวเองมา
+ * (เช่น .cc-article) ผู้อ่านเห็นค่านี้จริง ทับค่าตั้งต้นของธีม
+ */
+function bodyStyleCss(page: string): string {
+  const b = page.search(/<body\b/i)
+  if (b === -1) return ''
+  return Array.from(stripChrome(page.slice(b)).matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi), (m) => m[1]).join('\n')
+}
+
 async function collectCss(page: string, base: string): Promise<string> {
-  const inline = Array.from(page.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi), (m) => m[1])
+  const b = page.search(/<body\b/i)
+  const head = b === -1 ? page : page.slice(0, b)
+  const inline = Array.from(head.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi), (m) => m[1])
   const hrefs = uniq(
     Array.from(page.matchAll(/<link\b[^>]*rel=["']?stylesheet["']?[^>]*>/gi), (m) => /href=["']([^"']+)["']/i.exec(m[0])?.[1] || '')
       .filter(Boolean)
@@ -323,24 +369,48 @@ function resolveVars(body: string, vars: Map<string, string>): string {
   return out
 }
 
-const CONTENT_SEL = /(?:entry-content|post-content|single-content|article-content|the-content|elementor-widget-theme-post-content|wp-block-post-content)[^,{]*\b(?:h2|h3|a|table|th|td|p|blockquote)\b|^(?:body|h2|h3|a|table|th|td)$/i
+const CONTENT_SEL = /(?:entry-content|post-content|single-content|article-content|the-content|elementor-widget-theme-post-content|wp-block-post-content|\barticle)[^,{]*\b(?:h2|h3|a|table|th|td|p|blockquote)\b|^(?:body|h2|h3|a|table|th|td)$/i
 
-function relevantCss(rules: CssRule[], tokens: string[]): { faqCss: string; contentCss: string } {
+function cssVars(rules: CssRule[]): Map<string, string> {
   const vars = new Map<string, string>()
   for (const r of rules) {
     if (!/(?::root|^html|^body|\.editor-styles-wrapper)/i.test(r.selector)) continue
     for (const m of Array.from(r.body.matchAll(/(--[\w-]+)\s*:\s*([^;]+)/g))) if (!vars.has(m[1])) vars.set(m[1], m[2].trim())
   }
+  return vars
+}
+
+function ruleLine(r: CssRule, vars: Map<string, string>): string | null {
+  const body = resolveVars(r.body.replace(/(?:^|;)\s*--[\w-]+\s*:[^;]*/g, ''), vars).trim()
+  return body ? `${r.selector.replace(/\s+/g, ' ')}{${body.replace(/\s+/g, ' ')}}` : null
+}
+
+/** CSS ที่บทความฝังมาเองทั้งก้อน (≤14KB) — ตัวแปรหาจากทั้ง CSS ของบทความและธีม */
+function articleOwnCss(articleRules: CssRule[], themeRules: CssRule[]): string {
+  const vars = cssVars([...articleRules, ...themeRules])
+  const out: string[] = []
+  let len = 0
+  for (const r of articleRules) {
+    const line = ruleLine(r, vars)
+    if (!line || len >= 14_000) continue
+    out.push(line)
+    len += line.length
+  }
+  return out.join('\n')
+}
+
+function relevantCss(rules: CssRule[], tokens: string[], tags: string[] = []): { faqCss: string; contentCss: string } {
+  const vars = cssVars(rules)
   const tokenRe = tokens.length ? new RegExp(`\\.(?:${tokens.map((t) => t.replace(/[-]/g, '\\-')).join('|')})(?![\\w-])`) : null
+  const tagRe = tags.length ? new RegExp(`(?:^|[\\s>+~,(])(?:${tags.join('|')})(?![\\w-])`, 'i') : null
   const faq: string[] = []
   const content: string[] = []
   let faqLen = 0
   let contentLen = 0
   for (const r of rules) {
-    const body = resolveVars(r.body.replace(/(?:^|;)\s*--[\w-]+\s*:[^;]*/g, ''), vars).trim()
-    if (!body) continue
-    const line = `${r.selector.replace(/\s+/g, ' ')}{${body.replace(/\s+/g, ' ')}}`
-    if (tokenRe && tokenRe.test(r.selector) && faqLen < 14_000) {
+    const line = ruleLine(r, vars)
+    if (!line) continue
+    if (((tokenRe && tokenRe.test(r.selector)) || (tagRe && tagRe.test(r.selector))) && faqLen < 14_000) {
       faq.push(line)
       faqLen += line.length
     } else if (CONTENT_SEL.test(r.selector) && contentLen < 6_000) {
@@ -376,9 +446,15 @@ const SYSTEM = `คุณคือนักวิเคราะห์ CSS ข�
 หน้าที่: อ่าน HTML ตัวอย่างของกล่อง FAQ และกฎ CSS ที่เกี่ยวข้องของเว็บ แล้วสรุปหน้าตาจริงที่ผู้อ่านเห็นเป็น JSON
 กติกา:
 - ใช้เฉพาะค่าที่มีหลักฐานใน CSS/HTML ที่ให้มา ห้ามเดา ถ้าไม่มีหลักฐานให้ละ key นั้นไป
+- ลำดับความสำคัญของหลักฐาน: "CSS ที่บทความฝังมาเอง" สูงสุด (ผู้อ่านเห็นค่านี้จริง) > "CSS ของกล่อง FAQ" > "CSS ธีม"
+  ถ้ามี CSS ที่บทความฝังมาเอง ให้เอาทุกค่าจากก้อนนั้น ห้ามใช้ค่าตั้งต้นของธีม/reset (เช่น a{color}, body{font-family} แบบกว้าง ๆ) มาแทน
+- colors.theme = สีตัวอักษรหัวข้อ h2 จริง (แม้เป็นสีเทาเข้ม/ดำก็ใช้ค่านั้น ห้ามเอาสีลิงก์มาใส่), colors.text = สีตัวอักษรย่อหน้า p, colors.border = สีขอบกล่อง/ตาราง, colors.accent = สีลิงก์ในบทความ
+- fonts คัด font-family ตามที่เขียนใน CSS ตรง ๆ (รวม fallback)
+- faq ให้คัดจาก CSS ของ details/summary หรือ class ของกล่อง FAQ ตรง ๆ: questionBackground = พื้น summary, questionWeight = font-weight ของ summary, icon ดูจาก content ของ ::after/::before ('+' = plus, ลูกศร = chevron/arrow) ถ้า summary ไม่มี list-style:none และไม่มี pseudo = ลูกศรเริ่มต้นของเบราว์เซอร์ (caret ซ้าย), iconColor = color ของ pseudo นั้น, answerPadding = padding ของย่อหน้าคำตอบ
+- table ให้คัดจาก th/thead th/tr:nth-child (headerBackground, headerColor, borderColor, stripeBackground)
 - สีเป็น hex เท่านั้น (#rrggbb) ถ้า CSS เป็น rgb() ให้แปลงเป็น hex
 - ตัวเลขขนาด (radius/gap/borderWidth) เป็น number หน่วย px, padding เป็นสตริง CSS เช่น "16px 20px"
-- ถ้าไม่มีกล่อง FAQ บนเว็บ ให้เสนอ faq ที่เข้ากับภาษาออกแบบของเนื้อหาบทความ (สี/ขอบ/มุมโค้งจาก CSS บทความ) และบอกใน summary ว่าเป็นค่าที่เสนอ
+- ถ้าไม่มีกล่อง FAQ บนเว็บเลย ให้ faq ใช้สี/ขอบ/มุมโค้งจาก CSS บทความ และบอกใน summary ว่าเป็นค่าที่เสนอ
 - summary เป็นภาษาไทย 2-4 ประโยค อธิบายว่าเว็บแสดง FAQ และบทความอย่างไร (เช่น กล่องมีขอบมุมโค้ง ไอคอนลูกศรขวา หัวข้อสีน้ำเงิน)
 ตอบ JSON รูปแบบนี้เท่านั้น:
 {"colors":{"theme":"สีหลัก/หัวข้อ","text":"สีตัวอักษรเนื้อหา","border":"สีเส้นขอบ","accent":"สีลิงก์","background":"พื้นหลังบทความ ถ้าเป็นสีขาวให้เว้นว่าง"},
@@ -387,12 +463,19 @@ const SYSTEM = `คุณคือนักวิเคราะห์ CSS ข�
 "table":{"headerBackground":"","headerColor":"","borderColor":"","stripeBackground":""},
 "summary":""}`
 
-async function analyzeStyle(input: { faqSnippet: string; faqLabel: string; faqCss: string; contentCss: string }): Promise<{ data: AiStyle | null; usage: ORUsage | null; error: string | null }> {
-  if (!input.faqCss && !input.contentCss && !input.faqSnippet) return { data: null, usage: null, error: 'ไม่พบ CSS ของเว็บให้วิเคราะห์' }
+async function analyzeStyle(input: {
+  faqSnippet: string
+  faqLabel: string
+  articleCss: string
+  faqCss: string
+  contentCss: string
+}): Promise<{ data: AiStyle | null; usage: ORUsage | null; error: string | null }> {
+  if (!input.articleCss && !input.faqCss && !input.contentCss && !input.faqSnippet) return { data: null, usage: null, error: 'ไม่พบ CSS ของเว็บให้วิเคราะห์' }
   const user = [
     input.faqSnippet ? `## กล่อง FAQ บนเว็บ (${input.faqLabel})\n${input.faqSnippet}` : '## เว็บนี้ไม่มีกล่อง FAQ ในบทความที่สุ่มดู',
-    `## CSS ของกล่อง FAQ\n${input.faqCss || '(ไม่มี)'}`,
-    `## CSS ของเนื้อหาบทความ\n${input.contentCss || '(ไม่มี)'}`,
+    `## CSS ที่บทความฝังมาเอง (สำคัญสุด — ผู้อ่านเห็นค่านี้จริง)\n${input.articleCss || '(ไม่มี)'}`,
+    `## CSS ของกล่อง FAQ (จากไฟล์ธีม/ปลั๊กอิน)\n${input.faqCss || '(ไม่มี)'}`,
+    `## CSS ธีมสำหรับเนื้อหาบทความ (ค่าตั้งต้น — ใช้เมื่อ CSS ที่บทความฝังมาไม่ได้กำหนด)\n${input.contentCss || '(ไม่มี)'}`,
   ].join('\n\n')
   const r = await askJson<AiStyle>({ trace: 'uploadSiteScanStyle', system: SYSTEM, user, maxTokens: 1500, temperature: 0.1, timeoutMs: 90_000 })
   return { data: r.data, usage: r.usage, error: r.error }
@@ -492,17 +575,42 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
   }
 
   // หน้าตา FAQ + บทความ — ใช้หน้าบทความจริง (ถ้าไม่มีใช้หน้าแรก)
-  const postPages = posts.map((p) => p.page).filter((p): p is string => !!p)
-  const snippet = extractFaqSnippet([...postPages, ...(home ? [home] : [])])
-  const cssPage = postPages[0] || home
+  // หน้าที่ใช้อ่าน CSS: ลิงก์ตัวอย่างที่ผู้ใช้ใส่มาก่อนเสมอ → หน้าที่เจอ FAQ → หน้าที่มี CSS ฝังในบทความ → บทความแรก → หน้าแรก
+  // (แต่ละบทความบนเว็บเดียวกันอาจพก CSS คนละชุด ลิงก์ตัวอย่างจึงต้องชนะ)
+  const isSample = (p: PostSample) => !!sample && p.link.replace(/\/$/, '') === sample.replace(/\/$/, '')
+  const postEntries = posts
+    .filter((p): p is PostSample & { page: string } => !!p.page)
+    .sort((a, b) => Number(isSample(b)) - Number(isSample(a)))
+  const snippet =
+    (postEntries[0] && isSample(postEntries[0]) ? extractFaqSnippet([postEntries[0].page]) : null) ||
+    extractFaqSnippet([...postEntries.map((p) => p.page), ...(home ? [home] : [])])
+  const cssEntry =
+    (snippet && postEntries[snippet.pageIndex]) || postEntries.find((p) => bodyStyleCss(p.page).trim()) || postEntries[0] || null
+  const cssPage = cssEntry?.page || home
   let suggestedTheme: Partial<UploadTheme> | null = null
   let detail: UploadThemeDetail | null = null
   let usage: ORUsage | null = null
   let faqSummary = ''
   if (cssPage) {
-    const css = await collectCss(cssPage, postPages.length ? toRender[0] : target)
-    const { faqCss, contentCss } = relevantCss(parseRules(css), snippet ? classTokens(snippet.html) : [])
-    const ai = await analyzeStyle({ faqSnippet: snippet?.html || '', faqLabel: snippet?.label || '', faqCss, contentCss })
+    const themeRules = parseRules(await collectCss(cssPage, cssEntry?.link || target))
+    const articleCss = articleOwnCss(parseRules(bodyStyleCss(cssPage)), themeRules)
+    const { faqCss, contentCss } = relevantCss(themeRules, snippet ? classTokens(snippet.html) : [], snippet ? faqTags(snippet.html) : [])
+    if (articleCss) checked.push('CSS ที่บทความฝังมาเอง')
+    // บทความแต่ละโพสต์พก CSS คนละชุด — ผลจะตรงกับบทความที่ถูกหยิบมาอ่านเท่านั้น
+    const ownCss = uniq(
+      posts
+        .map((p) => (p.content !== null ? bodyStyleCss(`<body>${p.content}`) : p.page ? bodyStyleCss(p.page) : ''))
+        .map((c) => c.replace(/\s+/g, ''))
+        .filter(Boolean),
+    )
+    if (ownCss.length > 1) {
+      warnings.push(
+        sample
+          ? `บทความบนเว็บนี้ฝัง CSS มาเองคนละชุด หน้าตาแต่ละบทความไม่เหมือนกัน — ใช้หน้าตาจากลิงก์บทความตัวอย่างที่ใส่มา`
+          : `บทความบนเว็บนี้ฝัง CSS มาเองคนละชุด หน้าตาแต่ละบทความไม่เหมือนกัน — ผลนี้อ่านจาก ${cssEntry?.link || target} ถ้าต้องการให้เหมือนบทความไหน ใส่ลิงก์บทความนั้นในช่องบทความตัวอย่างแล้วสแกนใหม่`,
+      )
+    }
+    const ai = await analyzeStyle({ faqSnippet: snippet?.html || '', faqLabel: snippet?.label || '', articleCss, faqCss, contentCss })
     usage = ai.usage
     if (ai.data) {
       const c = ai.data.colors || {}
