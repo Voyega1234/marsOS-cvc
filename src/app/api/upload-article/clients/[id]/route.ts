@@ -79,7 +79,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     data.name = name
   }
   if (typeof body.website === 'string') data.website = body.website.trim()
-  if (body.language === 'th' || body.language === 'en') data.language = body.language
+  if (body.language === 'th' || body.language === 'en' || body.language === 'both') data.language = body.language
   if (typeof body.websitePlatform === 'string') data.websitePlatform = body.websitePlatform
   if (typeof body.wpUser === 'string') data.wpUser = body.wpUser.trim()
 

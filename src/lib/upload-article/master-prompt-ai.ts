@@ -245,17 +245,17 @@ export async function proposeMasterPromptEdit(
   try {
     parsed = JSON.parse(res.text)
   } catch {
-    throw new Error('AI ตอบกลับไม่ใช่ JSON ที่ถูกต้อง')
+    throw new Error('Mars ตอบกลับไม่ใช่ JSON ที่ถูกต้อง')
   }
 
   const promptText = typeof parsed.promptText === 'string' ? parsed.promptText.trim() : ''
-  if (!promptText) throw new Error('AI ไม่ได้ส่ง promptText กลับมา')
+  if (!promptText) throw new Error('Mars ไม่ได้ส่ง promptText กลับมา')
 
   if (isJson) {
     try {
       JSON.parse(promptText)
     } catch {
-      throw new Error('AI ตอบ promptText ที่ไม่ใช่ JSON ถูกต้องตามโครงเดิม')
+      throw new Error('Mars ตอบ promptText ที่ไม่ใช่ JSON ถูกต้องตามโครงเดิม')
     }
   }
 

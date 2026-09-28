@@ -11,6 +11,7 @@ import {
   type UploadTableStyle,
   type UploadThemeDetail,
 } from './types'
+import type { UploadCtaItem, UploadCtaSettings } from './cta'
 
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 const RGB_RE = /^rgba?\(\s*\d{1,3}(?:\.\d+)?%?\s*,\s*\d{1,3}(?:\.\d+)?%?\s*,\s*\d{1,3}(?:\.\d+)?%?\s*(?:,\s*(?:0|1|0?\.\d+|\d{1,3}%)\s*)?\)$/i
@@ -265,8 +266,52 @@ export function googleFontImport(stacks: Array<string | undefined>): string {
 
 const UPLOAD_EXTRA_CSS = `.content-article .content-faq__question{text-align:left;}\n.content-article .content-faq__q{flex:1 1 auto;min-width:0;text-align:left;}`
 
-/** CSS เต็มของบทความ Upload Article (ใช้ทั้งตอน generate และพรีวิวสดในหน้า Generate) */
-export function buildUploadCss(theme: UploadTheme): string {
+/** CSS เพิ่มของกล่อง CTA (Project Setting > CTA): จัดซ้าย/ขวา, ปุ่มแนวตั้ง, ปุ่มแบบข้อความ, โลโก้ในปุ่ม, แบนเนอร์ไม่มีกรอบ */
+const UPLOAD_CTA_EXTRA_CSS = [
+  '.content-article .content-cta__button{display:inline-flex;align-items:center;gap:.45em;}',
+  '.content-article .content-cta__button--ghost{background:transparent;border:0;text-decoration:underline;color:inherit;}',
+  '.content-article .content-cta__icon{width:1.25em;height:1.25em;border-radius:999px;object-fit:cover;margin:0;}',
+  '.content-article .content-cta--left{text-align:left;}',
+  '.content-article .content-cta--left .content-cta__buttons{justify-content:flex-start;}',
+  '.content-article .content-cta--right{text-align:right;}',
+  '.content-article .content-cta--right .content-cta__buttons{justify-content:flex-end;}',
+  '.content-article .content-cta--column .content-cta__buttons{flex-direction:column;align-items:center;}',
+  '.content-article .content-cta--column.content-cta--left .content-cta__buttons{align-items:flex-start;}',
+  '.content-article .content-cta--column.content-cta--right .content-cta__buttons{align-items:flex-end;}',
+  '.content-article .content-cta--banner{border:0;background:transparent;padding:0;}',
+  '.content-article .content-cta--banner a{display:block;}',
+].join('\n')
+
+const CTA_CSS_COLOR_RE = /^#[0-9a-f]{3,8}$/i
+const isValidCtaCssColor = (v: unknown): v is string => typeof v === 'string' && (CTA_CSS_COLOR_RE.test(v) || v === 'transparent')
+
+/** CSS เฉพาะ CTA แบบ "ออกแบบเอง" 1 แบบ — เจาะจงด้วย .content-cta--u-<id> กัน CTA แบบอื่นในหน้าเดียวกันโดนทับสี
+ * (buildArticleCss คุมได้แค่ CTA เดียวต่อบทความ ตอนนี้มีได้หลายแบบพร้อมกันจึงต้องสโคปเอง) */
+function ctaItemScopedCss(item: UploadCtaItem): string {
+  if (item.mode !== 'custom' || !item.custom) return ''
+  const c = item.custom
+  const sel = `.content-article .content-cta.content-cta--u-${item.id}`
+  const boxBg = isValidCtaCssColor(c.boxBg) ? c.boxBg : '#1d48f3'
+  const boxText = isValidCtaCssColor(c.boxText) ? c.boxText : '#fff'
+  const boxBorderColor = isValidCtaCssColor(c.boxBorderColor) ? c.boxBorderColor : 'transparent'
+  const boxBorderWidth = Number.isFinite(c.boxBorderWidth) ? Math.min(6, Math.max(0, c.boxBorderWidth)) : 0
+  const boxRadius = Number.isFinite(c.boxRadius) ? Math.min(32, Math.max(0, c.boxRadius)) : 16
+  const buttonBg = isValidCtaCssColor(c.buttonBg) ? c.buttonBg : '#fff'
+  const buttonText = isValidCtaCssColor(c.buttonText) ? c.buttonText : boxBg
+  const buttonBorderColor = isValidCtaCssColor(c.buttonBorderColor) ? c.buttonBorderColor : 'transparent'
+  const buttonRadius = Number.isFinite(c.buttonRadius) ? Math.min(32, Math.max(0, c.buttonRadius)) : 10
+  return [
+    `${sel}{background:${boxBg};color:${boxText};border:${boxBorderWidth}px solid ${boxBorderColor};border-radius:${boxRadius}px;}`,
+    `${sel} .content-cta__headline{color:${boxText};}`,
+    `${sel} .content-cta__subtext{color:${boxText};}`,
+    `${sel} .content-cta__button{background:${buttonBg};color:${buttonText};border:1.5px solid ${buttonBorderColor};border-radius:${buttonRadius}px;}`,
+    `${sel} .content-cta__button--secondary{background:transparent;color:${boxText};border-color:${boxText};}`,
+  ].join('\n')
+}
+
+/** CSS เต็มของบทความ Upload Article (ใช้ทั้งตอน generate และพรีวิวสดในหน้า Generate)
+ *  cta = ตั้งค่า CTA ของลูกค้า (หลายแบบ) — แบบ "ออกแบบเอง" ได้ CSS เจาะจงของตัวเอง ส่วนโหมดอื่นใช้สีธีมเดียวกันหมด */
+export function buildUploadCss(theme: UploadTheme, cta?: UploadCtaSettings): string {
   const css = buildArticleCss({
     themeColor: theme.theme,
     textColor: theme.text,
@@ -277,5 +322,6 @@ export function buildUploadCss(theme: UploadTheme): string {
   })
   const fontImport = googleFontImport([theme.fontFamily, theme.headingFont])
   const detailCss = themeDetailCss(theme.detail)
-  return `${fontImport}${css}\n${UPLOAD_EXTRA_CSS}${detailCss ? `\n${detailCss}` : ''}`
+  const scopedCtaCss = (cta?.items ?? []).map(ctaItemScopedCss).filter(Boolean).join('\n')
+  return `${fontImport}${css}\n${UPLOAD_EXTRA_CSS}\n${UPLOAD_CTA_EXTRA_CSS}${scopedCtaCss ? `\n${scopedCtaCss}` : ''}${detailCss ? `\n${detailCss}` : ''}`
 }

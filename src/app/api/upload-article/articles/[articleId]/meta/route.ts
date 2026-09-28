@@ -10,6 +10,7 @@ import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
+import { resolveArticleLanguage } from '@/lib/keyword-language'
 
 function sanitizeSlug(raw: string): string {
   return raw
@@ -69,7 +70,7 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
   const h1 = root.querySelector('h1')?.text.trim() || article.title
   const h2List = root.querySelectorAll('h2').map((h) => h.text.trim()).filter(Boolean)
   const bodyText = parse(stripNonTextMarkup(html)).text.replace(/\s+/g, ' ').trim().slice(0, 1500)
-  const language = client.language === 'en' ? 'en' : 'th'
+  const language = resolveArticleLanguage({ projectLanguage: client.language, title: h1, keyword: h1 })
 
   const fallbackTitle = h1.slice(0, 60)
 
@@ -114,7 +115,7 @@ ${humanBodyRulesBlock()}
     // ไม่ทับค่าที่ผู้ใช้มีอยู่แล้ว — เติมแค่ title จาก H1 เมื่อยังว่าง (brief ชนะถ้ามี)
     const seoTitle = article.seoTitle || brief.seoTitle || fallbackTitle
     if (!article.seoTitle) await prisma.uploadArticle.update({ where: { id: article.id }, data: { seoTitle } })
-    return NextResponse.json({ seoTitle, metaDescription: article.metaDescription || brief.metaDescription || '', slug: article.slug || (alreadyPushed ? article.slug : brief.slug) || '', costUsd: result.usage.costUsd, warning: result.error || 'AI ไม่ตอบกลับ' })
+    return NextResponse.json({ seoTitle, metaDescription: article.metaDescription || brief.metaDescription || '', slug: article.slug || (alreadyPushed ? article.slug : brief.slug) || '', costUsd: result.usage.costUsd, warning: result.error || 'Mars ไม่ตอบกลับ' })
   }
 
   // meta title ดึงจาก brief ก่อน ถ้าไม่มีค่อยใช้ H1 ตรง ๆ — ใช้ข้อความที่ AI ย่อเฉพาะเมื่อ H1 ยาวเกิน 60 ตัวอักษร

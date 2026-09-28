@@ -6,12 +6,13 @@ import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
-import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner } from '@/lib/articleComponents'
+import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, normalizeCtaItems, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem } from '@/lib/articleComponents'
 import { sampleForPrompt } from '@/lib/articleSample'
 import { buildAuthorCardHtml, DEFAULT_AUTHOR_CARD_STYLE, normalizeAuthorCardStyle, type AuthorCardStyle } from '@/lib/articleAuthorCard'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-language'
+import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -54,40 +55,64 @@ async function logAIJob(opts: {
   } catch { /* non-fatal */ }
 }
 
+// CtaSettings = รูปดิบจาก body/DB — อาจเป็น shape เก่า (CTA ชุดเดียว) หรือใหม่ (items[])
+// normalizeCtaItems (src/lib/articleComponents.ts) แปลงเป็น items[] เสมอก่อนใช้งานจริง
 interface CtaChannel { type: string; label: string; value: string }
 interface CtaSettings {
-  enabled: boolean; headline: string; subtext: string; channels: CtaChannel[]
-  mode?: CtaMode              // undefined = 'buttons' (record เก่า)
-  custom?: CtaCustomDesign    // ใช้เมื่อ mode === 'custom'
-  banners?: CtaBanner[]       // ใช้เมื่อ mode === 'banner' สูงสุด 5 รูป
+  enabled: boolean; headline?: string; subtext?: string; channels?: CtaChannel[]
+  mode?: CtaMode; custom?: CtaCustomDesign; banners?: CtaBanner[]
+  perArticle?: number; items?: CtaItem[]
 }
 
-function buildCtaBlock(cta: CtaSettings | null | undefined): string {
-  // ไม่มี CTA ที่ตั้งไว้จริง → สั่งห้ามโมเดลแต่งช่องทางติดต่อเอง (กันก๊อปเบอร์ตัวอย่างจาก COMPONENT STANDARD)
-  if (!cta?.enabled || !cta.channels.filter(c => c.value).length) return `
-==================================================
-CTA — โปรเจกต์นี้ยังไม่ได้ตั้งค่าช่องทางติดต่อ
-==================================================
-ห้ามใส่กล่อง .content-cta และห้ามใส่เบอร์โทร / LINE / อีเมล / ลิงก์ติดต่อใด ๆ ทั้งสิ้น
-(เบอร์ในตัวอย่าง COMPONENT STANDARD เป็นเบอร์สมมติ ห้ามนำมาใช้เด็ดขาด)
-`
-  const channelLines = cta.channels
-    .filter(c => c.value)
-    .map(c => `  - ${c.label || c.type}: ${c.value}`)
-    .join('\n')
+const CTA_CHANNEL_LINES = (channels: CtaItem['channels']) =>
+  channels.filter(c => c.value).map(c => `  - ${c.label || c.type}: ${c.value}`).join('\n')
 
-  // โหมดแบนเนอร์รูป — โมเดลห้ามวาดกล่องเอง แค่วาง marker ให้ระบบแทนที่ด้วยรูป
-  const usableBanners = (cta.banners ?? []).filter(b => b.imageUrl && b.href)
-  if (cta.mode === 'banner' && usableBanners.length) {
-    const channelLine = cta.channels.find(c => c.value)
-      ? `1. จุดที่ 1 หลังกล่อง Short Answer: ประโยคชวน 1 บรรทัดพร้อมลิงก์ช่องทางหลัก (ข้อความธรรมดา ไม่ใช่กล่อง) — ใช้ข้อมูลจากหัวข้อ "ช่องทาง" ด้านบนเท่านั้น\n`
-      : ''
-    return `
+/** สุ่มเลือก item ให้ครบ perArticle จุด — ไม่ซ้ำเท่าที่พอ แล้ววนซ้ำถ้าจุดมากกว่าจำนวน item */
+function pickCtaItemsForArticle(items: CtaItem[], perArticle: number): CtaItem[] {
+  if (!items.length) return []
+  const count = Math.max(1, Math.min(5, perArticle))
+  const shuffled = [...items]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  const picked: CtaItem[] = []
+  for (let i = 0; i < count; i++) picked.push(shuffled[i % shuffled.length])
+  return picked
+}
+
+// ข้อความ CTA ของ "ปุ่มมาตรฐาน/ออกแบบเอง" แบบ legacy 3 จุด — คงคำเดิมเป๊ะสำหรับโปรเจกต์เก่า (1 item, perArticle=3)
+function buildLegacyButtonsBlock(item: CtaItem): string {
+  const channelLines = CTA_CHANNEL_LINES(item.channels)
+  return `
+==================================================
+CTA (Call-to-Action) — ต้องใส่ในบทความ
+==================================================
+Headline: ${item.headline}
+Subtext: ${item.subtext}
+ช่องทาง:
+${channelLines}
+
+INSTRUCTION: วาง CTA 3 จุด และทุกจุดต้องเขียนข้อความใหม่ให้ตรง pain point ของบทความนั้น (ห้ามใช้ headline/subtext ข้างบนแบบคำต่อคำซ้ำทุกจุด — ใช้เป็นวัตถุดิบ):
+1. จุดที่ 1 หลังกล่อง Short Answer: ประโยคชวน 1 บรรทัดพร้อมลิงก์ช่องทางหลัก (ข้อความธรรมดา ไม่ใช่กล่อง)
+2. จุดที่ 2 กลางบทความ: .content-cta แบบสั้น (headline + ปุ่มเดียว)
+3. จุดที่ 3 ก่อน FAQ: .content-cta เต็ม (headline + subtext + ปุ่มครบทุกช่องทาง)
+กติกา: ใช้โครง .content-cta จาก COMPONENT STANDARD เท่านั้น / URL → <a class="content-cta__button" href="..."> / phone → tel: / email → mailto: / ปุ่มแรก content-cta__button ปุ่มถัดไปเพิ่ม content-cta__button--secondary / ห้าม hard sell ห้ามใส่สีหรือ style เอง${item.mode === 'custom' ? '\nสีและกรอบของกล่อง CTA ระบบใส่ให้เอง ห้ามใส่ style' : ''}
+`
+}
+
+// ข้อความ CTA แบนเนอร์ legacy 2 จุด — คงคำเดิมเป๊ะสำหรับโปรเจกต์เก่า (1 item mode=banner, perArticle=2)
+function buildLegacyBannerBlock(item: CtaItem): string {
+  const channelLines = CTA_CHANNEL_LINES(item.channels)
+  const channelLine = item.channels.find(c => c.value)
+    ? `1. จุดที่ 1 หลังกล่อง Short Answer: ประโยคชวน 1 บรรทัดพร้อมลิงก์ช่องทางหลัก (ข้อความธรรมดา ไม่ใช่กล่อง) — ใช้ข้อมูลจากหัวข้อ "ช่องทาง" ด้านบนเท่านั้น\n`
+    : ''
+  return `
 ==================================================
 CTA (Call-to-Action) — โหมดแบนเนอร์รูป
 ==================================================
-Headline: ${cta.headline}
-Subtext: ${cta.subtext}
+Headline: ${item.headline}
+Subtext: ${item.subtext}
 ช่องทาง:
 ${channelLines || '  (ไม่มี)'}
 
@@ -96,23 +121,69 @@ ${channelLine}วาง marker <!-- CTA_BANNER --> บนบรรทัดข�
   - กลางบทความ (หลังหัวข้อ H2 ลำดับที่ 2 หรือ 3)
   - ก่อนหัวข้อ FAQ
 `
+}
+
+// หลาย CTA / จุดจำนวนอื่นนอกเหนือ legacy — สร้างคำสั่งทีละจุด ใช้ item ที่ถูกสุ่มมาของจุดนั้น
+function buildGenericCtaBlock(spots: CtaItem[]): string {
+  const n = spots.length
+  const lines: string[] = [
+    '==================================================',
+    `CTA (Call-to-Action) — ต้องใส่ในบทความ ${n} จุด (สุ่มเลือก CTA ที่ตั้งไว้)`,
+    '==================================================',
+  ]
+  spots.forEach((item, i) => {
+    const spotNum = i + 1
+    const isLast = spotNum === n
+    const posLabel = isLast
+      ? 'ก่อนหัวข้อ FAQ หรือก่อนบทสรุปปิดท้าย'
+      : spotNum === 1
+        ? 'ช่วงต้นบทความ (หลังกล่อง Short Answer ถ้ามี)'
+        : `กลางบทความ (ช่วงที่ ${spotNum - 1})`
+    if (item.mode === 'banner') {
+      const usableBanners = (item.banners ?? []).filter(b => b.imageUrl && b.href)
+      if (!usableBanners.length) return
+      lines.push(`จุดที่ ${spotNum} (${posLabel}): โหมดแบนเนอร์รูป — ห้ามวาดกล่อง .content-cta เอง ห้ามแต่งเบอร์โทร/LINE/อีเมล/ลิงก์ติดต่อเอง วาง marker <!-- CTA_BANNER:${spotNum} --> บนบรรทัดของตัวเอง (ไม่มี tag ครอบ)`)
+    } else {
+      const channelLines = CTA_CHANNEL_LINES(item.channels)
+      lines.push(`จุดที่ ${spotNum} (${posLabel}): ใช้โครง .content-cta — Headline: "${item.headline}" / Subtext: "${item.subtext}" / ช่องทาง:\n${channelLines || '  (ไม่มี)'}\nเขียนข้อความใหม่ให้ตรง pain point ของบทความ ห้ามใช้ headline/subtext แบบคำต่อคำซ้ำทุกจุด — ใช้เป็นวัตถุดิบ${item.mode === 'custom' ? ` (class เพิ่ม content-cta--c-${item.id} ในกล่อง .content-cta ของจุดนี้ เช่น class="content-cta content-cta--c-${item.id}" — สีและกรอบระบบใส่ให้เอง ห้ามใส่ style)` : ''}`)
+    }
+  })
+  lines.push('กติกา CTA แบบกล่อง: ใช้โครง .content-cta จาก COMPONENT STANDARD เท่านั้น / URL → <a class="content-cta__button" href="..."> / phone → tel: / email → mailto: / ปุ่มแรก content-cta__button ปุ่มถัดไปเพิ่ม content-cta__button--secondary / ห้าม hard sell ห้ามใส่สีหรือ style เอง')
+  return lines.join('\n') + '\n'
+}
+
+/** สร้าง prompt block ของ CTA + รายการจุดที่ถูกสุ่มไว้ (ใช้ต่อตอนแทรกแบนเนอร์หลังบทความเขียนเสร็จ) */
+function buildCtaBlock(cta: CtaSettings | null | undefined): { block: string; spots: CtaItem[] } {
+  const normalized = normalizeCtaItems(cta)
+  const hasUsable = normalized.enabled && normalized.items.some(
+    it => it.channels.some(c => c.value) || (it.banners ?? []).some(b => b.imageUrl && b.href),
+  )
+  // ไม่มี CTA ที่ตั้งไว้จริง → สั่งห้ามโมเดลแต่งช่องทางติดต่อเอง (กันก๊อปเบอร์ตัวอย่างจาก COMPONENT STANDARD)
+  if (!hasUsable) {
+    return {
+      spots: [],
+      block: `
+==================================================
+CTA — โปรเจกต์นี้ยังไม่ได้ตั้งค่าช่องทางติดต่อ
+==================================================
+ห้ามใส่กล่อง .content-cta และห้ามใส่เบอร์โทร / LINE / อีเมล / ลิงก์ติดต่อใด ๆ ทั้งสิ้น
+(เบอร์ในตัวอย่าง COMPONENT STANDARD เป็นเบอร์สมมติ ห้ามนำมาใช้เด็ดขาด)
+`,
+    }
   }
 
-  return `
-==================================================
-CTA (Call-to-Action) — ต้องใส่ในบทความ
-==================================================
-Headline: ${cta.headline}
-Subtext: ${cta.subtext}
-ช่องทาง:
-${channelLines}
-
-INSTRUCTION: วาง CTA 3 จุด และทุกจุดต้องเขียนข้อความใหม่ให้ตรง pain point ของบทความนั้น (ห้ามใช้ headline/subtext ข้างบนแบบคำต่อคำซ้ำทุกจุด — ใช้เป็นวัตถุดิบ):
-1. จุดที่ 1 หลังกล่อง Short Answer: ประโยคชวน 1 บรรทัดพร้อมลิงก์ช่องทางหลัก (ข้อความธรรมดา ไม่ใช่กล่อง)
-2. จุดที่ 2 กลางบทความ: .content-cta แบบสั้น (headline + ปุ่มเดียว)
-3. จุดที่ 3 ก่อน FAQ: .content-cta เต็ม (headline + subtext + ปุ่มครบทุกช่องทาง)
-กติกา: ใช้โครง .content-cta จาก COMPONENT STANDARD เท่านั้น / URL → <a class="content-cta__button" href="..."> / phone → tel: / email → mailto: / ปุ่มแรก content-cta__button ปุ่มถัดไปเพิ่ม content-cta__button--secondary / ห้าม hard sell ห้ามใส่สีหรือ style เอง${cta.mode === 'custom' ? '\nสีและกรอบของกล่อง CTA ระบบใส่ให้เอง ห้ามใส่ style' : ''}
-`
+  const spots = pickCtaItemsForArticle(normalized.items, normalized.perArticle)
+  // legacy = record รูปเดิมที่ไม่มี items[] เท่านั้น — บันทึกจาก UI ใหม่แล้ว (มี items[]) ต้องเคารพ perArticle ที่เลือก แม้ id ยังเป็น 'legacy'
+  const isLegacySingleItem = !(Array.isArray(cta?.items) && cta!.items!.length > 0)
+  // โปรเจกต์เก่า (CTA ชุดเดียว) — ใช้คำสั่งเดิมทุกตัวอักษร: แบนเนอร์ที่มีรูปใช้ได้ = 2 จุด, นอกนั้น = ปุ่ม 3 จุด (รวมโหมด banner ที่ยังไม่มีรูป เหมือนเดิม)
+  if (isLegacySingleItem) {
+    const legacy = normalized.items[0]
+    const legacyHasBanner = legacy.mode === 'banner' && (legacy.banners ?? []).some(b => b.imageUrl && b.href)
+    return legacyHasBanner
+      ? { block: buildLegacyBannerBlock(legacy), spots: [legacy, legacy] }
+      : { block: buildLegacyButtonsBlock(legacy), spots: [legacy, legacy, legacy] }
+  }
+  return { block: buildGenericCtaBlock(spots), spots }
 }
 
 function buildAuthorHtml(
@@ -144,7 +215,10 @@ function buildArticlePrompt(opts: {
   contentType: string; sampleArticle?: string
   /** Article Lab > บริบทโปรเจกต์ — ข้อเท็จจริงของธุรกิจที่บทความต้องอ้างอิงให้ถูก */
   projectContext?: string
-  cta?: CtaSettings | null
+  /** prompt block ของ CTA — สร้างไว้ล่วงหน้าจาก buildCtaBlock() (ต้องใช้ spots ต่อตอนแทรกแบนเนอร์ด้วย) */
+  ctaBlock: string
+  /** Mars Article Intent Skill — ว่าง '' = ไม่มีข้อมูล intent/ประเภทบทความ ไม่แนบอะไรเพิ่ม */
+  intentSkillBlock?: string
   // Prompt ทั้งหมดมาจาก Content Engine เท่านั้น (เรียงลำดับ 4 layers)
   // ห้ามสร้าง prompt เอง — ดู src/lib/content-engine-resolve.ts
   ce: {
@@ -236,7 +310,7 @@ cover_image_alt: [alt text ภาษาไทยของภาพหน้า�
     ? `\n==================================================\nEXAMPLE ARTICLE (ใช้เป็น pattern สำหรับโปรเจคนี้ — ทำตาม structure, tone, style ทุกอย่าง)\n==================================================\n${sampleForPrompt(opts.sampleArticle).slice(0, 6000)}\n\n--- END OF EXAMPLE ---\n`
     : ''
 
-  const ctaBlock = buildCtaBlock(opts.cta)
+  const intentSkillBlock = opts.intentSkillBlock?.trim() ? `\n${opts.intentSkillBlock.trim()}\n` : ''
 
   // ── ประกอบตามลำดับ Content Engine: Business Skill → Master Prompt →
   //    Article Brief → (ข้อมูลโปรเจกต์/CTA/ตัวอย่าง) → Validator Pack ──
@@ -272,8 +346,9 @@ ${opts.ce.masterPrompt}
 
 ${articleBriefBlock}
 ${siteBlock}
-${ctaBlock}
+${opts.ctaBlock}
 ${sampleBlock}
+${intentSkillBlock}
 ${validatorBlock}
 ---
 OUTPUT: ส่ง HTML ชุดเดียวเท่านั้น ไม่มีคำอธิบาย ไม่มี Markdown ไม่มี diagnostic text
@@ -481,28 +556,47 @@ function sanitizeCtaHref(href: string): string {
   return '#'
 }
 
-// แทรกแบนเนอร์ CTA (โหมด banner) แทน marker <!-- CTA_BANNER --> ที่โมเดลวางไว้
-// ถ้าโมเดลไม่วาง marker มาเลย ระบบหาจุดแทรกเองแบบเดียวกับ injectMidImage
-function injectCtaBanner(html: string, cta: CtaSettings | null | undefined): string {
-  const usable = (cta?.banners ?? []).filter(b => b.imageUrl && b.href)
-  if (!usable.length) {
-    // ไม่มีแบนเนอร์ใช้ได้จริง — ลบ marker ที่หลงเหลือทิ้ง กันโผล่เป็นคอมเมนต์ในหน้าเว็บ
-    return html.replace(/<!--\s*CTA_BANNER\s*-->/gi, '')
-  }
-  // 1 รูป = ใช้รูปนั้นทุกจุด / หลายรูป = สุ่ม 1 รูปต่อบทความ ใช้ตัวเดียวกันทุกจุด
-  const banner = usable.length === 1 ? usable[0] : usable[Math.floor(Math.random() * usable.length)]
+function ctaBannerTag(banner: CtaBanner): string {
   const href = sanitizeCtaHref(banner.href)
   const alt = (banner.alt?.trim() || 'ติดต่อเรา').replace(/"/g, '&quot;')
-  const tag = `<a class="content-cta content-cta--banner" href="${href}" target="_blank" rel="noopener"><img src="${banner.imageUrl}" alt="${alt}"></a>`
+  return `<a class="content-cta content-cta--banner" href="${href}" target="_blank" rel="noopener"><img src="${banner.imageUrl}" alt="${alt}"></a>`
+}
+
+// แทรกแบนเนอร์ CTA (โหมด banner) แทน marker ที่โมเดลวางไว้ — รองรับทั้ง 2 รูปแบบ:
+// - <!-- CTA_BANNER:n --> (ของใหม่ — หลาย CTA, n = ลำดับจุดตาม spots ที่สุ่มไว้ ใช้ item ของจุดนั้น)
+// - <!-- CTA_BANNER --> ไม่มีเลข (ของเดิม — โปรเจกต์เก่า 1 item โหมด banner, ใช้ item เดียวกันทุกจุด)
+// ถ้าโมเดลไม่วาง marker ของเดิมมาเลย ระบบหาจุดแทรกเองแบบเดียวกับ injectMidImage (พฤติกรรมเดิม)
+function injectCtaBanner(html: string, spots: CtaItem[]): string {
+  let out = html
+
+  // ── marker แบบใหม่: <!-- CTA_BANNER:n --> — แทนที่ตาม item ของจุดนั้นโดยตรง ──
+  out = out.replace(/<!--\s*CTA_BANNER:(\d+)\s*-->/gi, (_m, numStr: string) => {
+    const idx = parseInt(numStr, 10) - 1
+    const item = spots[idx]
+    const usable = (item?.banners ?? []).filter(b => b.imageUrl && b.href)
+    if (!usable.length) return ''
+    const banner = usable.length === 1 ? usable[0] : usable[Math.floor(Math.random() * usable.length)]
+    return ctaBannerTag(banner)
+  })
+
+  // ── marker แบบเดิม: <!-- CTA_BANNER --> ไม่มีเลข ──
+  const legacyItem = spots.find(s => s.mode === 'banner') ?? null
+  const legacyUsable = (legacyItem?.banners ?? []).filter(b => b.imageUrl && b.href)
+  if (!legacyUsable.length) {
+    // ไม่มีแบนเนอร์ใช้ได้จริง — ลบ marker ที่หลงเหลือทิ้ง กันโผล่เป็นคอมเมนต์ในหน้าเว็บ
+    return out.replace(/<!--\s*CTA_BANNER\s*-->/gi, '')
+  }
+  // 1 รูป = ใช้รูปนั้นทุกจุด / หลายรูป = สุ่ม 1 รูปต่อบทความ ใช้ตัวเดียวกันทุกจุด
+  const banner = legacyUsable.length === 1 ? legacyUsable[0] : legacyUsable[Math.floor(Math.random() * legacyUsable.length)]
+  const tag = ctaBannerTag(banner)
 
   const MARKER = /<!--\s*CTA_BANNER\s*-->/gi
-  if (MARKER.test(html)) {
+  if (MARKER.test(out)) {
     MARKER.lastIndex = 0
-    return html.replace(MARKER, tag)
+    return out.replace(MARKER, tag)
   }
 
   // โมเดลไม่ได้วาง marker มา — แทรกเองก่อน FAQ และกลางบทความ (เหมือน injectMidImage)
-  let out = html
   const faqMatch = out.match(/<h2[^>]*\bid=["']faq["'][^>]*>/i)
   const faqIdx = faqMatch ? out.indexOf(faqMatch[0]) : out.lastIndexOf('<h2')
   if (faqIdx > 0) {
@@ -612,6 +706,10 @@ export async function POST(req: NextRequest) {
     keywordId = '',
     adjustNote = '',
     cta: ctaFromBody = null,
+    // Mars Article Intent Skill — ผู้เรียกส่งตรง ๆ ได้ ถ้าไม่ส่งจะดึงจาก Keyword (keywordId) ด้านล่าง
+    intent: intentFromBody = '',
+    articleType: articleTypeFromBody = '',
+    funnelStage: funnelStageFromBody = '',
   } = body
   // โหมดภาษา: ผู้เรียกส่งมาได้ตรง ๆ ถ้าไม่ส่งจะเติมจาก pushPrefs ของโปรเจกต์ด้านล่าง
   let language: string = languageFromBody
@@ -843,6 +941,42 @@ export async function POST(req: NextRequest) {
   // โหมด both: อิงจาก title ก่อน (อังกฤษล้วน = เขียนอังกฤษ) ไม่มี title ค่อยดู keyword (ดู src/lib/keyword-language.ts)
   const effectiveLanguage = resolveArticleLanguage({ projectLanguage: language, mode: language_mode, keyword, title })
 
+  // ── Mars Article Intent Skill: intent/ประเภทบทความ/funnel stage ──
+  // ผู้เรียกส่งตรง ๆ ชนะก่อนเสมอ ไม่ส่งมา → ดึงจาก Keyword Bank (keywordId+projectId) ถ้ามี
+  // ไม่มีข้อมูลเลย → articleIntentSkillBlock คืน '' เอง (ไม่แนบอะไรเพิ่มในพรอมป์)
+  let effectiveIntent: string = intentFromBody || ''
+  let effectiveFunnelStage: string = funnelStageFromBody || ''
+  let effectiveArticleType: string = articleTypeFromBody || ''
+  if (!effectiveIntent || !effectiveFunnelStage || !effectiveArticleType) {
+    if (keywordId && projectId) {
+      try {
+        const kw = await (prisma.keyword as any).findFirst({
+          where: { id: keywordId, projectId },
+          select: { intent: true, funnelStage: true, meta: true },
+        })
+        if (kw) {
+          if (!effectiveIntent) effectiveIntent = kw.intent ?? ''
+          if (!effectiveFunnelStage) effectiveFunnelStage = kw.funnelStage ?? ''
+          if (!effectiveArticleType) {
+            try {
+              const metaObj = JSON.parse(kw.meta || '{}')
+              const metaType = metaObj?.articleType ?? metaObj?.contentType ?? metaObj?.type
+              if (typeof metaType === 'string' && metaType.trim()) effectiveArticleType = metaType.trim()
+            } catch { /* meta เสีย — ข้าม */ }
+          }
+        }
+      } catch { /* non-fatal */ }
+    }
+  }
+  // ไม่มีประเภทจาก keyword — ใช้ contentType ของ request เฉพาะที่ผู้เรียกระบุมาจริง ('seo_article' คือค่า default ไม่ใช่ประเภท)
+  // ไม่มีข้อมูลเลย = skill โหมดพื้นฐาน ให้ตัวเขียนวิเคราะห์ intent จาก keyword เอง
+  if (!effectiveArticleType && contentType && contentType !== 'seo_article') effectiveArticleType = contentType
+  const intentSkillBlock = articleIntentSkillBlock({ intent: effectiveIntent, articleType: effectiveArticleType, funnelStage: effectiveFunnelStage })
+
+  // ── CTA (หลายชุด — เลือกจำนวนต่อบทความได้) — สุ่ม spots ครั้งเดียวต่อ request แล้วใช้ต่อ
+  //    ทั้งตอนสร้าง prompt และตอนแทรกแบนเนอร์หลังบทความเขียนเสร็จ ──
+  const ctaResult = buildCtaBlock(cta)
+
   let articlePrompt = buildArticlePrompt({
     keyword, title, language: effectiveLanguage, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,
     colorTheme: resolvedColorTheme, colorText: resolvedColorText, colorBorder: resolvedColorBorder,
@@ -851,7 +985,8 @@ export async function POST(req: NextRequest) {
     internalLinks, forbiddenWords,
     websiteUrl: resolvedWebsiteUrl, siteName: resolvedSiteName, brandTone: resolvedBrandTone,
     contentType, sampleArticle: resolvedSampleArticle, projectContext: resolvedProjectContext,
-    cta,
+    ctaBlock: ctaResult.block,
+    intentSkillBlock,
     ce: {
       businessSkill: ce.businessSkill?.text,
       masterPrompt: ce.masterPrompt!.text,
@@ -879,6 +1014,9 @@ export async function POST(req: NextRequest) {
   const model = OR_MODELS.writer()
 
   // CSS กลางของบทความ — compile จากค่า Article Lab แบบ deterministic (AI ไม่ทาสีเอง)
+  // CTA หลายชุด: class หลัก .content-cta ใช้ค่าของ item แรก (เดิม) + override แบบ scope ต่อ item
+  // ให้แต่ละ item ที่โหมด custom ได้สีของตัวเอง (item เดียว/legacy ไม่ต้องมี override เพิ่ม)
+  const ctaItemsForCss = normalizeCtaItems(cta).items
   const articleCss = buildArticleCss({
     themeColor: resolvedColorTheme || resolvedAccentColor || '#2563eb',
     textColor: resolvedColorText || '#000000',
@@ -887,7 +1025,10 @@ export async function POST(req: NextRequest) {
     backgroundColor: resolvedColorBackground || '',
     elementStyles: resolvedElementStyles,
     typography,
-    cta: { mode: cta?.mode, custom: cta?.custom },
+    cta: {
+      mode: ctaItemsForCss[0]?.mode, custom: ctaItemsForCss[0]?.custom,
+      items: ctaItemsForCss.length > 1 ? ctaItemsForCss.map(it => ({ id: it.id, mode: it.mode, custom: it.custom })) : undefined,
+    },
   })
   /** sanitize → ครอบ wrapper มาตรฐาน (+CSS ตามโหมด) → แปะ Schema JSON-LD ที่ generate
    *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="content-article">
@@ -897,7 +1038,12 @@ export async function POST(req: NextRequest) {
     const metaBlock = body.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
     const metaOf = (k: string) => metaBlock.match(new RegExp(`${k}\\s*:\\s*(.+)`, 'i'))?.[1]?.trim() ?? ''
     type CtaChan = { type?: string; label?: string; value?: string }
-    const ctaChannels = ((cta?.channels ?? []) as CtaChan[]).filter((c): c is CtaChan & { value: string } => !!c.value)
+    // ช่องทางติดต่อสำหรับ Schema — รวมจากทุกจุด CTA ที่ถูกสุ่มใช้จริงในบทความนี้
+    // CTA ชุดเดียวกันถูกสุ่มซ้ำได้หลายจุด — ตัดช่องทางซ้ำ (type+value) ออก ให้ schema เหมือนเดิมสำหรับโปรเจกต์ CTA ชุดเดียว
+    const ctaChannelSeen = new Set<string>()
+    const ctaChannels = (ctaResult.spots.flatMap(s => s.channels) as CtaChan[])
+      .filter((c): c is CtaChan & { value: string } => !!c.value)
+      .filter(c => { const k = `${c.type}|${c.value}`; if (ctaChannelSeen.has(k)) return false; ctaChannelSeen.add(k); return true })
     const schema = buildArticleSchema({
       html: body,
       title,
@@ -971,7 +1117,7 @@ export async function POST(req: NextRequest) {
     html = injectMidImages(html, midResults, title || keyword)
 
     // แทรกแบนเนอร์ CTA (โหมด banner) แทน marker ที่โมเดลวางไว้ — ต้องมาก่อน author box
-    html = injectCtaBanner(html, cta)
+    html = injectCtaBanner(html, ctaResult.spots)
 
     // Append author box at the very end
     const authorHtml = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage, resolvedAuthorCredentials, resolvedAuthorCardStyle)
@@ -1107,7 +1253,7 @@ export async function POST(req: NextRequest) {
       fullHtml = injectMidImages(fullHtml, midResults, title || keyword)
 
       // แทรกแบนเนอร์ CTA (โหมด banner) แทน marker ที่โมเดลวางไว้ — ต้องมาก่อน author box
-      fullHtml = injectCtaBanner(fullHtml, cta)
+      fullHtml = injectCtaBanner(fullHtml, ctaResult.spots)
 
       // Append author box at the very end
       const authorHtmlBlock = buildAuthorHtml(resolvedAuthorName, resolvedAuthorTitle, resolvedAuthorImage, resolvedAuthorCredentials, resolvedAuthorCardStyle)

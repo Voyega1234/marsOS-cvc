@@ -13,13 +13,16 @@ import {
   MIN_CLEANED_HTML_LENGTH,
 } from '@/lib/upload-article/writer'
 import { cleanSemanticHtml } from '@/lib/upload-article/clean-html'
-import { buildUploadArticleHtml } from '@/lib/upload-article/build-html'
+import { buildUploadArticleHtml, uploadArticleLanguage } from '@/lib/upload-article/build-html'
+import { readUploadAuthor, pickAuthorForArticle } from '@/lib/upload-article/author'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { orChatStream, OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { ensureHumanVoiceText } from '@/lib/upload-article/human-voice'
+import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
+import { insertUploadCta } from '@/lib/upload-article/cta-insert'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
 export const maxDuration = 800
@@ -62,7 +65,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
 }
 
-/** POST /api/upload-article/clients/[id]/write body {keywordId} — สตรีม NDJSON ระหว่างเขียนบทความจาก keyword */
+/** POST /api/upload-article/clients/[id]/write body {keywordId, withCta?} — สตรีม NDJSON ระหว่างเขียนบทความจาก keyword */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId || !session.user.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -76,6 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const body = await req.json().catch(() => ({}))
   const keywordId = typeof body?.keywordId === 'string' ? body.keywordId : ''
   if (!keywordId) return NextResponse.json({ error: 'ต้องระบุ keywordId' }, { status: 400 })
+  const withCta = body?.withCta === true
 
   const prefs = await readPrefs(client.id, orgId)
   if (!prefs) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
@@ -114,6 +118,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     theme = { theme: '#2563eb', text: '#1f2937', border: '#e5e7eb', accent: '#2563eb', background: '', styleMode: 'embed' }
   }
 
+  // CTA ตาม Project Setting > CTA — ทีมติ๊ก "ใส่ CTA" แต่ยังตั้งค่าไม่ครบ = แจ้งก่อนเริ่ม ไม่เสียค่าเขียน
+  const cta = readUploadCta(prefs.cta)
+  if (withCta && !isUploadCtaReady(cta)) {
+    return NextResponse.json({ error: 'ยังไม่ได้ตั้งค่า CTA ให้ครบ — ไปที่ Project Setting > CTA' }, { status: 400 })
+  }
+  const ctaDesign = cta
+
+  // Author Box ตาม Project Setting > Author Box — ปิดอยู่/ยังไม่มีผู้เขียน = ไม่ใส่
+  const authorSettings = readUploadAuthor(prefs.author)
+  const authorForArticle = (articleId: string) => {
+    const profile = pickAuthorForArticle(authorSettings, articleId)
+    return profile ? { profile, style: authorSettings.style } : null
+  }
+
   const links = readLinks(prefs)
   const linkPairs = pickLinksForKeyword(links, { keyword: keyword.keyword, slug: keyword.slug })
 
@@ -147,7 +165,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   const system = buildWriterSystemPrompt({ masterPrompt, businessSkill, articleBrief, validatorPack })
-  const user = buildWriterUserPrompt({ keyword, links: linkPairs })
+  // ภาษาของบทความนี้ตามโหมดภาษาของลูกค้า (ไทย / อังกฤษ / ไทย+อังกฤษ = ดูจาก title ก่อน)
+  const language = uploadArticleLanguage(client.language, title, keyword.keyword)
+  const user = buildWriterUserPrompt({ keyword, links: linkPairs, language })
   const clientSlug = `upload-${slugifyClient(client.name)}`
 
   const encoder = new TextEncoder()
@@ -195,20 +215,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           throw new Error('เนื้อหาที่ได้สั้นเกินไป (โมเดลอาจตอบว่างหรือถูกตัดกลางทาง) ลองเขียนใหม่อีกครั้ง')
         }
 
+        // แทรกกล่อง CTA ลง sourceHtml เลย — Generate ใหม่กี่รอบก็ยังอยู่ (ข้อความ CTA มาจากที่ทีมตั้ง ไม่ใช่ AI)
+        const sourceHtml = withCta ? insertUploadCta(cleaned, cta).html : cleaned
+
         const built = buildUploadArticleHtml({
-          sourceHtml: cleaned,
+          sourceHtml,
           mode: 'html',
           theme,
-          site: { name: client.name, url: client.website, language: client.language === 'en' ? 'en' : 'th' },
+          site: { name: client.name, url: client.website, language },
           meta: { title, seoTitle, metaDescription: parsed.metaDescription || undefined, slug: keyword.slug || undefined },
           cover: null,
           breadcrumb: true,
+          cta: ctaDesign,
+          author: authorForArticle(article.id),
         })
 
         const updated = await prisma.uploadArticle.update({
           where: { id: article.id },
           data: {
-            sourceHtml: cleaned,
+            sourceHtml,
             htmlContent: built.html,
             metaDescription: parsed.metaDescription,
             status: 'GENERATED',

@@ -94,6 +94,64 @@ export interface CtaCustomDesign {
 
 export interface CtaBanner { id: string; imageUrl: string; href: string; alt: string }
 
+// ── Multi-CTA — หลาย CTA ต่อโปรเจกต์ เลือกจำนวนต่อบทความได้ (owner สั่ง 2026-09-28) ──
+// นิยามรวมไว้ที่นี่ — route.ts และ ClientDetailTabs.tsx import ไปใช้ ห้าม redefine กันดริฟต์
+export interface CtaItemChannel {
+  type: string; label: string; value: string
+  icon?: string; imageUrl?: string; buttonStyle?: 'filled' | 'outline' | 'ghost'
+}
+
+/** CTA 1 ชุด — โครงเดิมของ CtaSettings (ก่อนมี items[]) + id/name */
+export interface CtaItem {
+  id: string
+  name?: string
+  headline: string
+  subtext: string
+  channels: CtaItemChannel[]
+  alignment: 'left' | 'center' | 'right'
+  buttonLayout: 'row' | 'column'
+  mode?: CtaMode              // undefined = 'buttons' (record เก่า)
+  custom?: CtaCustomDesign    // ใช้เมื่อ mode === 'custom'
+  banners?: CtaBanner[]       // ใช้เมื่อ mode === 'banner' สูงสุด 5 รูป
+}
+
+export interface CtaSettingsNormalized {
+  enabled: boolean
+  perArticle: number // 1-5
+  items: CtaItem[]
+}
+
+/**
+ * แปลง Project.ctaSetting (JSON ที่ parse แล้ว) ให้เป็นรูป items[] เสมอ
+ * - shape ใหม่ (มี items[]) → ใช้ตรง ๆ, perArticle clamp 1-5
+ * - shape เก่า (ไม่มี items — CTA ชุดเดียวแบบเดิม) → ห่อเป็น 1 item, perArticle default
+ *   ตาม "พฤติกรรมเดิม" ของแต่ละโหมด (โหมดปุ่ม/ออกแบบเอง = 3 จุด, โหมดแบนเนอร์ = 2 จุด)
+ *   เพื่อให้โปรเจกต์เก่าที่ยังไม่แตะ UI ใหม่ได้ผลลัพธ์เหมือนเดิมทุกประการ
+ */
+export function normalizeCtaItems(raw: unknown): CtaSettingsNormalized {
+  if (!raw || typeof raw !== 'object') return { enabled: false, perArticle: 1, items: [] }
+  const r = raw as Record<string, unknown>
+  if (Array.isArray(r.items) && r.items.length > 0) {
+    const perArticle = Math.min(5, Math.max(1, Number(r.perArticle) || 1))
+    return { enabled: !!r.enabled, perArticle, items: r.items as CtaItem[] }
+  }
+  // legacy — ตัวมันเองคือ item เดียว
+  const legacyItem: CtaItem = {
+    id: 'legacy',
+    name: '',
+    headline: (r.headline as string) ?? '',
+    subtext: (r.subtext as string) ?? '',
+    channels: Array.isArray(r.channels) ? (r.channels as CtaItemChannel[]) : [],
+    alignment: (r.alignment as CtaItem['alignment']) ?? 'center',
+    buttonLayout: (r.buttonLayout as CtaItem['buttonLayout']) ?? 'row',
+    mode: r.mode as CtaMode | undefined,
+    custom: r.custom as CtaCustomDesign | undefined,
+    banners: r.banners as CtaBanner[] | undefined,
+  }
+  const legacyPerArticle = legacyItem.mode === 'banner' ? 2 : 3
+  return { enabled: !!r.enabled, perArticle: legacyPerArticle, items: [legacyItem] }
+}
+
 // ── CSS builder — compile ค่าจาก Article Lab เป็น stylesheet เดียว ─────────────
 
 export interface ArticleCssOptions {
@@ -108,7 +166,12 @@ export interface ArticleCssOptions {
     letterSpacing?: string | null; headingFont?: string | null; headingWeight?: string | null
     paragraphMargin?: string | null
   } | null
-  cta?: { mode?: CtaMode; custom?: CtaCustomDesign | null } | null
+  cta?: {
+    mode?: CtaMode; custom?: CtaCustomDesign | null
+    /** หลาย CTA — สร้าง override CSS แบบ scope ต่อ item (.content-cta--c-<id>) เพิ่มจากค่า default ด้านบน
+     *  ไม่ส่งมา = ไม่มีผลอะไรเพิ่ม (backward compatible กับ caller เดิมที่ยังไม่รู้จัก items) */
+    items?: Array<{ id: string; mode?: CtaMode; custom?: CtaCustomDesign | null }>
+  } | null
 }
 
 // ตรวจค่าสีก่อนแปะลง CSS — กัน custom design ที่ผู้ใช้กรอกมั่วหลุดเข้า stylesheet
@@ -210,6 +273,30 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
     lines.push(`.content-article .content-cta__subtext{color:${boxText};}`)
     lines.push(`.content-article .content-cta__button{background:${buttonBg};color:${buttonText};border:1.5px solid ${buttonBorderColor};border-radius:${buttonRadius}px;}`)
     lines.push(`.content-article .content-cta__button--secondary{background:transparent;color:${boxText};border-color:${boxText};}`)
+  }
+
+  // CTA หลายชุด — override CSS แบบ scope ต่อ item (.content-cta--c-<id>) สำหรับ item ที่โหมด custom
+  // เพิ่มต่อท้าย ไม่แตะ selector .content-cta เดิม — caller เดิมที่ไม่ส่ง items จะได้ CSS เหมือนเดิมทุกตัวอักษร
+  for (const item of opts.cta?.items ?? []) {
+    if (item.mode !== 'custom' || !item.custom || !item.id) continue
+    const ic = item.custom
+    const cid = String(item.id).replace(/[^a-zA-Z0-9_-]/g, '')
+    if (!cid) continue
+    const iBoxBg = isValidCssColor(ic.boxBg) ? ic.boxBg : theme
+    const iBoxText = isValidCssColor(ic.boxText) ? ic.boxText : '#fff'
+    const iBoxBorderColor = isValidCssColor(ic.boxBorderColor) ? ic.boxBorderColor : 'transparent'
+    const iBoxBorderWidth = Number.isFinite(ic.boxBorderWidth) ? Math.min(6, Math.max(0, ic.boxBorderWidth)) : 0
+    const iBoxRadius = Number.isFinite(ic.boxRadius) ? Math.min(32, Math.max(0, ic.boxRadius)) : 16
+    const iButtonBg = isValidCssColor(ic.buttonBg) ? ic.buttonBg : '#fff'
+    const iButtonText = isValidCssColor(ic.buttonText) ? ic.buttonText : theme
+    const iButtonBorderColor = isValidCssColor(ic.buttonBorderColor) ? ic.buttonBorderColor : 'transparent'
+    const iButtonRadius = Number.isFinite(ic.buttonRadius) ? Math.min(32, Math.max(0, ic.buttonRadius)) : 10
+    const sel = `.content-article .content-cta--c-${cid}`
+    lines.push(`${sel}{background:${iBoxBg};color:${iBoxText};border:${iBoxBorderWidth}px solid ${iBoxBorderColor};border-radius:${iBoxRadius}px;}`)
+    lines.push(`${sel} .content-cta__headline{color:${iBoxText};}`)
+    lines.push(`${sel} .content-cta__subtext{color:${iBoxText};}`)
+    lines.push(`${sel} .content-cta__button{background:${iButtonBg};color:${iButtonText};border:1.5px solid ${iButtonBorderColor};border-radius:${iButtonRadius}px;}`)
+    lines.push(`${sel} .content-cta__button--secondary{background:transparent;color:${iBoxText};border-color:${iBoxText};}`)
   }
 
   // FAQ (details/summary)

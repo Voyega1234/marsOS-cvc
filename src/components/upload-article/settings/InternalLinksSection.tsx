@@ -139,7 +139,7 @@ export default function InternalLinksSection({ clientId }: { clientId: string })
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-semibold text-brand-navy">Internal Link</p>
-            <p className="text-xs text-gray-500 mt-0.5">AI จะแทรกลิงก์ภายในบทความจากรายการนี้ตามจำนวนที่กำหนด</p>
+            <p className="text-xs text-gray-500 mt-0.5">Mars จะแทรกลิงก์ภายในบทความจากรายการนี้ตามจำนวนที่กำหนด</p>
           </div>
           <div className="flex items-center gap-2">
             {dirty && <span className="text-[11px] text-amber-600 font-medium">มีการแก้ไขที่ยังไม่บันทึก</span>}

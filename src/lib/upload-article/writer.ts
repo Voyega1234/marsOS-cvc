@@ -3,6 +3,7 @@
 // งาน DB/stream จริงอยู่ที่ route (ต้องใช้ prisma + orChatStream ตรง ๆ)
 
 import type { UploadKeyword, UploadLinkPair } from './types'
+import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
 
 /** WRITING ที่ค้างเกินนี้ถือว่าตาย (proc ตายกลางทาง) — ลบทิ้งแล้วเขียนใหม่ได้ */
 export const WRITER_STALE_MS = 6 * 60 * 1000
@@ -56,7 +57,12 @@ export function buildWriterSystemPrompt(ce: WriterCELayers): string {
 export interface WriterTask {
   keyword: UploadKeyword
   links: UploadLinkPair[]
+  /** ภาษาของบทความนี้ (resolve จากโหมดภาษาของลูกค้า + title/keyword แล้ว) — ไม่ส่ง = ไม่กำหนด */
+  language?: 'th' | 'en'
 }
+
+/** โน้ตจากทีม (ช่อง Note แท็บ Keyword) ยาวสุดที่ส่งให้ writer */
+export const WRITER_NOTE_MAX = 2000
 
 /** user prompt: บรีฟงาน + ลิงก์ภายในที่ต้องแทรก + สัญญารูปแบบผลลัพธ์ (output format contract) */
 export function buildWriterUserPrompt(task: WriterTask): string {
@@ -75,7 +81,24 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push(`- Slug: ${keyword.slug || '(ไม่ระบุ)'}`)
   lines.push(`- Search Intent: ${keyword.intent || '(ไม่ระบุ)'}`)
   lines.push(`- ประเภทบทความ: ${keyword.articleType || '(ไม่ระบุ)'}`)
-  if (keyword.note) lines.push(`- โน้ตเพิ่มเติมจากทีม: ${keyword.note}`)
+  if (task.language) {
+    lines.push(task.language === 'en'
+      ? '- ภาษาของบทความ: อังกฤษทั้งบทความ (Write the whole article, meta description and FAQ in natural English)'
+      : '- ภาษาของบทความ: ไทยทั้งบทความ (คงชื่อเฉพาะ/ชื่อแบรนด์ภาษาอังกฤษไว้ได้)')
+  }
+  // Note ว่าง = ไม่แนบอะไรเลย, มีข้อความ = ทีมสั่งเพิ่มสำหรับบทความนี้ ต้องทำตาม (เจ้าของสั่ง 2026-09-28)
+  const note = (keyword.note || '').trim().slice(0, WRITER_NOTE_MAX)
+  if (note) {
+    lines.push('')
+    lines.push('# หมายเหตุจากทีมสำหรับบทความนี้ (ต้องทำตาม ถ้าขัดกับ Article Brief ให้ยึดหมายเหตุนี้ แต่ข้อเท็จจริงยังต้องมาจาก Business Skill เท่านั้น)')
+    lines.push(note)
+  }
+  // Mars Article Intent Skill — ให้เนื้อหาตรงกับ Search Intent + ประเภทบทความ (ไม่มีทั้งคู่ = โหมดพื้นฐาน วิเคราะห์จาก keyword)
+  const intentSkill = articleIntentSkillBlock({ intent: keyword.intent, articleType: keyword.articleType })
+  if (intentSkill) {
+    lines.push('')
+    lines.push(intentSkill)
+  }
   lines.push('')
   lines.push('# Internal Link ที่ต้องแทรกในเนื้อหา (ใช้แต่ละลิงก์ไม่เกิน 1 ครั้ง แทรก anchor text ให้เนียนเข้ากับประโยค ห้ามยัดทุกลิงก์ในย่อหน้าเดียว)')
   lines.push(linkLines)

@@ -6,7 +6,7 @@
  * ตำแหน่งซับแท็บ: เมนูแนวตั้งด้านซ้ายบนจอใหญ่ / แถบเลื่อนแนวนอนบนมือถือ
  */
 import { useState } from "react";
-import { Cpu, Globe, ImageIcon, Link2, Palette, ScanSearch, Trash2 } from "lucide-react";
+import { Cpu, Globe, ImageIcon, Link2, Megaphone, Palette, ScanSearch, Sparkles, Trash2, UserRound } from "lucide-react";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 import ConnectTab from "../tabs/ConnectTab";
 import ScanSection from "./ScanSection";
@@ -14,10 +14,13 @@ import StyleSection from "./StyleSection";
 import InternalLinksSection from "./InternalLinksSection";
 import UploadContentEngine from "./UploadContentEngine";
 import ImagesSection from "./ImagesSection";
+import CtaSection from "./CtaSection";
+import AuthorSection from "./AuthorSection";
+import TestImageSection from "./TestImageSection";
 import DangerSection from "./DangerSection";
 import { useThemeDraft } from "./useThemeDraft";
 
-export type SettingsSection = "website" | "scan" | "style" | "links" | "images" | "engine" | "danger";
+export type SettingsSection = "website" | "scan" | "style" | "links" | "images" | "cta" | "author" | "test-image" | "engine" | "danger";
 
 const SECTIONS: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
   { id: "website", label: "เว็บไซต์ & Connect", icon: Globe },
@@ -25,6 +28,9 @@ const SECTIONS: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
   { id: "style", label: "สไตล์บทความ", icon: Palette },
   { id: "links", label: "Internal Link", icon: Link2 },
   { id: "images", label: "รูปภาพ", icon: ImageIcon },
+  { id: "cta", label: "CTA", icon: Megaphone },
+  { id: "author", label: "Author Box", icon: UserRound },
+  { id: "test-image", label: "Test Image", icon: Sparkles },
   { id: "engine", label: "Content Engine", icon: Cpu },
   { id: "danger", label: "ลบลูกค้า", icon: Trash2 },
 ];
@@ -96,6 +102,9 @@ export default function SettingsTab({
           <ImagesSection client={client} setClient={setClient}
             openEngine={() => go("engine")} />
         )}
+        {active === "cta" && <CtaSection client={client} setClient={setClient} />}
+        {active === "author" && <AuthorSection client={client} setClient={setClient} />}
+        {active === "test-image" && <TestImageSection client={client} />}
         {active === "engine" && <UploadContentEngine client={client} userRole={userRole} />}
         {active === "danger" && <DangerSection client={client} onDeleted={onDeleted} />}
       </div>

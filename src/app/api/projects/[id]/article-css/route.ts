@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { buildArticleCss, type CtaMode, type CtaCustomDesign } from '@/lib/articleComponents'
+import { buildArticleCss, normalizeCtaItems, type CtaMode, type CtaCustomDesign } from '@/lib/articleComponents'
 import type { ArticleElementStyles } from '@/lib/articleTheme'
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
@@ -25,10 +25,17 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   let colors: Record<string, unknown> = {}
   try { colors = JSON.parse(project.themeColors || '{}') } catch { /* ใช้ default */ }
 
-  let ctaCss: { mode?: CtaMode; custom?: CtaCustomDesign | null } | null = null
+  let ctaCss: { mode?: CtaMode; custom?: CtaCustomDesign | null; items?: Array<{ id: string; mode?: CtaMode; custom?: CtaCustomDesign | null }> } | null = null
   try {
     const parsed = project.ctaSetting ? JSON.parse(project.ctaSetting) : null
-    if (parsed) ctaCss = { mode: parsed.mode, custom: parsed.custom }
+    if (parsed) {
+      const normalized = normalizeCtaItems(parsed)
+      ctaCss = {
+        mode: normalized.items[0]?.mode,
+        custom: normalized.items[0]?.custom,
+        items: normalized.items.length > 1 ? normalized.items.map(it => ({ id: it.id, mode: it.mode, custom: it.custom })) : undefined,
+      }
+    }
   } catch { /* ใช้ default */ }
 
   const css = buildArticleCss({

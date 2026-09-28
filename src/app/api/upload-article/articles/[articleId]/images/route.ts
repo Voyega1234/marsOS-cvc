@@ -14,6 +14,7 @@ import {
   removeGeneratedFigures, replaceCoverInHtml,
 } from '@/lib/upload-article/article-images'
 import { DEFAULT_UPLOAD_THEME, UPLOAD_MAX_INLINE_IMAGES, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
+import { resolveArticleLanguage } from '@/lib/keyword-language'
 
 // สร้างรูปหลายภาพขนานกัน ภาพละ ~30-90 วิ — เผื่อเวลาให้พอ ไม่ให้ Vercel ตัดกลางทาง
 export const maxDuration = 800
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const prefs = await readPrefs(client.id, orgId)
   const plan = Array.isArray(prefs?.keywordPlan) ? (prefs!.keywordPlan as UploadKeyword[]) : []
   const keyword = plan.find(k => k.articleId === article.id)?.keyword || article.title
-  const language: 'th' | 'en' = client.language === 'en' ? 'en' : 'th'
+  const language = resolveArticleLanguage({ projectLanguage: client.language, keyword, title: article.seoTitle || article.title })
   const clientSlug = `upload-${slugifyClient(client.name)}`
 
   const base = {

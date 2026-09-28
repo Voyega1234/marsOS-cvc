@@ -29,7 +29,7 @@ export default function ConnectTab({
 }) {
   const [name, setName] = useState(client.name);
   const [website, setWebsite] = useState(client.website);
-  const [language, setLanguage] = useState<"th" | "en">(client.language);
+  const [language, setLanguage] = useState<"th" | "en" | "both">(client.language);
   const [platform, setPlatform] = useState<PlatformId>((client.websitePlatform as PlatformId) || "wordpress");
   const [wpUrl, setWpUrl] = useState(client.wpUrl);
   const [wpUser, setWpUser] = useState(client.wpUser);
@@ -111,10 +111,11 @@ export default function ConnectTab({
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">ภาษา</label>
-            <select value={language} onChange={e => setLanguage(e.target.value as "th" | "en")}
+            <select value={language} onChange={e => setLanguage(e.target.value as "th" | "en" | "both")}
               className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
-              <option value="th">ไทย</option>
-              <option value="en">English</option>
+              <option value="th">ไทยเท่านั้น</option>
+              <option value="en">อังกฤษเท่านั้น</option>
+              <option value="both">ไทย+อังกฤษ</option>
             </select>
           </div>
         </div>

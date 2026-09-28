@@ -1,9 +1,9 @@
-// ─── Upload Article — AI ช่วยตั้งชื่อ/slug/intent/ประเภทบทความ ให้ keyword แต่ละคำ ───
+// ─── Upload Article — Mars ช่วยตั้งชื่อ/slug/intent/ประเภทบทความ ให้ keyword แต่ละคำ (ตาม Title Skill) ───
 // เรียก OpenRouter ตรง ๆ (ไม่ผ่าน askJson เพราะต้องล็อกโมเดล OR_MODELS.keyword() ตามสเปก)
 
 import { OR_MODELS, orChat, type ORUsage } from '@/lib/openrouter'
 import type { UploadKeywordIntent } from './types'
-import { humanTitleRulesBlock, titleLooksMachineWritten } from './human-voice'
+import { titleSkillBlock, titleNeedsRewrite } from './title-skill'
 
 const VALID_INTENTS: UploadKeywordIntent[] = ['informational', 'educational', 'commercial', 'transactional', 'navigational']
 
@@ -85,14 +85,16 @@ export async function generateKeywordPlan(params: {
   items: KeywordAiInput[]
   clientName: string
   website: string
-  language: 'th' | 'en'
+  language: 'th' | 'en' | 'both'
+  /** Business Skill ของลูกค้าจาก Content Engine (ถ้าตั้งไว้) — ให้รู้ว่าธุรกิจขายอะไร ตั้งชื่อได้ตรงบริบท */
+  businessSkill?: string
 }): Promise<KeywordAiResult> {
   const batches: KeywordAiInput[][] = []
   for (let i = 0; i < params.items.length; i += KEYWORD_AI_BATCH_SIZE) {
     batches.push(params.items.slice(i, i + KEYWORD_AI_BATCH_SIZE))
   }
 
-  const results = await Promise.all(batches.map((batch) => runBatch(batch, params.clientName, params.website, params.language)))
+  const results = await Promise.all(batches.map((batch) => runBatch(batch, params.clientName, params.website, params.language, params.businessSkill)))
 
   const items: KeywordAiItem[] = []
   const errors: string[] = []
@@ -105,22 +107,28 @@ export async function generateKeywordPlan(params: {
   return { items, usage, errors }
 }
 
-/** รอบแรกได้ title ที่ยังเหมือน AI (โคลอน/คำติดปาก AI) → ขอใหม่เฉพาะตัวนั้นอีก 1 รอบ */
+/** รอบแรกได้ title ที่ยังเหมือนเครื่องเขียน หรืออ่านไม่ต่อเนื่อง (Title Skill) → ขอใหม่เฉพาะตัวนั้นอีก 1 รอบ */
 async function runBatch(
   batch: KeywordAiInput[],
   clientName: string,
   website: string,
-  language: 'th' | 'en',
+  language: 'th' | 'en' | 'both',
+  businessSkill?: string,
 ): Promise<KeywordAiResult> {
-  const first = await runBatchOnce(batch, clientName, website, language)
-  const fixedIds = new Set(batch.filter((b) => b.fixedTitle).map((b) => b.id))
-  const redo = first.items.filter((it) => !fixedIds.has(it.id) && titleLooksMachineWritten(it.title))
+  const first = await runBatchOnce(batch, clientName, website, language, businessSkill)
+  const byId = new Map(batch.map((b) => [b.id, b]))
+  const redo = first.items
+    .filter((it) => !byId.get(it.id)?.fixedTitle)
+    .map((it) => ({ it, reason: titleNeedsRewrite(it.title, byId.get(it.id)?.keyword || '') }))
+    .filter((r): r is { it: KeywordAiItem; reason: string } => Boolean(r.reason))
   if (redo.length === 0) return first
-  const retryInput = batch
-    .filter((b) => redo.some((r) => r.id === b.id))
-    .map((b) => ({ ...b, rejectedTitle: redo.find((r) => r.id === b.id)?.title || '' }))
-  const second = await runBatchOnce(retryInput, clientName, website, language)
-  const fixed = new Map(second.items.filter((it) => it.title && !titleLooksMachineWritten(it.title)).map((it) => [it.id, it]))
+  const retryInput = redo.map(({ it, reason }) => ({ ...byId.get(it.id)!, rejectedTitle: it.title, rejectReason: reason }))
+  const second = await runBatchOnce(retryInput, clientName, website, language, businessSkill)
+  const fixed = new Map(
+    second.items
+      .filter((it) => it.title && !titleNeedsRewrite(it.title, byId.get(it.id)?.keyword || ''))
+      .map((it) => [it.id, it]),
+  )
   return {
     items: first.items.map((it) => {
       const f = fixed.get(it.id)
@@ -137,20 +145,23 @@ async function runBatch(
 }
 
 async function runBatchOnce(
-  batch: (KeywordAiInput & { rejectedTitle?: string })[],
+  batch: (KeywordAiInput & { rejectedTitle?: string; rejectReason?: string })[],
   clientName: string,
   website: string,
-  language: 'th' | 'en',
+  language: 'th' | 'en' | 'both',
+  businessSkill?: string,
 ): Promise<KeywordAiResult> {
   const system = `คุณคือนักวางแผนคอนเทนต์ SEO มืออาชีพ ตอบเป็น JSON เท่านั้น ไม่มีคำอธิบายอื่น
 รูปแบบ: {"items": [{"id": string, "title": string, "slug": string, "intent": string, "articleType": string}]}
 กติกา ต่อ 1 รายการ:
-- title: ชื่อบทความ (H1) ที่ตรงกับ keyword ใช้ภาษาเดียวกับ keyword นั้น ความยาวไม่เกิน 65 ตัวอักษร ต้องอ่านแล้วเหมือนคนตั้ง ไม่ใช่ AI:
-${humanTitleRulesBlock()}
+- title: ชื่อบทความ (H1) ที่ตรงกับ keyword ความยาวไม่เกิน 65 ตัวอักษร ตั้งตาม Title Skill ด้านล่างทุกข้อ
 - slug: คำภาษาอังกฤษล้วนจากความหมายของ title ตัวพิมพ์เล็ก คั่นด้วย - ความยาวไม่เกิน 60 ตัวอักษร ใช้ได้เฉพาะ a-z0-9-
 - intent: เลือกค่าเดียวจาก informational | educational | commercial | transactional | navigational
 - articleType: ป้ายสั้น ๆ ภาษาไทย เช่น "บทความให้ความรู้" | "How-to / ขั้นตอน" | "Listicle" | "เปรียบเทียบ" | "รีวิว/แนะนำสินค้า" | "หน้าขาย/บริการ"
-ลูกค้า: ${clientName || '(ไม่ระบุ)'} เว็บไซต์: ${website || '(ไม่ระบุ)'} ภาษาเว็บไซต์หลัก: ${language === 'en' ? 'English' : 'ไทย'}
+ลูกค้า: ${clientName || '(ไม่ระบุ)'} เว็บไซต์: ${website || '(ไม่ระบุ)'} ภาษาเว็บไซต์: ${language === 'en' ? 'อังกฤษเท่านั้น' : language === 'both' ? 'ไทย+อังกฤษ' : 'ไทยเท่านั้น'}
+ถ้ารายการไหนมี rejectedTitle = title ที่ตั้งรอบก่อนแล้วไม่ผ่าน (ดูเหตุผลใน rejectReason) ห้ามใช้รูปแบบเดิม ตั้งใหม่ทั้งประโยค
+
+${titleSkillBlock({ language })}${businessSkill?.trim() ? `\n\nข้อมูลธุรกิจของลูกค้า (Business Skill จาก Content Engine — ใช้เข้าใจบริบท ห้ามยัดชื่อแบรนด์ลง title ถ้า keyword ไม่มี):\n${businessSkill.trim().slice(0, 4000)}` : ''}
 ถ้ารายการไหนมี fixedTitle = ทีมตั้ง title ไว้แล้ว ให้ตอบ title เป็น fixedTitle ตรงตัวอักษร ห้ามแก้ แล้วตั้ง slug/intent/articleType ให้เข้ากับ title นั้น
 ต้องตอบครบทุก id ที่ส่งมา ตามลำดับเดิม ห้ามเว้น ห้ามเพิ่ม id ใหม่`
 
@@ -159,7 +170,7 @@ ${humanTitleRulesBlock()}
       keyword: b.keyword,
       volume: b.volume ?? null,
       ...(b.fixedTitle ? { fixedTitle: b.fixedTitle } : {}),
-      ...(b.rejectedTitle ? { rejectedTitle: b.rejectedTitle, note: 'title เดิมอ่านแล้วเหมือน AI เขียน ห้ามใช้รูปแบบเดิม ตั้งใหม่ให้เป็นภาษาคน' } : {}),
+      ...(b.rejectedTitle ? { rejectedTitle: b.rejectedTitle, rejectReason: b.rejectReason || '' } : {}),
     })) })
 
   try {

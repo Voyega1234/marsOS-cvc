@@ -187,10 +187,10 @@ export default function KeywordTab({
 
   async function runAi() {
     const ids = rewriteMode ? Array.from(selected) : fillIds;
-    if (!ids.length) { toast.error("ทุก keyword มี Title / Slug / Intent ครบแล้ว — ติ๊กเลือกแถวที่อยากให้ AI เขียนใหม่"); return; }
+    if (!ids.length) { toast.error("ทุก keyword มี Title / Slug / Intent ครบแล้ว — ติ๊กเลือกแถวที่อยากให้ Mars เขียนใหม่"); return; }
     if (rewriteMode) {
       const withTitle = items.filter(it => selected.has(it.id) && it.title).length;
-      if (withTitle && !confirm(`AI จะเขียน Title / Slug / Intent ใหม่ทับของเดิม ${withTitle} รายการที่มี Title อยู่แล้ว — ทำต่อ?`)) return;
+      if (withTitle && !confirm(`Mars จะเขียน Title / Slug / Intent ใหม่ทับของเดิม ${withTitle} รายการที่มี Title อยู่แล้ว — ทำต่อ?`)) return;
     }
     setAiBusy(true);
     setAiProgress({ done: 0, total: ids.length });
@@ -205,15 +205,15 @@ export default function KeywordTab({
             body: JSON.stringify({ ids: chunk, mode: rewriteMode ? "rewrite" : "fill" }),
           });
           const d = await r.json().catch(() => ({}));
-          if (!r.ok) { failed = true; toast.error(d?.error || "AI ตั้งค่าไม่สำเร็จบางส่วน"); }
+          if (!r.ok) { failed = true; toast.error(d?.error || "Mars ตั้งค่าไม่สำเร็จบางส่วน"); }
           else if (d.items) setItems(d.items);
         } catch (e) {
           failed = true;
-          toast.error(`AI ตั้งค่าไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+          toast.error(`Mars ตั้งค่าไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
         }
         setAiProgress(p => ({ ...p, done: Math.min(ids.length, p.done + chunk.length) }));
       }
-      if (!failed) toast.success(rewriteMode ? `AI เขียนใหม่ ${ids.length} keyword แล้ว` : `AI เติมช่องที่ว่าง ${ids.length} keyword แล้ว`);
+      if (!failed) toast.success(rewriteMode ? `Mars เขียนใหม่ ${ids.length} keyword แล้ว` : `Mars เติมช่องที่ว่าง ${ids.length} keyword แล้ว`);
     } finally {
       setAiBusy(false);
     }
@@ -333,18 +333,18 @@ export default function KeywordTab({
         <div>
           <p className="text-xs text-gray-500">{items.length} keyword{selected.size ? ` · เลือก ${selected.size}` : ""}</p>
           {items.length > 0 && (
-            <p className="text-[11px] text-gray-400 mt-0.5">ติ๊กแถวที่อยากให้ AI เขียน Title / Slug / Intent ใหม่ — ไม่ติ๊ก AI จะเติมเฉพาะช่องที่ว่าง (Title ที่มากับไฟล์ไม่โดนแตะ)</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">ติ๊กแถวที่อยากให้ Mars เขียน Title / Slug / Intent ใหม่ — ไม่ติ๊ก Mars จะเติมเฉพาะช่องที่ว่าง (Title ที่มากับไฟล์ไม่โดนแตะ)</p>
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="outline" disabled={aiBusy || loading || !items.length || (!rewriteMode && !fillIds.length)} onClick={runAi}
-            title="ติ๊กเลือกแถว = ให้ AI เขียน Title / Slug / Intent ใหม่ทับของเดิม · ไม่ติ๊ก = เติมเฉพาะช่องที่ยังว่าง">
+            title="ติ๊กเลือกแถว = ให้ Mars เขียน Title / Slug / Intent ใหม่ทับของเดิม · ไม่ติ๊ก = เติมเฉพาะช่องที่ยังว่าง">
             {aiBusy ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Sparkles size={12} className="mr-1.5" />}
             {aiBusy
               ? `กำลังตั้งค่า... (${aiProgress.done}/${aiProgress.total})`
               : rewriteMode
-                ? `ให้ AI เขียนใหม่ (${selected.size} ที่ติ๊ก)`
-                : `ให้ AI เติมช่องที่ว่าง (${fillIds.length})`}
+                ? `ให้ Mars เขียนใหม่ (${selected.size} ที่ติ๊ก)`
+                : `ให้ Mars เติมช่องที่ว่าง (${fillIds.length})`}
           </Button>
           <Button size="sm" variant="outline" disabled={!selected.size || deleting} onClick={deleteSelected}>
             {deleting ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Trash2 size={12} className="mr-1.5" />}

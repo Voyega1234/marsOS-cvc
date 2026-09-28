@@ -81,6 +81,8 @@ function blockedOrContainer(node: Node): HTMLElement | null {
     const el = cur as HTMLElement
     const tag = (el.rawTagName || '').toLowerCase()
     if (BLOCKED.has(tag)) return null
+    // กล่อง CTA ที่ระบบแทรก — ไม่ใส่ Internal Link ในหัวข้อ/คำโปรย CTA
+    if (/\bcontent-cta\b/.test(el.getAttribute('class') || '')) return null
     if (!container && CONTAINERS.has(tag)) container = el
     cur = el.parentNode
   }

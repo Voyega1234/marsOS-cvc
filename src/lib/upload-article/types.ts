@@ -1,6 +1,8 @@
 // ─── Upload Article — ชนิดข้อมูลที่ใช้ร่วมกันระหว่าง API และหน้า UI ──────────────
 // ลูกค้าของ Upload Article แยกจาก Project (Clients) เด็ดขาด เก็บในตาราง UploadClient / UploadArticle
 
+import type { UploadCtaSummary } from './cta'
+import type { UploadAuthorSummary } from './author'
 export type UploadOutputMode = 'html' | 'text'
 export type UploadArticleStatus = 'WRITING' | 'IMPORTED' | 'GENERATED' | 'REVIEWED' | 'PUSHING' | 'PUSHED' | 'FAILED'
 
@@ -211,7 +213,7 @@ export interface UploadClientDTO {
   id: string
   name: string
   website: string
-  language: 'th' | 'en'
+  language: 'th' | 'en' | 'both'
   theme: UploadTheme
   pushPrefs: UploadPushPrefs
   websitePlatform: string
@@ -220,6 +222,10 @@ export interface UploadClientDTO {
   hasWpPassword: boolean
   /** ค่า secret แสดงแบบ •••• + 4 ตัวท้าย */
   siteConnectionMasked: Record<string, string>
+  /** สถานะ CTA (Project Setting > CTA) แบบย่อ — ค่าเต็มโหลดผ่าน /clients/[id]/cta */
+  ctaSummary: UploadCtaSummary
+  /** สถานะกล่องผู้เขียน (Project Setting > Author Box) แบบย่อ — ค่าเต็มโหลดผ่าน /clients/[id]/author */
+  authorSummary: UploadAuthorSummary
   counts: { total: number; imported: number; generated: number; reviewed: number; pushed: number; failed: number }
   createdAt: string
   updatedAt: string

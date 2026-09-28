@@ -8,6 +8,7 @@ import { OR_MODELS } from '@/lib/openrouter'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import type { UploadKeyword } from '@/lib/upload-article/types'
+import { resolveContentEngine } from '@/lib/content-engine-resolve'
 
 export const maxDuration = 300
 
@@ -45,10 +46,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .map((k) => ({ id: k.id, keyword: k.keyword, volume: k.volume, ...(fill && k.title ? { fixedTitle: k.title } : {}) }))
   if (inputs.length === 0) return NextResponse.json({ error: 'ไม่พบ keyword ที่เลือก' }, { status: 404 })
 
-  const language = client.language === 'en' ? 'en' : 'th'
+  const language = client.language === 'en' || client.language === 'both' ? client.language : 'th'
+  // Business Skill ของลูกค้านี้ (ถ้าตั้งไว้) ให้ตั้งชื่อตรงกับธุรกิจ — ไม่มีก็ไม่ส่ง ห้ามเดา
+  const ce = await resolveContentEngine(orgId, { projectId: client.id })
+  const businessSkill = ce.businessSkill?.text?.trim() || undefined
   const clientSlug = `upload-${slugifyClient(client.name)}`
   const aiResult = await withOrClient(clientSlug, () =>
-    generateKeywordPlan({ items: inputs, clientName: client.name, website: client.website, language }),
+    generateKeywordPlan({ items: inputs, clientName: client.name, website: client.website, language, businessSkill }),
   )
 
   logAIJob({

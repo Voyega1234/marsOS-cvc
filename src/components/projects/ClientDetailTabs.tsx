@@ -44,7 +44,7 @@ import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
 import { downscaleDataUrl, fileToDownscaledDataUrl } from '@/lib/imageDownscale'
-import type { CtaMode, CtaCustomDesign, CtaBanner } from '@/lib/articleComponents'
+import { normalizeCtaItems, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem, type CtaItemChannel } from '@/lib/articleComponents'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -5078,24 +5078,11 @@ const THEMES = [
 
 interface InternalLink { keyword: string; url: string }
 
-interface CtaChannel {
-  type: 'line' | 'facebook' | 'phone' | 'email' | 'website' | 'form' | 'custom'
-  label: string
-  value: string
-  icon?: string
-  imageUrl?: string  // uploaded image/logo for button widget
-  buttonStyle?: 'filled' | 'outline' | 'ghost'
-}
-interface CtaSettings {
+type CtaChannel = CtaItemChannel
+interface CtaState {
   enabled: boolean
-  headline: string
-  subtext: string
-  channels: CtaChannel[]
-  alignment: 'left' | 'center' | 'right'
-  buttonLayout: 'row' | 'column'
-  mode?: CtaMode              // undefined = 'buttons' (record เก่า)
-  custom?: CtaCustomDesign    // ใช้เมื่อ mode === 'custom'
-  banners?: CtaBanner[]       // ใช้เมื่อ mode === 'banner' สูงสุด 5 รูป
+  perArticle: number          // 1-5 — จำนวน CTA ที่สุ่มแทรกต่อ 1 บทความ
+  items: CtaItem[]
 }
 const CTA_CHANNEL_OPTS: { type: CtaChannel['type']; icon: string; placeholder: string; defaultLabel: string }[] = [
   { type: 'line',     icon: '💬', placeholder: 'https://line.me/ti/p/~...', defaultLabel: 'Line' },
@@ -5106,13 +5093,16 @@ const CTA_CHANNEL_OPTS: { type: CtaChannel['type']; icon: string; placeholder: s
   { type: 'form',     icon: '📋', placeholder: 'https://example.com/form',   defaultLabel: 'Form' },
   { type: 'custom',   icon: '⭐', placeholder: 'ข้อความหรือลิงก์',           defaultLabel: 'ติดต่อเรา' },
 ]
-const DEFAULT_CTA: CtaSettings = {
-  enabled: false,
-  headline: 'สนใจปรึกษาฟรี?',
-  subtext: 'ทีมงานพร้อมตอบทุกคำถาม',
-  channels: [],
-  alignment: 'center',
-  buttonLayout: 'row',
+function makeDefaultCtaItem(): CtaItem {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: '',
+    headline: 'สนใจปรึกษาฟรี?',
+    subtext: 'ทีมงานพร้อมตอบทุกคำถาม',
+    channels: [],
+    alignment: 'center',
+    buttonLayout: 'row',
+  }
 }
 // ค่าเริ่มต้นตอนสลับไปโหมด "ออกแบบเอง" ครั้งแรก — ยึดสีจาก Article Lab (Style sub-tab) เป็นฐาน
 function defaultCtaCustom(theme: string, border?: string): CtaCustomDesign {
@@ -5128,13 +5118,15 @@ function defaultCtaCustom(theme: string, border?: string): CtaCustomDesign {
     buttonRadius: 10,
   }
 }
-function parseCta(raw?: string): CtaSettings {
-  try {
-    const parsed = raw ? JSON.parse(raw) : {}
-    const mode: CtaMode = parsed?.mode === 'custom' || parsed?.mode === 'banner' ? parsed.mode : 'buttons'
-    const banners: CtaBanner[] = Array.isArray(parsed?.banners) ? parsed.banners : []
-    return { ...DEFAULT_CTA, ...parsed, mode, banners }
-  } catch { return DEFAULT_CTA }
+// รองรับทั้งของเก่า (record เดี่ยว ไม่มี items[]) และของใหม่ (หลาย CTA) — ใช้ normalizeCtaItems
+// ตัวเดียวกับฝั่งเขียนบทความ เพื่อให้ผล perArticle/placement ตรงกันเป๊ะ
+function parseCta(raw?: string): CtaState {
+  let parsed: unknown = null
+  try { parsed = raw ? JSON.parse(raw) : null } catch { parsed = null }
+  const normalized = normalizeCtaItems(parsed)
+  const items = normalized.items.length > 0 ? normalized.items : [makeDefaultCtaItem()]
+  const perArticle = normalized.items.length > 0 ? normalized.perArticle : 3
+  return { enabled: normalized.enabled, perArticle, items }
 }
 
 function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; onSaved: (updated: Partial<ProjectData>) => void; keywordRows?: KeywordRow[] }) {
@@ -5197,7 +5189,37 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
       return links.map(l => `${l.keyword} | ${l.url}`).join('\n')
     } catch { return '' }
   })
-  const [cta, setCta] = useState<CtaSettings>(() => parseCta(project.ctaSetting))
+  const [ctaState, setCtaState] = useState<CtaState>(() => parseCta(project.ctaSetting))
+  const [activeCtaId, setActiveCtaId] = useState<string>(() => parseCta(project.ctaSetting).items[0]?.id ?? '')
+  const activeCtaItem = ctaState.items.find(it => it.id === activeCtaId) ?? ctaState.items[0]
+  const updateActiveCtaItem = useCallback((patch: Partial<CtaItem>) =>
+    setCtaState(p => ({ ...p, items: p.items.map(it => it.id === activeCtaItem.id ? { ...it, ...patch } : it) })),
+    [activeCtaItem.id])
+  const addCtaItem = () => {
+    if (ctaState.items.length >= 10) { toast.error('เพิ่มได้สูงสุด 10 CTA'); return }
+    const item = makeDefaultCtaItem()
+    setCtaState(p => ({ ...p, items: [...p.items, item] }))
+    setActiveCtaId(item.id)
+  }
+  const duplicateCtaItem = (id: string) => {
+    if (ctaState.items.length >= 10) { toast.error('เพิ่มได้สูงสุด 10 CTA'); return }
+    const src = ctaState.items.find(it => it.id === id)
+    if (!src) return
+    const copy: CtaItem = { ...src, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: src.name ? `${src.name} (สำเนา)` : '' }
+    setCtaState(p => ({ ...p, items: [...p.items, copy] }))
+    setActiveCtaId(copy.id)
+  }
+  const deleteCtaItem = (id: string) => {
+    if (ctaState.items.length <= 1) { toast.error('ต้องมี CTA อย่างน้อย 1 รายการ'); return }
+    if (!window.confirm('ลบ CTA นี้? ไม่สามารถย้อนกลับได้')) return
+    setCtaState(p => ({ ...p, items: p.items.filter(it => it.id !== id) }))
+    if (activeCtaId === id) {
+      const remaining = ctaState.items.filter(it => it.id !== id)
+      setActiveCtaId(remaining[0]?.id ?? '')
+    }
+  }
+  const renameCtaItem = (id: string, name: string) =>
+    setCtaState(p => ({ ...p, items: p.items.map(it => it.id === id ? { ...it, name } : it) }))
   const [authorEnabled, setAuthorEnabled] = useState(project.authorEnabled ?? false)
   const [authors, setAuthors] = useState<AuthorProfile[]>(() => {
     try {
@@ -5355,14 +5377,17 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
     const slimAuthors = await Promise.all(authors.map(async a => (
       a.image ? { ...a, image: await downscaleDataUrl(a.image, 512) } : a
     )))
-    const slimCta: CtaSettings = {
-      ...cta,
-      channels: await Promise.all(cta.channels.map(async c => (
-        c.imageUrl ? { ...c, imageUrl: await downscaleDataUrl(c.imageUrl, 600) } : c
-      ))),
-      banners: await Promise.all((cta.banners ?? []).map(async b => (
-        b.imageUrl ? { ...b, imageUrl: await downscaleDataUrl(b.imageUrl, 1200) } : b
-      ))),
+    const slimCta: CtaState = {
+      ...ctaState,
+      items: await Promise.all(ctaState.items.map(async it => ({
+        ...it,
+        channels: await Promise.all(it.channels.map(async c => (
+          c.imageUrl ? { ...c, imageUrl: await downscaleDataUrl(c.imageUrl, 600) } : c
+        ))),
+        banners: await Promise.all((it.banners ?? []).map(async b => (
+          b.imageUrl ? { ...b, imageUrl: await downscaleDataUrl(b.imageUrl, 1200) } : b
+        ))),
+      }))),
     }
     const common = {
       styleGuide,
@@ -5395,7 +5420,7 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
       throw new Error(`บันทึกค่า Article Lab ไม่สำเร็จ (${detail?.error ?? `HTTP ${res.status}`})`)
     }
     setAuthors(slimAuthors)
-    setCta(slimCta)
+    setCtaState(slimCta)
     onSaved({
       ...common,
       authors: JSON.stringify(slimAuthors),
@@ -5999,62 +6024,108 @@ ${cover}${html}
                 <p className="text-xs text-gray-500 mt-0.5">จะถูกแทรกในบทความทุกครั้งที่ Generate</p>
               </div>
               <button
-                onClick={() => setCta(prev => ({ ...prev, enabled: !prev.enabled }))}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${cta.enabled ? 'bg-emerald-500' : 'bg-gray-200'}`}
+                onClick={() => setCtaState(prev => ({ ...prev, enabled: !prev.enabled }))}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${ctaState.enabled ? 'bg-emerald-500' : 'bg-gray-200'}`}
               >
-                <span className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${cta.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                <span className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${ctaState.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
 
-            {!cta.enabled && (
+            {!ctaState.enabled && (
               <div className="text-center py-8 text-gray-400">
                 <p className="text-sm">เปิด CTA เพื่อตั้งค่า</p>
               </div>
             )}
 
-            {cta.enabled && (
+            {ctaState.enabled && (
               <div className="space-y-4">
+                {/* จำนวน CTA ต่อ 1 บทความ — สุ่มเลือกจากรายการด้านล่าง */}
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-1.5">จำนวน CTA ต่อ 1 บทความ</p>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map(n => (
+                      <button key={n} onClick={() => setCtaState(p => ({ ...p, perArticle: n }))}
+                        className={`text-xs w-8 h-8 rounded-lg border transition-colors ${ctaState.perArticle === n ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">ระบบจะสุ่มเลือก CTA จากรายการด้านล่างมาแทรกตามจำนวนนี้ในแต่ละบทความ</p>
+                </div>
+
+                {/* รายการ CTA — เพิ่ม/คัดลอก/ลบ/ตั้งชื่อ (สูงสุด 10 รายการ) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-medium text-gray-600">รายการ CTA ({ctaState.items.length})</p>
+                    <button onClick={addCtaItem} disabled={ctaState.items.length >= 10}
+                      className="text-[11px] px-2.5 py-1 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                      + เพิ่ม CTA
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ctaState.items.map((it, idx) => (
+                      <div key={it.id}
+                        className={`flex items-center gap-1 rounded-full border pl-3 pr-1 py-1 ${activeCtaId === it.id ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-600'}`}>
+                        <button onClick={() => setActiveCtaId(it.id)} className="text-xs font-medium">
+                          {it.name?.trim() || `CTA ${idx + 1}`}
+                        </button>
+                        <button onClick={() => duplicateCtaItem(it.id)} title="คัดลอก"
+                          className={`text-[10px] w-5 h-5 rounded-full flex items-center justify-center ${activeCtaId === it.id ? 'hover:bg-white/20' : 'hover:bg-gray-200'}`}>⧉</button>
+                        {ctaState.items.length > 1 && (
+                          <button onClick={() => deleteCtaItem(it.id)} title="ลบ"
+                            className={`text-[10px] w-5 h-5 rounded-full flex items-center justify-center ${activeCtaId === it.id ? 'hover:bg-white/20' : 'hover:bg-gray-200'}`}>✕</button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2">
+                    <input value={activeCtaItem.name ?? ''} onChange={e => renameCtaItem(activeCtaItem.id, e.target.value)}
+                      placeholder="ตั้งชื่อ CTA นี้ (ไม่บังคับ เช่น โปรโมชั่น A)"
+                      className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+                  </div>
+                </div>
+
                 {/* Mode selector — ปุ่มมาตรฐาน / ออกแบบเอง / แบนเนอร์รูป */}
                 <div>
                   <p className="text-xs font-medium text-gray-600 mb-1.5">รูปแบบ CTA</p>
                   <div className="flex gap-1">
                     {([['buttons','ปุ่มมาตรฐาน'],['custom','ออกแบบเอง'],['banner','แบนเนอร์รูป']] as [CtaMode,string][]).map(([v,lbl]) => (
                       <button key={v}
-                        onClick={() => setCta(p => ({
-                          ...p, mode: v,
-                          custom: v === 'custom' && !p.custom ? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border) : p.custom,
-                        }))}
-                        className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${(cta.mode ?? 'buttons') === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                        onClick={() => updateActiveCtaItem({
+                          mode: v,
+                          custom: v === 'custom' && !activeCtaItem.custom ? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border) : activeCtaItem.custom,
+                        })}
+                        className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${(activeCtaItem.mode ?? 'buttons') === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
                         {lbl}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {cta.mode !== 'banner' && (
+                {activeCtaItem.mode !== 'banner' && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Headline</label>
-                      <input value={cta.headline} onChange={e => setCta(p => ({ ...p, headline: e.target.value }))}
+                      <input value={activeCtaItem.headline} onChange={e => updateActiveCtaItem({ headline: e.target.value })}
                         className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Subtext</label>
-                      <input value={cta.subtext} onChange={e => setCta(p => ({ ...p, subtext: e.target.value }))}
+                      <input value={activeCtaItem.subtext} onChange={e => updateActiveCtaItem({ subtext: e.target.value })}
                         className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
                     </div>
                   </div>
                 )}
 
                 {/* Layout controls */}
-                {cta.mode !== 'banner' && (
+                {activeCtaItem.mode !== 'banner' && (
                   <div className="flex items-center gap-6">
                     <div>
                       <p className="text-xs font-medium text-gray-600 mb-1.5">การจัดวาง</p>
                       <div className="flex gap-1">
-                        {([['left','◀ ซ้าย'],['center','■ กลาง'],['right','ขวา ▶']] as [CtaSettings['alignment'],string][]).map(([v,lbl]) => (
-                          <button key={v} onClick={() => setCta(p => ({ ...p, alignment: v }))}
-                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${cta.alignment === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                        {([['left','◀ ซ้าย'],['center','■ กลาง'],['right','ขวา ▶']] as [CtaItem['alignment'],string][]).map(([v,lbl]) => (
+                          <button key={v} onClick={() => updateActiveCtaItem({ alignment: v })}
+                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${activeCtaItem.alignment === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
                             {lbl}
                           </button>
                         ))}
@@ -6063,9 +6134,9 @@ ${cover}${html}
                     <div>
                       <p className="text-xs font-medium text-gray-600 mb-1.5">ปุ่มเรียงแนว</p>
                       <div className="flex gap-1">
-                        {([['row','แนวนอน ▷▷'],['column','แนวตั้ง ↓']] as [CtaSettings['buttonLayout'],string][]).map(([v,lbl]) => (
-                          <button key={v} onClick={() => setCta(p => ({ ...p, buttonLayout: v }))}
-                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${cta.buttonLayout === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                        {([['row','แนวนอน ▷▷'],['column','แนวตั้ง ↓']] as [CtaItem['buttonLayout'],string][]).map(([v,lbl]) => (
+                          <button key={v} onClick={() => updateActiveCtaItem({ buttonLayout: v })}
+                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${activeCtaItem.buttonLayout === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
                             {lbl}
                           </button>
                         ))}
@@ -6075,10 +6146,10 @@ ${cover}${html}
                 )}
 
                 {/* ออกแบบกล่อง CTA — โหมด custom เท่านั้น */}
-                {cta.mode === 'custom' && (() => {
-                  const custom = cta.custom ?? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border)
+                {activeCtaItem.mode === 'custom' && (() => {
+                  const custom = activeCtaItem.custom ?? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border)
                   const updateCustom = (patch: Partial<CtaCustomDesign>) =>
-                    setCta(p => ({ ...p, custom: { ...(p.custom ?? custom), ...patch } }))
+                    updateActiveCtaItem({ custom: { ...(activeCtaItem.custom ?? custom), ...patch } })
                   const colorRows: { key: keyof CtaCustomDesign; label: string }[] = [
                     { key: 'boxBg', label: 'พื้นกล่อง' },
                     { key: 'boxText', label: 'สีตัวอักษร' },
@@ -6133,19 +6204,19 @@ ${cover}${html}
                 })()}
 
                 {/* Preview card — buttons/custom เท่านั้น (banner ใช้พรีวิวรูปแทน) */}
-                {cta.mode !== 'banner' && (cta.headline || cta.subtext || cta.channels.filter(c => c.value).length > 0) && (() => {
-                  const custom = cta.mode === 'custom' ? (cta.custom ?? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border)) : null
+                {activeCtaItem.mode !== 'banner' && (activeCtaItem.headline || activeCtaItem.subtext || activeCtaItem.channels.filter(c => c.value).length > 0) && (() => {
+                  const custom = activeCtaItem.mode === 'custom' ? (activeCtaItem.custom ?? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border)) : null
                   const boxStyle: React.CSSProperties = custom
-                    ? { background: custom.boxBg, borderColor: custom.boxBorderColor, borderWidth: custom.boxBorderWidth, borderStyle: 'solid', borderRadius: custom.boxRadius, textAlign: cta.alignment }
-                    : { borderColor: accentColor + '40', background: accentColor + '08', textAlign: cta.alignment }
+                    ? { background: custom.boxBg, borderColor: custom.boxBorderColor, borderWidth: custom.boxBorderWidth, borderStyle: 'solid', borderRadius: custom.boxRadius, textAlign: activeCtaItem.alignment }
+                    : { borderColor: accentColor + '40', background: accentColor + '08', textAlign: activeCtaItem.alignment }
                   const textColor = custom ? custom.boxText : undefined
                   return (
                     <div className={custom ? 'p-4' : 'rounded-2xl border-2 p-4'} style={boxStyle}>
-                      {cta.headline && <p className={`font-bold text-sm ${custom ? '' : 'text-brand-navy'}`} style={custom ? { color: textColor } : undefined}>{cta.headline}</p>}
-                      {cta.subtext && <p className={`text-xs mt-0.5 ${custom ? '' : 'text-gray-500'}`} style={custom ? { color: textColor, opacity: 0.85 } : undefined}>{cta.subtext}</p>}
-                      {cta.channels.filter(c => c.value).length > 0 && (
-                        <div className={`flex gap-2 mt-3 flex-wrap ${cta.alignment === 'center' ? 'justify-center' : cta.alignment === 'right' ? 'justify-end' : 'justify-start'} ${cta.buttonLayout === 'column' ? 'flex-col items-start' : ''} ${cta.buttonLayout === 'column' && cta.alignment === 'center' ? '!items-center' : ''} ${cta.buttonLayout === 'column' && cta.alignment === 'right' ? '!items-end' : ''}`}>
-                          {cta.channels.filter(c => c.value).map((c, i) => {
+                      {activeCtaItem.headline && <p className={`font-bold text-sm ${custom ? '' : 'text-brand-navy'}`} style={custom ? { color: textColor } : undefined}>{activeCtaItem.headline}</p>}
+                      {activeCtaItem.subtext && <p className={`text-xs mt-0.5 ${custom ? '' : 'text-gray-500'}`} style={custom ? { color: textColor, opacity: 0.85 } : undefined}>{activeCtaItem.subtext}</p>}
+                      {activeCtaItem.channels.filter(c => c.value).length > 0 && (
+                        <div className={`flex gap-2 mt-3 flex-wrap ${activeCtaItem.alignment === 'center' ? 'justify-center' : activeCtaItem.alignment === 'right' ? 'justify-end' : 'justify-start'} ${activeCtaItem.buttonLayout === 'column' ? 'flex-col items-start' : ''} ${activeCtaItem.buttonLayout === 'column' && activeCtaItem.alignment === 'center' ? '!items-center' : ''} ${activeCtaItem.buttonLayout === 'column' && activeCtaItem.alignment === 'right' ? '!items-end' : ''}`}>
+                          {activeCtaItem.channels.filter(c => c.value).map((c, i) => {
                             const opt = CTA_CHANNEL_OPTS.find(o => o.type === c.type)
                             const icon = c.icon ?? opt?.icon ?? ''
                             const style = c.buttonStyle ?? 'filled'
@@ -6172,17 +6243,17 @@ ${cover}${html}
                 })()}
 
                 {/* แบนเนอร์ CTA — โหมด banner เท่านั้น */}
-                {cta.mode === 'banner' && (() => {
-                  const banners = cta.banners ?? []
+                {activeCtaItem.mode === 'banner' && (() => {
+                  const banners = activeCtaItem.banners ?? []
                   const addBanner = () => {
                     if (banners.length >= 5) return
                     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-                    setCta(p => ({ ...p, banners: [...(p.banners ?? []), { id, imageUrl: '', href: '', alt: '' }] }))
+                    updateActiveCtaItem({ banners: [...(activeCtaItem.banners ?? []), { id, imageUrl: '', href: '', alt: '' }] })
                   }
                   const updateBanner = (id: string, patch: Partial<CtaBanner>) =>
-                    setCta(p => ({ ...p, banners: (p.banners ?? []).map(b => b.id === id ? { ...b, ...patch } : b) }))
+                    updateActiveCtaItem({ banners: (activeCtaItem.banners ?? []).map(b => b.id === id ? { ...b, ...patch } : b) })
                   const removeBanner = (id: string) =>
-                    setCta(p => ({ ...p, banners: (p.banners ?? []).filter(b => b.id !== id) }))
+                    updateActiveCtaItem({ banners: (activeCtaItem.banners ?? []).filter(b => b.id !== id) })
                   return (
                     <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-3">
                       <div className="flex items-center justify-between">
@@ -6242,13 +6313,13 @@ ${cover}${html}
 
                 <div>
                   <p className="text-xs font-semibold text-gray-700 mb-2">ช่องทางติดต่อ <span className="font-normal text-gray-400">(ลากเพื่อเรียงลำดับ)</span></p>
-                  {cta.mode === 'banner' && (
+                  {activeCtaItem.mode === 'banner' && (
                     <p className="text-[10px] text-gray-400 -mt-1 mb-2">ช่องทางด้านล่างใช้เฉพาะลิงก์ข้อความหลัง Short Answer (ไม่บังคับ)</p>
                   )}
                   {/* Active channels — draggable to reorder */}
-                  {cta.channels.length > 0 && (
+                  {activeCtaItem.channels.length > 0 && (
                     <div className="space-y-2 mb-3 pb-3 border-b border-gray-100">
-                      {cta.channels.map((ch, idx) => {
+                      {activeCtaItem.channels.map((ch, idx) => {
                         const opt = CTA_CHANNEL_OPTS.find(o => o.type === ch.type)!
                         const currentIcon = ch.icon ?? opt.icon
                         return (
@@ -6260,12 +6331,10 @@ ${cover}${html}
                               e.preventDefault()
                               const from = Number(e.dataTransfer.getData('text/plain'))
                               if (from === idx) return
-                              setCta(p => {
-                                const arr = [...p.channels]
-                                const [item] = arr.splice(from, 1)
-                                arr.splice(idx, 0, item)
-                                return { ...p, channels: arr }
-                              })
+                              const arr = [...activeCtaItem.channels]
+                              const [item] = arr.splice(from, 1)
+                              arr.splice(idx, 0, item)
+                              updateActiveCtaItem({ channels: arr })
                             }}
                             className="bg-gray-50 rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing group">
                             {/* Row 1: drag handle + type + label + value + delete */}
@@ -6274,18 +6343,18 @@ ${cover}${html}
                               <span className="text-[10px] text-gray-400 w-16 shrink-0">{opt.type}</span>
                               <input
                                 value={ch.label}
-                                onChange={e => setCta(p => ({ ...p, channels: p.channels.map(c => c.type === ch.type ? { ...c, label: e.target.value } : c) }))}
+                                onChange={e => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, label: e.target.value } : c) })}
                                 placeholder="ชื่อปุ่ม"
                                 className="w-24 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none bg-white shrink-0"
                               />
                               <input
                                 value={ch.value}
-                                onChange={e => setCta(p => ({ ...p, channels: p.channels.map(c => c.type === ch.type ? { ...c, value: e.target.value } : c) }))}
+                                onChange={e => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, value: e.target.value } : c) })}
                                 placeholder={opt.placeholder}
                                 className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none bg-white"
                               />
                               <button
-                                onClick={() => setCta(p => ({ ...p, channels: p.channels.filter(c => c.type !== ch.type) }))}
+                                onClick={() => updateActiveCtaItem({ channels: activeCtaItem.channels.filter(c => c.type !== ch.type) })}
                                 className="text-gray-300 hover:text-red-400 text-sm opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                 ✕
                               </button>
@@ -6298,7 +6367,7 @@ ${cover}${html}
                                   <div className="relative shrink-0">
                                     <img src={ch.imageUrl} alt="" className="w-8 h-8 rounded-lg object-cover border border-gray-200" />
                                     <button
-                                      onClick={() => setCta(p => ({ ...p, channels: p.channels.map(c => c.type === ch.type ? { ...c, imageUrl: undefined } : c) }))}
+                                      onClick={() => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, imageUrl: undefined } : c) })}
                                       className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center leading-none">
                                       ✕
                                     </button>
@@ -6314,7 +6383,7 @@ ${cover}${html}
                                         const file = e.target.files?.[0]
                                         if (!file) return
                                         fileToDownscaledDataUrl(file, 600)
-                                          .then(url => setCta(p => ({ ...p, channels: p.channels.map(c => c.type === ch.type ? { ...c, imageUrl: url } : c) })))
+                                          .then(url => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, imageUrl: url } : c) }))
                                           .catch(err => toast.error(err instanceof Error ? err.message : String(err)))
                                         e.target.value = ''
                                       }}
@@ -6328,7 +6397,7 @@ ${cover}${html}
                               <div className="flex items-center gap-1 ml-auto shrink-0">
                                 <span className="text-[10px] text-gray-400">สไตล์:</span>
                                 {(['filled','outline','ghost'] as const).map(s => (
-                                  <button key={s} onClick={() => setCta(p => ({ ...p, channels: p.channels.map(c => c.type === ch.type ? { ...c, buttonStyle: s } : c) }))}
+                                  <button key={s} onClick={() => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, buttonStyle: s } : c) })}
                                     className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${(ch.buttonStyle ?? 'filled') === s ? 'border-gray-700 bg-gray-700 text-white' : 'border-gray-200 text-gray-400 hover:border-gray-400'}`}>
                                     {s === 'filled' ? 'ทึบ' : s === 'outline' ? 'กรอบ' : 'ข้อความ'}
                                   </button>
@@ -6342,9 +6411,9 @@ ${cover}${html}
                   )}
                   {/* Add channel buttons */}
                   <div className="flex flex-wrap gap-1.5">
-                    {CTA_CHANNEL_OPTS.filter(opt => !cta.channels.find(c => c.type === opt.type)).map(opt => (
+                    {CTA_CHANNEL_OPTS.filter(opt => !activeCtaItem.channels.find(c => c.type === opt.type)).map(opt => (
                       <button key={opt.type}
-                        onClick={() => setCta(p => ({ ...p, channels: [...p.channels, { type: opt.type, label: opt.defaultLabel, value: '', icon: opt.icon, buttonStyle: 'filled' }] }))}
+                        onClick={() => updateActiveCtaItem({ channels: [...activeCtaItem.channels, { type: opt.type, label: opt.defaultLabel, value: '', icon: opt.icon, buttonStyle: 'filled' }] })}
                         className="flex items-center gap-1 text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-full text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors">
                         + {opt.icon} {opt.type}
                       </button>

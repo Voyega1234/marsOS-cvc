@@ -337,7 +337,7 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <div>
           <p className="text-sm font-semibold text-brand-navy">สร้าง Master Prompt จากบทความตัวอย่าง</p>
-          <p className="text-xs text-gray-500 mt-0.5">ใส่ลิงก์หรือวางข้อความบทความตัวอย่าง 3-5 ชิ้น ให้ AI สรุปเป็น Master Prompt (อาจใช้เวลาถึง 5 นาที)</p>
+          <p className="text-xs text-gray-500 mt-0.5">ใส่ลิงก์หรือวางข้อความบทความตัวอย่าง 3-5 ชิ้น ให้ Mars สรุปเป็น Master Prompt (อาจใช้เวลาถึง 5 นาที)</p>
         </div>
         <div className="space-y-2">
           {exampleRows.map((row, i) => (
@@ -384,7 +384,7 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <div>
           <p className="text-sm font-semibold text-brand-navy">แก้ Master Prompt ด้วยคำสั่ง</p>
-          <p className="text-xs text-gray-500 mt-0.5">บอก AI ว่าอยากแก้อะไรในภาษาคน แล้วตรวจร่างก่อนบันทึกจริง</p>
+          <p className="text-xs text-gray-500 mt-0.5">บอก Mars ว่าอยากแก้อะไรในภาษาคน แล้วตรวจร่างก่อนบันทึกจริง</p>
         </div>
         {masterPrompts.length === 0 ? (
           <p className="text-xs text-gray-400">ยังไม่มี Master Prompt — สร้างจากบทความตัวอย่างด้านบนก่อน</p>
@@ -398,7 +398,7 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
               placeholder="เช่น เพิ่มโทนเป็นกันเอง ลดความยาว 20%" className="text-xs" />
             <Button size="sm" disabled={editingMaster} onClick={runMasterEdit}>
               {editingMaster ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Wand2 size={12} className="mr-1.5" />}
-              {editingMaster ? "กำลังปรับ..." : "ให้ AI ปรับ"}
+              {editingMaster ? "กำลังปรับ..." : "ให้ Mars ปรับ"}
             </Button>
 
             {proposal && (

@@ -5,6 +5,8 @@ import type { UploadArticleDTO, UploadArticleStatus, UploadCardSelection, Upload
 import { DEFAULT_UPLOAD_THEME } from './types'
 import { HEAVY_PREF_KEYS } from './prefs-store'
 import { readImageDefaults } from './article-images'
+import { uploadCtaSummary } from './cta'
+import { uploadAuthorSummary } from './author'
 
 function safeParse<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback
@@ -100,7 +102,7 @@ export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCoun
     id: row.id,
     name: row.name,
     website: row.website,
-    language: row.language === 'en' ? 'en' : 'th',
+    language: row.language === 'en' ? 'en' : row.language === 'both' ? 'both' : 'th',
     theme,
     pushPrefs,
     websitePlatform: row.websitePlatform,
@@ -108,6 +110,8 @@ export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCoun
     wpUser: row.wpUser,
     hasWpPassword: Boolean(row.wpAppPasswordEnc),
     siteConnectionMasked: maskSiteConnection(row.siteConnection),
+    ctaSummary: uploadCtaSummary((rawPrefs as Record<string, unknown>).cta),
+    authorSummary: uploadAuthorSummary((rawPrefs as Record<string, unknown>).author),
     counts,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

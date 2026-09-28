@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
-import { stripStyleTags, stripLeadingH1 } from '@/lib/articleComponents'
+import { stripStyleTags, stripLeadingH1, normalizeCtaItems } from '@/lib/articleComponents'
 import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 import { buildArticleSchema } from '@/lib/articleSchema'
 
@@ -167,9 +167,14 @@ export async function POST(req: NextRequest) {
       })
       if (projMeta) {
         const metaForSchema = extractSeoMeta(processedHtml, title, keyword ?? '')
-        let schemaCta: { channels?: Array<{ type?: string; label?: string; value?: string }> } = {}
-        try { schemaCta = JSON.parse(projMeta.ctaSetting || '{}') } catch { /* ว่าง */ }
-        const chans = (schemaCta.channels ?? []).filter(c => c?.value)
+        let ctaFirstItemChannels: Array<{ type?: string; label?: string; value?: string }> = []
+        try {
+          const parsed = JSON.parse(projMeta.ctaSetting || '{}')
+          const normalized = normalizeCtaItems(parsed)
+          // เดิมใช้ channels ไม่สนว่าเปิด CTA อยู่หรือไม่ — คงพฤติกรรมเดิม
+          ctaFirstItemChannels = normalized.items[0]?.channels ?? []
+        } catch { /* ว่าง */ }
+        const chans = ctaFirstItemChannels.filter(c => c?.value)
         let authorName = '', authorTitle = ''
         if (projMeta.authorEnabled) {
           try {

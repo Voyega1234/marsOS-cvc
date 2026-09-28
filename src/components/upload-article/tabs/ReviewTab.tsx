@@ -129,7 +129,7 @@ export default function ReviewTab({
     try {
       const r = await fetch(`/api/upload-article/articles/${detail.id}/meta`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "AI เขียน Meta ไม่สำเร็จ"); return; }
+      if (!r.ok) { toast.error(d?.error || "Mars เขียน Meta ไม่สำเร็จ"); return; }
       setSeoDraft({ seoTitle: d.seoTitle ?? "", metaDescription: d.metaDescription ?? "", slug: d.slug ?? "" });
       applyArticleUpdate({
         ...(detail as UploadArticleDTO),
@@ -139,9 +139,9 @@ export default function ReviewTab({
         ...(typeof d.htmlContent === "string" ? { htmlContent: d.htmlContent } : {}),
       });
       if (d.warning) toast.warning(d.warning);
-      else toast.success(`AI เขียน Meta แล้ว${typeof d.costUsd === "number" ? ` (ต้นทุน $${d.costUsd.toFixed(4)})` : ""}`);
+      else toast.success(`Mars เขียน Meta แล้ว${typeof d.costUsd === "number" ? ` (ต้นทุน $${d.costUsd.toFixed(4)})` : ""}`);
     } catch (e) {
-      toast.error(`AI เขียน Meta ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`Mars เขียน Meta ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setAiBusy(false);
     }
@@ -302,7 +302,7 @@ export default function ReviewTab({
               <p className="text-xs font-bold text-brand-navy">Search appearance</p>
               <Button size="sm" variant="outline" disabled={aiBusy} onClick={aiMeta}>
                 {aiBusy ? <Loader2 size={12} className="animate-spin mr-1" /> : <Sparkles size={12} className="mr-1" />}
-                ให้ AI เขียน Meta + Slug
+                ให้ Mars เขียน Meta + Slug
               </Button>
             </div>
 

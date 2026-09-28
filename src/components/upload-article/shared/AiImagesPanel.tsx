@@ -93,7 +93,7 @@ export default function AiImagesPanel({ client, detail, applyArticleUpdate }: {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "ลบรูปไม่สำเร็จ"); return; }
       applyArticleUpdate(d.article);
-      toast.success("เอารูปประกอบที่ AI สร้างออกแล้ว");
+      toast.success("เอารูปประกอบที่ Mars สร้างออกแล้ว");
     } finally {
       setBusy("");
     }
@@ -101,7 +101,7 @@ export default function AiImagesPanel({ client, detail, applyArticleUpdate }: {
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-      <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><Sparkles size={12} /> สร้างรูปด้วย AI</p>
+      <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><Sparkles size={12} /> สร้างรูปด้วย Mars</p>
       <p className="text-[11px] text-gray-500">ใช้ Image Prompt + ภาพตัวอย่างจาก Content Engine ของลูกค้านี้ · ใช้เวลาประมาณ 1-2 นาที</p>
 
       <div className="space-y-1.5">
@@ -114,7 +114,7 @@ export default function AiImagesPanel({ client, detail, applyArticleUpdate }: {
       </div>
 
       <div className="space-y-1.5 pt-2 border-t border-gray-100">
-        <p className="text-[11px] font-semibold text-gray-600">รูปประกอบในบทความ {genCount > 0 && <span className="font-normal text-gray-400">(ตอนนี้มี {genCount} รูปจาก AI)</span>}</p>
+        <p className="text-[11px] font-semibold text-gray-600">รูปประกอบในบทความ {genCount > 0 && <span className="font-normal text-gray-400">(ตอนนี้มี {genCount} รูปจาก Mars)</span>}</p>
         <TextToggle value={inlineWithText} onChange={setInlineWithText} disabled={!!busy || locked} />
         <div className="flex items-center gap-1 flex-wrap">
           <span className="text-[11px] text-gray-500 mr-1">จำนวน</span>
@@ -131,7 +131,7 @@ export default function AiImagesPanel({ client, detail, applyArticleUpdate }: {
         </Button>
         {genCount > 0 && (
           <Button size="sm" variant="ghost" className="w-full text-rose-600" disabled={!!busy || locked} onClick={removeInline}>
-            <Trash2 size={12} className="mr-1" /> เอารูปประกอบที่ AI สร้างออก
+            <Trash2 size={12} className="mr-1" /> เอารูปประกอบที่ Mars สร้างออก
           </Button>
         )}
         <p className="text-[10px] text-gray-400">วางใต้หัวข้อ H2 กระจายทั้งบทความ ไม่วางในส่วน FAQ · รูปที่มากับไฟล์ต้นฉบับไม่โดนแตะ</p>

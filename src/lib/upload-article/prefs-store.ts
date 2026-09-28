@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma'
 export type PrefsObject = Record<string, unknown>
 
 /** key หนัก ๆ ที่ไม่ส่งไปกับ UploadClientDTO — หน้า UI โหลดผ่าน route เฉพาะของมันเอง */
-export const HEAVY_PREF_KEYS = ['keywordPlan', 'internalLinks'] as const
+export const HEAVY_PREF_KEYS = ['keywordPlan', 'internalLinks', 'cta', 'author'] as const
 
 export function parsePrefs(raw: string | null | undefined): PrefsObject {
   if (!raw) return {}

@@ -87,7 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   if (!promptText.trim()) {
-    return NextResponse.json({ error: 'AI ไม่ได้ตอบ Master Prompt กลับมา' }, { status: 502 })
+    return NextResponse.json({ error: 'Mars ไม่ได้ตอบ Master Prompt กลับมา' }, { status: 502 })
   }
 
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : defaultName()

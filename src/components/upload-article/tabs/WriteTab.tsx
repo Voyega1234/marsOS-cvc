@@ -43,9 +43,9 @@ type WriteResult = { ok: true } | { ok: false; transient: boolean };
 function describeWriteError(raw: string): { message: string; transient: boolean } {
   const transient = TRANSIENT_RE.test(raw);
   if (!transient) return { message: raw, transient };
-  if (/\b429\b|rate.?limit/i.test(raw)) return { message: "ผู้ให้บริการ AI รับงานไม่ทัน (ถูกจำกัดจำนวนคำขอ)", transient };
-  if (/timed? ?out/i.test(raw)) return { message: "ผู้ให้บริการ AI ตอบช้าเกินกำหนด", transient };
-  return { message: "การเชื่อมต่อกับผู้ให้บริการ AI ขาดกลางทาง (ขัดข้องชั่วคราว)", transient };
+  if (/\b429\b|rate.?limit/i.test(raw)) return { message: "ระบบ Mars รับงานไม่ทัน (ถูกจำกัดจำนวนคำขอ)", transient };
+  if (/timed? ?out/i.test(raw)) return { message: "ระบบ Mars ตอบช้าเกินกำหนด", transient };
+  return { message: "การเชื่อมต่อกับระบบ Mars ขาดกลางทาง (ขัดข้องชั่วคราว)", transient };
 }
 
 function hasArticle(s: RowStatus | undefined): s is Extract<RowStatus, { articleId: string }> {
@@ -77,6 +77,11 @@ export default function WriteTab({
   const imageDefaults = client.pushPrefs.imageDefaults ?? DEFAULT_UPLOAD_IMAGE_DEFAULTS;
   const imagesPlanned = imageDefaults.cover || imageDefaults.inlineCount > 0;
   const [autoImages, setAutoImages] = useState(false);
+  const ctaSummary = client.ctaSummary;
+  const ctaReady = Boolean(ctaSummary?.ready);
+  const [withCta, setWithCta] = useState(false);
+  /** ค่าติ๊ก CTA ของรอบที่กำลังรัน — ใช้ตอนยิงเขียน (รวมรอบ retry) ไม่ให้เปลี่ยนตามการติ๊กระหว่างรัน */
+  const ctaRunRef = useRef(false);
   const imageSummary = [imageDefaults.cover ? "ปก" : "", imageDefaults.inlineCount > 0 ? `รูปประกอบ ${imageDefaults.inlineCount} รูป` : ""].filter(Boolean).join(" + ");
   /** บทความที่เขียนเสร็จในรอบนี้ — ใช้สร้างรูปต่อหลังเขียนครบ */
   const writtenRef = useRef<{ keywordId: string; articleId: string }[]>([]);
@@ -163,7 +168,7 @@ export default function WriteTab({
       const r = await fetch(`/api/upload-article/clients/${client.id}/write`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywordId }),
+        body: JSON.stringify({ keywordId, withCta: ctaRunRef.current }),
         signal: controller.signal,
       });
       if (!r.ok) {
@@ -286,6 +291,7 @@ export default function WriteTab({
   /** เขียนตามรายการ แล้วสร้างรูปต่อให้บทความที่เขียนสำเร็จ */
   async function runBatch(ids: string[]) {
     const withImages = autoImages && imagesPlanned;
+    ctaRunRef.current = withCta && ctaReady;
     setRunning(true);
     setStage("writing");
     setRunIds(ids);
@@ -401,6 +407,20 @@ export default function WriteTab({
             ? ` — ${[imageDefaults.cover ? `ปก (${imageDefaults.coverWithText ? "มีตัวหนังสือ" : "ภาพล้วน"})` : "", imageDefaults.inlineCount > 0 ? `รูปประกอบ ${imageDefaults.inlineCount} รูป (${imageDefaults.inlineWithText ? "มีตัวหนังสือ" : "ภาพล้วน"})` : ""].filter(Boolean).join(" + ")} มีค่าใช้จ่ายต่อรูป`
             : " — ยังไม่ได้ตั้งใน Project Setting > รูปภาพ"}
           {" "}<button type="button" onClick={() => onOpenSettings("images")} className="text-brand-blue hover:underline">ตั้งค่า</button>
+        </span>
+      </label>
+
+      <label className={`flex items-start gap-2 text-xs ${ctaReady ? "text-gray-700" : "text-gray-400"}`}>
+        <input type="checkbox" className="mt-0.5" checked={withCta && ctaReady} disabled={!ctaReady || running}
+          onChange={e => setWithCta(e.target.checked)} />
+        <span>
+          ใส่ CTA ในบทความ
+          {ctaReady
+            ? ` — สุ่มจาก ${ctaSummary.count} แบบ วาง ${ctaSummary.perArticle} จุดต่อบทความ ไม่มีค่าใช้จ่ายเพิ่ม`
+            : ctaSummary?.enabled
+              ? " — ตั้งค่า CTA ยังไม่ครบใน Project Setting > CTA"
+              : " — ยังไม่ได้เปิดใช้ใน Project Setting > CTA"}
+          {" "}<button type="button" onClick={() => onOpenSettings("cta")} className="text-brand-blue hover:underline">ตั้งค่า</button>
         </span>
       </label>
 

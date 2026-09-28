@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { buildUploadArticleHtml } from '@/lib/upload-article/build-html'
+import { buildUploadArticleHtml, uploadArticleLanguage } from '@/lib/upload-article/build-html'
+import { readUploadAuthor, pickAuthorForArticle } from '@/lib/upload-article/author'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 import { readPrefs } from '@/lib/upload-article/prefs-store'
 import { linkPoolForArticle, maxLinksPerArticle } from '@/lib/upload-article/internal-links'
 import { insertInternalLinks } from '@/lib/upload-article/link-insert'
 import { decodeTextEntities } from '@/lib/upload-article/entities'
+import { readUploadCta } from '@/lib/upload-article/cta'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadOutputMode, type UploadTheme } from '@/lib/upload-article/types'
 
 /** POST /api/upload-article/articles/[articleId]/generate — ประกอบ HTML/Text พร้อมใช้จาก sourceHtml */
@@ -45,8 +47,13 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     // Internal Link: ครอบลิงก์ให้คำที่มีอยู่แล้วในเนื้อหา — ทำกับสำเนาตอน build ไม่เขียนกลับ sourceHtml (ปิดตัวเลือก = generate ใหม่แล้วลิงก์หายเอง)
     let sourceHtml = article.sourceHtml
     let linksAdded = 0
+    const prefs = await readPrefs(client.id, orgId)
+    // สี/กรอบกล่อง CTA ตาม Project Setting > CTA (บทความที่ไม่มี CTA ก็ไม่กระทบ)
+    const cta = readUploadCta(prefs?.cta)
+    // Author Box ตาม Project Setting > Author Box — ผู้เขียนคนเดิมทุกครั้งที่ generate (เลือกคงที่ตาม articleId)
+    const authorSettings = readUploadAuthor(prefs?.author)
+    const authorProfile = pickAuthorForArticle(authorSettings, article.id)
     if (withLinks) {
-      const prefs = await readPrefs(client.id, orgId)
       const raw = prefs?.internalLinks
       const links: UploadInternalLinks = { ...DEFAULT_UPLOAD_INTERNAL_LINKS, ...(raw && typeof raw === 'object' ? (raw as Partial<UploadInternalLinks>) : {}) }
       const pool = linkPoolForArticle(links, { slug })
@@ -59,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       sourceHtml,
       mode,
       theme,
-      site: { name: client.name, url: client.website, language: client.language === 'en' ? 'en' : 'th' },
+      site: { name: client.name, url: client.website, language: uploadArticleLanguage(client.language, article.title) },
       meta: {
         title: article.title,
         seoTitle: seoTitle || undefined,
@@ -68,6 +75,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       },
       cover: article.coverImageUrl ? { url: article.coverImageUrl, alt: article.coverAlt || article.title } : null,
       breadcrumb,
+      cta,
+      author: authorProfile ? { profile: authorProfile, style: authorSettings.style } : null,
     })
 
     const nextStatus = article.status === 'PUSHED' || article.status === 'PUSHING' ? article.status : 'GENERATED'

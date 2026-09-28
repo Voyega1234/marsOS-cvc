@@ -8,6 +8,10 @@ import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { type UploadOutputMode, type UploadTheme } from './types'
 import { buildUploadCss } from './theme-css'
 import { decodeTextEntities } from './entities'
+import { resolveArticleLanguage } from '@/lib/keyword-language'
+import type { UploadCtaSettings } from './cta'
+import { buildAuthorCardHtml, type AuthorCardStyle } from '@/lib/articleAuthorCard'
+import type { AuthorProfile } from './author'
 
 export interface BuildUploadOptions {
   sourceHtml: string
@@ -17,6 +21,10 @@ export interface BuildUploadOptions {
   meta: { title: string; seoTitle?: string; metaDescription?: string; slug?: string }
   cover?: { url: string; alt: string } | null
   breadcrumb?: boolean
+  /** ตั้งค่า CTA ของลูกค้า (Project Setting > CTA) — ใช้สร้าง CSS ของกล่อง CTA ที่อยู่ในเนื้อหา */
+  cta?: UploadCtaSettings
+  /** ผู้เขียนที่เลือกให้บทความนี้แล้ว (Project Setting > Author Box) — ไม่ส่ง/null = ไม่ใส่กล่องผู้เขียน */
+  author?: { profile: AuthorProfile; style: AuthorCardStyle } | null
 }
 
 export interface BuildUploadResult {
@@ -439,8 +447,21 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
     return { html: bodyHtml, plainText, faqCount: 0, h2Count }
   }
 
-  const finalCss = buildUploadCss(o.theme)
-  const wrapped = o.theme.styleMode === 'clean' ? wrapArticleHtml(bodyHtml, null) : wrapArticleHtml(bodyHtml, finalCss)
+  // Author Box ต่อท้ายบทความ (เฉพาะโหมด HTML) — CSS ของ .content-author มากับ buildArticleCss อยู่แล้ว
+  const authorHtml = o.author
+    ? buildAuthorCardHtml({
+        name: o.author.profile.name,
+        title: o.author.profile.title,
+        image: o.author.profile.image,
+        credentials: o.author.profile.credentials,
+        style: o.author.style,
+        heading: o.site.language === 'en' ? 'About the author' : undefined,
+      })
+    : ''
+  const htmlBody = authorHtml ? `${bodyHtml}\n${authorHtml.trim()}` : bodyHtml
+
+  const finalCss = buildUploadCss(o.theme, o.cta)
+  const wrapped = o.theme.styleMode === 'clean' ? wrapArticleHtml(htmlBody, null) : wrapArticleHtml(htmlBody, finalCss)
 
   const schemaScript = buildUploadSchema(wrapped, o)
 
@@ -448,12 +469,18 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
 }
 
 /** ค่าตั้งต้นสำหรับ refreshUploadSchema จากแถวบทความ + ลูกค้า (รับ plain object ไม่ผูก prisma) */
+/** ภาษาของบทความ 1 ชิ้น จากโหมดภาษาของลูกค้า (th/en/both) — both = ดูจาก title ก่อนแล้วค่อย keyword */
+export function uploadArticleLanguage(clientLanguage: string, title: string, keyword = ''): 'th' | 'en' {
+  const mode = clientLanguage === 'en' || clientLanguage === 'both' ? clientLanguage : 'th'
+  return resolveArticleLanguage({ projectLanguage: mode, mode, keyword, title })
+}
+
 export function uploadSchemaOptions(
   article: { title: string; seoTitle: string; metaDescription: string; slug: string; coverImageUrl: string | null; coverAlt: string },
   client: { name: string; website: string; language: string },
 ): UploadSchemaOptions {
   return {
-    site: { name: client.name, url: client.website, language: client.language === 'en' ? 'en' : 'th' },
+    site: { name: client.name, url: client.website, language: uploadArticleLanguage(client.language, article.title) },
     meta: {
       title: article.title,
       seoTitle: article.seoTitle || undefined,
