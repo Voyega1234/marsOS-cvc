@@ -1,0 +1,103 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getSession } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
+import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
+
+const MAX_BODY_BYTES = 4 * 1024 * 1024
+const VALID_STATUS = new Set(['IMPORTED', 'GENERATED', 'REVIEWED', 'PUSHED', 'FAILED'])
+
+function sanitizeSlug(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+}
+
+/** GET /api/upload-article/articles/[articleId] — DTO เต็ม (มี sourceHtml + htmlContent) */
+export async function GET(_req: NextRequest, { params }: { params: { articleId: string } }) {
+  const session = await getSession()
+  if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const article = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: session.user.organizationId } })
+  if (!article) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+
+  return NextResponse.json(toUploadArticleDTO(article, true))
+}
+
+/** PATCH /api/upload-article/articles/[articleId] — แก้ไขบางส่วน */
+export async function PATCH(req: NextRequest, { params }: { params: { articleId: string } }) {
+  const session = await getSession()
+  if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const orgId = session.user.organizationId
+  const existing = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: orgId } })
+  if (!existing) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+
+  const rawBody = await req.text()
+  if (Buffer.byteLength(rawBody, 'utf-8') > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: 'ข้อมูลใหญ่เกิน 4MB — ลดขนาดรูปภาพก่อนบันทึก' }, { status: 413 })
+  }
+  const body = (() => {
+    try {
+      return JSON.parse(rawBody)
+    } catch {
+      return null
+    }
+  })()
+  if (!body || typeof body !== 'object') return NextResponse.json({ error: 'รูปแบบข้อมูลไม่ถูกต้อง' }, { status: 400 })
+
+  const data: Record<string, unknown> = {}
+  if (typeof body.title === 'string') data.title = body.title.trim().slice(0, 200)
+  if (typeof body.sourceHtml === 'string') data.sourceHtml = body.sourceHtml
+  if (typeof body.htmlContent === 'string') data.htmlContent = body.htmlContent
+  if (body.htmlContent === null) data.htmlContent = null
+  if (body.outputMode === 'html' || body.outputMode === 'text') data.outputMode = body.outputMode
+  if (typeof body.seoTitle === 'string') data.seoTitle = body.seoTitle.trim().slice(0, 120)
+  if (typeof body.metaDescription === 'string') data.metaDescription = body.metaDescription.trim().slice(0, 300)
+  if (typeof body.slug === 'string') data.slug = sanitizeSlug(body.slug)
+  if (typeof body.coverAlt === 'string') data.coverAlt = body.coverAlt.trim().slice(0, 200)
+  if (body.coverImageUrl === null) {
+    data.coverImageUrl = null
+  } else if (typeof body.coverImageUrl === 'string') {
+    if (body.coverImageUrl && !/^data:image\//i.test(body.coverImageUrl) && !/^https:\/\//i.test(body.coverImageUrl)) {
+      return NextResponse.json({ error: 'coverImageUrl ต้องเป็น data:image/... หรือ https://' }, { status: 400 })
+    }
+    data.coverImageUrl = body.coverImageUrl
+  }
+  if (typeof body.status === 'string') {
+    if (!VALID_STATUS.has(body.status)) return NextResponse.json({ error: 'status ไม่ถูกต้อง' }, { status: 400 })
+    data.status = body.status
+  }
+
+  // meta/slug/ปก หรือ HTML เปลี่ยน → สร้าง schema ใหม่ให้ตรงค่าล่าสุด (ไม่แตะเนื้อหา)
+  const touchesSchema = ['htmlContent', 'seoTitle', 'metaDescription', 'slug', 'coverImageUrl', 'coverAlt', 'title'].some((k) => k in data)
+  const nextHtml = 'htmlContent' in data ? (data.htmlContent as string | null) : existing.htmlContent
+  if (touchesSchema && nextHtml) {
+    const client = await prisma.uploadClient.findFirst({ where: { id: existing.clientId, organizationId: existing.organizationId } })
+    if (client) {
+      const merged = { ...existing, ...data } as typeof existing
+      data.htmlContent = refreshUploadSchema(nextHtml, uploadSchemaOptions(merged, client))
+    }
+  }
+
+  const updated = await prisma.uploadArticle.update({ where: { id: existing.id }, data })
+  return NextResponse.json(toUploadArticleDTO(updated, true))
+}
+
+/** DELETE /api/upload-article/articles/[articleId] */
+export async function DELETE(_req: NextRequest, { params }: { params: { articleId: string } }) {
+  const session = await getSession()
+  if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const existing = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: session.user.organizationId } })
+  if (!existing) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+
+  await prisma.uploadArticle.delete({ where: { id: existing.id } })
+  return NextResponse.json({ ok: true })
+}

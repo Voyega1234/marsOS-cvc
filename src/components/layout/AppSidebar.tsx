@@ -31,6 +31,7 @@ import {
   ScrollText,
   Sun,
   Newspaper,
+  Upload,
 } from "lucide-react";
 import type { Route } from "./nav-main";
 import DashboardNavigation from "./nav-main";
@@ -71,6 +72,12 @@ function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Ro
       title: "Clients",
       icon: <FolderOpen className="size-4" />,
       link: "/projects",
+    },
+    {
+      id: "upload-article",
+      title: "Upload Article",
+      icon: <Upload className="size-4" />,
+      link: "/upload-article",
     },
     {
       id: "content",

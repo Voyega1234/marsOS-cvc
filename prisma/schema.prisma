@@ -883,3 +883,56 @@ model LocalKeywordResearchRun {
   @@index([projectId, createdAt])
   @@schema("plans_seo_pipeline")
 }
+
+// ── Upload Article — ลูกค้าที่ทีมนำบทความสำเร็จรูปมาขึ้นเว็บ (แยกจาก Project/Clients เด็ดขาด) ──
+model UploadClient {
+  id                   String  @id @default(cuid())
+  organizationId       String
+  name                 String
+  website              String  @default("")
+  language             String  @default("th") // th | en — ใช้กับ inLanguage ของ schema
+  themeColors          String  @default("{}") // JSON: { theme, text, border, accent, background, styleMode: 'embed'|'clean', fontFamily?, headingFont? }
+  pushPrefs            String  @default("{}") // JSON: { stripH1?, useElementor?, wpPostType?, publishMode?, excludeCards?: {toc?,cta?,faq?} }
+  websitePlatform      String  @default("wordpress") // wordpress | webflow | wix | shopify | custom
+  wpUrl                String  @default("")
+  wpUser               String  @default("")
+  wpAppPasswordEnc     String  @default("") // encrypt() จาก @/lib/crypto — ห้ามส่งกลับ client
+  siteConnection       String  @default("{}") // JSON credentials แพลตฟอร์มอื่น (โครงเดียวกับ SiteConnectionConfig ใน sitePublishers.ts)
+  createdById          String
+  articles             UploadArticle[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@schema("plans_seo_pipeline")
+}
+
+model UploadArticle {
+  id               String   @id @default(cuid())
+  organizationId   String
+  clientId         String
+  title            String
+  sourceType       String   @default("paste") // docx | txt | md | html | gdoc | paste
+  sourceName       String   @default("")      // ชื่อไฟล์ / URL Google Doc
+  sourceHtml       String                     // เนื้อหาต้นฉบับหลังทำความสะอาด (semantic HTML) — ห้ามแก้เนื้อ
+  outputMode       String   @default("html")  // html | text
+  htmlContent      String?                    // ผลลัพธ์พร้อมใช้ (generate แล้ว / แก้ใน Review แล้ว)
+  seoTitle         String   @default("")
+  metaDescription  String   @default("")
+  slug             String   @default("")
+  coverImageUrl    String?                    // data URI หลังย่อ
+  coverAlt         String   @default("")
+  status           String   @default("IMPORTED") // IMPORTED | GENERATED | REVIEWED | PUSHED | FAILED
+  pushMode         String?                    // draft | publish
+  wordpressUrl     String?
+  wordpressPostId  String?
+  pushError        String?
+  pushedAt         DateTime?
+  createdById      String
+  client           UploadClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, clientId])
+  @@schema("plans_seo_pipeline")
+}

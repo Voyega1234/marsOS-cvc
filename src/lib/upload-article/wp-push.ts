@@ -1,0 +1,296 @@
+// ─── Upload Article — push บทความขึ้น WordPress ─────────────────────────────
+// คัดลอก/ปรับจากตรรกะใน src/app/api/push/publish/route.ts (ห้ามแก้ไฟล์เดิม)
+// เป็น pure function ล้วน — ไม่แตะ prisma/session, รับ credentials ตรงจากผู้เรียก
+
+export interface WpPushInput {
+  wpUrl: string
+  wpUser: string
+  wpPass: string
+  title: string
+  html: string
+  slug?: string
+  metaTitle?: string
+  metaDescription?: string
+  focusKeyword?: string
+  coverBase64?: string // base64 ล้วน (ไม่มี data: prefix)
+  coverMimeType?: string
+  coverAlt?: string
+  publishMode: 'draft' | 'publish'
+  useElementor?: boolean
+  wpPostType?: 'post' | 'page'
+}
+
+export interface WpPushResult {
+  ok: boolean
+  postUrl?: string
+  postId?: number
+  slug?: string
+  status?: string
+  error?: string
+}
+
+export function normalizeWpUrl(raw: string): string {
+  return raw.trim().replace(/\/(wp-admin|wp-login\.php)(\/.*)?$/, '').replace(/\/$/, '')
+}
+
+function buildElementorData(html: string): string {
+  const uid = () => Math.random().toString(16).slice(2, 10)
+  const data = [{
+    id: uid(), elType: 'section',
+    settings: { layout: 'full_width', content_width: { unit: '%', size: 100 } },
+    elements: [{
+      id: uid(), elType: 'column',
+      settings: { _column_size: 100, _inline_size: null },
+      elements: [{
+        id: uid(), elType: 'widget', widgetType: 'html',
+        settings: { html },
+        elements: [],
+      }],
+    }],
+  }]
+  return JSON.stringify(data)
+}
+
+async function uploadCoverImage(
+  wpUrl: string, creds: string, imageBase64: string, mimeType: string, title: string, altText: string,
+): Promise<number | null> {
+  try {
+    const imageBuffer = Buffer.from(imageBase64, 'base64')
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp'
+    const boundary = `----WPUpload${Date.now()}`
+    const filename = `cover-${Date.now()}.${ext}`
+
+    const titleBuf = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\n${title}\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="alt_text"\r\n\r\n${altText}\r\n`,
+    )
+    const header = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`,
+    )
+    const footer = Buffer.from(`\r\n--${boundary}--\r\n`)
+    const body = Buffer.concat([titleBuf, header, imageBuffer, footer])
+
+    const res = await fetch(`${wpUrl}/wp-json/wp/v2/media`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${creds}`,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+      body,
+      signal: AbortSignal.timeout(30000),
+    })
+
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.id ? Number(data.id) : null
+  } catch {
+    return null
+  }
+}
+
+/** push บทความหนึ่งชิ้นขึ้น WordPress (สร้างใหม่ หรืออัพเดตถ้ามี slug ชนกัน) */
+export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPushResult> {
+  const wpUrl = normalizeWpUrl(input.wpUrl)
+  const wpUser = input.wpUser.trim()
+  const wpPass = input.wpPass
+  if (!wpUrl || !wpUser || !wpPass) {
+    return { ok: false, error: 'ไม่พบ WordPress credentials' }
+  }
+  if (!input.html || !input.title) {
+    return { ok: false, error: 'html และ title จำเป็น' }
+  }
+
+  const creds = Buffer.from(`${wpUser}:${wpPass.replace(/\s+/g, '')}`).toString('base64')
+  const isPage = input.wpPostType === 'page'
+  const finalMetaTitle = input.metaTitle || input.title
+  const finalMetaDesc = input.metaDescription || ''
+  const finalSlug = input.slug?.trim() || ''
+  const coverAltText = input.coverAlt || finalMetaTitle
+
+  const htmlWithAlt = input.html.replace(
+    /<img(?![^>]*\balt=)([^>]*?)(\s*\/?>)/gi,
+    `<img alt="${finalMetaTitle.replace(/"/g, '&quot;')}"$1$2`,
+  )
+
+  let featuredMediaId: number | null = null
+  if (input.coverBase64) {
+    featuredMediaId = await uploadCoverImage(
+      wpUrl, creds, input.coverBase64, input.coverMimeType || 'image/webp', finalMetaTitle, coverAltText,
+    )
+  }
+
+  const content = input.useElementor ? '' : htmlWithAlt
+  const payload: Record<string, unknown> = {
+    title: isPage ? '' : finalMetaTitle,
+    content,
+    excerpt: finalMetaDesc ? finalMetaDesc.slice(0, 160) : undefined,
+    status: input.publishMode === 'publish' ? 'publish' : 'draft',
+    ...(finalSlug && { slug: finalSlug }),
+    ...(featuredMediaId && { featured_media: featuredMediaId }),
+  }
+
+  const wpMeta: Record<string, string> = {}
+  if (finalMetaTitle) wpMeta['_yoast_wpseo_title'] = finalMetaTitle
+  if (finalMetaDesc) wpMeta['_yoast_wpseo_metadesc'] = finalMetaDesc.slice(0, 160)
+  if (input.focusKeyword) wpMeta['_yoast_wpseo_focuskw'] = input.focusKeyword
+
+  const wpEndpoint = isPage ? `${wpUrl}/wp-json/wp/v2/pages` : `${wpUrl}/wp-json/wp/v2/posts`
+  if (input.useElementor) {
+    wpMeta['_elementor_edit_mode'] = 'builder'
+    wpMeta['_elementor_template_type'] = isPage ? 'wp-page' : 'wp-post'
+  }
+  if (Object.keys(wpMeta).length > 0) payload.meta = wpMeta
+
+  // ตรวจ slug ชนกัน — ถ้ามีอยู่แล้วให้อัพเดตแทนสร้างใหม่
+  let existingPostId: number | null = null
+  if (finalSlug) {
+    const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&_fields=id&per_page=1`
+    const checkRes = await fetch(checkUrl, {
+      headers: { Authorization: `Basic ${creds}` },
+      signal: AbortSignal.timeout(10000),
+    }).catch(() => null)
+    if (checkRes?.ok) {
+      const found = await checkRes.json().catch(() => [])
+      if (Array.isArray(found) && found.length > 0) existingPostId = found[0].id
+    }
+  }
+
+  try {
+    const endpoint = existingPostId
+      ? `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${existingPostId}`
+      : wpEndpoint
+
+    let res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30000),
+    })
+
+    if (!res.ok && payload.meta) {
+      const retryPayload = { ...payload }
+      delete retryPayload.meta
+      res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(retryPayload),
+        signal: AbortSignal.timeout(30000),
+      })
+    }
+
+    if (!res.ok) {
+      const errText = await res.text()
+      return { ok: false, error: `WordPress API error ${res.status}: ${errText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)}` }
+    }
+
+    const data = await res.json()
+    const postId: number = data.id
+    const postUrl: string = data.link ?? ''
+
+    // Yoast meta + Elementor data ผ่าน convert-cake plugin (มี fallback ถ้าไม่มี plugin)
+    if (postId) {
+      const ccEndpoint = `${wpUrl}/wp-json/convert-cake/v1/elementor-meta`
+      const elementorData = buildElementorData(htmlWithAlt)
+      const ccRes = await fetch(ccEndpoint, {
+        method: 'POST',
+        headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          post_id: postId,
+          elementor_data_b64: Buffer.from(elementorData).toString('base64'),
+          edit_mode: 'builder',
+          template_type: isPage ? 'wp-page' : 'wp-post',
+          yoast_meta: wpMeta,
+        }),
+        signal: AbortSignal.timeout(30000),
+      }).catch(() => null)
+
+      if (!ccRes?.ok) {
+        const fallbackEndpoint = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`
+        await fetch(fallbackEndpoint, {
+          method: 'POST',
+          headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: htmlWithAlt }),
+          signal: AbortSignal.timeout(20000),
+        }).catch(() => {})
+      }
+
+      if (isPage && Object.keys(wpMeta).length) {
+        const escXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+        const customFields = Object.entries(wpMeta).map(([key, value]) =>
+          `<value><struct><member><name>key</name><value><string>${escXml(key)}</string></value></member><member><name>value</name><value><string>${escXml(value)}</string></value></member></struct></value>`,
+        ).join('')
+        const cleanPass = wpPass.replace(/\s+/g, '')
+        const xmlBody = [
+          '<?xml version="1.0" encoding="UTF-8"?>',
+          '<methodCall><methodName>wp.editPost</methodName><params>',
+          `<param><value><int>1</int></value></param>`,
+          `<param><value><string>${escXml(wpUser)}</string></value></param>`,
+          `<param><value><string>${escXml(cleanPass)}</string></value></param>`,
+          `<param><value><int>${postId}</int></value></param>`,
+          `<param><value><struct><member><name>custom_fields</name><value><array><data>${customFields}</data></array></value></member></struct></value></param>`,
+          '</params></methodCall>',
+        ].join('')
+        await fetch(`${wpUrl}/xmlrpc.php`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/xml; charset=UTF-8' },
+          body: xmlBody,
+          signal: AbortSignal.timeout(15000),
+        }).catch(() => null)
+      }
+    }
+
+    return { ok: true, postId, postUrl, status: data.status, slug: data.slug ?? finalSlug }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: `Push ล้มเหลว: ${msg}` }
+  }
+}
+
+/** ทดสอบการเชื่อมต่อ WordPress (คัดลอกจาก src/app/api/push/connect/route.ts) */
+export async function testWordPressConnection(
+  wpUrl: string, wpUser: string, wpPass: string,
+): Promise<{ ok: boolean; name?: string; error?: string }> {
+  const url = normalizeWpUrl(wpUrl)
+  if (!url || !wpUser || !wpPass) {
+    return { ok: false, error: 'ไม่พบ WordPress credentials' }
+  }
+  try {
+    const cleanPass = wpPass.replace(/\s+/g, '')
+    const creds = Buffer.from(`${wpUser}:${cleanPass}`).toString('base64')
+    const authHeaders = {
+      Authorization: `Basic ${creds}`,
+      'User-Agent': 'MarsOS/1.0',
+      'Content-Type': 'application/json',
+    }
+
+    const meRes = await fetch(`${url}/wp-json/wp/v2/users/me`, {
+      headers: authHeaders,
+      signal: AbortSignal.timeout(10000),
+    })
+    if (meRes.ok) {
+      const me = await meRes.json()
+      return { ok: true, name: me.name ?? wpUser }
+    }
+
+    const rootRes = await fetch(`${url}/wp-json/wp/v2`, {
+      headers: authHeaders,
+      signal: AbortSignal.timeout(10000),
+    })
+    if (rootRes.ok) {
+      const data = await rootRes.json()
+      return { ok: true, name: data.name ?? '' }
+    }
+
+    return {
+      ok: false,
+      error: `WordPress ตอบ ${meRes.status} — ${meRes.status === 401
+        ? 'Application Password ไม่ถูกต้อง หรือ user ไม่มีสิทธิ์ REST API'
+        : meRes.status === 403
+        ? 'WordPress บล็อก REST API — ตรวจสอบ plugin หรือ .htaccess'
+        : 'ตรวจสอบ URL และ Application Password'}`,
+    }
+  } catch (e: unknown) {
+    return { ok: false, error: `เชื่อมต่อไม่ได้: ${e instanceof Error ? e.message : String(e)}` }
+  }
+}
