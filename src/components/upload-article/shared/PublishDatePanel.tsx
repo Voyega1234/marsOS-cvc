@@ -2,7 +2,7 @@
 
 /**
  * ตั้งวัน-เวลาที่บทความจะขึ้นเว็บ — เก็บใน pushPrefs.publishAt[articleId]
- * ตอน Push ขึ้น WordPress: ส่งเป็น date_gmt, ถ้าเป็นเวลาอนาคต + โหมด publish = ตั้งเวลาเผยแพร่ (scheduled)
+ * ตอน Push ขึ้น WordPress: ส่งเป็น date_gmt และวางเป็น Draft เสมอ (ทีมกด Publish เองใน WordPress)
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -61,7 +61,6 @@ export default function PublishDatePanel({ client, setClient, articleId }: {
 
   const isWp = !client.websitePlatform || client.websitePlatform === "wordpress";
   const dirty = value !== toLocalInput(saved);
-  const future = saved ? new Date(saved).getTime() > Date.now() : false;
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
@@ -78,10 +77,8 @@ export default function PublishDatePanel({ client, setClient, articleId }: {
       </div>
       <p className="text-[10px] text-gray-500">
         {saved
-          ? future
-            ? `ตั้งไว้ ${formatPublishAt(saved)} — Push แบบ Publish แล้ว WordPress จะตั้งเวลาเผยแพร่ให้เอง`
-            : `ตั้งไว้ ${formatPublishAt(saved)} — เป็นวันย้อนหลัง บทความจะขึ้นด้วยวันที่นี้`
-          : "ไม่ตั้ง = ใช้วันเวลาที่กด Push"}
+          ? `ตั้งไว้ ${formatPublishAt(saved)} — Push แล้วจะขึ้นเป็น Draft พร้อมวันที่นี้ (ไม่ publish เอง)`
+          : "ไม่ตั้ง = Push ตามโหมด Draft/Publish ในแท็บ Push และใช้วันเวลาที่กด"}
       </p>
       {!isWp && <p className="text-[10px] text-amber-700">ตั้งวันที่ใช้ได้กับ WordPress เท่านั้น แพลตฟอร์มอื่นใช้วันเวลาที่ Push</p>}
     </div>

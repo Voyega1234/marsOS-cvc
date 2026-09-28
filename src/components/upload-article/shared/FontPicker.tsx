@@ -43,11 +43,11 @@ export default function FontPicker({
   }
 
   return (
-    <div>
+    <div className="min-w-0">
       <label className="block text-[11px] font-semibold text-gray-500 mb-1">{label}</label>
       <div className="flex items-center gap-1.5">
         <select value={selectValue} onChange={e => onSelect(e.target.value)}
-          className="flex-1 h-9 rounded-md border border-gray-200 bg-white px-2 text-sm"
+          className="flex-1 min-w-0 w-full h-9 rounded-md border border-gray-200 bg-white px-2 text-sm"
           style={isListed ? { fontFamily: value } : undefined}>
           {defaultLabel && <option value="default">{defaultLabel}</option>}
           <option value="none">{noneLabel}</option>

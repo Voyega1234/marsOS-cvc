@@ -120,6 +120,17 @@ function uninstallCeFetch() {
 
 type ExampleRow = { mode: "url" | "text"; value: string };
 
+const CE_LAYOUT_CSS = `
+.ua-ce { container-type: inline-size; }
+.ua-ce [class~="md:flex-row"]:has(> nav) { flex-direction: column; }
+.ua-ce nav[class~="md:w-56"] { width: auto; flex-direction: row; flex-wrap: wrap; overflow: visible; padding: 0.375rem; }
+.ua-ce nav[class~="md:w-56"] > button { width: auto; }
+.ua-ce [class~="lg:col-span-2"], .ua-ce [class~="lg:col-span-4"] { grid-column: 1 / -1; }
+@container (max-width: 880px) {
+  .ua-ce [class~="lg:grid-cols-[300px_1fr]"], .ua-ce [class~="lg:grid-cols-[340px_1fr]"] { grid-template-columns: minmax(0, 1fr); }
+}
+`;
+
 export default function UploadContentEngine({ client, userRole }: { client: UploadClientDTO; userRole: string }) {
   const [fetchReady, setFetchReady] = useState(false);
   const [items, setItems] = useState<PromptRow[] | null>(null);
@@ -418,12 +429,18 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
       {!items || !fetchReady ? (
         <div className="p-8 text-sm text-gray-400">กำลังโหลด Content Engine...</div>
       ) : (
-        <ContentEngineSettingsClient
-          items={items}
-          scope={{ projectId: client.id }}
-          userRole={userRole}
-          onRefresh={() => setRefreshKey(k => k + 1)}
-        />
+        <div className="ua-ce">
+          {/* Content Engine เป็น component กลาง (แก้ไฟล์ไม่ได้) ออกแบบมาให้กินเต็มหน้า — พอมาอยู่ใน Project Setting ที่มีเมนูซ้ายอีกชั้น
+              จอเลยถูกบีบ: ปรับเฉพาะในหน้านี้ ① เมนู CE เป็นแถบแนวนอน ② พื้นที่แคบให้ลิสต์กับฟอร์มแก้ไขซ้อนกัน
+              ③ ช่องที่สั่ง span 2/4 ใน grid 2 คอลัมน์ทำคอลัมน์งอกจนช่องโดนบีบ → ให้เต็มแถว */}
+          <style>{CE_LAYOUT_CSS}</style>
+          <ContentEngineSettingsClient
+            items={items}
+            scope={{ projectId: client.id }}
+            userRole={userRole}
+            onRefresh={() => setRefreshKey(k => k + 1)}
+          />
+        </div>
       )}
     </div>
   );

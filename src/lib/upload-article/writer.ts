@@ -3,7 +3,6 @@
 // งาน DB/stream จริงอยู่ที่ route (ต้องใช้ prisma + orChatStream ตรง ๆ)
 
 import type { UploadKeyword, UploadLinkPair } from './types'
-import { humanBodyRulesBlock, humanTitleRulesBlock } from './human-voice'
 
 /** WRITING ที่ค้างเกินนี้ถือว่าตาย (proc ตายกลางทาง) — ลบทิ้งแล้วเขียนใหม่ได้ */
 export const WRITER_STALE_MS = 6 * 60 * 1000
@@ -80,13 +79,6 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push('')
   lines.push('# Internal Link ที่ต้องแทรกในเนื้อหา (ใช้แต่ละลิงก์ไม่เกิน 1 ครั้ง แทรก anchor text ให้เนียนเข้ากับประโยค ห้ามยัดทุกลิงก์ในย่อหน้าเดียว)')
   lines.push(linkLines)
-  lines.push('')
-  lines.push('# ภาษาต้องอ่านแล้วเหมือนคนเขียน ไม่ใช่ AI (บังคับทุกส่วน รวมถึง H1 หัวข้อ FAQ และ META_DESCRIPTION)')
-  lines.push(humanBodyRulesBlock())
-  if (!keyword.title) {
-    lines.push('กฎสำหรับ <h1>:')
-    lines.push(humanTitleRulesBlock())
-  }
   lines.push('')
   lines.push('# OUTPUT FORMAT CONTRACT (ต้องตอบตามนี้เป๊ะ ๆ)')
   lines.push('บรรทัดแรก:')

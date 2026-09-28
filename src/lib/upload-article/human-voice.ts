@@ -63,3 +63,38 @@ export function titleLooksMachineWritten(title: string): boolean {
   if (/!|[\uD83C-\uD83E][\uDC00-\uDFFF]/.test(t)) return true
   return AI_TELL_PHRASES_TH.some((p) => t.includes(p))
 }
+
+// ─── แนบกฎภาษามนุษย์ไว้ใน Master Prompt ของลูกค้า (เก็บใน DB แก้ต่อได้ใน Content Engine) ───
+// เจ้าของสั่ง 2026-09-28: ไม่ฝังตอนเขียน แต่แนบใน Master Prompt ทุกอันแทน
+// แนบตอน seed จาก Studio / เพิ่ม layer ใหม่ / สร้างจากบทความตัวอย่าง / สั่ง AI แก้ — ถ้ามีหัวข้อนี้อยู่แล้วไม่แนบซ้ำ
+
+export const HUMAN_VOICE_HEADING = '════ ภาษาต้องอ่านแล้วเหมือนคนเขียน ไม่ใช่ AI ════'
+const HUMAN_VOICE_JSON_KEY = 'human_voice_rules'
+
+export function humanVoiceSection(): string {
+  return [
+    HUMAN_VOICE_HEADING,
+    'บังคับทุกส่วน รวมถึง H1 หัวข้อ H2/H3 คำถาม FAQ และ Meta Description',
+    humanBodyRulesBlock(),
+    'กฎตั้งชื่อ H1 / Title:',
+    humanTitleRulesBlock(),
+  ].join('\n')
+}
+
+/** แนบกฎภาษามนุษย์ท้าย Master Prompt ถ้ายังไม่มี — Master Prompt แบบ JSON ใส่เป็น key แยก */
+export function withHumanVoice(promptText: string): string {
+  const text = promptText.trim()
+  if (!text || text.includes(HUMAN_VOICE_HEADING)) return text
+  if (text.startsWith('{')) {
+    try {
+      const obj = JSON.parse(text) as Record<string, unknown>
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        if (HUMAN_VOICE_JSON_KEY in obj) return text
+        return JSON.stringify({ ...obj, [HUMAN_VOICE_JSON_KEY]: [...HUMAN_BODY_RULES_TH, ...HUMAN_TITLE_RULES_TH.map((r) => `H1/Title: ${r}`)] }, null, 2)
+      }
+    } catch {
+      /* ไม่ใช่ JSON จริง — แนบเป็นข้อความตามปกติ */
+    }
+  }
+  return `${text}\n\n${humanVoiceSection()}`
+}

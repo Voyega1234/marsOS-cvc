@@ -116,6 +116,9 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const updatedClientRow = prefsResult ? { ...client, pushPrefs: JSON.stringify(prefsResult.result) } : client
 
   const platform = client.websitePlatform || 'wordpress'
+  // บทความที่ตั้งวันเผยแพร่ไว้ ขึ้น WordPress เป็น Draft พร้อมวันที่นั้นเสมอ (โหมด Publish ใช้กับบทความที่ไม่ได้ตั้งวัน)
+  const isWordPress = platform === 'wordpress'
+  const effectiveMode: 'draft' | 'publish' = publishAt && isWordPress ? 'draft' : publishMode
 
   // ตรวจการเชื่อมต่อให้ครบก่อนจองสถานะ — ทุก return ก่อนจุดจองจะไม่ทิ้งสถานะ PUSHING ค้าง
   let conn: SiteConnectionConfig = {}
@@ -191,7 +194,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         coverBase64: base64,
         coverMimeType: mime,
         coverAlt: article.coverAlt || article.title,
-        publishMode,
+        publishMode: effectiveMode,
         publishAt,
         useElementor,
         wpPostType,
@@ -216,7 +219,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         status: 'PUSHED',
         wordpressUrl: postUrl || null,
         wordpressPostId: postId || null,
-        pushMode: publishMode,
+        pushMode: effectiveMode,
         pushedAt: new Date(),
         pushError: null,
       },

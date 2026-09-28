@@ -162,7 +162,7 @@ export default function UploadClientWorkspace({
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-5">
+    <div className="px-4 py-6 sm:px-6 w-full space-y-5">
       <div className="flex items-center gap-3 flex-wrap">
         <Link href="/upload-article" className="text-gray-400 hover:text-gray-600">
           <ArrowLeft size={18} />

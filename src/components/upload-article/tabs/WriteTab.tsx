@@ -114,6 +114,7 @@ export default function WriteTab({
         }
       } catch { /* เก็บ polling ต่อไป */ }
     }
+    setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "error", message: "รอผลนานเกินไป — ลองกดรีเฟรชหน้า ถ้าเขียนเสร็จแล้วบทความจะขึ้นเอง" } }));
   }
 
   async function runWriteOne(keywordId: string) {

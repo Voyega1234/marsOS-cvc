@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { withHumanVoice } from '@/lib/upload-article/human-voice'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       name: name.trim(),
       type,
       description: description?.trim() ?? '',
-      promptText: promptText.trim(),
+      promptText: type === 'CE_MASTER_PROMPT' ? withHumanVoice(promptText) : promptText.trim(),
       variables: variables ?? '[]',
       modelProvider: modelProvider ?? 'CLAUDE',
       modelName: modelName ?? 'claude-sonnet-4-6',

@@ -18,7 +18,7 @@ export interface WpPushInput {
   coverMimeType?: string
   coverAlt?: string
   publishMode: 'draft' | 'publish'
-  /** วัน-เวลาเผยแพร่ (ISO UTC) — ส่งเป็น date_gmt; ถ้าเป็นอนาคตและโหมด publish = ตั้งเวลา (status future) */
+  /** วัน-เวลาเผยแพร่ (ISO UTC) — ส่งเป็น date_gmt และขึ้นเป็น Draft เสมอ (ทีมกด Publish เองใน WordPress) */
   publishAt?: string
   useElementor?: boolean
   wpPostType?: 'post' | 'page'
@@ -173,8 +173,8 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
   const content = input.useElementor ? '' : htmlLinked
   const publishDate = input.publishAt ? new Date(input.publishAt) : null
   const dateGmt = publishDate && !Number.isNaN(publishDate.getTime()) ? publishDate.toISOString().slice(0, 19) : ''
-  const isFuture = Boolean(publishDate && publishDate.getTime() > Date.now() + 60_000)
-  const wpStatus = input.publishMode === 'publish' ? (isFuture ? 'future' : 'publish') : 'draft'
+  // ตั้งวันเผยแพร่ไว้ = วาง Draft พร้อมวันที่นั้น ไม่ publish/ตั้งเวลาเอง (เจ้าของสั่ง 2026-09-28)
+  const wpStatus = dateGmt ? 'draft' : input.publishMode === 'publish' ? 'publish' : 'draft'
   const payload: Record<string, unknown> = {
     title: input.title,
     content,

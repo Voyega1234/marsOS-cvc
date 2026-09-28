@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { withHumanVoice } from '@/lib/upload-article/human-voice'
 import { logAIJob } from '@/lib/logAIJob'
 import { OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
@@ -62,7 +63,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       estimatedCost: result.usage.costUsd,
       createdById: session.user.id,
     }).catch(() => {})
-    return NextResponse.json({ promptText: result.promptText, summary: result.summary })
+    // AI แก้แล้วเผลอตัดกฎภาษามนุษย์ทิ้ง → แนบกลับ (ผู้ใช้ลบเองได้ตอนแก้ในหน้า Content Engine)
+    return NextResponse.json({ promptText: withHumanVoice(result.promptText), summary: result.summary })
   } catch (err) {
     logAIJob({
       organizationId: orgId,

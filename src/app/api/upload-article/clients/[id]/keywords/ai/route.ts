@@ -17,7 +17,9 @@ function readPlan(prefs: Record<string, unknown> | null): UploadKeyword[] {
   return Array.isArray(raw) ? (raw as UploadKeyword[]) : []
 }
 
-/** POST /api/upload-article/clients/[id]/keywords/ai — ให้ AI ตั้ง title/slug/intent/articleType ให้ keyword ที่เลือก */
+/** POST /api/upload-article/clients/[id]/keywords/ai — ให้ AI ตั้ง title/slug/intent/articleType ให้ keyword ที่เลือก
+ *  mode "rewrite" (ค่าเริ่มต้น) = เขียนใหม่ทับของเดิมทั้งหมด (keyword ที่ทีมติ๊กเลือก)
+ *  mode "fill" = เติมเฉพาะช่องที่ยังว่าง — title ที่มีอยู่แล้ว (เช่นมากับไฟล์) ไม่โดนแตะ */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -36,7 +38,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!prefs) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
   const plan = readPlan(prefs)
   const idSet = new Set(ids)
-  const inputs: KeywordAiInput[] = plan.filter((k) => idSet.has(k.id)).map((k) => ({ id: k.id, keyword: k.keyword, volume: k.volume }))
+  const fill = body?.mode === 'fill'
+  const inputs: KeywordAiInput[] = plan
+    .filter((k) => idSet.has(k.id))
+    .map((k) => ({ id: k.id, keyword: k.keyword, volume: k.volume, ...(fill && k.title ? { fixedTitle: k.title } : {}) }))
   if (inputs.length === 0) return NextResponse.json({ error: 'ไม่พบ keyword ที่เลือก' }, { status: 404 })
 
   const language = client.language === 'en' ? 'en' : 'th'
@@ -67,10 +72,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const ai = aiById.get(k.id)
       if (!ai) return k
       const next = { ...k }
-      if (ai.title) next.title = ai.title
-      if (ai.intent) next.intent = ai.intent
-      if (ai.articleType) next.articleType = ai.articleType
-      if (ai.slug) {
+      if (ai.title && !(fill && k.title)) next.title = ai.title
+      if (ai.intent && !(fill && k.intent)) next.intent = ai.intent
+      if (ai.articleType && !(fill && k.articleType)) next.articleType = ai.articleType
+      if (ai.slug && !(fill && k.slug)) {
         takenSlugs.delete(k.slug) // ไม่ชนกับ slug เดิมของตัวเอง
         const base = sanitizeSlugCandidate(ai.slug)
         const slug = base ? uniqueSlug(base, takenSlugs) : k.slug

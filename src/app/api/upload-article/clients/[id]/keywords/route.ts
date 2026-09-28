@@ -25,7 +25,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ items: readPlan(prefs) })
 }
 
-/** POST /api/upload-article/clients/[id]/keywords — เพิ่มคำใหม่เข้าแผน (dedupe, ≤500 คำรวม) */
+/** POST /api/upload-article/clients/[id]/keywords — เพิ่มคำใหม่เข้าแผน (dedupe, ≤500 คำรวม)
+ *  รับ title/slug/intent/ประเภทบทความ/note ที่มากับไฟล์ได้ด้วย — keyword ที่มีอยู่แล้วจะเติมเฉพาะช่องที่ยังว่าง ไม่ทับของเดิม */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -35,33 +36,67 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const rawItems = Array.isArray(body?.items) ? body.items : []
   if (rawItems.length === 0) return NextResponse.json({ error: 'ไม่พบรายการ keyword' }, { status: 400 })
 
-  const candidates: { keyword: string; volume: number | null }[] = []
+  type Candidate = { keyword: string; volume: number | null; title: string; slug: string; intent: UploadKeywordIntent | ''; articleType: string; note: string }
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
+  const candidates: Candidate[] = []
   for (const it of rawItems) {
-    const keyword = typeof it?.keyword === 'string' ? it.keyword.trim().slice(0, KEYWORD_MAX) : ''
+    const keyword = str(it?.keyword, KEYWORD_MAX)
     if (!keyword) continue
     const volume = typeof it?.volume === 'number' && Number.isFinite(it.volume) ? it.volume : null
-    candidates.push({ keyword, volume })
+    candidates.push({
+      keyword,
+      volume,
+      title: str(it?.title, 200),
+      slug: sanitizeSlugCandidate(str(it?.slug, 200)),
+      intent: it?.intent ? (normalizeIntent(it.intent) as UploadKeywordIntent | '') : '',
+      articleType: str(it?.articleType, 100),
+      note: str(it?.note, 2000),
+    })
   }
   if (candidates.length === 0) return NextResponse.json({ error: 'keyword ทุกรายการว่าง' }, { status: 400 })
 
-  const result = await updatePrefs<{ items: UploadKeyword[] } | { error: string }>(params.id, session.user.organizationId, (current) => {
-    const plan = readPlan(current)
-    const existingKeys = new Set(plan.map((k) => k.keyword.trim().toLowerCase()))
+  type PostResult = { items: UploadKeyword[]; added: number; updated: number; skipped: number }
+  const result = await updatePrefs<PostResult | { error: string }>(params.id, session.user.organizationId, (current) => {
+    const plan = readPlan(current).map((k) => ({ ...k }))
+    const byKey = new Map(plan.map((k) => [k.keyword.trim().toLowerCase(), k]))
+    const takenSlugs = new Set(plan.map((k) => k.slug).filter(Boolean))
     const seenInBatch = new Set<string>()
     const now = new Date().toISOString()
     const toAdd: UploadKeyword[] = []
+    let updated = 0
+    let skipped = 0
+    const claimSlug = (base: string) => {
+      if (!base) return ''
+      const slug = uniqueSlug(base, takenSlugs)
+      takenSlugs.add(slug)
+      return slug
+    }
     for (const c of candidates) {
       const key = c.keyword.toLowerCase()
-      if (existingKeys.has(key) || seenInBatch.has(key)) continue
+      if (seenInBatch.has(key)) { skipped++; continue }
       seenInBatch.add(key)
+      const existing = byKey.get(key)
+      if (existing) {
+        // มีอยู่แล้ว → เติมเฉพาะช่องว่าง
+        let changed = false
+        if (!existing.title && c.title) { existing.title = c.title; changed = true }
+        if (!existing.slug && c.slug) { existing.slug = claimSlug(c.slug); changed = true }
+        if (!existing.intent && c.intent) { existing.intent = c.intent; changed = true }
+        if (!existing.articleType && c.articleType) { existing.articleType = c.articleType; changed = true }
+        if (!existing.note && c.note) { existing.note = c.note; changed = true }
+        if ((existing.volume === null || existing.volume === undefined) && c.volume !== null) { existing.volume = c.volume; changed = true }
+        if (changed) updated++; else skipped++
+        continue
+      }
       toAdd.push({
         id: randomUUID(),
         keyword: c.keyword,
         volume: c.volume,
-        title: '',
-        slug: '',
-        intent: '',
-        articleType: '',
+        title: c.title,
+        slug: claimSlug(c.slug),
+        intent: c.intent,
+        articleType: c.articleType,
+        ...(c.note ? { note: c.note } : {}),
         createdAt: now,
       })
     }
@@ -69,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return { result: { error: `เกินเพดาน ${PLAN_MAX} คำ (มีอยู่ ${plan.length} คำ เพิ่มได้อีก ${Math.max(0, PLAN_MAX - plan.length)} คำ)` } }
     }
     const nextPlan = [...plan, ...toAdd]
-    return { prefs: { ...current, keywordPlan: nextPlan }, result: { items: nextPlan } }
+    return { prefs: { ...current, keywordPlan: nextPlan }, result: { items: nextPlan, added: toAdd.length, updated, skipped } }
   })
 
   if (!result) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })

@@ -246,6 +246,9 @@ export default function PushTab({
           <label className="flex items-center gap-1.5">
             <input type="radio" checked={publishMode === "publish"} onChange={() => setPublishMode("publish")} /> Publish
           </label>
+          {publishMode === "publish" && Object.keys(client.pushPrefs.publishAt ?? {}).length > 0 && (
+            <span className="text-[11px] text-amber-700">บทความที่ตั้งวันเผยแพร่ไว้จะขึ้นเป็น Draft เสมอ</span>
+          )}
           <span className="text-gray-300">|</span>
           <label className="flex items-center gap-1.5">
             <input type="radio" checked={wpPostType === "post"} onChange={() => setWpPostType("post")} /> Post
@@ -286,7 +289,7 @@ export default function PushTab({
                       <UploadStatusBadge status={a.status} />
                       {client.pushPrefs.publishAt?.[a.id] && (
                         <span className="inline-flex items-center gap-1 text-[11px] text-gray-500" title="ตั้งวันที่ได้ในแท็บ Review">
-                          <CalendarClock size={11} /> เผยแพร่ {formatPublishAt(client.pushPrefs.publishAt[a.id])}
+                          <CalendarClock size={11} /> Draft · วันที่ {formatPublishAt(client.pushPrefs.publishAt[a.id])}
                         </span>
                       )}
                     </div>

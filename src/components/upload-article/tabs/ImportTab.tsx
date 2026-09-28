@@ -155,12 +155,13 @@ export default function ImportTab({
         {articles.length === 0 ? (
           <div className="py-14 text-center text-sm text-gray-400">ยังไม่มีบทความ — ลากไฟล์หรือวางข้อความด้านบนเพื่อเริ่ม</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">ชื่อบทความ</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">แหล่งที่มา</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">คำ</th>
+                <th className="hidden xl:table-cell text-left px-4 py-2.5 text-xs font-semibold text-gray-500">แหล่งที่มา</th>
+                <th className="hidden xl:table-cell text-left px-4 py-2.5 text-xs font-semibold text-gray-500">คำ</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">สถานะ</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">อัปเดตล่าสุด</th>
                 <th className="px-4 py-2.5"></th>
@@ -173,15 +174,15 @@ export default function ImportTab({
                   className={`cursor-pointer hover:bg-gray-50/60 transition-colors ${selectedId === a.id ? "bg-brand-mist/40" : ""}`}
                 >
                   <td className="px-4 py-3">
-                    <div className="font-medium text-brand-navy truncate max-w-sm flex items-center gap-1.5">
+                    <div className="font-medium text-brand-navy truncate max-w-[16rem] xl:max-w-sm flex items-center gap-1.5">
                       {selectedId === a.id && <CheckCircle2 size={12} className="text-brand-blue shrink-0" />}
                       {a.title}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{SOURCE_LABEL[a.sourceType] ?? a.sourceType}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{a.wordCount.toLocaleString("th-TH")}</td>
-                  <td className="px-4 py-3"><UploadStatusBadge status={a.status} /></td>
-                  <td className="px-4 py-3 text-xs text-gray-400">
+                  <td className="hidden xl:table-cell px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{SOURCE_LABEL[a.sourceType] ?? a.sourceType}</td>
+                  <td className="hidden xl:table-cell px-4 py-3 text-xs text-gray-500">{a.wordCount.toLocaleString("th-TH")}</td>
+                  <td className="px-4 py-3 whitespace-nowrap"><UploadStatusBadge status={a.status} /></td>
+                  <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
                     {new Date(a.updatedAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -202,6 +203,7 @@ export default function ImportTab({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

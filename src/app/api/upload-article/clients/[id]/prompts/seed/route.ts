@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { withHumanVoice } from '@/lib/upload-article/human-voice'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +41,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         name: studioActive.name,
         type: studioActive.type,
         description: studioActive.description,
-        promptText: studioActive.promptText,
+        // Master Prompt ของ Upload Article แนบกฎภาษามนุษย์ไว้ในตัว (แก้ต่อได้ใน Content Engine)
+        promptText: type === 'CE_MASTER_PROMPT' ? withHumanVoice(studioActive.promptText) : studioActive.promptText,
         variables: studioActive.variables,
         modelProvider: studioActive.modelProvider,
         modelName: studioActive.modelName,

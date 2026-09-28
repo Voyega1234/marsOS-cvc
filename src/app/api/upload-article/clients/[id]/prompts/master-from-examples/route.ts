@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { withHumanVoice } from '@/lib/upload-article/human-voice'
 import { logAIJob } from '@/lib/logAIJob'
 import { OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         name,
         type: 'CE_MASTER_PROMPT',
         description: '',
-        promptText: promptText.trim(),
+        promptText: withHumanVoice(promptText),
         variables: '[]',
         modelProvider: 'CLAUDE',
         modelName: 'claude-sonnet-4-6',

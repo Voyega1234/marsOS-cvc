@@ -13,6 +13,8 @@ export interface KeywordAiInput {
   id: string
   keyword: string
   volume?: number | null
+  /** title ที่ทีมตั้งมาแล้ว (เช่นมากับไฟล์) — AI ต้องใช้ตามนี้ ห้ามแก้ แล้วตั้ง slug/intent/ประเภทจาก title นี้ */
+  fixedTitle?: string
 }
 
 export interface KeywordAiItem {
@@ -111,7 +113,8 @@ async function runBatch(
   language: 'th' | 'en',
 ): Promise<KeywordAiResult> {
   const first = await runBatchOnce(batch, clientName, website, language)
-  const redo = first.items.filter((it) => titleLooksMachineWritten(it.title))
+  const fixedIds = new Set(batch.filter((b) => b.fixedTitle).map((b) => b.id))
+  const redo = first.items.filter((it) => !fixedIds.has(it.id) && titleLooksMachineWritten(it.title))
   if (redo.length === 0) return first
   const retryInput = batch
     .filter((b) => redo.some((r) => r.id === b.id))
@@ -148,12 +151,14 @@ ${humanTitleRulesBlock()}
 - intent: เลือกค่าเดียวจาก informational | educational | commercial | transactional | navigational
 - articleType: ป้ายสั้น ๆ ภาษาไทย เช่น "บทความให้ความรู้" | "How-to / ขั้นตอน" | "Listicle" | "เปรียบเทียบ" | "รีวิว/แนะนำสินค้า" | "หน้าขาย/บริการ"
 ลูกค้า: ${clientName || '(ไม่ระบุ)'} เว็บไซต์: ${website || '(ไม่ระบุ)'} ภาษาเว็บไซต์หลัก: ${language === 'en' ? 'English' : 'ไทย'}
+ถ้ารายการไหนมี fixedTitle = ทีมตั้ง title ไว้แล้ว ให้ตอบ title เป็น fixedTitle ตรงตัวอักษร ห้ามแก้ แล้วตั้ง slug/intent/articleType ให้เข้ากับ title นั้น
 ต้องตอบครบทุก id ที่ส่งมา ตามลำดับเดิม ห้ามเว้น ห้ามเพิ่ม id ใหม่`
 
   const user = JSON.stringify({ keywords: batch.map((b) => ({
       id: b.id,
       keyword: b.keyword,
       volume: b.volume ?? null,
+      ...(b.fixedTitle ? { fixedTitle: b.fixedTitle } : {}),
       ...(b.rejectedTitle ? { rejectedTitle: b.rejectedTitle, note: 'title เดิมอ่านแล้วเหมือน AI เขียน ห้ามใช้รูปแบบเดิม ตั้งใหม่ให้เป็นภาษาคน' } : {}),
     })) })
 
@@ -177,7 +182,7 @@ ${humanTitleRulesBlock()}
       const it = byId.get(b.id)
       return {
         id: b.id,
-        title: (it?.title || '').trim().slice(0, 200),
+        title: b.fixedTitle || (it?.title || '').trim().slice(0, 200),
         slug: sanitizeSlugCandidate(it?.slug || ''),
         intent: normalizeIntent(it?.intent),
         articleType: (it?.articleType || '').trim().slice(0, 100),
