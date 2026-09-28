@@ -15,14 +15,16 @@ import { UPLOAD_FONT_INHERIT } from "@/lib/upload-article/types";
 import type { UploadClientDTO, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
 
 export default function ScanSection({
-  client, setClient, setThemeDraft, applyScannedTheme,
+  client, setClient, setThemeDraft, applyScannedTheme, defaultUrl,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
   setThemeDraft: React.Dispatch<React.SetStateAction<UploadTheme>>;
   applyScannedTheme: (theme: Partial<UploadTheme>, detail: UploadThemeDetail | null) => void;
+  /** PBN: URL ของเว็บที่กำลังแก้สไตล์ — ไม่ส่ง = website ของลูกค้า */
+  defaultUrl?: string;
 }) {
-  const [scanUrl, setScanUrl] = useState(client.website || "");
+  const [scanUrl, setScanUrl] = useState(defaultUrl || client.website || "");
   const [scanning, setScanning] = useState(false);
 
   async function runThemeScan() {
@@ -55,7 +57,7 @@ export default function ScanSection({
 
   return (
     <div className="space-y-4">
-      <SiteScanPanel client={client} setClient={setClient} onApplyTheme={applyScannedTheme}
+      <SiteScanPanel client={client} setClient={setClient} onApplyTheme={applyScannedTheme} defaultUrl={defaultUrl}
         title="สแกนเว็บปลายทาง — ธีม, ปลั๊กอิน, หน้าตา FAQ (ละเอียด)" />
 
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">

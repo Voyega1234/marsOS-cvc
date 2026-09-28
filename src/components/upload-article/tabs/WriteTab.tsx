@@ -12,6 +12,9 @@ import { DEFAULT_UPLOAD_IMAGE_DEFAULTS, type UploadArticleDTO, type UploadClient
 import { requestArticleImages } from "@/components/upload-article/shared/AiImagesPanel";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { PBN_MAX_VARIANTS, parseWriterSourceName, writerSourceName } from "@/lib/upload-article/pbn";
+import { PBN_MAIN_PROFILE } from "@/lib/upload-article/pbn-sets";
+import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
+import { usePbnProfiles } from "@/components/upload-article/pbn/usePbnProfiles";
 
 const MAX_CONCURRENCY = 10;
 const IDLE_TIMEOUT_MS = 90_000;
@@ -49,15 +52,18 @@ function describeWriteError(raw: string): { message: string; transient: boolean 
   return { message: "การเชื่อมต่อกับระบบ Mars ขาดกลางทาง (ขัดข้องชั่วคราว)", transient };
 }
 
+/** เว็บ PBN ปลายทาง (สไตล์ตามเว็บ + push ได้เฉพาะเว็บนี้) + set ข้อมูลโปรเจกต์ — PBN เท่านั้น */
+type PbnJobTarget = { siteId: string; profileId: string };
+
 /** งานเขียน 1 ชิ้น — เวอร์ชัน 1 ใช้ key = keywordId (เหมือนเดิม), เวอร์ชันอื่น = keywordId#v<k> */
-type WriteJob = { key: string; keywordId: string; variant: number; total: number };
+type WriteJob = { key: string; keywordId: string; variant: number; total: number; target?: PbnJobTarget };
 
 function jobKey(keywordId: string, variant: number): string {
   return variant > 1 ? `${keywordId}#v${variant}` : keywordId;
 }
 
-function makeJob(keywordId: string, variant: number, total: number): WriteJob {
-  return { key: jobKey(keywordId, variant), keywordId, variant, total };
+function makeJob(keywordId: string, variant: number, total: number, target?: PbnJobTarget): WriteJob {
+  return { key: jobKey(keywordId, variant), keywordId, variant, total, ...(target ? { target } : {}) };
 }
 
 function hasArticle(s: RowStatus | undefined): s is Extract<RowStatus, { articleId: string }> {
@@ -91,6 +97,23 @@ export default function WriteTab({
   /** จำนวนบทความต่อ keyword (PBN) — Upload Article = 1 เสมอ */
   const [variantCount, setVariantCount] = useState(1);
   const perKeyword = variantsEnabled ? variantCount : 1;
+  // ── PBN เท่านั้น: set ข้อมูลโปรเจกต์ + เว็บปลายทางของแต่ละบทความ (Upload Article ไม่โหลด/ไม่แสดง) ──
+  const pbnSites = usePbnSites(variantsEnabled);
+  const pbnProfiles = usePbnProfiles(variantsEnabled);
+  const [pbnSetId, setPbnSetId] = useState<string>(PBN_MAIN_PROFILE);
+  /** เว็บที่เลือกให้บทความที่ 1..N (index 0 = บทความที่ 1) */
+  const [variantSites, setVariantSites] = useState<string[]>([]);
+  /** เป้าหมายของงานที่ยิงไปแล้ว — เขียนใหม่ทีละงานใช้เว็บ/set เดิม */
+  const jobTargetsRef = useRef<Record<string, PbnJobTarget>>({});
+  const activePbnSet = pbnSetId === PBN_MAIN_PROFILE || pbnProfiles.profiles.some(p => p.id === pbnSetId) ? pbnSetId : PBN_MAIN_PROFILE;
+  const pbnSetQs = variantsEnabled && activePbnSet !== PBN_MAIN_PROFILE ? `?set=${encodeURIComponent(activePbnSet)}` : "";
+  const pbnSiteIds = pbnSites.sites.map(s => s.id);
+  const chosenSites = variantSites.slice(0, perKeyword);
+  const pbnTargetsOk = !variantsEnabled || (
+    chosenSites.length === perKeyword
+    && chosenSites.every(id => pbnSiteIds.includes(id))
+    && new Set(chosenSites).size === chosenSites.length
+  );
   const imageDefaults = client.pushPrefs.imageDefaults ?? DEFAULT_UPLOAD_IMAGE_DEFAULTS;
   const imagesPlanned = imageDefaults.cover || imageDefaults.inlineCount > 0;
   const [autoImages, setAutoImages] = useState(false);
@@ -108,7 +131,7 @@ export default function WriteTab({
     (async () => {
       try {
         const [wr, kr] = await Promise.all([
-          fetch(`/api/upload-article/clients/${client.id}/write`),
+          fetch(`/api/upload-article/clients/${client.id}/write${pbnSetQs}`),
           fetch(`/api/upload-article/clients/${client.id}/keywords`),
         ]);
         if (alive && wr.ok) {
@@ -125,7 +148,25 @@ export default function WriteTab({
       }
     })();
     return () => { alive = false; };
-  }, [client.id]);
+  }, [client.id, pbnSetQs]);
+
+  // PBN: เติมเว็บให้ช่องที่ยังว่าง/เว็บถูกลบ ด้วยเว็บที่ยังไม่ถูกเลือก (ไม่ซ้ำกัน)
+  const pbnSiteKey = pbnSiteIds.join(",");
+  useEffect(() => {
+    if (!variantsEnabled) return;
+    setVariantSites(prev => {
+      const next: string[] = [];
+      for (let i = 0; i < variantCount; i++) {
+        const cur = prev[i];
+        next.push(cur && pbnSiteIds.includes(cur) && !next.includes(cur) ? cur : "");
+      }
+      for (let i = 0; i < next.length; i++) {
+        if (!next[i]) next[i] = pbnSiteIds.find(id => !next.includes(id)) || "";
+      }
+      return next.join("|") === prev.join("|") ? prev : next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variantsEnabled, variantCount, pbnSiteKey]);
 
   useEffect(() => {
     if (preselectIds.length) {
@@ -192,6 +233,7 @@ export default function WriteTab({
           keywordId,
           withCta: ctaRunRef.current,
           ...(job.total > 1 ? { variant: job.variant, variantTotal: job.total } : {}),
+          ...(job.target ? { siteId: job.target.siteId, profileId: job.target.profileId } : {}),
         }),
         signal: controller.signal,
       });
@@ -315,6 +357,7 @@ export default function WriteTab({
   /** เขียนตามรายการ แล้วสร้างรูปต่อให้บทความที่เขียนสำเร็จ */
   async function runBatch(jobs: WriteJob[]) {
     const ids = jobs.map(j => j.key);
+    for (const j of jobs) if (j.target) jobTargetsRef.current[j.key] = j.target;
     const withImages = autoImages && imagesPlanned;
     ctaRunRef.current = withCta && ctaReady;
     setRunning(true);
@@ -364,8 +407,12 @@ export default function WriteTab({
     const ids = Array.from(selected);
     if (!ids.length) return;
     // เรียงเวอร์ชันแบบสลับ keyword (kw1v1, kw2v1, ..., kw1v2) — ถ้าหยุดกลางทางแต่ละ keyword ยังได้อย่างน้อย 1 บทความ
+    if (!pbnTargetsOk) return;
     const jobs: WriteJob[] = [];
-    for (let v = 1; v <= perKeyword; v++) for (const id of ids) jobs.push(makeJob(id, v, perKeyword));
+    for (let v = 1; v <= perKeyword; v++) {
+      const target = variantsEnabled ? { siteId: chosenSites[v - 1], profileId: activePbnSet } : undefined;
+      for (const id of ids) jobs.push(makeJob(id, v, perKeyword, target));
+    }
     await runBatch(jobs);
   }
 
@@ -374,7 +421,14 @@ export default function WriteTab({
     const m = /^(.*)#v(\d+)$/.exec(key);
     const keywordId = m ? m[1] : key;
     const variant = m ? Number(m[2]) : 1;
-    await runBatch([makeJob(keywordId, variant, Math.max(variant, variantTotalOf(keywordId)))]);
+    // PBN: ใช้เว็บ/set เดิมของงานนี้ — ไม่มี (เช่นโหลดหน้าใหม่) ใช้ค่าที่เลือกอยู่ตอนนี้
+    let target: PbnJobTarget | undefined;
+    if (variantsEnabled) {
+      const prev = jobTargetsRef.current[key];
+      target = prev && pbnSiteIds.includes(prev.siteId) ? prev : (variantSites[variant - 1] ? { siteId: variantSites[variant - 1], profileId: activePbnSet } : undefined);
+      if (!target) { toast.error("เลือกเว็บ PBN ของบทความนี้ก่อนเขียนใหม่"); return; }
+    }
+    await runBatch([makeJob(keywordId, variant, Math.max(variant, variantTotalOf(keywordId)), target)]);
   }
 
   /** จำนวนเวอร์ชันของ keyword นี้ในรอบล่าสุด (ใช้ตอนเขียนใหม่ทีละเวอร์ชันให้ได้มุมเขียนเดิม) */
@@ -442,7 +496,7 @@ export default function WriteTab({
           <button onClick={toggleSelectAll} className="text-[11px] text-brand-blue hover:underline">
             {selected.size === keywords.length && keywords.length > 0 ? "ยกเลิกเลือกทั้งหมด" : "เลือกทั้งหมด"}
           </button>
-          <Button size="sm" disabled={!selected.size || running || ready === false} onClick={runWriteSelected}>
+          <Button size="sm" disabled={!selected.size || running || ready === false || !pbnTargetsOk} onClick={runWriteSelected}>
             {running ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <PlayCircle size={12} className="mr-1.5" />}
             {running ? (stage === "images" ? "กำลังสร้างรูป..." : "กำลังเขียน...") : `เขียน ${selected.size ? selected.size * perKeyword : ""} บทความ`}
           </Button>
@@ -459,6 +513,48 @@ export default function WriteTab({
           </select>
           <p className="text-[11px] text-gray-400 flex-1 min-w-[220px]">
             ใช้ title + keyword เดียวกัน แต่ละบทความเขียนคนละมุม/โครงสร้าง ไม่ซ้ำกัน และยังตอบ intent เดิม — ไว้ push ขึ้นเว็บ PBN คนละเว็บ
+          </p>
+          <div className="w-full border-t border-gray-100 pt-3 grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-x-3 gap-y-2 items-center">
+            <label className="text-xs font-semibold text-gray-600" htmlFor="pbn-write-set">ข้อมูลโปรเจกต์ (set)</label>
+            <select id="pbn-write-set" value={activePbnSet} disabled={running} onChange={e => setPbnSetId(e.target.value)}
+              className="h-8 rounded-md border border-gray-200 px-2 text-sm bg-white">
+              <option value={PBN_MAIN_PROFILE}>set หลัก{client.website ? ` — ${client.website}` : ""}</option>
+              {pbnProfiles.profiles.map(p => <option key={p.id} value={p.id}>{p.name}{p.website ? ` — ${p.website}` : ""}</option>)}
+            </select>
+            {Array.from({ length: perKeyword }, (_, i) => {
+              const siteId = variantSites[i] || "";
+              const dup = !!siteId && variantSites.slice(0, perKeyword).indexOf(siteId) !== i;
+              return (
+                <div key={i} className="contents">
+                  <label className="text-xs font-semibold text-gray-600" htmlFor={`pbn-variant-site-${i}`}>
+                    {perKeyword > 1 ? `บทความที่ ${i + 1} → เว็บ` : "เว็บที่จะ push"}
+                  </label>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <select id={`pbn-variant-site-${i}`} value={siteId} disabled={running}
+                      onChange={e => setVariantSites(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                      className={`h-8 rounded-md border px-2 text-sm bg-white min-w-[200px] ${dup ? "border-red-300" : "border-gray-200"}`}>
+                      <option value="">— เลือกเว็บ —</option>
+                      {pbnSites.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    {siteId && (
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pbnSites.styleNames[siteId] ? "bg-violet-50 text-violet-700" : "bg-gray-50 text-gray-500"}`}>
+                        สไตล์: {pbnSites.styleNames[siteId] || "สไตล์หลัก"}
+                      </span>
+                    )}
+                    {dup && <span className="text-[11px] text-red-600">เว็บซ้ำกับบทความอื่น</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {!pbnSites.loading && pbnSites.sites.length < perKeyword && (
+            <p className="w-full text-[11px] text-red-600">
+              มีเว็บ PBN {pbnSites.sites.length} เว็บ — เขียน {perKeyword} บทความต่อ keyword ต้องมีอย่างน้อย {perKeyword} เว็บ (1 บทความ = 1 เว็บ)
+              {" "}<button type="button" onClick={() => onOpenSettings("website")} className="text-brand-blue hover:underline">เพิ่มเว็บ</button>
+            </p>
+          )}
+          <p className="w-full text-[11px] text-gray-400">
+            แต่ละบทความเขียนตามสไตล์ของเว็บที่เลือก และ push ได้เฉพาะเว็บนั้น — ตั้งสไตล์ตามเว็บได้ที่ Project Setting &gt; สไตล์บทความ
           </p>
         </div>
       )}
@@ -539,6 +635,11 @@ export default function WriteTab({
                             return (
                               <div key={key} className="flex items-start gap-2">
                                 <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-mist text-brand-blue">v{v}</span>
+                                {variantsEnabled && jobTargetsRef.current[key] && (
+                                  <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 max-w-[120px] truncate">
+                                    {pbnSites.sites.find(s => s.id === jobTargetsRef.current[key].siteId)?.name || "เว็บที่ถูกลบ"}
+                                  </span>
+                                )}
                                 <div className="flex-1 min-w-0">
                                   <StatusCell status={vst} keyword={v === 1 ? k : { ...k, articleId: undefined, writeError: undefined }} imageSummary={imageSummary} />
                                 </div>

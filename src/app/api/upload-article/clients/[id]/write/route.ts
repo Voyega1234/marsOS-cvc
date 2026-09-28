@@ -22,7 +22,9 @@ import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
 import { insertUploadCta } from '@/lib/upload-article/cta-insert'
-import { PBN_MAX_VARIANTS, writerSourceName } from '@/lib/upload-article/pbn'
+import { PBN_MAX_VARIANTS, isPbnPrefsRaw, readPbnSites, writerSourceName } from '@/lib/upload-article/pbn'
+import { PBN_MAIN_PROFILE, isPbnProfileId, readPbnProfiles, readPbnArticleTargets } from '@/lib/upload-article/pbn-sets'
+import { pbnEffectiveClient, resolveCeSet } from '@/lib/upload-article/pbn-context'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
 export const maxDuration = 800
@@ -42,7 +44,7 @@ function layerSummary(l: ResolvedLayer | null): { id: string; name: string; vers
 }
 
 /** GET /api/upload-article/clients/[id]/write — เช็คว่า Content Engine ของลูกค้าพร้อมเขียนหรือยัง */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -50,7 +52,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: session.user.organizationId } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
-  const ce = await resolveContentEngine(session.user.organizationId, { projectId: client.id })
+  // PBN Backlinks: ?set=<id> = เช็ค Content Engine ของ set ข้อมูลโปรเจกต์นั้น
+  const ceSet = resolveCeSet(client, req.url)
+  if ('error' in ceSet) return NextResponse.json({ error: ceSet.error }, { status: 400 })
+  const ce = await resolveContentEngine(session.user.organizationId, { projectId: ceSet.scopeId })
   const missing = missingWriterLayers(ce)
 
   return NextResponse.json({
@@ -89,6 +94,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const prefs = await readPrefs(client.id, orgId)
   if (!prefs) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+
+  // PBN Backlinks: ต้องบอกว่าบทความนี้เขียนเพื่อขึ้นเว็บ PBN ไหน (สไตล์ตามเว็บนั้น + push ได้แค่เว็บนั้น) และใช้ set ข้อมูลโปรเจกต์ไหน
+  const isPbn = isPbnPrefsRaw(client.pushPrefs)
+  let target: { siteId: string; profileId: string } | null = null
+  if (isPbn) {
+    const siteId = typeof body?.siteId === 'string' ? body.siteId : ''
+    if (!siteId || !readPbnSites(prefs).some((s) => s.id === siteId)) {
+      return NextResponse.json({ error: 'เลือกเว็บ PBN ที่จะ push บทความนี้ก่อนเขียน (เว็บนี้อาจถูกลบไปแล้ว)' }, { status: 400 })
+    }
+    const profileId = isPbnProfileId(body?.profileId) ? body.profileId : PBN_MAIN_PROFILE
+    if (profileId !== PBN_MAIN_PROFILE && !readPbnProfiles(prefs).some((p) => p.id === profileId)) {
+      return NextResponse.json({ error: 'ไม่พบ set ข้อมูลโปรเจกต์ที่เลือก (อาจถูกลบไปแล้ว)' }, { status: 400 })
+    }
+    target = { siteId, profileId }
+  }
+  // client ที่ใช้เขียนจริง — PBN: เว็บหลัก/ภาษาตาม set + สไตล์ตามเว็บปลายทาง, Upload Article: ค่าเดิม
+  const effective = pbnEffectiveClient({ ...client, pushPrefs: JSON.stringify(prefs) }, target)
+  const writeClient = effective.client
   const plan = readPlan(prefs)
   const keyword = plan.find((k) => k.id === keywordId)
   if (!keyword) return NextResponse.json({ error: 'ไม่พบ keyword นี้' }, { status: 404 })
@@ -105,7 +128,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (staleIds.length) await prisma.uploadArticle.deleteMany({ where: { id: { in: staleIds } } })
 
-  const ce = await resolveContentEngine(orgId, { projectId: client.id })
+  const ce = await resolveContentEngine(orgId, { projectId: effective.ceScopeId })
   const missing = missingWriterLayers(ce)
   if (missing.length > 0) {
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing }, { status: 422 })
@@ -119,7 +142,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   let theme: UploadTheme
   try {
-    theme = JSON.parse(client.themeColors)
+    theme = JSON.parse(writeClient.themeColors)
   } catch {
     theme = { theme: '#2563eb', text: '#1f2937', border: '#e5e7eb', accent: '#2563eb', background: '', styleMode: 'embed' }
   }
@@ -159,6 +182,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
+  if (target) {
+    const t = target
+    await updatePrefs(client.id, orgId, (current) => ({
+      prefs: { ...current, pbnArticleTargets: { ...readPbnArticleTargets(current), [article.id]: t } },
+      result: null,
+    }))
+  }
+
   // keyword ผูกกับบทความเวอร์ชัน 1 เท่านั้น — เวอร์ชันอื่นหาเจอจาก sourceName
   if (isPrimary) await updatePrefs(client.id, orgId, (current) => {
     const p = readPlan(current)
@@ -173,7 +204,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const system = buildWriterSystemPrompt({ masterPrompt, businessSkill, articleBrief, validatorPack })
   // ภาษาของบทความนี้ตามโหมดภาษาของลูกค้า (ไทย / อังกฤษ / ไทย+อังกฤษ = ดูจาก title ก่อน)
-  const language = uploadArticleLanguage(client.language, title, keyword.keyword)
+  const language = uploadArticleLanguage(writeClient.language, title, keyword.keyword)
   const user = buildWriterUserPrompt({
     keyword,
     links: linkPairs,
@@ -235,7 +266,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           sourceHtml,
           mode: 'html',
           theme,
-          site: { name: client.name, url: client.website, language },
+          site: { name: client.name, url: writeClient.website, language },
           meta: { title, seoTitle, metaDescription: parsed.metaDescription || undefined, slug: keyword.slug || undefined },
           cover: null,
           breadcrumb: true,
@@ -271,6 +302,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const message = e instanceof Error ? e.message.slice(0, 300) : String(e)
 
         await prisma.uploadArticle.delete({ where: { id: article.id } }).catch(() => {})
+        if (target) await updatePrefs(client.id, orgId, (current) => {
+          const targets = readPbnArticleTargets(current)
+          delete targets[article.id]
+          return { prefs: { ...current, pbnArticleTargets: targets }, result: null }
+        }).catch(() => {})
         if (isPrimary) await updatePrefs(client.id, orgId, (current) => {
           const p = readPlan(current)
           const idx = p.findIndex((k) => k.id === keywordId)

@@ -6,6 +6,7 @@
  * - WordPress: URL + User + Application Password
  * - GitHub: เว็บที่ deploy ด้วย Vercel / Cloudflare Pages — push = commit ไฟล์บทความลง repo แล้วเว็บ build ใหม่เอง
  * - Report: ผูก GSC property / GA4 property ต่อเว็บ (ใช้ในแท็บ Report)
+ * - ข้อมูลโปรเจกต์ PBN มีได้หลาย set (เว็บหลัก + ภาษา + Content Engine) — เลือกตอนเขียนบทความ
  * secret (รหัสผ่าน / token / deploy hook) ไม่เคยถูกส่งกลับมาหน้าเว็บ — เว้นว่าง = ใช้ค่าเดิม
  */
 import { useEffect, useState } from "react";
@@ -16,6 +17,9 @@ import { Input } from "@/components/ui/input";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 import { DEFAULT_GH_BRANCH, DEFAULT_GH_DIR, DEFAULT_URL_PATTERN, type PbnSiteDTO } from "@/lib/upload-article/pbn";
 import { usePbnSites } from "./usePbnSites";
+import { usePbnProfiles } from "./usePbnProfiles";
+import PbnProjectSets from "./PbnProjectSets";
+import PbnSiteGuide from "./PbnSiteGuide";
 
 type Draft = {
   name: string;
@@ -73,54 +77,6 @@ function useReportSources() {
     }).catch(() => setGa4([]));
   }, []);
   return { gscSites, ga4 };
-}
-
-function ProjectInfo({ client, setClient }: { client: UploadClientDTO; setClient: (c: UploadClientDTO) => void }) {
-  const [website, setWebsite] = useState(client.website);
-  const [language, setLanguage] = useState(client.language);
-  const [saving, setSaving] = useState(false);
-  const dirty = website.trim() !== client.website || language !== client.language;
-
-  async function save() {
-    setSaving(true);
-    try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ website: website.trim(), language }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || "บันทึกไม่สำเร็จ");
-      setClient(d);
-      toast.success("บันทึกข้อมูลโปรเจกต์แล้ว");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-      <p className="text-sm font-semibold text-brand-navy">ข้อมูลโปรเจกต์ PBN</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className={labelCls}>เว็บหลักที่ต้องการดันอันดับ (money site)</label>
-          <Input value={website} onChange={e => setWebsite(e.target.value)} placeholder="https://www.example.com" />
-        </div>
-        <div>
-          <label className={labelCls}>ภาษา</label>
-          <select value={language} onChange={e => setLanguage(e.target.value as UploadClientDTO["language"])} className={selectCls}>
-            <option value="th">ไทยเท่านั้น</option>
-            <option value="en">อังกฤษเท่านั้น</option>
-            <option value="both">ไทย+อังกฤษ</option>
-          </select>
-        </div>
-      </div>
-      <p className="text-[11px] text-gray-400">ใช้ตอนสแกน Business Skill / สไตล์ และสร้าง keyword — ไม่ใช่เว็บที่ push บทความขึ้น</p>
-      <Button size="sm" disabled={saving || !dirty} onClick={save}>{saving ? "กำลังบันทึก..." : "บันทึก"}</Button>
-    </div>
-  );
 }
 
 function SiteForm({
@@ -184,6 +140,7 @@ function SiteForm({
   return (
     <div className="bg-white border border-brand-soft/60 rounded-xl p-4 space-y-4">
       <p className="text-sm font-semibold text-brand-navy">{site ? `แก้ไขเว็บ: ${site.name}` : "เพิ่มเว็บ PBN"}</p>
+      <PbnSiteGuide platform={d.platform} />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className={labelCls}>ชื่อเว็บ</label>
@@ -336,7 +293,8 @@ function SiteForm({
 }
 
 export default function PbnSitesSection({ client, setClient }: { client: UploadClientDTO; setClient: (c: UploadClientDTO) => void }) {
-  const { sites, setSites, loading, error } = usePbnSites();
+  const { sites, setSites, styleNames, loading, error } = usePbnSites();
+  const pbnProfiles = usePbnProfiles();
   const [editing, setEditing] = useState<PbnSiteDTO | "new" | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, { ok: boolean; message: string }>>({});
@@ -353,7 +311,7 @@ export default function PbnSitesSection({ client, setClient }: { client: UploadC
   }
 
   async function remove(site: PbnSiteDTO) {
-    if (!confirm(`ลบเว็บ "${site.name}" ออกจากรายการ? (บทความที่ขึ้นเว็บไปแล้วยังอยู่ที่เว็บเดิม)`)) return;
+    if (!confirm(`ลบเว็บ "${site.name}" ออกจากรายการ? (บทความที่ขึ้นเว็บไปแล้วยังอยู่ที่เว็บเดิม, สไตล์บทความของเว็บนี้ถูกลบด้วย)`)) return;
     const r = await fetch(`/api/pbn-backlinks/sites/${site.id}`, { method: "DELETE" });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
@@ -372,7 +330,8 @@ export default function PbnSitesSection({ client, setClient }: { client: UploadC
 
   return (
     <div className="max-w-3xl space-y-4">
-      <ProjectInfo client={client} setClient={setClient} />
+      <PbnProjectSets client={client} setClient={setClient} profiles={pbnProfiles.profiles} setProfiles={pbnProfiles.setProfiles}
+        loading={pbnProfiles.loading} error={pbnProfiles.error} />
 
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -403,6 +362,9 @@ export default function PbnSitesSection({ client, setClient }: { client: UploadC
                   <span className="text-[11px] text-gray-400 truncate max-w-[260px]">{s.siteUrl}</span>
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
                     {s.platform === "github" ? `GitHub · ${HOST_LABEL[s.host]}` : "WordPress"}
+                  </span>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${styleNames[s.id] ? "bg-violet-50 text-violet-700" : "bg-gray-50 text-gray-400"}`}>
+                    สไตล์: {styleNames[s.id] || "สไตล์หลัก"}
                   </span>
                   {!ready && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">ตั้งค่ายังไม่ครบ</span>}
                   {(s.gscSiteUrl || s.ga4PropertyId) && (

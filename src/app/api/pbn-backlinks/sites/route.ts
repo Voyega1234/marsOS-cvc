@@ -5,21 +5,29 @@ import { encrypt } from '@/lib/crypto'
 import { readPrefs, updatePrefs } from '@/lib/upload-article/prefs-store'
 import { findPbnClientId, getOrCreatePbnClientId } from '@/lib/upload-article/pbn-store'
 import { mergePbnSiteInput, readPbnPushes, readPbnSites, toPbnSiteDTO } from '@/lib/upload-article/pbn'
+import { readPbnArticleTargets, readPbnStyles } from '@/lib/upload-article/pbn-sets'
 
 export const dynamic = 'force-dynamic'
 
 const MAX_SITES = 200
 
-/** GET /api/pbn-backlinks/sites — รายการเว็บ PBN (ไม่มี secret) + ประวัติ push ต่อบทความต่อเว็บ */
+/** GET /api/pbn-backlinks/sites — รายการเว็บ PBN (ไม่มี secret) + ประวัติ push ต่อบทความต่อเว็บ + เป้าหมายของบทความ */
 export async function GET() {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const orgId = session.user.organizationId
   const clientId = await findPbnClientId(orgId)
-  if (!clientId) return NextResponse.json({ sites: [], pushes: {} })
+  if (!clientId) return NextResponse.json({ sites: [], pushes: {}, targets: {}, styleNames: {} })
   const prefs = await readPrefs(clientId, orgId)
-  return NextResponse.json({ sites: readPbnSites(prefs).map(toPbnSiteDTO), pushes: readPbnPushes(prefs) })
+  // targets = บทความไหนเขียนให้เว็บไหน (push ได้เฉพาะเว็บนั้น), styleNames = เว็บที่มีสไตล์บทความของตัวเอง
+  const styleNames = Object.fromEntries(Object.values(readPbnStyles(prefs)).map((s) => [s.siteId, s.name]))
+  return NextResponse.json({
+    sites: readPbnSites(prefs).map(toPbnSiteDTO),
+    pushes: readPbnPushes(prefs),
+    targets: readPbnArticleTargets(prefs),
+    styleNames,
+  })
 }
 
 /** POST /api/pbn-backlinks/sites — เพิ่มเว็บ PBN */

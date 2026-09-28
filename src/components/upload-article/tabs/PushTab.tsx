@@ -45,6 +45,16 @@ export default function PushTab({
   /** เว็บ PBN ปลายทางต่อบทความ (articleId → siteId) */
   const [targetSite, setTargetSite] = useState<Record<string, string>>({});
   const siteName = (id: string) => pbnSites.find(s => s.id === id)?.name ?? "เว็บที่ถูกลบ";
+  /** บทความที่เขียนตามสไตล์ของเว็บไหน = push ได้เฉพาะเว็บนั้น (ล็อกไว้ ฝั่ง server ก็เช็คซ้ำ) */
+  const lockedSite = (articleId: string): string | undefined => (pbn ? pbnData.targets[articleId]?.siteId : undefined);
+  const targetsKey = pbn ? JSON.stringify(pbnData.targets) : "";
+  useEffect(() => {
+    if (!pbn) return;
+    const locked: Record<string, string> = {};
+    for (const [articleId, t] of Object.entries(pbnData.targets)) locked[articleId] = t.siteId;
+    if (Object.keys(locked).length) setTargetSite(prev => ({ ...prev, ...locked }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pbn, targetsKey]);
   const pushable = useMemo(() => articles.filter(a => PUSHABLE.has(a.status)), [articles]);
 
   const [publishMode, setPublishMode] = useState<"draft" | "publish">(client.pushPrefs.publishMode ?? "draft");
@@ -155,6 +165,7 @@ export default function PushTab({
     let skipped = 0;
     for (const a of ordered) {
       if (!selectedIds.has(a.id)) continue;
+      if (lockedSite(a.id)) continue;
       const k = variantInfo.get(a.id)?.keywordId ?? a.id;
       const used = usedByKeyword.get(k)!;
       const free = pbnSites.find(s => !used.has(s.id));
@@ -391,20 +402,31 @@ export default function PushTab({
                 </label>
                 <div className="flex items-center gap-2">
                   {pbn && (
-                    <select value={targetSite[a.id] ?? ""} disabled={busy || batchBusy}
+                    <select value={targetSite[a.id] ?? ""} disabled={busy || batchBusy || !!lockedSite(a.id)}
+                      title={lockedSite(a.id) ? "บทความนี้เขียนตามสไตล์ของเว็บนี้ — push ได้เฉพาะเว็บนี้" : undefined}
                       onChange={e => setTargetSite(prev => ({ ...prev, [a.id]: e.target.value }))}
                       className="h-8 max-w-[200px] rounded-md border border-gray-200 px-2 text-xs bg-white">
                       <option value="">— เลือกเว็บ PBN —</option>
+                      {lockedSite(a.id) && !pbnSites.some(s => s.id === lockedSite(a.id)) && (
+                        <option value={lockedSite(a.id)}>เว็บที่ถูกลบ</option>
+                      )}
                       {pbnSites.map(s => (
                         <option key={s.id} value={s.id}>{pbnPushes[a.id]?.[s.id] ? "✓ " : ""}{s.name}</option>
                       ))}
                     </select>
                   )}
-                  <Button size="sm" variant="outline" disabled={busy || batchBusy || (pbn && !targetSite[a.id])} onClick={() => pushOne(a.id)}>
+                  <Button size="sm" variant="outline" disabled={busy || batchBusy || (pbn && (!targetSite[a.id] || !pbnSites.some(s => s.id === targetSite[a.id])))} onClick={() => pushOne(a.id)}>
                     {busy ? "กำลัง Push..." : pbn && pbnPushes[a.id]?.[targetSite[a.id] ?? ""] ? "Push อัปเดต" : "Push"}
                   </Button>
                 </div>
               </div>
+              {pbn && lockedSite(a.id) && (
+                <p className={`text-[11px] flex items-center gap-1 ${pbnSites.some(s => s.id === lockedSite(a.id)) ? "text-violet-700" : "text-red-600"}`}>
+                  {pbnSites.some(s => s.id === lockedSite(a.id))
+                    ? <>เขียนตามสไตล์ของเว็บ {siteName(lockedSite(a.id)!)} — push ได้เฉพาะเว็บนี้</>
+                    : <><AlertTriangle size={11} /> เว็บที่บทความนี้เขียนให้ถูกลบไปแล้ว — push ไม่ได้ (เขียนใหม่โดยเลือกเว็บที่มีอยู่)</>}
+                </p>
+              )}
               {pbn && targetSite[a.id] && siblingOnSite(a.id, targetSite[a.id]) && (
                 <p className="text-[11px] text-amber-700 flex items-center gap-1">
                   <AlertTriangle size={11} /> {siblingOnSite(a.id, targetSite[a.id])} ของ keyword เดียวกันขึ้นเว็บ {siteName(targetSite[a.id])} ไปแล้ว — ควรเลือกเว็บอื่น

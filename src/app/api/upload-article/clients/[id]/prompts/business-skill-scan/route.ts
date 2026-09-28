@@ -6,6 +6,7 @@ import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { OR_MODELS } from '@/lib/openrouter'
 import { prisma } from '@/lib/prisma'
+import { resolveCeSet } from '@/lib/upload-article/pbn-context'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -22,9 +23,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const orgId = session.user.organizationId
   const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: orgId } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // PBN Backlinks: ?set=<id> = Content Engine ของ set ข้อมูลโปรเจกต์นั้น (ไม่ส่ง = ขอบเขตเดิม)
+  const ceSet = resolveCeSet(client, req.url)
+  if ('error' in ceSet) return NextResponse.json({ error: ceSet.error }, { status: 400 })
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))
-  const raw = ((typeof body.url === 'string' && body.url.trim()) || client.website || '').trim()
+  const raw = ((typeof body.url === 'string' && body.url.trim()) || ceSet.client.website || '').trim()
   if (!raw) {
     return NextResponse.json({ error: 'ยังไม่มี URL เว็บไซต์ — วางลิงก์ก่อนสแกน' }, { status: 400 })
   }

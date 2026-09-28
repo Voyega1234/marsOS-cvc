@@ -5,6 +5,7 @@ import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
+import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024
 const VALID_STATUS = new Set(['IMPORTED', 'GENERATED', 'REVIEWED', 'PUSHED', 'FAILED'])
@@ -83,7 +84,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
     const client = await prisma.uploadClient.findFirst({ where: { id: existing.clientId, organizationId: existing.organizationId } })
     if (client) {
       const merged = { ...existing, ...data } as typeof existing
-      data.htmlContent = refreshUploadSchema(nextHtml, uploadSchemaOptions(merged, client))
+      data.htmlContent = refreshUploadSchema(nextHtml, uploadSchemaOptions(merged, pbnArticleEffective(client, existing.id).client))
     }
   }
 

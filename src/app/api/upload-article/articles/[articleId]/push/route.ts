@@ -13,6 +13,7 @@ import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import { isPbnPrefs, readPbnSites, readPbnPushes, type PbnSite } from '@/lib/upload-article/pbn'
 import { publishToGithub } from '@/lib/upload-article/github-push'
+import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 
 export const maxDuration = 300
 
@@ -54,6 +55,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
 
   const client = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // PBN Backlinks: สไตล์/ภาษาตามที่เขียนไว้ให้เว็บปลายทาง (Upload Article = ค่าเดิม)
+  const eff = pbnArticleEffective(client, article.id)
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))
 
@@ -64,7 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
 
   let theme: UploadTheme
   try {
-    theme = JSON.parse(client.themeColors)
+    theme = JSON.parse(eff.client.themeColors)
   } catch {
     theme = { theme: '#2563eb', text: '#1f2937', border: '#e5e7eb', accent: '#2563eb', background: '', styleMode: 'embed' }
   }
@@ -103,7 +106,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   }
 
   // schema ต้องตรงกับ meta/slug ล่าสุดเสมอ (แก้ meta หลัง generate ได้)
-  let processedHtml = stripDocumentWrapper(refreshUploadSchema(rawHtml, uploadSchemaOptions(article, client)))
+  let processedHtml = stripDocumentWrapper(refreshUploadSchema(rawHtml, uploadSchemaOptions(article, eff.client)))
   if (theme.styleMode === 'clean') processedHtml = stripStyleTags(processedHtml)
   if (stripH1) processedHtml = stripLeadingH1(processedHtml)
   // บทความที่ generate ก่อนเลิกแสดง breadcrumb ในเนื้อหา — ตัดทิ้งตอน push (schema ยังมี BreadcrumbList)
@@ -125,6 +128,15 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     if (!siteId) return NextResponse.json({ error: 'เลือกเว็บ PBN ที่จะ push ก่อน' }, { status: 400 })
     pbnSite = readPbnSites(prevPrefs as Record<string, unknown>).find((s) => s.id === siteId) ?? null
     if (!pbnSite) return NextResponse.json({ error: 'ไม่พบเว็บ PBN นี้ — อาจถูกลบไปแล้ว' }, { status: 404 })
+    // บทความที่เขียนตามสไตล์ของเว็บไหน push ได้เฉพาะเว็บนั้น
+    if (eff.target && eff.target.siteId !== pbnSite.id) {
+      const owner = readPbnSites(prevPrefs as Record<string, unknown>).find((s) => s.id === eff.target!.siteId)
+      return NextResponse.json({
+        error: owner
+          ? `บทความนี้เขียนตามสไตล์ของเว็บ ${owner.name} — push ได้เฉพาะเว็บนั้น`
+          : 'บทความนี้เขียนไว้สำหรับเว็บ PBN ที่ถูกลบไปแล้ว — เขียนใหม่ให้เว็บที่ต้องการ',
+      }, { status: 400 })
+    }
   }
   const prevPbnPush = pbnSite ? readPbnPushes(prevPrefs as Record<string, unknown>)[article.id]?.[pbnSite.id] : undefined
 
@@ -229,7 +241,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         coverMimeType: mime,
         coverAlt: article.coverAlt || article.title,
         publishMode,
-        language: client.language === 'en' ? 'en' : 'th',
+        language: eff.client.language === 'en' ? 'en' : 'th',
         date: publishAt,
       })
       ok = result.ok

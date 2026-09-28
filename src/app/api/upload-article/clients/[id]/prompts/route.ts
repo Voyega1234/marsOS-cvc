@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { withHumanVoice } from '@/lib/upload-article/human-voice'
+import { resolveCeSet } from '@/lib/upload-article/pbn-context'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const orgId = session.user.organizationId
   const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: orgId } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // PBN Backlinks: ?set=<id> = Content Engine ของ set ข้อมูลโปรเจกต์นั้น (ไม่ส่ง = ขอบเขตเดิม)
+  const ceSet = resolveCeSet(client, req.url)
+  if ('error' in ceSet) return NextResponse.json({ error: ceSet.error }, { status: 400 })
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))
   const { name, type, description, promptText, variables, modelProvider, modelName, temperature, maxTokens } = body
@@ -27,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'name, type, and promptText are required' }, { status: 400 })
   }
 
-  const resolvedProjectId = client.id
+  const resolvedProjectId = ceSet.scopeId
 
   // Layer แรกของ type นั้นใน scope นี้ → เปิดใช้งานให้เลย (เหมือน POST /api/prompts)
   const isCeLayer = typeof type === 'string' && type.startsWith('CE_')

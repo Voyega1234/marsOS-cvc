@@ -11,6 +11,7 @@
  * ให้ 3 path นี้วิ่งไปที่ route เฉพาะของ Upload Article แทน แล้วคืนค่าเดิมตอน unmount
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { PBN_MAIN_PROFILE, pbnCeScopeId } from "@/lib/upload-article/pbn-sets";
 import { toast } from "sonner";
 import { Loader2, Plus, RefreshCw, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -61,7 +62,7 @@ function toPromptRow(p: {
 let ceFetchInstallCount = 0;
 let ceFetchOriginal: typeof window.fetch | null = null;
 
-function buildCeFetch(original: typeof window.fetch, clientId: string): typeof window.fetch {
+function buildCeFetch(original: typeof window.fetch, clientId: string, setId?: string): typeof window.fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     try {
       let urlStr: string | null = null;
@@ -88,6 +89,8 @@ function buildCeFetch(original: typeof window.fetch, clientId: string): typeof w
           newPath = `/api/upload-article/clients/${clientId}/prompts/business-skill-scan`;
         }
         if (newPath) {
+          // set ข้อมูลโปรเจกต์ของ PBN — ส่ง ?set= ให้ route ใช้ Content Engine ของ set นั้น
+          if (setId) u.searchParams.set("set", setId);
           const newUrl = `${newPath}${u.search}`;
           if (typeof Request !== "undefined" && input instanceof Request) {
             return original(new Request(newUrl, input));
@@ -102,10 +105,10 @@ function buildCeFetch(original: typeof window.fetch, clientId: string): typeof w
   }) as typeof window.fetch;
 }
 
-function installCeFetch(clientId: string) {
+function installCeFetch(clientId: string, setId?: string) {
   if (ceFetchInstallCount === 0) {
     ceFetchOriginal = window.fetch.bind(window);
-    window.fetch = buildCeFetch(ceFetchOriginal, clientId);
+    window.fetch = buildCeFetch(ceFetchOriginal, clientId, setId);
   }
   ceFetchInstallCount++;
 }
@@ -131,7 +134,15 @@ const CE_LAYOUT_CSS = `
 }
 `;
 
-export default function UploadContentEngine({ client, userRole }: { client: UploadClientDTO; userRole: string }) {
+export default function UploadContentEngine({ client, userRole, setId }: {
+  client: UploadClientDTO;
+  userRole: string;
+  /** PBN เท่านั้น: set ข้อมูลโปรเจกต์ที่กำลังแก้ Content Engine (ไม่ส่ง = set หลัก / Upload Article) — เปลี่ยน set ต้อง remount ด้วย key */
+  setId?: string;
+}) {
+  const ceSet = setId && setId !== PBN_MAIN_PROFILE ? setId : undefined;
+  const scopeId = pbnCeScopeId(client.id, ceSet);
+  const setQs = ceSet ? `?set=${encodeURIComponent(ceSet)}` : "";
   const [fetchReady, setFetchReady] = useState(false);
   const [items, setItems] = useState<PromptRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -140,19 +151,19 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
   const seedAttemptedRef = useRef(false);
 
   useLayoutEffect(() => {
-    installCeFetch(client.id);
+    installCeFetch(client.id, ceSet);
     setFetchReady(true);
     return () => {
       uninstallCeFetch();
       setFetchReady(false);
     };
-  }, [client.id]);
+  }, [client.id, ceSet]);
 
-  useEffect(() => { seedAttemptedRef.current = false; }, [client.id]);
+  useEffect(() => { seedAttemptedRef.current = false; }, [scopeId]);
 
   useEffect(() => {
     setError(null);
-    fetch(`/api/prompts?projectId=${client.id}`)
+    fetch(`/api/prompts?projectId=${encodeURIComponent(scopeId)}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(res.status === 403 ? "เฉพาะ ADMIN / SEO Manager เท่านั้น" : `โหลด Content Engine ไม่สำเร็จ (${res.status})`);
         const prompts = await res.json();
@@ -163,7 +174,7 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
         );
       })
       .catch((e) => setError((e as Error).message));
-  }, [client.id, refreshKey]);
+  }, [scopeId, refreshKey]);
 
   useEffect(() => {
     if (items && items.length === 0 && !seedAttemptedRef.current) {
@@ -176,7 +187,7 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
   async function runSeed() {
     setSeeding(true);
     try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}/prompts/seed`, { method: "POST" });
+      const r = await fetch(`/api/upload-article/clients/${client.id}/prompts/seed${setQs}`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "ตั้งค่าเริ่มต้นไม่สำเร็จ"); return; }
       if (typeof d.created === "number" && d.created > 0) toast.success(`คัดลอก ${d.created} layer จากระบบล่าสุดแล้ว`);
@@ -221,7 +232,7 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
     if (sources.length < 3) { toast.error("ต้องมีตัวอย่างอย่างน้อย 3 รายการ (URL หรือข้อความ)"); return; }
     setCreatingMaster(true);
     try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}/prompts/master-from-examples`, {
+      const r = await fetch(`/api/upload-article/clients/${client.id}/prompts/master-from-examples${setQs}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sources, name: exampleName.trim() || undefined, activate: exampleActivate }),
@@ -260,7 +271,7 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
     setEditingMaster(true);
     setProposal(null);
     try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}/prompts/master-edit`, {
+      const r = await fetch(`/api/upload-article/clients/${client.id}/prompts/master-edit${setQs}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ promptId: selectedMasterId, instruction: instruction.trim() }),
@@ -436,7 +447,7 @@ export default function UploadContentEngine({ client, userRole }: { client: Uplo
           <style>{CE_LAYOUT_CSS}</style>
           <ContentEngineSettingsClient
             items={items}
-            scope={{ projectId: client.id }}
+            scope={{ projectId: scopeId }}
             userRole={userRole}
             onRefresh={() => setRefreshKey(k => k + 1)}
           />

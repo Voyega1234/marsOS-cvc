@@ -22,15 +22,17 @@ function statusOf(f: UploadComponentFinding): { text: string; cls: string } {
 }
 
 export default function SiteScanPanel({
-  client, setClient, onApplyTheme, title = "สแกนเว็บปลายทาง (ละเอียด)",
+  client, setClient, onApplyTheme, title = "สแกนเว็บปลายทาง (ละเอียด)", defaultUrl,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
   /** มีในหน้า Generate — รับสี/ฟอนต์/หน้าตา FAQ จากผลสแกนเข้าธีมที่กำลังแก้ */
   onApplyTheme?: (theme: Partial<UploadTheme>, detail: UploadThemeDetail | null) => void;
+  /** URL เริ่มต้นในช่องสแกน (PBN: URL ของเว็บที่กำลังแก้สไตล์) — ไม่ส่ง = wpUrl / website ของลูกค้า */
+  defaultUrl?: string;
   title?: string;
 }) {
-  const [url, setUrl] = useState(client.wpUrl || client.website || "");
+  const [url, setUrl] = useState(defaultUrl || client.wpUrl || client.website || "");
   const [sampleUrl, setSampleUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [showPlugins, setShowPlugins] = useState(false);

@@ -11,6 +11,7 @@ import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
+import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 
 function sanitizeSlug(raw: string): string {
   return raw
@@ -45,8 +46,10 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
   const article = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: orgId } })
   if (!article) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
 
-  const client = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
-  if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  const clientRow = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
+  if (!clientRow) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // PBN Backlinks: สไตล์ตามเว็บปลายทาง + เว็บหลัก/ภาษาตาม set ที่เลือกตอนเขียน (Upload Article = ค่าเดิม)
+  const client = pbnArticleEffective(clientRow, article.id).client
 
   // ค่าจากตาราง brief ของผู้เขียนในต้นฉบับชนะเสมอ — AI เติมเฉพาะช่องที่ brief ไม่มี
   const brief = extractBriefMeta(article.sourceHtml)

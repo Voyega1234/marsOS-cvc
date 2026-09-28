@@ -11,6 +11,7 @@ import { insertInternalLinks } from '@/lib/upload-article/link-insert'
 import { decodeTextEntities } from '@/lib/upload-article/entities'
 import { readUploadCta } from '@/lib/upload-article/cta'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadOutputMode, type UploadTheme } from '@/lib/upload-article/types'
+import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 
 /** POST /api/upload-article/articles/[articleId]/generate — ประกอบ HTML/Text พร้อมใช้จาก sourceHtml */
 export async function POST(req: NextRequest, { params }: { params: { articleId: string } }) {
@@ -22,8 +23,10 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const article = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: orgId } })
   if (!article) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
 
-  const client = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
-  if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  const clientRow = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
+  if (!clientRow) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // PBN Backlinks: สไตล์ตามเว็บปลายทาง + เว็บหลัก/ภาษาตาม set ที่เลือกตอนเขียน (Upload Article = ค่าเดิม)
+  const client = pbnArticleEffective(clientRow, article.id).client
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))
   const mode: UploadOutputMode = body.mode === 'text' ? 'text' : body.mode === 'html' ? 'html' : (article.outputMode as UploadOutputMode) || 'html'

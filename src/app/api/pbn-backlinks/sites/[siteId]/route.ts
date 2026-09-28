@@ -5,6 +5,7 @@ import { encrypt } from '@/lib/crypto'
 import { updatePrefs } from '@/lib/upload-article/prefs-store'
 import { findPbnClientId } from '@/lib/upload-article/pbn-store'
 import { mergePbnSiteInput, readPbnSites, toPbnSiteDTO, type PbnSite } from '@/lib/upload-article/pbn'
+import { readPbnStyles } from '@/lib/upload-article/pbn-sets'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,7 +49,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { siteId: 
   const out = await updatePrefs(a.clientId, a.orgId, (current) => {
     const sites = readPbnSites(current)
     if (!sites.some((s) => s.id === params.siteId)) return { result: false }
-    return { prefs: { ...current, pbnSites: sites.filter((s) => s.id !== params.siteId) }, result: true }
+    // สไตล์บทความของเว็บนี้ลบตามไปด้วย (บทความที่เขียนไว้แล้วกลับไปใช้สไตล์หลัก)
+    const styles = readPbnStyles(current)
+    delete styles[params.siteId]
+    return { prefs: { ...current, pbnSites: sites.filter((s) => s.id !== params.siteId), pbnStyles: styles }, result: true }
   })
   if (!out?.result) return NextResponse.json({ error: 'ไม่พบเว็บนี้' }, { status: 404 })
   return NextResponse.json({ ok: true })

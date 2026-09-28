@@ -15,6 +15,7 @@ import {
 } from '@/lib/upload-article/article-images'
 import { DEFAULT_UPLOAD_THEME, UPLOAD_MAX_INLINE_IMAGES, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
+import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 
 // สร้างรูปหลายภาพขนานกัน ภาพละ ~30-90 วิ — เผื่อเวลาให้พอ ไม่ให้ Vercel ตัดกลางทาง
 export const maxDuration = 800
@@ -45,9 +46,11 @@ async function shrinkInline(base64: string, mimeType: string): Promise<{ base64:
 async function loadContext(articleId: string, orgId: string) {
   const article = await prisma.uploadArticle.findFirst({ where: { id: articleId, organizationId: orgId } })
   if (!article) return null
-  const client = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
-  if (!client) return null
-  return { article, client }
+  const clientRow = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
+  if (!clientRow) return null
+  // PBN Backlinks: สไตล์ตามเว็บปลายทาง + Content Engine / ภาษาตาม set ที่เลือกตอนเขียน (Upload Article = ค่าเดิม)
+  const eff = pbnArticleEffective(clientRow, article.id)
+  return { article, client: eff.client, ceScopeId: eff.ceScopeId }
 }
 
 /**
@@ -82,7 +85,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   }
 
   // Content Engine ของลูกค้านี้เท่านั้น (scope = UploadClient.id) — ไม่มี Image Prompt = หยุด ไม่ใช้ prompt สำรอง
-  const ce = await resolveContentEngine(orgId, { projectId: client.id })
+  const ce = await resolveContentEngine(orgId, { projectId: ctx.ceScopeId })
   if (!ce.imagePrompt?.text?.trim()) {
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing: ['Image Prompt'] }, { status: 422 })
   }

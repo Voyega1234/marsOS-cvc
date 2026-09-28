@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { withHumanVoice } from '@/lib/upload-article/human-voice'
+import { resolveCeSet } from '@/lib/upload-article/pbn-context'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +15,7 @@ const CE_TYPES = ['CE_BUSINESS_SKILL', 'CE_MASTER_PROMPT', 'CE_ARTICLE_BRIEF', '
  * เฉพาะ type ที่ยังไม่มีแถวเลยในขอบเขตนี้ — idempotent (เรียกซ้ำแล้ว created=0)
  * Business Skill: ปกติ Studio ไม่มี active BS อยู่แล้ว จึงข้ามไปเองตามกติกาเดียวกัน (ไม่คัดลอกแถวที่ inactive)
  */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -22,12 +23,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const orgId = session.user.organizationId
   const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: orgId } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // PBN Backlinks: ?set=<id> = Content Engine ของ set ข้อมูลโปรเจกต์นั้น (ไม่ส่ง = ขอบเขตเดิม)
+  const ceSet = resolveCeSet(client, req.url)
+  if ('error' in ceSet) return NextResponse.json({ error: ceSet.error }, { status: 400 })
 
   const createdTypes: string[] = []
 
   for (const type of CE_TYPES) {
     const existingCount = await prisma.promptTemplate.count({
-      where: { organizationId: orgId, projectId: client.id, type },
+      where: { organizationId: orgId, projectId: ceSet.scopeId, type },
     })
     if (existingCount > 0) continue
 
@@ -52,7 +56,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         version: 1,
         organizationId: orgId,
         createdById: session.user.id,
-        projectId: client.id,
+        projectId: ceSet.scopeId,
       },
     })
     createdTypes.push(type)

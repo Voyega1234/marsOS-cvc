@@ -7,6 +7,7 @@ import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
+import { resolveCeSet } from '@/lib/upload-article/pbn-context'
 import {
   buildMasterPromptFromExamples,
   extractExampleSources,
@@ -38,6 +39,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const orgId = session.user.organizationId
   const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: orgId } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // PBN Backlinks: ?set=<id> = Content Engine ของ set ข้อมูลโปรเจกต์นั้น (ไม่ส่ง = ขอบเขตเดิม)
+  const ceSet = resolveCeSet(client, req.url)
+  if ('error' in ceSet) return NextResponse.json({ error: ceSet.error }, { status: 400 })
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))
   const rawSources = Array.isArray(body.sources) ? (body.sources as MasterExampleSourceInput[]) : []
@@ -96,7 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const prompt = await prisma.$transaction(async (tx) => {
     if (activate) {
       await tx.promptTemplate.updateMany({
-        where: { organizationId: orgId, projectId: client.id, type: 'CE_MASTER_PROMPT', isActive: true },
+        where: { organizationId: orgId, projectId: ceSet.scopeId, type: 'CE_MASTER_PROMPT', isActive: true },
         data: { isActive: false },
       })
     }
@@ -115,7 +119,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         version: 1,
         organizationId: orgId,
         createdById: session.user.id,
-        projectId: client.id,
+        projectId: ceSet.scopeId,
       },
       include: {
         createdBy: { select: { name: true } },
