@@ -4,16 +4,26 @@
 // how-to ที่ไม่มีขั้นตอน จะไม่ติดอันดับ ต่อให้ภาษาดีแค่ไหน
 // ไฟล์นี้เป็น pure text builder (ไม่เรียก DB/AI) — ผู้เรียกส่ง intent/ประเภทที่มีอยู่แล้วเข้ามา ไม่มีก็ไม่แนบ
 
+import { classifyKeywordIntent } from './intent-classify'
+
 export type ArticleIntent = 'informational' | 'educational' | 'commercial' | 'transactional' | 'navigational'
 
 export const ARTICLE_INTENT_SKILL_NAME = 'Mars Article Intent Skill'
 
-/** รับค่าได้ทั้งตัวเล็ก/ตัวใหญ่ (Keyword.intent ใน DB เป็น INFORMATIONAL ฯลฯ) — ค่าไม่รู้จัก = '' */
+/**
+ * รับค่าได้ทั้งตัวเล็ก/ตัวใหญ่ (Keyword.intent ใน DB เป็น INFORMATIONAL ฯลฯ) และคำที่ทีมพิมพ์มาเองในไฟล์
+ * (เช่น "Commercial Investigation", "เชิงพาณิชย์", "ให้ข้อมูล") — ค่าที่ไม่รู้จัก = '' (ถือว่าไม่มี intent ติดมา)
+ */
 export function normalizeArticleIntent(raw: unknown): ArticleIntent | '' {
   const v = String(raw ?? '').trim().toLowerCase()
-  return (['informational', 'educational', 'commercial', 'transactional', 'navigational'] as const).includes(v as ArticleIntent)
-    ? (v as ArticleIntent)
-    : ''
+  if (!v) return ''
+  if ((['informational', 'educational', 'commercial', 'transactional', 'navigational'] as const).includes(v as ArticleIntent)) return v as ArticleIntent
+  if (/^(info|informative|information)|ข้อมูล|ความรู้|อยากรู้/.test(v)) return 'informational'
+  if (/^(edu|learn|tutorial|how.?to)|เรียนรู้|สอน|วิธี/.test(v)) return 'educational'
+  if (/^(comm|investigat)|พาณิชย์|เปรียบเทียบ|พิจารณา|ตัดสินใจ/.test(v)) return 'commercial'
+  if (/^(trans|purchase|buy)|ซื้อ|ธุรกรรม|จ้าง|ขาย/.test(v)) return 'transactional'
+  if (/^(nav|brand)|นำทาง|แบรนด์/.test(v)) return 'navigational'
+  return ''
 }
 
 const INTENT_GUIDE: Record<ArticleIntent, { label: string; reader: string; must: string[]; avoid: string[] }> = {
@@ -138,49 +148,83 @@ export interface ArticleIntentSkillInput {
   articleType?: string | null
   /** funnel stage จาก Keyword Bank (TOFU/MOFU/BOFU) ถ้ามี */
   funnelStage?: string | null
+  /** keyword/หัวข้อของบทความ — ใช้วิเคราะห์ intent เองเมื่อไม่มี intent ติดมา */
+  keyword?: string | null
+  title?: string | null
+  /** ชื่อลูกค้า/แบรนด์ — keyword ที่มีชื่อแบรนด์ = navigational */
+  brandNames?: string[]
 }
 
 /**
- * โหมดพื้นฐาน — หน้าที่ไม่มีข้อมูล intent/ประเภทบทความ (เช่น Studio) ให้ตัวเขียนวิเคราะห์ intent จาก keyword เอง
- * ไม่ระบุ intent แทนผู้ใช้ (ห้ามเดา) แค่บอกวิธีคิดและแนวทางของแต่ละ intent
+ * ขั้นตอนตัดสิน intent ให้ตัวเขียน — ใช้เมื่อไม่มี intent ติดมาและคำบ่งชี้ใน keyword ไม่ชัด
+ * ไม่ระบุ intent แทนผู้ใช้ (ห้ามเดา) แต่บังคับวิธีคิดเป็นขั้น ให้ผลเหมือนคนทำ SEO ตัดสิน
  */
-function baseIntentSkillBlock(): string {
+function intentDecisionProcedure(hint?: { intent: ArticleIntent | ''; signals: string[] }): string[] {
   const lines: string[] = [
-    `════ ${ARTICLE_INTENT_SKILL_NAME} — เนื้อหาต้องตรงกับสิ่งที่คนค้นอยากได้ (ดีต่อ SEO) ════`,
-    'งานนี้ไม่ได้ระบุ Search Intent และประเภทบทความมา — ก่อนเขียนให้อ่าน keyword/หัวข้อ แล้วตัดสินว่าคนค้นอยากได้อะไร จากแบบใดแบบหนึ่งด้านล่าง แล้วเขียนตามแนวทางของแบบนั้นทั้งบทความ',
+    'ขั้นตอนตัดสิน Search Intent (ทำในใจก่อนเขียน ห้ามเขียนขั้นตอนนี้ลงในบทความ):',
+    '1. นึกภาพหน้าแรกของ Google เมื่อค้นคำนี้ ผลส่วนใหญ่เป็นอะไร: บทความอธิบาย (Informational) / บทสอนทีละขั้น (Educational) / หน้ารวม-เปรียบเทียบ-รีวิว (Commercial) / หน้าขาย-ราคา-จอง-ติดต่อ (Transactional) / เว็บของแบรนด์นั้นเอง (Navigational)',
+    '2. ดูคำบ่งชี้ใน keyword: คืออะไร/ทำไม/สาเหตุ/อาการ = Informational · วิธีทำ/ขั้นตอน/สอน = Educational · วิธีเลือก/ดีไหม/ยี่ห้อไหน/เปรียบเทียบ/รีวิว/แนะนำ = Commercial · ราคา/ซื้อ/รับทำ/จอง/ใกล้ฉัน/โปรโมชั่น = Transactional · ชื่อแบรนด์ + ติดต่อ/สาขา/เข้าสู่ระบบ = Navigational',
+    '3. keyword สั้นกว้าง ๆ ไม่มีคำบ่งชี้ (เช่น ชื่อสินค้าหรือบริการเฉย ๆ) ให้ดูว่าธุรกิจใน Business Skill ขายสิ่งนั้นหรือไม่: ขาย = Commercial (ช่วยเลือก แล้วพาไปที่บริการ) ไม่ได้ขาย = Informational',
+    '4. ก้ำกึ่งสองแบบ ให้ยึดแบบที่ผลหน้าแรกเป็นส่วนใหญ่ แล้วใส่เนื้อหาของอีกแบบเป็นหัวข้อรองสั้น ๆ',
   ]
+  if (hint?.intent) {
+    lines.push(`ข้อสังเกตจากคำใน keyword (ยังไม่ชี้ขาด ใช้ประกอบขั้นที่ 2): ${hint.signals.slice(0, 4).join(' · ')}`)
+  }
+  lines.push('ตัดสินแล้วต้องเขียนตามแนวทางของ intent นั้นทั้งบทความ ตั้งแต่ H1 บทนำ หัวข้อ ไปจนถึงปิดท้าย:')
   for (const key of Object.keys(INTENT_GUIDE) as ArticleIntent[]) {
     const g = INTENT_GUIDE[key]
-    lines.push(`- ${g.label}: ${g.must[0]}`)
+    lines.push(`- ${g.label}: ${g.must.slice(0, 2).join(' / ')} · ห้าม${g.avoid[0]}`)
   }
-  lines.push(
+  return lines
+}
+
+/** โหมดพื้นฐาน — ไม่มี intent/ประเภทติดมา และคำใน keyword ไม่ชี้ขาด */
+function baseIntentSkillBlock(hint?: { intent: ArticleIntent | ''; signals: string[] }): string {
+  const lines: string[] = [
+    `════ ${ARTICLE_INTENT_SKILL_NAME} — เนื้อหาต้องตรงกับสิ่งที่คนค้นอยากได้ (ดีต่อ SEO) ════`,
+    'งานนี้ไม่ได้ระบุ Search Intent มา — ให้วิเคราะห์เองตามขั้นตอนนี้อย่างรอบคอบ เพราะ intent ผิด = บทความไม่ติดอันดับต่อให้ภาษาดีแค่ไหน',
+    ...intentDecisionProcedure(hint),
     'ถ้า keyword บอกรูปแบบชัด (วิธี/ขั้นตอน, รวม/อันดับ, เปรียบเทียบ/vs, รีวิว, ราคา/บริการ) ให้ใช้โครงแบบนั้น',
     'ห้ามเขียนแบบให้ความรู้กว้าง ๆ กับ keyword ที่คนค้นเพื่อเลือกหรือซื้อ และห้ามขายหนักกับ keyword ที่คนค้นเพื่อหาความรู้',
     'Skill นี้กำหนด "ทิศทางและโครง" เท่านั้น — ข้อเท็จจริง ราคา สินค้า ต้องมาจาก Business Skill/ข้อมูลที่ให้มาเท่านั้น',
-  )
+  ]
   return lines.join('\n')
 }
 
 /**
  * ข้อความ skill ที่แนบใน prompt ของตัวเขียนบทความ
- * ไม่มีทั้ง intent และประเภท = โหมดพื้นฐาน (ให้ตัวเขียนวิเคราะห์ intent จาก keyword เอง ไม่เดาแทน)
+ * intent ติดมา = ใช้ตามนั้น · ไม่มี = วิเคราะห์จากคำใน keyword (classifyKeywordIntent) ถ้าชี้ขาดใช้เลย
+ * ไม่ชี้ขาด = ให้ตัวเขียนตัดสินตามขั้นตอน (intentDecisionProcedure) พร้อมคำบ่งชี้ที่เจอ
  */
 export function articleIntentSkillBlock(input: ArticleIntentSkillInput): string {
-  const intent = normalizeArticleIntent(input.intent)
+  const supplied = normalizeArticleIntent(input.intent)
   const typeRaw = String(input.articleType ?? '').trim()
   const type = typeRaw ? TYPE_GUIDE.find((t) => t.match.test(typeRaw)) : undefined
   const funnel = String(input.funnelStage ?? '').trim().toUpperCase()
-  if (!intent && !typeRaw) return baseIntentSkillBlock()
+
+  // intent ติดมา = ใช้ตามนั้นเสมอ · ไม่มี = วิเคราะห์จากคำใน keyword/title (ชี้ขาดเท่านั้นถึงใช้แทน)
+  const analysis = supplied
+    ? null
+    : classifyKeywordIntent(String(input.keyword ?? ''), { title: String(input.title ?? ''), brandNames: input.brandNames })
+  const intent: ArticleIntent | '' = supplied || (analysis?.confidence === 'high' ? analysis.intent : '')
+  if (!intent && !typeRaw) return baseIntentSkillBlock(analysis ?? undefined)
 
   const lines: string[] = [
     `════ ${ARTICLE_INTENT_SKILL_NAME} — เนื้อหาต้องตรงกับสิ่งที่คนค้นอยากได้ (ดีต่อ SEO) ════`,
   ]
   if (intent) {
     const g = INTENT_GUIDE[intent]
-    lines.push(`Search Intent: ${g.label}`, `ผู้อ่านคือ: ${g.reader}`, 'เนื้อหาต้อง:')
+    lines.push(
+      supplied
+        ? `Search Intent: ${g.label}`
+        : `Search Intent: ${g.label} (วิเคราะห์จากคำใน keyword: ${analysis!.signals.slice(0, 3).join(' · ')})`,
+      `ผู้อ่านคือ: ${g.reader}`,
+      'เนื้อหาต้อง:',
+    )
     lines.push(...g.must.map((m) => `- ${m}`))
     lines.push('ห้าม:', ...g.avoid.map((a) => `- ${a}`))
   }
+  if (!intent) lines.push('ไม่มี Search Intent ติดมา และคำใน keyword ยังไม่ชี้ขาด —', ...intentDecisionProcedure(analysis ?? undefined))
   if (typeRaw) {
     lines.push(`ประเภทบทความ: ${typeRaw}${type && type.label !== typeRaw ? ` (โครงแบบ ${type.label})` : ''}`)
     if (type) lines.push('โครงที่ต้องมี:', ...type.structure.map((s) => `- ${s}`))

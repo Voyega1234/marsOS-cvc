@@ -4,6 +4,7 @@
 
 import type { UploadKeyword, UploadLinkPair } from './types'
 import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
+import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
 
 /** WRITING ที่ค้างเกินนี้ถือว่าตาย (proc ตายกลางทาง) — ลบทิ้งแล้วเขียนใหม่ได้ */
 export const WRITER_STALE_MS = 6 * 60 * 1000
@@ -59,6 +60,8 @@ export interface WriterTask {
   links: UploadLinkPair[]
   /** ภาษาของบทความนี้ (resolve จากโหมดภาษาของลูกค้า + title/keyword แล้ว) — ไม่ส่ง = ไม่กำหนด */
   language?: 'th' | 'en'
+  /** ชื่อลูกค้า/แบรนด์ — ใช้ตอนวิเคราะห์ intent เอง (keyword ที่มีชื่อแบรนด์ = navigational) */
+  brandNames?: string[]
 }
 
 /** โน้ตจากทีม (ช่อง Note แท็บ Keyword) ยาวสุดที่ส่งให้ writer */
@@ -79,7 +82,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   ]
   if (keyword.title) lines.push(`- หัวข้อบทความ (ใช้เป็น <h1> คำต่อคำ): ${keyword.title}`)
   lines.push(`- Slug: ${keyword.slug || '(ไม่ระบุ)'}`)
-  lines.push(`- Search Intent: ${keyword.intent || '(ไม่ระบุ)'}`)
+  lines.push(`- Search Intent: ${keyword.intent || '(ไม่ได้ระบุมา — ดู Mars Article Intent Skill ด้านล่าง)'}`)
   lines.push(`- ประเภทบทความ: ${keyword.articleType || '(ไม่ระบุ)'}`)
   if (task.language) {
     lines.push(task.language === 'en'
@@ -94,11 +97,21 @@ export function buildWriterUserPrompt(task: WriterTask): string {
     lines.push(note)
   }
   // Mars Article Intent Skill — ให้เนื้อหาตรงกับ Search Intent + ประเภทบทความ (ไม่มีทั้งคู่ = โหมดพื้นฐาน วิเคราะห์จาก keyword)
-  const intentSkill = articleIntentSkillBlock({ intent: keyword.intent, articleType: keyword.articleType })
+  // intent ติดมา = ใช้ตามนั้น · ไม่มี = วิเคราะห์จาก keyword/title (ดู src/lib/intent-classify.ts)
+  const intentSkill = articleIntentSkillBlock({
+    intent: keyword.intent,
+    articleType: keyword.articleType,
+    keyword: keyword.keyword,
+    title: keyword.title,
+    brandNames: task.brandNames,
+  })
   if (intentSkill) {
     lines.push('')
     lines.push(intentSkill)
   }
+  // Mars Human Voice Skill — skill หลักแนบทุกครั้งที่เขียน (เจ้าของสั่ง 2026-09-28): อ่านรู้เรื่อง ได้ใจความ รวม H1/meta
+  lines.push('')
+  lines.push(humanVoiceSkillBlock(task.language ?? 'th'))
   lines.push('')
   lines.push('# Internal Link ที่ต้องแทรกในเนื้อหา (ใช้แต่ละลิงก์ไม่เกิน 1 ครั้ง แทรก anchor text ให้เนียนเข้ากับประโยค ห้ามยัดทุกลิงก์ในย่อหน้าเดียว)')
   lines.push(linkLines)

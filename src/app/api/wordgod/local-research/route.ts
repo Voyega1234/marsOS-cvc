@@ -92,6 +92,7 @@ import {
   type DFSMetric,
 } from '@/lib/wordgod/services/dataForSeoService';
 import { callGemini, callGeminiWithGrounding, getSessionUsage } from '@/lib/wordgod/gemini';
+import { humanTitleSkillBlock } from '@/lib/article-human-voice-skill';
 import { clientSlugForProject, withOrClient } from '@/lib/orClient';
 import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
@@ -1536,12 +1537,15 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         for (let i = 0; i < results.length; i += 100) {
           titleBatches.push(results.slice(i, i + 100).map(r => r.keyword));
         }
+        // Mars Human Voice Skill — ให้ title อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
         const titlePromptFor = (kwList: string[]) => `คุณคือผู้เชี่ยวชาญ SEO ไทย เขียนหัวข้อบทความ/หน้าเพจ (SEO title) และ English slug ให้ keyword ของธุรกิจนี้:
   ธุรกิจ: ${services.join(', ')} ในพื้นที่ ${primaryLocation.name}${input.businessContext ? ` — ${input.businessContext}` : ''}
   กติกา: title ภาษาไทย ≤60 ตัวอักษร มี keyword อยู่ในหัวข้อ เน้นให้คนอยากคลิกและสื่อว่าให้บริการจริง / slug เป็นอังกฤษล้วน ตัวเล็ก คั่นด้วย hyphen สั้นกระชับ
   ตอบเป็น JSON array เท่านั้น: [{"keyword":"...","title":"...","slug":"..."}]
   Keywords:
-  ${kwList.map(k => `- ${k}`).join('\n')}`;
+  ${kwList.map(k => `- ${k}`).join('\n')}
+
+  ${humanTitleSkillBlock('th')}`;
         const titleStart = cursor('titles', 'titleCursor', 0);
         for (let i = titleStart; i < titleBatches.length; i += 3) {
           const wave = titleBatches.slice(i, i + 3);

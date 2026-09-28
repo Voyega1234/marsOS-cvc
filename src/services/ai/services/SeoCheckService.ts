@@ -3,6 +3,7 @@ import { runAIJob, logActivity } from "../runner";
 import { assertCanRunJob } from "../permissions";
 import { mockSeoCheck, mockSeoMetadata } from "../mock";
 import { AINoDataError, AIPreConditionError } from "../errors";
+import { humanTitleSkillBlock } from "@/lib/article-human-voice-skill";
 import type { ArticleJobInput, SeoCheckOutput } from "../types";
 
 export async function runSeoCheck(input: ArticleJobInput) {
@@ -79,6 +80,8 @@ export async function runSeoCheck(input: ArticleJobInput) {
       },
       userId,
       mockFn: () => mockSeoMetadata(article.title, kw, template?.brandName ?? article.project.name),
+      // Mars Human Voice Skill — ให้ meta title/description อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
+      appendPrompt: humanTitleSkillBlock('th'),
     });
 
     const metaOutput = metaResult.output;

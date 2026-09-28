@@ -9,6 +9,7 @@
  */
 
 import { callGemini } from '@/lib/wordgod/gemini';
+import { humanTitleSkillBlock } from '@/lib/article-human-voice-skill';
 import type {
   BusinessBlueprint,
   BusinessSegment,
@@ -287,7 +288,10 @@ ${slugRule}
 รายการ (${rows.length} ข้อ) — facts คือข้อมูลจริงของแต่ละคำ ใช้เขียน why ห้ามแต่งตัวเลขเพิ่ม:
 ${rows.map((r, i) => `${i + 1}. "${r.keyword}" | stage=${r.journeyStage} | page=${r.pageType} | facts: ${r.facts}`).join('\n')}
 
-ตอบ: {"items":[{"i":เลขข้อ,"title":"...","slug":"...","why":"เหตุผล 1-2 ประโยคว่าทำไมคำนี้คุ้มทำ อิง facts เท่านั้น"}]}`;
+ตอบ: {"items":[{"i":เลขข้อ,"title":"...","slug":"...","why":"เหตุผล 1-2 ประโยคว่าทำไมคำนี้คุ้มทำ อิง facts เท่านั้น"}]}
+
+${humanTitleSkillBlock('th')}`;
+  // Mars Human Voice Skill — ให้ title อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
 
   const raw = (await callGemini(prompt, { functionLabel: 'generate_titles' })) as { items?: any[] };
   const out = new Map<string, TitleResult>();

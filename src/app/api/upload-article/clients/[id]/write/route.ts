@@ -20,7 +20,6 @@ import { orChatStream, OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
-import { ensureHumanVoiceText } from '@/lib/upload-article/human-voice'
 import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
 import { insertUploadCta } from '@/lib/upload-article/cta-insert'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
@@ -105,8 +104,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing }, { status: 422 })
   }
   // ผ่านเช็ค missing ด้านบนแล้ว — 4 layer นี้มีจริงแน่นอน
-  // Master Prompt เก่า/ที่แก้ผ่าน Content Engine อาจยังไม่มีกฎภาษามนุษย์ — แนบให้ถ้ายังไม่มี
-  const masterPrompt = ensureHumanVoiceText(ce.masterPrompt!.text)
+  // กฎภาษามนุษย์ไม่ต้องแนบที่ Master Prompt แล้ว — Mars Human Voice Skill อยู่ใน user prompt ทุกครั้ง (buildWriterUserPrompt)
+  const masterPrompt = ce.masterPrompt!.text
   const businessSkill = ce.businessSkill!.text
   const articleBrief = ce.articleBrief!.text
   const validatorPack = ce.validatorPack!.text
@@ -167,7 +166,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const system = buildWriterSystemPrompt({ masterPrompt, businessSkill, articleBrief, validatorPack })
   // ภาษาของบทความนี้ตามโหมดภาษาของลูกค้า (ไทย / อังกฤษ / ไทย+อังกฤษ = ดูจาก title ก่อน)
   const language = uploadArticleLanguage(client.language, title, keyword.keyword)
-  const user = buildWriterUserPrompt({ keyword, links: linkPairs, language })
+  const user = buildWriterUserPrompt({ keyword, links: linkPairs, language, brandNames: [client.name] })
   const clientSlug = `upload-${slugifyClient(client.name)}`
 
   const encoder = new TextEncoder()

@@ -39,6 +39,8 @@ export interface RunAIJobOptions {
   userId: string;
   /** Return mock output when no real API key is configured. */
   mockFn: (compiledPrompt: string) => unknown;
+  /** Mars Human Voice Skill — ต่อท้าย prompt ที่คอมไพล์แล้วก่อนส่งให้ AI (เจ้าของสั่ง 2026-09-28) */
+  appendPrompt?: string;
 }
 
 export interface AIJobResult<T = unknown> {

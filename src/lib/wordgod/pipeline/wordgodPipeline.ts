@@ -52,6 +52,7 @@ import { detectTrendSignal } from '../skills/trendSkill';
 import type { TrendType } from '../skills/trendSkill';
 import { countWords, segmentWords, tokenSimilarity, keywordTokens, containsThai } from '../text/thai';
 import { scoreTitle } from './titleScoring';
+import { humanTitleSkillBlock } from '@/lib/article-human-voice-skill';
 import { buildContentPlan } from '../planning/contentPlan';
 import type { ContentPlanResult, PlanMode, PlanPillarInput } from '../planning/contentPlan';
 import type { CompetitorEntry } from './rankValidation';
@@ -1162,6 +1163,9 @@ async function generateAiTitles(
       }));
       prompt = buildSeoTitleAiPrompt(requests, targetLanguage);
     }
+
+    // Mars Human Voice Skill — ให้ title อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
+    prompt = prompt + '\n\n' + humanTitleSkillBlock(targetLanguage === 'en' ? 'en' : 'th');
 
     // Few-shot (zero extra cost): reuse the top-5 competitor titles already
     // fetched in Step 3c so the model differentiates against what actually ranks.

@@ -3,6 +3,7 @@ import { runAIJob, logActivity } from "../runner";
 import { assertCanRunJob } from "../permissions";
 import { mockContentMap } from "../mock";
 import { AINoDataError } from "../errors";
+import { humanTitleSkillBlock } from "@/lib/article-human-voice-skill";
 import type { ContentMapInput, ContentMapOutput } from "../types";
 
 export async function runContentMap(input: ContentMapInput) {
@@ -35,6 +36,8 @@ export async function runContentMap(input: ContentMapInput) {
     },
     userId,
     mockFn: () => mockContentMap(keywords, project.name),
+    // Mars Human Voice Skill — ให้ proposedTitle อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
+    appendPrompt: humanTitleSkillBlock(project.language === 'en' ? 'en' : 'th'),
   });
 
   // 4. Activity log

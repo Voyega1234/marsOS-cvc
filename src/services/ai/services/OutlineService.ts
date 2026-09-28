@@ -4,6 +4,7 @@ import { assertCanRunJob } from "../permissions";
 import { mockOutline } from "../mock";
 import { AINoDataError } from "../errors";
 import { safeJson } from "@/lib/utils";
+import { humanTitleSkillBlock } from "@/lib/article-human-voice-skill";
 import type { ArticleJobInput, OutlineOutput } from "../types";
 
 export async function runOutline(input: ArticleJobInput) {
@@ -67,6 +68,8 @@ export async function runOutline(input: ArticleJobInput) {
       },
       userId,
       mockFn: () => mockOutline(article.title, kw),
+      // Mars Human Voice Skill — ให้ seoTitle อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
+      appendPrompt: humanTitleSkillBlock('th'),
     });
 
     const output = result.output;

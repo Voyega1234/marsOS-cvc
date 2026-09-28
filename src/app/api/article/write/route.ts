@@ -13,6 +13,7 @@ import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-language'
 import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
+import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -219,6 +220,8 @@ function buildArticlePrompt(opts: {
   ctaBlock: string
   /** Mars Article Intent Skill — ว่าง '' = ไม่มีข้อมูล intent/ประเภทบทความ ไม่แนบอะไรเพิ่ม */
   intentSkillBlock?: string
+  /** Mars Human Voice Skill — แนบทุกครั้งที่เขียน (อ่านรู้เรื่อง ได้ใจความ รวม title/meta) */
+  humanVoiceBlock?: string
   // Prompt ทั้งหมดมาจาก Content Engine เท่านั้น (เรียงลำดับ 4 layers)
   // ห้ามสร้าง prompt เอง — ดู src/lib/content-engine-resolve.ts
   ce: {
@@ -311,6 +314,7 @@ cover_image_alt: [alt text ภาษาไทยของภาพหน้า�
     : ''
 
   const intentSkillBlock = opts.intentSkillBlock?.trim() ? `\n${opts.intentSkillBlock.trim()}\n` : ''
+  const humanVoiceBlock = opts.humanVoiceBlock?.trim() ? `\n${opts.humanVoiceBlock.trim()}\n` : ''
 
   // ── ประกอบตามลำดับ Content Engine: Business Skill → Master Prompt →
   //    Article Brief → (ข้อมูลโปรเจกต์/CTA/ตัวอย่าง) → Validator Pack ──
@@ -349,6 +353,7 @@ ${siteBlock}
 ${opts.ctaBlock}
 ${sampleBlock}
 ${intentSkillBlock}
+${humanVoiceBlock}
 ${validatorBlock}
 ---
 OUTPUT: ส่ง HTML ชุดเดียวเท่านั้น ไม่มีคำอธิบาย ไม่มี Markdown ไม่มี diagnostic text
@@ -971,7 +976,13 @@ export async function POST(req: NextRequest) {
   // ไม่มีประเภทจาก keyword — ใช้ contentType ของ request เฉพาะที่ผู้เรียกระบุมาจริง ('seo_article' คือค่า default ไม่ใช่ประเภท)
   // ไม่มีข้อมูลเลย = skill โหมดพื้นฐาน ให้ตัวเขียนวิเคราะห์ intent จาก keyword เอง
   if (!effectiveArticleType && contentType && contentType !== 'seo_article') effectiveArticleType = contentType
-  const intentSkillBlock = articleIntentSkillBlock({ intent: effectiveIntent, articleType: effectiveArticleType, funnelStage: effectiveFunnelStage })
+  // intent ติดมา = ใช้ตามนั้น · ไม่มี = วิเคราะห์จาก keyword/title (ดู src/lib/intent-classify.ts) — ชื่อเว็บ/แบรนด์ใช้แยก navigational
+  const intentSkillBlock = articleIntentSkillBlock({
+    intent: effectiveIntent, articleType: effectiveArticleType, funnelStage: effectiveFunnelStage,
+    keyword, title, brandNames: resolvedSiteName ? [resolvedSiteName] : undefined,
+  })
+  // Mars Human Voice Skill — skill หลักแนบทุกครั้งที่เขียน (เจ้าของสั่ง 2026-09-28)
+  const humanVoiceBlock = humanVoiceSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
 
   // ── CTA (หลายชุด — เลือกจำนวนต่อบทความได้) — สุ่ม spots ครั้งเดียวต่อ request แล้วใช้ต่อ
   //    ทั้งตอนสร้าง prompt และตอนแทรกแบนเนอร์หลังบทความเขียนเสร็จ ──
@@ -987,6 +998,7 @@ export async function POST(req: NextRequest) {
     contentType, sampleArticle: resolvedSampleArticle, projectContext: resolvedProjectContext,
     ctaBlock: ctaResult.block,
     intentSkillBlock,
+    humanVoiceBlock,
     ce: {
       businessSkill: ce.businessSkill?.text,
       masterPrompt: ce.masterPrompt!.text,

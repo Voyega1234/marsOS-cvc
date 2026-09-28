@@ -3,6 +3,7 @@ import { runAIJob, logActivity } from "../runner";
 import { assertCanRunJob } from "../permissions";
 import { mockKeywordResearch } from "../mock";
 import { AINoDataError } from "../errors";
+import { humanTitleSkillBlock } from "@/lib/article-human-voice-skill";
 import type { KeywordResearchInput, KeywordOutput } from "../types";
 
 export async function runKeywordResearch(input: KeywordResearchInput) {
@@ -33,6 +34,8 @@ export async function runKeywordResearch(input: KeywordResearchInput) {
     },
     userId,
     mockFn: () => mockKeywordResearch(seedKeyword, project.language),
+    // Mars Human Voice Skill — ให้ ไอเดียหัวข้อบทความ อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
+    appendPrompt: humanTitleSkillBlock(project.language === 'en' ? 'en' : 'th'),
   });
 
   const output = result.output;

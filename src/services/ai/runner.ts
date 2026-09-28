@@ -111,13 +111,18 @@ export async function snapshotArticleVersion(articleId: string, userId: string, 
 // ── The generic runner ────────────────────────────────────────────────────────
 
 export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJobResult<T>> {
-  const { organizationId, projectId, articleId, jobType, promptType, variables, userId, mockFn } = opts;
+  const { organizationId, projectId, articleId, jobType, promptType, variables, userId, mockFn, appendPrompt } = opts;
 
   // 1. Load active prompt (throws AINoPromptError if missing)
   const prompt = await loadActivePrompt(organizationId, promptType, projectId ?? null);
 
   // 2. Compile the prompt text
-  const compiled = compilePrompt(prompt.promptText, variables);
+  let compiled = compilePrompt(prompt.promptText, variables);
+
+  // Mars Human Voice Skill — ต่อท้าย prompt ให้ title/เนื้อหาอ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
+  if (appendPrompt && appendPrompt.trim()) {
+    compiled = `${compiled}\n\n${appendPrompt.trim()}`;
+  }
 
   // 3. Create AIJob as PENDING
   const job = await prisma.aIJob.create({

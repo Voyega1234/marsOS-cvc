@@ -3,6 +3,7 @@ import { runAIJob, logActivity, snapshotArticleVersion } from "../runner";
 import { assertCanRunJob } from "../permissions";
 import { AINoDataError, AIPreConditionError } from "../errors";
 import { safeJson } from "@/lib/utils";
+import { humanVoiceSkillBlock } from "@/lib/article-human-voice-skill";
 import type { ArticleJobInput, ArticleAuditOutput, ArticleFixOutput } from "../types";
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
@@ -177,6 +178,8 @@ export async function runArticleFix(input: ArticleJobInput) {
     },
     userId,
     mockFn: () => mockFixOutput(article.title, kw),
+    // Mars Human Voice Skill — ให้เนื้อหา/title อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
+    appendPrompt: humanVoiceSkillBlock('th'),
   });
 
   const fix = result.output as ArticleFixOutput;
