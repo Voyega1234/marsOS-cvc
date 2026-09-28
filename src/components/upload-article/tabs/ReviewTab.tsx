@@ -64,6 +64,15 @@ export default function ReviewTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.id]);
 
+  // insertPos เป็น offset อ้างอิงกับ html ก้อนปัจจุบัน — สลับบทความ หรือ html ถูกแทนที่จากเซิร์ฟเวอร์
+  // (บันทึกแก้ไข/AI เขียน Meta ที่คืน htmlContent ใหม่) ต้องเคลียร์ทิ้ง ไม่งั้น offset จะเพี้ยน
+  useEffect(() => {
+    setInsertFile(null);
+    setInsertAlt("");
+    setInsertPos("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id, html]);
+
   const siteHost = client.website.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
 
   async function patchArticle(id: string, body: Record<string, unknown>): Promise<UploadArticleDTO | null> {

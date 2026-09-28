@@ -40,7 +40,11 @@ export default function PublishTab({
             <tr key={a.id} className="hover:bg-gray-50/60">
               <td className="px-4 py-3">
                 <p className="font-medium text-brand-navy truncate max-w-sm">{a.title}</p>
-                {a.status === "FAILED" && a.pushError && <p className="text-[11px] text-rose-500 mt-0.5">{a.pushError}</p>}
+                {a.pushError && (
+                  <p className="text-[11px] text-rose-500 mt-0.5">
+                    {a.status === "PUSHED" ? `Push ซ้ำครั้งล่าสุดไม่สำเร็จ (บทความบนเว็บยังเป็นเวอร์ชันก่อนหน้า): ${a.pushError}` : a.pushError}
+                  </p>
+                )}
               </td>
               <td className="px-4 py-3"><UploadStatusBadge status={a.status} /></td>
               <td className="px-4 py-3 text-xs">

@@ -13,14 +13,11 @@ function safeParse<T>(json: string | null | undefined, fallback: T): T {
   }
 }
 
-/** แสดง secret แบบ •••• + 4 ตัวท้าย — ใช้กับ siteConnection ของแพลตฟอร์มอื่น */
-function maskSecretValue(value: string): string {
-  if (!value) return ''
-  if (value.length <= 4) return '••••'
-  return `••••${value.slice(-4)}`
-}
+/** ช่องที่ไม่ใช่ secret ในแต่ละแพลตฟอร์ม (โดเมน/URL/ID) — แสดงค่าจริงได้ ส่วนที่เหลือถือเป็น secret ทั้งหมด */
+const NON_SECRET_SITE_CONN_FIELDS = new Set(['storeDomain', 'webhookUrl', 'siteId'])
 
-/** mask ทุกค่าใน siteConnection แบบตื้น (ระดับ 1 ชั้น key: string) ให้ใช้แสดงผลอย่างเดียว */
+/** mask ทุกค่าใน siteConnection แบบตื้น (ระดับ 1 ชั้น key: string) ให้ใช้แสดงผลอย่างเดียว
+ * secret ไม่เปิดเผยแม้แต่บางส่วน (ไม่มีตัวท้าย 4 ตัวให้เดางอกได้) — ช่องที่ไม่ใช่ secret (โดเมน) แสดงค่าจริง */
 function maskSiteConnection(raw: string | null | undefined): Record<string, string> {
   const parsed = safeParse<Record<string, unknown>>(raw, {})
   const out: Record<string, string> = {}
@@ -28,7 +25,7 @@ function maskSiteConnection(raw: string | null | undefined): Record<string, stri
     if (!cfg || typeof cfg !== 'object') continue
     for (const [key, val] of Object.entries(cfg as Record<string, unknown>)) {
       if (typeof val !== 'string' || !val) continue
-      out[`${platform}.${key}`] = maskSecretValue(val)
+      out[`${platform}.${key}`] = NON_SECRET_SITE_CONN_FIELDS.has(key) ? val : '••••'
     }
   }
   return out

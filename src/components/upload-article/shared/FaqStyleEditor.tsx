@@ -8,7 +8,7 @@ import { useMemo } from "react";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import { Input } from "@/components/ui/input";
 import { wrapArticleHtml } from "@/lib/articleComponents";
-import { buildUploadCss } from "@/lib/upload-article/theme-css";
+import { buildUploadCss, sanitizeThemeDraft } from "@/lib/upload-article/theme-css";
 import type { UploadFaqStyle, UploadTableStyle, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
 
 const SAMPLE = `<h2 id="faq">คำถามที่พบบ่อย</h2>
@@ -61,7 +61,7 @@ export default function FaqStyleEditor({ theme, onChange }: { theme: UploadTheme
   }
   const num = (v: string) => (v.trim() === "" ? undefined : Number(v));
 
-  const previewHtml = useMemo(() => wrapArticleHtml(SAMPLE, buildUploadCss(theme)), [theme]);
+  const previewHtml = useMemo(() => wrapArticleHtml(SAMPLE, buildUploadCss(sanitizeThemeDraft(theme))), [theme]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">

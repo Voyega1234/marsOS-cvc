@@ -49,6 +49,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       createdById: session.user.id,
     }).catch(() => {})
 
+    // pickFont ของ lab-scan คืน 'Sarabun' เป็นค่า fallback เวลาไม่เจอฟอนต์บนเว็บเลย — ถ้าเว็บไม่ได้ใช้ Sarabun จริง
+    // (ไม่เจอชื่อนี้ใน evidence.fonts ที่อ่านจาก CSS ของเว็บ) ให้ถือว่าเป็นค่าเดา ไม่เอามาทับธีมเดิม
+    const evidenceHasFont = (name: string) => result.evidence.fonts.some((f) => f.name.toLowerCase().includes(name.toLowerCase()))
+    const isGuessedSarabun = (v: string | undefined) => v === 'Sarabun' && !evidenceHasFont('Sarabun')
+    const bodyFont = result.suggestion.fonts?.body
+    const headingFont = result.suggestion.fonts?.heading
+
     const theme: UploadTheme = {
       theme: result.suggestion.colors.theme || currentTheme.theme,
       text: result.suggestion.colors.text || currentTheme.text,
@@ -56,8 +63,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       accent: result.suggestion.colors.accent || currentTheme.accent,
       background: result.suggestion.colors.background || currentTheme.background,
       styleMode: currentTheme.styleMode,
-      fontFamily: result.suggestion.fonts?.body || currentTheme.fontFamily,
-      headingFont: result.suggestion.fonts?.heading || currentTheme.headingFont,
+      fontFamily: bodyFont && !isGuessedSarabun(bodyFont) ? bodyFont : currentTheme.fontFamily,
+      headingFont: headingFont && !isGuessedSarabun(headingFont) ? headingFont : currentTheme.headingFont,
     }
 
     return NextResponse.json({ theme, raw: result })

@@ -4,6 +4,7 @@ const CONFIG: Record<UploadArticleStatus, { label: string; className: string }> 
   IMPORTED: { label: "นำเข้าแล้ว", className: "bg-gray-100 text-gray-600" },
   GENERATED: { label: "Generate แล้ว", className: "bg-blue-100 text-brand-blue" },
   REVIEWED: { label: "ผ่าน Review", className: "bg-emerald-100 text-emerald-700" },
+  PUSHING: { label: "กำลัง Push", className: "bg-amber-100 text-amber-700" },
   PUSHED: { label: "Push แล้ว", className: "bg-purple-100 text-purple-700" },
   FAILED: { label: "Push ไม่สำเร็จ", className: "bg-rose-100 text-rose-600" },
 };

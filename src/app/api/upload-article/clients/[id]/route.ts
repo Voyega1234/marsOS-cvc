@@ -5,11 +5,35 @@ import { encrypt } from '@/lib/crypto'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
 import { sanitizeThemeDetail } from '@/lib/upload-article/theme-css'
+import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 
 const COLOR_RE = /^#[0-9a-f]{3,8}$/i
 
 function isValidColor(v: unknown): v is string {
   return typeof v === 'string' && (v === '' || COLOR_RE.test(v))
+}
+
+/** โฮสต์ของ URL แบบ lower-case — ใช้เทียบว่าเปลี่ยนเว็บปลายทางหรือไม่ (เทียบแบบ string ถ้า parse ไม่ได้) */
+function hostOf(url: string): string {
+  if (!url) return ''
+  try {
+    return new URL(url).host.toLowerCase()
+  } catch {
+    return url.trim().toLowerCase()
+  }
+}
+
+/** แพลตฟอร์มอื่นที่มีช่องโดเมน/URL + secret อยู่ใน siteConnection เดียวกัน — เปลี่ยนโดเมนโดยไม่ส่ง secret ใหม่มาด้วย ต้องล้าง secret เดิมทิ้ง */
+const SITE_CONN_SECRET_FIELDS: Record<string, { domain: string; secrets: string[] }> = {
+  shopify: { domain: 'storeDomain', secrets: ['accessToken'] },
+  custom: { domain: 'webhookUrl', secrets: ['secret'] },
+}
+
+/** โยนออกจาก transaction ของ DELETE เมื่อยังมีบทความที่ขึ้นเว็บแล้ว — กันลบระหว่างที่ push ค้างอยู่พอดี (lost update) */
+class PushedArticlesError extends Error {
+  constructor(public count: number) {
+    super('มีบทความที่ขึ้นเว็บไซต์แล้ว')
+  }
 }
 
 async function loadClient(id: string, orgId: string) {
@@ -52,8 +76,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (typeof body.website === 'string') data.website = body.website.trim()
   if (body.language === 'th' || body.language === 'en') data.language = body.language
   if (typeof body.websitePlatform === 'string') data.websitePlatform = body.websitePlatform
-  if (typeof body.wpUrl === 'string') data.wpUrl = body.wpUrl.trim()
   if (typeof body.wpUser === 'string') data.wpUser = body.wpUser.trim()
+
+  // wpUrl ต้องเป็น https + โฮสต์สาธารณะก่อนถูกส่งรหัสผ่าน WordPress ไปหา (กัน SSRF / ยิงรหัสผ่านผิดที่)
+  const nextPlatform = typeof body.websitePlatform === 'string' ? body.websitePlatform : existing.websitePlatform
+  const wpCredsInBody = typeof body.wpUser === 'string' || typeof body.wpAppPassword === 'string'
+  if (typeof body.wpUrl === 'string') {
+    const raw = body.wpUrl.trim()
+    if (!raw) {
+      data.wpUrl = ''
+    } else if (nextPlatform === 'wordpress' || wpCredsInBody) {
+      const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+      const err = await checkCredentialUrl(normalized)
+      if (err) return NextResponse.json({ error: err }, { status: 400 })
+      data.wpUrl = normalized
+    } else {
+      data.wpUrl = raw
+    }
+  }
 
   if (body.theme && typeof body.theme === 'object') {
     const t = body.theme as Partial<UploadTheme>
@@ -78,7 +118,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     } catch {
       current = { theme: '#2563eb', text: '#1f2937', border: '#e5e7eb', accent: '#2563eb', background: '', styleMode: 'embed' }
     }
-    const next: UploadTheme = { ...current, ...t }
+    // whitelist เฉพาะ key ที่มีจริงใน UploadTheme — กันส่ง key แปลกปลอมเข้ามาปน
+    const next: UploadTheme = { ...current }
+    for (const key of ['theme', 'text', 'border', 'accent', 'background'] as const) {
+      if (typeof t[key] === 'string') next[key] = t[key] as string
+    }
+    for (const key of ['fontFamily', 'headingFont'] as const) {
+      if (typeof t[key] === 'string') next[key] = t[key] as string
+    }
+    if (t.styleMode === 'embed' || t.styleMode === 'clean') next.styleMode = t.styleMode
     // detail ไปเป็น CSS ในบทความ — ผ่าน sanitize ทุกช่อง, null = ล้างกลับค่าตั้งต้น
     if ('detail' in t) {
       const detail = t.detail === null ? undefined : sanitizeThemeDetail(t.detail)
@@ -89,17 +137,43 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   if (body.pushPrefs && typeof body.pushPrefs === 'object') {
-    const p = body.pushPrefs as Partial<UploadPushPrefs>
+    const p = body.pushPrefs as Record<string, unknown>
     let current: UploadPushPrefs
     try {
       current = JSON.parse(existing.pushPrefs)
     } catch {
       current = {}
     }
-    // siteScan เขียนได้จาก route สแกนเท่านั้น
-    const { siteScan: _ignored, ...rest } = p
-    void _ignored
-    data.pushPrefs = JSON.stringify({ ...current, ...rest })
+    // whitelist เฉพาะ key ที่ทีมแก้ได้จากหน้า UI — siteScan เขียนได้จาก route สแกนเท่านั้น (ไม่อยู่ใน whitelist นี้)
+    const next: UploadPushPrefs = { ...current }
+    if (p.publishMode === 'draft' || p.publishMode === 'publish') next.publishMode = p.publishMode
+    if (p.wpPostType === 'post' || p.wpPostType === 'page') next.wpPostType = p.wpPostType
+    if (typeof p.useElementor === 'boolean') next.useElementor = p.useElementor
+    if (typeof p.stripH1 === 'boolean') next.stripH1 = p.stripH1
+    if (p.excludeCards && typeof p.excludeCards === 'object') {
+      const ec = p.excludeCards as Record<string, unknown>
+      const nextEc: { toc?: boolean; cta?: boolean; faq?: boolean } = { ...(current.excludeCards ?? {}) }
+      for (const k of ['toc', 'cta', 'faq'] as const) {
+        if (typeof ec[k] === 'boolean') nextEc[k] = ec[k] as boolean
+      }
+      next.excludeCards = nextEc
+    }
+    data.pushPrefs = JSON.stringify(next)
+  }
+
+  // เปลี่ยนเว็บ (โฮสต์ wpUrl) หรือเปลี่ยน wpUser โดยไม่ได้ส่งรหัสผ่านใหม่มาด้วย → ล้างรหัสผ่านเดิมทิ้ง
+  // กันรหัสผ่านของเว็บเก่าถูกใช้ยิง (เช่น "ทดสอบการเชื่อมต่อ") ไปที่เว็บ/ผู้ใช้ใหม่โดยไม่ตั้งใจ
+  let wpPasswordCleared = false
+  const newPasswordSupplied = typeof body.wpAppPassword === 'string' && body.wpAppPassword.trim() !== ''
+  if (!newPasswordSupplied && existing.wpAppPasswordEnc) {
+    const newWpUrl = typeof data.wpUrl === 'string' ? data.wpUrl : existing.wpUrl
+    const newWpUser = typeof data.wpUser === 'string' ? data.wpUser : existing.wpUser
+    const hostChanged = hostOf(newWpUrl) !== hostOf(existing.wpUrl) && hostOf(newWpUrl) !== ''
+    const userChanged = newWpUser !== existing.wpUser
+    if (hostChanged || userChanged) {
+      data.wpAppPasswordEnc = ''
+      wpPasswordCleared = true
+    }
   }
 
   if (body.wpAppPassword === null) {
@@ -107,8 +181,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   } else if (typeof body.wpAppPassword === 'string' && body.wpAppPassword.trim()) {
     data.wpAppPasswordEnc = encrypt(body.wpAppPassword.trim())
   }
-  // wpAppPassword === '' (หรือไม่ส่งมา) → เก็บค่าเดิมไว้ ไม่แตะ wpAppPasswordEnc
+  // wpAppPassword === '' (หรือไม่ส่งมา) → เก็บค่าเดิมไว้ ไม่แตะ wpAppPasswordEnc (เว้นแต่ถูกล้างเพราะเปลี่ยนเว็บ/ผู้ใช้ด้านบน)
 
+  const secretsClearedPlatforms: string[] = []
   if (body.siteConnection && typeof body.siteConnection === 'object') {
     let currentConn: Record<string, Record<string, string>> = {}
     try {
@@ -126,6 +201,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         if (val === '' || val.startsWith('••••')) continue // ว่าง/ถูก mask → คงค่าเดิม
         mergedPlatform[key] = val
       }
+      // โดเมน/URL เปลี่ยนแต่ไม่ได้ส่ง secret ใหม่มาด้วย → ล้าง secret เดิมทิ้ง กันหลุดไปโดเมนใหม่
+      const rule = SITE_CONN_SECRET_FIELDS[platform]
+      if (rule) {
+        const oldDomain = currentConn[platform]?.[rule.domain] ?? ''
+        const newDomain = mergedPlatform[rule.domain] ?? ''
+        const domainChanged = newDomain !== '' && newDomain !== oldDomain
+        const secretResupplied = rule.secrets.some((s) => {
+          const v = cfg[s]
+          return typeof v === 'string' && v !== '' && !v.startsWith('••••')
+        })
+        if (domainChanged && !secretResupplied) {
+          let cleared = false
+          for (const s of rule.secrets) {
+            if (mergedPlatform[s]) cleared = true
+            delete mergedPlatform[s]
+          }
+          if (cleared) secretsClearedPlatforms.push(platform)
+        }
+      }
       merged[platform] = mergedPlatform
     }
     data.siteConnection = JSON.stringify(merged)
@@ -133,7 +227,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const updated = await prisma.uploadClient.update({ where: { id: existing.id }, data })
   const withArticles = await loadClient(updated.id, orgId)
-  return NextResponse.json(toUploadClientDTO(updated, computeClientCounts(withArticles?.articles ?? [])))
+  return NextResponse.json({
+    ...toUploadClientDTO(updated, computeClientCounts(withArticles?.articles ?? [])),
+    wpPasswordCleared: wpPasswordCleared || undefined,
+    siteConnectionSecretsCleared: secretsClearedPlatforms.length ? secretsClearedPlatforms : undefined,
+  })
 }
 
 /**
@@ -148,16 +246,32 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const existing = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: session.user.organizationId } })
   if (!existing) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
-  const pushedCount = await prisma.uploadArticle.count({
-    where: { clientId: existing.id, OR: [{ wordpressPostId: { not: null } }, { pushedAt: { not: null } }] },
-  })
-  if (pushedCount > 0) {
-    return NextResponse.json({
-      error: `ลบลูกค้าไม่ได้ — มีบทความที่ขึ้นเว็บไซต์แล้ว ${pushedCount} บทความ ระบบเก็บไว้ไม่ให้หาย`,
-      pushedCount,
-    }, { status: 409 })
+  // นับ + ลบในทรานแซกชันเดียว กันบทความ push เสร็จแทรกเข้ามาระหว่างนับกับลบพอดี (lost update)
+  try {
+    await prisma.$transaction(async (tx) => {
+      const pushedCount = await tx.uploadArticle.count({
+        where: {
+          clientId: existing.id,
+          OR: [
+            { wordpressPostId: { not: null } },
+            { pushedAt: { not: null } },
+            { status: { in: ['PUSHED', 'PUSHING'] } },
+            { wordpressUrl: { not: null } },
+          ],
+        },
+      })
+      if (pushedCount > 0) throw new PushedArticlesError(pushedCount)
+      await tx.uploadClient.delete({ where: { id: existing.id } })
+    })
+  } catch (err) {
+    if (err instanceof PushedArticlesError) {
+      return NextResponse.json({
+        error: `ลบลูกค้าไม่ได้ — มีบทความที่ขึ้นเว็บไซต์แล้ว ${err.count} บทความ ระบบเก็บไว้ไม่ให้หาย`,
+        pushedCount: err.count,
+      }, { status: 409 })
+    }
+    throw err
   }
 
-  await prisma.uploadClient.delete({ where: { id: existing.id } })
   return NextResponse.json({ ok: true })
 }

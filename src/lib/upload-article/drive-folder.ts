@@ -186,14 +186,14 @@ function isAllowedGoogleHost(hostname: string): boolean {
   )
 }
 
-class DriveHttpError extends Error {
+export class DriveHttpError extends Error {
   constructor(message: string, public status: number) {
     super(message)
   }
 }
 
-/** fetch แบบตาม redirect เอง ทีละ hop — ตรวจโดเมนทุก hop ก่อนยิง (กัน SSRF) */
-async function safeGoogleFetch(url: string, signal: AbortSignal): Promise<Response> {
+/** fetch แบบตาม redirect เอง ทีละ hop — ตรวจโดเมนทุก hop ก่อนยิง (กัน SSRF) — export ให้ import-source.ts ใช้กับ Google Doc ได้ */
+export async function safeGoogleFetch(url: string, signal: AbortSignal): Promise<Response> {
   let current = url
   for (let hop = 0; hop < 6; hop++) {
     const u = new URL(current)

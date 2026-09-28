@@ -11,6 +11,8 @@ import {
   importFromText,
 } from '@/lib/upload-article/import-source'
 
+export const maxDuration = 120
+
 const MAX_FILES = 20
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 
@@ -37,6 +39,7 @@ interface ImportedSource {
   sourceType: string
   title: string
   html: string
+  warnings?: string[]
 }
 
 /** POST /api/upload-article/clients/[id]/articles — นำเข้าบทความจากไฟล์ (multipart) หรือ JSON items */
@@ -69,7 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const buffer = Buffer.from(await file.arrayBuffer())
         const ext = (file.name.split('.').pop() || '').toLowerCase()
         const result = await importFromFile(file.name, buffer)
-        imported.push({ name: file.name, sourceType: ext || 'paste', title: result.title, html: result.html })
+        imported.push({ name: file.name, sourceType: ext || 'paste', title: result.title, html: result.html, warnings: result.warnings })
       } catch (e) {
         errors.push({ name: file.name, error: e instanceof Error ? e.message : String(e) })
       }
@@ -101,6 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const created = []
+  const warnings: Array<{ name: string; warning: string }> = []
   for (const src of imported) {
     const title = src.title.trim() || extractTitleFromHtml(src.html, src.name) || 'บทความไม่มีชื่อ'
     const row = await prisma.uploadArticle.create({
@@ -115,7 +119,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     })
     created.push(toUploadArticleDTO(row, false))
+    for (const w of src.warnings ?? []) warnings.push({ name: src.name, warning: w })
   }
 
-  return NextResponse.json({ created, errors }, { status: 201 })
+  return NextResponse.json({ created, errors, warnings }, { status: 201 })
 }

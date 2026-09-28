@@ -1,8 +1,14 @@
 // ─── Upload Article — ทำความสะอาด HTML ต้นฉบับให้เหลือ semantic tag ล้วน ───────
 // ใช้ตอน import (docx/html/gdoc) เพื่อตัด style/class/span ของ Word หรือ Google Docs
 // ออกทั้งหมด โดยห้าม เพิ่ม/ลบ/แก้คำ ของผู้เขียนเด็ดขาด (เก็บ text node ทุกตัวไว้ครบ)
+//
+// ระวัง XSS: ต้อง parse ด้วย blockTextElements: {} เสมอ ไม่งั้น node-html-parser จะเก็บเนื้อหาใน
+// <pre>/<script>/<style>/<noscript> เป็น raw text (ไม่ parse เป็น element) — พอ unwrap แท็กที่ไม่รู้จัก
+// ด้วยการ serialize เป็น string แล้ว replaceWith(string) มันจะถูก reparse ใหม่โดยไม่ผ่านการ clean เลย
+// (เช่น <pre><img src=x onerror=alert(1)></pre> จะกลายเป็น <img onerror> ที่ทำงานจริง) — ฟังก์ชันนี้จึง
+// ย้าย child node ที่ clean แล้วออกมาตรง ๆ (replaceWith(...nodes)) แทนการ reparse string เสมอ
 
-import { parse, HTMLElement, NodeType, TextNode } from 'node-html-parser'
+import { parse, HTMLElement, Node, NodeType, TextNode } from 'node-html-parser'
 
 const BLOCK_PASSTHROUGH = new Set([
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -11,6 +17,12 @@ const BLOCK_PASSTHROUGH = new Set([
   'blockquote', 'figure', 'figcaption',
   'strong', 'em', 'br', 'hr',
 ])
+
+/** แท็กอันตราย/ไม่จำเป็น — ตัดทิ้งทั้งก้อนพร้อมเนื้อหาข้างใน ไม่ unwrap */
+const DROP_TAGS = new Set(['script', 'style', 'noscript', 'iframe', 'object', 'embed', 'template'])
+
+/** ให้ parse ไม่เก็บเนื้อหาของแท็กไหนเป็น raw text เลย — ทุก element ต้องถูก parse/clean จริง */
+const PARSE_OPTIONS = { blockTextElements: {} }
 
 function unwrapGoogleRedirect(url: string): string {
   try {
@@ -26,9 +38,85 @@ function unwrapGoogleRedirect(url: string): string {
   return url
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+}
+
+/** ถอด HTML entity (ตัวเลข/ชื่อ) กัน obfuscation แบบ "&#106;avascript:" */
+function decodeEntities(s: string): string {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, ent: string) => {
+    if (ent[0] === '#') {
+      const isHex = ent[1] === 'x' || ent[1] === 'X'
+      const code = parseInt(ent.slice(isHex ? 2 : 1), isHex ? 16 : 10)
+      return Number.isFinite(code) ? String.fromCodePoint(code) : m
+    }
+    const named = NAMED_ENTITIES[ent.toLowerCase()]
+    return named ?? m
+  })
+}
+
+/** ถอด entity แล้วตัด control char/ช่องว่างทั้งหมดออก — ใช้ตรวจ scheme เท่านั้น กัน obfuscation แบบ "java\tscript:" */
+function normalizeForSchemeCheck(raw: string): string {
+  return decodeEntities(raw).replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, '')
+}
+
+const SAFE_HREF_SCHEME_RE = /^(https?:|mailto:|tel:)/i
+
+/** allowlist ของ a[href]: http/https/mailto/tel หรือขึ้นต้นด้วย # หรือ / เท่านั้น — อื่น ๆ ตัด href ทิ้ง */
+export function sanitizeHref(raw: string): string {
+  const trimmed = (raw || '').trim()
+  if (!trimmed) return ''
+  const normalized = normalizeForSchemeCheck(trimmed)
+  if (normalized.startsWith('#') || normalized.startsWith('/')) return trimmed
+  if (SAFE_HREF_SCHEME_RE.test(normalized)) return trimmed
+  return ''
+}
+
+const SAFE_IMG_HTTP_RE = /^https?:/i
+const SAFE_IMG_DATA_RE = /^data:image\/(png|jpe?g|gif|webp|avif)[;,]/i
+
+/** allowlist ของ img[src]: http(s): หรือ data:image/(png|jpeg|jpg|gif|webp|avif) เท่านั้น — อื่น ๆ ตัดทั้ง img ทิ้ง */
+export function sanitizeImgSrc(raw: string): string {
+  const trimmed = (raw || '').trim()
+  if (!trimmed) return ''
+  const normalized = normalizeForSchemeCheck(trimmed)
+  if (SAFE_IMG_HTTP_RE.test(normalized) || SAFE_IMG_DATA_RE.test(normalized)) return trimmed
+  return ''
+}
+
+// Google Docs (export?format=html) ใส่ตัวหนา/เอียงเป็น class ที่ประกาศใน <style> ไม่ใช่ inline style
+// cleanSemanticHtml อ่าน class พวกนี้เก็บไว้ก่อนตัด <style> ทิ้ง (ทำงานแบบ sync ในการเรียกครั้งเดียว)
+let boldClasses = new Set<string>()
+let italicClasses = new Set<string>()
+
+function collectFormatClasses(rawHtml: string): void {
+  boldClasses = new Set()
+  italicClasses = new Set()
+  const styles = rawHtml.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || []
+  for (const block of styles) {
+    const re = /((?:\.[\w-]+\s*,?\s*)+)\{([^}]*)\}/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(block))) {
+      const names = (m[1].match(/\.[\w-]+/g) || []).map((n: string) => n.slice(1))
+      const bold = /font-weight\s*:\s*(bold|[6-9]00)/i.test(m[2])
+      const italic = /font-style\s*:\s*italic/i.test(m[2])
+      for (const n of names) {
+        if (bold) boldClasses.add(n)
+        if (italic) italicClasses.add(n)
+      }
+    }
+  }
+}
+
+function hasClassIn(el: HTMLElement, set: Set<string>): boolean {
+  if (set.size === 0) return false
+  return (el.getAttribute('class') || '').split(/\s+/).some(c => set.has(c))
+}
+
 function isBoldStyle(el: HTMLElement): boolean {
   const style = el.getAttribute('style') || ''
   if (/font-weight\s*:\s*(bold|[6-9]00)/i.test(style)) return true
+  if (hasClassIn(el, boldClasses)) return true
   const tag = el.tagName.toLowerCase()
   return tag === 'b'
 }
@@ -36,27 +124,45 @@ function isBoldStyle(el: HTMLElement): boolean {
 function isItalicStyle(el: HTMLElement): boolean {
   const style = el.getAttribute('style') || ''
   if (/font-style\s*:\s*italic/i.test(style)) return true
+  if (hasClassIn(el, italicClasses)) return true
   const tag = el.tagName.toLowerCase()
   return tag === 'i'
 }
 
+/** สร้าง element ห่อ (strong/em) เปล่า ๆ แล้วใส่ child node ที่ clean ไว้แล้วเข้าไปตรง ๆ (ไม่ reparse เนื้อหา) */
+function wrapNodes(tag: 'strong' | 'em', nodes: Node[]): HTMLElement {
+  const shell = parse(`<${tag}></${tag}>`, PARSE_OPTIONS).childNodes[0] as HTMLElement
+  shell.childNodes = nodes
+  return shell
+}
+
 /** ทำความสะอาด element หนึ่งตัวแบบ bottom-up (mutate in place ผ่าน node-html-parser API) */
 function cleanElement(el: HTMLElement): void {
+  const tag = el.tagName.toLowerCase()
+
+  // แท็กอันตราย — ตัดทิ้งทั้งก้อนก่อนเลย ไม่ลงไป clean ข้างในให้เสียเวลา (เนื้อหาจะถูกตัดทิ้งทั้งหมด)
+  if (DROP_TAGS.has(tag)) {
+    el.remove()
+    return
+  }
+
   for (const child of [...el.childNodes]) {
     if (child.nodeType === NodeType.ELEMENT_NODE) cleanElement(child as HTMLElement)
   }
 
-  const tag = el.tagName.toLowerCase()
-
   if (tag === 'a') {
-    const href = unwrapGoogleRedirect(el.getAttribute('href') || '')
+    const href = sanitizeHref(unwrapGoogleRedirect(el.getAttribute('href') || ''))
     el.setAttributes(href ? { href } : {})
     return
   }
   if (tag === 'img') {
-    const src = el.getAttribute('src') || ''
+    const src = sanitizeImgSrc(el.getAttribute('src') || '')
+    if (!src) {
+      el.remove()
+      return
+    }
     const alt = el.getAttribute('alt') || ''
-    el.setAttributes(src ? { src, alt } : { alt })
+    el.setAttributes({ src, alt })
     return
   }
   if (BLOCK_PASSTHROUGH.has(tag)) {
@@ -74,14 +180,16 @@ function cleanElement(el: HTMLElement): void {
     return
   }
 
-  // แท็กที่ไม่รู้จัก (span/font/div/section/u/sub/sup/...) → unwrap แต่รักษา bold/italic
-  // ที่มาจาก inline style ไว้ (ไม่ลบ/ไม่เพิ่มคำ เปลี่ยนแค่โครงสร้าง tag ห่อ)
+  // แท็กที่ไม่รู้จัก (span/font/div/section/u/sub/sup/...) → unwrap แต่รักษา bold/italic ที่มาจาก
+  // inline style ไว้ (ไม่ลบ/ไม่เพิ่มคำ เปลี่ยนแค่โครงสร้าง tag ห่อ) — ย้าย child node ที่ clean แล้วจริง ๆ
+  // ออกมาแทน el (ไม่ serialize เป็น string แล้ว reparse ซึ่งจะข้าม clean ของเนื้อหาข้างใน)
   const bold = isBoldStyle(el)
   const italic = isItalicStyle(el)
-  let inner = el.childNodes.map((n) => n.toString()).join('')
-  if (italic) inner = `<em>${inner}</em>`
-  if (bold) inner = `<strong>${inner}</strong>`
-  el.replaceWith(inner)
+  let nodes: Node[] = [...el.childNodes]
+  if (italic) nodes = [wrapNodes('em', nodes)]
+  if (bold) nodes = [wrapNodes('strong', nodes)]
+  if (nodes.length > 0) el.replaceWith(...nodes)
+  else el.remove()
 }
 
 /** ครอบ text node เดี่ยว ๆ ที่หลุดอยู่ระดับบนสุด (ไม่มี <p> ห่อ) ให้เป็น <p> */
@@ -89,7 +197,7 @@ function wrapStrayTextAtRoot(root: HTMLElement): void {
   const next: (typeof root.childNodes) = []
   for (const child of root.childNodes) {
     if (child.nodeType === NodeType.TEXT_NODE && !(child as TextNode).isWhitespace) {
-      const wrapped = parse(`<p>${(child as TextNode).rawText}</p>`)
+      const wrapped = parse(`<p>${(child as TextNode).rawText}</p>`, PARSE_OPTIONS)
       next.push(...wrapped.childNodes)
     } else {
       next.push(child)
@@ -108,6 +216,7 @@ function stripEmptyParagraphs(html: string): string {
  * ไม่มี style/class/id/span/font แปลกปลอม — คงเนื้อหาข้อความทุกตัวอักษรไว้ครบ
  */
 export function cleanSemanticHtml(rawHtml: string): string {
+  collectFormatClasses(String(rawHtml || ''))
   const stripped = String(rawHtml || '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -117,7 +226,7 @@ export function cleanSemanticHtml(rawHtml: string): string {
     .replace(/<o:p>[\s\S]*?<\/o:p>/gi, '')
     .replace(/<xml>[\s\S]*?<\/xml>/gi, '')
 
-  const root = parse(stripped, { comment: false })
+  const root = parse(stripped, { comment: false, ...PARSE_OPTIONS })
   for (const child of [...root.childNodes]) {
     if (child.nodeType === NodeType.ELEMENT_NODE) cleanElement(child as HTMLElement)
   }
@@ -134,5 +243,7 @@ function mergeSplitInline(html: string): string {
       .replace(/<(strong|em)>(\s*)<\/\1>/g, '$2')
       .replace(/<\/(strong|em)>(\s*)<\1>/g, '$2')
   }
+  // หัวข้อทั้งบรรทัดที่ถูกห่อ <strong> (Google Docs ใส่ class ตัวหนาให้หัวข้อ) — หัวข้อหนาอยู่แล้ว ตัดตัวห่อออก
+  out = out.replace(/<(h[1-6])>\s*<strong>((?:(?!<\/?strong>)[\s\S])*)<\/strong>\s*<\/\1>/g, '<$1>$2</$1>')
   return out
 }

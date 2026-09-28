@@ -2,7 +2,7 @@
 // ลูกค้าของ Upload Article แยกจาก Project (Clients) เด็ดขาด เก็บในตาราง UploadClient / UploadArticle
 
 export type UploadOutputMode = 'html' | 'text'
-export type UploadArticleStatus = 'IMPORTED' | 'GENERATED' | 'REVIEWED' | 'PUSHED' | 'FAILED'
+export type UploadArticleStatus = 'IMPORTED' | 'GENERATED' | 'REVIEWED' | 'PUSHING' | 'PUSHED' | 'FAILED'
 
 export interface UploadTheme {
   theme: string

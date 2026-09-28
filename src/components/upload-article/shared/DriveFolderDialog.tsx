@@ -175,16 +175,21 @@ export default function DriveFolderDialog({
                   {listing.folderName || "โฟลเดอร์"} · พบ {listing.articles.length} บทความ
                   {listing.skipped.length > 0 && ` · ข้าม ${listing.skipped.length}`}
                 </p>
-                {listing.articles.length > 0 && !importing && (
-                  <button
-                    className="text-[11px] text-brand-blue hover:underline shrink-0"
-                    onClick={() => setSelected(prev => prev.size === listing.articles.length
-                      ? new Set()
-                      : new Set(listing.articles.map(a => a.folderId)))}
-                  >
-                    {selected.size === listing.articles.length ? "ไม่เลือกทั้งหมด" : "เลือกทั้งหมด"}
-                  </button>
-                )}
+                {listing.articles.length > 0 && !importing && (() => {
+                  // "เลือกทั้งหมด" ต้องข้ามอันที่เคยนำเข้าแล้ว — กันนำเข้าซ้ำโดยไม่ตั้งใจ
+                  const selectableIds = listing.articles.filter(a => !a.alreadyImported).map(a => a.folderId);
+                  return (
+                    <button
+                      className="text-[11px] text-brand-blue hover:underline shrink-0"
+                      disabled={selectableIds.length === 0}
+                      onClick={() => setSelected(prev => prev.size === selectableIds.length
+                        ? new Set()
+                        : new Set(selectableIds))}
+                    >
+                      {selected.size === selectableIds.length ? "ไม่เลือกทั้งหมด" : "เลือกทั้งหมด"}
+                    </button>
+                  );
+                })()}
               </div>
               <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-50">
                 {listing.articles.map(a => {

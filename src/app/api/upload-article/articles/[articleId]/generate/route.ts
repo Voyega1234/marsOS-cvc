@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       breadcrumb,
     })
 
-    const nextStatus = article.status === 'PUSHED' ? 'PUSHED' : 'GENERATED'
+    const nextStatus = article.status === 'PUSHED' || article.status === 'PUSHING' ? article.status : 'GENERATED'
     const updated = await prisma.uploadArticle.update({
       where: { id: article.id },
       data: { htmlContent: result.html, outputMode: mode, status: nextStatus },

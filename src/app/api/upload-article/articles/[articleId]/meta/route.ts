@@ -17,6 +17,14 @@ function sanitizeSlug(raw: string): string {
     .slice(0, 60)
 }
 
+/** ตัด <script>/<style>/comment ทิ้งก่อนดึงข้อความล้วน — กัน JSON-LD schema และ CSS หลุดปนเข้าไปในข้อความให้ AI อ่าน */
+function stripNonTextMarkup(html: string): string {
+  return html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+}
+
 interface MetaAiResult {
   metaTitle?: string
   metaDescription?: string
@@ -40,7 +48,7 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
   const root = parse(html)
   const h1 = root.querySelector('h1')?.text.trim() || article.title
   const h2List = root.querySelectorAll('h2').map((h) => h.text.trim()).filter(Boolean)
-  const bodyText = root.text.replace(/\s+/g, ' ').trim().slice(0, 1500)
+  const bodyText = parse(stripNonTextMarkup(html)).text.replace(/\s+/g, ' ').trim().slice(0, 1500)
   const language = client.language === 'en' ? 'en' : 'th'
 
   const fallbackTitle = h1.slice(0, 60)
@@ -90,7 +98,9 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
   // meta title ดึงจาก H1 ตรง ๆ — ใช้ข้อความที่ AI ย่อเฉพาะเมื่อ H1 ยาวเกิน 60 ตัวอักษร
   const seoTitle = (h1.length <= 60 ? h1 : result.data.metaTitle || fallbackTitle).trim().slice(0, 60)
   const metaDescription = (result.data.metaDescription || '').trim().slice(0, 155)
-  const slug = sanitizeSlug(result.data.slug || '')
+  // บทความที่ push ขึ้นเว็บแล้ว ห้ามเปลี่ยน slug — URL จริงจะเปลี่ยนตามไปด้วย
+  const alreadyPushed = Boolean(article.pushedAt || article.wordpressPostId)
+  const slug = alreadyPushed ? article.slug : sanitizeSlug(result.data.slug || '')
 
   const htmlContent = article.htmlContent
     ? refreshUploadSchema(article.htmlContent, uploadSchemaOptions({ ...article, seoTitle, metaDescription, slug }, client))

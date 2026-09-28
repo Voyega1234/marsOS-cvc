@@ -33,6 +33,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!isValidDriveId(folderId)) return NextResponse.json({ error: 'ID โฟลเดอร์ไม่ถูกต้อง' }, { status: 400 })
   const resourceKey = typeof body?.resourceKey === 'string' && /^[A-Za-z0-9_-]+$/.test(body.resourceKey) ? body.resourceKey : undefined
   const folderName = typeof body?.name === 'string' ? body.name.trim().slice(0, 200) : ''
+  const force = body?.force === true
+
+  // กันนำเข้าโฟลเดอร์เดิมซ้ำ — เทียบด้วย sourceName (ลิงก์โฟลเดอร์มาตรฐาน) ของลูกค้านี้
+  if (!force) {
+    const sourceName = driveFolderUrl({ id: folderId, resourceKey }).slice(0, 200)
+    const dup = await prisma.uploadArticle.findFirst({
+      where: { organizationId: orgId, clientId: client.id, sourceType: 'gdrive', sourceName },
+      select: { id: true },
+    })
+    if (dup) return NextResponse.json({ error: 'โฟลเดอร์นี้นำเข้าแล้ว' }, { status: 409 })
+  }
 
   let listing: Awaited<ReturnType<typeof listDriveFolder>>
   try {
@@ -64,12 +75,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // รูปปก — พลาดได้ ไม่ทำให้การนำเข้าล้ม (แจ้งเป็น warning)
   let coverImageUrl: string | null = null
-  let warning: string | undefined
+  let warning: string | undefined = result.warnings?.length ? result.warnings.join(' · ') : undefined
   if (cover) {
     try {
       coverImageUrl = await driveImageToDataUrl(cover.id, cover.resourceKey)
     } catch (e) {
-      warning = `ใส่ภาพปก "${cover.name}" ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`
+      const coverWarning = `ใส่ภาพปก "${cover.name}" ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`
+      warning = warning ? `${warning} · ${coverWarning}` : coverWarning
     }
   }
 

@@ -54,9 +54,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }).catch(() => {})
   }
 
+  // สแกนใช้เวลาหลายนาที — pushPrefs อาจถูกทีมแก้ระหว่างนี้ (เช่นสลับ publishMode) ต้องอ่านค่าล่าสุดก่อนเขียนทับ กันค่าที่แก้ไปหาย (lost update)
+  const fresh = await prisma.uploadClient.findUnique({ where: { id: client.id }, select: { pushPrefs: true } })
   let prefs: UploadPushPrefs
   try {
-    prefs = JSON.parse(client.pushPrefs)
+    prefs = JSON.parse(fresh?.pushPrefs ?? client.pushPrefs)
   } catch {
     prefs = {}
   }

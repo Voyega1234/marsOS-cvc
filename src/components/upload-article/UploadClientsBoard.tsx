@@ -16,6 +16,9 @@ import DropZone from "@/components/upload-article/shared/DropZone";
 import PasteDialog from "@/components/upload-article/shared/PasteDialog";
 import GoogleDocDialog from "@/components/upload-article/shared/GoogleDocDialog";
 
+/** เพดานต่อไฟล์ฝั่งเบราว์เซอร์ — เผื่อที่ให้ multipart header ใต้เพดาน 4.5MB ของ Vercel */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
 interface UploadResult {
   createdCount: number;
   errors: Array<{ name: string; error: string }>;
@@ -81,20 +84,34 @@ export default function UploadClientsBoard() {
     if (busy[clientId]) return;
     setBusy(prev => ({ ...prev, [clientId]: true }));
     setResults(prev => ({ ...prev, [clientId]: undefined }));
+    let created = 0;
+    const errors: Array<{ name: string; error: string }> = [];
     try {
-      const fd = new FormData();
-      for (const f of files) fd.append("files", f);
-      const r = await fetch(`/api/upload-article/clients/${clientId}/articles`, { method: "POST", body: fd });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "อัปโหลดไม่สำเร็จ"); return; }
-      const created = Array.isArray(d.created) ? d.created.length : 0;
-      const errors = Array.isArray(d.errors) ? d.errors : [];
+      // ส่งทีละไฟล์ — Vercel ตีกลับคำขอที่ใหญ่เกิน 4.5MB ก่อนถึงโค้ดเรา
+      for (const f of files) {
+        if (f.size > MAX_UPLOAD_BYTES) {
+          errors.push({ name: f.name, error: "ไฟล์ใหญ่เกิน 4MB — ย่อรูปใน Word หรือแยกไฟล์ก่อน" });
+          continue;
+        }
+        try {
+          const fd = new FormData();
+          fd.append("files", f);
+          const r = await fetch(`/api/upload-article/clients/${clientId}/articles`, { method: "POST", body: fd });
+          const d = await r.json().catch(() => null);
+          if (!r.ok || !d) {
+            errors.push({ name: f.name, error: d?.error || (r.status === 413 ? "ไฟล์ใหญ่เกินที่เซิร์ฟเวอร์รับ (413)" : `อัปโหลดไม่สำเร็จ (HTTP ${r.status})`) });
+            continue;
+          }
+          created += Array.isArray(d.created) ? d.created.length : 0;
+          if (Array.isArray(d.errors)) errors.push(...d.errors);
+        } catch (e) {
+          errors.push({ name: f.name, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
       setResults(prev => ({ ...prev, [clientId]: { createdCount: created, errors } }));
       if (created) toast.success(`นำเข้าสำเร็จ ${created} บทความ`);
-      if (errors.length) toast.error(`ผิดพลาด ${errors.length} ไฟล์`);
+      if (errors.length) toast.error(`ผิดพลาด ${errors.length} ไฟล์ — ${errors[0].name}: ${errors[0].error}`);
       await loadClients();
-    } catch (e) {
-      toast.error(`อัปโหลดไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(prev => ({ ...prev, [clientId]: false }));
     }

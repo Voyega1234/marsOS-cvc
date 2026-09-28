@@ -5,7 +5,7 @@
 // อ่านอย่างเดียว: GET หน้าเว็บสาธารณะ + WP REST สาธารณะ ผ่าน SSRF guard ของ competitor-gap
 // บทความที่ Upload Article เคย push ไป (มี div.content-article) ถูกตัดออกจากการนับทุกจุด กันนับของตัวเอง
 
-import { fetchHtml, fetchText } from '@/lib/competitor-gap/fetcher'
+import { safeFetchHtml as fetchHtml, safeFetchText as fetchText } from './safe-fetch'
 import { askJson } from '@/lib/competitor-gap/ai'
 import type { ORUsage } from '@/lib/openrouter'
 import { safeColor, sanitizeThemeDetail } from './theme-css'
@@ -211,11 +211,14 @@ function findComponent(key: UploadComponentKey, posts: PostSample[], home: strin
   const evidence: string[] = []
   const labels: string[] = []
   let postsWith = 0
-  let templateOnly = false
+  let templateOnlyCount = 0
+  let templateOnlyAutoPlugin = false
   let knownAuto = false
 
   for (const p of posts) {
-    const pageDoc = p.page ? (key === 'cta' ? articleRegion(p.page) : stripChrome(p.page)) : null
+    // ใช้เฉพาะส่วนเนื้อบทความจริง (articleRegion แล้ว fallback หน้าที่ล้าง header/footer ถ้าไม่เจอ <article>)
+    // กันสัญญาณ FAQ/TOC ปลอมจาก sidebar widget / related posts / off-canvas menu / accordion นอกบทความ
+    const pageDoc = p.page ? articleRegion(p.page) : null
     const inContent = p.content ? matchDetectors(p.content, key) : []
     const inPage = pageDoc ? matchDetectors(pageDoc, key) : []
     const hits = p.content ? inContent : inPage
@@ -226,10 +229,15 @@ function findComponent(key: UploadComponentKey, posts: PostSample[], home: strin
     }
     // มีในหน้าจริง แต่เนื้อดิบไม่มี = ธีม/ปลั๊กอินเติมตอนแสดงผล
     if (p.content !== null && inPage.some((d) => !d.weak) && inContent.length === 0) {
-      templateOnly = true
+      templateOnlyCount++
+      if (inPage.some((d) => !d.weak && d.autoInsert)) templateOnlyAutoPlugin = true
     }
   }
   const postsChecked = posts.filter((p) => p.content !== null || p.page !== null).length
+  const renderedCount = posts.filter((p) => p.page !== null).length
+  // สัญญาณ "ธีมเติมเองตอนแสดงผล" ต้องเจอในโพสต์เรนเดอร์จริงอย่างน้อย 2 โพสต์ ถึงจะเชื่อว่าเป็นทุกบทความ
+  // ยกเว้นเรนเดอร์ได้แค่โพสต์เดียวและสัญญาณนั้นมาจากปลั๊กอินที่รู้จักว่าแทรกให้ทุกโพสต์เองอยู่แล้ว
+  const templateOnly = templateOnlyCount >= 2 || (renderedCount === 1 && templateOnlyCount >= 1 && templateOnlyAutoPlugin)
   const homeHits = home ? matchDetectors(stripChrome(home), key, { home: true }) : []
 
   let where: UploadComponentFinding['where'] = null
@@ -496,7 +504,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
   const checked: string[] = []
   const warnings: string[] = []
 
-  const homeRes = await fetchHtml(target, { browserLike: true })
+  const homeRes = await fetchHtml(target)
   const home = homeRes.ok ? stripOurArticles(homeRes.html) : null
   if (home) checked.push('หน้าแรก')
   else warnings.push(`เปิดหน้าแรกไม่ได้ (${homeRes.error || homeRes.status})`)
@@ -546,7 +554,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
   // เปิดหน้าบทความจริง 3 หน้า (+ ลิงก์ตัวอย่างที่ผู้ใช้ใส่)
   const sample = sampleUrl?.trim() ? normalizeSite(sampleUrl) : ''
   const toRender = uniq([...(sample ? [sample] : []), ...posts.map((p) => p.link)]).slice(0, sample ? 4 : 3)
-  const rendered = await Promise.all(toRender.map((u) => fetchHtml(u, { browserLike: true })))
+  const rendered = await Promise.all(toRender.map((u) => fetchHtml(u)))
   let renderedCount = 0
   rendered.forEach((r, i) => {
     if (!r.ok) return

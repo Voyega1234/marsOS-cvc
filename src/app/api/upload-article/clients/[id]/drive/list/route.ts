@@ -10,7 +10,7 @@ import {
   type DriveEntry,
 } from '@/lib/upload-article/drive-folder'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 const MAX_ARTICLE_FOLDERS = 50
 
@@ -67,23 +67,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let truncated = false
 
   const rootParts = splitArticleFolder(root.entries)
-  if (rootParts.doc) {
-    // โฟลเดอร์นี้คือโฟลเดอร์บทความเดียว
-    articles.push({
-      folderId: ref.id,
-      ...(ref.resourceKey ? { resourceKey: ref.resourceKey } : {}),
-      name: root.title || rootParts.doc.name,
-      docName: rootParts.doc.name,
-      imageCount: rootParts.images.length,
-      alreadyImported: false,
-    })
-  } else {
-    if (rootParts.subFolders.length === 0) {
-      return NextResponse.json(
-        { error: 'ไม่พบบทความในโฟลเดอร์นี้ — ต้องมีโฟลเดอร์ย่อยที่มี Google Doc หรือ .docx (หรือเอกสารอยู่ในโฟลเดอร์นี้เลย)' },
-        { status: 400 },
-      )
-    }
+
+  // มีโฟลเดอร์ย่อย → เช็คก่อนว่าโฟลเดอร์ย่อยมีเอกสารบ้างไหม (แต่ละโฟลเดอร์ย่อย = 1 บทความ)
+  // ถึงแม้ parent เองจะมีเอกสารอยู่ด้วย (เช่นไฟล์บรีฟ) ก็ให้ยึดโฟลเดอร์ย่อยเป็นหลัก ไม่ถือว่า parent คือบทความเดียว
+  if (rootParts.subFolders.length > 0) {
     let folders: DriveEntry[] = rootParts.subFolders
     if (folders.length > MAX_ARTICLE_FOLDERS) {
       truncated = true
@@ -113,6 +100,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         })
       }
     }
+  }
+
+  // ไม่มีโฟลเดอร์ย่อยที่มีเอกสารเลย (ไม่มีโฟลเดอร์ย่อย หรือมีแต่ไม่มีเอกสารสักอัน) แต่ parent เองมีเอกสาร → ถือเป็นบทความเดียว
+  if (articles.length === 0 && rootParts.doc) {
+    articles.push({
+      folderId: ref.id,
+      ...(ref.resourceKey ? { resourceKey: ref.resourceKey } : {}),
+      name: root.title || rootParts.doc.name,
+      docName: rootParts.doc.name,
+      imageCount: rootParts.images.length,
+      alreadyImported: false,
+    })
+  }
+
+  if (articles.length === 0) {
+    return NextResponse.json(
+      { error: 'ไม่พบบทความในโฟลเดอร์นี้ — ต้องมีโฟลเดอร์ย่อยที่มี Google Doc หรือ .docx (หรือเอกสารอยู่ในโฟลเดอร์นี้เลย)' },
+      { status: 400 },
+    )
   }
 
   // ทำเครื่องหมายโฟลเดอร์ที่เคยนำเข้าให้ลูกค้านี้แล้ว (sourceName = ลิงก์โฟลเดอร์)

@@ -163,3 +163,17 @@ export function assembleUploadHtml(parsed: ParsedArticle, selectedIds: Set<strin
   }
   return parsed.head + parts.join('') + parsed.tail
 }
+
+/**
+ * ลายนิ้วมือของ htmlContent (FNV-1a 32 bit + ความยาว) — client ส่งค่านี้มากับ card ที่เลือกตอน push
+ * server เทียบกับ htmlContent ปัจจุบัน ถ้าไม่ตรง = บทความถูกแก้หลังโหลดหน้า card ที่เลือกอาจไม่ตรงแล้ว
+ * (ห้ามใช้ updatedAt เพราะเปลี่ยนทุกครั้งที่สถานะ push เปลี่ยน ทำให้กด push ซ้ำหลัง fail ไม่ได้)
+ */
+export function uploadHtmlVersion(html: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < html.length; i++) {
+    h ^= html.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return `${html.length}:${(h >>> 0).toString(16)}`
+}

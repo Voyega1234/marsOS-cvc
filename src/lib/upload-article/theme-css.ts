@@ -222,6 +222,35 @@ export function themeDetailCss(detail: UploadThemeDetail | undefined): string {
   return lines.join('\n')
 }
 
+const DRAFT_FONT_RE = /^[\w\sÀ-ɏ฀-๿'",-]*$/
+
+function sanitizeDraftColor(v: string | undefined): string {
+  return typeof v === 'string' && (v === '' || HEX_RE.test(v) || RGB_RE.test(v)) ? v : ''
+}
+
+function sanitizeDraftFont(v: string | undefined): string | undefined {
+  if (typeof v !== 'string') return undefined
+  return v.length <= 200 && DRAFT_FONT_RE.test(v) ? v : undefined
+}
+
+/**
+ * sanitize ธีมฉบับร่าง (ยังไม่บันทึก) ก่อนสร้าง CSS พรีวิวสดในหน้า Generate — เกณฑ์เดียวกับฝั่ง server ตอน PATCH
+ * กันผู้ใช้พิมพ์ CSS/HTML แปลกปลอมลงช่องสี/ฟอนต์แล้วโดนต่อเป็น CSS จริงในพรีวิวก่อนผ่านการตรวจของ server
+ */
+export function sanitizeThemeDraft(theme: UploadTheme): UploadTheme {
+  return {
+    ...theme,
+    theme: sanitizeDraftColor(theme.theme),
+    text: sanitizeDraftColor(theme.text),
+    border: sanitizeDraftColor(theme.border),
+    accent: sanitizeDraftColor(theme.accent),
+    background: sanitizeDraftColor(theme.background),
+    fontFamily: sanitizeDraftFont(theme.fontFamily),
+    headingFont: sanitizeDraftFont(theme.headingFont),
+    detail: sanitizeThemeDetail(theme.detail),
+  }
+}
+
 /** @import เฉพาะฟอนต์ Google ที่เลือกไว้ (ฟอนต์อื่น/inherit ไม่ต้องโหลด) */
 export function googleFontImport(stacks: Array<string | undefined>): string {
   const families = new Set<string>()

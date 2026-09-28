@@ -72,7 +72,14 @@ export default function GenerateTab({
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "สแกนธีมไม่สำเร็จ"); return; }
       if (d.theme) {
-        setThemeDraft(prev => ({ ...d.theme, styleMode: prev.styleMode, detail: prev.detail }));
+        // ฟอนต์ที่ตั้งไว้เป็น "ใช้ฟอนต์ของเว็บ" (inherit) หรือยังไม่ได้ตั้ง (ว่าง) ไม่ควรถูกผลสแกนทับ — ผู้ใช้ตั้งใจเลือกไว้แบบนั้นแล้ว
+        setThemeDraft(prev => ({
+          ...d.theme,
+          styleMode: prev.styleMode,
+          detail: prev.detail,
+          fontFamily: (prev.fontFamily === UPLOAD_FONT_INHERIT || !prev.fontFamily) ? prev.fontFamily : d.theme.fontFamily,
+          headingFont: !prev.headingFont ? prev.headingFont : d.theme.headingFont,
+        }));
         toast.success("ดึงธีมจากเว็บสำเร็จ — ตรวจสอบสีแล้วกดบันทึกธีม");
       }
     } catch (e) {

@@ -6,11 +6,11 @@ import { toast } from "sonner";
 import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
-import { parseUploadCards, assembleUploadHtml, type ParsedArticle } from "@/lib/upload-article/cards";
+import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/upload-article/cards";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
 import SiteScanPanel from "@/components/upload-article/shared/SiteScanPanel";
 
-const PUSHABLE = new Set(["GENERATED", "REVIEWED", "PUSHED", "FAILED"]);
+const PUSHABLE = new Set(["GENERATED", "REVIEWED", "PUSHING", "PUSHED", "FAILED"]);
 
 const TYPE_CHIP: Record<string, { label: string; cls: string }> = {
   title: { label: "หัวเรื่อง", cls: "bg-blue-50 text-blue-700 border-blue-200" },
@@ -40,9 +40,12 @@ export default function PushTab({
   const [useElementor, setUseElementor] = useState(!!client.pushPrefs.useElementor);
   const [stripH1, setStripH1] = useState(client.pushPrefs.stripH1 !== false);
 
-  const [cardSel, setCardSel] = useState<Record<string, Record<string, boolean>>>({});
+  // เก็บเวอร์ชัน HTML ของบทความไว้คู่กับ selection — ถ้า HTML บทความเปลี่ยน (เวอร์ชันไม่ตรง) ต้องเมิน selection เก่า
+  // (ไม่ใช้ updatedAt เพราะเปลี่ยนทุกครั้งที่ push แม้ HTML เดิม — กด push ซ้ำหลัง fail แล้ว card ที่ตัดออกจะกลับมา)
+  const [cardSel, setCardSel] = useState<Record<string, { version: string; sel: Record<string, boolean> }>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pushBusy, setPushBusy] = useState<Record<string, boolean>>({});
+  const [batchBusy, setBatchBusy] = useState(false);
   const [pushResult, setPushResult] = useState<Record<string, { ok: boolean; postUrl?: string; error?: string }>>({});
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const siteScan = client.pushPrefs.siteScan;
@@ -53,13 +56,17 @@ export default function PushTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pushable.map(a => a.id).join("|")]);
 
-  const parsedMap = useMemo(() => {
-    const map = new Map<string, ParsedArticle>();
+  const { parsedMap, versionMap } = useMemo(() => {
+    const parsedMap = new Map<string, ParsedArticle>();
+    const versionMap = new Map<string, string>();
     for (const a of pushable) {
       const detail = articleDetails[a.id];
-      if (detail?.htmlContent) map.set(a.id, parseUploadCards(detail.htmlContent));
+      if (detail?.htmlContent) {
+        parsedMap.set(a.id, parseUploadCards(detail.htmlContent));
+        versionMap.set(a.id, uploadHtmlVersion(detail.htmlContent));
+      }
     }
-    return map;
+    return { parsedMap, versionMap };
   }, [pushable, articleDetails]);
 
   const notConnected = client.websitePlatform === "wordpress" ? !client.hasWpPassword || !client.wpUrl : !client.wpUrl;
@@ -68,34 +75,41 @@ export default function PushTab({
     const parsed = parsedMap.get(articleId);
     const card = parsed?.cards.find(c => c.id === cardId);
     if (!card) return false;
-    const explicit = cardSel[articleId]?.[cardId];
+    const version = versionMap.get(articleId);
+    const entry = cardSel[articleId];
+    // selection เก่าที่ผูกกับ HTML คนละเวอร์ชัน ถือว่าไม่มีผล — ใช้ค่า default แทน
+    const explicit = entry && version && entry.version === version ? entry.sel[cardId] : undefined;
     if (explicit !== undefined) return explicit;
     if (client.pushPrefs.excludeCards?.[card.type as "toc" | "cta" | "faq"]) return false;
     return !card.derived;
   }
 
   function toggleCard(articleId: string, cardId: string) {
-    setCardSel(prev => ({ ...prev, [articleId]: { ...(prev[articleId] ?? {}), [cardId]: !isCardOn(articleId, cardId) } }));
-  }
-
-  function htmlForPush(articleId: string, originalHtml: string): string {
-    const parsed = parsedMap.get(articleId);
-    if (!parsed) return originalHtml;
-    const ids = new Set(parsed.cards.filter(c => isCardOn(articleId, c.id)).map(c => c.id));
-    return assembleUploadHtml(parsed, ids);
+    const version = versionMap.get(articleId);
+    if (!version) return;
+    setCardSel(prev => {
+      const prevEntry = prev[articleId];
+      const sel = prevEntry && prevEntry.version === version ? { ...prevEntry.sel } : {};
+      sel[cardId] = !isCardOn(articleId, cardId);
+      return { ...prev, [articleId]: { version, sel } };
+    });
   }
 
   async function pushOne(articleId: string) {
+    if (pushBusy[articleId]) return; // กันกดซ้ำ/push ซ้อนของบทความเดียวกัน
     const detail = articleDetails[articleId] || await loadArticleDetail(articleId, true);
     if (!detail?.htmlContent) { toast.error("บทความนี้ยังไม่มี HTML"); return; }
     setPushBusy(prev => ({ ...prev, [articleId]: true }));
     setPushResult(prev => { const n = { ...prev }; delete n[articleId]; return n; });
     try {
-      const html = htmlForPush(articleId, detail.htmlContent);
+      // ส่งแค่รายการ card ที่เลือก (กันตัว body เกิน 4.5MB ของ Vercel) — server ประกอบ HTML เองจาก htmlContent ที่มีอยู่แล้ว
+      const parsed = parsedMap.get(articleId);
+      const cardIds = parsed ? parsed.cards.filter(c => isCardOn(articleId, c.id)).map(c => c.id) : null;
+      if (cardIds && cardIds.length === 0) { toast.error("ยังไม่ได้เลือก card ที่จะ push"); return; }
       const r = await fetch(`/api/upload-article/articles/${articleId}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ html, publishMode, useElementor, wpPostType, stripH1 }),
+        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1 }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.error) {
@@ -103,6 +117,7 @@ export default function PushTab({
         toast.error(`Push ไม่สำเร็จ: ${d?.error || r.status}`);
       } else {
         setPushResult(prev => ({ ...prev, [articleId]: { ok: true, postUrl: d.postUrl } }));
+        if (d.client) setClient(d.client);
         toast.success("Push สำเร็จ");
       }
       await loadArticleDetail(articleId, true);
@@ -116,7 +131,13 @@ export default function PushTab({
   }
 
   async function pushSelected() {
-    for (const id of Array.from(selectedIds)) await pushOne(id);
+    if (batchBusy) return;
+    setBatchBusy(true);
+    try {
+      for (const id of Array.from(selectedIds)) await pushOne(id);
+    } finally {
+      setBatchBusy(false);
+    }
   }
 
   function toggleSelect(id: string) {
@@ -164,8 +185,8 @@ export default function PushTab({
           </label>
         </div>
 
-        <Button size="sm" disabled={!selectedIds.size} onClick={pushSelected}>
-          <Send size={12} className="mr-1.5" /> Push ที่เลือก ({selectedIds.size})
+        <Button size="sm" disabled={!selectedIds.size || batchBusy} onClick={pushSelected}>
+          <Send size={12} className="mr-1.5" /> {batchBusy ? "กำลัง Push..." : `Push ที่เลือก (${selectedIds.size})`}
         </Button>
       </div>
 
@@ -176,7 +197,7 @@ export default function PushTab({
         {pushable.map(a => {
           const parsed = parsedMap.get(a.id);
           const result = pushResult[a.id];
-          const busy = !!pushBusy[a.id];
+          const busy = !!pushBusy[a.id] || (a.status === "PUSHING" && Date.now() - new Date(a.updatedAt).getTime() < 6 * 60 * 1000);
           return (
             <div key={a.id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-2.5">
               <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -189,7 +210,7 @@ export default function PushTab({
                     </div>
                   </div>
                 </label>
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => pushOne(a.id)}>
+                <Button size="sm" variant="outline" disabled={busy || batchBusy} onClick={() => pushOne(a.id)}>
                   {busy ? "กำลัง Push..." : "Push"}
                 </Button>
               </div>

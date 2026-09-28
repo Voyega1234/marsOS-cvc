@@ -76,6 +76,10 @@ export default function ConnectTab({
       setClient(d);
       if (wpAppPassword.trim()) setWpAppPassword("");
       toast.success("บันทึกแล้ว");
+      if (d.wpPasswordCleared) toast.warning("เปลี่ยนเว็บ/ผู้ใช้แล้ว — กรุณาใส่ Application Password ใหม่");
+      if (Array.isArray(d.siteConnectionSecretsCleared) && d.siteConnectionSecretsCleared.length) {
+        toast.warning("เปลี่ยนโดเมน/URL แล้ว — กรุณาใส่ key/secret ใหม่ของแพลตฟอร์มนั้นอีกครั้ง");
+      }
       return true;
     } finally {
       setSaving(false);

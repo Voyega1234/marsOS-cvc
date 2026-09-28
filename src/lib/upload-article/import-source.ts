@@ -1,12 +1,15 @@
 // ─── Upload Article — แปลงต้นฉบับ (docx/txt/md/html/Google Doc) เป็น semantic HTML ──
 // ห้ามพึ่งพา prisma/session — ฟังก์ชันล้วน (pure) เพื่อให้ unit test เรียกตรง ๆ ได้
 
-import { parse, NodeType, TextNode } from 'node-html-parser'
-import { cleanSemanticHtml } from './clean-html'
+import { parse, NodeType, TextNode, type HTMLElement } from 'node-html-parser'
+import { cleanSemanticHtml, sanitizeHref, sanitizeImgSrc } from './clean-html'
+import { DriveHttpError, safeGoogleFetch, shrinkImageToDataUrl } from './drive-folder'
 
 export interface ImportResult {
   title: string
   html: string
+  /** คำเตือนที่ไม่ทำให้ import ล้ม เช่น รูปในเอกสารถูกตัดเพราะข้อมูลรวมเกินเพดาน */
+  warnings?: string[]
 }
 
 function escapeHtml(s: string): string {
@@ -78,8 +81,14 @@ export function importFromText(text: string, fallbackTitle = ''): ImportResult {
 
 function mdInline(s: string): string {
   let out = escapeHtml(s)
-  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => `<img src="${url}" alt="${alt}">`)
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, txt, url) => `<a href="${url}">${txt}</a>`)
+  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => {
+    const src = sanitizeImgSrc(url)
+    return src ? `<img src="${src}" alt="${alt}">` : ''
+  })
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, txt, url) => {
+    const href = sanitizeHref(url)
+    return href ? `<a href="${href}">${txt}</a>` : txt
+  })
   out = out.replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_m, a, b) => `<strong>${a ?? b}</strong>`)
   out = out.replace(/\*([^*]+)\*|_([^_]+)_/g, (_m, a, b) => `<em>${a ?? b}</em>`)
   return out
@@ -175,6 +184,9 @@ export function importFromMarkdown(md: string, fallbackTitle = ''): ImportResult
   return cleanedResult(html, fallbackTitle)
 }
 
+/** เพดานรวมของรูปที่ฝังเป็น data URI ในเอกสารเดียว (กัน response เกิน 4.5MB ของ Vercel) */
+const MAX_TOTAL_DOCX_IMAGE_BYTES = 2.5 * 1024 * 1024
+
 /** นำเข้าไฟล์ตามนามสกุล — docx ใช้ mammoth, อื่น ๆ ใช้ตัวแปลงข้างต้น */
 export async function importFromFile(name: string, buffer: Buffer): Promise<ImportResult> {
   const ext = (name.split('.').pop() || '').toLowerCase()
@@ -182,8 +194,40 @@ export async function importFromFile(name: string, buffer: Buffer): Promise<Impo
 
   if (ext === 'docx') {
     const mammoth = await import('mammoth')
-    const result = await mammoth.convertToHtml({ buffer })
-    return cleanedResult(result.value, baseTitle)
+    let usedBytes = 0
+    let droppedCount = 0
+    // ล้น alt ของรูปที่ตัดทิ้งให้ว่างเปล่า (ไม่ใช่ literal ตรง ๆ กัน TS excess-property check กับ type ของ mammoth
+    // ที่ประกาศแค่ { src: string } แต่ runtime merge attribute เพิ่มได้จริง)
+    const droppedAttrs: { src: string; alt: string } = { src: '', alt: '' }
+    const convertImage = mammoth.images.imgElement(async (image) => {
+      if (usedBytes >= MAX_TOTAL_DOCX_IMAGE_BYTES) {
+        droppedCount++
+        return droppedAttrs
+      }
+      try {
+        const raw = Buffer.from(await image.readAsBase64String(), 'base64')
+        const dataUrl = await shrinkImageToDataUrl(raw)
+        const bytes = Buffer.byteLength(dataUrl, 'utf-8')
+        if (usedBytes + bytes > MAX_TOTAL_DOCX_IMAGE_BYTES) {
+          droppedCount++
+          return droppedAttrs
+        }
+        usedBytes += bytes
+        return { src: dataUrl }
+      } catch {
+        droppedCount++
+        return droppedAttrs
+      }
+    })
+    const result = await mammoth.convertToHtml({ buffer }, { convertImage })
+    const out = cleanedResult(result.value, baseTitle)
+    if (droppedCount > 0) {
+      out.warnings = [
+        ...(out.warnings ?? []),
+        `ตัดรูปในเอกสารออก ${droppedCount} รูป (ข้อมูลรูปรวมเกิน ~2.5MB ต่อบทความ)`,
+      ]
+    }
+    return out
   }
   if (ext === 'txt') {
     return importFromText(buffer.toString('utf-8'), baseTitle)
@@ -221,17 +265,17 @@ export async function fetchGoogleDoc(url: string): Promise<ImportResult> {
   const timeout = setTimeout(() => controller.abort(), 20_000)
   let res: Response
   try {
-    res = await fetch(exportUrl, { signal: controller.signal, redirect: 'follow' })
+    // ตาม redirect เองทีละ hop ตรวจโดเมนทุก hop (กัน SSRF) — redirect ไป accounts.google.com = ยังไม่แชร์สาธารณะ
+    res = await safeGoogleFetch(exportUrl, controller.signal)
   } catch (e) {
+    if (e instanceof DriveHttpError && e.status === 401) {
+      throw new Error('เอกสารต้องแชร์แบบ Anyone with the link')
+    }
     throw new Error(`ดึง Google Doc ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
     clearTimeout(timeout)
   }
 
-  // กัน redirect ไปโดเมนอื่น (SSRF)
-  if (!res.url.startsWith('https://docs.google.com/')) {
-    throw new Error('เอกสารพาไปที่โดเมนอื่น — ปฏิเสธเพื่อความปลอดภัย')
-  }
   if (res.status === 401 || res.status === 403) {
     throw new Error('เอกสารต้องแชร์แบบ Anyone with the link')
   }

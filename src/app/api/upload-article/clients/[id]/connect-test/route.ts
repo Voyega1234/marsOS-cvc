@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
 import { testSiteConnection, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 import { testWordPressConnection } from '@/lib/upload-article/wp-push'
+import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 
 /** POST /api/upload-article/clients/[id]/connect-test — ทดสอบการเชื่อมต่อเว็บปลายทางด้วย credentials ที่บันทึกไว้ */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -29,6 +30,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (!client.wpUrl || !client.wpUser || !client.wpAppPasswordEnc) {
     return NextResponse.json({ error: 'ยังไม่ได้ตั้งค่า WordPress URL / User / Application Password' }, { status: 400 })
   }
+  const credErr = await checkCredentialUrl(client.wpUrl)
+  if (credErr) return NextResponse.json({ error: credErr }, { status: 400 })
   let wpPass = ''
   try {
     wpPass = decrypt(client.wpAppPasswordEnc)

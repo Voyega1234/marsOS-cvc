@@ -86,7 +86,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   }
 
   const updated = await prisma.uploadArticle.update({ where: { id: existing.id }, data })
-  return NextResponse.json(toUploadArticleDTO(updated, true))
+  // ตัด sourceHtml ออกจาก response ของ PATCH (ไม่มีหน้าไหนใช้ค่านี้จากผลลัพธ์ PATCH โดยตรง — ลดขนาด response
+  // กัน 4.5MB ของ Vercel เวลาบันทึก htmlContent/coverImageUrl ก้อนใหญ่) ฝั่ง client merge แบบ spread จึงคงค่าที่มีอยู่เดิมไว้
+  const dto = toUploadArticleDTO(updated, true)
+  delete dto.sourceHtml
+  return NextResponse.json(dto)
 }
 
 /** DELETE /api/upload-article/articles/[articleId] — บทความที่ขึ้นเว็บแล้ว (Draft/Publish) ลบไม่ได้ */
