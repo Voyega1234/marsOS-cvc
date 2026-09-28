@@ -57,6 +57,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   let processedHtml = sanitizeArticleHtml(refreshUploadSchema(rawHtml, uploadSchemaOptions(article, client)))
   if (theme.styleMode === 'clean') processedHtml = stripStyleTags(processedHtml)
   if (stripH1) processedHtml = stripLeadingH1(processedHtml)
+  // บทความที่ generate ก่อนเลิกแสดง breadcrumb ในเนื้อหา — ตัดทิ้งตอน push (schema ยังมี BreadcrumbList)
+  processedHtml = processedHtml.replace(/<nav class="content-breadcrumb"[\s\S]*?<\/nav>\s*/g, '')
 
   // เก็บ preference ที่ใช้รอบนี้ไว้ใน client.pushPrefs (ไม่รอ push สำเร็จก่อน — ผู้ใช้ตั้งใจเลือกแล้ว)
   await prisma.uploadClient.update({

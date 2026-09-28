@@ -123,5 +123,16 @@ export function cleanSemanticHtml(rawHtml: string): string {
   }
   wrapStrayTextAtRoot(root)
 
-  return stripEmptyParagraphs(root.innerHTML).trim()
+  return mergeSplitInline(stripEmptyParagraphs(root.innerHTML)).trim()
+}
+
+/** รวมตัวหนา/เอียงที่ Google Docs แตกเป็นหลายก้อนติดกัน และเอา <strong> ที่มีแต่ช่องว่างออก (ข้อความคงเดิมทุกตัวอักษร) */
+function mergeSplitInline(html: string): string {
+  let out = html
+  for (let i = 0; i < 3; i++) {
+    out = out
+      .replace(/<(strong|em)>(\s*)<\/\1>/g, '$2')
+      .replace(/<\/(strong|em)>(\s*)<\1>/g, '$2')
+  }
+  return out
 }

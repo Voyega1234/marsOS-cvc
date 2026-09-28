@@ -10,7 +10,9 @@ import { Sparkles, Loader2, Copy, ArrowRight, CheckSquare, Square } from "lucide
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ArticleFrame from "@/components/shared/ArticleFrame";
-import type { UploadArticleDTO, UploadClientDTO, UploadOutputMode, UploadTheme } from "@/lib/upload-article/types";
+import { UPLOAD_FONT_INHERIT, type UploadArticleDTO, type UploadClientDTO, type UploadOutputMode, type UploadTheme } from "@/lib/upload-article/types";
+import FontPicker from "../shared/FontPicker";
+import { toReadableHtml, shortenDataUris, copyRichText } from "../shared/readableHtml";
 
 const GENERATABLE = new Set(["IMPORTED", "GENERATED", "REVIEWED", "FAILED"]);
 
@@ -133,6 +135,10 @@ export default function GenerateTab({
     navigator.clipboard?.writeText(text).then(() => toast.success(`คัดลอก${label}แล้ว`)).catch(() => toast.error("คัดลอกไม่สำเร็จ"));
   }
 
+  function copyText(html: string) {
+    copyRichText(toReadableHtml(html)).then(() => toast.success("คัดลอกข้อความแล้ว")).catch(() => toast.error("คัดลอกไม่สำเร็จ"));
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
@@ -168,16 +174,13 @@ export default function GenerateTab({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[11px] font-semibold text-gray-500 mb-1">Font ตัวอักษร (ไม่บังคับ)</label>
-            <Input value={themeDraft.fontFamily || ""} onChange={e => setThemeDraft(p => ({ ...p, fontFamily: e.target.value }))}
-              placeholder='เช่น "Noto Sans Thai", sans-serif' />
-          </div>
-          <div>
-            <label className="block text-[11px] font-semibold text-gray-500 mb-1">Font หัวข้อ (ไม่บังคับ)</label>
-            <Input value={themeDraft.headingFont || ""} onChange={e => setThemeDraft(p => ({ ...p, headingFont: e.target.value }))}
-              placeholder='เช่น "Prompt", sans-serif' />
-          </div>
+          <FontPicker label="Font ตัวอักษร" value={themeDraft.fontFamily || ""}
+            onChange={v => setThemeDraft(p => ({ ...p, fontFamily: v }))}
+            noneValue={UPLOAD_FONT_INHERIT} noneLabel="ไม่ใส่ฟอนต์ — ใช้ฟอนต์ของเว็บ"
+            defaultLabel="ค่าเริ่มต้น (IBM Plex Sans Thai)" />
+          <FontPicker label="Font หัวข้อ" value={themeDraft.headingFont || ""}
+            onChange={v => setThemeDraft(p => ({ ...p, headingFont: v }))}
+            noneValue="" noneLabel="ไม่ใส่ฟอนต์ — ใช้ตาม Font ตัวอักษร / ธีมเว็บ" />
         </div>
 
         <div>
@@ -218,7 +221,7 @@ export default function GenerateTab({
           {outputMode === "html" && (
             <label className="flex items-center gap-1.5 text-xs cursor-pointer">
               <input type="checkbox" checked={breadcrumb} onChange={e => setBreadcrumb(e.target.checked)} />
-              ใส่ Breadcrumb
+              ใส่ Breadcrumb ใน Schema (ไม่แสดงบนหน้าเว็บ)
             </label>
           )}
 
@@ -274,17 +277,20 @@ export default function GenerateTab({
                       <Button size="sm" variant="outline" onClick={() => copy(detail.htmlContent || "", "HTML")}>
                         <Copy size={12} className="mr-1.5" /> คัดลอก HTML
                       </Button>
-                      <textarea readOnly value={detail.htmlContent} className="w-full h-72 text-xs font-mono border border-gray-200 rounded-lg p-2.5" />
+                      {/data:image\//i.test(detail.htmlContent) && (
+                        <p className="text-[11px] text-gray-500">
+                          รูปที่อัปโหลดถูกฝังเป็น base64 ในโค้ด (ย่อให้ดูในกล่องนี้) — ตอน Push ขึ้น WordPress ระบบอัปรูปเข้า Media Library แล้วเปลี่ยนเป็นลิงก์ให้เอง
+                        </p>
+                      )}
+                      <textarea readOnly value={shortenDataUris(detail.htmlContent)} className="w-full h-72 text-xs font-mono border border-gray-200 rounded-lg p-2.5" />
                     </div>
                   )}
                   {previewMode === "text" && (
                     <div className="p-3 space-y-2">
-                      <Button size="sm" variant="outline" onClick={() => copy(detail.htmlContent?.replace(/<[^>]+>/g, " ") || "", "ข้อความ")}>
+                      <Button size="sm" variant="outline" onClick={() => copyText(detail.htmlContent || "")}>
                         <Copy size={12} className="mr-1.5" /> คัดลอกข้อความ
                       </Button>
-                      <div className="whitespace-pre-wrap text-sm p-2.5 max-h-72 overflow-y-auto">
-                        {detail.htmlContent.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}
-                      </div>
+                      <ArticleFrame html={toReadableHtml(detail.htmlContent)} />
                     </div>
                   )}
                 </div>

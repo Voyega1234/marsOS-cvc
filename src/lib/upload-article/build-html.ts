@@ -5,7 +5,7 @@
 import { parse, HTMLElement, NodeType, TextNode, type Node } from 'node-html-parser'
 import { buildArticleCss, wrapArticleHtml } from '@/lib/articleComponents'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
-import type { UploadOutputMode, UploadTheme } from './types'
+import { UPLOAD_GOOGLE_FONTS, type UploadOutputMode, type UploadTheme } from './types'
 
 export interface BuildUploadOptions {
   sourceHtml: string
@@ -125,6 +125,60 @@ function isQuestionBlock(el: HTMLElement): boolean {
   return false
 }
 
+const THAI_QUESTION_RE = /(ไหม|มั้ย|หรือไม่|หรือเปล่า|อย่างไร|ยังไง|เท่าไร|เท่าไหร่|อะไร|ทำไม|เมื่อไร|เมื่อไหร่|ที่ไหน|ใคร|กี่)\s*$/
+
+/** มีสัญญาณว่าเป็นคำถามจริง (ลงท้าย ?, ขึ้นต้น Q:/ถาม:, หรือลงท้ายคำถามภาษาไทย) — ไว้แยกคำถามออกจากหัวข้อทั่วไปอย่าง "แหล่งอ้างอิง" */
+function hasQuestionSignal(el: HTMLElement): boolean {
+  const text = el.text.replace(/\s+/g, ' ').trim()
+  if (/[?？؟]$/.test(text)) return true
+  if (/^(Q[:.]|ถาม[:：])/i.test(text)) return true
+  return THAI_QUESTION_RE.test(text)
+}
+
+// ตาราง brief ของผู้เขียน (Keyword / Search Volume / Title Count / Slug ...) — ไม่ใช่เนื้อหาบทความ
+const BRIEF_LABEL_RE = /^(main( keyword)?|long ?tail|keywords?|search volume|focus keyword|title( count)?|meta title|(meta )?description( count)?|slug|url)\b/i
+// หัวข้อที่ผู้เขียนบอกเองว่าไม่ต้องขึ้นเว็บ เช่น "แหล่งอ้างอิง (ไม่ใส่ลงเว็บไซต์)"
+const NOT_FOR_WEB_RE = /ไม่(ต้อง)?\s*(ใส่|ลง|เอา|นำ)(ลง|ขึ้น|ไป)?\s*(ใน)?\s*เว็บ|not for (the )?(web|website|publish)|do not publish/i
+
+function isBriefTable(el: HTMLElement): boolean {
+  if (el.tagName.toLowerCase() !== 'table') return false
+  let hits = 0
+  for (const row of el.querySelectorAll('tr')) {
+    const first = row.querySelector('td, th')
+    if (first && BRIEF_LABEL_RE.test(first.text.replace(/\s+/g, ' ').trim())) hits++
+  }
+  return hits >= 2
+}
+
+function headingLevel(el: HTMLElement): number {
+  const m = /^h([1-6])$/.exec(el.tagName.toLowerCase())
+  return m ? Number(m[1]) : 0
+}
+
+/** ตัดส่วนที่ไม่ใช่เนื้อหาบทความออก (ตาราง brief SEO + หัวข้อที่ระบุว่าไม่ใส่ลงเว็บพร้อมเนื้อหาใต้หัวข้อนั้น) */
+function stripAuthorNotes(blocks: HTMLElement[]): HTMLElement[] {
+  const out: HTMLElement[] = []
+  for (let i = 0; i < blocks.length; i++) {
+    const el = blocks[i]
+    if (isBriefTable(el)) continue
+    const level = headingLevel(el)
+    const isMarker = (level > 0 || isBoldOnlyParagraph(el)) && NOT_FOR_WEB_RE.test(el.text)
+    if (!isMarker) {
+      out.push(el)
+      continue
+    }
+    // ข้ามเนื้อหาใต้หัวข้อนี้จนถึงหัวข้อระดับเดียวกันหรือสูงกว่า (ย่อหน้าตัวหนา = จนถึงหัวข้อถัดไป)
+    let j = i + 1
+    while (j < blocks.length) {
+      const l = headingLevel(blocks[j])
+      if (l > 0 && (level === 0 || l <= level)) break
+      j++
+    }
+    i = j - 1
+  }
+  return out
+}
+
 /** แปลงคู่ Q/A ใน section ให้เป็น <details class="content-faq__item"> — คืน null ถ้าไม่เจอคู่เลย (ปล่อยผ่าน) */
 function convertFaqSection(section: HTMLElement[]): { blocks: HTMLElement[]; count: number } | null {
   const leadIdx = section.findIndex(isQuestionBlock)
@@ -134,8 +188,17 @@ function convertFaqSection(section: HTMLElement[]): { blocks: HTMLElement[]; cou
 
   const groups: Array<{ q: HTMLElement; a: HTMLElement[] }> = []
   let current: { q: HTMLElement; a: HTMLElement[] } | null = null
-  for (const el of rest) {
+  let sawSignal = false
+  let tail: HTMLElement[] = []
+  for (let i = 0; i < rest.length; i++) {
+    const el = rest[i]
     if (isQuestionBlock(el)) {
+      // เจอคำถามจริงมาแล้ว แต่หัวข้อนี้ไม่ใช่คำถาม (เช่น "แหล่งอ้างอิง") → FAQ จบตรงนี้ ที่เหลือคงเป็นเนื้อหาปกติ
+      if (sawSignal && !hasQuestionSignal(el)) {
+        tail = rest.slice(i)
+        break
+      }
+      if (hasQuestionSignal(el)) sawSignal = true
       if (current) groups.push(current)
       current = { q: el, a: [] }
     } else if (current) {
@@ -147,12 +210,13 @@ function convertFaqSection(section: HTMLElement[]): { blocks: HTMLElement[]; cou
 
   const converted: HTMLElement[] = []
   for (const g of groups) {
-    const qHtml = g.q.innerHTML
+    // ห่อคำถามด้วย span เดียว — summary เป็น flex ถ้ามีหลาย inline child (ตัวหนาแตกหลายก้อนจาก Google Docs) ข้อความจะถูกดันไปกลางกล่อง
+    const qHtml = g.q.innerHTML.trim()
     const aHtml = g.a.map((b) => b.outerHTML).join('\n')
-    const detailsHtml = `<details class="content-faq__item"><summary class="content-faq__question">${qHtml}</summary><div class="content-faq__answer">${aHtml}</div></details>`
+    const detailsHtml = `<details class="content-faq__item"><summary class="content-faq__question"><span class="content-faq__q">${qHtml}</span></summary><div class="content-faq__answer">${aHtml}</div></details>`
     converted.push(parseTopLevelBlocks(detailsHtml)[0])
   }
-  return { blocks: [...lead, ...converted], count: groups.length }
+  return { blocks: [...lead, ...converted, ...tail], count: groups.length }
 }
 
 /** หา section H2 ที่เป็น FAQ แล้วแปลงคู่ Q/A ภายใน — คืนจำนวนคู่ที่แปลงได้ */
@@ -213,6 +277,18 @@ function wrapComponents(blocks: HTMLElement[], titleFallback: string): HTMLEleme
   }
 
   return doc.children
+}
+
+/** @import เฉพาะฟอนต์ Google ที่เลือกไว้ (ฟอนต์อื่น/inherit ไม่ต้องโหลด) */
+function googleFontImport(stacks: Array<string | undefined>): string {
+  const families = new Set<string>()
+  for (const stack of stacks) {
+    const first = (stack || '').split(',')[0].replace(/['"]/g, '').trim()
+    if (UPLOAD_GOOGLE_FONTS.includes(first)) families.add(first)
+  }
+  if (families.size === 0) return ''
+  const q = Array.from(families).map((f) => `family=${f.replace(/ /g, '+')}:wght@400;500;700`).join('&')
+  return `@import url('https://fonts.googleapis.com/css2?${q}&display=swap');\n`
 }
 
 function stripEmptyParagraphs(html: string): string {
@@ -327,7 +403,7 @@ function toPlainText(bodyHtml: string): string {
 
 export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult {
   const htmlMode = o.mode !== 'text'
-  let blocks = parseTopLevelBlocks(o.sourceHtml)
+  let blocks = stripAuthorNotes(parseTopLevelBlocks(o.sourceHtml))
 
   let h1Index = normalizeH1(blocks, o.meta.title)
   const h2Count = assignH2Ids(blocks)
@@ -359,12 +435,7 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
       const tocHtml = `<nav class="content-toc" aria-label="${label}"><p class="content-toc__title">${label}</p><ol>${items}</ol></nav>`
       blocks.splice(cursor, 0, parseTopLevelBlocks(tocHtml)[0])
     }
-    if (o.breadcrumb !== false && o.site.url) {
-      const homeLabel = o.site.language === 'en' ? 'Home' : 'หน้าแรก'
-      const siteUrl = o.site.url.replace(/\/$/, '')
-      const crumbHtml = `<nav class="content-breadcrumb" aria-label="breadcrumb"><a href="${escapeAttr(siteUrl)}/">${homeLabel}</a> <span>›</span> <span aria-current="page">${escapeHtml(o.meta.title)}</span></nav>`
-      blocks.splice(h1Index, 0, parseTopLevelBlocks(crumbHtml)[0])
-    }
+    // breadcrumb ไม่แสดงในเนื้อหา (เจ้าของสั่ง 2026-09-28) — ใส่เฉพาะ BreadcrumbList ใน schema
   } else if (o.cover?.url) {
     const figHtml = `<figure><img src="${escapeAttr(o.cover.url)}" alt="${escapeAttr(o.cover.alt || o.meta.title)}"></figure>`
     blocks.splice(h1Index + 1, 0, parseTopLevelBlocks(figHtml)[0])
@@ -385,8 +456,9 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
     backgroundColor: o.theme.background,
     typography: { fontFamily: o.theme.fontFamily, headingFont: o.theme.headingFont },
   })
-  const extraCss = `.content-article .content-breadcrumb{font-size:.9em;opacity:.75;margin:0 0 1em;}\n.content-article .content-breadcrumb a{color:inherit;text-decoration:underline;}`
-  const finalCss = `${css}\n${extraCss}`
+  const fontImport = googleFontImport([o.theme.fontFamily, o.theme.headingFont])
+  const extraCss = `.content-article .content-faq__question{text-align:left;}\n.content-article .content-faq__q{flex:1 1 auto;min-width:0;text-align:left;}`
+  const finalCss = `${fontImport}${css}\n${extraCss}`
   const wrapped = o.theme.styleMode === 'clean' ? wrapArticleHtml(bodyHtml, null) : wrapArticleHtml(bodyHtml, finalCss)
 
   const schemaScript = buildUploadSchema(wrapped, o)

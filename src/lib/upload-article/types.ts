@@ -11,9 +11,21 @@ export interface UploadTheme {
   accent: string
   background: string
   styleMode: 'embed' | 'clean'
+  /** ว่าง = ค่าเริ่มต้น (IBM Plex Sans Thai), 'inherit' = ไม่ใส่ฟอนต์ ใช้ของเว็บ */
   fontFamily?: string
+  /** ว่าง = ไม่ใส่ฟอนต์หัวข้อ (ใช้ตามตัวอักษรหลัก/ธีมเว็บ) */
   headingFont?: string
 }
+
+/** ฟอนต์ Google ที่เลือกได้ในหน้า Generate (build-html จะ @import ให้เมื่อเลือกตัวใดตัวหนึ่ง) */
+export const UPLOAD_GOOGLE_FONTS = [
+  'IBM Plex Sans Thai', 'Noto Sans Thai', 'Sarabun', 'Prompt', 'Kanit', 'Mitr', 'Anuphan',
+  'Bai Jamjuree', 'Chakra Petch', 'K2D', 'Niramit', 'Noto Serif Thai', 'Trirong',
+  'Inter', 'Roboto', 'Open Sans', 'Poppins', 'Montserrat', 'Lato',
+]
+
+/** ค่า fontFamily พิเศษ: ไม่กำหนดฟอนต์ ใช้ฟอนต์ของเว็บปลายทาง */
+export const UPLOAD_FONT_INHERIT = 'inherit'
 
 export interface UploadPushPrefs {
   stripH1?: boolean

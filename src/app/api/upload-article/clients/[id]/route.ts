@@ -61,6 +61,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         return NextResponse.json({ error: `สี ${key} ไม่ถูกต้อง` }, { status: 400 })
       }
     }
+    // ค่าฟอนต์ไปอยู่ใน <style> ของบทความ — รับเฉพาะชื่อฟอนต์/คอมมา/เครื่องหมายคำพูด กัน CSS/HTML injection
+    for (const key of ['fontFamily', 'headingFont'] as const) {
+      const v = t[key]
+      if (v !== undefined && (typeof v !== 'string' || v.length > 200 || !/^[\w\s\u00C0-\u024F\u0E00-\u0E7F'",-]*$/.test(v))) {
+        return NextResponse.json({ error: 'ชื่อฟอนต์มีอักขระที่ไม่รองรับ' }, { status: 400 })
+      }
+    }
     if (t.styleMode !== undefined && t.styleMode !== 'embed' && t.styleMode !== 'clean') {
       return NextResponse.json({ error: 'styleMode ต้องเป็น embed หรือ clean' }, { status: 400 })
     }

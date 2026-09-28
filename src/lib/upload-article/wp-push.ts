@@ -51,9 +51,29 @@ function buildElementorData(html: string): string {
   return JSON.stringify(data)
 }
 
-async function uploadCoverImage(
+/**
+ * รูปที่ฝังเป็น data:image ในเนื้อหา → อัปขึ้น Media Library แล้วเปลี่ยน src เป็นลิงก์จริง
+ * (HTML สั้นลงมาก และ WordPress บางเว็บตัด data: URI ทิ้ง) อัปไม่สำเร็จ = คงรูปเดิมไว้
+ */
+async function replaceInlineImages(
+  wpUrl: string, creds: string, html: string, title: string, known: Map<string, string>,
+): Promise<string> {
+  const re = /src="(data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+))"/gi
+  const found = new Map<string, { mime: string; base64: string }>()
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) found.set(m[1], { mime: m[2].toLowerCase(), base64: m[3] })
+  let out = html
+  for (const [dataUri, img] of Array.from(found)) {
+    let url = known.get(dataUri)
+    if (!url) url = (await uploadMedia(wpUrl, creds, img.base64, img.mime, title, title))?.url
+    if (url) out = out.split(dataUri).join(url)
+  }
+  return out
+}
+
+async function uploadMedia(
   wpUrl: string, creds: string, imageBase64: string, mimeType: string, title: string, altText: string,
-): Promise<number | null> {
+): Promise<{ id: number; url: string } | null> {
   try {
     const imageBuffer = Buffer.from(imageBase64, 'base64')
     const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp'
@@ -83,7 +103,7 @@ async function uploadCoverImage(
 
     if (!res.ok) return null
     const data = await res.json()
-    return data.id ? Number(data.id) : null
+    return data.id ? { id: Number(data.id), url: String(data.source_url || '') } : null
   } catch {
     return null
   }
@@ -114,13 +134,17 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
   )
 
   let featuredMediaId: number | null = null
+  const uploaded = new Map<string, string>()
   if (input.coverBase64) {
-    featuredMediaId = await uploadCoverImage(
-      wpUrl, creds, input.coverBase64, input.coverMimeType || 'image/webp', finalMetaTitle, coverAltText,
-    )
+    const mime = input.coverMimeType || 'image/webp'
+    const cover = await uploadMedia(wpUrl, creds, input.coverBase64, mime, finalMetaTitle, coverAltText)
+    featuredMediaId = cover?.id ?? null
+    // ปกในเนื้อหาเป็นรูปเดียวกับ featured image — ใช้ลิงก์ที่อัปแล้ว ไม่อัปซ้ำ
+    if (cover?.url) uploaded.set(`data:${mime};base64,${input.coverBase64}`, cover.url)
   }
+  const htmlLinked = await replaceInlineImages(wpUrl, creds, htmlWithAlt, finalMetaTitle, uploaded)
 
-  const content = input.useElementor ? '' : htmlWithAlt
+  const content = input.useElementor ? '' : htmlLinked
   const payload: Record<string, unknown> = {
     title: isPage ? '' : finalMetaTitle,
     content,
@@ -191,7 +215,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
     // Yoast meta + Elementor data ผ่าน convert-cake plugin (มี fallback ถ้าไม่มี plugin)
     if (postId) {
       const ccEndpoint = `${wpUrl}/wp-json/convert-cake/v1/elementor-meta`
-      const elementorData = buildElementorData(htmlWithAlt)
+      const elementorData = buildElementorData(htmlLinked)
       const ccRes = await fetch(ccEndpoint, {
         method: 'POST',
         headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
@@ -210,7 +234,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
         await fetch(fallbackEndpoint, {
           method: 'POST',
           headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: htmlWithAlt }),
+          body: JSON.stringify({ content: htmlLinked }),
           signal: AbortSignal.timeout(20000),
         }).catch(() => {})
       }
