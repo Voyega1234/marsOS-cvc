@@ -7,6 +7,7 @@ import { wrapArticleHtml } from '@/lib/articleComponents'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { type UploadOutputMode, type UploadTheme } from './types'
 import { buildUploadCss } from './theme-css'
+import { decodeTextEntities } from './entities'
 
 export interface BuildUploadOptions {
   sourceHtml: string
@@ -392,7 +393,8 @@ function toPlainText(bodyHtml: string): string {
 
 export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult {
   const htmlMode = o.mode !== 'text'
-  let blocks = stripAuthorNotes(parseTopLevelBlocks(o.sourceHtml))
+  // บทความที่นำเข้าก่อนมีการถอด entity (Google Doc เก็บไทยเป็น &#NNNN;) — ถอดตอน Generate ด้วย ไม่ต้องนำเข้าใหม่
+  let blocks = stripAuthorNotes(parseTopLevelBlocks(decodeTextEntities(o.sourceHtml)))
 
   let h1Index = normalizeH1(blocks, o.meta.title)
   const h2Count = assignH2Ids(blocks)

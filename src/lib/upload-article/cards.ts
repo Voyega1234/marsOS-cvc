@@ -5,6 +5,8 @@
 
 import { stripTags, type ArticleCard, type ArticleCardType, type ParsedArticle } from '@/lib/articleCards'
 
+import { decodeTextEntities } from './entities'
+
 export type { ArticleCard, ParsedArticle }
 
 const WRAPPER_OPEN = '<div class="content-article">'
@@ -79,7 +81,8 @@ export function parseUploadCards(html: string): ParsedArticle {
   let lastLabel = ''
 
   const push = (type: ArticleCardType, label: string, chunk: string) => {
-    cards.push({ id: `${type}-${cards.length}`, type, label, html: chunk, plainText: stripTags(chunk) })
+    // ถอด entity เฉพาะข้อความที่แสดงใน UI (บทความเก่าจาก Google Doc เก็บไทยเป็น &#NNNN;) — html ของ card ไม่แตะ
+    cards.push({ id: `${type}-${cards.length}`, type, label: decodeTextEntities(label), html: chunk, plainText: decodeTextEntities(stripTags(chunk)) })
   }
   /** ช่องว่างล้วน — ต่อท้าย card ก่อนหน้า ให้ประกอบกลับได้ byte เดิม */
   const glue = (chunk: string): boolean => {

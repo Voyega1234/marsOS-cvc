@@ -9,6 +9,9 @@
 // ย้าย child node ที่ clean แล้วออกมาตรง ๆ (replaceWith(...nodes)) แทนการ reparse string เสมอ
 
 import { parse, HTMLElement, Node, NodeType, TextNode } from 'node-html-parser'
+import { decodeTextEntities } from './entities'
+
+export { decodeTextEntities }
 
 const BLOCK_PASSTHROUGH = new Set([
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -232,7 +235,7 @@ export function cleanSemanticHtml(rawHtml: string): string {
   }
   wrapStrayTextAtRoot(root)
 
-  return mergeSplitInline(stripEmptyParagraphs(root.innerHTML)).trim()
+  return mergeSplitInline(stripEmptyParagraphs(decodeTextEntities(root.innerHTML))).trim()
 }
 
 /** รวมตัวหนา/เอียงที่ Google Docs แตกเป็นหลายก้อนติดกัน และเอา <strong> ที่มีแต่ช่องว่างออก (ข้อความคงเดิมทุกตัวอักษร) */
