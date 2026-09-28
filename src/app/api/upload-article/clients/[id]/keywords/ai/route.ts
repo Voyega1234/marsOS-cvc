@@ -6,6 +6,7 @@ import { generateKeywordPlan, sanitizeSlugCandidate, uniqueSlug, type KeywordAiI
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { OR_MODELS } from '@/lib/openrouter'
 import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import type { UploadKeyword } from '@/lib/upload-article/types'
 
 export const maxDuration = 300
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   logAIJob({
     organizationId: orgId,
     projectId: null,
+    inputSummary: uaJobInput(client.id),
     jobType: 'UPLOAD_ARTICLE_KEYWORDS_AI',
     modelProvider: 'OPENROUTER',
     modelName: OR_MODELS.keyword(),

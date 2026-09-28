@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { runBusinessSkillScan } from '@/lib/business-skill-scan'
 import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { OR_MODELS } from '@/lib/openrouter'
 import { prisma } from '@/lib/prisma'
 
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     logAIJob({
       organizationId: orgId,
       projectId: null,
+      inputSummary: uaJobInput(client.id),
       jobType: 'BUSINESS_SKILL_SCAN',
       modelProvider: 'OPENROUTER',
       modelName: OR_MODELS.default(),

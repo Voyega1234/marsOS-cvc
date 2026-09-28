@@ -5,6 +5,7 @@ import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { readPrefs } from '@/lib/upload-article/prefs-store'
 import sharp from 'sharp'
@@ -129,6 +130,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     logAIJob({
       organizationId: orgId,
       projectId: null,
+      inputSummary: uaJobInput(client.id),
       jobType,
       modelProvider: 'OPENROUTER',
       modelName: IMAGE_MODEL_LABEL,

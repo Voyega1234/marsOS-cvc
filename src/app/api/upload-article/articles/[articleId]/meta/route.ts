@@ -7,6 +7,7 @@ import { askJson } from '@/lib/competitor-gap/ai'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { OR_MODELS } from '@/lib/openrouter'
 import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 
@@ -97,6 +98,7 @@ ${humanBodyRulesBlock()}
   logAIJob({
     organizationId: orgId,
     projectId: null,
+    inputSummary: uaJobInput(client.id),
     jobType: 'UPLOAD_ARTICLE_META',
     modelProvider: 'OPENROUTER',
     modelName: OR_MODELS.default(),

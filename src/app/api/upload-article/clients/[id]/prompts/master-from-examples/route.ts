@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { withHumanVoice } from '@/lib/upload-article/human-voice'
 import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import {
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     logAIJob({
       organizationId: orgId,
       projectId: null,
+      inputSummary: uaJobInput(client.id),
       jobType: 'CE_MASTER_PROMPT_FROM_EXAMPLES',
       modelProvider: 'OPENROUTER',
       modelName: OR_MODELS.writer(),
@@ -73,6 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     logAIJob({
       organizationId: orgId,
       projectId: null,
+      inputSummary: uaJobInput(client.id),
       jobType: 'CE_MASTER_PROMPT_FROM_EXAMPLES',
       modelProvider: 'OPENROUTER',
       modelName: OR_MODELS.writer(),

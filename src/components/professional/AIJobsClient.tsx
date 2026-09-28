@@ -23,13 +23,17 @@ interface Job {
   createdAt: Date;
   article: { id: string; title: string } | null;
   createdBy: { name: string | null } | null;
-  /** ชื่อ client project — null = งานจาก Studio (ไม่ผูก project) */
+  /** ชื่อโปรเจกต์/ลูกค้า — null = ไม่ผูกลูกค้า */
   projectName?: string | null;
+  /** หน้าที่สร้าง job เช่น Clients / Upload Article / Studio */
+  sourcePage?: string;
 }
 
 interface CostByProject {
   projectId: string;
   projectName: string;
+  /** หน้าที่สร้าง job เช่น Clients / Upload Article / Studio */
+  page?: string;
   cost: number;
   tokens: number;
   jobs: number;
@@ -61,7 +65,28 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   ARTICLE_AUDIT:       "Article Audit (AI)",
   ARTICLE_FIX:         "Article Fix (AI)",
   DATA_BRAIN_SUMMARY:  "Data Brain Summary (AI)",
+  UPLOAD_ARTICLE_WRITE:        "Upload Article · เขียนบทความ (AI)",
+  UPLOAD_ARTICLE_IMAGE_COVER:  "Upload Article · รูปปก (AI)",
+  UPLOAD_ARTICLE_IMAGE_INLINE: "Upload Article · รูปประกอบ (AI)",
+  UPLOAD_ARTICLE_KEYWORDS_AI:  "Upload Article · Keyword + Title (AI)",
+  UPLOAD_ARTICLE_META:         "Upload Article · Meta (AI)",
+  UPLOAD_THEME_SCAN:           "Upload Article · สแกนธีมเว็บ",
+  UPLOAD_SITE_SCAN:            "Upload Article · สแกนเว็บปลายทาง",
 };
+
+const PAGE_BADGE: Record<string, string> = {
+  "Upload Article": "bg-violet-50 text-violet-700 border border-violet-100",
+  Clients:          "bg-blue-50 text-brand-blue border border-blue-100",
+  Studio:           "bg-gray-100 text-gray-500",
+};
+
+function sourceKey(j: { projectName?: string | null; sourcePage?: string }) {
+  return `${j.sourcePage ?? "Studio"}|${j.projectName ?? ""}`;
+}
+function sourceText(j: { projectName?: string | null; sourcePage?: string }) {
+  const page = j.sourcePage ?? "Studio";
+  return j.projectName ? `${j.projectName} · ${page}` : page;
+}
 
 const PROVIDER_COLOR: Record<string, string> = {
   CLAUDE:      "bg-orange-100 text-orange-700",
@@ -94,6 +119,7 @@ function fmtTHB(n: number) {
 export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountByType, costByProject }: Props) {
   const [filterType, setFilterType]     = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterSource, setFilterSource] = useState("all");
   const [expandedId, setExpandedId]     = useState<string | null>(null);
 
   const jobTotalCost = (j: Job) => (j.estimatedCost ?? 0) + (j.externalCost ?? 0);
@@ -103,11 +129,14 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
   const filtered = useMemo(() => jobs.filter(j => {
     if (filterType   !== "all" && j.jobType !== filterType)   return false;
     if (filterStatus !== "all" && j.status  !== filterStatus) return false;
+    if (filterSource !== "all" && sourceKey(j) !== filterSource) return false;
     return true;
-  }), [jobs, filterType, filterStatus]);
+  }), [jobs, filterType, filterStatus, filterSource]);
 
   const allTypes    = Array.from(new Set(jobs.map(j => j.jobType)));
   const allStatuses = Array.from(new Set(jobs.map(j => j.status)));
+  const allSources  = Array.from(new Map(jobs.map(j => [sourceKey(j), sourceText(j)])).entries())
+    .sort((a, b) => a[1].localeCompare(b[1], "th"));
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -147,7 +176,12 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
               const maxCost = Math.max(...costByProject.map(x => x.cost), 0.0001);
               return (
                 <div key={p.projectId} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-600 w-32 truncate shrink-0">{p.projectName}</span>
+                  <div className="w-40 shrink-0 min-w-0">
+                    <div className="text-xs text-gray-600 truncate" title={p.projectName}>{p.projectName}</div>
+                    {p.page && (
+                      <span className={`inline-flex items-center px-1.5 rounded-full text-[9px] font-semibold mt-0.5 ${PAGE_BADGE[p.page] ?? PAGE_BADGE.Studio}`}>{p.page}</span>
+                    )}
+                  </div>
                   <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div className="h-full bg-amber-400 rounded-full" style={{ width: `${(p.cost / maxCost) * 100}%` }} />
                   </div>
@@ -193,6 +227,11 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
           <option value="all">ทุก Status</option>
           {allStatuses.map(s => <option key={s} value={s}>{STATUS_CONFIG[s]?.label ?? s}</option>)}
         </select>
+        <select value={filterSource} onChange={e => setFilterSource(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white max-w-[240px]">
+          <option value="all">ทุกโปรเจกต์ / หน้า</option>
+          {allSources.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
         <span className="text-xs text-gray-400">{filtered.length} jobs</span>
         <span className="text-xs font-mono text-amber-600">{fmt(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
         <span className="text-xs font-semibold text-red-500">{fmtTHB(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
@@ -233,15 +272,12 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          {j.projectName ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-brand-blue border border-blue-100 max-w-[140px] truncate">
-                              {j.projectName}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500">
-                              Studio
-                            </span>
+                          {j.projectName && (
+                            <div className="text-xs font-medium text-gray-700 max-w-[160px] truncate" title={j.projectName}>{j.projectName}</div>
                           )}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${j.projectName ? "mt-0.5 " : ""}${PAGE_BADGE[j.sourcePage ?? "Studio"] ?? PAGE_BADGE.Studio}`}>
+                            {j.sourcePage ?? "Studio"}
+                          </span>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${provColor}`}>

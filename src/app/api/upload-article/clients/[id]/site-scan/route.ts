@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { OR_MODELS } from '@/lib/openrouter'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import { scanUploadSite } from '@/lib/upload-article/site-scan'
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     logAIJob({
       organizationId: orgId,
       projectId: null,
+      inputSummary: uaJobInput(client.id),
       jobType: 'UPLOAD_SITE_SCAN',
       modelProvider: 'OPENROUTER',
       modelName: OR_MODELS.default(),

@@ -18,6 +18,7 @@ import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { orChatStream, OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
 export const maxDuration = 800
@@ -215,6 +216,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         logAIJob({
           organizationId: orgId,
           projectId: null,
+          inputSummary: uaJobInput(client.id),
           jobType: 'UPLOAD_ARTICLE_WRITE',
           modelProvider: 'OPENROUTER',
           modelName: OR_MODELS.writer(),
@@ -244,6 +246,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         logAIJob({
           organizationId: orgId,
           projectId: null,
+          inputSummary: uaJobInput(client.id),
           jobType: 'UPLOAD_ARTICLE_WRITE',
           modelProvider: 'OPENROUTER',
           modelName: OR_MODELS.writer(),

@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { runLabScan } from '@/lib/lab-scan'
 import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { OR_MODELS } from '@/lib/openrouter'
 import { slugifyClient } from '@/lib/orClient'
 import type { UploadTheme } from '@/lib/upload-article/types'
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     logAIJob({
       organizationId: session.user.organizationId,
       projectId: null,
+      inputSummary: uaJobInput(client.id),
       jobType: 'UPLOAD_THEME_SCAN',
       modelProvider: 'OPENROUTER',
       modelName: OR_MODELS.default(),
