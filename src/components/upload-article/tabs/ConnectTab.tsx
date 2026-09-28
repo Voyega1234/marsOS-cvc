@@ -107,7 +107,11 @@ export default function ConnectTab({
     setDeleting(true);
     try {
       const r = await fetch(`/api/upload-article/clients/${client.id}`, { method: "DELETE" });
-      if (!r.ok) { toast.error("ลบไม่สำเร็จ"); return; }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        toast.error(d?.error || "ลบไม่สำเร็จ");
+        return;
+      }
       toast.success("ลบลูกค้าแล้ว");
       onDeleted();
     } finally {
@@ -255,8 +259,18 @@ export default function ConnectTab({
 
       <div className="bg-white border border-rose-200 rounded-xl p-4 space-y-2">
         <p className="text-sm font-semibold text-rose-600">Danger zone</p>
-        <p className="text-xs text-gray-500">ลบลูกค้านี้จะลบบทความทั้งหมดของลูกค้านี้ไปด้วย ทำแล้วกู้คืนไม่ได้</p>
-        <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
+        {client.counts.pushed > 0 ? (
+          <p className="text-xs text-gray-500">
+            ลบลูกค้านี้ไม่ได้ — มีบทความที่ขึ้นเว็บไซต์แล้ว {client.counts.pushed} บทความ ระบบเก็บไว้ไม่ให้หาย
+            (ระบบไม่เคยลบโพสต์บนเว็บไซต์ลูกค้า)
+          </p>
+        ) : (
+          <p className="text-xs text-gray-500">
+            ลบลูกค้านี้จะลบบทความในระบบทั้งหมดของลูกค้านี้ไปด้วย ทำแล้วกู้คืนไม่ได้
+            (บทความที่ขึ้นเว็บแล้วลบไม่ได้ และระบบไม่ลบโพสต์บนเว็บไซต์ลูกค้า)
+          </p>
+        )}
+        <Button variant="destructive" size="sm" disabled={client.counts.pushed > 0} onClick={() => setDeleteOpen(true)}>
           <Trash2 size={12} className="mr-1.5" /> ลบลูกค้านี้
         </Button>
       </div>

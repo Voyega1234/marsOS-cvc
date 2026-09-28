@@ -16,6 +16,7 @@ import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/typ
 import SerpPreview from "@/components/upload-article/shared/SerpPreview";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
 import { listH2Sections, insertFigureAfterH2 } from "@/components/upload-article/shared/htmlSections";
+import DriveImagesPanel from "@/components/upload-article/shared/DriveImagesPanel";
 
 const MAX_PATCH_BYTES = 4_000_000;
 
@@ -134,13 +135,20 @@ export default function ReviewTab({
     }
   }
 
+  /** บันทึกภาพปกจาก data URI (ใช้ทั้งไฟล์ในเครื่อง และรูปจากโฟลเดอร์ Drive) */
+  async function applyCoverDataUrl(dataUrl: string): Promise<boolean> {
+    if (!detail) return false;
+    const d = await patchArticle(detail.id, { coverImageUrl: dataUrl, coverAlt: coverAlt || detail.title });
+    if (d) toast.success("อัปโหลดภาพปกแล้ว");
+    return !!d;
+  }
+
   async function handleCoverFile(file: File) {
     if (!detail) return;
     setCoverBusy(true);
     try {
       const dataUrl = await fileToDownscaledDataUrl(file, 1600);
-      const d = await patchArticle(detail.id, { coverImageUrl: dataUrl, coverAlt: coverAlt || detail.title });
-      if (d) toast.success("อัปโหลดภาพปกแล้ว");
+      await applyCoverDataUrl(dataUrl);
     } catch (e) {
       toast.error("อัปโหลดภาพปกไม่สำเร็จ");
     } finally {
@@ -178,19 +186,26 @@ export default function ReviewTab({
 
   const h2List = html ? listH2Sections(html) : [];
 
+  /** แทรก <figure> จาก data URI หลังหัวข้อ H2 ที่เลือก (ใช้ทั้งไฟล์ในเครื่อง และรูปจากโฟลเดอร์ Drive) */
+  async function insertDataUrlAfterH2(dataUrl: string): Promise<boolean> {
+    if (!detail || insertPos === "") return false;
+    const altText = (insertAlt || detail.title).replace(/"/g, "&quot;");
+    const figureHtml = `<figure class="content-figure"><img src="${dataUrl}" alt="${altText}"></figure>`;
+    const newHtml = insertFigureAfterH2(html, insertPos as number, figureHtml);
+    const d = await patchArticle(detail.id, { htmlContent: newHtml });
+    if (d) {
+      toast.success("แทรกรูปในเนื้อหาแล้ว");
+      setInsertFile(null); setInsertAlt(""); setInsertPos("");
+    }
+    return !!d;
+  }
+
   async function doInsertImage() {
     if (!detail || !insertFile || insertPos === "") return;
     setInserting(true);
     try {
       const dataUrl = await fileToDownscaledDataUrl(insertFile, 1600);
-      const altText = (insertAlt || detail.title).replace(/"/g, "&quot;");
-      const figureHtml = `<figure class="content-figure"><img src="${dataUrl}" alt="${altText}"></figure>`;
-      const newHtml = insertFigureAfterH2(html, insertPos as number, figureHtml);
-      const d = await patchArticle(detail.id, { htmlContent: newHtml });
-      if (d) {
-        toast.success("แทรกรูปในเนื้อหาแล้ว");
-        setInsertFile(null); setInsertAlt(""); setInsertPos("");
-      }
+      await insertDataUrlAfterH2(dataUrl);
     } catch {
       toast.error("แทรกรูปไม่สำเร็จ");
     } finally {
@@ -342,6 +357,18 @@ export default function ReviewTab({
               {inserting ? "กำลังแทรก..." : "แทรกรูป"}
             </Button>
           </div>
+
+          {detail.sourceType === "gdrive" && (
+            <DriveImagesPanel
+              articleId={detail.id}
+              canInsert={!!html && insertPos !== ""}
+              insertHint={!html
+                ? "แทรกในบทความได้หลัง Generate แล้ว"
+                : "เลือกหัวข้อ H2 ในกล่อง \"แทรกรูปในเนื้อหา\" ก่อน แล้วกด \"แทรกในบทความ\""}
+              onSetCover={dataUrl => applyCoverDataUrl(dataUrl)}
+              onInsert={dataUrl => insertDataUrlAfterH2(dataUrl)}
+            />
+          )}
         </div>
       )}
     </div>

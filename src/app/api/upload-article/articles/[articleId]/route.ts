@@ -89,7 +89,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   return NextResponse.json(toUploadArticleDTO(updated, true))
 }
 
-/** DELETE /api/upload-article/articles/[articleId] */
+/** DELETE /api/upload-article/articles/[articleId] — บทความที่ขึ้นเว็บแล้ว (Draft/Publish) ลบไม่ได้ */
 export async function DELETE(_req: NextRequest, { params }: { params: { articleId: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -97,6 +97,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
 
   const existing = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: session.user.organizationId } })
   if (!existing) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+
+  if (existing.wordpressPostId || existing.pushedAt) {
+    return NextResponse.json({ error: 'บทความนี้ขึ้นเว็บไซต์แล้ว — ลบไม่ได้ ระบบเก็บไว้ไม่ให้หาย' }, { status: 409 })
+  }
 
   await prisma.uploadArticle.delete({ where: { id: existing.id } })
   return NextResponse.json({ ok: true })

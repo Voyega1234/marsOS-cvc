@@ -3,9 +3,10 @@
 // ไม่พึ่งพา prisma/session — เรียกตรงจาก unit test ได้
 
 import { parse, HTMLElement, NodeType, TextNode, type Node } from 'node-html-parser'
-import { buildArticleCss, wrapArticleHtml } from '@/lib/articleComponents'
+import { wrapArticleHtml } from '@/lib/articleComponents'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
-import { UPLOAD_GOOGLE_FONTS, type UploadOutputMode, type UploadTheme } from './types'
+import { type UploadOutputMode, type UploadTheme } from './types'
+import { buildUploadCss } from './theme-css'
 
 export interface BuildUploadOptions {
   sourceHtml: string
@@ -279,18 +280,6 @@ function wrapComponents(blocks: HTMLElement[], titleFallback: string): HTMLEleme
   return doc.children
 }
 
-/** @import เฉพาะฟอนต์ Google ที่เลือกไว้ (ฟอนต์อื่น/inherit ไม่ต้องโหลด) */
-function googleFontImport(stacks: Array<string | undefined>): string {
-  const families = new Set<string>()
-  for (const stack of stacks) {
-    const first = (stack || '').split(',')[0].replace(/['"]/g, '').trim()
-    if (UPLOAD_GOOGLE_FONTS.includes(first)) families.add(first)
-  }
-  if (families.size === 0) return ''
-  const q = Array.from(families).map((f) => `family=${f.replace(/ /g, '+')}:wght@400;500;700`).join('&')
-  return `@import url('https://fonts.googleapis.com/css2?${q}&display=swap');\n`
-}
-
 function stripEmptyParagraphs(html: string): string {
   return html.replace(/<p>(?:\s|&nbsp;|&#160;)*<\/p>/gi, '')
 }
@@ -448,17 +437,7 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
     return { html: bodyHtml, plainText, faqCount: 0, h2Count }
   }
 
-  const css = buildArticleCss({
-    themeColor: o.theme.theme,
-    textColor: o.theme.text,
-    borderColor: o.theme.border,
-    accentColor: o.theme.accent,
-    backgroundColor: o.theme.background,
-    typography: { fontFamily: o.theme.fontFamily, headingFont: o.theme.headingFont },
-  })
-  const fontImport = googleFontImport([o.theme.fontFamily, o.theme.headingFont])
-  const extraCss = `.content-article .content-faq__question{text-align:left;}\n.content-article .content-faq__q{flex:1 1 auto;min-width:0;text-align:left;}`
-  const finalCss = `${fontImport}${css}\n${extraCss}`
+  const finalCss = buildUploadCss(o.theme)
   const wrapped = o.theme.styleMode === 'clean' ? wrapArticleHtml(bodyHtml, null) : wrapArticleHtml(bodyHtml, finalCss)
 
   const schemaScript = buildUploadSchema(wrapped, o)

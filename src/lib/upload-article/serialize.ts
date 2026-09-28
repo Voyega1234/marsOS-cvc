@@ -128,7 +128,9 @@ export function toUploadArticleDTO(row: UploadArticleRow, includeContent = false
     seoTitle: row.seoTitle,
     metaDescription: row.metaDescription,
     slug: row.slug,
-    coverImageUrl: row.coverImageUrl,
+    // list ไม่ส่งปกแบบ data URI (รูปละ ~300KB × หลายสิบบทความ = เกินเพดาน response 4.5MB ของ Vercel)
+    // หน้าที่ต้องใช้ปกโหลดจาก GET รายตัว (includeContent = true) อยู่แล้ว
+    coverImageUrl: includeContent || !row.coverImageUrl?.startsWith('data:') ? row.coverImageUrl : null,
     coverAlt: row.coverAlt,
     pushMode: row.pushMode,
     wordpressUrl: row.wordpressUrl,

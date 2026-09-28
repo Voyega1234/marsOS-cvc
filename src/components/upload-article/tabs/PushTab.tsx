@@ -3,21 +3,28 @@
 /** แท็บ Push — สแกนเว็บปลายทาง เลือก card ที่จะขึ้นเว็บ แล้ว push ทีละบทความหรือหลายบทความพร้อมกัน */
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Globe, RefreshCw, ExternalLink, Send, AlertTriangle } from "lucide-react";
+import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
-import { parseArticleCards, assembleArticleHtml, type ParsedArticle } from "@/lib/articleCards";
+import { parseUploadCards, assembleUploadHtml, type ParsedArticle } from "@/lib/upload-article/cards";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
+import SiteScanPanel from "@/components/upload-article/shared/SiteScanPanel";
 
 const PUSHABLE = new Set(["GENERATED", "REVIEWED", "PUSHED", "FAILED"]);
 
-type ScanSignal = { found: boolean; where: string | null; evidence: string };
-type ScanResult = { target: string; checked: string[]; found: { toc: ScanSignal; cta: ScanSignal; faq: ScanSignal } };
+const TYPE_CHIP: Record<string, { label: string; cls: string }> = {
+  title: { label: "หัวเรื่อง", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  toc: { label: "สารบัญ", cls: "bg-purple-50 text-purple-700 border-purple-200" },
+  content: { label: "เนื้อหา", cls: "bg-gray-50 text-gray-600 border-gray-200" },
+  cta: { label: "CTA", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  faq: { label: "FAQ", cls: "bg-orange-50 text-orange-700 border-orange-200" },
+};
 
 export default function PushTab({
-  client, articles, loadArticleDetail, articleDetails, applyArticleUpdate, selectedId, setSelectedId, goToConnect,
+  client, setClient, articles, loadArticleDetail, articleDetails, applyArticleUpdate, selectedId, setSelectedId, goToConnect,
 }: {
   client: UploadClientDTO;
+  setClient: (c: UploadClientDTO) => void;
   articles: UploadArticleDTO[];
   loadArticleDetail: (id: string, force?: boolean) => Promise<UploadArticleDTO | null>;
   articleDetails: Record<string, UploadArticleDTO>;
@@ -33,14 +40,12 @@ export default function PushTab({
   const [useElementor, setUseElementor] = useState(!!client.pushPrefs.useElementor);
   const [stripH1, setStripH1] = useState(client.pushPrefs.stripH1 !== false);
 
-  const [scanState, setScanState] = useState<"idle" | "scanning" | "done" | "error">("idle");
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [scanError, setScanError] = useState("");
-
   const [cardSel, setCardSel] = useState<Record<string, Record<string, boolean>>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pushBusy, setPushBusy] = useState<Record<string, boolean>>({});
   const [pushResult, setPushResult] = useState<Record<string, { ok: boolean; postUrl?: string; error?: string }>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const siteScan = client.pushPrefs.siteScan;
 
   // ดึงรายละเอียด htmlContent ของบทความที่ push ได้ทั้งหมด เพื่อแตก card
   useEffect(() => {
@@ -52,7 +57,7 @@ export default function PushTab({
     const map = new Map<string, ParsedArticle>();
     for (const a of pushable) {
       const detail = articleDetails[a.id];
-      if (detail?.htmlContent) map.set(a.id, parseArticleCards(detail.htmlContent));
+      if (detail?.htmlContent) map.set(a.id, parseUploadCards(detail.htmlContent));
     }
     return map;
   }, [pushable, articleDetails]);
@@ -77,38 +82,7 @@ export default function PushTab({
     const parsed = parsedMap.get(articleId);
     if (!parsed) return originalHtml;
     const ids = new Set(parsed.cards.filter(c => isCardOn(articleId, c.id)).map(c => c.id));
-    return assembleArticleHtml(parsed, ids);
-  }
-
-  async function handleScanSite() {
-    setScanState("scanning"); setScanError("");
-    try {
-      const siteUrl = client.wpUrl || client.website;
-      const r = await fetch("/api/push/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ siteUrl }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || d.error) { setScanState("error"); setScanError(d?.error || "สแกนไม่สำเร็จ"); return; }
-      setScanResult(d); setScanState("done");
-      const dupTypes = (["toc", "cta", "faq"] as const).filter(t => d.found?.[t]?.found);
-      if (dupTypes.length) {
-        setCardSel(prev => {
-          const next = { ...prev };
-          for (const a of pushable) {
-            const parsed = parsedMap.get(a.id);
-            if (!parsed) continue;
-            const patch: Record<string, boolean> = { ...(next[a.id] ?? {}) };
-            for (const c of parsed.cards) if ((dupTypes as readonly string[]).includes(c.type)) patch[c.id] = false;
-            next[a.id] = patch;
-          }
-          return next;
-        });
-      }
-    } catch (e) {
-      setScanState("error"); setScanError(e instanceof Error ? e.message : String(e));
-    }
+    return assembleUploadHtml(parsed, ids);
   }
 
   async function pushOne(articleId: string) {
@@ -151,6 +125,8 @@ export default function PushTab({
 
   return (
     <div className="space-y-4">
+      <SiteScanPanel client={client} setClient={setClient} />
+
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
@@ -163,22 +139,7 @@ export default function PushTab({
               </button>
             )}
           </div>
-          <Button variant="outline" size="sm" disabled={scanState === "scanning"} onClick={handleScanSite}>
-            {scanState === "scanning" ? <RefreshCw size={12} className="animate-spin mr-1.5" /> : null}
-            สแกนเว็บปลายทาง
-          </Button>
         </div>
-        {scanState === "error" && <p className="text-xs text-rose-500">{scanError}</p>}
-        {scanState === "done" && scanResult && (
-          <div className="grid grid-cols-3 gap-2 text-[11px]">
-            {(["toc", "cta", "faq"] as const).map(k => (
-              <div key={k} className={`rounded-lg px-2.5 py-1.5 ${scanResult.found[k]?.found ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
-                <p className="font-semibold uppercase">{k}</p>
-                <p>{scanResult.found[k]?.found ? `พบแล้ว (${scanResult.found[k]?.where})` : "ไม่พบ"}</p>
-              </div>
-            ))}
-          </div>
-        )}
 
         <div className="flex flex-wrap gap-4 text-xs pt-1">
           <label className="flex items-center gap-1.5">
@@ -233,16 +194,48 @@ export default function PushTab({
                 </Button>
               </div>
 
-              {parsed && (
-                <div className="flex flex-wrap gap-1.5">
-                  {parsed.cards.map(c => (
-                    <label key={c.id} className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] cursor-pointer ${isCardOn(a.id, c.id) ? "bg-brand-mist/40 border-brand-blue/40 text-brand-navy" : "bg-gray-50 border-gray-200 text-gray-400"}`}>
-                      <input type="checkbox" checked={isCardOn(a.id, c.id)} onChange={() => toggleCard(a.id, c.id)} className="scale-90" />
-                      {c.label}
-                    </label>
-                  ))}
-                </div>
+              {!parsed && articleDetails[a.id] === undefined && (
+                <p className="text-[11px] text-gray-400">กำลังโหลด card...</p>
               )}
+              {parsed && (() => {
+                const offCount = parsed.cards.filter(c => !isCardOn(a.id, c.id)).length;
+                const isOpen = !collapsed[a.id];
+                return (
+                  <div className="border border-gray-100 rounded-lg">
+                    <button onClick={() => setCollapsed(prev => ({ ...prev, [a.id]: isOpen }))} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-gray-600 hover:text-brand-navy">
+                      {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      {parsed.cards.length} Cards{offCount ? ` (ไม่ push ${offCount})` : ""}
+                    </button>
+                    {isOpen && (
+                      <div className="divide-y divide-gray-100 border-t border-gray-100">
+                        {parsed.cards.map(c => {
+                          const on = isCardOn(a.id, c.id);
+                          const chip = TYPE_CHIP[c.type] ?? TYPE_CHIP.content;
+                          const finding = c.type === "toc" || c.type === "faq" || c.type === "cta" ? siteScan?.components[c.type] : undefined;
+                          const dup = finding?.where === "auto";
+                          return (
+                            <label key={c.id} className={`flex items-start gap-2 px-2.5 py-2 cursor-pointer ${on ? "" : "bg-gray-50/70"}`}>
+                              <input type="checkbox" checked={on} onChange={() => toggleCard(a.id, c.id)} className="mt-0.5" />
+                              <div className={`min-w-0 flex-1 ${on ? "" : "opacity-50"}`}>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold shrink-0 ${chip.cls}`}>{chip.label}</span>
+                                  <span className="text-xs font-semibold text-brand-navy truncate">{c.label}</span>
+                                </div>
+                                {dup && (
+                                  <p className="text-[10px] text-rose-600 mt-0.5 flex items-center gap-1">
+                                    <AlertTriangle size={10} /> เว็บมีอยู่แล้ว{finding?.source ? ` (${finding.source})` : ""} — push ซ้ำจะซ้อนกัน
+                                  </p>
+                                )}
+                                {c.plainText && <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{c.plainText}</p>}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {result && (
                 result.ok ? (

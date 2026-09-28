@@ -180,6 +180,7 @@ export default function UploadClientWorkspace({ clientId, initialTab }: { client
         <TabsContent value="push">
           <PushTab
             client={client}
+            setClient={setClient}
             articles={articles}
             loadArticleDetail={loadArticleDetail}
             articleDetails={articleDetails}

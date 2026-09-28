@@ -3,18 +3,19 @@
 /** แท็บ "นำเข้าบทความ" — drop zone / วางข้อความ / ลิงก์ Google Doc + ตารางบทความของลูกค้านี้ */
 import { useState } from "react";
 import { toast } from "sonner";
-import { Trash2, CheckCircle2, Loader2 } from "lucide-react";
+import { Trash2, CheckCircle2, Loader2, Lock } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import DropZone from "@/components/upload-article/shared/DropZone";
 import PasteDialog from "@/components/upload-article/shared/PasteDialog";
 import GoogleDocDialog from "@/components/upload-article/shared/GoogleDocDialog";
+import DriveFolderDialog from "@/components/upload-article/shared/DriveFolderDialog";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
 
 const SOURCE_LABEL: Record<string, string> = {
   docx: "Word (.docx)", txt: "Text (.txt)", md: "Markdown", html: "HTML",
-  gdoc: "Google Doc", paste: "วางข้อความ",
+  gdoc: "Google Doc", gdrive: "Google Drive", paste: "วางข้อความ",
 };
 
 export default function ImportTab({
@@ -31,6 +32,7 @@ export default function ImportTab({
   const [busy, setBusy] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [gdocOpen, setGdocOpen] = useState(false);
+  const [driveOpen, setDriveOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<UploadArticleDTO | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -83,7 +85,11 @@ export default function ImportTab({
     setDeleting(true);
     try {
       const r = await fetch(`/api/upload-article/articles/${deleteTarget.id}`, { method: "DELETE" });
-      if (!r.ok) { toast.error("ลบไม่สำเร็จ"); return; }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        toast.error(d?.error || "ลบไม่สำเร็จ");
+        return;
+      }
       removeArticle(deleteTarget.id);
       toast.success("ลบบทความแล้ว");
       await refreshClient();
@@ -103,6 +109,9 @@ export default function ImportTab({
           </Button>
           <Button variant="outline" size="sm" className="flex-1" disabled={busy} onClick={() => setGdocOpen(true)}>
             ลิงก์ Google Doc
+          </Button>
+          <Button variant="outline" size="sm" className="flex-1" disabled={busy} onClick={() => setDriveOpen(true)}>
+            Google Drive (โฟลเดอร์)
           </Button>
         </div>
         {busy && (
@@ -149,12 +158,18 @@ export default function ImportTab({
                     {new Date(a.updatedAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={e => { e.stopPropagation(); setDeleteTarget(a); }}
-                      className="p-1.5 rounded-lg text-gray-300 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    {a.wordpressPostId || a.pushedAt ? (
+                      <span title="ขึ้นเว็บไซต์แล้ว — ลบไม่ได้" className="inline-flex p-1.5 text-gray-300">
+                        <Lock size={13} />
+                      </span>
+                    ) : (
+                      <button
+                        onClick={e => { e.stopPropagation(); setDeleteTarget(a); }}
+                        className="p-1.5 rounded-lg text-gray-300 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -167,6 +182,8 @@ export default function ImportTab({
         onSubmit={async data => { await submitItems([data]); setPasteOpen(false); }} />
       <GoogleDocDialog open={gdocOpen} onOpenChange={setGdocOpen} busy={busy}
         onSubmit={async data => { await submitItems([data]); setGdocOpen(false); }} />
+      <DriveFolderDialog open={driveOpen} onOpenChange={setDriveOpen} clientId={client.id}
+        onImported={async () => { await refreshArticles(); await refreshClient(); }} />
 
       <Dialog open={!!deleteTarget} onOpenChange={v => !v && setDeleteTarget(null)}>
         <DialogContent>

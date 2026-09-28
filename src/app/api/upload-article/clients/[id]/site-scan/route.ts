@@ -1,0 +1,77 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getSession } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import { logAIJob } from '@/lib/logAIJob'
+import { OR_MODELS } from '@/lib/openrouter'
+import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
+import { scanUploadSite } from '@/lib/upload-article/site-scan'
+import type { UploadPushPrefs } from '@/lib/upload-article/types'
+
+export const maxDuration = 300
+
+/**
+ * POST /api/upload-article/clients/[id]/site-scan — สแกนเว็บปลายทางแบบละเอียด
+ * Body: { url?, sampleUrl? } — url ว่าง = ใช้ wpUrl หรือ website ของลูกค้า
+ *
+ * บันทึกผลสแกนไว้ที่ pushPrefs.siteScan และตั้ง excludeCards ให้ component ที่ธีม/ปลั๊กอินใส่เองทุกบทความ
+ * (ส่วนที่มีเฉพาะบางบทความไม่ตัด เพราะไม่ซ้ำกับบทความใหม่)
+ * ธีม/หน้าตา FAQ ที่เสนอ ไม่บันทึกเอง — ทีมกด "ใช้ธีมจากเว็บนี้" แล้วกดบันทึกธีมในหน้า Generate
+ */
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getSession()
+  const orgId = session?.user?.organizationId
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: orgId } })
+  if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+
+  const body = await req.json().catch(() => ({} as Record<string, unknown>))
+  const url = (typeof body.url === 'string' && body.url.trim()) || client.wpUrl || client.website || ''
+  if (!url.trim()) {
+    return NextResponse.json({ error: 'ยังไม่มี URL เว็บไซต์ — กรอก URL ในแท็บเชื่อมต่อหรือใส่ในช่องสแกนก่อน' }, { status: 400 })
+  }
+  const sampleUrl = typeof body.sampleUrl === 'string' ? body.sampleUrl.trim().slice(0, 500) : ''
+
+  let result
+  try {
+    result = await scanUploadSite(url, sampleUrl || undefined)
+  } catch (err) {
+    return NextResponse.json({ error: `สแกนไม่สำเร็จ: ${(err as Error).message}` }, { status: 502 })
+  }
+
+  if (result.usage) {
+    logAIJob({
+      organizationId: orgId,
+      projectId: null,
+      jobType: 'UPLOAD_SITE_SCAN',
+      modelProvider: 'OPENROUTER',
+      modelName: OR_MODELS.default(),
+      status: 'SUCCESS',
+      tokenUsed: result.usage.totalTokens,
+      estimatedCost: result.usage.costUsd,
+      createdById: session.user.id,
+    }).catch(() => {})
+  }
+
+  let prefs: UploadPushPrefs
+  try {
+    prefs = JSON.parse(client.pushPrefs)
+  } catch {
+    prefs = {}
+  }
+  const c = result.scan.components
+  prefs.siteScan = { ...result.scan, suggestedTheme: result.suggestedTheme, detail: result.detail }
+  prefs.excludeCards = { toc: c.toc.where === 'auto', faq: c.faq.where === 'auto', cta: c.cta.where === 'auto' }
+
+  const updated = await prisma.uploadClient.update({ where: { id: client.id }, data: { pushPrefs: JSON.stringify(prefs) } })
+  const articles = await prisma.uploadArticle.findMany({ where: { clientId: client.id }, select: { status: true } })
+  const counts = computeClientCounts(articles)
+
+  return NextResponse.json({
+    client: toUploadClientDTO(updated, counts),
+    scan: result.scan,
+    suggestedTheme: result.suggestedTheme,
+    detail: result.detail,
+  })
+}

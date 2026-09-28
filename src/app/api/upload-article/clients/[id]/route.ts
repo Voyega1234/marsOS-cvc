@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { encrypt } from '@/lib/crypto'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
+import { sanitizeThemeDetail } from '@/lib/upload-article/theme-css'
 
 const COLOR_RE = /^#[0-9a-f]{3,8}$/i
 
@@ -77,7 +78,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     } catch {
       current = { theme: '#2563eb', text: '#1f2937', border: '#e5e7eb', accent: '#2563eb', background: '', styleMode: 'embed' }
     }
-    data.themeColors = JSON.stringify({ ...current, ...t })
+    const next: UploadTheme = { ...current, ...t }
+    // detail ไปเป็น CSS ในบทความ — ผ่าน sanitize ทุกช่อง, null = ล้างกลับค่าตั้งต้น
+    if ('detail' in t) {
+      const detail = t.detail === null ? undefined : sanitizeThemeDetail(t.detail)
+      if (detail) next.detail = detail
+      else delete next.detail
+    }
+    data.themeColors = JSON.stringify(next)
   }
 
   if (body.pushPrefs && typeof body.pushPrefs === 'object') {
@@ -88,7 +96,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     } catch {
       current = {}
     }
-    data.pushPrefs = JSON.stringify({ ...current, ...p })
+    // siteScan เขียนได้จาก route สแกนเท่านั้น
+    const { siteScan: _ignored, ...rest } = p
+    void _ignored
+    data.pushPrefs = JSON.stringify({ ...current, ...rest })
   }
 
   if (body.wpAppPassword === null) {
@@ -125,7 +136,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json(toUploadClientDTO(updated, computeClientCounts(withArticles?.articles ?? [])))
 }
 
-/** DELETE /api/upload-article/clients/[id] — ลบลูกค้า (cascade ลบบทความทั้งหมด) */
+/**
+ * DELETE /api/upload-article/clients/[id] — ลบลูกค้า (cascade ลบบทความทั้งหมด)
+ * ถ้ามีบทความที่ขึ้นเว็บแล้ว (Draft/Publish) จะไม่ยอมลบ — เก็บประวัติบทความที่อยู่บนเว็บลูกค้าไว้เสมอ
+ */
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -133,6 +147,16 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 
   const existing = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: session.user.organizationId } })
   if (!existing) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+
+  const pushedCount = await prisma.uploadArticle.count({
+    where: { clientId: existing.id, OR: [{ wordpressPostId: { not: null } }, { pushedAt: { not: null } }] },
+  })
+  if (pushedCount > 0) {
+    return NextResponse.json({
+      error: `ลบลูกค้าไม่ได้ — มีบทความที่ขึ้นเว็บไซต์แล้ว ${pushedCount} บทความ ระบบเก็บไว้ไม่ให้หาย`,
+      pushedCount,
+    }, { status: 409 })
+  }
 
   await prisma.uploadClient.delete({ where: { id: existing.id } })
   return NextResponse.json({ ok: true })

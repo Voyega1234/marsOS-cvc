@@ -15,6 +15,86 @@ export interface UploadTheme {
   fontFamily?: string
   /** ว่าง = ไม่ใส่ฟอนต์หัวข้อ (ใช้ตามตัวอักษรหลัก/ธีมเว็บ) */
   headingFont?: string
+  /** สไตล์ละเอียดจากการสแกนเว็บปลายทาง (FAQ card / ตาราง) — ว่าง = ใช้ค่าตามสีธีม */
+  detail?: UploadThemeDetail
+}
+
+export type UploadFaqIcon = 'plus' | 'chevron' | 'caret' | 'arrow' | 'none'
+
+/** หน้าตา FAQ card — ทุกช่องไม่บังคับ ช่องที่ว่างใช้ค่าตั้งต้นของระบบ */
+export interface UploadFaqStyle {
+  /** card = กล่องมีขอบรอบ, divider = เส้นคั่นด้านล่างอย่างเดียว, plain = ไม่มีขอบ */
+  layout?: 'card' | 'divider' | 'plain'
+  itemBackground?: string
+  itemBorderColor?: string
+  itemBorderWidth?: number
+  itemRadius?: number
+  itemGap?: number
+  itemShadow?: boolean
+  questionBackground?: string
+  questionColor?: string
+  questionFontSize?: string
+  questionWeight?: number
+  questionPadding?: string
+  openQuestionBackground?: string
+  openQuestionColor?: string
+  answerBackground?: string
+  answerColor?: string
+  answerPadding?: string
+  icon?: UploadFaqIcon
+  iconPosition?: 'left' | 'right'
+  iconColor?: string
+}
+
+export interface UploadTableStyle {
+  headerBackground?: string
+  headerColor?: string
+  borderColor?: string
+  stripeBackground?: string
+}
+
+export interface UploadThemeDetail {
+  /** มาจากไหน เช่น "Rank Math FAQ block บน https://…" */
+  source?: string
+  faq?: UploadFaqStyle
+  table?: UploadTableStyle
+}
+
+export type UploadComponentKey = 'toc' | 'faq' | 'cta'
+
+/**
+ * ผลสแกนต่อ component
+ * auto = ธีม/ปลั๊กอินใส่ให้ทุกโพสต์เอง → push ส่วนนี้ไปจะซ้อนกันแน่นอน
+ * some-posts = มีเฉพาะในเนื้อหาบางบทความ (ผู้เขียนใส่เอง) → ไม่ซ้ำกับบทความใหม่
+ * site = เจอเฉพาะนอกบทความ (หน้าแรก/เมนู)
+ */
+export interface UploadComponentFinding {
+  found: boolean
+  where: 'auto' | 'some-posts' | 'site' | null
+  source: string
+  postsWith: number
+  postsChecked: number
+  evidence: string[]
+}
+
+export interface UploadSiteScan {
+  target: string
+  scannedAt: string
+  checked: string[]
+  platform: {
+    cms: string
+    theme: string | null
+    childTheme: string | null
+    builders: string[]
+    plugins: string[]
+  }
+  components: Record<UploadComponentKey, UploadComponentFinding>
+  /** สรุปหน้าตา FAQ ของเว็บเป็นภาษาคน */
+  faqSummary: string
+  warnings: string[]
+  /** สี/ฟอนต์ที่เสนอจากเว็บ (sanitize แล้ว) — ยังไม่ถูกใช้จนกว่าทีมกดรับและบันทึกธีม */
+  suggestedTheme?: Partial<UploadTheme> | null
+  detail?: UploadThemeDetail | null
 }
 
 /** ฟอนต์ Google ที่เลือกได้ในหน้า Generate (build-html จะ @import ให้เมื่อเลือกตัวใดตัวหนึ่ง) */
@@ -33,6 +113,8 @@ export interface UploadPushPrefs {
   wpPostType?: 'post' | 'page'
   publishMode?: 'draft' | 'publish'
   excludeCards?: { toc?: boolean; cta?: boolean; faq?: boolean }
+  /** ผลสแกนเว็บปลายทางล่าสุด (แสดงซ้ำในหน้า Generate/Push) */
+  siteScan?: UploadSiteScan
 }
 
 export interface UploadClientDTO {

@@ -6,12 +6,14 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Copy, ArrowRight, CheckSquare, Square } from "lucide-react";
+import { Sparkles, Loader2, Copy, ArrowRight, CheckSquare, Square, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ArticleFrame from "@/components/shared/ArticleFrame";
-import { UPLOAD_FONT_INHERIT, type UploadArticleDTO, type UploadClientDTO, type UploadOutputMode, type UploadTheme } from "@/lib/upload-article/types";
+import { UPLOAD_FONT_INHERIT, type UploadArticleDTO, type UploadClientDTO, type UploadOutputMode, type UploadTheme, type UploadThemeDetail } from "@/lib/upload-article/types";
 import FontPicker from "../shared/FontPicker";
+import SiteScanPanel from "../shared/SiteScanPanel";
+import FaqStyleEditor from "../shared/FaqStyleEditor";
 import { toReadableHtml, shortenDataUris, copyRichText } from "../shared/readableHtml";
 
 const GENERATABLE = new Set(["IMPORTED", "GENERATED", "REVIEWED", "FAILED"]);
@@ -35,6 +37,7 @@ export default function GenerateTab({
   const [scanning, setScanning] = useState(false);
   const [themeDraft, setThemeDraft] = useState<UploadTheme>(client.theme);
   const [savingTheme, setSavingTheme] = useState(false);
+  const [showFaqEditor, setShowFaqEditor] = useState(false);
 
   const [outputMode, setOutputMode] = useState<UploadOutputMode>("html");
   const [breadcrumb, setBreadcrumb] = useState(true);
@@ -45,7 +48,10 @@ export default function GenerateTab({
 
   const [previewMode, setPreviewMode] = useState<"preview" | "html" | "text">("preview");
 
-  useEffect(() => { setThemeDraft(client.theme); }, [client.theme]);
+  // เทียบค่าแทน reference — สแกนเว็บคืน client ใหม่ทั้งก้อน ไม่ควรล้างธีมที่กำลังแก้
+  const savedThemeKey = JSON.stringify(client.theme);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setThemeDraft(client.theme); }, [savedThemeKey]);
   useEffect(() => { if (selectedId) void loadArticleDetail(selectedId); }, [selectedId, loadArticleDetail]);
 
   const genList = useMemo(() => articles.filter(a => GENERATABLE.has(a.status)), [articles]);
@@ -66,7 +72,7 @@ export default function GenerateTab({
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "สแกนธีมไม่สำเร็จ"); return; }
       if (d.theme) {
-        setThemeDraft(prev => ({ ...d.theme, styleMode: prev.styleMode }));
+        setThemeDraft(prev => ({ ...d.theme, styleMode: prev.styleMode, detail: prev.detail }));
         toast.success("ดึงธีมจากเว็บสำเร็จ — ตรวจสอบสีแล้วกดบันทึกธีม");
       }
     } catch (e) {
@@ -76,13 +82,20 @@ export default function GenerateTab({
     }
   }
 
+  /** รับสี/ฟอนต์ + หน้าตา FAQ จากผลสแกนเว็บปลายทาง — ยังไม่บันทึกจนกดบันทึกธีม */
+  function applyScannedTheme(theme: Partial<UploadTheme>, detail: UploadThemeDetail | null) {
+    setThemeDraft(prev => ({ ...prev, ...theme, styleMode: prev.styleMode, detail: detail ?? prev.detail }));
+    if (detail) setShowFaqEditor(true);
+    toast.success("ใส่ธีมจากเว็บแล้ว — ตรวจพรีวิวแล้วกดบันทึกธีม");
+  }
+
   async function saveTheme() {
     setSavingTheme(true);
     try {
       const r = await fetch(`/api/upload-article/clients/${client.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme: themeDraft }),
+        body: JSON.stringify({ theme: { ...themeDraft, detail: themeDraft.detail ?? null } }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "บันทึกธีมไม่สำเร็จ"); return; }
@@ -145,6 +158,9 @@ export default function GenerateTab({
         ระบบไม่เขียนเนื้อหาเพิ่ม — จัดโครงสร้าง ใส่ Schema, Breadcrumb, FAQ, สารบัญ ให้เท่านั้น
       </p>
 
+      <SiteScanPanel client={client} setClient={setClient} onApplyTheme={applyScannedTheme}
+        title="สแกนเว็บปลายทาง — ธีม, ปลั๊กอิน, หน้าตา FAQ (ละเอียด)" />
+
       {/* เว็บไซต์ต้นฉบับ / ธีม */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
         <p className="text-sm font-semibold text-brand-navy">เว็บไซต์ต้นฉบับ</p>
@@ -195,6 +211,18 @@ export default function GenerateTab({
               clean — ใช้ CSS ของธีมเว็บ
             </label>
           </div>
+        </div>
+
+        <div className="border border-gray-100 rounded-lg">
+          <button onClick={() => setShowFaqEditor(v => !v)} className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-brand-navy">
+            {showFaqEditor ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            หน้าตา FAQ card + ตาราง (ละเอียด){themeDraft.detail ? " · ตั้งค่าแล้ว" : ""}
+          </button>
+          {showFaqEditor && (
+            <div className="px-3 pb-3 border-t border-gray-100 pt-3">
+              <FaqStyleEditor theme={themeDraft} onChange={d => setThemeDraft(p => ({ ...p, detail: d }))} />
+            </div>
+          )}
         </div>
 
         <Button size="sm" disabled={savingTheme} onClick={saveTheme}>
