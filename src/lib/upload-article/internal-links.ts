@@ -76,7 +76,7 @@ export function sanitizeInternalLinks(input: Partial<UploadInternalLinks>): Sani
 }
 
 /** normalize URL ไว้เทียบซ้ำ (origin+pathname ตัด / ท้ายออก, ตัวพิมพ์เล็ก) */
-function normalizeUrl(u: string): string {
+export function normalizeUrl(u: string): string {
   try {
     const p = new URL(u)
     return (p.origin + p.pathname).replace(/\/+$/, '').toLowerCase()
@@ -123,6 +123,28 @@ function parseLinksPerArticle(raw: string): { min: number; max: number } {
   const a = Number(m[1])
   const b = m[2] ? Number(m[2]) : a
   return { min: Math.min(a, b), max: Math.max(a, b) }
+}
+
+/** ลิงก์ทั้งหมดที่ใช้ได้กับบทความนี้ (ตัด excluded + ลิงก์เข้าตัวเอง) — manual ก่อน แล้ว gsc เรียงตามคลิกมากไปน้อย */
+export function linkPoolForArticle(links: UploadInternalLinks, params: { slug: string; excludeUrl?: string }): UploadLinkPair[] {
+  const excludedSet = new Set((links.excluded || []).map(normalizeUrl))
+  if (params.excludeUrl) excludedSet.add(normalizeUrl(params.excludeUrl))
+  const seen = new Set<string>()
+  const out: UploadLinkPair[] = []
+  const gsc = [...(links.gsc || [])].sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
+  for (const pair of [...(links.manual || []), ...gsc]) {
+    const key = normalizeUrl(pair.url)
+    if (seen.has(key) || excludedSet.has(key)) continue
+    if (pathEndsWithSlug(pair.url, params.slug)) continue
+    seen.add(key)
+    out.push(pair)
+  }
+  return out
+}
+
+/** จำนวนลิงก์สูงสุดต่อบทความจากค่า "3-5" / "3" */
+export function maxLinksPerArticle(raw: string): number {
+  return parseLinksPerArticle(raw).max
 }
 
 export interface PickLinksParams {

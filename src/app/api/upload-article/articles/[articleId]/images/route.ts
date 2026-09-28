@@ -9,7 +9,7 @@ import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { readPrefs } from '@/lib/upload-article/prefs-store'
 import sharp from 'sharp'
 import {
-  coverBulletsFromHtml, generatedFigureHtml, insertFiguresAfterH2, insertFiguresAfterH2Text, pickInlineSlots,
+  coverBulletsFromHtml, countGeneratedFigures, generatedFigureHtml, insertFiguresAfterH2, insertFiguresAfterH2Text, pickInlineSlots,
   removeGeneratedFigures, replaceCoverInHtml,
 } from '@/lib/upload-article/article-images'
 import { DEFAULT_UPLOAD_THEME, UPLOAD_MAX_INLINE_IMAGES, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
@@ -72,6 +72,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   if (!kind) return NextResponse.json({ error: 'kind ต้องเป็น cover หรือ inline' }, { status: 400 })
   const withText = body.withText !== false
   const count = kind === 'inline' ? Math.max(1, Math.min(UPLOAD_MAX_INLINE_IMAGES, Math.floor(Number(body.count) || 0))) : 1
+
+  // onlyIfMissing (จากแท็บ Generate): บทความมีปก/รูปประกอบที่ระบบสร้างอยู่แล้ว = ข้าม ไม่เสียค่ารูปซ้ำ
+  if (body.onlyIfMissing === true) {
+    const has = kind === 'cover' ? Boolean(article.coverImageUrl) : countGeneratedFigures(article.sourceHtml) > 0
+    if (has) return NextResponse.json({ article: toUploadArticleDTO(article, true), costUsd: 0, generated: 0, failed: 0, skipped: true })
+  }
 
   // Content Engine ของลูกค้านี้เท่านั้น (scope = UploadClient.id) — ไม่มี Image Prompt = หยุด ไม่ใช้ prompt สำรอง
   const ce = await resolveContentEngine(orgId, { projectId: client.id })

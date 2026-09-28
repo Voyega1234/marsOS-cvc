@@ -30,7 +30,7 @@ function TextToggle({ value, onChange, disabled }: { value: boolean; onChange: (
   );
 }
 
-export async function requestArticleImages(articleId: string, body: { kind: "cover" | "inline"; withText: boolean; count?: number }) {
+export async function requestArticleImages(articleId: string, body: { kind: "cover" | "inline"; withText: boolean; count?: number; onlyIfMissing?: boolean }) {
   const r = await fetch(`/api/upload-article/articles/${articleId}/images`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -43,7 +43,7 @@ export async function requestArticleImages(articleId: string, body: { kind: "cov
       : d?.error || "สร้างรูปไม่สำเร็จ";
     return { ok: false as const, error: msg };
   }
-  return { ok: true as const, article: d.article as UploadArticleDTO, costUsd: Number(d.costUsd) || 0, generated: Number(d.generated) || 0, failed: Number(d.failed) || 0 };
+  return { ok: true as const, article: d.article as UploadArticleDTO, costUsd: Number(d.costUsd) || 0, generated: Number(d.generated) || 0, failed: Number(d.failed) || 0, skipped: d.skipped === true };
 }
 
 export default function AiImagesPanel({ client, detail, applyArticleUpdate }: {

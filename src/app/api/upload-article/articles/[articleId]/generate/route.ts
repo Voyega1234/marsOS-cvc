@@ -4,7 +4,11 @@ import { prisma } from '@/lib/prisma'
 import { buildUploadArticleHtml } from '@/lib/upload-article/build-html'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
-import type { UploadOutputMode, UploadTheme } from '@/lib/upload-article/types'
+import { readPrefs } from '@/lib/upload-article/prefs-store'
+import { linkPoolForArticle, maxLinksPerArticle } from '@/lib/upload-article/internal-links'
+import { insertInternalLinks } from '@/lib/upload-article/link-insert'
+import { decodeTextEntities } from '@/lib/upload-article/entities'
+import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadOutputMode, type UploadTheme } from '@/lib/upload-article/types'
 
 /** POST /api/upload-article/articles/[articleId]/generate — ประกอบ HTML/Text พร้อมใช้จาก sourceHtml */
 export async function POST(req: NextRequest, { params }: { params: { articleId: string } }) {
@@ -22,6 +26,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))
   const mode: UploadOutputMode = body.mode === 'text' ? 'text' : body.mode === 'html' ? 'html' : (article.outputMode as UploadOutputMode) || 'html'
   const breadcrumb = body.breadcrumb !== false
+  const withLinks = body.internalLinks === true
 
   let theme: UploadTheme
   try {
@@ -37,8 +42,21 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     const metaDescription = article.metaDescription || brief?.metaDescription || ''
     const slug = article.slug || brief?.slug || ''
 
+    // Internal Link: ครอบลิงก์ให้คำที่มีอยู่แล้วในเนื้อหา — ทำกับสำเนาตอน build ไม่เขียนกลับ sourceHtml (ปิดตัวเลือก = generate ใหม่แล้วลิงก์หายเอง)
+    let sourceHtml = article.sourceHtml
+    let linksAdded = 0
+    if (withLinks) {
+      const prefs = await readPrefs(client.id, orgId)
+      const raw = prefs?.internalLinks
+      const links: UploadInternalLinks = { ...DEFAULT_UPLOAD_INTERNAL_LINKS, ...(raw && typeof raw === 'object' ? (raw as Partial<UploadInternalLinks>) : {}) }
+      const pool = linkPoolForArticle(links, { slug })
+      const r = insertInternalLinks(decodeTextEntities(sourceHtml), pool, maxLinksPerArticle(links.linksPerArticle))
+      sourceHtml = r.html
+      linksAdded = r.inserted.length
+    }
+
     const result = buildUploadArticleHtml({
-      sourceHtml: article.sourceHtml,
+      sourceHtml,
       mode,
       theme,
       site: { name: client.name, url: client.website, language: client.language === 'en' ? 'en' : 'th' },
@@ -58,7 +76,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       data: { htmlContent: result.html, outputMode: mode, status: nextStatus, seoTitle, metaDescription, slug },
     })
 
-    return NextResponse.json(toUploadArticleDTO(updated, true))
+    return NextResponse.json(toUploadArticleDTO(updated, true), { headers: { 'X-Links-Added': String(linksAdded) } })
   } catch (e) {
     return NextResponse.json({ error: `สร้าง HTML ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 })
   }
