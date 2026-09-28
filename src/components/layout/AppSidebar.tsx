@@ -50,14 +50,14 @@ function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Ro
     return [
       {
         id: "projects",
-        title: "Clients",
+        title: "SEO SME",
         icon: <FolderOpen className="size-4" />,
         link: "/projects",
       },
     ];
   }
 
-  // เมนูหลักเหลือ 5 รายการ: SEO News & Update / Clients / Article / Studio / Setting
+  // เมนูหลักเหลือ 5 รายการ: SEO News & Update / SEO SME / Article / Studio / Setting
   const base: Route[] = [
     {
       id: "morning-brief",
@@ -69,7 +69,7 @@ function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Ro
     },
     {
       id: "projects",
-      title: "Clients",
+      title: "SEO SME",
       icon: <FolderOpen className="size-4" />,
       link: "/projects",
     },
