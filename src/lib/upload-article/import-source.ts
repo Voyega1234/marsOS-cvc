@@ -73,9 +73,33 @@ function plainTextToHtml(text: string): string {
   return out.join('\n')
 }
 
+const COMMENT_LINE_RE = /^\[([a-z]{1,3})\]\S/
+
+/**
+ * ตัด marker คอมเมนต์ของ Google Docs ที่ export เป็น .txt ทิ้ง (ตัวเอกสารไม่มีทางลบคอมเมนต์ให้เองตอน export)
+ * รูปแบบ: inline marker "[a]" ต่อท้ายข้อความที่ถูกคอมเมนต์ + บรรทัดคอมเมนต์ท้ายเอกสาร "[a]ข้อความคอมเมนต์"
+ * ตัดเฉพาะ label ที่เจอเป็นบรรทัดคอมเมนต์จริง (ขึ้นต้นบรรทัด) — ไม่มีบรรทัดแบบนี้เลยแปลว่าไม่ใช่คอมเมนต์ ไม่แตะวงเล็บเหลี่ยมอื่น
+ */
+function stripGoogleDocsCommentMarkers(text: string): string {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const labels = new Set<string>()
+  for (const line of lines) {
+    const m = COMMENT_LINE_RE.exec(line)
+    if (m) labels.add(m[1])
+  }
+  if (labels.size === 0) return text
+
+  const keptLines = lines.filter((line) => !COMMENT_LINE_RE.test(line))
+  let out = keptLines.join('\n')
+  for (const label of Array.from(labels)) {
+    out = out.replace(new RegExp(`\\[${label}\\]`, 'g'), '')
+  }
+  return out
+}
+
 /** นำเข้าข้อความล้วน (.txt) — เดา heading เฉพาะบรรทัดที่ขึ้นด้วย # เท่านั้น */
 export function importFromText(text: string, fallbackTitle = ''): ImportResult {
-  const html = plainTextToHtml(text)
+  const html = plainTextToHtml(stripGoogleDocsCommentMarkers(text))
   return cleanedResult(html, fallbackTitle)
 }
 

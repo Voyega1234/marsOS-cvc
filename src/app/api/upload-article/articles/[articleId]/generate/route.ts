@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { buildUploadArticleHtml } from '@/lib/upload-article/build-html'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
+import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 import type { UploadOutputMode, UploadTheme } from '@/lib/upload-article/types'
 
 /** POST /api/upload-article/articles/[articleId]/generate — ประกอบ HTML/Text พร้อมใช้จาก sourceHtml */
@@ -30,6 +31,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   }
 
   try {
+    // meta/slug ยังว่าง — เติมจากตาราง brief ของผู้เขียนในต้นฉบับก่อน generate (ถ้ามี)
+    const brief = (!article.seoTitle || !article.metaDescription || !article.slug) ? extractBriefMeta(article.sourceHtml) : null
+    const seoTitle = article.seoTitle || brief?.seoTitle || ''
+    const metaDescription = article.metaDescription || brief?.metaDescription || ''
+    const slug = article.slug || brief?.slug || ''
+
     const result = buildUploadArticleHtml({
       sourceHtml: article.sourceHtml,
       mode,
@@ -37,9 +44,9 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       site: { name: client.name, url: client.website, language: client.language === 'en' ? 'en' : 'th' },
       meta: {
         title: article.title,
-        seoTitle: article.seoTitle || undefined,
-        metaDescription: article.metaDescription || undefined,
-        slug: article.slug || undefined,
+        seoTitle: seoTitle || undefined,
+        metaDescription: metaDescription || undefined,
+        slug: slug || undefined,
       },
       cover: article.coverImageUrl ? { url: article.coverImageUrl, alt: article.coverAlt || article.title } : null,
       breadcrumb,
@@ -48,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     const nextStatus = article.status === 'PUSHED' || article.status === 'PUSHING' ? article.status : 'GENERATED'
     const updated = await prisma.uploadArticle.update({
       where: { id: article.id },
-      data: { htmlContent: result.html, outputMode: mode, status: nextStatus },
+      data: { htmlContent: result.html, outputMode: mode, status: nextStatus, seoTitle, metaDescription, slug },
     })
 
     return NextResponse.json(toUploadArticleDTO(updated, true))

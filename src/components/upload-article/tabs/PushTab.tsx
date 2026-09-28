@@ -1,14 +1,16 @@
 "use client";
 
-/** แท็บ Push — สแกนเว็บปลายทาง เลือก card ที่จะขึ้นเว็บ แล้ว push ทีละบทความหรือหลายบทความพร้อมกัน */
-import { useEffect, useMemo, useState } from "react";
+/** แท็บ Push — เลือก card ที่จะขึ้นเว็บ แล้ว push ทีละบทความหรือหลายบทความพร้อมกัน
+ * (การสแกนเว็บปลายทางย้ายไปอยู่ที่ Project Setting > สแกนเว็บปลายทาง แล้ว) */
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Settings, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/upload-article/cards";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
-import SiteScanPanel from "@/components/upload-article/shared/SiteScanPanel";
+import { formatPublishAt } from "@/components/upload-article/shared/PublishDatePanel";
+import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 
 const PUSHABLE = new Set(["GENERATED", "REVIEWED", "PUSHING", "PUSHED", "FAILED"]);
 
@@ -21,7 +23,7 @@ const TYPE_CHIP: Record<string, { label: string; cls: string }> = {
 };
 
 export default function PushTab({
-  client, setClient, articles, loadArticleDetail, articleDetails, applyArticleUpdate, selectedId, setSelectedId, goToConnect,
+  client, setClient, articles, loadArticleDetail, articleDetails, applyArticleUpdate, selectedId, setSelectedId, onOpenSettings,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
@@ -31,7 +33,7 @@ export default function PushTab({
   applyArticleUpdate: (a: UploadArticleDTO) => void;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
-  goToConnect: () => void;
+  onOpenSettings: (section: SettingsSection) => void;
 }) {
   const pushable = useMemo(() => articles.filter(a => PUSHABLE.has(a.status)), [articles]);
 
@@ -49,6 +51,18 @@ export default function PushTab({
   const [pushResult, setPushResult] = useState<Record<string, { ok: boolean; postUrl?: string; error?: string }>>({});
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const siteScan = client.pushPrefs.siteScan;
+
+  // เก็บ client ล่าสุดไว้ใน ref — การบันทึก card selection debounce 600ms อาจ fire หลังจาก client เปลี่ยนแล้ว
+  // (เช่น push สำเร็จคืน client ใหม่มา) อ่านจาก ref กันข้อมูล pushPrefs อื่นที่เพิ่งอัปเดตถูกทับ
+  const clientRef = useRef(client);
+  useEffect(() => { clientRef.current = client; }, [client]);
+  const cardSelTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // กันเรียก init ค่าเริ่มต้นจาก client.pushPrefs.cardSel ซ้ำ (จะไปทับ selection ที่ผู้ใช้เพิ่งแก้ในหน้านี้)
+  const cardSelInited = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    return () => { for (const t of Object.values(cardSelTimers.current)) clearTimeout(t); };
+  }, []);
 
   // ดึงรายละเอียด htmlContent ของบทความที่ push ได้ทั้งหมด เพื่อแตก card
   useEffect(() => {
@@ -68,6 +82,25 @@ export default function PushTab({
     }
     return { parsedMap, versionMap };
   }, [pushable, articleDetails]);
+
+  // โหลด selection ที่บันทึกไว้แล้ว (pushPrefs.cardSel) มาใช้เป็นค่าเริ่มต้นต่อบทความ ครั้งเดียวต่อบทความ
+  // — ต้อง version ตรงกับ HTML ปัจจุบันเท่านั้น ไม่งั้นถือว่า selection เก่าใช้ไม่ได้แล้ว
+  useEffect(() => {
+    for (const a of pushable) {
+      if (cardSelInited.current.has(a.id)) continue;
+      const version = versionMap.get(a.id);
+      const parsed = parsedMap.get(a.id);
+      if (!version || !parsed) continue;
+      cardSelInited.current.add(a.id);
+      const saved = client.pushPrefs.cardSel?.[a.id];
+      if (saved && saved.version === version) {
+        const sel: Record<string, boolean> = {};
+        for (const c of parsed.cards) sel[c.id] = !saved.off.includes(c.id);
+        setCardSel(prev => ({ ...prev, [a.id]: { version, sel } }));
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pushable, versionMap, parsedMap, client.pushPrefs.cardSel]);
 
   const notConnected = client.websitePlatform === "wordpress" ? !client.hasWpPassword || !client.wpUrl : !client.wpUrl;
 
@@ -91,8 +124,50 @@ export default function PushTab({
       const prevEntry = prev[articleId];
       const sel = prevEntry && prevEntry.version === version ? { ...prevEntry.sel } : {};
       sel[cardId] = !isCardOn(articleId, cardId);
+      scheduleCardSelSave(articleId, version, sel);
       return { ...prev, [articleId]: { version, sel } };
     });
+  }
+
+  /** off = id ของ card ที่ปิดตาม sel ปัจจุบัน (คำนวณจาก default เดียวกับ isCardOn) */
+  function computeOffIds(articleId: string, sel: Record<string, boolean>): string[] {
+    const parsed = parsedMap.get(articleId);
+    if (!parsed) return [];
+    return parsed.cards
+      .filter(c => {
+        const explicit = sel[c.id];
+        if (explicit !== undefined) return !explicit;
+        if (client.pushPrefs.excludeCards?.[c.type as "toc" | "cta" | "faq"]) return true;
+        return !!c.derived;
+      })
+      .map(c => c.id);
+  }
+
+  /** บันทึก card selection แบบ debounce 600ms ต่อบทความ — toast เฉพาะตอน error */
+  function scheduleCardSelSave(articleId: string, version: string, sel: Record<string, boolean>) {
+    if (cardSelTimers.current[articleId]) clearTimeout(cardSelTimers.current[articleId]);
+    cardSelTimers.current[articleId] = setTimeout(async () => {
+      const off = computeOffIds(articleId, sel);
+      try {
+        const r = await fetch(`/api/upload-article/articles/${articleId}/card-selection`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version, off }),
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          toast.error(d?.error || "บันทึกการเลือก card ไม่สำเร็จ");
+          return;
+        }
+        const latest = clientRef.current;
+        setClient({
+          ...latest,
+          pushPrefs: { ...latest.pushPrefs, cardSel: { ...(latest.pushPrefs.cardSel ?? {}), [articleId]: { version, off } } },
+        });
+      } catch (e) {
+        toast.error(`บันทึกการเลือก card ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }, 600);
   }
 
   async function pushOne(articleId: string) {
@@ -146,7 +221,9 @@ export default function PushTab({
 
   return (
     <div className="space-y-4">
-      <SiteScanPanel client={client} setClient={setClient} />
+      <button onClick={() => onOpenSettings("scan")} className="flex items-center gap-1.5 text-xs text-brand-blue hover:underline">
+        <Settings size={12} /> ตั้งค่าสแกนเว็บปลายทางใน Project Setting
+      </button>
 
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -155,7 +232,7 @@ export default function PushTab({
               <Globe size={14} /> {client.websitePlatform} · {client.wpUrl || client.website || "ยังไม่ตั้งเว็บ"}
             </p>
             {notConnected && (
-              <button onClick={goToConnect} className="text-xs text-rose-600 hover:underline flex items-center gap-1 mt-1">
+              <button onClick={() => onOpenSettings("website")} className="text-xs text-rose-600 hover:underline flex items-center gap-1 mt-1">
                 <AlertTriangle size={11} /> ยังไม่เชื่อมต่อเว็บ — ไปตั้งค่าที่ Connect Website
               </button>
             )}
@@ -205,8 +282,13 @@ export default function PushTab({
                   <input type="checkbox" checked={selectedIds.has(a.id)} onChange={() => toggleSelect(a.id)} className="mt-1" />
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-brand-navy truncate">{a.title}</p>
-                    <div className="mt-1 flex items-center gap-2">
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
                       <UploadStatusBadge status={a.status} />
+                      {client.pushPrefs.publishAt?.[a.id] && (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-gray-500" title="ตั้งวันที่ได้ในแท็บ Review">
+                          <CalendarClock size={11} /> เผยแพร่ {formatPublishAt(client.pushPrefs.publishAt[a.id])}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </label>

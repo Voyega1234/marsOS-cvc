@@ -10,6 +10,7 @@ import {
   importFromMarkdown,
   importFromText,
 } from '@/lib/upload-article/import-source'
+import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 
 export const maxDuration = 120
 
@@ -107,6 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const warnings: Array<{ name: string; warning: string }> = []
   for (const src of imported) {
     const title = src.title.trim() || extractTitleFromHtml(src.html, src.name) || 'บทความไม่มีชื่อ'
+    const brief = extractBriefMeta(src.html)
     const row = await prisma.uploadArticle.create({
       data: {
         organizationId: orgId,
@@ -116,6 +118,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         sourceName: src.name.slice(0, 200),
         sourceHtml: src.html,
         createdById: session.user.id,
+        ...(brief.seoTitle ? { seoTitle: brief.seoTitle } : {}),
+        ...(brief.metaDescription ? { metaDescription: brief.metaDescription } : {}),
+        ...(brief.slug ? { slug: brief.slug } : {}),
       },
     })
     created.push(toUploadArticleDTO(row, false))

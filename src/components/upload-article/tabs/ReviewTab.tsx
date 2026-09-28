@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * แท็บ Review — แก้ไขบทความ, ตั้ง Meta/Slug (ให้ AI เขียนได้), จัดการภาพ, แล้วผ่าน Review
+ * แท็บ Review — แก้ไขบทความ, ตั้ง Meta/Slug (ให้ AI เขียนได้), วันที่เผยแพร่, สร้าง/จัดการภาพ, แล้วผ่าน Review
  */
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -17,13 +17,16 @@ import SerpPreview from "@/components/upload-article/shared/SerpPreview";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
 import { listH2Sections, insertFigureAfterH2 } from "@/components/upload-article/shared/htmlSections";
 import DriveImagesPanel from "@/components/upload-article/shared/DriveImagesPanel";
+import AiImagesPanel from "@/components/upload-article/shared/AiImagesPanel";
+import PublishDatePanel from "@/components/upload-article/shared/PublishDatePanel";
 
 const MAX_PATCH_BYTES = 4_000_000;
 
 export default function ReviewTab({
-  client, articles, selectedId, setSelectedId, loadArticleDetail, articleDetails, applyArticleUpdate,
+  client, setClient, articles, selectedId, setSelectedId, loadArticleDetail, articleDetails, applyArticleUpdate,
 }: {
   client: UploadClientDTO;
+  setClient: (c: UploadClientDTO) => void;
   articles: UploadArticleDTO[];
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
@@ -328,6 +331,10 @@ export default function ReviewTab({
               {savingSeo ? "กำลังบันทึก..." : "บันทึก SEO"}
             </Button>
           </div>
+
+          <PublishDatePanel client={client} setClient={setClient} articleId={detail.id} />
+
+          <AiImagesPanel client={client} detail={detail} applyArticleUpdate={applyArticleUpdate} />
 
           <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
             <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><ImageIcon size={12} /> ภาพปกบทความ</p>

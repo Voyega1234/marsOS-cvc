@@ -18,6 +18,8 @@ export interface WpPushInput {
   coverMimeType?: string
   coverAlt?: string
   publishMode: 'draft' | 'publish'
+  /** วัน-เวลาเผยแพร่ (ISO UTC) — ส่งเป็น date_gmt; ถ้าเป็นอนาคตและโหมด publish = ตั้งเวลา (status future) */
+  publishAt?: string
   useElementor?: boolean
   wpPostType?: 'post' | 'page'
   /** post/page ที่เคย push ไว้แล้ว — re-push ต้องอัพเดตตัวนี้ ไม่ใช่สร้างใหม่ */
@@ -169,11 +171,16 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
   const htmlLinked = await replaceInlineImages(wpUrl, creds, htmlWithAlt, finalMetaTitle, uploaded)
 
   const content = input.useElementor ? '' : htmlLinked
+  const publishDate = input.publishAt ? new Date(input.publishAt) : null
+  const dateGmt = publishDate && !Number.isNaN(publishDate.getTime()) ? publishDate.toISOString().slice(0, 19) : ''
+  const isFuture = Boolean(publishDate && publishDate.getTime() > Date.now() + 60_000)
+  const wpStatus = input.publishMode === 'publish' ? (isFuture ? 'future' : 'publish') : 'draft'
   const payload: Record<string, unknown> = {
     title: input.title,
     content,
     excerpt: finalMetaDesc ? finalMetaDesc.slice(0, 160) : undefined,
-    status: input.publishMode === 'publish' ? 'publish' : 'draft',
+    status: wpStatus,
+    ...(dateGmt && { date_gmt: dateGmt }),
     ...(finalSlug && { slug: finalSlug }),
     ...(featuredMediaId && { featured_media: featuredMediaId }),
   }

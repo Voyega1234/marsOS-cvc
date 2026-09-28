@@ -3,6 +3,8 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
+import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
+import type { UploadPushPrefs } from '@/lib/upload-article/types'
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024
 const VALID_STATUS = new Set(['IMPORTED', 'GENERATED', 'REVIEWED', 'PUSHED', 'FAILED'])
@@ -107,5 +109,26 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
   }
 
   await prisma.uploadArticle.delete({ where: { id: existing.id } })
+
+  // ตัด cardSel/publishAt[articleId] ของบทความที่ลบไปแล้วทิ้ง — เขียนผ่าน updatePrefs กัน pushPrefs ที่แก้พร้อมกันหาย (lost update)
+  await updatePrefs(existing.clientId, session.user.organizationId, (current) => {
+    const cur = current as UploadPushPrefs
+    const inCardSel = Boolean(cur.cardSel && existing.id in cur.cardSel)
+    const inPublishAt = Boolean(cur.publishAt && existing.id in cur.publishAt)
+    if (!inCardSel && !inPublishAt) return { result: undefined }
+    const next: UploadPushPrefs = { ...cur }
+    if (inCardSel) {
+      const nextCardSel = { ...cur.cardSel }
+      delete nextCardSel[existing.id]
+      next.cardSel = nextCardSel
+    }
+    if (inPublishAt) {
+      const nextPublishAt = { ...cur.publishAt }
+      delete nextPublishAt[existing.id]
+      next.publishAt = nextPublishAt
+    }
+    return { prefs: next as PrefsObject, result: undefined }
+  }).catch(() => null)
+
   return NextResponse.json({ ok: true })
 }

@@ -10,6 +10,7 @@ import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/b
 import { parseUploadCards, assembleUploadHtml, uploadHtmlVersion } from '@/lib/upload-article/cards'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
+import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 
 export const maxDuration = 300
 
@@ -79,6 +80,10 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const useElementor = boolPref(body.useElementor, Boolean(prevPrefs.useElementor))
   const stripH1 = boolPref(body.stripH1, prevPrefs.stripH1 ?? true)
 
+  // วัน-เวลาเผยแพร่ที่ตั้งไว้ในหน้า Review (pushPrefs.publishAt) — ส่งเฉพาะ WordPress
+  const rawPublishAt = prevPrefs.publishAt?.[article.id]
+  const publishAt = typeof rawPublishAt === 'string' && !Number.isNaN(Date.parse(rawPublishAt)) ? rawPublishAt : undefined
+
   const fullHtml = article.htmlContent || ''
   if (!fullHtml) return NextResponse.json({ error: 'ยังไม่มี HTML ให้ push — กด Generate ก่อน' }, { status: 400 })
 
@@ -103,18 +108,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   processedHtml = processedHtml.replace(/<nav class="content-breadcrumb"[\s\S]*?<\/nav>\s*/g, '')
 
   // เก็บ preference ที่ใช้รอบนี้ไว้ใน client.pushPrefs (ไม่รอ push สำเร็จก่อน — ผู้ใช้ตั้งใจเลือกแล้ว)
-  // re-read ค่าล่าสุดก่อนเขียนกันทับ prefs ที่เพิ่งถูกแก้จากที่อื่นระหว่างที่ request นี้กำลังทำงาน
-  const freshClientRow = await prisma.uploadClient.findFirst({ where: { id: client.id, organizationId: orgId } })
-  let freshPrefs: UploadPushPrefs
-  try {
-    freshPrefs = JSON.parse(freshClientRow?.pushPrefs ?? client.pushPrefs)
-  } catch {
-    freshPrefs = {}
-  }
-  const updatedClientRow = await prisma.uploadClient.update({
-    where: { id: client.id },
-    data: { pushPrefs: JSON.stringify({ ...freshPrefs, useElementor, wpPostType, publishMode, stripH1 }) },
-  }).catch(() => freshClientRow ?? client)
+  // เขียนผ่าน updatePrefs (ล็อกแถว อ่านค่าล่าสุดก่อนแก้) กัน prefs ที่เพิ่งถูกแก้จากที่อื่นระหว่างที่ request นี้กำลังทำงานหาย (lost update)
+  const prefsResult = await updatePrefs(client.id, orgId, (current) => {
+    const next: UploadPushPrefs = { ...(current as UploadPushPrefs), useElementor, wpPostType, publishMode, stripH1 }
+    return { prefs: next as PrefsObject, result: next }
+  })
+  const updatedClientRow = prefsResult ? { ...client, pushPrefs: JSON.stringify(prefsResult.result) } : client
 
   const platform = client.websitePlatform || 'wordpress'
 
@@ -193,6 +192,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         coverMimeType: mime,
         coverAlt: article.coverAlt || article.title,
         publishMode,
+        publishAt,
         useElementor,
         wpPostType,
         existingPostId: article.wordpressPostId ? Number(article.wordpressPostId) : undefined,

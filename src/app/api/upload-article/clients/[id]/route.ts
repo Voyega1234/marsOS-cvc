@@ -6,6 +6,8 @@ import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/ser
 import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
 import { sanitizeThemeDetail } from '@/lib/upload-article/theme-css'
 import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
+import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
+import { readImageDefaults } from '@/lib/upload-article/article-images'
 
 const COLOR_RE = /^#[0-9a-f]{3,8}$/i
 
@@ -30,11 +32,14 @@ const SITE_CONN_SECRET_FIELDS: Record<string, { domain: string; secrets: string[
 }
 
 /** โยนออกจาก transaction ของ DELETE เมื่อยังมีบทความที่ขึ้นเว็บแล้ว — กันลบระหว่างที่ push ค้างอยู่พอดี (lost update) */
-class PushedArticlesError extends Error {
+class BusyArticlesError extends Error {
   constructor(public count: number) {
-    super('มีบทความที่ขึ้นเว็บไซต์แล้ว')
+    super('มีบทความกำลัง push/เขียนอยู่')
   }
 }
+
+/** PUSHING/WRITING ที่ค้างเกินนี้ถือว่าตายแล้ว ไม่กันการลบ (ตรงกับ lock 6 นาทีของ push/writer) */
+const BUSY_WINDOW_MS = 6 * 60 * 1000
 
 async function loadClient(id: string, orgId: string) {
   return prisma.uploadClient.findFirst({
@@ -136,29 +141,31 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     data.themeColors = JSON.stringify(next)
   }
 
+  // pushPrefs เขียนผ่าน updatePrefs (ล็อกแถว อ่านค่าล่าสุดก่อนแก้) กัน request อื่นที่กำลังเขียน pushPrefs พร้อมกันหาย (lost update)
   if (body.pushPrefs && typeof body.pushPrefs === 'object') {
     const p = body.pushPrefs as Record<string, unknown>
-    let current: UploadPushPrefs
-    try {
-      current = JSON.parse(existing.pushPrefs)
-    } catch {
-      current = {}
-    }
-    // whitelist เฉพาะ key ที่ทีมแก้ได้จากหน้า UI — siteScan เขียนได้จาก route สแกนเท่านั้น (ไม่อยู่ใน whitelist นี้)
-    const next: UploadPushPrefs = { ...current }
-    if (p.publishMode === 'draft' || p.publishMode === 'publish') next.publishMode = p.publishMode
-    if (p.wpPostType === 'post' || p.wpPostType === 'page') next.wpPostType = p.wpPostType
-    if (typeof p.useElementor === 'boolean') next.useElementor = p.useElementor
-    if (typeof p.stripH1 === 'boolean') next.stripH1 = p.stripH1
-    if (p.excludeCards && typeof p.excludeCards === 'object') {
-      const ec = p.excludeCards as Record<string, unknown>
-      const nextEc: { toc?: boolean; cta?: boolean; faq?: boolean } = { ...(current.excludeCards ?? {}) }
-      for (const k of ['toc', 'cta', 'faq'] as const) {
-        if (typeof ec[k] === 'boolean') nextEc[k] = ec[k] as boolean
+    const result = await updatePrefs(existing.id, orgId, (current) => {
+      const cur = current as UploadPushPrefs
+      // whitelist เฉพาะ key ที่ทีมแก้ได้จากหน้า UI — siteScan เขียนได้จาก route สแกนเท่านั้น (ไม่อยู่ใน whitelist นี้)
+      const next: UploadPushPrefs = { ...cur }
+      if (p.publishMode === 'draft' || p.publishMode === 'publish') next.publishMode = p.publishMode
+      if (p.wpPostType === 'post' || p.wpPostType === 'page') next.wpPostType = p.wpPostType
+      if (typeof p.useElementor === 'boolean') next.useElementor = p.useElementor
+      if (typeof p.stripH1 === 'boolean') next.stripH1 = p.stripH1
+      if (p.excludeCards && typeof p.excludeCards === 'object') {
+        const ec = p.excludeCards as Record<string, unknown>
+        const nextEc: { toc?: boolean; cta?: boolean; faq?: boolean } = { ...(cur.excludeCards ?? {}) }
+        for (const k of ['toc', 'cta', 'faq'] as const) {
+          if (typeof ec[k] === 'boolean') nextEc[k] = ec[k] as boolean
+        }
+        next.excludeCards = nextEc
       }
-      next.excludeCards = nextEc
-    }
-    data.pushPrefs = JSON.stringify(next)
+      if (p.imageDefaults && typeof p.imageDefaults === 'object') {
+        next.imageDefaults = readImageDefaults({ ...(cur.imageDefaults ?? {}), ...(p.imageDefaults as object) })
+      }
+      return { prefs: next as PrefsObject, result: undefined }
+    })
+    if (!result) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
   }
 
   // เปลี่ยนเว็บ (โฮสต์ wpUrl) หรือเปลี่ยน wpUser โดยไม่ได้ส่งรหัสผ่านใหม่มาด้วย → ล้างรหัสผ่านเดิมทิ้ง
@@ -235,10 +242,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 /**
- * DELETE /api/upload-article/clients/[id] — ลบลูกค้า (cascade ลบบทความทั้งหมด)
- * ถ้ามีบทความที่ขึ้นเว็บแล้ว (Draft/Publish) จะไม่ยอมลบ — เก็บประวัติบทความที่อยู่บนเว็บลูกค้าไว้เสมอ
+ * DELETE /api/upload-article/clients/[id] body {confirmName} — ลบลูกค้า (cascade ลบบทความทั้งหมด รวมที่ขึ้นเว็บแล้ว)
+ * เจ้าของสั่ง 2026-09-28: ต้องลบได้จริงแม้มีบทความขึ้นเว็บแล้ว — ระบบไม่ลบโพสต์บนเว็บไซต์ลูกค้า
+ * กันพลาด: ต้องส่งชื่อลูกค้าให้ตรง + ห้ามลบระหว่างมีบทความกำลัง push/เขียนอยู่
  */
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -246,28 +254,30 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const existing = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: session.user.organizationId } })
   if (!existing) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
-  // นับ + ลบในทรานแซกชันเดียว กันบทความ push เสร็จแทรกเข้ามาระหว่างนับกับลบพอดี (lost update)
+  const body = await req.json().catch(() => ({} as Record<string, unknown>))
+  if (typeof body.confirmName !== 'string' || body.confirmName.trim() !== existing.name.trim()) {
+    return NextResponse.json({ error: 'ชื่อลูกค้าที่พิมพ์ยืนยันไม่ตรง' }, { status: 400 })
+  }
+
+  // นับ + ลบในทรานแซกชันเดียว กันบทความเริ่ม push/เขียนแทรกเข้ามาระหว่างนับกับลบพอดี
   try {
     await prisma.$transaction(async (tx) => {
-      const pushedCount = await tx.uploadArticle.count({
+      const busyCount = await tx.uploadArticle.count({
         where: {
           clientId: existing.id,
-          OR: [
-            { wordpressPostId: { not: null } },
-            { pushedAt: { not: null } },
-            { status: { in: ['PUSHED', 'PUSHING'] } },
-            { wordpressUrl: { not: null } },
-          ],
+          status: { in: ['PUSHING', 'WRITING'] },
+          updatedAt: { gt: new Date(Date.now() - BUSY_WINDOW_MS) },
         },
       })
-      if (pushedCount > 0) throw new PushedArticlesError(pushedCount)
+      if (busyCount > 0) throw new BusyArticlesError(busyCount)
+      // ลบ Content Engine prompt ที่ผูก scope กับลูกค้านี้ด้วย (PromptVersion cascade ตาม schema แล้ว)
+      await tx.promptTemplate.deleteMany({ where: { organizationId: existing.organizationId, projectId: existing.id } })
       await tx.uploadClient.delete({ where: { id: existing.id } })
     })
   } catch (err) {
-    if (err instanceof PushedArticlesError) {
+    if (err instanceof BusyArticlesError) {
       return NextResponse.json({
-        error: `ลบลูกค้าไม่ได้ — มีบทความที่ขึ้นเว็บไซต์แล้ว ${err.count} บทความ ระบบเก็บไว้ไม่ให้หาย`,
-        pushedCount: err.count,
+        error: `ลบลูกค้าไม่ได้ตอนนี้ — มีบทความกำลัง push หรือกำลังเขียนอยู่ ${err.count} บทความ รอให้เสร็จก่อนแล้วลองใหม่`,
       }, { status: 409 })
     }
     throw err

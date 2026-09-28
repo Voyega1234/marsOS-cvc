@@ -1,6 +1,7 @@
 import type { UploadArticleStatus } from "@/lib/upload-article/types";
 
 const CONFIG: Record<UploadArticleStatus, { label: string; className: string }> = {
+  WRITING: { label: "กำลังเขียน", className: "bg-sky-100 text-sky-700" },
   IMPORTED: { label: "นำเข้าแล้ว", className: "bg-gray-100 text-gray-600" },
   GENERATED: { label: "Generate แล้ว", className: "bg-blue-100 text-brand-blue" },
   REVIEWED: { label: "ผ่าน Review", className: "bg-emerald-100 text-emerald-700" },

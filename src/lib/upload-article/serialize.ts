@@ -1,8 +1,10 @@
 // ─── Upload Article — แปลง row จาก Prisma เป็น DTO ที่ปลอดภัยส่งให้ frontend ───
 // ห้ามส่ง wpAppPasswordEnc / siteConnection ดิบกลับไปเด็ดขาด (mask เท่านั้น)
 
-import type { UploadArticleDTO, UploadArticleStatus, UploadClientDTO, UploadOutputMode, UploadPushPrefs, UploadTheme } from './types'
+import type { UploadArticleDTO, UploadArticleStatus, UploadCardSelection, UploadClientDTO, UploadOutputMode, UploadPushPrefs, UploadTheme } from './types'
 import { DEFAULT_UPLOAD_THEME } from './types'
+import { HEAVY_PREF_KEYS } from './prefs-store'
+import { readImageDefaults } from './article-images'
 
 function safeParse<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback
@@ -56,9 +58,44 @@ export interface UploadClientCounts {
   failed: number
 }
 
+/** เอาเฉพาะ entry ที่มีรูปร่างถูกต้อง — กัน pushPrefs.cardSel ที่เพี้ยน/ถูกแก้มือหลุดไปหน้า UI */
+function sanitizeCardSel(raw: unknown): Record<string, UploadCardSelection> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: Record<string, UploadCardSelection> = {}
+  for (const [articleId, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!val || typeof val !== 'object') continue
+    const v = val as Record<string, unknown>
+    if (typeof v.version !== 'string') continue
+    if (!Array.isArray(v.off)) continue
+    const off = v.off.filter((x): x is string => typeof x === 'string')
+    out[articleId] = { version: v.version, off }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/** publishAt ต้องเป็น ISO ที่ parse ได้เท่านั้น */
+function sanitizePublishAt(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: Record<string, string> = {}
+  for (const [articleId, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof val === 'string' && !Number.isNaN(Date.parse(val))) out[articleId] = val
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCounts): UploadClientDTO {
   const theme = safeParse<UploadTheme>(row.themeColors, DEFAULT_UPLOAD_THEME)
-  const pushPrefs = safeParse<UploadPushPrefs>(row.pushPrefs, {})
+  const rawPrefs = safeParse<UploadPushPrefs>(row.pushPrefs, {})
+  // key หนัก (keywordPlan/internalLinks) ไม่ส่งไปกับ DTO นี้ — หน้า UI โหลดผ่าน route เฉพาะของมันเอง
+  const pushPrefs: UploadPushPrefs = { ...rawPrefs }
+  for (const key of HEAVY_PREF_KEYS) delete (pushPrefs as Record<string, unknown>)[key]
+  const cardSel = sanitizeCardSel((rawPrefs as Record<string, unknown>).cardSel)
+  if (cardSel) pushPrefs.cardSel = cardSel
+  else delete pushPrefs.cardSel
+  const publishAt = sanitizePublishAt((rawPrefs as Record<string, unknown>).publishAt)
+  if (publishAt) pushPrefs.publishAt = publishAt
+  else delete pushPrefs.publishAt
+  pushPrefs.imageDefaults = readImageDefaults((rawPrefs as Record<string, unknown>).imageDefaults)
   return {
     id: row.id,
     name: row.name,

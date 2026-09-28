@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { humanBodyRulesBlock } from '@/lib/upload-article/human-voice'
 import { parse } from 'node-html-parser'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -7,6 +8,7 @@ import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { OR_MODELS } from '@/lib/openrouter'
 import { logAIJob } from '@/lib/logAIJob'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
+import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 
 function sanitizeSlug(raw: string): string {
   return raw
@@ -44,6 +46,23 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
   const client = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
+  // ค่าจากตาราง brief ของผู้เขียนในต้นฉบับชนะเสมอ — AI เติมเฉพาะช่องที่ brief ไม่มี
+  const brief = extractBriefMeta(article.sourceHtml)
+  // บทความที่ push ขึ้นเว็บแล้ว ห้ามเปลี่ยน slug — URL จริงจะเปลี่ยนตามไปด้วย
+  const alreadyPushed = Boolean(article.pushedAt || article.wordpressPostId)
+
+  if (brief.seoTitle && brief.metaDescription && brief.slug) {
+    // brief มีครบทั้ง 3 ช่อง — ไม่ต้องเรียก AI เลย
+    const seoTitle = brief.seoTitle
+    const metaDescription = brief.metaDescription
+    const slug = alreadyPushed ? article.slug : brief.slug
+    const htmlContent = article.htmlContent
+      ? refreshUploadSchema(article.htmlContent, uploadSchemaOptions({ ...article, seoTitle, metaDescription, slug }, client))
+      : article.htmlContent
+    await prisma.uploadArticle.update({ where: { id: article.id }, data: { seoTitle, metaDescription, slug, htmlContent } })
+    return NextResponse.json({ seoTitle, metaDescription, slug, htmlContent, costUsd: 0 })
+  }
+
   const html = article.htmlContent || article.sourceHtml
   const root = parse(html)
   const h1 = root.querySelector('h1')?.text.trim() || article.title
@@ -57,7 +76,8 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
 รูปแบบ: {"metaTitle": string, "metaDescription": string, "slug": string}
 กติกา:
 - metaTitle: ใช้ H1 ตามเดิม ถ้า H1 ยาวเกิน 60 ตัวอักษรให้ย่อโดยคงคำเดิมของ H1 ให้มากที่สุด ความยาวไม่เกิน 60 ตัวอักษร ใส่คีย์เวิร์ดหลักไว้ต้นประโยค ห้ามเขียนแบบ clickbait ห้ามต่อท้ายชื่อแบรนด์เว้นแต่จะพอดี
-- metaDescription: ความยาว 120-155 ตัวอักษร สรุปสิ่งที่ผู้อ่านจะได้รับ ใช้ภาษาเดียวกับบทความ ห้ามเสกข้อมูล/ตัวเลขที่ไม่มีในบทความ
+- metaDescription: ความยาว 120-155 ตัวอักษร สรุปสิ่งที่ผู้อ่านจะได้รับ ใช้ภาษาเดียวกับบทความ ห้ามเสกข้อมูล/ตัวเลขที่ไม่มีในบทความ เขียนให้เหมือนคนเขียน ไม่ใช่ AI:
+${humanBodyRulesBlock()}
 - slug: คำภาษาอังกฤษล้วนจากความหมายของ H1 ตัวพิมพ์เล็ก คั่นด้วย - ความยาวไม่เกิน 60 ตัวอักษร ใช้ได้เฉพาะ a-z0-9-
 ภาษาของบทความ: ${language === 'en' ? 'English' : 'ไทย'}`
 
@@ -89,18 +109,16 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
 
   if (result.error || !result.data) {
     // AI ล้มเหลว — fallback ตามสเปก ยังตอบ 200 พร้อม warning
-    // ไม่ทับค่าที่ผู้ใช้มีอยู่แล้ว — เติมแค่ title จาก H1 เมื่อยังว่าง
-    const seoTitle = article.seoTitle || fallbackTitle
+    // ไม่ทับค่าที่ผู้ใช้มีอยู่แล้ว — เติมแค่ title จาก H1 เมื่อยังว่าง (brief ชนะถ้ามี)
+    const seoTitle = article.seoTitle || brief.seoTitle || fallbackTitle
     if (!article.seoTitle) await prisma.uploadArticle.update({ where: { id: article.id }, data: { seoTitle } })
-    return NextResponse.json({ seoTitle, metaDescription: article.metaDescription, slug: article.slug, costUsd: result.usage.costUsd, warning: result.error || 'AI ไม่ตอบกลับ' })
+    return NextResponse.json({ seoTitle, metaDescription: article.metaDescription || brief.metaDescription || '', slug: article.slug || (alreadyPushed ? article.slug : brief.slug) || '', costUsd: result.usage.costUsd, warning: result.error || 'AI ไม่ตอบกลับ' })
   }
 
-  // meta title ดึงจาก H1 ตรง ๆ — ใช้ข้อความที่ AI ย่อเฉพาะเมื่อ H1 ยาวเกิน 60 ตัวอักษร
-  const seoTitle = (h1.length <= 60 ? h1 : result.data.metaTitle || fallbackTitle).trim().slice(0, 60)
-  const metaDescription = (result.data.metaDescription || '').trim().slice(0, 155)
-  // บทความที่ push ขึ้นเว็บแล้ว ห้ามเปลี่ยน slug — URL จริงจะเปลี่ยนตามไปด้วย
-  const alreadyPushed = Boolean(article.pushedAt || article.wordpressPostId)
-  const slug = alreadyPushed ? article.slug : sanitizeSlug(result.data.slug || '')
+  // meta title ดึงจาก brief ก่อน ถ้าไม่มีค่อยใช้ H1 ตรง ๆ — ใช้ข้อความที่ AI ย่อเฉพาะเมื่อ H1 ยาวเกิน 60 ตัวอักษร
+  const seoTitle = brief.seoTitle || (h1.length <= 60 ? h1 : result.data.metaTitle || fallbackTitle).trim().slice(0, 60)
+  const metaDescription = brief.metaDescription || (result.data.metaDescription || '').trim().slice(0, 155)
+  const slug = alreadyPushed ? article.slug : (brief.slug || sanitizeSlug(result.data.slug || ''))
 
   const htmlContent = article.htmlContent
     ? refreshUploadSchema(article.htmlContent, uploadSchemaOptions({ ...article, seoTitle, metaDescription, slug }, client))

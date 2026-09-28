@@ -2,7 +2,7 @@
 // ลูกค้าของ Upload Article แยกจาก Project (Clients) เด็ดขาด เก็บในตาราง UploadClient / UploadArticle
 
 export type UploadOutputMode = 'html' | 'text'
-export type UploadArticleStatus = 'IMPORTED' | 'GENERATED' | 'REVIEWED' | 'PUSHING' | 'PUSHED' | 'FAILED'
+export type UploadArticleStatus = 'WRITING' | 'IMPORTED' | 'GENERATED' | 'REVIEWED' | 'PUSHING' | 'PUSHED' | 'FAILED'
 
 export interface UploadTheme {
   theme: string
@@ -115,6 +115,96 @@ export interface UploadPushPrefs {
   excludeCards?: { toc?: boolean; cta?: boolean; faq?: boolean }
   /** ผลสแกนเว็บปลายทางล่าสุด (แสดงซ้ำในหน้า Generate/Push) */
   siteScan?: UploadSiteScan
+  /** card ที่ทีมติ๊กออกในหน้า Push ต่อบทความ — ผูกกับ htmlVersion ถ้า HTML เปลี่ยน ค่านี้ใช้ไม่ได้ */
+  cardSel?: Record<string, UploadCardSelection>
+  /** วัน-เวลาเผยแพร่ที่ตั้งไว้ต่อบทความ (ISO UTC) — push ขึ้น WordPress เป็น date_gmt, อนาคต + publish = ตั้งเวลา (future) */
+  publishAt?: Record<string, string>
+  /** ค่าเริ่มต้นตอนสร้างรูปบทความ (Project Setting > รูปภาพ) */
+  imageDefaults?: UploadImageDefaults
+}
+
+/** ตัวเลือกสร้างรูป: ปก (featured image) + รูปประกอบในเนื้อหา แบบมีตัวหนังสือหรือไม่มี */
+export interface UploadImageDefaults {
+  cover: boolean
+  coverWithText: boolean
+  inlineCount: number
+  inlineWithText: boolean
+}
+
+export const UPLOAD_MAX_INLINE_IMAGES = 5
+
+export const DEFAULT_UPLOAD_IMAGE_DEFAULTS: UploadImageDefaults = {
+  cover: true,
+  coverWithText: true,
+  inlineCount: 2,
+  inlineWithText: false,
+}
+
+export interface UploadCardSelection {
+  /** uploadHtmlVersion(htmlContent) ตอนที่เลือก */
+  version: string
+  /** id ของ card ที่ไม่เอาขึ้นเว็บ */
+  off: string[]
+}
+
+// ── Keyword (แท็บแรก) — เก็บใน pushPrefs.keywordPlan (ไม่ส่งไปกับ UploadClientDTO) ──
+
+export type UploadKeywordIntent = 'informational' | 'educational' | 'commercial' | 'transactional' | 'navigational'
+
+export const UPLOAD_INTENT_LABELS: Record<UploadKeywordIntent, string> = {
+  informational: 'Informational',
+  educational: 'Educational',
+  commercial: 'Commercial',
+  transactional: 'Transactional',
+  navigational: 'Navigational',
+}
+
+export interface UploadKeyword {
+  id: string
+  keyword: string
+  /** search volume ถ้าวางมาด้วย */
+  volume?: number | null
+  /** ชื่อบทความ (H1) ที่ AI เสนอ — แก้เองได้ */
+  title: string
+  slug: string
+  intent: UploadKeywordIntent | ''
+  /** ประเภทบทความ เช่น บทความให้ความรู้ / How-to / Listicle / เปรียบเทียบ / รีวิว */
+  articleType: string
+  /** โน้ตเพิ่มให้คนเขียน (ส่งเข้า prompt ตอนเขียน) */
+  note?: string
+  /** บทความที่เขียนจาก keyword นี้ล่าสุด (UploadArticle.id) */
+  articleId?: string
+  /** ข้อความผิดพลาดจากการเขียนรอบล่าสุด (ว่าง = ไม่มี) */
+  writeError?: string
+  createdAt: string
+}
+
+// ── Internal Link — เก็บใน pushPrefs.internalLinks (ไม่ส่งไปกับ UploadClientDTO) ──
+
+export interface UploadLinkPair {
+  keyword: string
+  url: string
+  clicks?: number
+}
+
+export interface UploadInternalLinks {
+  /** GSC property ที่เลือกไว้ เช่น sc-domain:example.com หรือ https://example.com/ */
+  gscSiteUrl: string
+  /** จำนวนลิงก์ต่อบทความ เช่น "3-5" หรือ "3" */
+  linksPerArticle: string
+  gsc: UploadLinkPair[]
+  manual: UploadLinkPair[]
+  /** URL ที่ติ๊กไม่เอา */
+  excluded: string[]
+  gscFetchedAt?: string
+}
+
+export const DEFAULT_UPLOAD_INTERNAL_LINKS: UploadInternalLinks = {
+  gscSiteUrl: '',
+  linksPerArticle: '3-5',
+  gsc: [],
+  manual: [],
+  excluded: [],
 }
 
 export interface UploadClientDTO {

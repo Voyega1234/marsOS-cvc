@@ -7,10 +7,9 @@
  */
 import { useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Globe, Loader2, Plug, XCircle, Trash2 } from "lucide-react";
+import { CheckCircle2, Globe, Loader2, Plug, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 
 const PLATFORMS = [
@@ -23,11 +22,10 @@ const PLATFORMS = [
 type PlatformId = (typeof PLATFORMS)[number]["id"];
 
 export default function ConnectTab({
-  client, setClient, onDeleted,
+  client, setClient,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
-  onDeleted: () => void;
 }) {
   const [name, setName] = useState(client.name);
   const [website, setWebsite] = useState(client.website);
@@ -43,10 +41,6 @@ export default function ConnectTab({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteTyped, setDeleteTyped] = useState("");
-  const [deleting, setDeleting] = useState(false);
 
   function maskedPlaceholder(plat: string, key: string): string {
     return client.siteConnectionMasked?.[`${plat}.${key}`] ?? "";
@@ -103,23 +97,6 @@ export default function ConnectTab({
       setTestResult({ ok: false, message: `เชื่อมต่อไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}` });
     } finally {
       setTesting(false);
-    }
-  }
-
-  async function confirmDelete() {
-    if (deleteTyped.trim() !== client.name) return;
-    setDeleting(true);
-    try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}`, { method: "DELETE" });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        toast.error(d?.error || "ลบไม่สำเร็จ");
-        return;
-      }
-      toast.success("ลบลูกค้าแล้ว");
-      onDeleted();
-    } finally {
-      setDeleting(false);
     }
   }
 
@@ -260,38 +237,6 @@ export default function ConnectTab({
           </div>
         )}
       </div>
-
-      <div className="bg-white border border-rose-200 rounded-xl p-4 space-y-2">
-        <p className="text-sm font-semibold text-rose-600">Danger zone</p>
-        {client.counts.pushed > 0 ? (
-          <p className="text-xs text-gray-500">
-            ลบลูกค้านี้ไม่ได้ — มีบทความที่ขึ้นเว็บไซต์แล้ว {client.counts.pushed} บทความ ระบบเก็บไว้ไม่ให้หาย
-            (ระบบไม่เคยลบโพสต์บนเว็บไซต์ลูกค้า)
-          </p>
-        ) : (
-          <p className="text-xs text-gray-500">
-            ลบลูกค้านี้จะลบบทความในระบบทั้งหมดของลูกค้านี้ไปด้วย ทำแล้วกู้คืนไม่ได้
-            (บทความที่ขึ้นเว็บแล้วลบไม่ได้ และระบบไม่ลบโพสต์บนเว็บไซต์ลูกค้า)
-          </p>
-        )}
-        <Button variant="destructive" size="sm" disabled={client.counts.pushed > 0} onClick={() => setDeleteOpen(true)}>
-          <Trash2 size={12} className="mr-1.5" /> ลบลูกค้านี้
-        </Button>
-      </div>
-
-      <Dialog open={deleteOpen} onOpenChange={v => { setDeleteOpen(v); if (!v) setDeleteTyped(""); }}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>ยืนยันการลบ "{client.name}"</DialogTitle></DialogHeader>
-          <p className="text-sm text-gray-600">พิมพ์ชื่อลูกค้า <strong>{client.name}</strong> เพื่อยืนยันการลบ</p>
-          <Input value={deleteTyped} onChange={e => setDeleteTyped(e.target.value)} />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>ยกเลิก</Button>
-            <Button variant="destructive" disabled={deleteTyped.trim() !== client.name || deleting} onClick={confirmDelete}>
-              {deleting ? "กำลังลบ..." : "ลบถาวร"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

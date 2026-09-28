@@ -6,6 +6,7 @@ import { OR_MODELS } from '@/lib/openrouter'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import { scanUploadSite } from '@/lib/upload-article/site-scan'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
+import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 
 export const maxDuration = 300
 
@@ -54,19 +55,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }).catch(() => {})
   }
 
-  // สแกนใช้เวลาหลายนาที — pushPrefs อาจถูกทีมแก้ระหว่างนี้ (เช่นสลับ publishMode) ต้องอ่านค่าล่าสุดก่อนเขียนทับ กันค่าที่แก้ไปหาย (lost update)
-  const fresh = await prisma.uploadClient.findUnique({ where: { id: client.id }, select: { pushPrefs: true } })
-  let prefs: UploadPushPrefs
-  try {
-    prefs = JSON.parse(fresh?.pushPrefs ?? client.pushPrefs)
-  } catch {
-    prefs = {}
-  }
+  // สแกนใช้เวลาหลายนาที — pushPrefs อาจถูกทีมแก้ระหว่างนี้ (เช่นสลับ publishMode) ต้องเขียนผ่าน updatePrefs
+  // (ล็อกแถว อ่านค่าล่าสุดก่อนแก้) กันค่าที่แก้ไปหาย (lost update)
   const c = result.scan.components
-  prefs.siteScan = { ...result.scan, suggestedTheme: result.suggestedTheme, detail: result.detail }
-  prefs.excludeCards = { toc: c.toc.where === 'auto', faq: c.faq.where === 'auto', cta: c.cta.where === 'auto' }
-
-  const updated = await prisma.uploadClient.update({ where: { id: client.id }, data: { pushPrefs: JSON.stringify(prefs) } })
+  const prefsResult = await updatePrefs(client.id, orgId, (current) => {
+    const next: UploadPushPrefs = { ...(current as UploadPushPrefs) }
+    next.siteScan = { ...result.scan, suggestedTheme: result.suggestedTheme, detail: result.detail }
+    next.excludeCards = { toc: c.toc.where === 'auto', faq: c.faq.where === 'auto', cta: c.cta.where === 'auto' }
+    return { prefs: next as PrefsObject, result: next }
+  })
+  if (!prefsResult) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  const updated = { ...client, pushPrefs: JSON.stringify(prefsResult.result) }
   const articles = await prisma.uploadArticle.findMany({ where: { clientId: client.id }, select: { status: true } })
   const counts = computeClientCounts(articles)
 

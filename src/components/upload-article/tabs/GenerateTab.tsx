@@ -1,26 +1,32 @@
 "use client";
 
 /**
- * แท็บ Generate — ตั้งธีมจากเว็บต้นฉบับ (หรือแก้เอง) แล้วสร้าง HTML/Text พร้อมใช้
+ * แท็บ Generate — สร้าง HTML/Text พร้อมใช้จากบทความที่นำเข้า/เขียนแล้ว
  * ระบบไม่เขียนเนื้อหาเพิ่ม แค่จัดโครงสร้าง + Schema/Breadcrumb/FAQ/สารบัญ
+ * สไตล์บทความ (สี/ฟอนต์/สแกนเว็บ) ย้ายไปแท็บ Project Setting > สแกนเว็บปลายทาง / สไตล์บทความ แล้ว
+ * ที่นี่ generate ใช้ธีมที่บันทึกไว้ของ client (client.theme) เสมอ — ไม่ส่ง draft ไปกับ request
  */
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Copy, ArrowRight, CheckSquare, Square, ChevronDown, ChevronRight } from "lucide-react";
+import { Copy, ArrowRight, CheckSquare, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import ArticleFrame from "@/components/shared/ArticleFrame";
-import { UPLOAD_FONT_INHERIT, type UploadArticleDTO, type UploadClientDTO, type UploadOutputMode, type UploadTheme, type UploadThemeDetail } from "@/lib/upload-article/types";
-import FontPicker from "../shared/FontPicker";
-import SiteScanPanel from "../shared/SiteScanPanel";
-import FaqStyleEditor from "../shared/FaqStyleEditor";
+import { UPLOAD_FONT_INHERIT, type UploadArticleDTO, type UploadClientDTO, type UploadOutputMode } from "@/lib/upload-article/types";
+import type { SettingsSection } from "../settings/SettingsTab";
 import { toReadableHtml, shortenDataUris, copyRichText } from "../shared/readableHtml";
 
 const GENERATABLE = new Set(["IMPORTED", "GENERATED", "REVIEWED", "FAILED"]);
 
+function fontLabel(f?: string): string {
+  if (!f) return "ค่าเริ่มต้น (IBM Plex Sans Thai)";
+  if (f === UPLOAD_FONT_INHERIT) return "ใช้ฟอนต์ของเว็บ";
+  return f.split(",")[0].replace(/['"]/g, "").trim();
+}
+
 export default function GenerateTab({
-  client, setClient, articles, selected, selectedId, setSelectedId,
-  loadArticleDetail, articleDetails, applyArticleUpdate, goToReview,
+  client, articles, selected, selectedId, setSelectedId,
+  loadArticleDetail, articleDetails, applyArticleUpdate, goToReview, onOpenSettings,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
@@ -32,12 +38,10 @@ export default function GenerateTab({
   articleDetails: Record<string, UploadArticleDTO>;
   applyArticleUpdate: (a: UploadArticleDTO) => void;
   goToReview: (id: string) => void;
+  onOpenSettings?: (section: SettingsSection) => void;
 }) {
-  const [scanUrl, setScanUrl] = useState(client.website || "");
-  const [scanning, setScanning] = useState(false);
-  const [themeDraft, setThemeDraft] = useState<UploadTheme>(client.theme);
-  const [savingTheme, setSavingTheme] = useState(false);
-  const [showFaqEditor, setShowFaqEditor] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [outputMode, setOutputMode] = useState<UploadOutputMode>("html");
   const [breadcrumb, setBreadcrumb] = useState(true);
@@ -48,69 +52,14 @@ export default function GenerateTab({
 
   const [previewMode, setPreviewMode] = useState<"preview" | "html" | "text">("preview");
 
-  // เทียบค่าแทน reference — สแกนเว็บคืน client ใหม่ทั้งก้อน ไม่ควรล้างธีมที่กำลังแก้
-  const savedThemeKey = JSON.stringify(client.theme);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setThemeDraft(client.theme); }, [savedThemeKey]);
   useEffect(() => { if (selectedId) void loadArticleDetail(selectedId); }, [selectedId, loadArticleDetail]);
 
   const genList = useMemo(() => articles.filter(a => GENERATABLE.has(a.status)), [articles]);
   const detail = selectedId ? articleDetails[selectedId] : null;
 
-  function setColor(key: keyof UploadTheme, val: string) {
-    setThemeDraft(prev => ({ ...prev, [key]: val }));
-  }
-
-  async function runThemeScan() {
-    setScanning(true);
-    try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}/theme-scan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(scanUrl.trim() ? { url: scanUrl.trim() } : {}),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "สแกนธีมไม่สำเร็จ"); return; }
-      if (d.theme) {
-        // ฟอนต์ที่ตั้งไว้เป็น "ใช้ฟอนต์ของเว็บ" (inherit) หรือยังไม่ได้ตั้ง (ว่าง) ไม่ควรถูกผลสแกนทับ — ผู้ใช้ตั้งใจเลือกไว้แบบนั้นแล้ว
-        setThemeDraft(prev => ({
-          ...d.theme,
-          styleMode: prev.styleMode,
-          detail: prev.detail,
-          fontFamily: (prev.fontFamily === UPLOAD_FONT_INHERIT || !prev.fontFamily) ? prev.fontFamily : d.theme.fontFamily,
-          headingFont: !prev.headingFont ? prev.headingFont : d.theme.headingFont,
-        }));
-        toast.success("ดึงธีมจากเว็บสำเร็จ — ตรวจสอบสีแล้วกดบันทึกธีม");
-      }
-    } catch (e) {
-      toast.error(`สแกนไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setScanning(false);
-    }
-  }
-
-  /** รับสี/ฟอนต์ + หน้าตา FAQ จากผลสแกนเว็บปลายทาง — ยังไม่บันทึกจนกดบันทึกธีม */
-  function applyScannedTheme(theme: Partial<UploadTheme>, detail: UploadThemeDetail | null) {
-    setThemeDraft(prev => ({ ...prev, ...theme, styleMode: prev.styleMode, detail: detail ?? prev.detail }));
-    if (detail) setShowFaqEditor(true);
-    toast.success("ใส่ธีมจากเว็บแล้ว — ตรวจพรีวิวแล้วกดบันทึกธีม");
-  }
-
-  async function saveTheme() {
-    setSavingTheme(true);
-    try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme: { ...themeDraft, detail: themeDraft.detail ?? null } }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "บันทึกธีมไม่สำเร็จ"); return; }
-      setClient(d);
-      toast.success("บันทึกธีมแล้ว");
-    } finally {
-      setSavingTheme(false);
-    }
+  function openStyleSettings() {
+    if (onOpenSettings) { onOpenSettings("style"); return; }
+    router.replace(`${pathname}?tab=settings&section=style`);
   }
 
   function toggleGen(id: string) {
@@ -165,76 +114,20 @@ export default function GenerateTab({
         ระบบไม่เขียนเนื้อหาเพิ่ม — จัดโครงสร้าง ใส่ Schema, Breadcrumb, FAQ, สารบัญ ให้เท่านั้น
       </p>
 
-      <SiteScanPanel client={client} setClient={setClient} onApplyTheme={applyScannedTheme}
-        title="สแกนเว็บปลายทาง — ธีม, ปลั๊กอิน, หน้าตา FAQ (ละเอียด)" />
-
-      {/* เว็บไซต์ต้นฉบับ / ธีม */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
-        <p className="text-sm font-semibold text-brand-navy">เว็บไซต์ต้นฉบับ</p>
-        <div className="flex gap-2">
-          <Input value={scanUrl} onChange={e => setScanUrl(e.target.value)} placeholder="https://www.example.com" className="flex-1" />
-          <Button variant="outline" disabled={scanning} onClick={runThemeScan}>
-            {scanning ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Sparkles size={14} className="mr-1.5" />}
-            {scanning ? "กำลังดึงธีม... (อาจใช้เวลาถึง 1 นาที)" : "ดึงธีมจากเว็บต้นฉบับ"}
-          </Button>
+      <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 text-xs text-gray-600 flex-wrap">
+          <span className="font-semibold text-brand-navy">สไตล์บทความ:</span>
+          <span>{fontLabel(client.theme.fontFamily)}</span>
+          <span className="text-gray-300">·</span>
+          <span className="flex items-center gap-1">
+            สี
+            <span className="inline-block h-3 w-3 rounded-full border border-gray-200" style={{ background: client.theme.theme || "#fff" }} />
+            <span className="inline-block h-3 w-3 rounded-full border border-gray-200" style={{ background: client.theme.accent || "#fff" }} />
+          </span>
         </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {([
-            ["theme", "สีหลัก"], ["text", "สีตัวอักษร"], ["border", "สีเส้นขอบ"],
-            ["accent", "สีเน้น"], ["background", "สีพื้นหลัง"],
-          ] as const).map(([key, label]) => (
-            <div key={key}>
-              <label className="block text-[11px] font-semibold text-gray-500 mb-1">{label}</label>
-              <div className="flex items-center gap-1.5">
-                <input type="color" value={themeDraft[key] || "#ffffff"} onChange={e => setColor(key, e.target.value)}
-                  className="h-8 w-8 rounded border border-gray-200 cursor-pointer shrink-0" />
-                <Input value={themeDraft[key] || ""} onChange={e => setColor(key, e.target.value)}
-                  placeholder="#ffffff" className="text-xs h-8" />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FontPicker label="Font ตัวอักษร" value={themeDraft.fontFamily || ""}
-            onChange={v => setThemeDraft(p => ({ ...p, fontFamily: v }))}
-            noneValue={UPLOAD_FONT_INHERIT} noneLabel="ไม่ใส่ฟอนต์ — ใช้ฟอนต์ของเว็บ"
-            defaultLabel="ค่าเริ่มต้น (IBM Plex Sans Thai)" />
-          <FontPicker label="Font หัวข้อ" value={themeDraft.headingFont || ""}
-            onChange={v => setThemeDraft(p => ({ ...p, headingFont: v }))}
-            noneValue="" noneLabel="ไม่ใส่ฟอนต์ — ใช้ตาม Font ตัวอักษร / ธีมเว็บ" />
-        </div>
-
-        <div>
-          <label className="block text-[11px] font-semibold text-gray-500 mb-1.5">รูปแบบ CSS</label>
-          <div className="flex gap-3 text-xs">
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input type="radio" checked={themeDraft.styleMode === "embed"} onChange={() => setThemeDraft(p => ({ ...p, styleMode: "embed" }))} />
-              embed — ใส่ CSS มากับบทความ
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input type="radio" checked={themeDraft.styleMode === "clean"} onChange={() => setThemeDraft(p => ({ ...p, styleMode: "clean" }))} />
-              clean — ใช้ CSS ของธีมเว็บ
-            </label>
-          </div>
-        </div>
-
-        <div className="border border-gray-100 rounded-lg">
-          <button onClick={() => setShowFaqEditor(v => !v)} className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-brand-navy">
-            {showFaqEditor ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            หน้าตา FAQ card + ตาราง (ละเอียด){themeDraft.detail ? " · ตั้งค่าแล้ว" : ""}
-          </button>
-          {showFaqEditor && (
-            <div className="px-3 pb-3 border-t border-gray-100 pt-3">
-              <FaqStyleEditor theme={themeDraft} onChange={d => setThemeDraft(p => ({ ...p, detail: d }))} />
-            </div>
-          )}
-        </div>
-
-        <Button size="sm" disabled={savingTheme} onClick={saveTheme}>
-          {savingTheme ? "กำลังบันทึก..." : "บันทึกธีม"}
-        </Button>
+        <button onClick={openStyleSettings} className="text-xs font-semibold text-brand-blue hover:underline shrink-0">
+          แก้ใน Project Setting
+        </button>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-4 items-start">

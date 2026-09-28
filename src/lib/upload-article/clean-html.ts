@@ -65,6 +65,9 @@ function normalizeForSchemeCheck(raw: string): string {
 
 const SAFE_HREF_SCHEME_RE = /^(https?:|mailto:|tel:)/i
 
+/** ลิงก์ที่ชี้ไป bookmark/heading ภายในไฟล์ต้นฉบับ เช่น #bookmark=id.xxx, #heading=h.xxx, #_Toc123 */
+const DOC_INTERNAL_ANCHOR_RE = /^#(bookmark=|heading=|h\.|id\.|_)/i
+
 /** allowlist ของ a[href]: http/https/mailto/tel หรือขึ้นต้นด้วย # หรือ / เท่านั้น — อื่น ๆ ตัด href ทิ้ง */
 export function sanitizeHref(raw: string): string {
   const trimmed = (raw || '').trim()
@@ -155,6 +158,13 @@ function cleanElement(el: HTMLElement): void {
 
   if (tag === 'a') {
     const href = sanitizeHref(unwrapGoogleRedirect(el.getAttribute('href') || ''))
+    // ลิงก์ภายในเอกสาร Google Doc/Word (bookmark/heading) ใช้ไม่ได้บนเว็บ — เหลือแค่ข้อความ (คำไม่หาย)
+    if (DOC_INTERNAL_ANCHOR_RE.test(href)) {
+      const nodes: Node[] = [...el.childNodes]
+      if (nodes.length > 0) el.replaceWith(...nodes)
+      else el.remove()
+      return
+    }
     el.setAttributes(href ? { href } : {})
     return
   }
@@ -195,6 +205,32 @@ function cleanElement(el: HTMLElement): void {
   else el.remove()
 }
 
+/**
+ * ตัดคอมเมนต์ของ Google Docs ทิ้ง — ไม่แตะเชิงอรรถ (#ftnt)
+ * - marker อินไลน์ในเนื้อหา: <a href="#cmnt1" id="cmnt_ref1">[a]</a> (href ขึ้นต้น #cmnt แต่ไม่ใช่ #cmnt_ref)
+ *   ลบตัว <a> เอง — ถ้าถูกห่อด้วย <sup> ที่มีแค่ marker นี้ตัวเดียว ลบ <sup> ทั้งก้อนไปด้วย
+ * - บล็อกเนื้อหาคอมเมนต์ท้ายเอกสาร: <div><p><a href="#cmnt_ref1" id="cmnt1">[a]</a>ข้อความคอมเมนต์</p></div>
+ *   หา <a href="#cmnt_ref..."> แล้วลบ <div>/<p> ที่ใกล้ที่สุดซึ่งห่อ anchor นี้อยู่ทิ้งทั้งก้อน
+ */
+function stripGoogleDocsComments(root: HTMLElement): void {
+  for (const a of root.querySelectorAll('a')) {
+    const href = a.getAttribute('href') || ''
+    if (/^#cmnt(?!_ref)/.test(href)) {
+      const parent = a.parentNode
+      if (parent && parent.tagName?.toLowerCase() === 'sup' && parent.childNodes.length === 1) {
+        parent.remove()
+      } else {
+        a.remove()
+      }
+    }
+  }
+  for (const a of root.querySelectorAll('a[href^="#cmnt_ref"]')) {
+    const block = a.closest('div, p')
+    if (block) block.remove()
+    else a.remove()
+  }
+}
+
 /** ครอบ text node เดี่ยว ๆ ที่หลุดอยู่ระดับบนสุด (ไม่มี <p> ห่อ) ให้เป็น <p> */
 function wrapStrayTextAtRoot(root: HTMLElement): void {
   const next: (typeof root.childNodes) = []
@@ -230,6 +266,7 @@ export function cleanSemanticHtml(rawHtml: string): string {
     .replace(/<xml>[\s\S]*?<\/xml>/gi, '')
 
   const root = parse(stripped, { comment: false, ...PARSE_OPTIONS })
+  stripGoogleDocsComments(root)
   for (const child of [...root.childNodes]) {
     if (child.nodeType === NodeType.ELEMENT_NODE) cleanElement(child as HTMLElement)
   }

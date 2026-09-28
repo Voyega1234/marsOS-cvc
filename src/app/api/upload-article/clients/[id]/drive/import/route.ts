@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { extractTitleFromHtml, fetchGoogleDoc, importFromFile, type ImportResult } from '@/lib/upload-article/import-source'
+import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 import {
   downloadDriveFile,
   driveFolderUrl,
@@ -85,6 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
   }
 
+  const brief = extractBriefMeta(result.html)
   const row = await prisma.uploadArticle.create({
     data: {
       organizationId: orgId,
@@ -95,6 +97,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       sourceHtml: result.html,
       ...(coverImageUrl ? { coverImageUrl, coverAlt: title } : {}),
       createdById: session.user.id,
+      ...(brief.seoTitle ? { seoTitle: brief.seoTitle } : {}),
+      ...(brief.metaDescription ? { metaDescription: brief.metaDescription } : {}),
+      ...(brief.slug ? { slug: brief.slug } : {}),
     },
   })
 
