@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_UPLOAD_IMAGE_DEFAULTS, type UploadArticleDTO, type UploadClientDTO, type UploadKeyword } from "@/lib/upload-article/types";
 import { requestArticleImages } from "@/components/upload-article/shared/AiImagesPanel";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
+import { PBN_MAX_VARIANTS, parseWriterSourceName, writerSourceName } from "@/lib/upload-article/pbn";
 
 const MAX_CONCURRENCY = 10;
 const IDLE_TIMEOUT_MS = 90_000;
@@ -48,12 +49,23 @@ function describeWriteError(raw: string): { message: string; transient: boolean 
   return { message: "การเชื่อมต่อกับระบบ Mars ขาดกลางทาง (ขัดข้องชั่วคราว)", transient };
 }
 
+/** งานเขียน 1 ชิ้น — เวอร์ชัน 1 ใช้ key = keywordId (เหมือนเดิม), เวอร์ชันอื่น = keywordId#v<k> */
+type WriteJob = { key: string; keywordId: string; variant: number; total: number };
+
+function jobKey(keywordId: string, variant: number): string {
+  return variant > 1 ? `${keywordId}#v${variant}` : keywordId;
+}
+
+function makeJob(keywordId: string, variant: number, total: number): WriteJob {
+  return { key: jobKey(keywordId, variant), keywordId, variant, total };
+}
+
 function hasArticle(s: RowStatus | undefined): s is Extract<RowStatus, { articleId: string }> {
   return !!s && (s.phase === "written" || s.phase === "images" || s.phase === "done");
 }
 
 export default function WriteTab({
-  client, articles, preselectIds, clearPreselect, refreshArticles, applyArticleUpdate, goToReview, onOpenSettings,
+  client, articles, preselectIds, clearPreselect, refreshArticles, applyArticleUpdate, goToReview, onOpenSettings, variantsEnabled = false,
 }: {
   client: UploadClientDTO;
   articles: UploadArticleDTO[];
@@ -63,6 +75,8 @@ export default function WriteTab({
   applyArticleUpdate: (a: UploadArticleDTO) => void;
   goToReview: (articleId: string) => void;
   onOpenSettings: (section: SettingsSection) => void;
+  /** PBN Backlinks: เลือกจำนวนบทความต่อ keyword ได้ (title + keyword เดียวกัน เขียนต่างกัน intent เดิม) */
+  variantsEnabled?: boolean;
 }) {
   const [ready, setReady] = useState<boolean | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
@@ -74,6 +88,9 @@ export default function WriteTab({
   const [stage, setStage] = useState<"writing" | "images" | null>(null);
   /** keyword ในรอบที่กำลังรัน — ใช้นับความคืบหน้า */
   const [runIds, setRunIds] = useState<string[]>([]);
+  /** จำนวนบทความต่อ keyword (PBN) — Upload Article = 1 เสมอ */
+  const [variantCount, setVariantCount] = useState(1);
+  const perKeyword = variantsEnabled ? variantCount : 1;
   const imageDefaults = client.pushPrefs.imageDefaults ?? DEFAULT_UPLOAD_IMAGE_DEFAULTS;
   const imagesPlanned = imageDefaults.cover || imageDefaults.inlineCount > 0;
   const [autoImages, setAutoImages] = useState(false);
@@ -126,7 +143,9 @@ export default function WriteTab({
     return () => window.removeEventListener("beforeunload", handler);
   }, [running]);
 
-  async function pollUntilDone(keywordId: string, withImages: boolean): Promise<boolean> {
+  async function pollUntilDone(job: WriteJob, withImages: boolean): Promise<boolean> {
+    const { key, keywordId } = job;
+    const source = writerSourceName(keywordId, job.variant);
     const deadline = Date.now() + POLL_DEADLINE_MS;
     while (Date.now() < deadline) {
       await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
@@ -134,29 +153,30 @@ export default function WriteTab({
         const r = await fetch(`/api/upload-article/clients/${client.id}/articles`);
         if (r.ok) {
           const list: UploadArticleDTO[] = await r.json();
-          const found = list.find(a => a.sourceName === `kw:${keywordId}` && a.status === "GENERATED");
+          const found = list.find(a => a.sourceName === source && a.status === "GENERATED");
           if (found) {
-            setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "written", articleId: found.id, imagesPending: withImages } }));
-            setKeywords(prev => prev.map(k => (k.id === keywordId ? { ...k, articleId: found.id } : k)));
+            setRowStatus(prev => ({ ...prev, [key]: { phase: "written", articleId: found.id, imagesPending: withImages } }));
+            if (job.variant === 1) setKeywords(prev => prev.map(k => (k.id === keywordId ? { ...k, articleId: found.id } : k)));
             applyArticleUpdate(found);
-            writtenRef.current.push({ keywordId, articleId: found.id });
+            writtenRef.current.push({ keywordId: key, articleId: found.id });
             await refreshArticles();
             return true;
           }
         }
       } catch { /* เก็บ polling ต่อไป */ }
     }
-    setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "error", message: "รอผลนานเกินไป — ลองกดรีเฟรชหน้า ถ้าเขียนเสร็จแล้วบทความจะขึ้นเอง" } }));
+    setRowStatus(prev => ({ ...prev, [key]: { phase: "error", message: "รอผลนานเกินไป — ลองกดรีเฟรชหน้า ถ้าเขียนเสร็จแล้วบทความจะขึ้นเอง" } }));
     return false;
   }
 
-  async function runWriteOne(keywordId: string, withImages: boolean, attempt: number): Promise<WriteResult> {
+  async function runWriteOne(job: WriteJob, withImages: boolean, attempt: number): Promise<WriteResult> {
+    const { key, keywordId } = job;
     const fail = (raw: string): WriteResult => {
       const { message, transient } = describeWriteError(raw);
-      setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "error", message, detail: message === raw ? undefined : raw } }));
+      setRowStatus(prev => ({ ...prev, [key]: { phase: "error", message, detail: message === raw ? undefined : raw } }));
       return { ok: false, transient };
     };
-    setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "writing", elapsed: 0, chars: 0, attempt } }));
+    setRowStatus(prev => ({ ...prev, [key]: { phase: "writing", elapsed: 0, chars: 0, attempt } }));
     const controller = new AbortController();
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const resetIdle = () => {
@@ -168,17 +188,21 @@ export default function WriteTab({
       const r = await fetch(`/api/upload-article/clients/${client.id}/write`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywordId, withCta: ctaRunRef.current }),
+        body: JSON.stringify({
+          keywordId,
+          withCta: ctaRunRef.current,
+          ...(job.total > 1 ? { variant: job.variant, variantTotal: job.total } : {}),
+        }),
         signal: controller.signal,
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         if (r.status === 409) {
-          setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "error", message: "keyword นี้กำลังเขียนอยู่แล้ว — รอสักครู่แล้วกดรีเฟรชหน้า" } }));
+          setRowStatus(prev => ({ ...prev, [key]: { phase: "error", message: "keyword นี้กำลังเขียนอยู่แล้ว — รอสักครู่แล้วกดรีเฟรชหน้า" } }));
           return { ok: false, transient: false };
         }
         if (r.status === 422) {
-          setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "error", message: `ยังไม่พร้อมเขียน: ${(d.missing ?? []).join(", ")}` } }));
+          setRowStatus(prev => ({ ...prev, [key]: { phase: "error", message: `ยังไม่พร้อมเขียน: ${(d.missing ?? []).join(", ")}` } }));
           return { ok: false, transient: false };
         }
         // 5xx ก่อนเริ่ม stream = งานยังไม่เริ่ม ลองใหม่ได้ไม่ชนกัน
@@ -202,15 +226,15 @@ export default function WriteTab({
           let msg: { type?: string; elapsed?: number; chars?: number; article?: UploadArticleDTO; error?: string };
           try { msg = JSON.parse(line); } catch { continue; }
           if (msg.type === "start") {
-            setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "writing", elapsed: 0, chars: 0, attempt } }));
+            setRowStatus(prev => ({ ...prev, [key]: { phase: "writing", elapsed: 0, chars: 0, attempt } }));
           } else if (msg.type === "heartbeat") {
-            setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "writing", elapsed: msg.elapsed ?? 0, chars: msg.chars ?? 0, attempt } }));
+            setRowStatus(prev => ({ ...prev, [key]: { phase: "writing", elapsed: msg.elapsed ?? 0, chars: msg.chars ?? 0, attempt } }));
           } else if (msg.type === "done" && msg.article) {
             const article = msg.article;
-            setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "written", articleId: article.id, imagesPending: withImages } }));
-            setKeywords(prev => prev.map(k => (k.id === keywordId ? { ...k, articleId: article.id, writeError: undefined } : k)));
+            setRowStatus(prev => ({ ...prev, [key]: { phase: "written", articleId: article.id, imagesPending: withImages } }));
+            if (job.variant === 1) setKeywords(prev => prev.map(k => (k.id === keywordId ? { ...k, articleId: article.id, writeError: undefined } : k)));
             applyArticleUpdate(article);
-            writtenRef.current.push({ keywordId, articleId: article.id });
+            writtenRef.current.push({ keywordId: key, articleId: article.id });
             result = { ok: true };
           } else if (msg.type === "error") {
             // เซิร์ฟเวอร์ล้างบทความที่ค้างแล้วก่อนส่ง error — เขียนใหม่ได้ทันที
@@ -220,16 +244,16 @@ export default function WriteTab({
       }
       if (result) return result;
       // stream จบโดยไม่มีผล — เซิร์ฟเวอร์อาจยังบันทึกอยู่ ไปรอผลแทน
-      setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "disconnected" } }));
-      return { ok: await pollUntilDone(keywordId, withImages), transient: false } as WriteResult;
+      setRowStatus(prev => ({ ...prev, [key]: { phase: "disconnected" } }));
+      return { ok: await pollUntilDone(job, withImages), transient: false } as WriteResult;
     } catch (e) {
       if (controller.signal.aborted) {
-        setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "disconnected" } }));
-        return { ok: await pollUntilDone(keywordId, withImages), transient: false } as WriteResult;
+        setRowStatus(prev => ({ ...prev, [key]: { phase: "disconnected" } }));
+        return { ok: await pollUntilDone(job, withImages), transient: false } as WriteResult;
       }
       // เน็ตฝั่งเบราว์เซอร์หลุด — เซิร์ฟเวอร์อาจยังเขียนอยู่ จึงไม่ลองใหม่อัตโนมัติ
       const { message } = describeWriteError(e instanceof Error ? e.message : String(e));
-      setRowStatus(prev => ({ ...prev, [keywordId]: { phase: "error", message } }));
+      setRowStatus(prev => ({ ...prev, [key]: { phase: "error", message } }));
       return { ok: false, transient: false };
     } finally {
       if (idleTimer) clearTimeout(idleTimer);
@@ -237,17 +261,17 @@ export default function WriteTab({
   }
 
   /** เขียน 1 keyword — ผู้ให้บริการ AI ขัดข้องชั่วคราวจะลองใหม่อัตโนมัติ 1 ครั้ง */
-  async function writeWithRetry(keywordId: string, withImages: boolean): Promise<boolean> {
-    const first = await runWriteOne(keywordId, withImages, 1);
+  async function writeWithRetry(job: WriteJob, withImages: boolean): Promise<boolean> {
+    const first = await runWriteOne(job, withImages, 1);
     if (first.ok) return true;
     if (!first.transient) return false;
     setRowStatus(prev => {
-      const cur = prev[keywordId];
+      const cur = prev[job.key];
       const reason = cur?.phase === "error" ? cur.message : "ขัดข้องชั่วคราว";
-      return { ...prev, [keywordId]: { phase: "retrying", reason } };
+      return { ...prev, [job.key]: { phase: "retrying", reason } };
     });
     await new Promise(res => setTimeout(res, AUTO_RETRY_DELAY_MS));
-    return (await runWriteOne(keywordId, withImages, 2)).ok;
+    return (await runWriteOne(job, withImages, 2)).ok;
   }
 
   /** สร้างรูปตามค่าใน Project Setting > รูปภาพ ให้บทความที่เพิ่งเขียนเสร็จ (ข้ามส่วนที่มีรูปจากระบบแล้ว) */
@@ -289,7 +313,8 @@ export default function WriteTab({
   }
 
   /** เขียนตามรายการ แล้วสร้างรูปต่อให้บทความที่เขียนสำเร็จ */
-  async function runBatch(ids: string[]) {
+  async function runBatch(jobs: WriteJob[]) {
+    const ids = jobs.map(j => j.key);
     const withImages = autoImages && imagesPlanned;
     ctaRunRef.current = withCta && ctaReady;
     setRunning(true);
@@ -304,7 +329,7 @@ export default function WriteTab({
     try {
       let idx = 0;
       const worker = async () => {
-        while (idx < ids.length) await writeWithRetry(ids[idx++], withImages);
+        while (idx < jobs.length) await writeWithRetry(jobs[idx++], withImages);
       };
       await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENCY, ids.length) }, () => worker()));
       const written = writtenRef.current.length;
@@ -337,11 +362,37 @@ export default function WriteTab({
 
   async function runWriteSelected() {
     const ids = Array.from(selected);
-    if (ids.length) await runBatch(ids);
+    if (!ids.length) return;
+    // เรียงเวอร์ชันแบบสลับ keyword (kw1v1, kw2v1, ..., kw1v2) — ถ้าหยุดกลางทางแต่ละ keyword ยังได้อย่างน้อย 1 บทความ
+    const jobs: WriteJob[] = [];
+    for (let v = 1; v <= perKeyword; v++) for (const id of ids) jobs.push(makeJob(id, v, perKeyword));
+    await runBatch(jobs);
   }
 
-  async function retryKeyword(keywordId: string) {
-    await runBatch([keywordId]);
+  /** เขียนใหม่ทีละงาน (key = keywordId หรือ keywordId#v<k>) */
+  async function retryJob(key: string) {
+    const m = /^(.*)#v(\d+)$/.exec(key);
+    const keywordId = m ? m[1] : key;
+    const variant = m ? Number(m[2]) : 1;
+    await runBatch([makeJob(keywordId, variant, Math.max(variant, variantTotalOf(keywordId)))]);
+  }
+
+  /** จำนวนเวอร์ชันของ keyword นี้ในรอบล่าสุด (ใช้ตอนเขียนใหม่ทีละเวอร์ชันให้ได้มุมเขียนเดิม) */
+  function variantTotalOf(keywordId: string): number {
+    let max = 1;
+    for (const k of Object.keys(rowStatus)) {
+      const m = /^(.*)#v(\d+)$/.exec(k);
+      if (m && m[1] === keywordId) max = Math.max(max, Number(m[2]));
+    }
+    return max;
+  }
+
+  /** key งานของ keyword นี้ที่มีสถานะในรอบนี้ (v1 ก่อน แล้ว v2, v3, ...) */
+  function variantKeysOf(keywordId: string): string[] {
+    const extra = Object.keys(rowStatus)
+      .filter(key => key.startsWith(`${keywordId}#v`))
+      .sort((a, b) => Number(a.slice(a.lastIndexOf("#v") + 2)) - Number(b.slice(b.lastIndexOf("#v") + 2)));
+    return extra.length ? [keywordId, ...extra] : [keywordId];
   }
 
   function toggleSelect(id: string) {
@@ -393,10 +444,24 @@ export default function WriteTab({
           </button>
           <Button size="sm" disabled={!selected.size || running || ready === false} onClick={runWriteSelected}>
             {running ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <PlayCircle size={12} className="mr-1.5" />}
-            {running ? (stage === "images" ? "กำลังสร้างรูป..." : "กำลังเขียน...") : `เขียน ${selected.size || ""} บทความ`}
+            {running ? (stage === "images" ? "กำลังสร้างรูป..." : "กำลังเขียน...") : `เขียน ${selected.size ? selected.size * perKeyword : ""} บทความ`}
           </Button>
         </div>
       </div>
+
+      {variantsEnabled && (
+        <div className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-3 flex-wrap">
+          <label className="text-xs font-semibold text-gray-600" htmlFor="pbn-variant-count">จำนวนบทความต่อ keyword</label>
+          <select id="pbn-variant-count" value={variantCount} disabled={running}
+            onChange={e => setVariantCount(Number(e.target.value))}
+            className="h-8 rounded-md border border-gray-200 px-2 text-sm bg-white">
+            {Array.from({ length: PBN_MAX_VARIANTS }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} บทความ</option>)}
+          </select>
+          <p className="text-[11px] text-gray-400 flex-1 min-w-[220px]">
+            ใช้ title + keyword เดียวกัน แต่ละบทความเขียนคนละมุม/โครงสร้าง ไม่ซ้ำกัน และยังตอบ intent เดิม — ไว้ push ขึ้นเว็บ PBN คนละเว็บ
+          </p>
+        </div>
+      )}
 
       <label className={`flex items-start gap-2 text-xs ${imagesPlanned ? "text-gray-700" : "text-gray-400"}`}>
         <input type="checkbox" className="mt-0.5" checked={autoImages && imagesPlanned} disabled={!imagesPlanned || running}
@@ -459,6 +524,49 @@ export default function WriteTab({
             <tbody>
               {keywords.map(k => {
                 const st = rowStatus[k.id];
+                const variantKeys = variantKeysOf(k.id);
+                if (variantKeys.length > 1) {
+                  return (
+                    <tr key={k.id} className="border-b border-gray-50 hover:bg-gray-50/60 align-top">
+                      <td className="px-3 py-2"><input type="checkbox" checked={selected.has(k.id)} onChange={() => toggleSelect(k.id)} /></td>
+                      <td className="px-2 py-2 text-brand-navy font-medium">{k.title}</td>
+                      <td className="px-2 py-2 text-gray-500">{k.keyword}</td>
+                      <td className="px-2 py-2" colSpan={2}>
+                        <div className="space-y-1.5">
+                          {variantKeys.map(key => {
+                            const vst = rowStatus[key];
+                            const v = key === k.id ? 1 : Number(key.slice(key.lastIndexOf("#v") + 2));
+                            return (
+                              <div key={key} className="flex items-start gap-2">
+                                <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-mist text-brand-blue">v{v}</span>
+                                <div className="flex-1 min-w-0">
+                                  <StatusCell status={vst} keyword={v === 1 ? k : { ...k, articleId: undefined, writeError: undefined }} imageSummary={imageSummary} />
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {hasArticle(vst) && (
+                                    <button onClick={() => goToReview(vst.articleId)} className="text-brand-blue hover:underline flex items-center gap-0.5 whitespace-nowrap">
+                                      Review <ArrowRight size={11} />
+                                    </button>
+                                  )}
+                                  {vst?.phase === "error" && (
+                                    <button disabled={running || ready === false} onClick={() => retryJob(key)} className="text-brand-blue hover:underline disabled:text-gray-300 disabled:no-underline flex items-center gap-0.5 whitespace-nowrap">
+                                      <RefreshCw size={10} /> เขียนใหม่
+                                    </button>
+                                  )}
+                                  {vst?.phase === "done" && vst.imageError && (
+                                    <button disabled={running} onClick={() => retryImages(key, vst.articleId)} className="text-brand-blue hover:underline disabled:text-gray-300 disabled:no-underline flex items-center gap-0.5 whitespace-nowrap">
+                                      <ImageIcon size={10} /> สร้างรูปใหม่
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
                 return (
                   <tr key={k.id} className="border-b border-gray-50 hover:bg-gray-50/60">
                     <td className="px-3 py-2"><input type="checkbox" checked={selected.has(k.id)} onChange={() => toggleSelect(k.id)} /></td>
@@ -475,7 +583,7 @@ export default function WriteTab({
                           </button>
                         )}
                         {st?.phase === "error" && (
-                          <button disabled={running || ready === false} onClick={() => retryKeyword(k.id)} className="text-brand-blue hover:underline disabled:text-gray-300 disabled:no-underline flex items-center gap-0.5 whitespace-nowrap">
+                          <button disabled={running || ready === false} onClick={() => retryJob(k.id)} className="text-brand-blue hover:underline disabled:text-gray-300 disabled:no-underline flex items-center gap-0.5 whitespace-nowrap">
                             <RefreshCw size={10} /> เขียนใหม่
                           </button>
                         )}
@@ -498,12 +606,13 @@ export default function WriteTab({
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
           <p className="text-sm font-semibold text-brand-navy">บทความที่ค้างเขียนนานเกิน 6 นาที</p>
           {staleWriting.map(a => {
-            const kwId = a.sourceName?.startsWith("kw:") ? a.sourceName.slice(3) : null;
+            const parsed = parseWriterSourceName(a.sourceName);
+            const kwKey = parsed ? jobKey(parsed.keywordId, parsed.variant) : null;
             return (
               <div key={a.id} className="flex items-center justify-between text-xs gap-2">
                 <span className="truncate">{a.title || a.id} — ค้าง</span>
-                {kwId && (
-                  <Button size="sm" variant="outline" disabled={running} onClick={() => retryKeyword(kwId)}>
+                {kwKey && (
+                  <Button size="sm" variant="outline" disabled={running} onClick={() => retryJob(kwKey)}>
                     <RefreshCw size={11} className="mr-1" /> เขียนใหม่
                   </Button>
                 )}

@@ -62,6 +62,37 @@ export interface WriterTask {
   language?: 'th' | 'en'
   /** ชื่อลูกค้า/แบรนด์ — ใช้ตอนวิเคราะห์ intent เอง (keyword ที่มีชื่อแบรนด์ = navigational) */
   brandNames?: string[]
+  /** PBN Backlinks: เขียนหลายบทความจาก title + keyword เดียวกัน — เวอร์ชันที่ index จาก total (total ≤ 1 = ไม่แนบอะไร) */
+  variant?: { index: number; total: number }
+}
+
+/** มุมเล่าเรื่องของแต่ละเวอร์ชัน (PBN) — เวอร์ชันเดียวกันได้มุมเดิมเสมอ เขียนซ้ำก็ไม่ชนกับเวอร์ชันอื่น */
+export const VARIANT_ANGLES: readonly string[] = [
+  'คู่มือแบบครบถ้วน ไล่ทีละหัวข้อจากพื้นฐานไปถึงรายละเอียด',
+  'เริ่มจากปัญหาที่ผู้อ่านเจอ แล้วพาไปสู่ทางแก้ทีละขั้น',
+  'เปรียบเทียบตัวเลือก/แนวทาง ข้อดีข้อจำกัด และเหมาะกับใคร',
+  'เล่าผ่านสถานการณ์ตัวอย่างที่ผู้อ่านนึกภาพตามได้',
+  'เช็กลิสต์ที่ผู้อ่านนำไปทำตามได้ทันที',
+  'ถาม-ตอบ ตอบคำถามที่คนสงสัยจริงเป็นแกนของบทความ',
+  'ข้อผิดพลาดที่พบบ่อยและวิธีหลีกเลี่ยง',
+  'มุมงบประมาณ ความคุ้มค่า และสิ่งที่ควรรู้ก่อนตัดสินใจ',
+  'สำหรับมือใหม่ อธิบายศัพท์และเหตุผลแบบเข้าใจง่าย',
+  'สรุปกระชับ ประเด็นสำคัญก่อน แล้วค่อยขยายรายละเอียด',
+]
+
+/** บล็อกสั่งให้เขียนเวอร์ชันนี้ให้ต่างจากเวอร์ชันอื่น แต่ยังตอบ intent เดียวกัน — '' ถ้าไม่ได้เขียนหลายเวอร์ชัน */
+export function variantBlock(variant: WriterTask['variant']): string {
+  if (!variant || variant.total <= 1) return ''
+  const index = Math.min(Math.max(1, Math.floor(variant.index)), variant.total)
+  const angle = VARIANT_ANGLES[(index - 1) % VARIANT_ANGLES.length]
+  return [
+    `# เวอร์ชันที่ ${index} จาก ${variant.total} (บทความชุดนี้จะขึ้นคนละเว็บ ต้องไม่ซ้ำกัน)`,
+    `- มุมเล่าของเวอร์ชันนี้: ${angle}`,
+    '- ใช้ H1 / หัวข้อ / keyword หลัก / Search Intent เดียวกับที่กำหนดด้านบน — ผู้อ่านต้องได้คำตอบเรื่องเดียวกัน',
+    '- โครงหัวข้อ H2/H3 ลำดับเนื้อหา บทนำ ตัวอย่าง คำถาม FAQ และสำนวน ต้องต่างจากเวอร์ชันอื่นอย่างชัดเจน',
+    '- ห้ามใช้ประโยคซ้ำหรือเรียบเรียงใหม่จากบทความเวอร์ชันอื่น เขียนใหม่ทั้งหมด',
+    '- ข้อเท็จจริง ตัวเลข ราคา ชื่อบริการ ยังต้องมาจาก Business Skill เท่านั้น ห้ามแต่งเพิ่มเพื่อให้ต่าง',
+  ].join('\n')
 }
 
 /** โน้ตจากทีม (ช่อง Note แท็บ Keyword) ยาวสุดที่ส่งให้ writer */
@@ -115,6 +146,11 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push('')
   lines.push('# Internal Link ที่ต้องแทรกในเนื้อหา (ใช้แต่ละลิงก์ไม่เกิน 1 ครั้ง แทรก anchor text ให้เนียนเข้ากับประโยค ห้ามยัดทุกลิงก์ในย่อหน้าเดียว)')
   lines.push(linkLines)
+  const variantText = variantBlock(task.variant)
+  if (variantText) {
+    lines.push('')
+    lines.push(variantText)
+  }
   lines.push('')
   lines.push('# OUTPUT FORMAT CONTRACT (ต้องตอบตามนี้เป๊ะ ๆ)')
   lines.push('บรรทัดแรก:')

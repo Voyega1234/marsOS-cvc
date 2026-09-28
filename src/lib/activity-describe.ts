@@ -33,6 +33,10 @@ type MethodLabels = Partial<Record<'POST' | 'PUT' | 'PATCH' | 'DELETE', string>>
 
 /** ป้ายชื่อ API — เรียงจากเฉพาะเจาะจงไปกว้าง (ตัวแรกที่ตรงชนะ) · [id] = ส่วนใดก็ได้ 1 ช่วง */
 const API_LABELS: Array<[string, MethodLabels]> = [
+  // ── PBN Backlinks ──
+  ['/api/pbn-backlinks/sites/[id]/test', { POST: 'ทดสอบการเชื่อมต่อเว็บ PBN' }],
+  ['/api/pbn-backlinks/sites/[id]', { PATCH: 'แก้ไขเว็บ PBN', DELETE: 'ลบเว็บ PBN' }],
+  ['/api/pbn-backlinks/sites', { POST: 'เพิ่มเว็บ PBN' }],
   // ── Upload Article ──
   ['/api/upload-article/articles/[id]/card-selection', { PATCH: 'เลือกการ์ดบทความ (Upload Article)' }],
   ['/api/upload-article/articles/[id]/drive-images', { POST: 'ดึงรูปจาก Google Drive เข้าบทความ (Upload Article)' }],
@@ -191,6 +195,7 @@ const API_LABELS: Array<[string, MethodLabels]> = [
 /** ป้ายชื่อหน้า — เทียบ prefix ยาวสุดก่อน */
 const PAGE_LABELS: Array<[string, string]> = [
   ['/upload-article', 'Upload Article'],
+  ['/pbn-backlinks', 'PBN Backlinks'],
   ['/activity-logs', 'Activity Logs'],
   ['/admin/users', 'จัดการผู้ใช้ (Admin)'],
   ['/projects', 'Clients'],

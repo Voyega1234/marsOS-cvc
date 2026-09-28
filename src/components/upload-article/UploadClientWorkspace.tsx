@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Globe, Loader2, Settings } from "lucide-react";
+import { ArrowLeft, Globe, Loader2, Network, Settings } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import KeywordTab from "@/components/upload-article/tabs/KeywordTab";
@@ -19,10 +19,13 @@ import ReviewTab from "@/components/upload-article/tabs/ReviewTab";
 import PushTab from "@/components/upload-article/tabs/PushTab";
 import PublishTab from "@/components/upload-article/tabs/PublishTab";
 import SettingsTab, { type SettingsSection } from "@/components/upload-article/settings/SettingsTab";
+import PbnReportTab from "@/components/upload-article/pbn/PbnReportTab";
 
-export type TabId = "keyword" | "write" | "import" | "generate" | "review" | "push" | "publish" | "settings";
+export type TabId = "keyword" | "write" | "import" | "generate" | "review" | "push" | "publish" | "report" | "settings";
 
 const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "generate", "review", "push", "publish"];
+// PBN Backlinks = แท็บเดียวกับ Upload Article + Report (GSC / GA4 แยกตามเว็บ PBN)
+const PBN_TAB_ORDER: Exclude<TabId, "settings">[] = [...TAB_ORDER, "report"];
 
 const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   keyword: "Keyword",
@@ -32,13 +35,14 @@ const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   review: "Review",
   push: "Push",
   publish: "Publish",
+  report: "Report",
 };
 
 const SETTINGS_SECTIONS: SettingsSection[] = ["website", "scan", "style", "links", "images", "engine", "danger"];
 
-function resolveInitialTab(t?: string): TabId {
+function resolveInitialTab(t: string | undefined, order: Exclude<TabId, "settings">[]): TabId {
   if (t === "connect" || t === "settings") return "settings";
-  if (t && (TAB_ORDER as string[]).includes(t)) return t as TabId;
+  if (t && (order as string[]).includes(t)) return t as TabId;
   return "import";
 }
 
@@ -49,14 +53,19 @@ function resolveInitialSection(t?: string, s?: string): SettingsSection {
 }
 
 export default function UploadClientWorkspace({
-  clientId, initialTab, initialSection, userRole,
+  clientId, initialTab, initialSection, userRole, mode = "upload",
 }: {
   clientId: string;
   initialTab?: string;
   initialSection?: string;
   userRole: string;
+  /** "pbn" = หน้า PBN Backlinks (โปรเจกต์เดียว, URL /pbn-backlinks, มีแท็บ Report, push เลือกเว็บ PBN) */
+  mode?: "upload" | "pbn";
 }) {
   const router = useRouter();
+  const isPbn = mode === "pbn";
+  const tabOrder = isPbn ? PBN_TAB_ORDER : TAB_ORDER;
+  const basePath = isPbn ? "/pbn-backlinks" : `/upload-article/${clientId}`;
   const [client, setClient] = useState<UploadClientDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFoundFlag, setNotFoundFlag] = useState(false);
@@ -65,7 +74,7 @@ export default function UploadClientWorkspace({
   const [articleDetails, setArticleDetails] = useState<Record<string, UploadArticleDTO>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<TabId>(resolveInitialTab(initialTab));
+  const [tab, setTab] = useState<TabId>(resolveInitialTab(initialTab, tabOrder));
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(resolveInitialSection(initialTab, initialSection));
 
   // preselect keyword ids ที่ยกมาจากแท็บ Keyword ตอนกด "ไปเขียนบทความ"
@@ -148,9 +157,9 @@ export default function UploadClientWorkspace({
     if (t === "settings") {
       const sec = section ?? settingsSection;
       setSettingsSection(sec);
-      router.replace(`/upload-article/${clientId}?tab=settings&section=${sec}`, { scroll: false });
+      router.replace(`${basePath}?tab=settings&section=${sec}`, { scroll: false });
     } else {
-      router.replace(`/upload-article/${clientId}?tab=${t}`, { scroll: false });
+      router.replace(`${basePath}?tab=${t}`, { scroll: false });
     }
   };
 
@@ -158,19 +167,23 @@ export default function UploadClientWorkspace({
 
   const onSectionChange = (s: SettingsSection) => {
     setSettingsSection(s);
-    router.replace(`/upload-article/${clientId}?tab=settings&section=${s}`, { scroll: false });
+    router.replace(`${basePath}?tab=settings&section=${s}`, { scroll: false });
   };
 
   return (
     <div className="px-4 py-6 sm:px-6 w-full space-y-5">
       <div className="flex items-center gap-3 flex-wrap">
-        <Link href="/upload-article" className="text-gray-400 hover:text-gray-600">
-          <ArrowLeft size={18} />
-        </Link>
+        {!isPbn && (
+          <Link href="/upload-article" className="text-gray-400 hover:text-gray-600">
+            <ArrowLeft size={18} />
+          </Link>
+        )}
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-bold text-brand-navy truncate">{client.name}</h1>
           <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-            <Globe size={11} /> {host || "ยังไม่ตั้งเว็บไซต์"}
+            {isPbn
+              ? <><Network size={11} /> เขียนบทความหลายเวอร์ชันต่อ keyword แล้ว push ไปเว็บ PBN คนละเว็บ</>
+              : <><Globe size={11} /> {host || "ยังไม่ตั้งเว็บไซต์"}</>}
           </p>
         </div>
         <button
@@ -186,7 +199,7 @@ export default function UploadClientWorkspace({
 
       <Tabs value={tab === "settings" ? "" : tab} onValueChange={v => goTab(v as TabId)}>
         <TabsList className="flex-wrap h-auto">
-          {TAB_ORDER.map(t => (
+          {tabOrder.map(t => (
             <TabsTrigger key={t} value={t}>{TAB_LABELS[t]}</TabsTrigger>
           ))}
         </TabsList>
@@ -209,6 +222,7 @@ export default function UploadClientWorkspace({
             applyArticleUpdate={applyArticleUpdate}
             goToReview={id => goTab("review", id)}
             onOpenSettings={openSettings}
+            variantsEnabled={isPbn}
           />
         </TabsContent>
 
@@ -264,6 +278,7 @@ export default function UploadClientWorkspace({
             selectedId={selectedId}
             setSelectedId={setSelectedId}
             onOpenSettings={openSettings}
+            pbn={isPbn}
           />
         </TabsContent>
 
@@ -273,6 +288,12 @@ export default function UploadClientWorkspace({
             goToPush={id => goTab("push", id)}
           />
         </TabsContent>
+
+        {isPbn && (
+          <TabsContent value="report">
+            <PbnReportTab onOpenSettings={() => openSettings("website")} />
+          </TabsContent>
+        )}
       </Tabs>
 
       {tab === "settings" && (
@@ -283,6 +304,7 @@ export default function UploadClientWorkspace({
           userRole={userRole}
           section={settingsSection}
           onSectionChange={onSectionChange}
+          mode={mode}
         />
       )}
     </div>

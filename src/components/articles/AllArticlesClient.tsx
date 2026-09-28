@@ -21,6 +21,9 @@ interface Article {
   priority?: string;
   volume?: number;
   timelineBatch?: string;
+  source: "seo-sme" | "upload-article" | "pbn";
+  href?: string;
+  id?: string;
 }
 
 interface Props {
@@ -39,6 +42,23 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 
 const ALL_STATUSES = ["pending", "writing", "review", "done", "approved", "pushed"];
 
+const SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
+  "seo-sme": { label: "SEO SME", color: "bg-indigo-100 text-indigo-700" },
+  "upload-article": { label: "Upload Article", color: "bg-orange-100 text-orange-700" },
+  "pbn": { label: "PBN Backlinks", color: "bg-pink-100 text-pink-700" },
+};
+
+const ALL_SOURCES = ["seo-sme", "upload-article", "pbn"];
+
+function SourceBadge({ source }: { source: string }) {
+  const s = SOURCE_CONFIG[source] ?? SOURCE_CONFIG["seo-sme"];
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold ${s.color}`}>
+      {s.label}
+    </span>
+  );
+}
+
 function StatusChip({ status }: { status: string }) {
   const s = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
   return (
@@ -52,10 +72,19 @@ export function AllArticlesClient({ articles, projects }: Props) {
   const [search, setSearch] = useState("");
   const [filterProject, setFilterProject] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterSource, setFilterSource] = useState("all");
 
   const counts = useMemo(() =>
     ALL_STATUSES.reduce((acc, s) => {
       acc[s] = articles.filter(a => (a.articleStatus || "pending") === s).length;
+      return acc;
+    }, {} as Record<string, number>),
+    [articles]
+  );
+
+  const sourceCounts = useMemo(() =>
+    ALL_SOURCES.reduce((acc, s) => {
+      acc[s] = articles.filter(a => a.source === s).length;
       return acc;
     }, {} as Record<string, number>),
     [articles]
@@ -66,13 +95,14 @@ export function AllArticlesClient({ articles, projects }: Props) {
       const status = a.articleStatus || "pending";
       if (filterProject !== "all" && a.projectId !== filterProject) return false;
       if (filterStatus !== "all" && status !== filterStatus) return false;
+      if (filterSource !== "all" && a.source !== filterSource) return false;
       if (search) {
         const q = search.toLowerCase();
         if (!a.title?.toLowerCase().includes(q) && !a.keyword?.toLowerCase().includes(q)) return false;
       }
       return true;
     });
-  }, [articles, filterProject, filterStatus, search]);
+  }, [articles, filterProject, filterStatus, filterSource, search]);
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -81,6 +111,37 @@ export function AllArticlesClient({ articles, projects }: Props) {
       <div>
         <h1 className="text-xl font-bold text-brand-navy">บทความทั้งหมด</h1>
         <p className="text-sm text-gray-500 mt-0.5">{articles.length} บทความจาก {projects.length} client</p>
+      </div>
+
+      {/* Source filter chips */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setFilterSource("all")}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+            filterSource === "all"
+              ? "bg-brand-navy text-white border-brand-navy"
+              : "bg-gray-100 text-gray-600 border-transparent hover:border-gray-200"
+          }`}
+        >
+          ทั้งหมด <span className="opacity-60 ml-1">{articles.length}</span>
+        </button>
+        {ALL_SOURCES.map(s => {
+          const cfg = SOURCE_CONFIG[s];
+          return (
+            <button
+              key={s}
+              onClick={() => setFilterSource(filterSource === s ? "all" : s)}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                filterSource === s
+                  ? "bg-brand-navy text-white border-brand-navy"
+                  : `${cfg.color} border-transparent hover:border-gray-200`
+              }`}
+            >
+              {cfg.label}
+              <span className="opacity-60 ml-0.5">{sourceCounts[s]}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Status filter chips */}
@@ -153,9 +214,12 @@ export function AllArticlesClient({ articles, projects }: Props) {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.map((a, i) => (
-                  <tr key={`${a.projectId}-${a.idx}-${i}`} className="hover:bg-gray-50/50 transition-colors group">
+                  <tr key={a.id ?? `${a.projectId}-${a.idx}-${i}`} className="hover:bg-gray-50/50 transition-colors group">
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-xs font-medium text-gray-600">{a.projectName}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-gray-600">{a.projectName}</span>
+                        <SourceBadge source={a.source} />
+                      </div>
                     </td>
                     <td className="px-4 py-3 max-w-[160px]">
                       <span className="text-xs text-gray-500 truncate block">{a.keyword}</span>
@@ -171,7 +235,7 @@ export function AllArticlesClient({ articles, projects }: Props) {
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        href={`/projects/${a.projectId}?tab=${a.articleStatus === "review" ? "review" : "articles"}`}
+                        href={a.href ?? `/projects/${a.projectId}?tab=${a.articleStatus === "review" ? "review" : "articles"}`}
                         className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[11px] text-blue-500 hover:underline whitespace-nowrap"
                       >
                         <ExternalLink size={10} /> ไปดู

@@ -7,6 +7,7 @@ import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
 import { sanitizeThemeDetail } from '@/lib/upload-article/theme-css'
 import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
+import { isPbnPrefsRaw } from '@/lib/upload-article/pbn'
 import { readImageDefaults } from '@/lib/upload-article/article-images'
 
 const COLOR_RE = /^#[0-9a-f]{3,8}$/i
@@ -253,6 +254,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
   const existing = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: session.user.organizationId } })
   if (!existing) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // โปรเจกต์ PBN Backlinks ลบทิ้งไม่ได้ (บทความ/เว็บ PBN ทั้งหมดขององค์กรอยู่ในแถวนี้)
+  if (isPbnPrefsRaw(existing.pushPrefs)) return NextResponse.json({ error: 'ลบโปรเจกต์ PBN Backlinks ไม่ได้' }, { status: 400 })
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))
   if (typeof body.confirmName !== 'string' || body.confirmName.trim() !== existing.name.trim()) {

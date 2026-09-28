@@ -11,6 +11,8 @@ import { parseUploadCards, assembleUploadHtml, uploadHtmlVersion } from '@/lib/u
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
+import { isPbnPrefs, readPbnSites, readPbnPushes, type PbnSite } from '@/lib/upload-article/pbn'
+import { publishToGithub } from '@/lib/upload-article/github-push'
 
 export const maxDuration = 300
 
@@ -115,7 +117,18 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   })
   const updatedClientRow = prefsResult ? { ...client, pushPrefs: JSON.stringify(prefsResult.result) } : client
 
-  const platform = client.websitePlatform || 'wordpress'
+  // PBN Backlinks: เว็บปลายทางเลือกต่อการ push (body.siteId) จากรายการเว็บ PBN ที่ connect ไว้
+  const isPbn = isPbnPrefs(prevPrefs as Record<string, unknown>)
+  let pbnSite: PbnSite | null = null
+  if (isPbn) {
+    const siteId = typeof body.siteId === 'string' ? body.siteId : ''
+    if (!siteId) return NextResponse.json({ error: 'เลือกเว็บ PBN ที่จะ push ก่อน' }, { status: 400 })
+    pbnSite = readPbnSites(prevPrefs as Record<string, unknown>).find((s) => s.id === siteId) ?? null
+    if (!pbnSite) return NextResponse.json({ error: 'ไม่พบเว็บ PBN นี้ — อาจถูกลบไปแล้ว' }, { status: 404 })
+  }
+  const prevPbnPush = pbnSite ? readPbnPushes(prevPrefs as Record<string, unknown>)[article.id]?.[pbnSite.id] : undefined
+
+  const platform = pbnSite ? pbnSite.platform : client.websitePlatform || 'wordpress'
   // บทความที่ตั้งวันเผยแพร่ไว้ ขึ้น WordPress เป็น Draft พร้อมวันที่นั้นเสมอ (โหมด Publish ใช้กับบทความที่ไม่ได้ตั้งวัน)
   const isWordPress = platform === 'wordpress'
   const effectiveMode: 'draft' | 'publish' = publishAt && isWordPress ? 'draft' : publishMode
@@ -123,7 +136,34 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // ตรวจการเชื่อมต่อให้ครบก่อนจองสถานะ — ทุก return ก่อนจุดจองจะไม่ทิ้งสถานะ PUSHING ค้าง
   let conn: SiteConnectionConfig = {}
   let wpPass = ''
-  if (platform !== 'wordpress') {
+  let wpUrl = client.wpUrl || ''
+  let wpUser = client.wpUser || ''
+  let ghToken = ''
+  let deployHook = ''
+  if (pbnSite && pbnSite.platform === 'github') {
+    if (!pbnSite.ghOwner || !pbnSite.ghRepo || !pbnSite.ghTokenEnc) {
+      return NextResponse.json({ error: `เว็บ ${pbnSite.name} ยังตั้งค่า GitHub repo / Token ไม่ครบ` }, { status: 400 })
+    }
+    try {
+      ghToken = decrypt(pbnSite.ghTokenEnc)
+      deployHook = pbnSite.deployHookEnc ? decrypt(pbnSite.deployHookEnc) : ''
+    } catch {
+      return NextResponse.json({ error: 'ถอดรหัส GitHub Token ไม่สำเร็จ — ใส่ Token ใหม่ในหน้า Setting' }, { status: 500 })
+    }
+  } else if (pbnSite) {
+    wpUrl = pbnSite.wpUrl || pbnSite.siteUrl
+    wpUser = pbnSite.wpUser || ''
+    if (!wpUrl || !wpUser || !pbnSite.wpPassEnc) {
+      return NextResponse.json({ error: `เว็บ ${pbnSite.name} ยังตั้งค่า WordPress URL / User / Application Password ไม่ครบ` }, { status: 400 })
+    }
+    const credErr = await checkCredentialUrl(wpUrl)
+    if (credErr) return NextResponse.json({ error: credErr }, { status: 400 })
+    try {
+      wpPass = decrypt(pbnSite.wpPassEnc)
+    } catch {
+      return NextResponse.json({ error: 'ถอดรหัส Application Password ไม่สำเร็จ' }, { status: 500 })
+    }
+  } else if (platform !== 'wordpress') {
     try {
       conn = JSON.parse(client.siteConnection || '{}')
     } catch {
@@ -167,7 +207,36 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
 
   try {
     const { base64, mime } = coverToBase64(article.coverImageUrl)
-    if (platform !== 'wordpress') {
+    if (pbnSite && pbnSite.platform === 'github') {
+      const result = await publishToGithub({
+        owner: pbnSite.ghOwner as string,
+        repo: pbnSite.ghRepo as string,
+        branch: pbnSite.ghBranch,
+        token: ghToken,
+        dir: pbnSite.ghDir,
+        format: pbnSite.ghFormat,
+        imageDir: pbnSite.ghImageDir,
+        imageUrl: pbnSite.ghImageUrl,
+        siteUrl: pbnSite.siteUrl,
+        urlPattern: pbnSite.urlPattern,
+        deployHook: deployHook || undefined,
+        title: article.title,
+        html: processedHtml,
+        slug: article.slug || article.title,
+        metaTitle: article.seoTitle || article.title,
+        metaDescription: article.metaDescription || undefined,
+        coverBase64: base64,
+        coverMimeType: mime,
+        coverAlt: article.coverAlt || article.title,
+        publishMode,
+        language: client.language === 'en' ? 'en' : 'th',
+        date: publishAt,
+      })
+      ok = result.ok
+      postUrl = result.postUrl
+      postId = result.postId
+      error = result.ok ? result.deployHookError : result.error
+    } else if (platform !== 'wordpress') {
       const result = await publishToSite(platform as SitePlatform, conn, {
         title: article.title,
         html: processedHtml,
@@ -182,9 +251,13 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       postId = result.postId
       error = result.error
     } else {
+      // PBN: แก้โพสต์เดิมเฉพาะเว็บเดียวกับที่เคย push บทความนี้ไป — เว็บอื่นสร้างโพสต์ใหม่
+      const existingPostId = pbnSite
+        ? (prevPbnPush?.postId && /^\d+$/.test(prevPbnPush.postId) ? Number(prevPbnPush.postId) : undefined)
+        : article.wordpressPostId ? Number(article.wordpressPostId) : undefined
       const result = await pushArticleToWordPress({
-        wpUrl: client.wpUrl as string,
-        wpUser: client.wpUser as string,
+        wpUrl,
+        wpUser,
         wpPass,
         title: article.title,
         html: processedHtml,
@@ -198,7 +271,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         publishAt,
         useElementor,
         wpPostType,
-        existingPostId: article.wordpressPostId ? Number(article.wordpressPostId) : undefined,
+        existingPostId,
       })
       ok = result.ok
       postUrl = result.postUrl
@@ -211,8 +284,35 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   }
 
   // re-push ที่เคย push สำเร็จมาก่อนแล้วพังรอบนี้ ห้ามทับสถานะเดิมด้วย FAILED — คืน PUSHED แล้วเก็บแค่ pushError ไว้เตือน
-  const wasPushed = Boolean(article.wordpressPostId)
-  if (ok) {
+  let wasPushed = Boolean(article.wordpressPostId)
+  if (pbnSite) {
+    // PBN: จดผล push ต่อเว็บไว้ใน pushPrefs.pbnPushes — บทความเดียวขึ้นได้หลายเว็บ
+    wasPushed = Boolean(readPbnPushes(prevPrefs as Record<string, unknown>)[article.id])
+    if (ok) {
+      const site = pbnSite
+      await updatePrefs(client.id, orgId, (current) => {
+        const pushes = readPbnPushes(current)
+        pushes[article.id] = { ...(pushes[article.id] || {}), [site.id]: { url: postUrl, postId, at: new Date().toISOString() } }
+        return { prefs: { ...current, pbnPushes: pushes }, result: null }
+      })
+      await prisma.uploadArticle.update({
+        where: { id: article.id },
+        data: {
+          status: 'PUSHED',
+          wordpressUrl: postUrl || null,
+          pushMode: effectiveMode,
+          pushedAt: new Date(),
+          // push สำเร็จแต่ Deploy Hook พัง — แจ้งไว้ ไม่นับเป็น push ล้มเหลว
+          pushError: error ? `${site.name}: ${error}` : null,
+        },
+      })
+    } else {
+      await prisma.uploadArticle.update({
+        where: { id: article.id },
+        data: { status: wasPushed ? 'PUSHED' : 'FAILED', pushError: `${pbnSite.name}: ${error || 'push ไม่สำเร็จ'}` },
+      })
+    }
+  } else if (ok) {
     await prisma.uploadArticle.update({
       where: { id: article.id },
       data: {

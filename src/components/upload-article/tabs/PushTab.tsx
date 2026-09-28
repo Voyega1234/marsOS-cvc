@@ -11,6 +11,8 @@ import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/u
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
 import { formatPublishAt } from "@/components/upload-article/shared/PublishDatePanel";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
+import { parseWriterSourceName } from "@/lib/upload-article/pbn";
+import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
 
 const PUSHABLE = new Set(["GENERATED", "REVIEWED", "PUSHING", "PUSHED", "FAILED"]);
 
@@ -23,7 +25,7 @@ const TYPE_CHIP: Record<string, { label: string; cls: string }> = {
 };
 
 export default function PushTab({
-  client, setClient, articles, loadArticleDetail, articleDetails, applyArticleUpdate, selectedId, setSelectedId, onOpenSettings,
+  client, setClient, articles, loadArticleDetail, articleDetails, applyArticleUpdate, selectedId, setSelectedId, onOpenSettings, pbn = false,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
@@ -34,7 +36,15 @@ export default function PushTab({
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
   onOpenSettings: (section: SettingsSection) => void;
+  /** PBN Backlinks: เลือกเว็บ PBN ปลายทางต่อบทความ + โชว์ว่าบทความขึ้นเว็บไหนไปแล้ว */
+  pbn?: boolean;
 }) {
+  const pbnData = usePbnSites(pbn);
+  const pbnSites = pbnData.sites;
+  const pbnPushes = pbnData.pushes;
+  /** เว็บ PBN ปลายทางต่อบทความ (articleId → siteId) */
+  const [targetSite, setTargetSite] = useState<Record<string, string>>({});
+  const siteName = (id: string) => pbnSites.find(s => s.id === id)?.name ?? "เว็บที่ถูกลบ";
   const pushable = useMemo(() => articles.filter(a => PUSHABLE.has(a.status)), [articles]);
 
   const [publishMode, setPublishMode] = useState<"draft" | "publish">(client.pushPrefs.publishMode ?? "draft");
@@ -102,7 +112,60 @@ export default function PushTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pushable, versionMap, parsedMap, client.pushPrefs.cardSel]);
 
-  const notConnected = client.websitePlatform === "wordpress" ? !client.hasWpPassword || !client.wpUrl : !client.wpUrl;
+  const notConnected = pbn
+    ? !pbnData.loading && pbnSites.length === 0
+    : client.websitePlatform === "wordpress" ? !client.hasWpPassword || !client.wpUrl : !client.wpUrl;
+
+  /** keyword + เวอร์ชันของบทความ (เขียนจากแท็บเขียนบทความ) — ใช้โชว์ v2/v3 และเตือนเวอร์ชันพี่น้องขึ้นเว็บเดียวกัน */
+  const variantInfo = useMemo(() => {
+    const m = new Map<string, { keywordId: string; variant: number }>();
+    for (const a of pushable) {
+      const p = parseWriterSourceName(a.sourceName);
+      if (p) m.set(a.id, p);
+    }
+    return m;
+  }, [pushable]);
+
+  /** บทความอื่นจาก keyword เดียวกันที่ขึ้นเว็บนี้ไปแล้ว — PBN ไม่ควรมีเนื้อหาเรื่องเดียวกันซ้ำในเว็บเดียว */
+  function siblingOnSite(articleId: string, siteId: string): string | null {
+    const info = variantInfo.get(articleId);
+    if (!info || !siteId) return null;
+    for (const [otherId, other] of Array.from(variantInfo.entries())) {
+      if (otherId === articleId || other.keywordId !== info.keywordId) continue;
+      if (pbnPushes[otherId]?.[siteId]) return `v${other.variant}`;
+    }
+    return null;
+  }
+
+  /** จัดเว็บให้อัตโนมัติ: บทความจาก keyword เดียวกันกระจายไปคนละเว็บ ข้ามเว็บที่เคยขึ้นแล้ว */
+  function autoAssignSites() {
+    if (!pbnSites.length) return;
+    const next: Record<string, string> = { ...targetSite };
+    const usedByKeyword = new Map<string, Set<string>>();
+    for (const a of pushable) {
+      const info = variantInfo.get(a.id);
+      const k = info?.keywordId ?? a.id;
+      const used = usedByKeyword.get(k) ?? new Set<string>();
+      for (const [otherId, other] of Array.from(variantInfo.entries())) {
+        if (other.keywordId === k) for (const sid of Object.keys(pbnPushes[otherId] ?? {})) used.add(sid);
+      }
+      usedByKeyword.set(k, used);
+    }
+    const ordered = [...pushable].sort((x, y) => (variantInfo.get(x.id)?.variant ?? 1) - (variantInfo.get(y.id)?.variant ?? 1));
+    let skipped = 0;
+    for (const a of ordered) {
+      if (!selectedIds.has(a.id)) continue;
+      const k = variantInfo.get(a.id)?.keywordId ?? a.id;
+      const used = usedByKeyword.get(k)!;
+      const free = pbnSites.find(s => !used.has(s.id));
+      if (!free) { skipped++; continue; }
+      next[a.id] = free.id;
+      used.add(free.id);
+    }
+    setTargetSite(next);
+    if (skipped) toast.warning(`${skipped} บทความไม่มีเว็บว่างให้แล้ว (ทุกเว็บมีบทความจาก keyword เดียวกัน)`);
+    else toast.success("จัดเว็บปลายทางให้บทความที่เลือกแล้ว");
+  }
 
   function isCardOn(articleId: string, cardId: string): boolean {
     const parsed = parsedMap.get(articleId);
@@ -172,6 +235,8 @@ export default function PushTab({
 
   async function pushOne(articleId: string) {
     if (pushBusy[articleId]) return; // กันกดซ้ำ/push ซ้อนของบทความเดียวกัน
+    const siteId = pbn ? targetSite[articleId] : undefined;
+    if (pbn && !siteId) { toast.error("เลือกเว็บ PBN ปลายทางของบทความนี้ก่อน"); return; }
     const detail = articleDetails[articleId] || await loadArticleDetail(articleId, true);
     if (!detail?.htmlContent) { toast.error("บทความนี้ยังไม่มี HTML"); return; }
     setPushBusy(prev => ({ ...prev, [articleId]: true }));
@@ -184,17 +249,21 @@ export default function PushTab({
       const r = await fetch(`/api/upload-article/articles/${articleId}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1 }),
+        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, ...(siteId ? { siteId } : {}) }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok || d.error) {
+      // PBN GitHub: push สำเร็จแต่ Deploy Hook พัง = ok + error → นับเป็นสำเร็จแล้วเตือน
+      const hookWarning = pbn && r.ok && d.ok && d.error ? String(d.error) : null;
+      if (!r.ok || (d.error && !hookWarning)) {
         setPushResult(prev => ({ ...prev, [articleId]: { ok: false, error: d?.error || "Push ไม่สำเร็จ" } }));
         toast.error(`Push ไม่สำเร็จ: ${d?.error || r.status}`);
       } else {
         setPushResult(prev => ({ ...prev, [articleId]: { ok: true, postUrl: d.postUrl } }));
         if (d.client) setClient(d.client);
-        toast.success("Push สำเร็จ");
+        toast.success(siteId ? `Push ขึ้น ${siteName(siteId)} สำเร็จ` : "Push สำเร็จ");
+        if (hookWarning) toast.warning(`ไฟล์ขึ้น repo แล้ว แต่สั่ง deploy ไม่สำเร็จ: ${hookWarning}`);
       }
+      if (pbn) await pbnData.reload();
       await loadArticleDetail(articleId, true);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -228,16 +297,32 @@ export default function PushTab({
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5">
-              <Globe size={14} /> {client.websitePlatform} · {client.wpUrl || client.website || "ยังไม่ตั้งเว็บ"}
-            </p>
+            {pbn ? (
+              <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5">
+                <Globe size={14} /> เว็บ PBN ที่ connect ไว้ {pbnSites.length} เว็บ — เลือกเว็บปลายทางที่แต่ละบทความ
+              </p>
+            ) : (
+              <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5">
+                <Globe size={14} /> {client.websitePlatform} · {client.wpUrl || client.website || "ยังไม่ตั้งเว็บ"}
+              </p>
+            )}
             {notConnected && (
               <button onClick={() => onOpenSettings("website")} className="text-xs text-rose-600 hover:underline flex items-center gap-1 mt-1">
-                <AlertTriangle size={11} /> ยังไม่เชื่อมต่อเว็บ — ไปตั้งค่าที่ Connect Website
+                <AlertTriangle size={11} /> {pbn ? "ยังไม่มีเว็บ PBN — ไปเพิ่มที่ Project Setting > เว็บ PBN & Connect" : "ยังไม่เชื่อมต่อเว็บ — ไปตั้งค่าที่ Connect Website"}
               </button>
             )}
           </div>
+          {pbn && pbnSites.length > 0 && (
+            <Button size="sm" variant="outline" disabled={!selectedIds.size || batchBusy} onClick={autoAssignSites}>
+              จัดเว็บอัตโนมัติ (ที่เลือก)
+            </Button>
+          )}
         </div>
+        {pbn && (
+          <p className="text-[11px] text-gray-400">
+            Draft/Publish ใช้กับทุกเว็บ · Post/Page, Elementor ใช้กับ WordPress เท่านั้น — เว็บ GitHub ขึ้นเป็นไฟล์ในโฟลเดอร์ที่ตั้งไว้ (Draft = draft: true)
+          </p>
+        )}
 
         <div className="flex flex-wrap gap-4 text-xs pt-1">
           <label className="flex items-center gap-1.5">
@@ -287,6 +372,15 @@ export default function PushTab({
                     <p className="text-sm font-semibold text-brand-navy truncate">{a.title}</p>
                     <div className="mt-1 flex items-center gap-2 flex-wrap">
                       <UploadStatusBadge status={a.status} />
+                      {pbn && variantInfo.get(a.id) && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-mist text-brand-blue">v{variantInfo.get(a.id)!.variant}</span>
+                      )}
+                      {pbn && Object.entries(pbnPushes[a.id] ?? {}).map(([sid, rec]) => (
+                        <a key={sid} href={rec.url || undefined} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 hover:underline">
+                          <ExternalLink size={9} /> {siteName(sid)}
+                        </a>
+                      ))}
                       {client.pushPrefs.publishAt?.[a.id] && (
                         <span className="inline-flex items-center gap-1 text-[11px] text-gray-500" title="ตั้งวันที่ได้ในแท็บ Review">
                           <CalendarClock size={11} /> Draft · วันที่ {formatPublishAt(client.pushPrefs.publishAt[a.id])}
@@ -295,10 +389,27 @@ export default function PushTab({
                     </div>
                   </div>
                 </label>
-                <Button size="sm" variant="outline" disabled={busy || batchBusy} onClick={() => pushOne(a.id)}>
-                  {busy ? "กำลัง Push..." : "Push"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {pbn && (
+                    <select value={targetSite[a.id] ?? ""} disabled={busy || batchBusy}
+                      onChange={e => setTargetSite(prev => ({ ...prev, [a.id]: e.target.value }))}
+                      className="h-8 max-w-[200px] rounded-md border border-gray-200 px-2 text-xs bg-white">
+                      <option value="">— เลือกเว็บ PBN —</option>
+                      {pbnSites.map(s => (
+                        <option key={s.id} value={s.id}>{pbnPushes[a.id]?.[s.id] ? "✓ " : ""}{s.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  <Button size="sm" variant="outline" disabled={busy || batchBusy || (pbn && !targetSite[a.id])} onClick={() => pushOne(a.id)}>
+                    {busy ? "กำลัง Push..." : pbn && pbnPushes[a.id]?.[targetSite[a.id] ?? ""] ? "Push อัปเดต" : "Push"}
+                  </Button>
+                </div>
               </div>
+              {pbn && targetSite[a.id] && siblingOnSite(a.id, targetSite[a.id]) && (
+                <p className="text-[11px] text-amber-700 flex items-center gap-1">
+                  <AlertTriangle size={11} /> {siblingOnSite(a.id, targetSite[a.id])} ของ keyword เดียวกันขึ้นเว็บ {siteName(targetSite[a.id])} ไปแล้ว — ควรเลือกเว็บอื่น
+                </p>
+              )}
 
               {!parsed && articleDetails[a.id] === undefined && (
                 <p className="text-[11px] text-gray-400">กำลังโหลด card...</p>
@@ -353,7 +464,7 @@ export default function PushTab({
                 )
               )}
               {!result && a.status === "FAILED" && a.pushError && <p className="text-xs text-rose-500">{a.pushError}</p>}
-              {!result && a.status === "PUSHED" && a.wordpressUrl && (
+              {!result && !pbn && a.status === "PUSHED" && a.wordpressUrl && (
                 <a href={a.wordpressUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-emerald-600 hover:underline w-fit">
                   <ExternalLink size={11} /> เปิดโพสต์ที่ push แล้ว
                 </a>

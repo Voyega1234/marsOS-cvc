@@ -1599,7 +1599,16 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
 
 type ReportMode = "dashboard" | "seo-performance" | "simple";
 
-export function ClientReportClient({ project, isClient = false }: { project: Project; isClient?: boolean }) {
+export function ClientReportClient({
+  project, isClient = false, embedded = false, setupHint,
+}: {
+  project: Project;
+  isClient?: boolean;
+  /** ฝังในหน้าอื่น (เช่น PBN Backlinks) — ไม่มีปุ่มกลับ/ลิงก์ไป /projects */
+  embedded?: boolean;
+  /** ข้อความบอกที่ตั้งค่า GSC/GA4 เมื่อ embedded */
+  setupHint?: string;
+}) {
   const [days, setDays]               = useState(28);
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
   const [showCustom, setShowCustom]   = useState(false);
@@ -1724,7 +1733,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          {!isClient && (
+          {!isClient && !embedded && (
             <Link href={`/projects/${project.id}`} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
               <ArrowLeft size={16} />
             </Link>
@@ -1818,7 +1827,7 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
 
         {!isClient && (!project.gscSiteUrl || !ga4PropertyId) && (
           <span className="text-[11px] text-gray-400">
-            ตั้งค่าการเชื่อมต่อที่ปุ่มฟันเฟือง (Settings) › แท็บ “GSC · GA4”
+            {embedded && setupHint ? setupHint : "ตั้งค่าการเชื่อมต่อที่ปุ่มฟันเฟือง (Settings) › แท็บ “GSC · GA4”"}
           </span>
         )}
       </div>
@@ -2150,9 +2159,13 @@ export function ClientReportClient({ project, isClient = false }: { project: Pro
           {!project.ga4PropertyId && (
             <p>• <b>GA4</b>: เพิ่ม <code className="bg-gray-200 px-1 rounded text-xs">ga4PropertyId</code> ใน Project settings เช่น <code className="bg-gray-200 px-1 rounded text-xs">511641653</code></p>
           )}
-          <Link href={`/projects/${project.id}?tab=settings`} className="text-brand-blue hover:underline text-xs inline-flex items-center gap-1 mt-1">
-            <ExternalLink size={10} /> ไปที่ Project Settings
-          </Link>
+          {embedded ? (
+            setupHint && <p className="text-xs">{setupHint}</p>
+          ) : (
+            <Link href={`/projects/${project.id}?tab=settings`} className="text-brand-blue hover:underline text-xs inline-flex items-center gap-1 mt-1">
+              <ExternalLink size={10} /> ไปที่ Project Settings
+            </Link>
+          )}
         </div>
       )}
     </div>

@@ -22,6 +22,7 @@ import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
 import { insertUploadCta } from '@/lib/upload-article/cta-insert'
+import { PBN_MAX_VARIANTS, writerSourceName } from '@/lib/upload-article/pbn'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
 export const maxDuration = 800
@@ -64,7 +65,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
 }
 
-/** POST /api/upload-article/clients/[id]/write body {keywordId, withCta?} — สตรีม NDJSON ระหว่างเขียนบทความจาก keyword */
+/** POST /api/upload-article/clients/[id]/write body {keywordId, withCta?, variant?, variantTotal?} — สตรีม NDJSON ระหว่างเขียนบทความจาก keyword */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId || !session.user.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -79,6 +80,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const keywordId = typeof body?.keywordId === 'string' ? body.keywordId : ''
   if (!keywordId) return NextResponse.json({ error: 'ต้องระบุ keywordId' }, { status: 400 })
   const withCta = body?.withCta === true
+  // PBN Backlinks: เขียนหลายเวอร์ชันจาก keyword เดียว — ไม่ส่ง = เวอร์ชันเดียวแบบเดิม
+  const intIn = (v: unknown, fallback: number) =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= PBN_MAX_VARIANTS ? v : fallback
+  const variantTotal = intIn(body?.variantTotal, 1)
+  const variant = Math.min(intIn(body?.variant, 1), variantTotal)
+  const isPrimary = variant === 1
 
   const prefs = await readPrefs(client.id, orgId)
   if (!prefs) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
@@ -87,7 +94,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!keyword) return NextResponse.json({ error: 'ไม่พบ keyword นี้' }, { status: 404 })
 
   // keyword นี้กำลังเขียนอยู่แล้ว (ไม่นับที่ค้างเกิน 6 นาที — proc ตายกลางทาง ลบแล้วเขียนใหม่ได้)
-  const sourceName = `kw:${keywordId}`
+  const sourceName = writerSourceName(keywordId, variant)
   const existingWriting = await prisma.uploadArticle.findMany({
     where: { clientId: client.id, organizationId: orgId, sourceName, status: 'WRITING' },
   })
@@ -152,7 +159,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
-  await updatePrefs(client.id, orgId, (current) => {
+  // keyword ผูกกับบทความเวอร์ชัน 1 เท่านั้น — เวอร์ชันอื่นหาเจอจาก sourceName
+  if (isPrimary) await updatePrefs(client.id, orgId, (current) => {
     const p = readPlan(current)
     const idx = p.findIndex((k) => k.id === keywordId)
     if (idx === -1) return { result: null }
@@ -166,7 +174,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const system = buildWriterSystemPrompt({ masterPrompt, businessSkill, articleBrief, validatorPack })
   // ภาษาของบทความนี้ตามโหมดภาษาของลูกค้า (ไทย / อังกฤษ / ไทย+อังกฤษ = ดูจาก title ก่อน)
   const language = uploadArticleLanguage(client.language, title, keyword.keyword)
-  const user = buildWriterUserPrompt({ keyword, links: linkPairs, language, brandNames: [client.name] })
+  const user = buildWriterUserPrompt({
+    keyword,
+    links: linkPairs,
+    language,
+    brandNames: [client.name],
+    variant: variantTotal > 1 ? { index: variant, total: variantTotal } : undefined,
+  })
   const clientSlug = `upload-${slugifyClient(client.name)}`
 
   const encoder = new TextEncoder()
@@ -257,7 +271,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const message = e instanceof Error ? e.message.slice(0, 300) : String(e)
 
         await prisma.uploadArticle.delete({ where: { id: article.id } }).catch(() => {})
-        await updatePrefs(client.id, orgId, (current) => {
+        if (isPrimary) await updatePrefs(client.id, orgId, (current) => {
           const p = readPlan(current)
           const idx = p.findIndex((k) => k.id === keywordId)
           if (idx === -1) return { result: null }

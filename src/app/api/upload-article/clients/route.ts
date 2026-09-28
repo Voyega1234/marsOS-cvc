@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
+import { PBN_PREFS_MARK } from '@/lib/upload-article/pbn'
 
 /** GET /api/upload-article/clients — รายชื่อลูกค้า Upload Article (ใหม่สุดก่อน) */
 export async function GET() {
@@ -10,7 +11,8 @@ export async function GET() {
   if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const clients = await prisma.uploadClient.findMany({
-    where: { organizationId: session.user.organizationId },
+    // แถวโปรเจกต์ PBN Backlinks อยู่เมนูของมันเอง ไม่แสดงในรายชื่อลูกค้า Upload Article
+    where: { organizationId: session.user.organizationId, NOT: { pushPrefs: { contains: PBN_PREFS_MARK } } },
     orderBy: { updatedAt: 'desc' },
     include: { articles: { select: { status: true } } },
   })
