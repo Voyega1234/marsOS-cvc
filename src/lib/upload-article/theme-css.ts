@@ -246,6 +246,7 @@ export function sanitizeThemeDraft(theme: UploadTheme): UploadTheme {
     border: sanitizeDraftColor(theme.border),
     accent: sanitizeDraftColor(theme.accent),
     background: sanitizeDraftColor(theme.background),
+    pageBackground: sanitizeDraftColor(theme.pageBackground),
     fontFamily: sanitizeDraftFont(theme.fontFamily),
     headingFont: sanitizeDraftFont(theme.headingFont),
     detail: sanitizeThemeDetail(theme.detail),

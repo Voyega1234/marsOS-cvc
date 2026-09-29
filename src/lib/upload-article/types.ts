@@ -19,6 +19,9 @@ export interface UploadTheme {
   headingFont?: string
   /** สไตล์ละเอียดจากการสแกนเว็บปลายทาง (FAQ card / ตาราง) — ว่าง = ใช้ค่าตามสีธีม */
   detail?: UploadThemeDetail
+  /** สีพื้นของหน้าเว็บด้านหลังบทความ (จากการสแกน) — ใช้แสดงตัวอย่างเท่านั้น ไม่ถูกใส่ใน CSS บทความ
+   *  เช่น เว็บพื้นเข้ม + บทความพื้นโปร่งใส + ตัวอักษรขาว ตัวอย่างต้องวางบนพื้นเข้มถึงจะอ่านออก */
+  pageBackground?: string
 }
 
 export type UploadFaqIcon = 'plus' | 'chevron' | 'caret' | 'arrow' | 'none'

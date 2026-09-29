@@ -280,7 +280,7 @@ export default function ReviewTab({
               </div>
             </div>
             <div className="border border-gray-200 rounded-xl overflow-hidden max-h-[55vh] overflow-y-auto">
-              {viewMode === "preview" && <ArticleFrame html={html} />}
+              {viewMode === "preview" && <ArticleFrame html={html} pageBackground={client.theme.pageBackground} />}
               {viewMode === "edit" && (
                 <ScopedEditable html={html} editorRef={editorRef} className="p-5 outline-none min-h-[200px]" />
               )}

@@ -12,17 +12,25 @@ import { useEffect, useRef } from 'react'
  * An iframe gives the article its own document, so its styles can never escape.
  *
  * Read-only by design. The iframe auto-sizes to its content height.
+ *
+ * `pageBackground` (optional) = สีพื้นของหน้าเว็บปลายทางด้านหลังบทความ — ใช้ดูตัวอย่างบทความที่พื้นโปร่งใส
+ * บนเว็บพื้นเข้ม ไม่ส่ง = พื้นขาวแบบเดิม (รับเฉพาะ hex/rgb กัน CSS แปลกปลอม)
  */
+const PAGE_BG_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i
+
 export default function ArticleFrame({
   html,
   className = '',
   minHeight = 200,
+  pageBackground,
 }: {
   html: string
   className?: string
   minHeight?: number
+  pageBackground?: string
 }) {
   const ref = useRef<HTMLIFrameElement>(null)
+  const bg = pageBackground && PAGE_BG_RE.test(pageBackground.trim()) ? pageBackground.trim() : '#fff'
 
   useEffect(() => {
     const iframe = ref.current
@@ -45,7 +53,7 @@ export default function ArticleFrame({
       `<style>` +
         `html,body{margin:0;padding:24px;box-sizing:border-box;` +
         `font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;` +
-        `color:#1e293b;background:#fff;line-height:1.7;` +
+        `color:#1e293b;background:${bg};line-height:1.7;` +
         `word-break:break-word;overflow-wrap:break-word;}` +
         `img{max-width:100%;height:auto;}` +
         `table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;}` +
@@ -64,7 +72,7 @@ export default function ArticleFrame({
     const t = setTimeout(resize, 300)
 
     return () => { ro?.disconnect(); clearTimeout(t) }
-  }, [html, minHeight])
+  }, [html, minHeight, bg])
 
   return (
     <iframe
@@ -74,7 +82,7 @@ export default function ArticleFrame({
       // NO allow-scripts: article HTML must never execute code in our origin.
       sandbox="allow-same-origin allow-popups"
       className={className}
-      style={{ width: '100%', border: 'none', minHeight, display: 'block', background: '#fff' }}
+      style={{ width: '100%', border: 'none', minHeight, display: 'block', background: bg }}
     />
   )
 }

@@ -2,7 +2,8 @@
 
 /**
  * สแกนเว็บปลายทางแบบละเอียด — ใช้ร่วมกันในแท็บ Generate และ Push
- * บอกว่าเว็บใช้ธีม/ปลั๊กอินอะไร, มีอะไรใส่สารบัญ/FAQ/CTA ให้ทุกบทความเองไหม (push ไปจะซ้ำ)
+ * บอกว่าเว็บใช้ธีม/ปลั๊กอินอะไร, มีปลั๊กอิน/ธีมใส่สารบัญ/FAQ/CTA ให้ทุกบทความเองไหม (ตัดของเราออกเฉพาะกรณีนี้)
+ * ส่วนที่ผู้เขียนเขียนเองในเนื้อหา (ไม่ใช่ปลั๊กอิน) ยังใส่ของเราตามปกติ
  * และหน้าตา FAQ ของเว็บ — ผลสแกนล่าสุดเก็บไว้ที่ pushPrefs.siteScan
  */
 import { useState } from "react";
@@ -15,10 +16,10 @@ import type { UploadClientDTO, UploadComponentFinding, UploadSiteScan, UploadThe
 const COMPONENT_LABEL: Record<"toc" | "faq" | "cta", string> = { toc: "สารบัญ (TOC)", faq: "FAQ", cta: "CTA" };
 
 function statusOf(f: UploadComponentFinding): { text: string; cls: string } {
-  if (f.where === "auto") return { text: "ธีม/ปลั๊กอินใส่ให้ทุกบทความ — ไม่ push ซ้ำ", cls: "bg-rose-50 text-rose-700 border-rose-200" };
-  if (f.where === "some-posts") return { text: "อยู่ในเนื้อหาบทความเดิม (ผู้เขียนใส่เอง ธีมไม่ได้ใส่) — push ได้ ไม่ซ้ำ", cls: "bg-amber-50 text-amber-700 border-amber-200" };
-  if (f.where === "site") return { text: "เจอนอกบทความเท่านั้น — push ได้", cls: "bg-gray-50 text-gray-600 border-gray-200" };
-  return { text: "ไม่พบ — push ได้", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+  if (f.where === "auto") return { text: "ปลั๊กอิน/ธีมใส่ให้ทุกบทความเอง — ไม่ใส่ของเราซ้ำ", cls: "bg-rose-50 text-rose-700 border-rose-200" };
+  if (f.where === "some-posts") return { text: "ผู้เขียนเขียนเองในเนื้อหา (ไม่ใช่ปลั๊กอิน) — ใส่ของเราตามปกติ", cls: "bg-amber-50 text-amber-700 border-amber-200" };
+  if (f.where === "site") return { text: "เจอนอกบทความ (เช่น หน้าแรก/เมนู) — ใส่ของเราตามปกติ", cls: "bg-gray-50 text-gray-600 border-gray-200" };
+  return { text: "ไม่พบ — ใส่ของเราตามปกติ", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
 }
 
 export default function SiteScanPanel({
@@ -52,8 +53,8 @@ export default function SiteScanPanel({
       setClient(d.client);
       const auto = (["toc", "faq", "cta"] as const).filter(k => d.scan?.components?.[k]?.where === "auto");
       toast.success(auto.length
-        ? `สแกนเสร็จ — ตัด ${auto.map(k => COMPONENT_LABEL[k]).join(", ")} ออกจากการ push อัตโนมัติ`
-        : "สแกนเสร็จ — ไม่พบส่วนที่ธีมใส่ซ้ำ");
+        ? `สแกนเสร็จ — เว็บมีปลั๊กอิน/ธีมใส่ ${auto.map(k => COMPONENT_LABEL[k]).join(", ")} ให้แล้ว ระบบจะไม่ใส่ของเราซ้ำ`
+        : "สแกนเสร็จ — ไม่พบปลั๊กอิน/ธีมที่ใส่สารบัญ FAQ CTA ให้เอง ระบบใส่ของเราตามปกติ");
     } catch (e) {
       toast.error(`สแกนไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -66,7 +67,7 @@ export default function SiteScanPanel({
       <div>
         <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5"><ScanSearch size={14} /> {title}</p>
         <p className="text-[11px] text-gray-500 mt-0.5">
-          ดูว่าเว็บใช้ธีม/ปลั๊กอินอะไร มีสารบัญ FAQ CTA ใส่ให้ทุกบทความอยู่แล้วไหม (กัน push ซ้ำ) และหน้าตา FAQ card ของเว็บ
+          ดูว่าเว็บใช้ธีม/ปลั๊กอินอะไร มีปลั๊กอิน/ธีมใส่สารบัญ FAQ CTA ให้ทุกบทความเองไหม (ถ้ามี ระบบไม่ใส่ของเราซ้ำ — ที่ผู้เขียนเขียนเองยังใส่ตามปกติ) และสี/หน้าตาบทความของเว็บ
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">

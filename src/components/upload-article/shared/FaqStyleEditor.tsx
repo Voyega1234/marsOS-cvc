@@ -31,11 +31,14 @@ const TABLE_COLORS: Array<[keyof UploadTableStyle, string]> = [
 
 function ColorField({ label, value, onChange }: { label: string; value?: string; onChange: (v: string) => void }) {
   const hex = value && /^#[0-9a-f]{6}$/i.test(value) ? value : "#ffffff";
+  // transparent = โปร่งใส เห็นพื้นด้านหลัง — แสดงเป็นลายตาราง
+  const clear = value === "transparent";
   return (
     <div>
       <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">{label}</label>
       <div className="flex items-center gap-1">
-        <input type="color" value={hex} onChange={e => onChange(e.target.value)} className="h-7 w-7 rounded border border-gray-200 cursor-pointer shrink-0" />
+        <input type="color" value={hex} onChange={e => onChange(e.target.value)} className="h-7 w-7 rounded border border-gray-200 cursor-pointer shrink-0"
+          style={clear ? { backgroundImage: "repeating-conic-gradient(#d1d5db 0 25%, #fff 0 50%)", backgroundSize: "8px 8px" } : undefined} />
         <Input value={value || ""} onChange={e => onChange(e.target.value)} placeholder="ค่าตั้งต้น" className="text-[11px] h-7 px-1.5" />
       </div>
     </div>
@@ -133,7 +136,7 @@ export default function FaqStyleEditor({ theme, onChange }: { theme: UploadTheme
       <div className="min-w-0">
         <p className="text-[10px] font-semibold text-gray-500 mb-1">พรีวิว (ยังไม่บันทึก)</p>
         <div className="border border-gray-200 rounded-xl overflow-hidden">
-          <ArticleFrame html={previewHtml} minHeight={320} />
+          <ArticleFrame html={previewHtml} minHeight={320} pageBackground={theme.pageBackground} />
         </div>
       </div>
     </div>

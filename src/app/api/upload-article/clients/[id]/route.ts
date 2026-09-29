@@ -103,7 +103,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (body.theme && typeof body.theme === 'object') {
     const t = body.theme as Partial<UploadTheme>
-    for (const key of ['theme', 'text', 'border', 'accent', 'background'] as const) {
+    for (const key of ['theme', 'text', 'border', 'accent', 'background', 'pageBackground'] as const) {
       if (t[key] !== undefined && !isValidColor(t[key])) {
         return NextResponse.json({ error: `สี ${key} ไม่ถูกต้อง` }, { status: 400 })
       }
@@ -126,7 +126,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     // whitelist เฉพาะ key ที่มีจริงใน UploadTheme — กันส่ง key แปลกปลอมเข้ามาปน
     const next: UploadTheme = { ...current }
-    for (const key of ['theme', 'text', 'border', 'accent', 'background'] as const) {
+    // pageBackground = พื้นหน้าเว็บด้านหลังบทความ ใช้กับพรีวิวเท่านั้น (ไม่ออกไปใน CSS ของบทความ)
+    for (const key of ['theme', 'text', 'border', 'accent', 'background', 'pageBackground'] as const) {
       if (typeof t[key] === 'string') next[key] = t[key] as string
     }
     for (const key of ['fontFamily', 'headingFont'] as const) {

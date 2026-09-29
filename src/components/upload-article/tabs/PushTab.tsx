@@ -462,7 +462,7 @@ export default function PushTab({
                                 </div>
                                 {dup && (
                                   <p className="text-[10px] text-rose-600 mt-0.5 flex items-center gap-1">
-                                    <AlertTriangle size={10} /> เว็บมีอยู่แล้ว{finding?.source ? ` (${finding.source})` : ""} — push ซ้ำจะซ้อนกัน
+                                    <AlertTriangle size={10} /> ปลั๊กอิน/ธีมของเว็บใส่ให้ทุกบทความเองแล้ว{finding?.source ? ` (${finding.source})` : ""} — push ไปจะซ้อนกัน
                                   </p>
                                 )}
                                 {c.plainText && <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{c.plainText}</p>}

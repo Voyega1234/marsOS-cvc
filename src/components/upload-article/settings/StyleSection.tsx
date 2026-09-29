@@ -27,21 +27,36 @@ export default function StyleSection({
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
       <p className="text-sm font-semibold text-brand-navy">สไตล์บทความ</p>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {([
           ["theme", "สีหลัก"], ["text", "สีตัวอักษร"], ["border", "สีเส้นขอบ"],
-          ["accent", "สีเน้น"], ["background", "สีพื้นหลัง"],
-        ] as const).map(([key, label]) => (
-          <div key={key}>
-            <label className="block text-[11px] font-semibold text-gray-500 mb-1">{label}</label>
-            <div className="flex items-center gap-1.5">
-              <input type="color" value={themeDraft[key] || "#ffffff"} onChange={e => setColor(key, e.target.value)}
-                className="h-8 w-8 rounded border border-gray-200 cursor-pointer shrink-0" />
-              <Input value={themeDraft[key] || ""} onChange={e => setColor(key, e.target.value)}
-                placeholder="#ffffff" className="text-xs h-8" />
+          ["accent", "สีเน้น"], ["background", "สีพื้นหลังบทความ"], ["pageBackground", "พื้นหน้าเว็บ (พรีวิว)"],
+        ] as const).map(([key, label]) => {
+          // พื้นหลังว่าง = โปร่งใส (บทความไม่ใส่พื้น เห็นพื้นของเว็บ) — แสดงลายตาราง
+          const clearable = key === "background" || key === "pageBackground";
+          const clear = clearable && !themeDraft[key];
+          return (
+            <div key={key}>
+              <label className="block text-[11px] font-semibold text-gray-500 mb-1">{label}</label>
+              <div className="flex items-center gap-1.5">
+                <input type="color" value={/^#[0-9a-f]{6}$/i.test(themeDraft[key] || "") ? themeDraft[key] : "#ffffff"} onChange={e => setColor(key, e.target.value)}
+                  className="h-8 w-8 rounded border border-gray-200 cursor-pointer shrink-0"
+                  style={clear ? { backgroundImage: "repeating-conic-gradient(#d1d5db 0 25%, #fff 0 50%)", backgroundSize: "8px 8px" } : undefined} />
+                <Input value={themeDraft[key] || ""} onChange={e => setColor(key, e.target.value)}
+                  placeholder={key === "background" ? "โปร่งใส (ใช้พื้นของเว็บ)" : key === "pageBackground" ? "ขาว" : "#ffffff"} className="text-xs h-8" />
+              </div>
+              {key === "background" && (
+                <button type="button" onClick={() => setColor("background", "")} disabled={clear}
+                  className="mt-1 text-[10px] text-brand-blue hover:underline disabled:text-gray-400 disabled:no-underline">
+                  {clear ? "โปร่งใสอยู่ — บทความใช้พื้นของเว็บ" : "ตั้งเป็นโปร่งใส"}
+                </button>
+              )}
+              {key === "pageBackground" && (
+                <p className="mt-1 text-[10px] text-gray-400">ใช้ดูตัวอย่างเท่านั้น ไม่ใส่ลงบทความ</p>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

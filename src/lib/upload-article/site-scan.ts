@@ -1,7 +1,10 @@
 // ─── Upload Article — สแกนเว็บปลายทางแบบละเอียดก่อน push ──────────────────────────
 // 1) เว็บใช้ CMS / ธีม / page builder / ปลั๊กอินอะไร
-// 2) ธีมหรือปลั๊กอินใส่ สารบัญ / FAQ / CTA ให้ทุกบทความเองหรือไม่ (push ไปจะซ้อนกัน)
+// 2) ปลั๊กอิน/ธีม/template ใส่ สารบัญ / FAQ / CTA ให้ทุกบทความเองหรือไม่ (push ไปจะซ้อนกัน)
+//    ตัดของเราออกเฉพาะกรณีปลั๊กอิน/template ใส่ให้เองเท่านั้น — ส่วนที่ผู้เขียนเขียนเองในเนื้อหาบทความเดิม
+//    (เช่น CTA/FAQ ที่พิมพ์มาในบทความ) ไม่ติดมากับบทความใหม่ ระบบจึงยังใส่ของเรา
 // 3) หน้าตา FAQ card + ตาราง + สีตัวอักษรในบทความของเว็บ (ให้บทความใหม่หน้าตาเข้าธีมเดียวกัน)
+//    สีตัวอักษร/หัวข้อ/ลิงก์/พื้นหลังคำนวณจาก CSS จริงด้วย css-cascade (ไม่ให้ AI เดา) รวมถึงพื้นหลังโปร่งใส
 // อ่านอย่างเดียว: GET หน้าเว็บสาธารณะ + WP REST สาธารณะ ผ่าน SSRF guard ของ competitor-gap
 // บทความที่ Upload Article เคย push ไป (มี div.content-article) ถูกตัดออกจากการนับทุกจุด กันนับของตัวเอง
 
@@ -9,6 +12,7 @@ import { safeFetchHtml as fetchHtml, safeFetchText as fetchText } from './safe-f
 import { askJson } from '@/lib/competitor-gap/ai'
 import type { ORUsage } from '@/lib/openrouter'
 import { safeColor, sanitizeThemeDetail } from './theme-css'
+import { contrast, CssCascade, luminance, mediaApplies, openChainAt, parseCssRules, parseOpenTag, toHex, type CssEl, type CssRule } from './css-cascade'
 import type {
   UploadComponentFinding,
   UploadComponentKey,
@@ -28,6 +32,8 @@ interface Detector {
   homeOk?: boolean
   /** สัญญาณอ่อน (schema/ข้อความหัวข้อ) — ไม่ใช้ตัดสินว่าธีมใส่ให้เอง */
   weak?: boolean
+  /** false = เจอใน template ของหน้าบทความ (นอกเนื้อหา) แล้วไม่นับ เช่น ปุ่ม LINE/โทรที่เป็นไอคอนโซเชียลของเว็บ */
+  templateOk?: boolean
 }
 
 const DETECTORS: Record<UploadComponentKey, Detector[]> = {
@@ -63,10 +69,12 @@ const DETECTORS: Record<UploadComponentKey, Detector[]> = {
     { re: /คำถามที่พบบ่อย|Frequently Asked Questions/i, label: 'หัวข้อ "คำถามที่พบบ่อย"', weak: true },
   ],
   cta: [
-    { re: /class="[^"]*(?<![\w-])cta(?![\w-])[^"]*"/i, label: 'กล่อง CTA (class="cta")' },
+    { re: /elementor-widget-call-to-action/i, label: 'Elementor Call to Action widget' },
+    // cta เป็นคำใน class เช่น cta, cta-box, cj-cta-box, btn_cta
+    { re: /class="[^"]*(?<![a-z0-9])cta(?![a-z0-9])[^"]*"/i, label: 'กล่อง CTA (class มีคำว่า cta)' },
     { re: /class="[^"]*call-?to-?action/i, label: 'กล่อง call-to-action' },
-    { re: /href="https?:\/\/(?:line\.me|lin\.ee)\//i, label: 'ปุ่ม LINE ในเนื้อบทความ', homeOk: false },
-    { re: /href="tel:/i, label: 'ปุ่มโทรในเนื้อบทความ', homeOk: false },
+    { re: /href="https?:\/\/(?:line\.me|lin\.ee)\//i, label: 'ปุ่ม LINE ในเนื้อบทความ', homeOk: false, templateOk: false },
+    { re: /href="tel:/i, label: 'ปุ่มโทรในเนื้อบทความ', homeOk: false, templateOk: false },
   ],
 }
 
@@ -150,13 +158,83 @@ function stripChrome(html: string): string {
     .replace(/<footer\b[\s\S]*?<\/footer>/gi, ' ')
 }
 
+/** class ของกล่องเนื้อหาที่ผู้เขียนเขียน เรียงตามความเจาะจง (Elementor single template → ธีมทั่วไป) */
+const CONTENT_CLASSES = [
+  'elementor-widget-theme-post-content',
+  'entry-content',
+  'post-content',
+  'wp-block-post-content',
+  'single-content',
+  'article-content',
+  'the-content',
+]
+
+interface ContentRegion {
+  start: number
+  end: number
+  openTag: string
+  html: string
+}
+
+/** กล่องเนื้อหาบทความ (ส่วนที่ผู้เขียนเขียน) ในหน้าโพสต์ที่ render จริง — ไม่เจอคืน null */
+function postContentRegion(page: string): ContentRegion | null {
+  const b = Math.max(0, page.search(/<body\b/i))
+  for (const cls of CONTENT_CLASSES) {
+    const re = new RegExp(`<([a-z][\\w-]*)\\b[^>]*\\sclass=["'][^"']*(?<![\\w-])${cls}(?![\\w-])[^"']*["'][^>]*>`, 'gi')
+    re.lastIndex = b
+    const m = re.exec(page)
+    if (!m) continue
+    const end = balancedEnd(page, m.index, m[1].toLowerCase())
+    if (end === -1) continue
+    return { start: m.index, end, openTag: m[0], html: page.slice(m.index, end) }
+  }
+  const i = page.search(/<article\b/i)
+  if (i !== -1) {
+    const e = balancedEnd(page, i, 'article')
+    if (e !== -1) {
+      const openTag = /^<article\b[^>]*>/i.exec(page.slice(i))?.[0] || '<article>'
+      return { start: i, end: e, openTag, html: page.slice(i, e) }
+    }
+  }
+  return null
+}
+
+/** ตัด element ที่แท็กเปิดตรง re ออกทั้งก้อน (นับซ้อน) */
+function removeElements(html: string, re: RegExp): string {
+  let out = html
+  for (let guard = 0; guard < 30; guard++) {
+    re.lastIndex = 0
+    const m = re.exec(out)
+    if (!m) break
+    const tag = /^<([a-z][\w-]*)/i.exec(m[0])?.[1]?.toLowerCase() || 'div'
+    const e = balancedEnd(out, m.index, tag)
+    out = out.slice(0, m.index) + (e === -1 ? out.slice(m.index + m[0].length) : out.slice(e))
+  }
+  return out
+}
+
+/**
+ * template ของหน้าบทความ = ทุกอย่างใน body ยกเว้นเนื้อหาที่ผู้เขียนเขียน, header/footer/เมนู/popup
+ * ของที่อยู่ตรงนี้ทุกบทความ = ปลั๊กอิน/ธีม/template ใส่ให้เอง (เช่น widget สารบัญของ Elementor ใน single template)
+ * keepSidebar: สารบัญใน sidebar ก็เป็นของปลั๊กอินที่แสดงทุกบทความ แต่ CTA/FAQ ใน sidebar เป็นของทั้งเว็บ ไม่ซ้อนกับในบทความ
+ */
+function templateRegion(page: string, region: ContentRegion | null, keepSidebar = false): string {
+  const b = page.search(/<body\b/i)
+  let html = region ? page.slice(0, region.start) + page.slice(region.end) : page
+  if (b !== -1) html = html.slice(b)
+  html = html.replace(/<script\b[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+  html = removeElements(html, /<(?:header|footer)\b[^>]*>/gi)
+  // เมนูนำทาง (ไม่ใช่ nav ของสารบัญ)
+  html = removeElements(html, /<nav\b(?![^>]*(?:สารบัญ|toc|table-of-contents))[^>]*>/gi)
+  if (!keepSidebar) html = removeElements(html, /<aside\b[^>]*>/gi)
+  html = removeElements(html, /<[a-z][\w-]*\b[^>]*data-elementor-type=["'](?:header|footer|popup)["'][^>]*>/gi)
+  return html
+}
+
 /** ส่วนเนื้อบทความของหน้าโพสต์ (ใช้กับ CTA — ปุ่มโทร/LINE ใน header/footer ไม่นับ) */
 function articleRegion(html: string): string {
-  const i = html.search(/<article\b/i)
-  if (i !== -1) {
-    const e = balancedEnd(html, i, 'article')
-    if (e !== -1) return html.slice(i, e)
-  }
+  const region = postContentRegion(html)
+  if (region) return region.html
   return stripChrome(html)
 }
 
@@ -210,58 +288,75 @@ interface PostSample {
 function findComponent(key: UploadComponentKey, posts: PostSample[], home: string | null, pluginSlugs: string[]): UploadComponentFinding {
   const evidence: string[] = []
   const labels: string[] = []
-  let postsWith = 0
-  let templateOnlyCount = 0
-  let templateOnlyAutoPlugin = false
+  const templateLabels: string[] = []
+  let authorPosts = 0
+  let templatePosts = 0
   let knownAuto = false
 
   for (const p of posts) {
-    // ใช้เฉพาะส่วนเนื้อบทความจริง (articleRegion แล้ว fallback หน้าที่ล้าง header/footer ถ้าไม่เจอ <article>)
-    // กันสัญญาณ FAQ/TOC ปลอมจาก sidebar widget / related posts / off-canvas menu / accordion นอกบทความ
-    const pageDoc = p.page ? articleRegion(p.page) : null
-    const inContent = p.content ? matchDetectors(p.content, key) : []
-    const inPage = pageDoc ? matchDetectors(pageDoc, key) : []
-    const hits = p.content ? inContent : inPage
-    if (hits.length) postsWith++
-    for (const d of [...inContent, ...inPage]) {
+    const region = p.page ? postContentRegion(p.page) : null
+    // เนื้อหาที่ผู้เขียนเขียน: REST content.rendered ก่อน (เนื้อดิบ) — ไม่มี REST ใช้กล่องเนื้อหาในหน้าจริง
+    const inRest = p.content !== null ? matchDetectors(p.content, key) : []
+    const inRendered = p.page ? matchDetectors(region ? region.html : stripChrome(p.page), key) : []
+    const author = p.content !== null ? inRest : inRendered
+    // template ของหน้าบทความ (นอกกล่องเนื้อหา) — ต้องเจอกล่องเนื้อหาก่อน ไม่งั้นแยกไม่ได้ว่าอะไรเป็นของผู้เขียน
+    const inTemplate =
+      p.page && region
+        ? matchDetectors(templateRegion(p.page, region, key === 'toc'), key).filter((d) => !d.weak && d.templateOk !== false)
+        : []
+    // มีในกล่องเนื้อหาที่ render แต่เนื้อดิบจาก REST ไม่มี = ปลั๊กอินแทรกให้ตอนแสดงผล (the_content filter)
+    const injected =
+      p.content !== null && region ? inRendered.filter((d) => !d.weak && d.templateOk !== false && !inRest.some((x) => x.label === d.label)) : []
+
+    if (author.length) authorPosts++
+    if (inTemplate.length || injected.length) templatePosts++
+    for (const d of [...author, ...inTemplate, ...injected]) {
       labels.push(d.label)
-      if (d.autoInsert) knownAuto = true
+      if (d.autoInsert && !d.weak) knownAuto = true
     }
-    // มีในหน้าจริง แต่เนื้อดิบไม่มี = ธีม/ปลั๊กอินเติมตอนแสดงผล
-    if (p.content !== null && inPage.some((d) => !d.weak) && inContent.length === 0) {
-      templateOnlyCount++
-      if (inPage.some((d) => !d.weak && d.autoInsert)) templateOnlyAutoPlugin = true
-    }
+    for (const d of [...inTemplate, ...injected]) templateLabels.push(d.label)
   }
   const postsChecked = posts.filter((p) => p.content !== null || p.page !== null).length
   const renderedCount = posts.filter((p) => p.page !== null).length
-  // สัญญาณ "ธีมเติมเองตอนแสดงผล" ต้องเจอในโพสต์เรนเดอร์จริงอย่างน้อย 2 โพสต์ ถึงจะเชื่อว่าเป็นทุกบทความ
-  // ยกเว้นเรนเดอร์ได้แค่โพสต์เดียวและสัญญาณนั้นมาจากปลั๊กอินที่รู้จักว่าแทรกให้ทุกโพสต์เองอยู่แล้ว
-  const templateOnly = templateOnlyCount >= 2 || (renderedCount === 1 && templateOnlyCount >= 1 && templateOnlyAutoPlugin)
+  // template ต้องเจอในหน้าบทความจริงอย่างน้อย 2 หน้าถึงเชื่อว่าเป็นทุกบทความ (เปิดได้หน้าเดียว = เชื่อหน้าเดียว)
+  const fromTemplate = templatePosts >= 2 || (renderedCount === 1 && templatePosts === 1)
   const homeHits = home ? matchDetectors(stripChrome(home), key, { home: true }) : []
 
+  // ตัดของเราออก (auto) เฉพาะเมื่อปลั๊กอิน/ธีม/template ใส่ให้ทุกบทความเอง
+  // ผู้เขียนเขียนเองในเนื้อหา (กี่บทความก็ตาม) ไม่ติดมากับบทความใหม่ → ยังใส่ของเรา
   let where: UploadComponentFinding['where'] = null
-  if (knownAuto || templateOnly) where = 'auto'
-  // FAQ ในเนื้อหาเป็นของผู้เขียนใส่รายบทความเสมอ — ใช้เกณฑ์ "เกือบทุกบทความ" เฉพาะสารบัญ/CTA
-  else if (key !== 'faq' && postsWith >= 2 && postsWith / Math.max(1, postsChecked) >= 0.6) where = 'auto'
-  else if (postsWith > 0) where = 'some-posts'
+  if (knownAuto || fromTemplate) where = 'auto'
+  else if (authorPosts > 0) where = 'some-posts'
   else if (homeHits.length) where = 'site'
 
-  if (postsChecked) evidence.push(`พบใน ${postsWith}/${postsChecked} บทความที่สุ่มดู`)
-  if (knownAuto) evidence.push('เป็นปลั๊กอินที่แทรกให้ทุกบทความเองโดยค่าเริ่มต้น')
-  if (templateOnly) evidence.push('หน้าบทความจริงมี แต่เนื้อหาที่ผู้เขียนใส่ไม่มี — ธีม/ปลั๊กอินเติมให้ตอนแสดงผล')
-  if (!postsWith && homeHits.length) evidence.push(`เจอในหน้าแรก: ${uniq(homeHits.map((d) => d.label)).join(', ')}`)
+  if (knownAuto) evidence.push('เป็นปลั๊กอินที่แทรกให้ทุกบทความเองโดยค่าเริ่มต้น — ไม่ใส่ของเราซ้ำ')
+  if (fromTemplate) {
+    evidence.push(
+      `อยู่ใน template ของหน้าบทความ (นอกเนื้อหาที่ผู้เขียนเขียน) ${templatePosts}/${renderedCount} หน้า: ${uniq(templateLabels).join(', ')} — ปลั๊กอิน/ธีมใส่ให้ทุกบทความเอง`,
+    )
+  }
+  if (authorPosts) {
+    evidence.push(
+      where === 'auto'
+        ? `ผู้เขียนเขียนเองในเนื้อหาด้วย ${authorPosts}/${postsChecked} บทความ`
+        : `ผู้เขียนเขียนเองในเนื้อหา ${authorPosts}/${postsChecked} บทความ — ไม่ใช่ปลั๊กอิน ระบบยังใส่ของเรา`,
+    )
+  } else if (postsChecked) {
+    evidence.push(`ไม่พบในเนื้อหาบทความ 0/${postsChecked} บทความที่สุ่มดู`)
+  }
+  if (!authorPosts && !fromTemplate && homeHits.length) evidence.push(`เจอนอกบทความ (หน้าแรก): ${uniq(homeHits.map((d) => d.label)).join(', ')}`)
   if (key === 'toc') {
     const installed = pluginSlugs.filter((s) => TOC_PLUGIN_SLUGS.includes(s))
     if (installed.length) evidence.push(`เว็บโหลดไฟล์ของปลั๊กอินสารบัญ: ${installed.map(prettySlug).join(', ')}`)
   }
 
-  const allLabels = uniq([...labels, ...homeHits.map((d) => d.label)])
+  // source = ตัวที่ใช้ตัดสิน (template/ปลั๊กอินก่อน)
+  const allLabels = uniq([...(where === 'auto' ? templateLabels : []), ...labels, ...homeHits.map((d) => d.label)])
   return {
     found: where !== null,
     where,
     source: allLabels[0] || '',
-    postsWith,
+    postsWith: authorPosts,
     postsChecked,
     evidence: [...evidence, ...(allLabels.length > 1 ? [`สัญญาณที่เจอ: ${allLabels.join(', ')}`] : [])],
   }
@@ -337,36 +432,240 @@ function bodyStyleCss(page: string): string {
   return Array.from(stripChrome(page.slice(b)).matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi), (m) => m[1]).join('\n')
 }
 
+/** ไฟล์ CSS ที่ไม่เกี่ยวกับสีบทความ (ฟอนต์ไอคอน ฯลฯ) */
+const SKIP_CSS = /fonts\.googleapis|font-awesome|fontawesome|dashicons|eicons|swiper|animations?\.min|lightbox|smallscreen|print\.css/i
+
+/**
+ * CSS ทั้งหน้าตามลำดับในเอกสารจริง (<style> + <link rel=stylesheet> ทั้งใน head และ body) — ลำดับมีผลกับ cascade
+ * ข้าม stylesheet ที่ media ไม่ใช้กับจอเดสก์ท็อป (print, max-width มือถือ/แท็บเล็ต) เหมือนเบราว์เซอร์
+ * ไฟล์ลิงก์ดึงได้ไม่เกิน 24 ไฟล์ ถ้าเกินเลือกไฟล์ของธีม/ไฟล์ CSS ต่อโพสต์ (uploads) ก่อน แล้วค่อยไฟล์ widget ของปลั๊กอิน
+ */
 async function collectCss(page: string, base: string): Promise<string> {
-  const b = page.search(/<body\b/i)
-  const head = b === -1 ? page : page.slice(0, b)
-  const inline = Array.from(head.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi), (m) => m[1])
-  const hrefs = uniq(
-    Array.from(page.matchAll(/<link\b[^>]*rel=["']?stylesheet["']?[^>]*>/gi), (m) => /href=["']([^"']+)["']/i.exec(m[0])?.[1] || '')
-      .filter(Boolean)
-      .map((h) => {
-        try {
-          return new URL(h.replace(/&amp;/g, '&'), base).toString()
-        } catch {
-          return ''
-        }
-      })
-      .filter((h) => /^https:\/\//i.test(h) && !/fonts\.googleapis|font-awesome|fontawesome|dashicons/i.test(h)),
-  ).slice(0, 10)
-  const files = await Promise.all(hrefs.map((h) => fetchText(h).then((t) => (t || '').slice(0, 600_000))))
-  return [...inline, ...files].join('\n')
+  const parts: Array<{ css?: string; href?: string }> = []
+  const re = /<style\b[^>]*>([\s\S]*?)<\/style>|<link\b[^>]*>/gi
+  // <script> อาจมีสตริง "<style" — ตัดออกก่อน
+  const doc = page.replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+  let m: RegExpExecArray | null
+  while ((m = re.exec(doc))) {
+    const media = /\smedia=["']([^"']*)["']/i.exec(/^<[^>]*>/.exec(m[0])?.[0] || '')?.[1]
+    if (media && !mediaApplies(media)) continue
+    if (m[1] !== undefined) {
+      parts.push({ css: m[1] })
+      continue
+    }
+    const tag = m[0]
+    if (!/rel=["']?stylesheet/i.test(tag)) continue
+    const raw = /href=["']([^"']+)["']/i.exec(tag)?.[1]
+    if (!raw) continue
+    try {
+      const href = new URL(raw.replace(/&amp;/g, '&'), base).toString()
+      if (/^https:\/\//i.test(href) && !SKIP_CSS.test(href)) parts.push({ href })
+    } catch {
+      /* URL เสีย */
+    }
+  }
+  let hrefs = uniq(parts.filter((p) => p.href).map((p) => p.href as string))
+  if (hrefs.length > 24) {
+    const pri = (h: string) => (/\/uploads\/|\/themes\//i.test(h) ? 0 : /\/plugins\/[^?]*\/widget-|\/lib\//i.test(h) ? 2 : 1)
+    const keep = new Set([...hrefs].sort((a, b) => pri(a) - pri(b)).slice(0, 24))
+    hrefs = hrefs.filter((h) => keep.has(h))
+  }
+  const files = new Map<string, string>()
+  await Promise.all(hrefs.map((h) => fetchText(h).then((t) => files.set(h, (t || '').slice(0, 800_000)))))
+  return parts.map((p) => (p.css !== undefined ? p.css : files.get(p.href as string) || '')).join('\n')
 }
 
-interface CssRule {
-  selector: string
-  body: string
+/** URL ที่มีภาษาไทย/อีโมจิแบบ %xx → อ่านออก (ใช้แสดงผลเท่านั้น) */
+function readableUrl(u: string): string {
+  try {
+    return decodeURI(u)
+  } catch {
+    return u
+  }
 }
 
 function parseRules(css: string): CssRule[] {
-  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  return Array.from(clean.matchAll(/([^{}]+)\{([^{}]*)\}/g), (m) => ({ selector: m[1].trim(), body: m[2].trim() })).filter(
-    (r) => r.selector && r.body && !r.selector.startsWith('@'),
-  )
+  return parseCssRules(css)
+}
+
+// ── สีจริงของบทความ (คำนวณจาก CSS) ─────────────────────────────────────────
+
+export interface ComputedArticleStyle {
+  /** สีตัวอักษรย่อหน้า */
+  text: string | null
+  /** สีหัวข้อ h2 (ไม่มี h2 ใช้ h3) */
+  heading: string | null
+  /** สีลิงก์ในเนื้อหา */
+  link: string | null
+  /** พื้นหลังของบทความเอง — '' = โปร่งใส (เห็นพื้นของหน้าเว็บด้านหลัง) */
+  background: string
+  /** สีพื้นที่ผู้อ่านเห็นหลังตัวอักษรจริง (พื้นบทความ หรือพื้นของ section/หน้าเว็บด้านหลังถ้าบทความโปร่งใส) */
+  backdrop: string
+  bodyFont: string | null
+  headingFont: string | null
+  /** element ที่ใช้คำนวณ (ไว้แสดงเป็นหลักฐาน) */
+  sampled: string[]
+}
+
+/** chain ของ element ที่ index (รวมตัวมันเอง) — openTag = แท็กเปิดของ element นั้น */
+function chainFor(page: string, index: number, openTag: string): CssEl[] {
+  return [...openChainAt(page, index), parseOpenTag(openTag)]
+}
+
+/**
+ * element ในกล่องเนื้อหาที่ตรง re (re ต้องมี flag g และจับแท็กเปิดที่ group 1 หรือทั้งก้อน) — ดู 8 ตัวแรก
+ * เลือกตัวที่อยู่ตื้นสุดจากกล่องเนื้อหา (กันไปเจอย่อหน้าในกล่อง CTA/ไฮไลต์ที่มีสีของตัวเอง)
+ */
+function bestInContent(page: string, region: ContentRegion, re: RegExp): CssEl[] | null {
+  const offset = region.start + region.openTag.length
+  const inner = page.slice(offset, region.end)
+  let best: CssEl[] | null = null
+  let m: RegExpExecArray | null
+  re.lastIndex = 0
+  for (let n = 0; n < 8 && (m = re.exec(inner)); n++) {
+    const tagHtml = m[1] || /^<[^>]*>/.exec(m[0])?.[0] || m[0]
+    const at = offset + m.index + m[0].length - (m[1] ? m[1].length : m[0].length)
+    const chain = chainFor(page, at, tagHtml)
+    if (!best || chain.length < best.length) best = chain
+  }
+  return best
+}
+
+const describe = (el: CssEl) => `${el.tag}${el.id ? `#${el.id}` : ''}${Array.from(el.classes).slice(0, 3).map((c) => `.${c}`).join('')}`
+
+/**
+ * สี/ฟอนต์ที่ผู้อ่านเห็นจริงในกล่องเนื้อหาบทความ — cascade จาก CSS ของหน้า (ไม่ใช้ AI)
+ * พื้นหลัง: element ระหว่างย่อหน้าถึงกล่องเนื้อหามีพื้นของตัวเอง = พื้นบทความ, ไม่มี = โปร่งใส (ใช้พื้นของ section/หน้าเว็บ)
+ */
+function computeArticleStyle(page: string, rules: CssRule[]): ComputedArticleStyle | null {
+  const region = postContentRegion(page)
+  if (!region) return null
+  const cascade = new CssCascade(rules)
+  const contentChain = chainFor(page, region.start, region.openTag)
+  const virtual = (tag: string): CssEl => ({ tag, id: '', classes: new Set() })
+
+  // ย่อหน้าที่มีตัวอักษรจริง (ไม่ใช่ p ว่าง/p ที่มีแต่รูป)
+  const pChain = bestInContent(page, region, /<p\b[^>]*>(?=\s*(?:<(?:strong|b|em|span|a)\b[^>]*>\s*)*[^<\s])/gi) || [...contentChain, virtual('p')]
+  const hChain = bestInContent(page, region, /<h2\b[^>]*>/gi) || bestInContent(page, region, /<h3\b[^>]*>/gi) || [...contentChain, virtual('h2')]
+  // ลิงก์ในย่อหน้า (ไม่ใช่ปุ่ม) → ลิงก์ไหนก็ได้ในเนื้อหา → ลิงก์สมมุติใต้ย่อหน้า
+  const aChain =
+    bestInContent(page, region, /<p\b[^>]*>(?:(?!<\/p>)[\s\S])*?(<a\b[^>]*href=[^>]*>)/gi) ||
+    bestInContent(page, region, /<a\b(?![^>]*class=["'][^"']*(?:btn|button))[^>]*href=[^>]*>/gi) ||
+    [...pChain, virtual('a')]
+
+  const color = (chain: CssEl[]) => {
+    const v = cascade.inherited(chain, 'color')
+    const hex = v ? toHex(v.value) : null
+    return hex && hex !== 'transparent' ? hex : null
+  }
+  // ลิงก์ไม่สืบทอดสีจากพ่อ (เบราว์เซอร์ตั้ง a:link เป็นสีน้ำเงิน) เว้นแต่ CSS สั่ง inherit/currentColor
+  const linkColor = () => {
+    const raw = cascade.declared(aChain, 'color')
+    if (raw === null) return '#0000ee'
+    const v = cascade.resolve(raw, aChain)
+    if (/^(?:inherit|currentcolor|unset)$/i.test(v)) return color(aChain.slice(0, -1))
+    const hex = toHex(v)
+    return hex && hex !== 'transparent' ? hex : null
+  }
+  const font = (chain: CssEl[]) => {
+    const v = cascade.inherited(chain, 'font-family')?.value
+    return v ? v.replace(/\s+/g, ' ').trim() : null
+  }
+
+  // พื้นหลัง: ไล่จากย่อหน้าขึ้นไปถึงกล่องเนื้อหา = พื้นของบทความ, เหนือกว่านั้น = พื้นหน้าเว็บด้านหลัง
+  const contentDepth = contentChain.length - 1
+  let background = ''
+  for (let i = pChain.length - 2; i >= contentDepth; i--) {
+    const bg = cascade.background(pChain.slice(0, i + 1))
+    if (bg) {
+      background = bg
+      break
+    }
+  }
+  let backdrop = background
+  if (!backdrop) {
+    for (let i = contentDepth - 1; i >= 0; i--) {
+      const bg = cascade.background(pChain.slice(0, i + 1))
+      if (bg) {
+        backdrop = bg
+        break
+      }
+    }
+  }
+
+  return {
+    text: color(pChain),
+    heading: color(hChain),
+    link: linkColor(),
+    background,
+    backdrop: backdrop || '#ffffff',
+    bodyFont: font(pChain),
+    headingFont: font(hChain),
+    sampled: [describe(contentChain[contentChain.length - 1]), describe(pChain[pChain.length - 1]), describe(hChain[hChain.length - 1]), describe(aChain[aChain.length - 1])],
+  }
+}
+
+/** ผสมสี hex สองสี (w = สัดส่วนของสีที่สอง) */
+function mixHex(a: string, b: string, w: number): string {
+  const ch = (h: string, i: number) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16)
+  return `#${[0, 1, 2].map((i) => Math.round(ch(a, i) * (1 - w) + ch(b, i) * w).toString(16).padStart(2, '0')).join('')}`
+}
+
+/** ตัวอักษรอ่านออกบนพื้นนี้ไหม (contrast ≥ 3) */
+function readable(fg: string | undefined, bg: string): boolean {
+  if (!fg || !/^#[0-9a-f]{6}$/i.test(fg) || !/^#[0-9a-f]{6}$/i.test(bg)) return true
+  return contrast(fg, bg) >= 3
+}
+
+/** เติม #rrggbb จาก #rgb */
+function hex6(v: string | undefined): string | undefined {
+  if (!v) return undefined
+  const h = toHex(v)
+  return h && h !== 'transparent' ? h : undefined
+}
+
+/**
+ * กัน FAQ/ตารางที่ AI เสนออ่านไม่ออกบนพื้นจริงของเว็บ (เช่น กล่องขาวตัวหนังสือขาวบนเว็บพื้นเข้ม)
+ * พื้นกล่องที่ขัดกับพื้นเว็บชัด ๆ (ขาวบนพื้นเข้ม) ถูกเปลี่ยนเป็นโปร่งใส แล้วตัวอักษรที่อ่านไม่ออกใช้สีตัวอักษรของบทความ
+ */
+function fitDetailToBackdrop(detail: UploadThemeDetail, style: ComputedArticleStyle): UploadThemeDetail {
+  const back = style.background || style.backdrop
+  const dark = /^#[0-9a-f]{6}$/i.test(back) && luminance(back) < 0.2
+  const text = style.text || (dark ? '#ffffff' : '#111111')
+  const f = detail.faq ? { ...detail.faq } : undefined
+  if (f) {
+    const lightBox = (v: string | undefined) => {
+      const h = hex6(v)
+      return !!h && dark && luminance(h) > 0.6
+    }
+    for (const k of ['itemBackground', 'questionBackground', 'answerBackground', 'openQuestionBackground'] as const) {
+      if (lightBox(f[k])) f[k] = 'transparent'
+    }
+    const bgOf = (...vs: Array<string | undefined>) => hex6(vs.find((v) => v && v !== 'transparent')) || back
+    const itemBg = bgOf(f.itemBackground)
+    const qBg = bgOf(f.questionBackground, f.itemBackground)
+    const oqBg = bgOf(f.openQuestionBackground, f.questionBackground, f.itemBackground)
+    const aBg = bgOf(f.answerBackground, f.itemBackground)
+    if (!readable(hex6(f.questionColor), qBg)) f.questionColor = readable(text, qBg) ? text : undefined
+    if (!readable(hex6(f.openQuestionColor), oqBg)) f.openQuestionColor = readable(text, oqBg) ? text : undefined
+    if (!readable(hex6(f.answerColor), aBg)) f.answerColor = readable(text, aBg) ? text : undefined
+    if (!readable(hex6(f.iconColor), qBg)) f.iconColor = undefined
+    if (dark && !f.questionColor && !readable('#000000', qBg)) f.questionColor = text
+    // ขอบสีเกือบเท่าพื้นจะมองไม่เห็น — ปล่อยให้ใช้สีขอบของธีม
+    if (f.itemBorderColor && hex6(f.itemBorderColor) && contrast(hex6(f.itemBorderColor) as string, itemBg) < 1.3) f.itemBorderColor = undefined
+  }
+  let t = detail.table ? { ...detail.table } : undefined
+  // หัวตาราง default = พื้นสีหลัก (สีหัวข้อ) + ตัวขาว — หัวข้อสีอ่อน (เว็บพื้นเข้ม) จะกลายเป็นขาวบนขาว ต้องตั้งพื้นหัวตารางให้เอง
+  const heading = hex6(style.heading || undefined)
+  if (!t?.headerBackground && heading && luminance(heading) > 0.6) {
+    t = { ...(t || {}), headerBackground: dark ? mixHex(back, '#ffffff', 0.12) : '#1f2937', headerColor: dark ? text : '#ffffff' }
+  }
+  if (t) {
+    if (t.stripeBackground && dark && luminance(hex6(t.stripeBackground) || '#000000') > 0.6) t.stripeBackground = 'rgba(255,255,255,.06)'
+    const headBg = hex6(t.headerBackground)
+    if (headBg && t.headerColor && !readable(hex6(t.headerColor), headBg)) t.headerColor = undefined
+  }
+  return { ...detail, ...(f ? { faq: f } : {}), ...(t ? { table: t } : {}) }
 }
 
 function resolveVars(body: string, vars: Map<string, string>): string {
@@ -454,18 +753,24 @@ const SYSTEM = `คุณคือนักวิเคราะห์ CSS ข�
 หน้าที่: อ่าน HTML ตัวอย่างของกล่อง FAQ และกฎ CSS ที่เกี่ยวข้องของเว็บ แล้วสรุปหน้าตาจริงที่ผู้อ่านเห็นเป็น JSON
 กติกา:
 - ใช้เฉพาะค่าที่มีหลักฐานใน CSS/HTML ที่ให้มา ห้ามเดา ถ้าไม่มีหลักฐานให้ละ key นั้นไป
+- ถ้ามีหัวข้อ "สีที่คำนวณจาก CSS จริง" ให้ถือเป็นความจริงสูงสุด colors/fonts ต้องตรงกับค่านั้น (ระบบจะใช้ค่านั้นทับอยู่แล้ว)
+  ใช้ค่านั้นประกอบการเสนอหน้าตา FAQ/ตารางให้เข้ากับบทความ
+- "พื้นหลังที่ผู้อ่านเห็น" เป็นสีเข้ม (ตัวอักษรบทความสีขาว/อ่อน) → ห้ามเสนอกล่อง FAQ/ตารางพื้นขาวหรือพื้นอ่อน + ตัวอักษรเข้ม
+  ให้ itemBackground/questionBackground/answerBackground เป็น "transparent" หรือสีเข้มใกล้พื้นหลังนั้น (เช่นสีกล่องที่บทความใช้อยู่)
+  questionColor/answerColor = สีตัวอักษรบทความ, iconColor/เส้นขอบใช้สีลิงก์หรือสีอ่อนโปร่ง ๆ ที่มองเห็นบนพื้นเข้ม
+- บทความไม่มีพื้นหลังของตัวเอง (โปร่งใส) → colors.background เว้นว่าง
 - ลำดับความสำคัญของหลักฐาน: "CSS ที่บทความฝังมาเอง" สูงสุด (ผู้อ่านเห็นค่านี้จริง) > "CSS ของกล่อง FAQ" > "CSS ธีม"
   ถ้ามี CSS ที่บทความฝังมาเอง ให้เอาทุกค่าจากก้อนนั้น ห้ามใช้ค่าตั้งต้นของธีม/reset (เช่น a{color}, body{font-family} แบบกว้าง ๆ) มาแทน
 - colors.theme = สีตัวอักษรหัวข้อ h2 จริง (แม้เป็นสีเทาเข้ม/ดำก็ใช้ค่านั้น ห้ามเอาสีลิงก์มาใส่), colors.text = สีตัวอักษรย่อหน้า p, colors.border = สีขอบกล่อง/ตาราง, colors.accent = สีลิงก์ในบทความ
 - fonts คัด font-family ตามที่เขียนใน CSS ตรง ๆ (รวม fallback)
 - faq ให้คัดจาก CSS ของ details/summary หรือ class ของกล่อง FAQ ตรง ๆ: questionBackground = พื้น summary, questionWeight = font-weight ของ summary, icon ดูจาก content ของ ::after/::before ('+' = plus, ลูกศร = chevron/arrow) ถ้า summary ไม่มี list-style:none และไม่มี pseudo = ลูกศรเริ่มต้นของเบราว์เซอร์ (caret ซ้าย), iconColor = color ของ pseudo นั้น, answerPadding = padding ของย่อหน้าคำตอบ
 - table ให้คัดจาก th/thead th/tr:nth-child (headerBackground, headerColor, borderColor, stripeBackground)
-- สีเป็น hex เท่านั้น (#rrggbb) ถ้า CSS เป็น rgb() ให้แปลงเป็น hex
+- สีเป็น hex เท่านั้น (#rrggbb) ถ้า CSS เป็น rgb() ให้แปลงเป็น hex (ยกเว้นพื้นกล่อง FAQ ใช้ "transparent" ได้)
 - ตัวเลขขนาด (radius/gap/borderWidth) เป็น number หน่วย px, padding เป็นสตริง CSS เช่น "16px 20px"
 - ถ้าไม่มีกล่อง FAQ บนเว็บเลย ให้ faq ใช้สี/ขอบ/มุมโค้งจาก CSS บทความ และบอกใน summary ว่าเป็นค่าที่เสนอ
 - summary เป็นภาษาไทย 2-4 ประโยค อธิบายว่าเว็บแสดง FAQ และบทความอย่างไร (เช่น กล่องมีขอบมุมโค้ง ไอคอนลูกศรขวา หัวข้อสีน้ำเงิน)
 ตอบ JSON รูปแบบนี้เท่านั้น:
-{"colors":{"theme":"สีหลัก/หัวข้อ","text":"สีตัวอักษรเนื้อหา","border":"สีเส้นขอบ","accent":"สีลิงก์","background":"พื้นหลังบทความ ถ้าเป็นสีขาวให้เว้นว่าง"},
+{"colors":{"theme":"สีหลัก/หัวข้อ","text":"สีตัวอักษรเนื้อหา","border":"สีเส้นขอบ","accent":"สีลิงก์","background":"พื้นหลังบทความ ถ้าเป็นสีขาวหรือโปร่งใสให้เว้นว่าง"},
 "fonts":{"body":"font-family เนื้อหา","heading":"font-family หัวข้อ"},
 "faq":{"layout":"card|divider|plain","itemBackground":"","itemBorderColor":"","itemBorderWidth":1,"itemRadius":8,"itemGap":12,"itemShadow":false,"questionBackground":"","questionColor":"","questionFontSize":"18px","questionWeight":600,"questionPadding":"16px 20px","openQuestionBackground":"","openQuestionColor":"","answerBackground":"","answerColor":"","answerPadding":"0 20px 16px","icon":"plus|chevron|caret|arrow|none","iconPosition":"left|right","iconColor":""},
 "table":{"headerBackground":"","headerColor":"","borderColor":"","stripeBackground":""},
@@ -477,13 +782,30 @@ async function analyzeStyle(input: {
   articleCss: string
   faqCss: string
   contentCss: string
+  /** CSS ของ class ที่ใช้ในเนื้อบทความ (เช่นกล่อง CTA ที่ผู้เขียนเขียนเอง) */
+  contentClassCss: string
+  computed: ComputedArticleStyle | null
 }): Promise<{ data: AiStyle | null; usage: ORUsage | null; error: string | null }> {
-  if (!input.articleCss && !input.faqCss && !input.contentCss && !input.faqSnippet) return { data: null, usage: null, error: 'ไม่พบ CSS ของเว็บให้วิเคราะห์' }
+  if (!input.articleCss && !input.faqCss && !input.contentCss && !input.faqSnippet && !input.computed) return { data: null, usage: null, error: 'ไม่พบ CSS ของเว็บให้วิเคราะห์' }
+  const c = input.computed
+  const computedBlock = c
+    ? [
+        '## สีที่คำนวณจาก CSS จริง (ความจริงสูงสุด — คำนวณ cascade แล้ว)',
+        `- ตัวอักษรย่อหน้า: ${c.text || '(ไม่ทราบ)'}`,
+        `- หัวข้อ h2: ${c.heading || '(ไม่ทราบ)'}`,
+        `- ลิงก์: ${c.link || '(ไม่ทราบ)'}`,
+        `- พื้นหลังของบทความเอง: ${c.background || 'ไม่มี (โปร่งใส)'}`,
+        `- พื้นหลังที่ผู้อ่านเห็นหลังตัวอักษร: ${c.backdrop} (${luminance(c.backdrop) < 0.2 ? 'สีเข้ม' : 'สีอ่อน'})`,
+        `- ฟอนต์เนื้อหา: ${c.bodyFont || '(ไม่ทราบ)'} / ฟอนต์หัวข้อ: ${c.headingFont || '(ไม่ทราบ)'}`,
+      ].join('\n')
+    : ''
   const user = [
+    ...(computedBlock ? [computedBlock] : []),
     input.faqSnippet ? `## กล่อง FAQ บนเว็บ (${input.faqLabel})\n${input.faqSnippet}` : '## เว็บนี้ไม่มีกล่อง FAQ ในบทความที่สุ่มดู',
     `## CSS ที่บทความฝังมาเอง (สำคัญสุด — ผู้อ่านเห็นค่านี้จริง)\n${input.articleCss || '(ไม่มี)'}`,
     `## CSS ของกล่อง FAQ (จากไฟล์ธีม/ปลั๊กอิน)\n${input.faqCss || '(ไม่มี)'}`,
     `## CSS ธีมสำหรับเนื้อหาบทความ (ค่าตั้งต้น — ใช้เมื่อ CSS ที่บทความฝังมาไม่ได้กำหนด)\n${input.contentCss || '(ไม่มี)'}`,
+    ...(input.contentClassCss ? [`## CSS ของกล่องที่ใช้ในเนื้อบทความ (เช่นกล่อง CTA ที่ผู้เขียนเขียนเอง — ใช้เป็นแนวทางสี/มุมโค้งของกล่อง)\n${input.contentClassCss}`] : []),
   ].join('\n\n')
   const r = await askJson<AiStyle>({ trace: 'uploadSiteScanStyle', system: SYSTEM, user, maxTokens: 1500, temperature: 0.1, timeoutMs: 90_000 })
   return { data: r.data, usage: r.usage, error: r.error }
@@ -500,9 +822,24 @@ export interface SiteScanResult {
 }
 
 export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promise<SiteScanResult> {
-  const target = normalizeSite(siteUrl)
+  let target = normalizeSite(siteUrl)
   const checked: string[] = []
   const warnings: string[] = []
+  const sample = sampleUrl?.trim() ? normalizeSite(sampleUrl) : ''
+
+  // ลิงก์ตัวอย่างอยู่คนละเว็บกับ URL ที่สแกน — ผลต้องมาจากเว็บเดียวกันทั้งหมด ไม่งั้นหน้าตาปนกัน 2 เว็บ
+  if (sample) {
+    try {
+      const sHost = new URL(sample).host.replace(/^www\./, '')
+      const tHost = new URL(target).host.replace(/^www\./, '')
+      if (sHost !== tHost) {
+        target = new URL(sample).origin
+        warnings.push(`ลิงก์บทความตัวอย่างอยู่คนละเว็บกับ URL ที่สแกน — สแกนตามเว็บของลิงก์ตัวอย่าง (${sHost}) แทน`)
+      }
+    } catch {
+      /* URL เสีย — normalizeSite จัดการแล้ว */
+    }
+  }
 
   const homeRes = await fetchHtml(target)
   const home = homeRes.ok ? stripOurArticles(homeRes.html) : null
@@ -552,7 +889,6 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
   }
 
   // เปิดหน้าบทความจริง 3 หน้า (+ ลิงก์ตัวอย่างที่ผู้ใช้ใส่)
-  const sample = sampleUrl?.trim() ? normalizeSite(sampleUrl) : ''
   const toRender = uniq([...(sample ? [sample] : []), ...posts.map((p) => p.link)]).slice(0, sample ? 4 : 3)
   const rendered = await Promise.all(toRender.map((u) => fetchHtml(u)))
   let renderedCount = 0
@@ -583,17 +919,35 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
   }
 
   // หน้าตา FAQ + บทความ — ใช้หน้าบทความจริง (ถ้าไม่มีใช้หน้าแรก)
-  // หน้าที่ใช้อ่าน CSS: ลิงก์ตัวอย่างที่ผู้ใช้ใส่มาก่อนเสมอ → หน้าที่เจอ FAQ → หน้าที่มี CSS ฝังในบทความ → บทความแรก → หน้าแรก
-  // (แต่ละบทความบนเว็บเดียวกันอาจพก CSS คนละชุด ลิงก์ตัวอย่างจึงต้องชนะ)
+  // หน้าที่ใช้อ่าน CSS: ลิงก์ตัวอย่างที่ผู้ใช้ใส่ (เปิดได้) ชนะเสมอ → หน้าที่เจอ FAQ → หน้าที่มี CSS ฝังในบทความ → บทความแรก → หน้าแรก
+  // (แต่ละบทความบนเว็บเดียวกันอาจพก CSS คนละชุด ลิงก์ตัวอย่างจึงต้องชนะ แม้หน้าตัวอย่างไม่มี FAQ ก็ตาม)
   const isSample = (p: PostSample) => !!sample && p.link.replace(/\/$/, '') === sample.replace(/\/$/, '')
   const postEntries = posts
     .filter((p): p is PostSample & { page: string } => !!p.page)
     .sort((a, b) => Number(isSample(b)) - Number(isSample(a)))
-  const snippet =
-    (postEntries[0] && isSample(postEntries[0]) ? extractFaqSnippet([postEntries[0].page]) : null) ||
-    extractFaqSnippet([...postEntries.map((p) => p.page), ...(home ? [home] : [])])
+  const sampleEntry = postEntries[0] && isSample(postEntries[0]) ? postEntries[0] : null
+  if (sample && !sampleEntry) warnings.push('เปิดลิงก์บทความตัวอย่างไม่ได้ — ใช้บทความอื่นของเว็บแทน')
+  // FAQ ตัวอย่าง (pageIndex = index ใน postEntries, -1 = หน้าแรก):
+  // หน้าตัวอย่างก่อน → บทความอื่นที่ไม่ได้ฝัง CSS ของตัวเอง (หน้าตาตามธีม) → (ไม่มีตัวอย่าง) บทความไหนก็ได้ → หน้าแรก
+  // มีตัวอย่างแล้วห้ามหยิบบทความที่ฝัง CSS คนละชุดมา — หน้าตาจะไม่ตรงกับตัวอย่าง
+  let snippet: { html: string; label: string; pageIndex: number } | null = null
+  const pick = (entries: Array<{ page: string }>) => {
+    const f = extractFaqSnippet(entries.map((e) => e.page))
+    return f ? { ...f, pageIndex: postEntries.indexOf(entries[f.pageIndex] as (typeof postEntries)[number]) } : null
+  }
+  if (sampleEntry) snippet = pick([sampleEntry])
+  if (!snippet) snippet = pick(postEntries.filter((p) => p !== sampleEntry && !bodyStyleCss(p.page).trim()))
+  if (!snippet && !sampleEntry) snippet = pick(postEntries)
+  if (!snippet && home) {
+    const f = extractFaqSnippet([home])
+    if (f) snippet = { ...f, pageIndex: -1 }
+  }
   const cssEntry =
-    (snippet && postEntries[snippet.pageIndex]) || postEntries.find((p) => bodyStyleCss(p.page).trim()) || postEntries[0] || null
+    sampleEntry ||
+    (snippet && snippet.pageIndex >= 0 ? postEntries[snippet.pageIndex] : null) ||
+    postEntries.find((p) => bodyStyleCss(p.page).trim()) ||
+    postEntries[0] ||
+    null
   const cssPage = cssEntry?.page || home
   let suggestedTheme: Partial<UploadTheme> | null = null
   let detail: UploadThemeDetail | null = null
@@ -603,7 +957,17 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
     const themeRules = parseRules(await collectCss(cssPage, cssEntry?.link || target))
     const articleCss = articleOwnCss(parseRules(bodyStyleCss(cssPage)), themeRules)
     const { faqCss, contentCss } = relevantCss(themeRules, snippet ? classTokens(snippet.html) : [], snippet ? faqTags(snippet.html) : [])
+    const region = postContentRegion(cssPage)
+    const contentClassCss = region ? relevantCss(themeRules, classTokens(region.html.slice(region.openTag.length)).slice(0, 25)).faqCss.slice(0, 6000) : ''
+    const computed = computeArticleStyle(cssPage, themeRules)
     if (articleCss) checked.push('CSS ที่บทความฝังมาเอง')
+    if (computed) {
+      checked.push(
+        `คำนวณสีจาก CSS จริงของ ${readableUrl(cssEntry?.link || target)}: ตัวอักษร ${computed.text || '-'}, หัวข้อ ${computed.heading || '-'}, ลิงก์ ${computed.link || '-'}, พื้นหลัง${computed.background ? ` ${computed.background}` : 'โปร่งใส'} (พื้นหน้าเว็บด้านหลัง ${computed.backdrop})`,
+      )
+    } else {
+      warnings.push('หากล่องเนื้อหาบทความในหน้าไม่เจอ — สีมาจากการวิเคราะห์ CSS โดย AI อย่างเดียว ควรเช็คสีอีกครั้ง')
+    }
     // บทความแต่ละโพสต์พก CSS คนละชุด — ผลจะตรงกับบทความที่ถูกหยิบมาอ่านเท่านั้น
     const ownCss = uniq(
       posts
@@ -613,16 +977,23 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
     )
     if (ownCss.length > 1) {
       warnings.push(
-        sample
+        sampleEntry
           ? `บทความบนเว็บนี้ฝัง CSS มาเองคนละชุด หน้าตาแต่ละบทความไม่เหมือนกัน — ใช้หน้าตาจากลิงก์บทความตัวอย่างที่ใส่มา`
           : `บทความบนเว็บนี้ฝัง CSS มาเองคนละชุด หน้าตาแต่ละบทความไม่เหมือนกัน — ผลนี้อ่านจาก ${cssEntry?.link || target} ถ้าต้องการให้เหมือนบทความไหน ใส่ลิงก์บทความนั้นในช่องบทความตัวอย่างแล้วสแกนใหม่`,
       )
     }
-    const ai = await analyzeStyle({ faqSnippet: snippet?.html || '', faqLabel: snippet?.label || '', articleCss, faqCss, contentCss })
+    if (snippet && sampleEntry && snippet.pageIndex !== 0) {
+      warnings.push(
+        snippet.pageIndex === -1
+          ? 'บทความตัวอย่างไม่มี FAQ — ใช้รูปแบบ FAQ จากหน้าแรกของเว็บ แต่สีตามบทความตัวอย่าง'
+          : 'บทความตัวอย่างไม่มี FAQ — ใช้รูปแบบ FAQ จากบทความอื่นของเว็บเดียวกัน แต่สีตามบทความตัวอย่าง',
+      )
+    }
+    const ai = await analyzeStyle({ faqSnippet: snippet?.html || '', faqLabel: snippet?.label || '', articleCss, faqCss, contentCss, contentClassCss, computed })
     usage = ai.usage
+    const t: Partial<UploadTheme> = {}
     if (ai.data) {
       const c = ai.data.colors || {}
-      const t: Partial<UploadTheme> = {}
       for (const k of ['theme', 'text', 'border', 'accent', 'background'] as const) {
         const v = safeHex(c[k])
         if (v) t[k] = v
@@ -631,7 +1002,6 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
       const heading = safeFont(ai.data.fonts?.heading)
       if (body) t.fontFamily = body
       if (heading) t.headingFont = heading
-      suggestedTheme = Object.keys(t).length ? t : null
       detail =
         sanitizeThemeDetail({
           source: snippet ? `${snippet.label} บน ${target}` : `ภาษาออกแบบบทความของ ${target} (เว็บไม่มีกล่อง FAQ)`,
@@ -642,6 +1012,21 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
     } else if (ai.error) {
       warnings.push(`วิเคราะห์หน้าตา FAQ ไม่สำเร็จ: ${ai.error}`)
     }
+    // ค่าที่คำนวณจาก CSS จริงชนะค่าที่ AI อ่าน — รวมถึงพื้นหลังโปร่งใส ('' = ไม่ใส่พื้น ใช้พื้นของเว็บ)
+    if (computed) {
+      if (computed.text) t.text = computed.text
+      if (computed.heading) t.theme = computed.heading
+      if (computed.link) t.accent = computed.link
+      t.background = computed.background && computed.background !== '#ffffff' ? computed.background : ''
+      t.pageBackground = computed.backdrop
+      const bodyFont = safeFont(computed.bodyFont)
+      const headingFont = safeFont(computed.headingFont)
+      if (bodyFont) t.fontFamily = bodyFont
+      if (headingFont && headingFont !== bodyFont) t.headingFont = headingFont
+      else if (headingFont === bodyFont) delete t.headingFont
+      if (detail) detail = sanitizeThemeDetail(fitDetailToBackdrop(detail, computed)) || null
+    }
+    suggestedTheme = Object.keys(t).length ? t : null
   }
 
   return {
