@@ -126,6 +126,14 @@ export default function UploadGscReportTab({ clientId }: { clientId: string }) {
       if (d.error) setSitesError(d.error);
       const chosen = d.selected || d.suggested || "";
       if (chosen) setSelectedSite(chosen);
+      // เว็บที่แนะนำยังไม่ได้บันทึก — บันทึกให้เลย ไม่งั้น dropdown โชว์เว็บแต่ server ยังมองว่าไม่ได้เลือก
+      if (!d.selected && d.suggested) {
+        await fetch(`/api/upload-article/clients/${clientId}/report/site`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ siteUrl: d.suggested }),
+        }).catch(() => undefined);
+      }
     } catch (e) {
       setSitesError(`โหลดรายชื่อเว็บไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
