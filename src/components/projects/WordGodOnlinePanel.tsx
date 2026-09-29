@@ -38,6 +38,7 @@ import BusinessProfileCard from '@/components/keyword-research/BusinessProfileCa
 import IntentPlanView, { IntentBadge, FitBadge } from '@/components/keyword-research/IntentPlanView';
 import type { BusinessProfile, IntentSkillResult } from '@/lib/wordgod/intent-skill/types';
 import { type KeywordHandoffRow } from '@/lib/wordgod/intent-skill/handoff';
+import { fromLegacyPageType } from '@/lib/wordgod/intent-skill/pageDecision';
 
 /** OnlineResearchResponse ที่รวมผล Keyword Intent Skill (optional — ผลรุ่นเก่าไม่มี) */
 type OnlineResponseWithSkill = OnlineResearchResponse & { intentSkill?: IntentSkillResult };
@@ -72,7 +73,8 @@ interface Props {
   /** true = ใช้แบบไม่ผูกโปรเจกต์ (เช่น หน้า Keyword Research แยกเดี่ยว) — ไม่ส่ง projectId, ไม่เช็คคำซ้ำกับโปรเจกต์ */
   standalone?: boolean;
   /** ถ้าใส่ — ปุ่ม "ส่งไปหน้า Keyword" จะเรียกฟังก์ชันนี้แทนการ POST เข้า keyword-bank ของโปรเจกต์ */
-  onSendRows?: (rows: KeywordHandoffRow[]) => Promise<void> | void;
+  /** คืน true เมื่อส่งสำเร็จจริง — false/void = ผู้ใช้ปิดหน้าต่างโดยไม่ได้ส่ง (ไม่ทำเครื่องหมายว่าส่งแล้ว) */
+  onSendRows?: (rows: KeywordHandoffRow[]) => Promise<boolean | void> | boolean | void;
   /** override ข้อความปุ่มส่ง (ค่าเริ่มต้น "ส่งไปหน้า Keyword →") */
   sendLabel?: string;
 }
@@ -524,6 +526,8 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
     setPage(1);
   }, [query, confidenceFilter, objectiveFilter, funnelFilter, waveFilter, clusterFilter, journeyFilter, sortKey, sortDesc, tab, pageSize]);
 
+  const runningRef = useRef(false);
+
   // โหลดผลรอบล่าสุดที่บันทึกไว้ของโปรเจกต์นี้ (canonical run) — เงียบ ๆ ถ้าไม่มี
   useEffect(() => {
     let cancelled = false;
@@ -535,7 +539,8 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
         const res = await fetch(url);
         if (!res.ok) return;
         const json = await res.json();
-        if (!cancelled && json?.results?.length && json?.meta) {
+        // ถ้าผู้ใช้กดรันไปแล้วระหว่างรอ อย่าเอาผลเก่ามาทับสถานะที่กำลังรัน
+        if (!cancelled && !runningRef.current && json?.results?.length && json?.meta) {
           setData(json as OnlineResponseWithSkill);
           setStatus('done');
           setStatusMessage(`โหลดผลรอบล่าสุด (${json.results.length} คำ · ${fmtDate(json.meta.generatedAt)})`);
@@ -665,7 +670,6 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
   }
 
   // ── รันวิจัย: NDJSON stream + checkpoint/resume (แพทเทิร์นเดียวกับโหมด Local) ──
-  const runningRef = useRef(false);
   async function runResearch(): Promise<void> {
     if (runningRef.current) return;
     const products = parseLines(productsText);
@@ -734,7 +738,10 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
       let resumeRunId: string | null = null;
       let retries = 0;
       let lockWaits = 0;
+      let slices = 0;
       for (;;) {
+        // กันวนไม่รู้จบ (เช่นเซิร์ฟเวอร์ตอบ 202 ซ้ำโดยไม่คืบ) — งานยังเก็บ checkpoint ไว้ กดรันต่อได้
+        if (++slices > 400) throw new Error('ประมวลผลนานผิดปกติ — กดรันต่อเพื่อทำต่อจากจุดเดิม');
         let response: Response;
         try {
           response = await fetch('/api/wordgod/online-research', {
@@ -904,15 +911,21 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
           title: r.recommendedTitle ?? null,
           volume: r.reference.volume ?? null,
           slug: r.isk?.nestedSlug || r.suggestedSlug || null,
-          intent: r.isk?.intent.primary ?? null,
-          pageType: r.isk?.pageType ?? null,
-          clusterName: r.isk?.clusterName ?? null,
+          // ผลรุ่นที่ยังไม่ผ่าน intent skill — แปลงจากฟิลด์เดิมแทนการส่งค่าว่าง
+          intent: r.isk?.intent.primary
+            ?? (r.businessIntent === 'TRANSACTIONAL' ? 'T' : r.businessIntent === 'EVALUATIVE' ? 'C' : 'I'),
+          pageType: r.isk?.pageType ?? fromLegacyPageType(r.pageType),
+          clusterName: r.isk?.clusterName ?? (r.cluster || null),
           section: r.isk?.section ?? null,
           groupHead: r.isk ? (iskGroupsById.get(r.isk.groupId)?.head ?? r.keyword) : null,
           remark: r.isk?.remark ?? null,
           approved: r.isk?.approved ?? null,
         }));
-        await onSendRows(handoffRows);
+        const sent = await onSendRows(handoffRows);
+        if (sent !== true) {
+          setConfirmOpen(false);
+          return;
+        }
         setData(prev => prev ? {
           ...prev,
           results: prev.results.map(r =>

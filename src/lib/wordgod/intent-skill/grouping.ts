@@ -38,16 +38,6 @@ function normalizeUrl(u: string): string {
     .replace(/\/+$/, '');
 }
 
-function urlOverlapCount(a: string[], b: string[]): number {
-  if (!a.length || !b.length) return 0;
-  const setA = new Set(a.map(normalizeUrl));
-  let count = 0;
-  for (const u of b.map(normalizeUrl)) {
-    if (setA.has(u)) count++;
-  }
-  return count;
-}
-
 function detectLocation(row: IntentSkillInputRow): string | null {
   return row.location ?? detectThaiProvince(row.keyword);
 }
@@ -74,10 +64,23 @@ export function buildGroups(
     if (ri !== rj) parent[ri] = rj;
   }
 
+  // precompute ต่อแถวครั้งเดียว (loc key, norm key, url list/set) — กันคำนวณซ้ำใน pair loop O(n²)
+  const rowMeta = rows.map(r => {
+    const loc = detectLocation(r);
+    const urlList = (r.serpTopUrls ?? []).map(normalizeUrl);
+    return {
+      normKey: normalizeThaiKey(r.keyword),
+      locKey: loc !== null ? normalizeThaiKey(loc) : null,
+      urlList,
+      urlSet: new Set(urlList),
+    };
+  });
+
   for (let i = 0; i < n; i++) {
     const ri = rows[i];
     const pi = perRow.get(ri.key);
     if (!pi) continue;
+    const mi = rowMeta[i];
     for (let j = i + 1; j < n; j++) {
       const rj = rows[j];
       const pj = perRow.get(rj.key);
@@ -88,16 +91,14 @@ export function buildGroups(
       const notRecJ = pj.fit.verdict === 'NOT_RECOMMENDED';
       if (notRecI !== notRecJ) continue;
 
-      const locI = detectLocation(ri);
-      const locJ = detectLocation(rj);
-      const locEqual =
-        (locI === null && locJ === null) ||
-        (locI !== null && locJ !== null && normalizeThaiKey(locI) === normalizeThaiKey(locJ));
+      const mj = rowMeta[j];
+      const locEqual = mi.locKey === mj.locKey;
       if (!locEqual) continue;
 
-      const sameNorm = normalizeThaiKey(ri.keyword) === normalizeThaiKey(rj.keyword);
+      const sameNorm = mi.normKey === mj.normKey;
       if (!sameNorm) {
-        const overlap = urlOverlapCount(ri.serpTopUrls ?? [], rj.serpTopUrls ?? []);
+        let overlap = 0;
+        for (const u of mj.urlList) if (mi.urlSet.has(u)) overlap++;
         if (overlap < minSerpOverlap) continue;
       }
 

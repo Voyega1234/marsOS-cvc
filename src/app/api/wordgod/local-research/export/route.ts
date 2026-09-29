@@ -238,6 +238,7 @@ export async function GET(req: NextRequest) {
   const session = await getSession();
   const orgId = session?.user?.organizationId;
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (session!.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const researchId = req.nextUrl.searchParams.get('researchId');
   if (!researchId) {
@@ -258,9 +259,15 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'ข้อมูลผลการวิจัยเสียหาย ไม่สามารถ export ได้' }, { status: 500 });
   }
+  if (!data.meta) {
+    return NextResponse.json({ error: 'รอบนี้ยังไม่สมบูรณ์ — export ไม่ได้' }, { status: 409 });
+  }
   const results = data.results ?? [];
   const meta = data.meta;
-  const services: string[] = JSON.parse(run.services || '[]');
+  let services: string[] = [];
+  try {
+    services = JSON.parse(run.services || '[]');
+  } catch { /* fallback ค่าว่าง */ }
   const weights = meta.opportunityWeights ?? { sales: run.salesWeight, traffic: run.trafficWeight };
 
   const wb = new ExcelJS.Workbook();

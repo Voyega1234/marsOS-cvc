@@ -38,6 +38,8 @@ import BusinessProfileCard from '@/components/keyword-research/BusinessProfileCa
 import IntentPlanView, { IntentBadge, FitBadge } from '@/components/keyword-research/IntentPlanView';
 import type { BusinessProfile, IntentSkillResult, KeywordGroup } from '@/lib/wordgod/intent-skill/types';
 import type { KeywordHandoffRow } from '@/lib/wordgod/intent-skill/handoff';
+import { fromLegacyPageType } from '@/lib/wordgod/intent-skill/pageDecision';
+import type { IntentCode } from '@/lib/wordgod/intent-skill/types';
 import { SHEET_COLUMNS, toSheetRows } from '@/lib/wordgod/intent-skill/exportRows';
 
 interface LocalProject {
@@ -55,7 +57,8 @@ interface Props {
   /** true = ใช้นอกโปรเจกต์ (หน้า Keyword Research แบบ standalone) — ซ่อนฟีเจอร์ที่ผูกกับโปรเจกต์ */
   standalone?: boolean;
   /** ถ้ามี = ส่งแถวที่เลือกไปให้ผู้เรียกจัดการเอง แทนการ POST เข้า Keyword Bank ของโปรเจกต์ */
-  onSendRows?: (rows: KeywordHandoffRow[]) => Promise<void> | void;
+  /** คืน true เมื่อส่งสำเร็จจริง — false/void = ผู้ใช้ปิดหน้าต่างโดยไม่ได้ส่ง */
+  onSendRows?: (rows: KeywordHandoffRow[]) => Promise<boolean | void> | boolean | void;
   /** ป้ายปุ่มส่งคำ (default: "ส่งเข้า Keyword Bank") */
   sendLabel?: string;
 }
@@ -153,6 +156,12 @@ function bankIntent(intents: LocalIntentTag[]): { intent: string; funnelStage: s
   }
   if (intents.includes('local')) return { intent: 'TRANSACTIONAL', funnelStage: 'BOFU' };
   return { intent: 'INFORMATIONAL', funnelStage: 'TOFU' };
+}
+
+/** intent แบบย่อ (I/C/T) จากแท็กเดิม — ใช้เมื่อผลรอบนั้นยังไม่ผ่าน intent skill */
+function legacyIntentCode(intents: LocalIntentTag[]): IntentCode {
+  const mapped = bankIntent(intents).intent;
+  return mapped === 'TRANSACTIONAL' ? 'T' : mapped === 'COMMERCIAL' ? 'C' : 'I';
 }
 
 function parseLines(text: string): string[] {
@@ -595,7 +604,10 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
       let resumeRunId: string | null = null;
       let retries = 0; // network สะดุด: ต่อจาก checkpoint เดิมได้สูงสุด 3 ครั้งติด
       let lockWaits = 0;
+      let slices = 0;
       for (;;) {
+        // กันวนไม่รู้จบ (เช่นเซิร์ฟเวอร์ตอบ 202 ซ้ำโดยไม่คืบ) — งานยังเก็บ checkpoint ไว้ กดรันต่อได้
+        if (++slices > 400) throw new Error('ประมวลผลนานผิดปกติ — กดรันต่อเพื่อทำต่อจากจุดเดิม');
         let response: Response;
         try {
           response = await fetch('/api/wordgod/local-research', {
@@ -792,15 +804,17 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
           volume: (row.intel?.referenceVolume ?? row.volume) ?? null,
           title: row.suggestedTitle ?? null,
           slug: row.isk?.nestedSlug || row.slug || null,
-          intent: row.isk?.intent.primary ?? null,
-          pageType: row.isk?.pageType ?? null,
-          clusterName: row.isk?.clusterName ?? null,
+          // ผลรุ่นที่ยังไม่ผ่าน intent skill — แปลงจากฟิลด์เดิมแทนการส่งค่าว่าง
+          intent: row.isk?.intent.primary ?? legacyIntentCode(row.intents),
+          pageType: row.isk?.pageType ?? fromLegacyPageType(row.suggestedPage),
+          clusterName: row.isk?.clusterName ?? (row.cluster || null),
           section: row.isk?.section ?? null,
           groupHead: row.isk ? (iskGroupsById.get(row.isk.groupId)?.head ?? row.keyword) : null,
           remark: row.isk?.remark ?? null,
           approved: row.isk?.approved ?? null,
         }));
-        await onSendRows(handoffRows);
+        const sent = await onSendRows(handoffRows);
+        if (sent !== true) return;
         toast.success(`${sendLabel ?? 'ส่งเข้า Keyword Bank'} แล้ว ${handoffRows.length} คำ`);
         onSendToBank?.();
         return;

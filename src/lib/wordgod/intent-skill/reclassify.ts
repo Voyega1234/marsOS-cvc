@@ -5,7 +5,7 @@
 import type { IntentCode, IntentMix, IntentSkillContext, IntentSkillInputRow, KeywordIntent } from './types';
 
 const BATCH_SIZE = 80;
-const MAX_CALLS = 3;
+const MAX_CALLS = 6; // รันพร้อมกัน — รอบใหญ่ (300+ คำ) ยังได้ AI ตัดสินคำกำกวมครบขึ้น โดยเวลาไม่เพิ่ม
 
 interface LlmClassifyItem {
   keyword: string;
@@ -49,7 +49,8 @@ export async function reclassifyAmbiguous(
   ctx: IntentSkillContext
 ): Promise<{ warnings: string[] }> {
   const warnings: string[] = [];
-  if (!ctx.llm) return { warnings };
+  const llm = ctx.llm;
+  if (!llm) return { warnings };
 
   const ambiguous = rows.filter(r => {
     const it = intents.get(r.key);
@@ -62,14 +63,17 @@ export async function reclassifyAmbiguous(
     batches.push(ambiguous.slice(i, i + BATCH_SIZE));
   }
 
-  for (const batch of batches) {
+  // แต่ละ batch เป็นชุดคีย์เวิร์ดคนละกลุ่ม (ไม่ทับกัน) — mutate intents map แยกคีย์กันได้ปลอดภัย
+  // รันพร้อมกันได้ แต่เก็บ warnings แยกต่อ batch แล้วค่อย push ตามลำดับเดิมให้ deterministic
+  const batchWarnings = await Promise.all(batches.map(async batch => {
+    const warns: string[] = [];
     try {
       const prompt = buildPrompt(batch, ctx);
-      const raw = await ctx.llm(prompt, 'intent_skill_classify');
+      const raw = await llm(prompt, 'intent_skill_classify');
       const parsed = raw as LlmClassifyResponse;
       if (!parsed || !Array.isArray(parsed.items)) {
-        warnings.push('AI ช่วยตัดสิน intent ที่กำกวมไม่สำเร็จ (รูปแบบผลลัพธ์ไม่ถูกต้อง) — ใช้ผลจาก rule เดิม');
-        continue;
+        warns.push('AI ช่วยตัดสิน intent ที่กำกวมไม่สำเร็จ (รูปแบบผลลัพธ์ไม่ถูกต้อง) — ใช้ผลจาก rule เดิม');
+        return warns;
       }
 
       const byKeyword = new Map(batch.map(r => [r.keyword, r.key] as const));
@@ -101,9 +105,11 @@ export async function reclassifyAmbiguous(
         }
       }
     } catch {
-      warnings.push('เรียก AI ช่วยตัดสิน intent ไม่สำเร็จ — ใช้ผลจาก rule เดิม');
+      warns.push('เรียก AI ช่วยตัดสิน intent ไม่สำเร็จ — ใช้ผลจาก rule เดิม');
     }
-  }
+    return warns;
+  }));
+  for (const warns of batchWarnings) warnings.push(...warns);
 
   return { warnings };
 }

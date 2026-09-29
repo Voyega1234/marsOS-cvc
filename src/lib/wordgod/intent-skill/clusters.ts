@@ -279,23 +279,26 @@ export async function nameClustersLLM(
   // เก็บ snapshot กลุ่มที่ยัง "ว่าง" ก่อนเติม fallback — ส่งให้ AI พิจารณาเฉพาะรายการนี้
   const groupsMissingBefore = new Set(groups.filter(g => !g.slug || !g.pageTitle).map(g => g.id));
 
-  if (ctx.llm) {
+  const llm = ctx.llm;
+  if (llm) {
     const batches: TopicCluster[][] = [];
     for (let i = 0; i < clusters.length && batches.length < MAX_CALLS; i += MAX_CLUSTERS_PER_CALL) {
       batches.push(clusters.slice(i, i + MAX_CLUSTERS_PER_CALL));
     }
 
-    for (const batch of batches) {
+    // แต่ละ batch คนละชุดคลัสเตอร์/กลุ่ม ไม่ทับกัน — รันพร้อมกันได้ เก็บ warnings แยกต่อ batch แล้ว push ตามลำดับเดิม
+    const batchWarnings = await Promise.all(batches.map(async batch => {
+      const warns: string[] = [];
       const groupsInBatch = batch.flatMap(c => c.groupIds.map(id => groupsById.get(id)).filter((g): g is KeywordGroup => !!g));
       const groupsNeedingFill = groupsInBatch.filter(g => groupsMissingBefore.has(g.id));
 
       try {
         const prompt = buildClusterNamingPrompt(batch, groupsById, groupsNeedingFill, ctx);
-        const raw = await ctx.llm(prompt, 'intent_skill_clusters');
+        const raw = await llm(prompt, 'intent_skill_clusters');
         const parsed = raw as LlmResponseShape;
         if (!parsed || typeof parsed !== 'object') {
-          warnings.push('ตั้งชื่อ Topic Cluster ด้วย AI ไม่สำเร็จ (รูปแบบผลลัพธ์ไม่ถูกต้อง) — ใช้ชื่อสำรอง');
-          continue;
+          warns.push('ตั้งชื่อ Topic Cluster ด้วย AI ไม่สำเร็จ (รูปแบบผลลัพธ์ไม่ถูกต้อง) — ใช้ชื่อสำรอง');
+          return warns;
         }
 
         for (const item of parsed.clusters ?? []) {
@@ -322,9 +325,11 @@ export async function nameClustersLLM(
           }
         }
       } catch {
-        warnings.push('เรียก AI ตั้งชื่อ Topic Cluster ไม่สำเร็จ — ใช้ชื่อสำรอง');
+        warns.push('เรียก AI ตั้งชื่อ Topic Cluster ไม่สำเร็จ — ใช้ชื่อสำรอง');
       }
-    }
+      return warns;
+    }));
+    for (const warns of batchWarnings) warnings.push(...warns);
   }
 
   // ค่า fallback สำหรับสิ่งที่ AI ยังไม่เติม (หรือไม่มี ctx.llm เลย) — ไม่ปล่อยให้ว่าง

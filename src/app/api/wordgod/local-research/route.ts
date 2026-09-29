@@ -100,7 +100,7 @@ import { fromLocalRow, parseBusinessProfile } from '@/lib/wordgod/intent-skill/a
 import type { IntentSkillInputRow, IntentSkillResult } from '@/lib/wordgod/intent-skill/types';
 import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
-import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
+import { buildAngleRing, angleAt, pickExcludeSample, buildExpansionPrompt, extractKeywordList } from '@/lib/wordgod/expansion';
 
 // โหมดมีหน้าร้าน generate หนักขึ้น (AI ขยาย pool + KP/DFS ดึง volume + SERP) เลยยืด
 // timeout เท่าโหมดไม่มีหน้าร้าน (Vercel Pro สูงสุด) — กัน request ถูกตัดกลางคัน
@@ -678,36 +678,46 @@ export async function POST(req: NextRequest) {
     // ── AI expansion: ขยาย pool คำที่ "เกี่ยวกับธุรกิจ + มีโอกาสขาย" ให้ใหญ่กว่าเป้า ──
     // AI มีหน้าที่แค่ "เสนอ candidate" — ตัวเลขทุกตัวต้องผ่าน KP/DFS ยืนยันจริง (§32)
     if (needs('expand') && flags.useAiExpand) {
-      const poolTarget = Math.min(Math.ceil(targetCount * 1.5), 2500);
+      // เดิมนับ pool ทั้งหมด (รวม candidate ที่มีอยู่ก่อนแล้ว) เป็นเป้า — ทำให้ AI แทบไม่ต้องทำงาน
+      // ก็ถึงเป้าได้ ปล่อย pool เล็กเกินจริง เปลี่ยนมานับเฉพาะ "คำใหม่ที่ AI สร้างเพิ่ม" (genTarget)
+      const genTarget = Math.min(Math.max(Math.ceil(targetCount * 2.5), 300), 3000);
       const startWave = cursor('expand', 'expandWave', 0);
-      if (items.size < poolTarget || startWave > 0) {
-        if (startWave === 0) progress(`ขยาย candidate pool ด้วย AI (เป้า pool ~${poolTarget} คำ) …`);
-        const salesRatio = { informational: 40, commercial: 35, transactional: 20, navigational: 5, update: 0 };
-        const genNiche = `${services.join(' / ')}${input.businessContext ? ` — ${input.businessContext}` : ''}`;
-        const genSeed = services[0];
-        const BATCH = 50;
-        const PARALLEL = targetCount <= 100 ? 2 : targetCount <= 400 ? 4 : 6;
-        const MAX_WAVES = 6;
+      const genNiche = `${services.join(' / ')}${input.businessContext ? ` — ${input.businessContext}` : ''}`;
+      const expandLanguage = language === 'th_en' ? 'th_en' : 'th';
+      // วงมุมมอง: หัวข้อจากบริการที่ผู้ใช้ระบุ + พื้นที่หลัก/ใกล้เคียง — สลับมุมให้แต่ละ batch ไม่ซ้ำกัน
+      const ring = buildAngleRing({
+        topics: services,
+        locations: [primaryLocation.name, ...nearbyLocations.map(a => a.name)],
+      });
+      if (generatedTrafficKeys.size < genTarget || startWave > 0) {
+        if (startWave === 0) progress(`ขยาย candidate pool ด้วย AI (เป้าคำใหม่ ~${genTarget} คำ) …`);
+        const PER_CALL = 80;
+        const PARALLEL = targetCount <= 100 ? 3 : targetCount <= 400 ? 5 : 8;
+        const MAX_WAVES = targetCount >= 500 ? 12 : 8;
         let genAdded = cursor('expand', 'expandAdded', 0);
         let genFailed = cursor('expand', 'expandFailed', 0);
-        for (let wave = startWave; wave < MAX_WAVES && items.size < poolTarget; wave++) {
-          const need = poolTarget - items.size;
-          const batches = Math.min(PARALLEL, Math.max(1, Math.ceil(need / BATCH)));
-          const exclude = Array.from(items.values()).map(it => it.keyword);
-          const prompts = Array.from({ length: batches }, () =>
-            KEYWORD_RESEARCH_PROMPT(genNiche, genSeed, BATCH, exclude, [], salesRatio, false)
+        let lowYieldStreak = cursor('expand', 'expandLowYieldStreak', 0);
+        for (let wave = startWave; wave < MAX_WAVES && generatedTrafficKeys.size < genTarget; wave++) {
+          const need = genTarget - generatedTrafficKeys.size;
+          const batches = Math.min(PARALLEL, Math.max(1, Math.ceil(need / PER_CALL)));
+          const requested = batches * PER_CALL;
+          const exclude = pickExcludeSample(Array.from(items.values()).map(it => it.keyword), 150);
+          const prompts = Array.from({ length: batches }, (_, bi) =>
+            buildExpansionPrompt({
+              niche: genNiche,
+              angle: angleAt(ring, wave, bi, PARALLEL),
+              count: PER_CALL,
+              exclude,
+              language: expandLanguage,
+              area: primaryLocation.name,
+            })
           );
           const settled = await Promise.allSettled(prompts.map(p => callGemini(p, { functionLabel: 'local_keyword_research' })));
           let waveAdded = 0;
           for (const s of settled) {
             if (s.status !== 'fulfilled') { genFailed++; continue; }
-            const text = typeof s.value === 'string' ? s.value : JSON.stringify(s.value);
-            const m = text.match(/\{[\s\S]*\}/);
-            if (!m) continue;
-            let parsed: { keywords?: Array<{ keyword?: string }> };
-            try { parsed = JSON.parse(m[0]); } catch { continue; }
-            for (const row of parsed.keywords ?? []) {
-              const kw = normalizeThaiSpacing(String(row?.keyword ?? '').trim());
+            for (const raw of extractKeywordList(s.value)) {
+              const kw = normalizeThaiSpacing(raw);
               const key = claimKey(kw, 'generated');
               if (!key) continue;
               items.set(key, { keyword: kw, sources: ['generated'] as LocalKeywordSource[], metric: null });
@@ -716,11 +726,15 @@ export async function POST(req: NextRequest) {
             }
           }
           progress(`AI expansion รอบ ${wave + 1}: +${waveAdded} คำ (pool ${items.size})`, { count: items.size });
-          const stop = waveAdded === 0; // กันลูปเปล่า (AI ตอบซ้ำ/ล้มเหลวทั้งหมด)
+          // ต่ำผลผลิต = เพิ่มได้น้อยกว่า max(5, 5% ของที่ขอ) — หยุดเมื่อต่ำผลผลิตติดกัน 2 รอบ (กันลูปเปล่า)
+          const lowYield = waveAdded < Math.max(5, Math.ceil(requested * 0.05));
+          lowYieldStreak = lowYield ? lowYieldStreak + 1 : 0;
+          const stop = lowYieldStreak >= 2;
           await checkpoint('expand', {
             expandWave: stop ? MAX_WAVES : wave + 1,
             expandAdded: genAdded,
             expandFailed: genFailed,
+            expandLowYieldStreak: stop ? 0 : lowYieldStreak,
           });
           if (stop) break;
         }
@@ -758,7 +772,7 @@ export async function POST(req: NextRequest) {
             if (!key) continue;
             const relevant = serviceKeys.some(sv => sv && key.includes(sv)) || coreKeys.some(ck => key.includes(ck));
             const existing = items.get(key);
-            if (!existing && (!relevant || added >= 200)) continue;
+            if (!existing && (!relevant || added >= Math.max(200, targetCount))) continue;
             // เก็บ metric ฝั่ง DFS แยกแหล่ง (ครั้งแรกเท่านั้น — ค่า search_volume/live ภายหลังทับได้)
             if (!dfsByKey.has(key)) {
               const vol = idea.searchVolume;
@@ -958,7 +972,7 @@ export async function POST(req: NextRequest) {
               target_language: 'th',
               target_country: 'Thailand',
               google_ads_geo_target_resources: [resolvedGeoLite.resourceName],
-              number_of_results: 200,
+              number_of_results: Math.max(200, targetCount),
               force_refresh: flags.forceRefresh,
             });
             if (ideas.warnings?.length) warnings.push(...ideas.warnings);
@@ -988,7 +1002,7 @@ export async function POST(req: NextRequest) {
                   continue;
                 }
                 if (!isRelevantIdea(keyword, serviceKeys, areaKeys)) continue;
-                if (added >= 150) break;
+                if (added >= Math.max(150, Math.ceil(targetCount / 2))) break;
                 if (claimKey(keyword, 'keyword_planner') !== key) continue;
                 items.set(key, {
                   keyword,
@@ -1042,28 +1056,40 @@ export async function POST(req: NextRequest) {
                 }
               }
 
-              // คำที่ไม่เข้าเกณฑ์สตริง ให้ AI คัดความเกี่ยวข้องเป็น batch เดียว
+              // คำที่ไม่เข้าเกณฑ์สตริง ให้ AI คัดความเกี่ยวข้อง — แบ่งเป็นชุด (เพดานตามเป้า) ยิงขนานแทนทีละชุด
               // (คัดเฉพาะความเกี่ยวข้อง — ตัวเลข volume มาจาก KP จริงเสมอ ไม่มีการแต่ง)
               let approved: BroadRow[] = [];
-              const unsureBatch = unsure.slice(0, 100);
+              const unsureBatch = unsure.slice(0, Math.max(100, targetCount));
               if (unsureBatch.length > 0) {
-                try {
-                  const relevancePrompt = `ธุรกิจ: ${services.join(', ')}${input.businessContext ? ` — ${input.businessContext}` : ''}
+                const UNSURE_CHUNK = MAX_KEYWORDS_PER_CALL;
+                const UNSURE_CONCURRENCY = 4;
+                const unsureChunks: BroadRow[][] = [];
+                for (let i = 0; i < unsureBatch.length; i += UNSURE_CHUNK) unsureChunks.push(unsureBatch.slice(i, i + UNSURE_CHUNK));
+                for (let i = 0; i < unsureChunks.length; i += UNSURE_CONCURRENCY) {
+                  const batchChunks = unsureChunks.slice(i, i + UNSURE_CONCURRENCY);
+                  const settledUnsure = await Promise.allSettled(batchChunks.map(async chunk => {
+                    const relevancePrompt = `ธุรกิจ: ${services.join(', ')}${input.businessContext ? ` — ${input.businessContext}` : ''}
 จากรายการ keyword ต่อไปนี้ เลือกเฉพาะคำที่เกี่ยวข้องกับธุรกิจนี้ ทั้งคำที่มีโอกาสสร้างยอดขาย/ดึงลูกค้า (ราคา อาการเสีย เปรียบเทียบ) และคำหาความรู้/วิธี/ข้อมูลที่ดึง traffic เข้าเว็บ (เช่น วิธี..., ...คืออะไร, ...บ่อยแค่ไหน) ตัดเฉพาะคำที่เป็นคนละธุรกิจทิ้ง
 ตอบเป็น JSON array ของ keyword ที่เลือกเท่านั้น: ["...","..."]
 Keywords:
-${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
-                  const raw = await callGemini(relevancePrompt, { functionLabel: 'local_relevance_filter' });
-                  const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
-                  const jsonMatch = text.match(/\[[\s\S]*\]/);
-                  if (jsonMatch) {
+${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
+                    const raw = await callGemini(relevancePrompt, { functionLabel: 'local_relevance_filter' });
+                    const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+                    const jsonMatch = text.match(/\[[\s\S]*\]/);
+                    if (!jsonMatch) return [] as BroadRow[];
                     const picked = new Set(
                       (JSON.parse(jsonMatch[0]) as unknown[]).map(k => dedupeKey(String(k ?? '')))
                     );
-                    approved = unsureBatch.filter(r => picked.has(dedupeKey(normalizeThaiSpacing(r.keyword))));
+                    return chunk.filter(r => picked.has(dedupeKey(normalizeThaiSpacing(r.keyword))));
+                  }));
+                  let chunkFailed = 0;
+                  for (const s of settledUnsure) {
+                    if (s.status === 'fulfilled') approved.push(...s.value);
+                    else chunkFailed++;
                   }
-                } catch (err) {
-                  warnings.push(`AI คัดคำโอกาสขายไม่สำเร็จ — ใช้เฉพาะคำที่ตรงบริการ (${err instanceof Error ? err.message.slice(0, 60) : String(err)})`);
+                  if (chunkFailed > 0) {
+                    warnings.push(`AI คัดคำโอกาสขายไม่สำเร็จบางชุด (${chunkFailed}/${batchChunks.length}) — ชุดนั้นใช้เฉพาะคำที่ตรงบริการ`);
+                  }
                 }
               }
 
@@ -1111,11 +1137,14 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     }
     if (needs('kp')) await checkpoint('dfs_volumes');
 
+    // cursor ของรอบ top-up (ด้านล่าง) — อ่านครั้งเดียวตอนเข้า stage กันรัน cross-check ซ้ำตอน resume กลางรอบ top-up
+    const dfsVolumesTopupRound = cursor('dfs_volumes', 'topupRound', 0);
+
     // ── DataForSEO volumes: cross-check ทุกคำ top budget (ไม่ใช่แค่คำที่ KP ไม่มี) ──
     // เก็บเข้า dfsByKey แยกแหล่งเสมอ — ใช้ยืนยัน confidence (HIGH/MEDIUM/LOW)
     // item.metric (ตัวจัดอันดับ candidate) จะถูกเติมด้วย DFS เฉพาะคำที่ KP ไม่มี volume
     // และติดป้าย 'dataforseo' ตรงตามแหล่งจริง (แก้ของเดิมที่ติดป้าย keyword_planner ผิด)
-    if (needs('dfs_volumes') && hasDataForSeoCreds() && flags.useDataForSeo) {
+    if (needs('dfs_volumes') && hasDataForSeoCreds() && flags.useDataForSeo && dfsVolumesTopupRound === 0) {
       const rankedForDfs = assembleResults(Array.from(items.values()), input).results;
       const dfsTargets = rankedForDfs.slice(0, 4000).map(r => r.keyword); // DFS แบ่ง 700 คำ/task ภายในเอง — ครอบทั้ง pool
       if (dfsTargets.length > 0) {
@@ -1148,6 +1177,89 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         } catch (err) {
           dfsError = err instanceof Error ? err.message : String(err);
           warnings.push(`DataForSEO cross-check ไม่สำเร็จ: ${dfsError}`);
+        }
+      }
+    }
+
+    // ── Top-up แบบจำกัดรอบ: pool ที่ "น่าจะผ่านเข้าตารางสุดท้าย" ยังไม่พอเป้า → ขยายเพิ่ม ──
+    // ประมาณคร่าว ๆ ด้วย volume > 0 (คำต้องห้ามถูกกันตั้งแต่ claimKey แล้ว) — ตัวกรองแพงกว่านี้
+    // (cannibalization/relevance guard) ยังไม่รันตอนนี้ จึงใช้ค่าประมาณ ไม่ใช่ตัวเลขสุดท้าย
+    if (needs('dfs_volumes') && hasDataForSeoCreds() && flags.useDataForSeo && flags.useAiExpand) {
+      const topupTarget = Math.ceil(targetCount * 1.5);
+      const likelyQualified = () => Array.from(items.values()).filter(it => (it.metric?.volume ?? 0) > 0).length;
+      if (likelyQualified() < topupTarget) {
+        const genNiche = `${services.join(' / ')}${input.businessContext ? ` — ${input.businessContext}` : ''}`;
+        const expandLanguage = language === 'th_en' ? 'th_en' : 'th';
+        const TOPUP_PARALLEL = 4;
+        for (let round = dfsVolumesTopupRound; round < 2 && likelyQualified() < topupTarget; round++) {
+          const before = items.size;
+          // มุมของรอบนี้: หัวข้อจากบริการ + คำ volume สูงสุดที่มีอยู่แล้ว (บอกใบ้ทิศทางที่กำลังได้ผล)
+          const topKeywords = Array.from(items.values())
+            .filter(it => (it.metric?.volume ?? 0) > 0)
+            .sort((a, b) => (b.metric?.volume ?? 0) - (a.metric?.volume ?? 0))
+            .slice(0, 20)
+            .map(it => it.keyword);
+          const ring = buildAngleRing({
+            topics: [...services, ...topKeywords],
+            locations: [primaryLocation.name, ...nearbyLocations.map(a => a.name)],
+          });
+          const exclude = pickExcludeSample(Array.from(items.values()).map(it => it.keyword), 150);
+          const prompts = Array.from({ length: TOPUP_PARALLEL }, (_, bi) =>
+            buildExpansionPrompt({
+              niche: genNiche,
+              angle: angleAt(ring, round, bi, TOPUP_PARALLEL),
+              count: 80,
+              exclude,
+              language: expandLanguage,
+              area: primaryLocation.name,
+            })
+          );
+          progress(`Top-up pool รอบ ${round + 1}: candidate ที่มี volume ยังไม่พอเป้า (${likelyQualified()}/${topupTarget}) — ขยายเพิ่ม …`);
+          const settled = await Promise.allSettled(prompts.map(p => callGemini(p, { functionLabel: 'local_keyword_research' })));
+          const newKeywords: string[] = [];
+          for (const s of settled) {
+            if (s.status !== 'fulfilled') continue;
+            for (const raw of extractKeywordList(s.value)) {
+              const kw = normalizeThaiSpacing(raw);
+              const key = claimKey(kw, 'generated');
+              if (!key) continue;
+              items.set(key, { keyword: kw, sources: ['generated'] as LocalKeywordSource[], metric: null });
+              generatedTrafficKeys.add(key);
+              newKeywords.push(kw);
+            }
+          }
+          if (newKeywords.length > 0) {
+            try {
+              // ดึง volume เฉพาะคำใหม่ ด้วยฟังก์ชันเดียวกับ cross-check ด้านบน
+              const volMap = await getDataForSeoVolumes(newKeywords, 'th', 2764, w => warnings.push(w), usd => { dfsVolumeCostUsd += usd; });
+              dfsCalls += newKeywords.length;
+              for (const kw of newKeywords) {
+                const hit = volMap.get(kw.trim().toLowerCase());
+                if (!hit) continue;
+                const key = dedupeKey(kw);
+                const item = items.get(key);
+                if (!item) continue;
+                dfsByKey.set(key, { ...dfsFromMetric(hit, 'th'), keywordDifficulty: dfsByKey.get(key)?.keywordDifficulty ?? null });
+                item.sources = Array.from(new Set([...item.sources, 'dataforseo' as LocalKeywordSource]));
+                if ((item.metric?.volume ?? 0) <= 0 && hit.volume > 0) {
+                  item.metric = {
+                    volume: hit.volume,
+                    competition: hit.competition ?? null,
+                    competitionIndex: hit.competition_index ?? null,
+                    bidLow: null,
+                    bidHigh: hit.cpc > 0 ? hit.cpc : null,
+                  };
+                  enrichedCount++;
+                }
+              }
+            } catch (err) {
+              warnings.push(`Top-up: ดึง volume จาก DataForSEO ไม่สำเร็จ: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`);
+            }
+          }
+          const roundAdded = items.size - before;
+          progress(`Top-up รอบ ${round + 1}: +${roundAdded} คำ (pool ${items.size})`, { count: items.size });
+          await checkpoint('dfs_volumes', { topupRound: round + 1 });
+          if (roundAdded < 5) break;
         }
       }
     }

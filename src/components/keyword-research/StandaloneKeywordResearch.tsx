@@ -9,7 +9,7 @@
  * ผ่าน POST /api/upload-article/clients/[id]/keywords (REUSE ไม่สร้างระบบใหม่)
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import WordGodOnlinePanel from '@/components/projects/WordGodOnlinePanel';
@@ -34,7 +34,8 @@ interface SendResult {
 }
 
 const MODE_STORAGE_KEY = 'keyword-research:mode';
-const SEND_CHUNK_SIZE = 500;
+/** เพดานจำนวนคำต่อการส่ง 1 ครั้ง — เกินนี้ต้องแบ่งส่งเอง (endpoint รับทีเดียวไม่ chunk ให้แล้ว) */
+const MAX_SEND_ROWS = 500;
 
 // project สังเคราะห์ — ไม่ผูกกับ SEO SME project จริง (id ว่าง = ไม่มีการบันทึกลง Keyword Bank)
 const SYNTHETIC_PROJECT = { id: '', name: '', website: '', businessType: '' };
@@ -138,6 +139,11 @@ function LanguageModeLocalSelect({
 
 export default function StandaloneKeywordResearch() {
   const [mode, setMode] = useState<ResearchMode>('online');
+  // โหมดที่เคยเปิดแล้วคงไว้ (ซ่อนแทน unmount) — สลับโหมดระหว่างรันแล้วงานไม่หลุด ผลไม่หาย
+  const [visitedModes, setVisitedModes] = useState<ResearchMode[]>([]);
+  useEffect(() => {
+    setVisitedModes(prev => (prev.includes(mode) ? prev : [...prev, mode]));
+  }, [mode]);
   const [languageMode, setLanguageMode] = useState<LanguageMode>('th');
   const [ratioThai, setRatioThai] = useState(50);
 
@@ -151,6 +157,8 @@ export default function StandaloneKeywordResearch() {
   const [onlyApproved, setOnlyApproved] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
+  // resolver ของ Promise ที่ onSendRows คืนให้ panel — resolve true เมื่อส่งสำเร็จจริง, false เมื่อปิด modal โดยไม่ได้ส่ง
+  const sendResolverRef = useRef<((sent: boolean) => void) | null>(null);
 
   useEffect(() => {
     const stored = loadStoredMode();
@@ -174,6 +182,10 @@ export default function StandaloneKeywordResearch() {
   }, [clients, clientSearch]);
 
   function closeSendModal(): void {
+    // resolve ให้ panel รู้ผลจริง — true เฉพาะกรณีส่งสำเร็จแล้ว (มี sendResult) เท่านั้น
+    const resolver = sendResolverRef.current;
+    sendResolverRef.current = null;
+    resolver?.(!!sendResult);
     setSendModalOpen(false);
     setPendingRows([]);
     setClients([]);
@@ -183,28 +195,42 @@ export default function StandaloneKeywordResearch() {
     setSendResult(null);
   }
 
-  async function handleSendRows(rows: KeywordHandoffRow[]): Promise<void> {
+  async function handleSendRows(rows: KeywordHandoffRow[]): Promise<boolean> {
+    // ถ้ามี modal ค้างอยู่จากการเรียกครั้งก่อน (ไม่ควรเกิดในทางปกติ) resolve เป็น false ก่อนเปิดใหม่
+    const prevResolver = sendResolverRef.current;
+    sendResolverRef.current = null;
+    prevResolver?.(false);
+
     const validRows = rows.filter(r => r.keyword.trim());
     if (validRows.length === 0) {
       toast.error('ไม่มี keyword ให้ส่ง');
-      return;
+      return false;
     }
-    setPendingRows(validRows);
-    setSendResult(null);
-    setSelectedClientId(null);
-    setOnlyApproved(validRows.some(r => r.approved !== null));
-    setSendModalOpen(true);
-    setClientsLoading(true);
-    try {
-      const response = await fetch('/api/upload-article/clients');
-      if (!response.ok) throw new Error('โหลดรายชื่อลูกค้าไม่สำเร็จ');
-      const data = await response.json();
-      setClients(Array.isArray(data) ? data.map((c: UploadClientListItem) => ({ id: c.id, name: c.name, website: c.website })) : []);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'โหลดรายชื่อลูกค้าไม่สำเร็จ');
-    } finally {
-      setClientsLoading(false);
-    }
+
+    const result = await new Promise<boolean>(resolve => {
+      sendResolverRef.current = resolve;
+      setPendingRows(validRows);
+      setSendResult(null);
+      setSelectedClientId(null);
+      setOnlyApproved(validRows.some(r => r.approved !== null));
+      setSendModalOpen(true);
+      setClientsLoading(true);
+      fetch('/api/upload-article/clients')
+        .then(response => {
+          if (!response.ok) throw new Error('โหลดรายชื่อลูกค้าไม่สำเร็จ');
+          return response.json();
+        })
+        .then(data => {
+          setClients(Array.isArray(data) ? data.map((c: UploadClientListItem) => ({ id: c.id, name: c.name, website: c.website })) : []);
+        })
+        .catch(error => {
+          toast.error(error instanceof Error ? error.message : 'โหลดรายชื่อลูกค้าไม่สำเร็จ');
+        })
+        .finally(() => {
+          setClientsLoading(false);
+        });
+    });
+    return result;
   }
 
   async function confirmSend(): Promise<void> {
@@ -216,25 +242,23 @@ export default function StandaloneKeywordResearch() {
       toast.error('ไม่มี keyword ให้ส่ง');
       return;
     }
+    if (rowsToSend.length > MAX_SEND_ROWS) {
+      toast.error(`ส่งได้สูงสุด ${MAX_SEND_ROWS} คำต่อครั้ง — กรุณาลดจำนวน (ติ๊ก "เฉพาะที่อนุมัติ" หรือลดคำที่เลือก)`);
+      return;
+    }
     setSending(true);
     try {
       const items = toUploadKeywordItems(rowsToSend);
-      let added = 0;
-      let updated = 0;
-      let skipped = 0;
-      for (let i = 0; i < items.length; i += SEND_CHUNK_SIZE) {
-        const batch = items.slice(i, i + SEND_CHUNK_SIZE);
-        const response = await fetch(`/api/upload-article/clients/${selectedClientId}/keywords`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: batch }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || `ส่งไม่สำเร็จ (HTTP ${response.status})`);
-        added += data.added ?? 0;
-        updated += data.updated ?? 0;
-        skipped += data.skipped ?? 0;
-      }
+      const response = await fetch(`/api/upload-article/clients/${selectedClientId}/keywords`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `ส่งไม่สำเร็จ (HTTP ${response.status})`);
+      const added = data.added ?? 0;
+      const updated = data.updated ?? 0;
+      const skipped = data.skipped ?? 0;
       setSendResult({ added, updated, skipped, clientId: selectedClientId });
       toast.success(`ส่งสำเร็จ — เพิ่มใหม่ ${added} • อัปเดต ${updated} • ข้าม ${skipped}`);
     } catch (error) {
@@ -264,23 +288,28 @@ export default function StandaloneKeywordResearch() {
         />
       </div>
 
-      {mode === 'local' ? (
-        <WordGodLocalPanel
-          project={SYNTHETIC_PROJECT}
-          languageMode={languageMode}
-          standalone
-          onSendRows={handleSendRows}
-          sendLabel="ส่งไป Upload Article"
-        />
-      ) : (
-        <WordGodOnlinePanel
-          project={SYNTHETIC_PROJECT}
-          languageMode={languageMode}
-          ratioThai={ratioThai}
-          standalone
-          onSendRows={handleSendRows}
-          sendLabel="ส่งไป Upload Article"
-        />
+      {(mode === 'local' || visitedModes.includes('local')) && (
+        <div hidden={mode !== 'local'}>
+          <WordGodLocalPanel
+            project={SYNTHETIC_PROJECT}
+            languageMode={languageMode}
+            standalone
+            onSendRows={handleSendRows}
+            sendLabel="ส่งไป Upload Article"
+          />
+        </div>
+      )}
+      {(mode === 'online' || visitedModes.includes('online')) && (
+        <div hidden={mode !== 'online'}>
+          <WordGodOnlinePanel
+            project={SYNTHETIC_PROJECT}
+            languageMode={languageMode}
+            ratioThai={ratioThai}
+            standalone
+            onSendRows={handleSendRows}
+            sendLabel="ส่งไป Upload Article"
+          />
+        </div>
       )}
 
       {sendModalOpen && (
@@ -302,6 +331,12 @@ export default function StandaloneKeywordResearch() {
                 <p className="mt-2 text-sm text-[#495975]">
                   จะส่ง <span className="font-semibold">{rowsToSend.length}</span> คำ (จากทั้งหมด {pendingRows.length} คำ) ไปยังลูกค้าที่เลือก
                 </p>
+
+                {rowsToSend.length > MAX_SEND_ROWS && (
+                  <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
+                    เกินเพดาน {MAX_SEND_ROWS} คำต่อครั้ง — กรุณาลดจำนวนคำก่อนส่ง (ติ๊ก &quot;เฉพาะที่อนุมัติ&quot; หรือลดคำที่เลือกในตาราง)
+                  </p>
+                )}
 
                 {hasApprovedInfo && (
                   <label className="mt-3 flex items-center gap-2 text-sm text-[#17233a]">
@@ -355,7 +390,7 @@ export default function StandaloneKeywordResearch() {
                   </button>
                   <button
                     onClick={confirmSend}
-                    disabled={!selectedClientId || sending || rowsToSend.length === 0}
+                    disabled={!selectedClientId || sending || rowsToSend.length === 0 || rowsToSend.length > MAX_SEND_ROWS}
                     className="rounded-lg bg-[#155eef] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#0d4fd8] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {sending ? 'กำลังส่ง...' : 'ส่ง'}

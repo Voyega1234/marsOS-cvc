@@ -245,6 +245,7 @@ export async function GET(req: NextRequest) {
   const session = await getSession();
   const orgId = session?.user?.organizationId;
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (session!.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const researchId = req.nextUrl.searchParams.get('researchId');
   if (!researchId) {
@@ -265,10 +266,16 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'ข้อมูลผลการวิจัยเสียหาย ไม่สามารถ export ได้' }, { status: 500 });
   }
+  if (!data.meta) {
+    return NextResponse.json({ error: 'รอบนี้ยังไม่สมบูรณ์ — export ไม่ได้' }, { status: 409 });
+  }
   const results = data.results ?? [];
   const meta = data.meta;
   const bp = data.blueprint;
-  const products: string[] = JSON.parse(run.services || '[]');
+  let products: string[] = [];
+  try {
+    products = JSON.parse(run.services || '[]');
+  } catch { /* fallback ค่าว่าง */ }
   const preset = STRATEGY_PRESETS[meta.strategyGoal] ?? STRATEGY_PRESETS.BALANCED;
   const bizLabel = meta.businessType === 'OTHER' && meta.businessTypeOther
     ? meta.businessTypeOther : BUSINESS_TYPE_LABELS[meta.businessType];
@@ -325,7 +332,7 @@ export async function GET(req: NextRequest) {
 
   // ── ชีต 3: Wave1_{COUNT} ────────────────────────────────────────────────────
   const wave1 = results.filter(r => r.priorityWave === 1);
-  buildKeywordSheet(wb, `Wave1_${wave1.length}`, wave1);
+  buildKeywordSheet(wb, `Wave1_${wave1.length}`, wave1, data.intentSkill);
 
   // ── ชีต: Keyword Plan (เฉพาะเมื่อมีผล Keyword Intent Skill) ─────────────────
   if (data.intentSkill) buildKeywordPlanSheet(wb, data.intentSkill);

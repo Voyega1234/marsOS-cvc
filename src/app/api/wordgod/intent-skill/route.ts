@@ -42,6 +42,9 @@ export async function PATCH(req: NextRequest) {
   if (!run) {
     return NextResponse.json({ error: 'ไม่พบผลการวิจัยนี้' }, { status: 404 });
   }
+  if (run.status === 'running') {
+    return NextResponse.json({ error: 'รอบนี้ยังประมวลผลอยู่' }, { status: 409 });
+  }
 
   let data: any;
   try {

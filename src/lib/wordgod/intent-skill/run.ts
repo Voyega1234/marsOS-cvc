@@ -21,21 +21,32 @@ import { buildClusters, nameClustersLLM } from './clusters';
 import { reclassifyAmbiguous } from './reclassify';
 import { autoApprove } from './quota';
 
-function dedupeRows(rows: IntentSkillInputRow[]): IntentSkillInputRow[] {
-  const seen = new Set<string>();
-  const out: IntentSkillInputRow[] = [];
+interface DedupeResult {
+  kept: IntentSkillInputRow[];
+  /** row.key ของแถวที่ถูกตัดออก (ซ้ำ) → row.key ของแถวที่รอด (survivor) ในกลุ่มเดียวกัน */
+  droppedKeyToSurvivorKey: Map<string, string>;
+}
+
+function dedupeRows(rows: IntentSkillInputRow[]): DedupeResult {
+  const seenKeyBySurvivorKey = new Map<string, string>();
+  const kept: IntentSkillInputRow[] = [];
+  const droppedKeyToSurvivorKey = new Map<string, string>();
   for (const r of rows) {
-    const key = normalizeThaiKey(r.keyword);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(r);
+    const normKey = normalizeThaiKey(r.keyword);
+    const survivorKey = seenKeyBySurvivorKey.get(normKey);
+    if (survivorKey !== undefined) {
+      droppedKeyToSurvivorKey.set(r.key, survivorKey);
+      continue;
+    }
+    seenKeyBySurvivorKey.set(normKey, r.key);
+    kept.push(r);
   }
-  return out;
+  return { kept, droppedKeyToSurvivorKey };
 }
 
 export async function runIntentSkill(rows: IntentSkillInputRow[], ctx: IntentSkillContext): Promise<IntentSkillOutput> {
   const warnings: string[] = [];
-  const dedupedRows = dedupeRows(rows);
+  const { kept: dedupedRows, droppedKeyToSurvivorKey } = dedupeRows(rows);
 
   // 1) classify
   const intents = new Map<string, KeywordIntent>();
@@ -109,13 +120,14 @@ export async function runIntentSkill(rows: IntentSkillInputRow[], ctx: IntentSki
 
   // 11) rowFields ต่อคีย์เวิร์ด
   const rowFields: Record<string, IntentSkillRowFields> = {};
+  const groupsById = new Map(groups.map(g => [g.id, g] as const));
   for (const row of dedupedRows) {
     const key = row.key;
     const intent = intents.get(key)!;
     const fit = fits.get(key)!;
     const page = pages.get(key)!;
     const groupId = groupIdByKey.get(key) ?? '';
-    const group = groups.find(g => g.id === groupId);
+    const group = groupsById.get(groupId);
     const isGroupHead = headKeyByGroupId.get(groupId) === key;
     const cluster = group ? clusterById.get(group.clusterId) : undefined;
 
@@ -139,6 +151,14 @@ export async function runIntentSkill(rows: IntentSkillInputRow[], ctx: IntentSki
       remark: remarkParts.join(' · '),
       approved: group?.approved ?? false,
     };
+  }
+
+  // แถวที่ถูกตัดออกตอน dedupe (ซ้ำกับ survivor) — ก็อป rowFields ของ survivor มาให้ ไม่ปล่อยว่าง
+  for (const [droppedKey, survivorKey] of Array.from(droppedKeyToSurvivorKey)) {
+    const survivorFields = rowFields[survivorKey];
+    if (survivorFields) {
+      rowFields[droppedKey] = { ...survivorFields, isGroupHead: false };
+    }
   }
 
   // 12) stats
