@@ -16,6 +16,7 @@ import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
 import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
 import { readArticleImageSettings, type ArticleImageSettings, readArticleAuthorPick, type ArticleAuthorPick, pickAuthorIndex, STUDIO_ARTICLE_SETTINGS_KEY, readStudioArticleSettings } from '@/lib/article-settings'
 import { pickAuthorForArticle } from '@/lib/upload-article/author'
+import { sanitizeThemeDetail, themeDetailCss } from '@/lib/upload-article/theme-css'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -824,6 +825,8 @@ export async function POST(req: NextRequest) {
   let resolvedColorBackground = colorBackground
   let resolvedAccentColor = accentColor
   let resolvedTheme = theme
+  // CSS เสริมจาก detail ของธีม (FAQ card / ตาราง — จากผลสแกนเว็บปลายทางที่กดรับไว้) — ว่าง = ไม่มี detail
+  let resolvedThemeDetailCss = ''
   let resolvedElementStyles: ArticleElementStyles | null = elementStylesBody
   // โหมดสไตล์ของ client: 'embed' = แนบ <style> ในบทความ (default) / 'clean' = HTML ล้วน
   let resolvedStyleMode: ArticleStyleMode = 'embed'
@@ -847,6 +850,12 @@ export async function POST(req: NextRequest) {
     if (!resolvedColorBackground && projColors.background) resolvedColorBackground = projColors.background
     if (!resolvedElementStyles && projColors.elements && typeof projColors.elements === 'object') {
       resolvedElementStyles = projColors.elements as unknown as ArticleElementStyles
+    }
+    // หน้าตา FAQ card / ตาราง ละเอียด (จากผลสแกนเว็บปลายทางที่กดรับไว้ — ดู sanitizeThemeDetail)
+    const rawThemeDetail = (projColors as Record<string, unknown>).detail
+    if (rawThemeDetail) {
+      const detail = sanitizeThemeDetail(rawThemeDetail)
+      if (detail) resolvedThemeDetailCss = themeDetailCss(detail)
     }
     // สีที่ปรับในหน้า Article Lab ต้องมีผลกับภาพปกด้วย — ถ้าลูกค้าปรับเฉพาะสี element
     // (H1 / เนื้อความ / ลิงก์) ไม่ได้แตะสีระดับธีม ให้ใช้สีของ element เป็นชุดสีของภาพแทน
@@ -1065,7 +1074,7 @@ export async function POST(req: NextRequest) {
   // CTA หลายชุด: class หลัก .content-cta ใช้ค่าของ item แรก (เดิม) + override แบบ scope ต่อ item
   // ให้แต่ละ item ที่โหมด custom ได้สีของตัวเอง (item เดียว/legacy ไม่ต้องมี override เพิ่ม)
   const ctaItemsForCss = normalizeCtaItems(cta).items
-  const articleCss = buildArticleCss({
+  const articleCssBase = buildArticleCss({
     themeColor: resolvedColorTheme || resolvedAccentColor || '#2563eb',
     textColor: resolvedColorText || '#000000',
     borderColor: resolvedColorBorder || '#e2e8f0',
@@ -1078,6 +1087,8 @@ export async function POST(req: NextRequest) {
       items: ctaItemsForCss.length > 1 ? ctaItemsForCss.map(it => ({ id: it.id, mode: it.mode, custom: it.custom })) : undefined,
     },
   })
+  // หน้าตา FAQ card / ตารางละเอียด (จากผลสแกนเว็บปลายทางที่กดรับไว้) — ต่อท้ายเฉพาะเมื่อมีค่า
+  const articleCss = resolvedThemeDetailCss ? `${articleCssBase}\n${resolvedThemeDetailCss}` : articleCssBase
   /** sanitize → ครอบ wrapper มาตรฐาน (+CSS ตามโหมด) → แปะ Schema JSON-LD ที่ generate
    *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="content-article">
    *  (schema ของ AI/รอบก่อนถูกถอดทิ้งเสมอ กัน URL มั่วและกัน FAQPage ไม่ตรงเนื้อหา) */

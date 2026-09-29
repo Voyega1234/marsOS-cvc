@@ -44,10 +44,14 @@ import { ImageSettingsEditor } from '@/components/upload-article/settings/Images
 import { readArticleImageSettings, type ArticleImageSettings } from '@/lib/article-settings'
 import type { UploadCtaSettings } from '@/lib/upload-article/cta'
 import type { UploadAuthorSettings } from '@/lib/upload-article/author'
+import type { UploadThemeDetail } from '@/lib/upload-article/types'
+import { sanitizeThemeDetail } from '@/lib/upload-article/theme-css'
+import FaqStyleEditor from '@/components/upload-article/shared/FaqStyleEditor'
 import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
 import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
+import { PAGE_TYPE_LABEL_TH } from '@/lib/wordgod/intent-skill/handoff'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,6 +124,15 @@ export interface KeywordRow {
   traffic_potential?: number
   relevance_score?: number
   position?: number
+  // Keyword Intent Skill fields (meta) — optional, ผลรุ่นเก่าไม่มีค่าพวกนี้
+  group_head?: boolean
+  cluster_name?: string
+  page_type_unified?: 'HOMEPAGE' | 'SERVICE' | 'CATEGORY' | 'LOCATION' | 'COMPARISON' | 'TOOL' | 'BLOG'
+  pillar_intent?: string
+  intent_code?: 'I' | 'C' | 'T' | 'N'
+  fit?: 'FIT' | 'ARTICLE_ONLY' | 'NOT_RECOMMENDED'
+  remark?: string
+  approved?: boolean
 }
 
 interface TimelineEntry {
@@ -150,6 +163,7 @@ interface TimelineEntry {
   status?: 'Draft' | 'Scheduled' | 'Published' | 'Locked' | 'Excluded'
   slug?: string
   page_type?: string
+  cluster_label?: string
   kw_status?: string
   assignedAuthorId?: string  // id from Project.authors array
   keywordId?: string  // DB Keyword.id for article slug mapping
@@ -2410,6 +2424,16 @@ function ContentMapTab({
       const firstBatch = movable.slice(0, firstBatchCount)
       const remainingBatch = movable.slice(firstBatchCount)
 
+      // page type: เลือก page_type_unified (skill ใหม่) ก่อน แล้ว fallback เป็น page_type เดิม
+      const pageTypeOf = (kw: KeywordRow) =>
+        kw.page_type_unified ? PAGE_TYPE_LABEL_TH[kw.page_type_unified] : (kw as any).page_type
+      // ป้ายกลุ่ม: cluster_name (ใหม่) ก่อน cluster (เดิม), นำหน้าด้วย section ถ้ามี
+      const clusterLabelOf = (kw: KeywordRow) => {
+        const name = kw.cluster_name || (kw as any).cluster
+        if (!name) return undefined
+        return kw.section ? `${kw.section} / ${name}` : name
+      }
+
       const assignDates = (items: typeof movable, periodDays: typeof workingDays, batch: '20/80 First Batch' | '20/80 Remaining Batch', phase: string) =>
         items.map((kw, idx) => {
           const wd = periodDays[idx % periodDays.length]
@@ -2429,9 +2453,10 @@ function ContentMapTab({
             websiteTypeUsed: effectiveWebsiteType,
             reasonForScheduling: generateScheduleReason((kw as any).articleObjectiveTag ?? 'Traffic Content', batch, idx + 1, seoGoal, effectiveWebsiteType, kw.priorityScore ?? 0),
             status: 'Scheduled' as const,
-            ...((kw as any).slug      ? { slug: (kw as any).slug } : {}),
-            ...((kw as any).page_type ? { page_type: (kw as any).page_type } : {}),
-            ...((kw as any).status    ? { kw_status: (kw as any).status } : {}),
+            ...((kw as any).slug ? { slug: (kw as any).slug } : {}),
+            ...(pageTypeOf(kw)   ? { page_type: pageTypeOf(kw) } : {}),
+            ...(clusterLabelOf(kw) ? { cluster_label: clusterLabelOf(kw) } : {}),
+            ...((kw as any).status ? { kw_status: (kw as any).status } : {}),
           } as TimelineEntry
         })
 
@@ -2460,9 +2485,10 @@ function ContentMapTab({
         websiteTypeUsed: effectiveWebsiteType,
         reasonForScheduling: `Status: ${(kw as any).status} — ปรับปรุงจากบทความเดิม ไม่ใช่เขียนใหม่`,
         status: 'Scheduled' as const,
-        ...((kw as any).slug      ? { slug: (kw as any).slug } : {}),
-        ...((kw as any).page_type ? { page_type: (kw as any).page_type } : {}),
-        ...((kw as any).status    ? { kw_status: (kw as any).status } : {}),
+        ...((kw as any).slug ? { slug: (kw as any).slug } : {}),
+        ...(pageTypeOf(kw)   ? { page_type: pageTypeOf(kw) } : {}),
+        ...(clusterLabelOf(kw) ? { cluster_label: clusterLabelOf(kw) } : {}),
+        ...((kw as any).status ? { kw_status: (kw as any).status } : {}),
       } as TimelineEntry))
 
       setTimeline([...newScheduled, ...existingScheduled])
@@ -2863,6 +2889,7 @@ function ContentMapTab({
                               {e.volume > 0 && <span className="font-mono shrink-0">Vol. {e.volume.toLocaleString()}</span>}
                               {e.page_type && <span className={`px-1.5 py-0 rounded font-semibold shrink-0 ${e.page_type === 'Service Page' || e.page_type === 'Core Page' ? 'bg-purple-100 text-purple-600' : 'bg-sky-100 text-sky-600'}`}>{e.page_type}</span>}
                               {e.slug && <span className="font-mono text-gray-300 shrink-0">/{e.slug}</span>}
+                              {e.cluster_label && <span className="px-1.5 py-0 rounded bg-violet-50 text-violet-600 shrink-0">{e.cluster_label}</span>}
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
@@ -2923,6 +2950,7 @@ function ContentMapTab({
                                 {e.volume > 0 && <span className="font-mono shrink-0">Vol. {e.volume.toLocaleString()}</span>}
                                 {e.page_type && <span className={`px-1.5 py-0 rounded font-semibold shrink-0 ${e.page_type === 'Service Page' || e.page_type === 'Core Page' ? 'bg-purple-100 text-purple-600' : 'bg-sky-100 text-sky-600'}`}>{e.page_type}</span>}
                                 {e.slug && <span className="font-mono text-gray-300 shrink-0">/{e.slug}</span>}
+                                {e.cluster_label && <span className="px-1.5 py-0 rounded bg-violet-50 text-violet-600 shrink-0">{e.cluster_label}</span>}
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
@@ -2990,6 +3018,7 @@ function ContentMapTab({
                       <td className="px-3 py-2.5 max-w-[180px]">
                         <div className="truncate font-medium">{e.title}</div>
                         <div className="truncate text-[10px] text-gray-400">{e.keyword}</div>
+                        {e.cluster_label && <div className="truncate text-[9px] text-violet-500">{e.cluster_label}</div>}
                       </td>
                       <td className="px-3 py-2.5 tabular-nums text-[11px] text-gray-500 font-mono">
                         {e.volume > 0 ? e.volume.toLocaleString() : '—'}
@@ -5099,13 +5128,19 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
     try {
       const parsed = JSON.parse(project.themeColors || '{}')
       // authorCard / authorPick / imageSettings เป็นของหน้า รูปภาพ / Author Box (บันทึกผ่าน /article-settings)
-      const { elements: _els, authorCard: _ac, authorPick: _ap, imageSettings: _is, ...base } = parsed
+      // detail (หน้าตา FAQ/ตาราง) เป็น object — เก็บแยกใน themeDetail
+      const { elements: _els, authorCard: _ac, authorPick: _ap, imageSettings: _is, detail: _dt, ...base } = parsed
       return base
     } catch { return {} }
   })
   const [elementStyles, setElementStyles] = useState<ArticleElementStyles>(() => {
     try { return JSON.parse(project.themeColors || '{}').elements ?? {} } catch { return {} }
   })
+  // สไตล์ละเอียดจากการสแกนเว็บปลายทาง (FAQ card / ตาราง) — ใช้ builder เดียวกับ Upload Article
+  const [themeDetail, setThemeDetail] = useState<UploadThemeDetail | null>(() => {
+    try { return sanitizeThemeDetail(JSON.parse(project.themeColors || '{}').detail) ?? null } catch { return null }
+  })
+  const [faqEditorOpen, setFaqEditorOpen] = useState(false)
   const setArticleColor = (key: string, val: string) =>
     setArticleColors(prev => ({ ...prev, [key]: val }))
   const clearArticleColor = (key: string) =>
@@ -5120,9 +5155,13 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
     if (r.articleTheme) setTheme(r.articleTheme)
     if (r.accentColor) setAccentColor(r.accentColor)
     const colorEntries = Object.entries(r.colors).filter(([, v]) => Boolean(v))
+    // พื้นโปร่งใส ('') = บทความใช้พื้นของธีมเว็บ, pageBackground ใช้แค่แสดงตัวอย่าง
+    if (r.transparentBackground) colorEntries.push(['background', ''])
+    if (r.pageBackground) colorEntries.push(['pageBackground', r.pageBackground])
     if (colorEntries.length) {
       setArticleColors(prev => ({ ...prev, ...Object.fromEntries(colorEntries) }))
     }
+    if (r.detail) setThemeDetail(sanitizeThemeDetail(r.detail) ?? null)
     if (Object.keys(r.elements).length) {
       setElementStyles(prev => {
         const next = { ...prev }
@@ -5286,7 +5325,7 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
       projectContext,
       accentColor,
       articleTheme: theme,
-      themeColors: JSON.stringify({ ...articleColors, elements: elementStyles }),
+      themeColors: JSON.stringify({ ...articleColors, elements: elementStyles, ...(themeDetail ? { detail: themeDetail } : {}) }),
       forbiddenWords: JSON.stringify(words),
       internalLinks: JSON.stringify(links),
     }
@@ -5708,16 +5747,20 @@ ${cover}${html}
                   { key: 'accent', label: 'สีลิงก์ / badge', fallback: '#16a34a' },
                 ] as const).map(({ key, label, fallback }) => {
                   const isSet = articleColors[key] !== undefined
-                  const val = articleColors[key] ?? fallback
+                  // พื้นหลัง '' = โปร่งใส (ใช้พื้นของธีมเว็บ) — ได้จากการสแกนเว็บ
+                  const transparent = key === 'background' && articleColors.background === ''
+                  const val = transparent ? '#ffffff' : (articleColors[key] || fallback)
                   return (
                     <div key={key} className="flex items-center gap-2.5">
                       <label className="relative w-7 h-7 rounded-lg border border-gray-200 cursor-pointer shrink-0 overflow-hidden"
-                        style={{ backgroundColor: val }} title={`เลือก${label}`}>
+                        style={transparent
+                          ? { backgroundImage: 'repeating-conic-gradient(#e5e7eb 0% 25%, #ffffff 0% 50%)', backgroundSize: '8px 8px' }
+                          : { backgroundColor: val }} title={`เลือก${label}`}>
                         <input type="color" value={val} onChange={e => setArticleColor(key, e.target.value)}
                           className="absolute inset-0 opacity-0 cursor-pointer" />
                       </label>
                       <span className="text-xs text-gray-700 flex-1">{label}</span>
-                      <span className={`text-[10px] font-mono ${isSet ? 'text-gray-600' : 'text-gray-300'}`}>{isSet ? val : 'ค่ามาตรฐาน'}</span>
+                      <span className={`text-[10px] font-mono ${isSet ? 'text-gray-600' : 'text-gray-300'}`}>{transparent ? 'โปร่งใส' : isSet ? val : 'ค่ามาตรฐาน'}</span>
                       {isSet && (
                         <button onClick={() => clearArticleColor(key)}
                           className="text-[10px] text-gray-400 hover:text-red-500" title="กลับไปใช้ค่ามาตรฐาน">✕</button>
@@ -5728,13 +5771,44 @@ ${cover}${html}
               </div>
               {/* preview แถบสีรวม */}
               <div className="mt-3 rounded-xl border p-3 text-center"
-                style={{ backgroundColor: articleColors.background ?? '#ffffff', borderColor: articleColors.border ?? '#e2e8f0' }}>
+                style={{ backgroundColor: articleColors.background || articleColors.pageBackground || '#ffffff', borderColor: articleColors.border ?? '#e2e8f0' }}>
                 <div className="text-xs font-bold" style={{ color: articleColors.theme ?? accentColor }}>ตัวอย่างหัวข้อบทความ</div>
                 <p className="text-[10px] mt-1" style={{ color: articleColors.text ?? '#1c1c1c' }}>ตัวอย่างเนื้อหาบทความตามชุดสีที่เลือก</p>
                 <span className="inline-block text-[10px] font-semibold text-white px-3 py-1 rounded-lg mt-2"
                   style={{ backgroundColor: articleColors.theme ?? accentColor }}>ปุ่ม CTA</span>
                 <a className="block text-[10px] mt-1.5 underline" style={{ color: articleColors.accent ?? '#16a34a' }}>ตัวอย่างลิงก์</a>
               </div>
+
+              {/* หน้าตา FAQ / ตาราง — ตัวแก้เดียวกับ Upload Article ค่าเริ่มต้นมาจากการสแกนเว็บ */}
+              <div className="mt-4 border-t border-gray-100 pt-3 flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-800">หน้าตา FAQ / ตาราง</span>
+                {themeDetail ? <span className="text-[10px] text-emerald-600">ตั้งค่าแล้ว</span> : <span className="text-[10px] text-gray-400">ใช้ค่าตามสีธีม</span>}
+                <button type="button" onClick={() => setFaqEditorOpen(true)} className="ml-auto text-[11px] font-medium text-blue-600 hover:underline">แก้ไข</button>
+              </div>
+              {faqEditorOpen && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setFaqEditorOpen(false)}>
+                  <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center mb-3">
+                      <p className="text-sm font-semibold text-gray-900">หน้าตา FAQ / ตาราง</p>
+                      <span className="text-[11px] text-gray-400 ml-2">ค่าเริ่มต้นมาจากการสแกนเว็บ — บันทึกพร้อมการตั้งค่า Article Lab</span>
+                      <button type="button" onClick={() => setFaqEditorOpen(false)} className="ml-auto text-xs font-medium text-gray-600 border border-gray-200 rounded-lg px-3 py-1 hover:bg-gray-50">เสร็จ</button>
+                    </div>
+                      <FaqStyleEditor
+                        theme={{
+                          theme: articleColors.theme || accentColor,
+                          text: articleColors.text || '#1c1c1c',
+                          border: articleColors.border || '#e2e8f0',
+                          accent: articleColors.accent || '#16a34a',
+                          background: articleColors.background ?? '',
+                          styleMode: 'embed',
+                          detail: themeDetail ?? undefined,
+                          pageBackground: articleColors.pageBackground,
+                        }}
+                        onChange={d => setThemeDetail(d ? (sanitizeThemeDetail(d) ?? null) : null)}
+                      />
+                  </div>
+                </div>
+              )}
 
               {/* สี + ฟอนต์ราย element — H1-H6 / Text / URL / Author / FAQ */}
               <div className="mt-4 border-t border-gray-100 pt-3">
@@ -5894,7 +5968,9 @@ ${cover}${html}
                     spellCheck={false} />
                 )}
                 {viewMode === 'preview' && (
-                  <div className="p-6 min-h-96 overflow-auto">
+                  <div className="p-6 min-h-96 overflow-auto"
+                    // บทความพื้นโปร่งใส — วางบนสีพื้นหน้าเว็บจริงจากการสแกน ไม่งั้นเว็บพื้นเข้มจะอ่านไม่ออก
+                    style={articleColors.background === '' && /^#[0-9a-f]{3,8}$/i.test(articleColors.pageBackground ?? '') ? { backgroundColor: articleColors.pageBackground } : undefined}>
                     <iframe srcDoc={html} className="w-full border-0 min-h-[600px]" sandbox="allow-same-origin" title="Article Preview" />
                   </div>
                 )}

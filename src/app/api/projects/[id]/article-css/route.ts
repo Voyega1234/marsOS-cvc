@@ -10,6 +10,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { buildArticleCss, normalizeCtaItems, type CtaMode, type CtaCustomDesign } from '@/lib/articleComponents'
 import type { ArticleElementStyles } from '@/lib/articleTheme'
+import { sanitizeThemeDetail, themeDetailCss } from '@/lib/upload-article/theme-css'
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
@@ -38,7 +39,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     }
   } catch { /* ใช้ default */ }
 
-  const css = buildArticleCss({
+  const cssBase = buildArticleCss({
     themeColor: (colors.theme as string) || project.accentColor || '#2563eb',
     textColor: (colors.text as string) || '#000000',
     borderColor: (colors.border as string) || '#e2e8f0',
@@ -47,6 +48,10 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     elementStyles: (colors.elements as ArticleElementStyles) ?? null,
     cta: ctaCss,
   })
+  // หน้าตา FAQ card / ตารางละเอียด (จากผลสแกนเว็บปลายทางที่กดรับไว้) — ต่อท้ายเฉพาะเมื่อมีค่า
+  const themeDetail = colors.detail ? sanitizeThemeDetail(colors.detail) : undefined
+  const detailCss = themeDetail ? themeDetailCss(themeDetail) : ''
+  const css = detailCss ? `${cssBase}\n${detailCss}` : cssBase
 
   const header = `/* Article CSS — ${project.clientName || project.name}
  * ติดตั้งครั้งเดียวในธีมเว็บ (เช่น WP: Appearance > Customize > Additional CSS)
