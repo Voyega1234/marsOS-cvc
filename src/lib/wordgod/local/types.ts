@@ -37,7 +37,7 @@ export type LocalBusinessType =
   | 'storefront'    // ลูกค้าเดินเข้ามา (คลินิก, ร้าน)
   | 'hybrid';
 
-export type LocalLanguage = 'th' | 'th_en';
+export type LocalLanguage = 'th' | 'en' | 'th_en';
 
 // ─── Intent ───────────────────────────────────────────────────────────────────
 

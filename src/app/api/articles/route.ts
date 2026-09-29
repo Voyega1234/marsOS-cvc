@@ -21,7 +21,19 @@ export async function GET(req: NextRequest) {
 
   const articles = await prisma.article.findMany({
     where,
-    include: { project: true, keyword: true, assignedTo: true },
+    include: {
+      project: {
+        select: {
+          id: true,
+          name: true,
+          clientName: true,
+          website: true,
+          organizationId: true,
+        },
+      },
+      keyword: true,
+      assignedTo: { select: { id: true, name: true, email: true, image: true, role: true } },
+    },
     orderBy: { updatedAt: "desc" },
   });
   return NextResponse.json(articles);

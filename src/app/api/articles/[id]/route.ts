@@ -5,6 +5,7 @@ import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
 import { notifyArticleStatusChange } from "@/services/notify";
 import { logActivity } from "@/lib/logActivity";
+import { maskProjectSecrets, stripUserSecrets } from "@/lib/secret-mask";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession();
@@ -18,7 +19,13 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   if (!(await clientCanAccessProject(session, article.projectId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  return NextResponse.json(article);
+  // ตัดรหัสผ่านผู้ใช้ + ปิดบังรหัส WordPress ก่อนส่งให้ browser
+  return NextResponse.json({
+    ...article,
+    project: maskProjectSecrets(article.project),
+    assignedTo: stripUserSecrets(article.assignedTo),
+    reviewer: stripUserSecrets(article.reviewer),
+  });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {

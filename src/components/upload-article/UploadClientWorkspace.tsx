@@ -20,12 +20,12 @@ import PushTab from "@/components/upload-article/tabs/PushTab";
 import PublishTab from "@/components/upload-article/tabs/PublishTab";
 import SettingsTab, { type SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import PbnReportTab from "@/components/upload-article/pbn/PbnReportTab";
+import UploadGscReportTab from "@/components/upload-article/report/UploadGscReportTab";
 
 export type TabId = "keyword" | "write" | "import" | "generate" | "review" | "push" | "publish" | "report" | "settings";
 
-const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "generate", "review", "push", "publish"];
-// PBN Backlinks = แท็บเดียวกับ Upload Article + Report (GSC / GA4 แยกตามเว็บ PBN)
-const PBN_TAB_ORDER: Exclude<TabId, "settings">[] = [...TAB_ORDER, "report"];
+// Report = GSC ของเว็บลูกค้า (upload ปกติ) หรือ GSC/GA4 แยกตามเว็บ PBN (mode="pbn") — คนละ component กัน
+const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "generate", "review", "push", "publish", "report"];
 
 const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   keyword: "Keyword",
@@ -64,7 +64,7 @@ export default function UploadClientWorkspace({
 }) {
   const router = useRouter();
   const isPbn = mode === "pbn";
-  const tabOrder = isPbn ? PBN_TAB_ORDER : TAB_ORDER;
+  const tabOrder = TAB_ORDER;
   const basePath = isPbn ? "/pbn-backlinks" : `/upload-article/${clientId}`;
   const [client, setClient] = useState<UploadClientDTO | null>(null);
   const [loading, setLoading] = useState(true);
@@ -289,11 +289,13 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        {isPbn && (
-          <TabsContent value="report">
+        <TabsContent value="report">
+          {isPbn ? (
             <PbnReportTab onOpenSettings={() => openSettings("website")} />
-          </TabsContent>
-        )}
+          ) : (
+            <UploadGscReportTab clientId={clientId} />
+          )}
+        </TabsContent>
       </Tabs>
 
       {tab === "settings" && (

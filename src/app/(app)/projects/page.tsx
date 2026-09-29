@@ -27,38 +27,7 @@ export default async function ProjectsPage() {
   const orgId = session.user.organizationId;
 
   // CLIENT: only see projects explicitly assigned by admin.
-  // Wrapped so a DB/schema error renders an empty state instead of crashing the
-  // whole page ("Server Components render error") — see PIPELINE-FIX-HANDOFF.md P0.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let rawProjects: any[] = [];
-  try {
-    if (userRole === "CLIENT") {
-      const accessList = await prisma.clientProjectAccess.findMany({
-        where: { userId: session.user.id },
-        include: {
-          project: {
-            include: {
-              owner: { select: { id: true, name: true } },
-              _count: { select: { articles: true, keywords: true, members: true } },
-            },
-          },
-        },
-      });
-      rawProjects = accessList.map((a) => a.project);
-    } else {
-      if (!orgId) return null;
-      rawProjects = await prisma.project.findMany({
-        where: { organizationId: orgId },
-        include: {
-          owner: { select: { id: true, name: true } },
-          _count: { select: { articles: true, keywords: true, members: true } },
-        },
-        orderBy: { updatedAt: "desc" },
-      });
-    }
-  } catch (err) {
-    console.error("[projects] DB query failed:", err);
-  }
+  if (userRole !== "CLIENT" && !orgId) return null;
 
   interface TimelineEntry { articleStatus?: string; date?: string; title?: string; keyword?: string }
 
@@ -68,26 +37,75 @@ export default async function ProjectsPage() {
   const weekEndKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(weekEnd)
   const DONE_STATUSES = new Set(['done', 'approved', 'pushed'])
 
-  // SEO tasks ค้าง (สถานะไม่จบ) แยกตาม project
-  const openTasksByProject = new Map<string, { dueToday: number; dueThisWeek: number; overdue: number; items: { title: string; kind: 'task'; date: string }[] }>()
-  try {
-    if (orgId) {
-      const openTasks = await prisma.seoTask.findMany({
+  // Only the fields ProjectsTable + this page actually read (owner name, timeline for
+  // server-side stats). Never select secrets like wpAppPassword/siteConnection here.
+  const PROJECT_SELECT = {
+    id: true,
+    name: true,
+    clientName: true,
+    website: true,
+    businessType: true,
+    industry: true,
+    logoUrl: true,
+    status: true,
+    updatedAt: true,
+    timeline: true,
+    owner: { select: { id: true, name: true } },
+  } as const;
+
+  // Project list query and open-SEO-tasks query are independent — run them concurrently.
+  // Wrapped so a DB/schema error renders an empty state instead of crashing the
+  // whole page ("Server Components render error") — see PIPELINE-FIX-HANDOFF.md P0.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projectsPromise: Promise<any[]> = (async () => {
+    try {
+      if (userRole === "CLIENT") {
+        const accessList = await prisma.clientProjectAccess.findMany({
+          where: { userId: session.user.id },
+          include: {
+            project: { select: PROJECT_SELECT },
+          },
+        });
+        return accessList.map((a) => a.project);
+      }
+      // Guaranteed non-null here — the top-level guard above already returned
+      // null when userRole !== "CLIENT" && !orgId.
+      return await prisma.project.findMany({
+        where: { organizationId: orgId! },
+        select: PROJECT_SELECT,
+        orderBy: { updatedAt: "desc" },
+      });
+    } catch (err) {
+      console.error("[projects] DB query failed:", err);
+      return [];
+    }
+  })();
+
+  const tasksPromise = (async () => {
+    try {
+      if (!orgId) return [];
+      return await prisma.seoTask.findMany({
         where: { organizationId: orgId, status: { notIn: ['DONE', 'CANCELLED'] }, dueDate: { not: null } },
         select: { projectId: true, dueDate: true, title: true },
       })
-      for (const t of openTasks) {
-        const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(t.dueDate!)
-        const bucket = openTasksByProject.get(t.projectId)
-          ?? { dueToday: 0, dueThisWeek: 0, overdue: 0, items: [] as { title: string; kind: 'task'; date: string }[] }
-        if (key < todayKey) { bucket.overdue++; bucket.items.push({ title: t.title, kind: 'task', date: key }) }
-        else if (key === todayKey) { bucket.dueToday++; bucket.dueThisWeek++; bucket.items.push({ title: t.title, kind: 'task', date: key }) }
-        else if (key <= weekEndKey) bucket.dueThisWeek++
-        openTasksByProject.set(t.projectId, bucket)
-      }
+    } catch (err) {
+      console.error('[projects] seoTask query failed:', err)
+      return []
     }
-  } catch (err) {
-    console.error('[projects] seoTask query failed:', err)
+  })();
+
+  const [rawProjects, openTasks] = await Promise.all([projectsPromise, tasksPromise]);
+
+  // SEO tasks ค้าง (สถานะไม่จบ) แยกตาม project
+  const openTasksByProject = new Map<string, { dueToday: number; dueThisWeek: number; overdue: number; items: { title: string; kind: 'task'; date: string }[] }>()
+  for (const t of openTasks) {
+    const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(t.dueDate!)
+    const bucket = openTasksByProject.get(t.projectId)
+      ?? { dueToday: 0, dueThisWeek: 0, overdue: 0, items: [] as { title: string; kind: 'task'; date: string }[] }
+    if (key < todayKey) { bucket.overdue++; bucket.items.push({ title: t.title, kind: 'task', date: key }) }
+    else if (key === todayKey) { bucket.dueToday++; bucket.dueThisWeek++; bucket.items.push({ title: t.title, kind: 'task', date: key }) }
+    else if (key <= weekEndKey) bucket.dueThisWeek++
+    openTasksByProject.set(t.projectId, bucket)
   }
 
   const projects = rawProjects.map((p) => {
@@ -148,8 +166,23 @@ export default async function ProjectsPage() {
     workload.urgentItems = workload.urgentItems.slice(0, 10)
     workload.progressPct = workload.total > 0 ? Math.round((workload.done / workload.total) * 100) : 0
 
-    const proj = p as typeof p & { monthlyTarget?: number | null }
-    return { ...proj, statusMap: {} as Record<string, number>, timelineStats, workload }
+    // Build the object explicitly — never spread the raw project row (it may carry
+    // server-only fields like the raw `timeline` JSON) into what reaches the client.
+    return {
+      id: p.id,
+      name: p.name,
+      clientName: p.clientName,
+      website: p.website,
+      businessType: p.businessType,
+      industry: p.industry,
+      logoUrl: p.logoUrl ?? null,
+      status: p.status,
+      updatedAt: p.updatedAt,
+      owner: p.owner,
+      statusMap: {} as Record<string, number>,
+      timelineStats,
+      workload,
+    }
   });
 
   return (
@@ -171,7 +204,7 @@ export default async function ProjectsPage() {
           <p className="text-gray-500 text-sm mt-1">สร้าง project แรกเพื่อเริ่มเขียนบทความ</p>
         </div>
       ) : (
-        <ProjectsTable projects={projects.map(p => ({ ...p, logoUrl: (p as any).logoUrl ?? null, userRole }))} userRole={userRole} />
+        <ProjectsTable projects={projects.map(p => ({ ...p, userRole }))} userRole={userRole} />
       )}
     </div>
   );

@@ -715,6 +715,9 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
       customerProblems: parseLines(problemsText),
       country: country.trim() || 'Thailand',
       language,
+      // โหมด both ถูกแบ่งเป็นรอบ th/en แยกกันแล้วด้านบน (runTargetCount) — ส่ง languageMode
+      // ตาม language ของรอบนี้จริง ๆ ไม่ใช่ 'both' ไม่งั้น expansion จะปนภาษาผิดจากที่แบ่งไว้
+      languageMode: language,
       strategyGoal,
       targetCount: clampTargetCount(runTargetCount),
       competitorDomains: parseLines(competitorsText).slice(0, 10),

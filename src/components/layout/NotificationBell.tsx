@@ -72,8 +72,19 @@ export function NotificationBell() {
   useEffect(() => {
     setLoading(true);
     load();
-    const interval = setInterval(load, 15000); // poll every 15s
-    return () => clearInterval(interval);
+    // ข้าม poll ตอนแท็บอยู่เบื้องหลัง — ประหยัด request, กลับมาเห็นแท็บก็ดึงทันทีแทน
+    const interval = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      load();
+    }, 15000); // poll every 15s
+    function handleVisibility() {
+      if (document.visibilityState === "visible") load();
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [load]);
 
   useEffect(() => {

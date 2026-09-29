@@ -102,12 +102,12 @@ function headers(): Record<string, string> {
 
 /**
  * SOP §4 "Request Protection" — กันยิงถล่ม OpenRouter จาก instance เดียว
- *   OPENROUTER_MAX_CONCURRENCY  จำนวน request พร้อมกันสูงสุดต่อ instance (default 8)
+ *   OPENROUTER_MAX_CONCURRENCY  จำนวน request พร้อมกันสูงสุดต่อ instance (default 12)
  *   OPENROUTER_MIN_INTERVAL_MS  เว้นระยะระหว่างการยิงแต่ละครั้ง (default 0 = ปิด)
  * ตัว stream ถือ slot ไว้จนอ่านจบ เพราะสายยังเปิดค้างและนับเป็น request ที่ปลายทางจริง
  * (timeout อยู่ที่ params.timeoutMs ของแต่ละฟังก์ชัน, retry เป็นหน้าที่ของผู้เรียก)
  */
-const MAX_CONCURRENCY = Math.max(1, Number(process.env.OPENROUTER_MAX_CONCURRENCY ?? 8) || 8)
+const MAX_CONCURRENCY = Math.max(1, Number(process.env.OPENROUTER_MAX_CONCURRENCY ?? 12) || 12)
 const MIN_INTERVAL_MS = Math.max(0, Number(process.env.OPENROUTER_MIN_INTERVAL_MS ?? 0) || 0)
 
 let inFlight = 0

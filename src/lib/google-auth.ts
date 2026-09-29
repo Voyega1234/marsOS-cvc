@@ -146,6 +146,27 @@ export async function getGA4Auth() {
   return getGoogleAuth([GA4_SCOPE]);
 }
 
+// ลำดับ auth เฉพาะหน้า Report ของ Upload Article — ต้องใช้ตัวตน service เท่านั้น (ห้าม fallback ไป
+// token ส่วนตัวของผู้ใช้ที่ login ด้วย Google) เจ้าของแค่เพิ่ม service email เป็นผู้ใช้ใน GSC ของเว็บที่จะดู:
+//   1. Service Account key (mars-seo-reporter)
+//   2. Vercel OIDC + service account
+//   3. local ADC (gcloud auth application-default login)
+async function getGoogleServiceOnlyAuth(scopes: string[]) {
+  const saAuth = getServiceAccountKeyAuth(scopes);
+  if (saAuth) return saAuth;
+
+  if (process.env.VERCEL) {
+    if (isGoogleOidcConfigured()) return getOidcAuth(scopes);
+    throw new Error("Google OIDC env vars must be set (ไม่มี Service Account key)");
+  }
+  return new google.auth.GoogleAuth({ scopes });
+}
+
+/** ตัวตน service เท่านั้น (ไม่มี user OAuth) สำหรับ Upload Article > Report (GSC) */
+export async function getGSCServiceAuth() {
+  return getGoogleServiceOnlyAuth([GSC_SCOPE]);
+}
+
 // ดึง access token เป็น string ไม่ว่า auth จะเป็นแบบไหน (OAuth2 user token / GoogleAuth)
 export async function getGoogleAccessToken(
   auth: Awaited<ReturnType<typeof getGoogleAuth>>

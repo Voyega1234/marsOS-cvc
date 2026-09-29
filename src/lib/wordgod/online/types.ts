@@ -82,7 +82,9 @@ export interface OnlineResearchInput {
   targetCustomer?: string;
   customerProblems?: string[];
   country?: string;   // default 'Thailand'
-  language?: string;  // default 'th'
+  language?: string;  // default 'th' — ใช้เป็น DFS/KP language code ต้องเป็น 'th'/'en' เท่านั้น
+  /** ความตั้งใจภาษาจริงของผู้ใช้ (th/en/both) — ใช้แค่เลือก expansion prompt, ไม่ใช่ DFS/KP code */
+  languageMode?: 'th' | 'en' | 'both';
   strategyGoal: StrategyGoal;
   targetCount: number; // 50–1000
   competitorDomains?: string[]; // 1–10

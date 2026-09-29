@@ -20,7 +20,9 @@ import { requestArticleImages } from "../shared/AiImagesPanel";
 
 const GENERATABLE = new Set(["IMPORTED", "GENERATED", "REVIEWED", "FAILED"]);
 /** สร้างรูปพร้อมกันกี่บทความ (แต่ละบทความใช้ 30-90 วิ) */
-const IMAGE_CONCURRENCY = 2;
+const IMAGE_CONCURRENCY = 3;
+/** ไม่มีรูปให้สร้าง (route เป็น DB + HTML ล้วน ไม่มี AI) — รันขนานได้มากกว่ารอบที่มีรูป */
+const NO_IMAGE_CONCURRENCY = 4;
 
 interface GenOptions {
   links: boolean;
@@ -205,7 +207,7 @@ export default function GenerateTab({
     let okCount = 0;
     let totalCost = 0;
     let idx = 0;
-    const concurrency = o.cover || o.inline ? IMAGE_CONCURRENCY : 1;
+    const concurrency = o.cover || o.inline ? IMAGE_CONCURRENCY : NO_IMAGE_CONCURRENCY;
     const worker = async () => {
       while (idx < ids.length) {
         const id = ids[idx++];

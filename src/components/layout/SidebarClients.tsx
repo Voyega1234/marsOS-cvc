@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { fetchProjectsList } from "@/lib/client/projects-list";
 
 type ClientItem = {
   id: string;
@@ -33,10 +34,9 @@ export default function SidebarClients({ collapsed }: { collapsed: boolean }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    fetch("/api/projects")
-      .then(r => r.ok ? r.json() : [])
-      .then((data: ClientItem[]) => {
-        setClients(data.filter(p => p.status !== "ARCHIVED").slice(0, 20));
+    fetchProjectsList()
+      .then((data) => {
+        setClients((data as ClientItem[]).filter(p => p.status !== "ARCHIVED").slice(0, 20));
       })
       .catch(() => {});
   }, []);

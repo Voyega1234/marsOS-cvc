@@ -85,7 +85,11 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   }
 
   // Content Engine ของลูกค้านี้เท่านั้น (scope = UploadClient.id) — ไม่มี Image Prompt = หยุด ไม่ใช้ prompt สำรอง
-  const ce = await resolveContentEngine(orgId, { projectId: ctx.ceScopeId })
+  // 2 การอ่านนี้เป็นอิสระจากกัน — ยิงพร้อมกัน แต่ยังเช็ค 422 หลังได้ผลทั้งคู่เหมือนเดิม
+  const [ce, prefs] = await Promise.all([
+    resolveContentEngine(orgId, { projectId: ctx.ceScopeId }),
+    readPrefs(client.id, orgId),
+  ])
   if (!ce.imagePrompt?.text?.trim()) {
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing: ['Image Prompt'] }, { status: 422 })
   }
@@ -97,7 +101,6 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     theme = DEFAULT_UPLOAD_THEME
   }
 
-  const prefs = await readPrefs(client.id, orgId)
   const plan = Array.isArray(prefs?.keywordPlan) ? (prefs!.keywordPlan as UploadKeyword[]) : []
   const keyword = plan.find(k => k.articleId === article.id)?.keyword || article.title
   const language = resolveArticleLanguage({ projectLanguage: client.language, keyword, title: article.seoTitle || article.title })

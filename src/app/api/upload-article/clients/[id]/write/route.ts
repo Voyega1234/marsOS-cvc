@@ -119,9 +119,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // keyword นี้กำลังเขียนอยู่แล้ว (ไม่นับที่ค้างเกิน 6 นาที — proc ตายกลางทาง ลบแล้วเขียนใหม่ได้)
   const sourceName = writerSourceName(keywordId, variant)
-  const existingWriting = await prisma.uploadArticle.findMany({
-    where: { clientId: client.id, organizationId: orgId, sourceName, status: 'WRITING' },
-  })
+  // 3 การอ่านนี้เป็นอิสระจากกัน (ไม่พึ่งผลของกันและกัน) — ยิงพร้อมกันได้ แต่ยังเช็ค error ตามลำดับเดิม (409 → 422 → CTA 400)
+  const [existingWriting, ce, extraLinks] = await Promise.all([
+    prisma.uploadArticle.findMany({
+      where: { clientId: client.id, organizationId: orgId, sourceName, status: 'WRITING' },
+    }),
+    resolveContentEngine(orgId, { projectId: effective.ceScopeId }),
+    loadArticleLinkPairs(client.id, orgId, prefs),
+  ])
   const staleIds: string[] = []
   for (const a of existingWriting) {
     if (isWritingStale(a.updatedAt)) staleIds.push(a.id)
@@ -129,7 +134,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (staleIds.length) await prisma.uploadArticle.deleteMany({ where: { id: { in: staleIds } } })
 
-  const ce = await resolveContentEngine(orgId, { projectId: effective.ceScopeId })
   const missing = missingWriterLayers(ce)
   if (missing.length > 0) {
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing }, { status: 422 })
@@ -163,7 +167,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const links = readLinks(prefs)
-  const extraLinks = await loadArticleLinkPairs(client.id, orgId, prefs)
   const linkPairs = pickLinksForKeyword(links, { keyword: keyword.keyword, slug: keyword.slug, extra: extraLinks })
 
   const title = keyword.title || keyword.keyword
@@ -184,24 +187,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
-  if (target) {
-    const t = target
-    await updatePrefs(client.id, orgId, (current) => ({
-      prefs: { ...current, pbnArticleTargets: { ...readPbnArticleTargets(current), [article.id]: t } },
-      result: null,
-    }))
-  }
-
-  // keyword ผูกกับบทความเวอร์ชัน 1 เท่านั้น — เวอร์ชันอื่นหาเจอจาก sourceName
-  if (isPrimary) await updatePrefs(client.id, orgId, (current) => {
-    const p = readPlan(current)
-    const idx = p.findIndex((k) => k.id === keywordId)
-    if (idx === -1) return { result: null }
-    const next = [...p]
-    const item = { ...next[idx], articleId: article.id }
-    delete item.writeError
-    next[idx] = item
-    return { prefs: { ...current, keywordPlan: next }, result: null }
+  // รวม 2 การแก้ pushPrefs (เป้าหมาย PBN + ผูก keyword กับบทความ) เป็น read-modify-write ครั้งเดียว — เรียงลำดับเดิม (target ก่อน แล้วค่อยผูก plan)
+  if (target || isPrimary) await updatePrefs(client.id, orgId, (current) => {
+    let next = current
+    let changed = false
+    if (target) {
+      next = { ...next, pbnArticleTargets: { ...readPbnArticleTargets(next), [article.id]: target } }
+      changed = true
+    }
+    // keyword ผูกกับบทความเวอร์ชัน 1 เท่านั้น — เวอร์ชันอื่นหาเจอจาก sourceName
+    if (isPrimary) {
+      const p = readPlan(next)
+      const idx = p.findIndex((k) => k.id === keywordId)
+      if (idx !== -1) {
+        const list = [...p]
+        const item = { ...list[idx], articleId: article.id }
+        delete item.writeError
+        list[idx] = item
+        next = { ...next, keywordPlan: list }
+        changed = true
+      }
+    }
+    return changed ? { prefs: next, result: null } : { result: null }
   })
 
   const system = buildWriterSystemPrompt({ masterPrompt, businessSkill, articleBrief, validatorPack })

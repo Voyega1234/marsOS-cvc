@@ -10,6 +10,7 @@ import { CommandMenu } from "./CommandMenu";
 import { Kbd } from "@/components/ui/kbd";
 import { useMars } from "@/lib/context/mars-context";
 import { IconBolt } from "@tabler/icons-react";
+import { fetchProjectsList } from "@/lib/client/projects-list";
 
 const PAGE_LABELS: Record<string, string> = {
   "/dashboard":            "หน้าหลัก",
@@ -77,9 +78,8 @@ export function ProTopBar() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/projects")
-      .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data)) setProjects(data); })
+    fetchProjectsList()
+      .then((data) => { if (Array.isArray(data)) setProjects(data as { id: string; name: string }[]); })
       .catch(() => {});
   }, []);
 

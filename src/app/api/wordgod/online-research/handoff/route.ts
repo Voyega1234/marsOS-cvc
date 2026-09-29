@@ -37,34 +37,44 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ต้องระบุ researchId และ keywords อย่างน้อย 1 คำ' }, { status: 400 });
   }
 
-  const run = await prisma.localKeywordResearchRun.findUnique({ where: { id: researchId } });
-  if (!run || run.organizationId !== orgId || run.mode !== 'online_business') {
-    return NextResponse.json({ error: 'ไม่พบผลการวิจัยนี้' }, { status: 404 });
-  }
-  if (run.status === 'running') {
-    return NextResponse.json({ error: 'run นี้ยังประมวลผลไม่เสร็จ' }, { status: 409 });
-  }
-
-  let data: OnlineResearchResponse;
-  try {
-    data = JSON.parse(run.resultData);
-  } catch {
-    return NextResponse.json({ error: 'ข้อมูลผลการวิจัยเสียหาย' }, { status: 500 });
-  }
-
-  const wanted = new Set(keywords.map(k => k.toLowerCase()));
-  let updated = 0;
-  for (const r of data.results ?? []) {
-    if (wanted.has(r.keyword.trim().toLowerCase())) {
-      r.handoffStatus = status;
-      updated++;
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const run = await prisma.localKeywordResearchRun.findUnique({ where: { id: researchId } });
+    if (!run || run.organizationId !== orgId || run.mode !== 'online_business') {
+      return NextResponse.json({ error: 'ไม่พบผลการวิจัยนี้' }, { status: 404 });
     }
-  }
-  if (updated > 0) {
-    await prisma.localKeywordResearchRun.update({
-      where: { id: researchId },
+    if (run.status === 'running') {
+      return NextResponse.json({ error: 'run นี้ยังประมวลผลไม่เสร็จ' }, { status: 409 });
+    }
+
+    let data: OnlineResearchResponse;
+    try {
+      data = JSON.parse(run.resultData);
+    } catch {
+      return NextResponse.json({ error: 'ข้อมูลผลการวิจัยเสียหาย' }, { status: 500 });
+    }
+
+    const wanted = new Set(keywords.map(k => k.toLowerCase()));
+    let updated = 0;
+    for (const r of data.results ?? []) {
+      if (wanted.has(r.keyword.trim().toLowerCase())) {
+        r.handoffStatus = status;
+        updated++;
+      }
+    }
+    if (updated === 0) {
+      return NextResponse.json({ updated, status });
+    }
+
+    const { count } = await prisma.localKeywordResearchRun.updateMany({
+      where: { id: researchId, updatedAt: run.updatedAt },
       data: { resultData: JSON.stringify(data) },
     });
+    if (count > 0) {
+      return NextResponse.json({ updated, status });
+    }
+    // มีการเขียนแทรกระหว่างนี้ — อ่านใหม่แล้วลองใหม่
   }
-  return NextResponse.json({ updated, status });
+
+  return NextResponse.json({ error: 'มีการแก้ไขข้อมูลพร้อมกัน กรุณาลองใหม่อีกครั้ง' }, { status: 409 });
 }

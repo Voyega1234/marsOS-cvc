@@ -11,22 +11,32 @@ export async function GET() {
 
   const projects = await prisma.project.findMany({
     where: { organizationId },
-    include: {
-      owner: { select: { id: true, name: true } },
-      members: { include: { user: { select: { id: true, name: true } } } },
-      _count: { select: { articles: true, keywords: true } },
+    select: {
+      id: true,
+      name: true,
+      clientName: true,
+      businessType: true,
+      industry: true,
+      logoUrl: true,
+      status: true,
     },
     orderBy: { updatedAt: "desc" },
   });
 
-  const result = await Promise.all(projects.map(async (p) => {
-    const statusGroups = await prisma.article.groupBy({
-      by: ["status"], where: { projectId: p.id }, _count: true,
-    });
-    const statusMap: Record<string, number> = {};
-    statusGroups.forEach(g => { statusMap[g.status] = g._count; });
-    return { ...p, statusMap };
-  }));
+  const projectIds = projects.map((p) => p.id);
+  const statusGroups = await prisma.article.groupBy({
+    by: ["projectId", "status"],
+    where: { projectId: { in: projectIds } },
+    _count: true,
+  });
+  const statusMapByProject = new Map<string, Record<string, number>>();
+  for (const g of statusGroups) {
+    const map = statusMapByProject.get(g.projectId) ?? {};
+    map[g.status] = g._count;
+    statusMapByProject.set(g.projectId, map);
+  }
+
+  const result = projects.map((p) => ({ ...p, statusMap: statusMapByProject.get(p.id) ?? {} }));
 
   return NextResponse.json(result);
 }

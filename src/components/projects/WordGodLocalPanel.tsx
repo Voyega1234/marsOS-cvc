@@ -360,11 +360,11 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
   const [nearbyText, setNearbyText] = useState('');
   const [businessType, setBusinessType] = useState<LocalBusinessType>('storefront');
   const [radius, setRadius] = useState<number | null>(null);
-  const [language, setLanguage] = useState<'th' | 'th_en'>('th');
-  // ตามโหมดภาษาของโปรเจกต์: local research รองรับแค่ ไทย / ไทย+อังกฤษ
+  const [language, setLanguage] = useState<'th' | 'en' | 'th_en'>('th');
+  // ตามโหมดภาษาของโปรเจกต์: th → ไทย, en → อังกฤษล้วน, both → ไทย+อังกฤษ
   useEffect(() => {
     if (!languageMode) return;
-    setLanguage(languageMode === 'th' ? 'th' : 'th_en');
+    setLanguage(languageMode === 'en' ? 'en' : languageMode === 'both' ? 'th_en' : 'th');
   }, [languageMode]);
   const [expandWithKP, setExpandWithKP] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -749,7 +749,8 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
       'Wave', 'Suggested Page', 'Location', 'Sources',
     ];
     const lines = [header.join(',')];
-    for (const row of filtered) {
+    // ใช้ผลทั้งชุดเหมือน Excel export (ไม่ขึ้นกับตัวกรองบนตาราง) — ไฟล์ที่ได้ตรงกันทุกทาง
+    for (const row of results) {
       const i = row.intel;
       lines.push([
         csvCell(rankByKeyword.get(row.keyword)),
@@ -1239,8 +1240,9 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               </div>
               <div>
                 <label className={labelClass}>ภาษา</label>
-                <select className={fieldClass} value={language} onChange={event => setLanguage(event.target.value as 'th' | 'th_en')}>
+                <select className={fieldClass} value={language} onChange={event => setLanguage(event.target.value as 'th' | 'en' | 'th_en')}>
                   <option value="th">ไทย</option>
+                  <option value="en">อังกฤษ</option>
                   <option value="th_en">ไทย + อังกฤษ</option>
                 </select>
                 <p className="mt-1 text-[10px] leading-4 text-[#71809c]">มีลูกค้าต่างชาติให้เลือกไทย + อังกฤษ</p>

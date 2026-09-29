@@ -113,6 +113,9 @@ export async function snapshotArticleVersion(articleId: string, userId: string, 
 export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJobResult<T>> {
   const { organizationId, projectId, articleId, jobType, promptType, variables, userId, mockFn, appendPrompt } = opts;
 
+  // client slug ไม่ขึ้นกับ prompt — เริ่มควบคู่กันแล้วค่อย await ตรงจุดที่ใช้จริง (ก่อน callAIProvider)
+  const clientSlugPromise = clientSlugForProject(projectId ?? null);
+
   // 1. Load active prompt (throws AINoPromptError if missing)
   const prompt = await loadActivePrompt(organizationId, promptType, projectId ?? null);
 
@@ -146,7 +149,7 @@ export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJo
     // 5. Call AI provider (mock or real)
     const aiResult = await callAIProvider({
       trace:       `ai_job_${jobType}`,
-      client:      await clientSlugForProject(projectId ?? null),
+      client:      await clientSlugPromise,
       provider:    prompt.modelProvider as "CLAUDE" | "OPENAI" | "GEMINI" | "CUSTOM",
       model:       prompt.modelName,
       prompt:      compiled,

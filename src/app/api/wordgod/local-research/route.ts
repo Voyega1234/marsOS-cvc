@@ -390,7 +390,8 @@ export async function POST(req: NextRequest) {
         : 'service_area';
     // จำนวน Final Qualified SEO Opportunities ที่ต้องการ (candidate pool จะใหญ่กว่านี้มาก)
     targetCount = Math.min(Math.max(Math.round(Number(body.targetCount) || 50), 10), 1000);
-    const language: LocalLanguage = body.language === 'th_en' ? 'th_en' : 'th';
+    const language: LocalLanguage =
+      body.language === 'th_en' ? 'th_en' : body.language === 'en' ? 'en' : 'th';
 
     // น้ำหนัก Sales/Traffic (default 60/40) — รับได้ทั้งสัดส่วน (0.6) และเปอร์เซ็นต์ (60)
     const rawSalesW = Number(body.salesWeight);
@@ -475,6 +476,8 @@ export async function POST(req: NextRequest) {
     const { services, primaryLocation } = input;
     const nearbyLocations = input.nearbyLocations ?? [];
     const language = input.language ?? 'th';
+    // KP/DFS ยึดตลาด/ภูมิภาคไทยเสมอ (target_country/locationCode) — ภาษาสลับได้ตาม input เฉพาะโหมด 'en'
+    const dataLanguageCode = language === 'en' ? 'en' : 'th';
 
     // ── State ทั้งหมดต่อไปนี้ serialize เป็น JSON checkpoint ได้ (โหมด resumable) ──
     const warnings: string[] = Array.isArray(ckptData?.warnings) ? ckptData.warnings : [];
@@ -683,7 +686,7 @@ export async function POST(req: NextRequest) {
       const genTarget = Math.min(Math.max(Math.ceil(targetCount * 2.5), 300), 3000);
       const startWave = cursor('expand', 'expandWave', 0);
       const genNiche = `${services.join(' / ')}${input.businessContext ? ` — ${input.businessContext}` : ''}`;
-      const expandLanguage = language === 'th_en' ? 'th_en' : 'th';
+      const expandLanguage: LocalLanguage = language;
       // วงมุมมอง: หัวข้อจากบริการที่ผู้ใช้ระบุ + พื้นที่หลัก/ใกล้เคียง — สลับมุมให้แต่ละ batch ไม่ซ้ำกัน
       const ring = buildAngleRing({
         topics: services,
@@ -784,7 +787,7 @@ export async function POST(req: NextRequest) {
                 competitionIndex: idea.competitionIndex,
                 keywordDifficulty: idea.keywordDifficulty,
                 locationCode: 2764,
-                language: 'th',
+                language: dataLanguageCode,
                 retrievedAt: new Date().toISOString(),
                 status: vol === null ? 'no_data' : vol === 0 ? 'zero' : 'ok',
               });
@@ -969,7 +972,7 @@ export async function POST(req: NextRequest) {
             progress('ขยาย candidate จาก Keyword Planner ideas (เจาะพื้นที่) …');
             const ideas = await getKeywordPlannerRows({
               seed_keywords: services.slice(0, 5).map(s => `${s}${primaryLocation.name}`),
-              target_language: 'th',
+              target_language: dataLanguageCode,
               target_country: 'Thailand',
               google_ads_geo_target_resources: [resolvedGeoLite.resourceName],
               number_of_results: Math.max(200, targetCount),
@@ -987,7 +990,7 @@ export async function POST(req: NextRequest) {
                 const existing = items.get(key);
                 if (existing) {
                   existing.sources = Array.from(new Set([...existing.sources, 'keyword_planner' as LocalKeywordSource]));
-                  if (!googleByKey.has(key)) googleByKey.set(key, googleFromIdeaRow(row, ideaGeoInfo, 'th'));
+                  if (!googleByKey.has(key)) googleByKey.set(key, googleFromIdeaRow(row, ideaGeoInfo, dataLanguageCode));
                   if (!existing.metric) {
                     existing.metric = {
                       volume: row.volume,
@@ -1016,7 +1019,7 @@ export async function POST(req: NextRequest) {
                     trend: Array.isArray(row.monthly_trend) ? row.monthly_trend : undefined,
                   },
                 });
-                googleByKey.set(key, googleFromIdeaRow(row, ideaGeoInfo, 'th'));
+                googleByKey.set(key, googleFromIdeaRow(row, ideaGeoInfo, dataLanguageCode));
                 added++;
                 enrichedCount++;
               }
@@ -1033,7 +1036,7 @@ export async function POST(req: NextRequest) {
             progress('ขยาย candidate จาก Keyword Planner ideas (คำกว้างระดับประเทศ) …');
             const broadIdeas = await getKeywordPlannerRows({
               seed_keywords: services.slice(0, 5),
-              target_language: 'th',
+              target_language: dataLanguageCode,
               target_country: 'Thailand',
               number_of_results: Math.max(300, targetCount * 3),
               force_refresh: flags.forceRefresh,
@@ -1150,7 +1153,7 @@ ${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
       if (dfsTargets.length > 0) {
         try {
           progress(`Cross-check volume กับ DataForSEO ${dfsTargets.length} คำ …`);
-          const dfsMap = await getDataForSeoVolumes(dfsTargets, 'th', 2764, w => warnings.push(w), usd => { dfsVolumeCostUsd += usd; });
+          const dfsMap = await getDataForSeoVolumes(dfsTargets, dataLanguageCode, 2764, w => warnings.push(w), usd => { dfsVolumeCostUsd += usd; });
           dfsCalls = dfsTargets.length;
           dfsFetchedAt = new Date().toISOString();
           let dfsFilled = 0;
@@ -1189,7 +1192,7 @@ ${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
       const likelyQualified = () => Array.from(items.values()).filter(it => (it.metric?.volume ?? 0) > 0).length;
       if (likelyQualified() < topupTarget) {
         const genNiche = `${services.join(' / ')}${input.businessContext ? ` — ${input.businessContext}` : ''}`;
-        const expandLanguage = language === 'th_en' ? 'th_en' : 'th';
+        const expandLanguage: LocalLanguage = language;
         const TOPUP_PARALLEL = 4;
         for (let round = dfsVolumesTopupRound; round < 2 && likelyQualified() < topupTarget; round++) {
           const before = items.size;
@@ -1231,7 +1234,7 @@ ${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
           if (newKeywords.length > 0) {
             try {
               // ดึง volume เฉพาะคำใหม่ ด้วยฟังก์ชันเดียวกับ cross-check ด้านบน
-              const volMap = await getDataForSeoVolumes(newKeywords, 'th', 2764, w => warnings.push(w), usd => { dfsVolumeCostUsd += usd; });
+              const volMap = await getDataForSeoVolumes(newKeywords, dataLanguageCode, 2764, w => warnings.push(w), usd => { dfsVolumeCostUsd += usd; });
               dfsCalls += newKeywords.length;
               for (const kw of newKeywords) {
                 const hit = volMap.get(kw.trim().toLowerCase());
@@ -1309,7 +1312,7 @@ ${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
         const kdLimit = Math.min(1500, Math.max(targetCount + 100, 300));
         const kdTargets = ranked.results.slice(0, kdLimit).map(r => r.keyword);
         progress(`ตรวจ Keyword Difficulty ${kdTargets.length} คำ (DataForSEO) …`);
-        const kdRes = await getDataForSeoKeywordDifficulty(kdTargets, 'th', 2764);
+        const kdRes = await getDataForSeoKeywordDifficulty(kdTargets, dataLanguageCode, 2764);
         dfsExtraCostUsd += kdRes.costUsd;
         dfsExtraCalls += 1;
         let kdSet = 0;
@@ -1793,7 +1796,7 @@ ${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
           mode: 'local',
           profile: input.businessProfile,
           businessContext: bizContextParts.join(' — ') || services.join(', '),
-          language: language === 'th_en' ? 'both' : 'th',
+          language: language === 'th_en' ? 'both' : language === 'en' ? 'en' : 'th',
           quota: input.intentQuota ?? null,
           llm: (prompt, label) => callGemini(prompt, { functionLabel: label }),
         });

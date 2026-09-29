@@ -21,8 +21,8 @@ const IDLE_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 10_000;
 const POLL_DEADLINE_MS = 12 * 60_000;
 const STALE_MS = 6 * 60_000;
-/** สร้างรูปหลังเขียนเสร็จทีละ 2 บทความ (บทความหนึ่งยิงรูปพร้อมกันได้หลายภาพอยู่แล้ว) */
-const IMAGE_CONCURRENCY = 2;
+/** สร้างรูปหลังเขียนเสร็จทีละ 3 บทความ (บทความหนึ่งยิงรูปพร้อมกันได้หลายภาพอยู่แล้ว) */
+const IMAGE_CONCURRENCY = 3;
 /** ผู้ให้บริการ AI ขัดข้องชั่วคราว — เขียนใหม่อัตโนมัติ 1 ครั้งหลังรอสักครู่ */
 const AUTO_RETRY_DELAY_MS = 5_000;
 const TRANSIENT_RE = /\b(429|500|502|503|504|529)\b|network connection lost|provider_unavailable|overloaded|rate.?limit|timed? ?out|ECONNRESET|socket hang up/i;

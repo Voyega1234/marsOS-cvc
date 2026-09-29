@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
+import { SECRET_MASK, maskProjectSecrets } from "@/lib/secret-mask";
 import { mergeTimelineWrite } from "@/lib/project-timeline";
 import { logActivity } from "@/lib/logActivity";
 
@@ -25,7 +26,14 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(project);
+  // ปิดบังรหัส WordPress — UI ใช้แค่เช็คว่ามีรหัสเก็บไว้แล้ว (รหัสใน wordpressConnection ก็ไม่ส่งออก)
+  const { wordpressConnection, ...rest } = maskProjectSecrets(project);
+  return NextResponse.json({
+    ...rest,
+    wordpressConnection: wordpressConnection
+      ? { ...wordpressConnection, appPasswordEncrypted: undefined }
+      : wordpressConnection,
+  });
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -49,6 +57,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     "styleGuide", "accentColor", "articleTheme", "forbiddenWords", "sampleArticle"];
   const data: Record<string, unknown> = {};
   for (const key of allowed) { if (key in body) data[key] = body[key]; }
+  // ค่าปิดบังจาก GET ถูกส่งกลับมา = ไม่ได้แก้รหัส — ห้ามทับรหัสจริง
+  if (data.wpAppPassword === SECRET_MASK) delete data.wpAppPassword;
   // timeline เก็บทั้งช่วงเวลาโปรเจกต์ (plan) และรายการบทความ — normalize ให้อยู่รูปเดียวเสมอ
   // และถ้าผู้เรียกส่งมาแค่ array ให้คง plan เดิมไว้ (ดู src/lib/project-timeline.ts)
   if ("timeline" in data) data.timeline = mergeTimelineWrite(existing.timeline, data.timeline);

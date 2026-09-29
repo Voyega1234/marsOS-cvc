@@ -5,7 +5,7 @@
 export const maxDuration = 800 // Vercel Pro max — supports 3000 keyword runs
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSession, getSessionRaw } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
 import { logAIJob, estimateGeminiCost } from '@/lib/logAIJob'
 import { logActivity } from '@/lib/logActivity'
 import { loadGoogleAdsConfig, getAccessToken, getKPVolumes, getKPKeywordIdeas } from '@/lib/googleKeywordPlannerService'
@@ -187,10 +187,10 @@ interface CsvInputRow {
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview'
 
-// Accumulate tokens across all Gemini calls in one request
-let _geminiTokensAccum = 0
-function resetTokenAccum() { _geminiTokensAccum = 0 }
-function addTokens(n: number) { _geminiTokensAccum += n }
+// Accumulate tokens/KP/DFS usage per-request (ไม่ใช้ module-level state ร่วมกัน
+// ป้องกัน race condition เมื่อมีหลาย request วิ่งพร้อมกันในโปรเซสเดียวกัน)
+type UsageCounters = { tokens: number; kp: number; dfs: number }
+function newUsageCounters(): UsageCounters { return { tokens: 0, kp: 0, dfs: 0 } }
 
 function isRateLimitError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -246,20 +246,20 @@ type GeminiUsageTag = {
   usageLabels?: Record<string, string | number | boolean | null | undefined>
 }
 
-async function callGemini(prompt: string, tags: GeminiUsageTag = {}): Promise<any> {
+async function callGemini(prompt: string, tags: GeminiUsageTag = {}, counters: UsageCounters = newUsageCounters()): Promise<any> {
   return withRetry(async () => {
     const result = await generateVertexContent(prompt, {
       model: GEMINI_MODEL,
       usageOperation: tags.usageOperation || 'wordgod_text',
       usageLabels: { feature: 'wordgod', ...tags.usageLabels },
     })
-    addTokens(result.usage.totalTokenCount)
+    counters.tokens += result.usage.totalTokenCount
     return parseGeminiJSON(result.text)
   })
 }
 
 // JSON mode via responseMimeType
-async function callGeminiJson(prompt: string, tags: GeminiUsageTag = {}): Promise<any> {
+async function callGeminiJson(prompt: string, tags: GeminiUsageTag = {}, counters: UsageCounters = newUsageCounters()): Promise<any> {
   return withRetry(async () => {
     const result = await generateVertexContent(prompt, {
       model: GEMINI_MODEL,
@@ -269,7 +269,7 @@ async function callGeminiJson(prompt: string, tags: GeminiUsageTag = {}): Promis
       usageOperation: tags.usageOperation || 'wordgod_json',
       usageLabels: { feature: 'wordgod', ...tags.usageLabels },
     })
-    addTokens(result.usage.totalTokenCount)
+    counters.tokens += result.usage.totalTokenCount
     return parseGeminiJSON(result.text)
   })
 }
@@ -284,7 +284,7 @@ interface GroundingMeta {
 // 2-pass: Pass 1 = grounding search (plain text), Pass 2 = format research text to JSON
 // prompt should be research instructions only — no JSON schema (so Gemini focuses on searching)
 // jsonSchema is extracted from the last JSON block in prompt and sent in pass 2
-async function callGeminiWithGrounding(prompt: string): Promise<{ data: any; grounding: GroundingMeta }> {
+async function callGeminiWithGrounding(prompt: string, counters: UsageCounters = newUsageCounters()): Promise<{ data: any; grounding: GroundingMeta }> {
   // Extract JSON schema from end of prompt (last { ... } block) so pass 1 is research-only
   const jsonStart = prompt.lastIndexOf('\n{')
   const researchPart = jsonStart !== -1 ? prompt.substring(0, jsonStart).trimEnd() : prompt
@@ -298,7 +298,7 @@ async function callGeminiWithGrounding(prompt: string): Promise<{ data: any; gro
     usageLabels: { feature: 'wordgod' },
   }))
   const researchText = researchResult.text
-  addTokens(researchResult.usage.totalTokenCount)
+  counters.tokens += researchResult.usage.totalTokenCount
 
   const meta = researchResult.data?.candidates?.[0]?.groundingMetadata ?? {}
   const grounding: GroundingMeta = {
@@ -320,7 +320,7 @@ async function callGeminiWithGrounding(prompt: string): Promise<{ data: any; gro
       usageOperation: 'keyword_grounding_format',
       usageLabels: { feature: 'wordgod' },
     })
-    addTokens(result.usage.totalTokenCount)
+    counters.tokens += result.usage.totalTokenCount
     return parseGeminiJSON(result.text)
   })
 
@@ -329,7 +329,7 @@ async function callGeminiWithGrounding(prompt: string): Promise<{ data: any; gro
 
 // ── Problem Discovery (Grounding) ─────────────────────────────────────────────
 
-async function runProblemDiscovery(niche: string, businessContext: string): Promise<{ problems: DiscoveredProblem[]; groundingQueries: string[]; groundingUrls: string[] }> {
+async function runProblemDiscovery(niche: string, businessContext: string, counters: UsageCounters): Promise<{ problems: DiscoveredProblem[]; groundingQueries: string[]; groundingUrls: string[] }> {
   // Pass 1 prompt: research only — no JSON schema so Gemini focuses on grounding search
   const researchPrompt = `You are a customer research expert for SEO keyword strategy.
 
@@ -373,7 +373,7 @@ Use Google Search first to find real Thai customer problems in this niche, then 
 }`
 
   try {
-    const { data, grounding } = await callGeminiWithGrounding(researchPrompt)
+    const { data, grounding } = await callGeminiWithGrounding(researchPrompt, counters)
     const problems: DiscoveredProblem[] = (data?.problems ?? []).filter(
       (p: any) => p.problem_statement && p.keywords_to_expand?.length > 0
     )
@@ -385,10 +385,7 @@ Use Google Search first to find real Thai customer problems in this niche, then 
 
 // ── Volume: KP primary → DFS fallback (WordGod pattern) ──────────────────────
 
-let _kpKeywordCount = 0
-let _dfsKeywordCount = 0
-
-async function fetchVolumes(keywords: string[]): Promise<Map<string, number>> {
+async function fetchVolumes(keywords: string[], counters: UsageCounters): Promise<Map<string, number>> {
   const result = new Map<string, number>()
   if (keywords.length === 0) return result
 
@@ -403,7 +400,7 @@ async function fetchVolumes(keywords: string[]): Promise<Map<string, number>> {
       kpMap.forEach((entry, kw) => {
         if (entry.volume > 0) result.set(norm(kw), entry.volume)
       })
-      _kpKeywordCount += keywords.length
+      counters.kp += keywords.length
     } catch { /* fall through to DFS */ }
   }
 
@@ -415,7 +412,7 @@ async function fetchVolumes(keywords: string[]): Promise<Map<string, number>> {
       dfsMap.forEach((metric, kw) => {
         if (metric.volume > 0) result.set(norm(kw), metric.volume)
       })
-      _dfsKeywordCount += needsDFS.length
+      counters.dfs += needsDFS.length
     } catch { /* ignore */ }
   }
 
@@ -545,6 +542,7 @@ async function generateTitles(
   kws: GeminiKw[],
   businessName: string,
   category: string,
+  counters: UsageCounters,
 ): Promise<Map<string, TitleResult>> {
   const result = new Map<string, TitleResult>()
   const BATCH = 25
@@ -570,7 +568,7 @@ async function generateTitles(
         const raw = await callGeminiJson(prompt, {
           usageOperation: 'seo_title_generation',
           usageLabels: { sub_function: 'titles', batch: bi + 1 },
-        }) as any
+        }, counters) as any
         for (const t of (raw?.titles ?? [])) {
           if (t?.keyword && t?.title) {
             result.set(t.keyword.toLowerCase().trim(), {
@@ -723,17 +721,15 @@ function intentBucketOf(intent: string): IntentBucket {
 // ── POST handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  // role CLIENT ไม่มีสิทธิ์ใน endpoint นี้ (route เดิมไม่ได้ปิดเคส session ว่าง)
-  if ((await getSessionRaw())?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-
-  resetTokenAccum()
-  _kpKeywordCount = 0
-  _dfsKeywordCount = 0
-  const startedAt = Date.now()
-
+  // เดิม route นี้ไม่ปิดเคส session ว่าง — ตอนนี้ต้องมี session + org เหมือน route อื่นใน wordgod
   const session = await getSession()
-  const orgId   = session?.user?.organizationId ?? null
-  const userId  = session?.user?.id ?? 'system'
+  const orgId = session?.user?.organizationId
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session!.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const counters = newUsageCounters()
+  const startedAt = Date.now()
+  const userId = session!.user.id
 
   const body = await req.json()
   const {
@@ -803,7 +799,7 @@ export async function POST(req: NextRequest) {
       if (resolvedNiche && hasGemini && csv_rows.length === 0) {
         log(`🔍 Problem Discovery: ค้นหา customer problems ใน "${resolvedNiche}" จาก Google Search ...`)
         try {
-          const { problems, groundingQueries, groundingUrls } = await runProblemDiscovery(resolvedNiche, siteContextPrompt)
+          const { problems, groundingQueries, groundingUrls } = await runProblemDiscovery(resolvedNiche, siteContextPrompt, counters)
           if (problems.length > 0) {
             discoveredProblems = problems
             problemSeeds = problems.flatMap(p => p.keywords_to_expand ?? []).filter(Boolean)
@@ -860,7 +856,7 @@ export async function POST(req: NextRequest) {
               if (kpAdded >= count) break
             }
             log(`✓ KP Ideas: ได้ ${kpAdded} keywords พร้อม real volume (จาก ${kpRows.length} ทั้งหมด)`)
-            _kpKeywordCount += kpAdded
+            counters.kp += kpAdded
           } catch (err: any) {
             log(`⚠️ KP Ideas error: ${err?.message?.slice(0, 80)} — ดำเนินการต่อด้วย Gemini`)
           }
@@ -926,7 +922,7 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
               const classified = await callGeminiJson(buildClassifyPrompt(batch), {
                 usageOperation: 'keyword_classify',
                 usageLabels: { sub_function: 'csv_classify', batch: batchNum },
-              }) as any
+              }, counters) as any
               if (classified?.keywords?.length) {
                 const batchResults = classified.keywords.map((k: any) => ({
                   ...k,
@@ -1007,7 +1003,7 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
               const raw = await callGeminiJson(prompt, {
                 usageOperation: 'keyword_research',
                 usageLabels: { sub_function: 'niche_research', batch: bi + 1 },
-              }) as any
+              }, counters) as any
               const batch: any[] = raw?.keywords ?? raw ?? []
               const results: GeminiKw[] = []
               for (const kw of batch) {
@@ -1054,7 +1050,7 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
               resolvedNiche,
               excludeSet,
               log,
-              callGeminiWithGrounding
+              (prompt: string) => callGeminiWithGrounding(prompt, counters)
             )
             for (const q of problemExpandResult.groundingQueries) {
               if (!allGroundingQueries.includes(q)) allGroundingQueries.push(q)
@@ -1158,8 +1154,8 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
       let dfsVolumes = new Map<string, number>()
       if (csv_rows.length === 0) {
         log(`📊 ดึง search volume: KP primary → DFS fallback (${geminiKws.length} keywords) ...`)
-        dfsVolumes = await fetchVolumes(geminiKws.map(k => k.keyword))
-        log(`✓ Volume: ได้ ${dfsVolumes.size} keywords (KP: ${_kpKeywordCount}, DFS fallback: ${_dfsKeywordCount})`)
+        dfsVolumes = await fetchVolumes(geminiKws.map(k => k.keyword), counters)
+        log(`✓ Volume: ได้ ${dfsVolumes.size} keywords (KP: ${counters.kp}, DFS fallback: ${counters.dfs})`)
 
         // ── Step 2.55: KP historical metrics for keywords still missing volume ──
         const stillNoVolume = geminiKws.filter(k => {
@@ -1181,7 +1177,7 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
                   kpHistHits++
                 }
               })
-              _kpKeywordCount += kpHistHits
+              counters.kp += kpHistHits
               log(`✓ Step 2.55: KP historical ได้เพิ่ม ${kpHistHits} volumes`)
             } catch (err: any) {
               log(`⚠️ Step 2.55 error: ${err?.message?.slice(0, 80)}`)
@@ -1199,7 +1195,7 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
         log(`✍️ สร้าง SEO Titles: ${needsTitles.length} keywords · ${titleBatches} batches ...`)
       }
       const titleMap = hasGemini && needsTitles.length > 0
-        ? await generateTitles(needsTitles, business_name, category)
+        ? await generateTitles(needsTitles, business_name, category, counters)
         : new Map<string, TitleResult>()
       if (needsTitles.length > 0) log(`✓ Titles สำเร็จ: ${titleMap.size} titles`)
 
@@ -1312,7 +1308,7 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
             if (kpEntry) return 'keyword_planner'
             if (dfsVolumes.has(kn)) {
               // check if came from KP historical (added to dfsVolumes in step 2.55)
-              const wasKpHist = _kpKeywordCount > 0 && !_dfsKeywordCount
+              const wasKpHist = counters.kp > 0 && !counters.dfs
               return wasKpHist ? 'planner_variant' : 'dataforseo'
             }
             // Check seedVolumeMap — parent volume exists → planner_variant
@@ -1461,7 +1457,7 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
             (prompt) => callGeminiJson(prompt, {
               usageOperation: 'topic_cluster',
               usageLabels: { sub_function: 'cluster_keywords' },
-            }),
+            }, counters),
           )
           log(`✓ จัดกลุ่มได้ ${clusters.clusters.length} topic clusters`)
         } catch (err: any) {
@@ -1471,29 +1467,29 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
 
       // ─ Step 6: Log AIJob ─────────────────────────────────────────────────────
       if (orgId) {
-        const geminiCost = estimateGeminiCost(_geminiTokensAccum)
+        const geminiCost = estimateGeminiCost(counters.tokens)
         const jobType    = csv_rows.length > 0 ? 'KEYWORD_CLASSIFY' : 'KEYWORD_RESEARCH'
         logAIJob({
           organizationId: orgId, projectId: project_id, jobType,
           modelProvider: 'GEMINI', modelName: GEMINI_MODEL, status: 'SUCCESS',
-          tokenUsed: _geminiTokensAccum, estimatedCost: geminiCost, createdById: userId,
+          tokenUsed: counters.tokens, estimatedCost: geminiCost, createdById: userId,
           inputSummary: `${jobType} — ${rows.length} keywords · ${Math.round((Date.now() - startedAt) / 1000)}s`,
         }).catch(() => {})
-        if (_kpKeywordCount > 0) {
+        if (counters.kp > 0) {
           logAIJob({
             organizationId: orgId, projectId: project_id, jobType: 'KP_VOLUME_LOOKUP',
             modelProvider: 'GOOGLE', modelName: 'google_ads/keyword_planner', status: 'SUCCESS',
-            externalCost: 0, externalCalls: _kpKeywordCount, externalApi: 'GoogleKeywordPlanner',
-            createdById: userId, inputSummary: `Google KP — ${_kpKeywordCount} lookups`,
+            externalCost: 0, externalCalls: counters.kp, externalApi: 'GoogleKeywordPlanner',
+            createdById: userId, inputSummary: `Google KP — ${counters.kp} lookups`,
           }).catch(() => {})
         }
-        if (_dfsKeywordCount > 0) {
+        if (counters.dfs > 0) {
           const DFS_COST = 0.003
           logAIJob({
             organizationId: orgId, projectId: project_id, jobType: 'DFS_VOLUME_LOOKUP',
             modelProvider: 'DATAFORSEO', modelName: 'google_ads/search_volume/live', status: 'SUCCESS',
-            externalCost: _dfsKeywordCount * DFS_COST, externalCalls: _dfsKeywordCount, externalApi: 'DataForSEO',
-            createdById: userId, inputSummary: `DFS fallback — ${_dfsKeywordCount} lookups`,
+            externalCost: counters.dfs * DFS_COST, externalCalls: counters.dfs, externalApi: 'DataForSEO',
+            createdById: userId, inputSummary: `DFS fallback — ${counters.dfs} lookups`,
           }).catch(() => {})
         }
       }

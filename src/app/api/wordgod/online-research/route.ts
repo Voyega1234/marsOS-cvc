@@ -371,6 +371,10 @@ export async function POST(req: NextRequest) {
         : undefined,
       country: body.country ? String(body.country) : 'Thailand',
       language: body.language === 'en' ? 'en' : 'th',
+      languageMode:
+        body.languageMode === 'th' || body.languageMode === 'en' || body.languageMode === 'both'
+          ? body.languageMode
+          : body.language === 'en' ? 'en' : body.language === 'both' ? 'both' : 'th',
       strategyGoal,
       targetCount,
       competitorDomains: Array.isArray(body.competitorDomains)
@@ -418,10 +422,13 @@ export async function POST(req: NextRequest) {
 
   const preset = STRATEGY_PRESETS[input.strategyGoal];
   const language = input.language ?? 'th';
+  // languageMode เก็บความตั้งใจภาษาจริง (th/en/both) แยกจาก language ที่ใช้เป็น DFS/KP language
+  // code เท่านั้น (DFS/KP รับได้แค่ th/en) — run เก่าก่อนมี field นี้ fallback ไปตาม language เดิม
+  const languageMode = input.languageMode ?? (language === 'en' ? 'en' : 'th');
   // ภาษาสำหรับ AI expansion (buildExpansionPrompt) — เดิม expansion ไม่สนภาษาเลย ทำให้โหมด
   // อังกฤษได้คำไทยปนมาด้วย: 'en' = อังกฤษล้วน, 'both' = ไทยผสมอังกฤษ, อื่น ๆ = ไทยล้วน
   const expansionLanguage: 'th' | 'en' | 'th_en' =
-    language === 'en' ? 'en' : (language as string) === 'both' ? 'th_en' : 'th';
+    languageMode === 'en' ? 'en' : languageMode === 'both' ? 'th_en' : 'th';
   // เป้าส่งจริง = เป้าที่ผู้ใช้เลือก ×1.3 (สำรองให้เลือก CORE/EXTRA) — targetCount เองยังคงเป็น
   // "เป้าของผู้ใช้" เสมอในทุกจุดที่รายงานออกไป (meta.targetCount, DB, ข้อความไม่ถึงเป้า)
   const deliverTarget = Math.ceil(targetCount * 1.3);

@@ -38,52 +38,59 @@ export async function PATCH(req: NextRequest) {
   }
   const approvals = Object.entries(approvalsRaw as Record<string, unknown>).slice(0, MAX_APPROVALS);
 
-  const run = await prisma.localKeywordResearchRun.findFirst({ where: { id: researchId, organizationId: orgId } });
-  if (!run) {
-    return NextResponse.json({ error: 'ไม่พบผลการวิจัยนี้' }, { status: 404 });
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const run = await prisma.localKeywordResearchRun.findFirst({ where: { id: researchId, organizationId: orgId } });
+    if (!run) {
+      return NextResponse.json({ error: 'ไม่พบผลการวิจัยนี้' }, { status: 404 });
+    }
+    if (run.status === 'running') {
+      return NextResponse.json({ error: 'รอบนี้ยังประมวลผลอยู่' }, { status: 409 });
+    }
+
+    let data: any;
+    try {
+      data = JSON.parse(run.resultData);
+    } catch {
+      return NextResponse.json({ error: 'ข้อมูลผลการวิจัยเสียหาย' }, { status: 500 });
+    }
+
+    const intentSkill: IntentSkillResult | undefined = data?.intentSkill;
+    if (!intentSkill) {
+      return NextResponse.json({ error: 'run นี้ไม่มีผล Keyword Intent Skill' }, { status: 404 });
+    }
+
+    const groupsById = new Map(intentSkill.groups.map(g => [g.id, g] as const));
+    for (const [groupId, value] of approvals) {
+      const group = groupsById.get(groupId);
+      if (!group) continue;
+      group.approved = Boolean(value);
+    }
+
+    const results: Array<{ isk?: { groupId: string; approved: boolean } }> = Array.isArray(data?.results) ? data.results : [];
+    for (const row of results) {
+      const isk = row?.isk;
+      if (!isk) continue;
+      const group = groupsById.get(isk.groupId);
+      if (!group) continue;
+      isk.approved = group.approved;
+    }
+
+    intentSkill.quota = {
+      ...intentSkill.quota,
+      approved: intentSkill.groups.filter(g => g.approved).length,
+    };
+    data.intentSkill = intentSkill;
+
+    const { count } = await prisma.localKeywordResearchRun.updateMany({
+      where: { id: run.id, updatedAt: run.updatedAt },
+      data: { resultData: JSON.stringify(data) },
+    });
+    if (count > 0) {
+      return NextResponse.json({ ok: true, approved: intentSkill.quota.approved });
+    }
+    // มีการเขียนแทรกระหว่างนี้ — อ่านใหม่แล้วลองใหม่
   }
-  if (run.status === 'running') {
-    return NextResponse.json({ error: 'รอบนี้ยังประมวลผลอยู่' }, { status: 409 });
-  }
 
-  let data: any;
-  try {
-    data = JSON.parse(run.resultData);
-  } catch {
-    return NextResponse.json({ error: 'ข้อมูลผลการวิจัยเสียหาย' }, { status: 500 });
-  }
-
-  const intentSkill: IntentSkillResult | undefined = data?.intentSkill;
-  if (!intentSkill) {
-    return NextResponse.json({ error: 'run นี้ไม่มีผล Keyword Intent Skill' }, { status: 404 });
-  }
-
-  const groupsById = new Map(intentSkill.groups.map(g => [g.id, g] as const));
-  for (const [groupId, value] of approvals) {
-    const group = groupsById.get(groupId);
-    if (!group) continue;
-    group.approved = Boolean(value);
-  }
-
-  const results: Array<{ isk?: { groupId: string; approved: boolean } }> = Array.isArray(data?.results) ? data.results : [];
-  for (const row of results) {
-    const isk = row?.isk;
-    if (!isk) continue;
-    const group = groupsById.get(isk.groupId);
-    if (!group) continue;
-    isk.approved = group.approved;
-  }
-
-  intentSkill.quota = {
-    ...intentSkill.quota,
-    approved: intentSkill.groups.filter(g => g.approved).length,
-  };
-  data.intentSkill = intentSkill;
-
-  await prisma.localKeywordResearchRun.update({
-    where: { id: run.id },
-    data: { resultData: JSON.stringify(data) },
-  });
-
-  return NextResponse.json({ ok: true, approved: intentSkill.quota.approved });
+  return NextResponse.json({ error: 'มีการแก้ไขข้อมูลพร้อมกัน กรุณาลองใหม่อีกครั้ง' }, { status: 409 });
 }

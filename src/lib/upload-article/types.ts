@@ -126,6 +126,13 @@ export interface UploadPushPrefs {
   publishAt?: Record<string, string>
   /** ค่าเริ่มต้นตอนสร้างรูปบทความ (Project Setting > รูปภาพ) */
   imageDefaults?: UploadImageDefaults
+  /** เว็บ GSC ที่เลือกไว้สำหรับแท็บ Report (service account เท่านั้น — ไม่ผูกกับ internalLinks.gscSiteUrl) */
+  gscReport?: UploadGscReportPrefs
+}
+
+/** ค่าที่เลือกไว้สำหรับแท็บ Report (GSC) */
+export interface UploadGscReportPrefs {
+  siteUrl: string
 }
 
 /** ตัวเลือกสร้างรูป: ปก (featured image) + รูปประกอบในเนื้อหา แบบมีตัวหนังสือหรือไม่มี */

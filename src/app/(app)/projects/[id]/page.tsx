@@ -26,8 +26,6 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
       ...(userRole !== "CLIENT" ? { organizationId: orgId! } : {}),
     },
     include: {
-      defaultTemplate: true,
-      owner: { select: { id: true, name: true } },
       _count: { select: { articles: true, keywords: true } },
     },
   });
