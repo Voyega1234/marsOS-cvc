@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { Upload, Sparkles, Trash2, Loader2, ArrowRight, FileSpreadsheet, X } from "lucide-react";
+import { Upload, Sparkles, Trash2, Loader2, ArrowRight, FileSpreadsheet, X, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { parseKeywordTable, parseKeywordText, type KeywordImportField, type KeywordTableParse, type ParsedKeywordRow } from "@/lib/upload-article/keyword-import";
 import {
@@ -25,6 +25,11 @@ function needsFill(k: UploadKeyword): boolean {
 const FIELD_LABELS: Record<KeywordImportField, string> = {
   keyword: "Keyword", title: "Title", volume: "Volume", slug: "Slug", intent: "Intent", articleType: "ประเภทบทความ", note: "Note",
 };
+
+function csvCell(value: string | number | null | undefined): string {
+  const s = value === null || value === undefined ? "" : String(value);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 
 function EditableCell({
   value, onCommit, placeholder, className,
@@ -226,6 +231,38 @@ export default function KeywordTab({
     setSelected(prev => (prev.size === items.length ? new Set() : new Set(items.map(it => it.id))));
   }
 
+  // หัวคอลัมน์ตรงกับที่ตัว import อ่านได้ — export แล้วแก้ใน Sheets แล้วลากกลับเข้ามาได้เลย
+  function exportCsv() {
+    const rows = selected.size ? items.filter(it => selected.has(it.id)) : items;
+    if (!rows.length) return;
+    const header = ["Keyword", "Volume", "Title", "Slug", "Intent", "ประเภทบทความ", "Note", "สถานะ"];
+    const lines = [header.join(",")];
+    for (const it of rows) {
+      lines.push([
+        csvCell(it.keyword),
+        csvCell(it.volume ?? ""),
+        csvCell(it.title),
+        csvCell(it.slug),
+        csvCell(it.intent ? UPLOAD_INTENT_LABELS[it.intent] : ""),
+        csvCell(it.articleType),
+        csvCell(it.note ?? ""),
+        csvCell(it.articleId ? "เขียนแล้ว" : it.writeError ? "ผิดพลาด" : ""),
+      ].join(","));
+    }
+    // BOM ให้ Excel อ่านภาษาไทยถูก
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safeName = client.name.replace(/[\\/:*?"<>|]+/g, "-").trim() || "client";
+    a.download = `keywords-${safeName}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast.success(`Export ${rows.length} keyword เป็น CSV แล้ว`);
+  }
+
   function goWrite() {
     if (!selected.size) { toast.error("เลือก keyword ก่อน"); return; }
     onWrite(Array.from(selected));
@@ -345,6 +382,11 @@ export default function KeywordTab({
               : rewriteMode
                 ? `ให้ Mars เขียนใหม่ (${selected.size} ที่ติ๊ก)`
                 : `ให้ Mars เติมช่องที่ว่าง (${fillIds.length})`}
+          </Button>
+          <Button size="sm" variant="outline" disabled={loading || !items.length} onClick={exportCsv}
+            title="ไม่ติ๊ก = export ทั้งหมด · ติ๊กเลือก = export เฉพาะแถวที่เลือก">
+            <Download size={12} className="mr-1.5" />
+            {selected.size ? `Export CSV (${selected.size})` : "Export CSV"}
           </Button>
           <Button size="sm" variant="outline" disabled={!selected.size || deleting} onClick={deleteSelected}>
             {deleting ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Trash2 size={12} className="mr-1.5" />}
