@@ -7,6 +7,7 @@ import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 import { readPrefs } from '@/lib/upload-article/prefs-store'
 import { linkPoolForArticle, maxLinksPerArticle } from '@/lib/upload-article/internal-links'
+import { loadArticleLinkPairs } from '@/lib/upload-article/article-links'
 import { insertInternalLinks } from '@/lib/upload-article/link-insert'
 import { decodeTextEntities } from '@/lib/upload-article/entities'
 import { readUploadCta } from '@/lib/upload-article/cta'
@@ -59,7 +60,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     if (withLinks) {
       const raw = prefs?.internalLinks
       const links: UploadInternalLinks = { ...DEFAULT_UPLOAD_INTERNAL_LINKS, ...(raw && typeof raw === 'object' ? (raw as Partial<UploadInternalLinks>) : {}) }
-      const pool = linkPoolForArticle(links, { slug })
+      const extra = await loadArticleLinkPairs(client.id, orgId, prefs)
+      const pool = linkPoolForArticle(links, { slug, excludeUrl: article.wordpressUrl ?? undefined, extra })
       const r = insertInternalLinks(decodeTextEntities(sourceHtml), pool, maxLinksPerArticle(links.linksPerArticle))
       sourceHtml = r.html
       linksAdded = r.inserted.length

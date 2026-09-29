@@ -14,6 +14,8 @@ import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-language'
 import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
 import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
+import { readArticleImageSettings, type ArticleImageSettings, readArticleAuthorPick, type ArticleAuthorPick, pickAuthorIndex, STUDIO_ARTICLE_SETTINGS_KEY, readStudioArticleSettings } from '@/lib/article-settings'
+import { pickAuthorForArticle } from '@/lib/upload-article/author'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -769,7 +771,13 @@ export async function POST(req: NextRequest) {
         }
         if (!pickedAuthor && proj?.authors) {
           const authorsList = JSON.parse(proj.authors || '[]')
-          if (authorsList.length > 0) pickedAuthor = authorsList[0]
+          if (authorsList.length > 0) {
+            // ไม่มี assignedAuthorId ตัดสิน — เลือกตาม authorPick ('first' เดิม / 'random' สุ่มแบบคงที่ต่อบทความ)
+            let projAuthorPick: ArticleAuthorPick = 'first'
+            try { projAuthorPick = readArticleAuthorPick(JSON.parse(proj?.themeColors || '{}')?.authorPick) } catch { /* ค่าเสีย — ใช้ default */ }
+            const authorSeed = articleId || keyword
+            pickedAuthor = authorsList[pickAuthorIndex(authorsList.length, projAuthorPick, authorSeed)]
+          }
         }
         if (pickedAuthor) {
           resolvedAuthorName = pickedAuthor.name ?? ''
@@ -819,6 +827,9 @@ export async function POST(req: NextRequest) {
   let resolvedElementStyles: ArticleElementStyles | null = elementStylesBody
   // โหมดสไตล์ของ client: 'embed' = แนบ <style> ในบทความ (default) / 'clean' = HTML ล้วน
   let resolvedStyleMode: ArticleStyleMode = 'embed'
+  // ตั้งค่ารูปภาพ (ปก/รูปประกอบ มี-ไม่มีตัวหนังสือ/จำนวน) — default = พฤติกรรมเดิม, override จาก
+  // Project.themeColors.imageSettings (โปรเจกต์) หรือ AppSetting STUDIO_ARTICLE_SETTINGS_KEY (Studio)
+  let imageSettings: ArticleImageSettings = readArticleImageSettings(undefined)
   if (_dbProj) {
     const dbP = _dbProj as {
       styleGuide?: string | null; internalLinks?: string | null; linksPerArticle?: number | string | null
@@ -828,6 +839,7 @@ export async function POST(req: NextRequest) {
     }
     let projColors: Record<string, string> = {}
     try { projColors = JSON.parse(dbP?.themeColors || '{}') } catch { /* ค่าเสีย — ใช้ default */ }
+    imageSettings = readArticleImageSettings((projColors as Record<string, unknown>).imageSettings)
     if (!resolvedColorTheme && projColors.theme) resolvedColorTheme = projColors.theme
     if (!resolvedColorText && projColors.text) resolvedColorText = projColors.text
     if (!resolvedColorBorder && projColors.border) resolvedColorBorder = projColors.border
@@ -878,6 +890,30 @@ export async function POST(req: NextRequest) {
         if (st.styleMode === 'clean') resolvedStyleMode = 'clean'
       }
     } catch { /* ไม่มีธีม studio — ใช้ default */ }
+
+    // ตั้งค่ารูปภาพ / CTA / Author Box ของ Content Studio (คนละ key กับธีมสี ด้านบน — ดู article-settings.ts)
+    try {
+      const settingsRow = await prisma.appSetting.findUnique({ where: { key: STUDIO_ARTICLE_SETTINGS_KEY } })
+      if (settingsRow) {
+        let parsedSettings: unknown = null
+        try { parsedSettings = JSON.parse(settingsRow.value) } catch { /* ค่าเสีย — ใช้ default */ }
+        const studioSettings = readStudioArticleSettings(parsedSettings)
+        imageSettings = studioSettings.images
+        // CTA: body ส่งมาแล้วชนะเสมอ — ไม่ส่งมาค่อยใช้ของ studio ที่ตั้งไว้
+        if (!cta && studioSettings.cta.enabled) cta = studioSettings.cta
+        // Author Box: enable ไว้ที่หน้าตั้งค่า studio → เลือกคนเขียนให้อัตโนมัติ (เหมือน Upload Article)
+        if (studioSettings.author.enabled) {
+          const picked = pickAuthorForArticle(studioSettings.author, articleId || keyword)
+          if (picked) {
+            resolvedAuthorName = picked.name
+            resolvedAuthorTitle = picked.title
+            resolvedAuthorImage = picked.image ?? ''
+            resolvedAuthorCredentials = picked.credentials
+            resolvedAuthorCardStyle = normalizeAuthorCardStyle(studioSettings.author.style)
+          }
+        }
+      }
+    } catch { /* ไม่มีค่าตั้งไว้ — ใช้ default */ }
   }
 
   // Parse "3" or "3-10" range into min/max, pick a count deterministically
@@ -1091,12 +1127,15 @@ export async function POST(req: NextRequest) {
     }
 
     const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
-    const midCount = Math.min(midCountRaw, countMidImageSpots(html))
+    // inlineCount null = ตาม directive เดิม (จำนวนรูปประกอบ: N) / ตั้งไว้ = ใช้ค่านั้น (0 = ไม่มีรูปประกอบเลย)
+    const midCount = Math.min(imageSettings.inlineCount === null ? midCountRaw : imageSettings.inlineCount, countMidImageSpots(html))
     const coverExtras = extractCoverExtras(html)
     const [coverResult, ...midResults] = await Promise.all([
-      generateGeminiImage({ client: orClient, keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets, imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' }),
+      imageSettings.cover
+        ? generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
+        : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
       ...Array.from({ length: midCount }, () =>
-        generateGeminiImage({ client: orClient, keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
+        generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.inlineWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
     ])
     const midResult = midResults[0]
 
@@ -1143,7 +1182,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       html, keyword, title,
       coverImage: coverResult.imageBase64, coverMimeType: coverResult.mimeType,
-      midImage: midResult.imageBase64, midMimeType: midResult.mimeType,
+      midImage: midResult?.imageBase64 ?? '', midMimeType: midResult?.mimeType ?? '',
     })
   }
 
@@ -1223,17 +1262,20 @@ export async function POST(req: NextRequest) {
 
       // Step 2: Generate cover + mid images via Gemini in parallel
       const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
-      const midCount = Math.min(midCountRaw, countMidImageSpots(fullHtml))
+      // inlineCount null = ตาม directive เดิม (จำนวนรูปประกอบ: N) / ตั้งไว้ = ใช้ค่านั้น (0 = ไม่มีรูปประกอบเลย)
+      const midCount = Math.min(imageSettings.inlineCount === null ? midCountRaw : imageSettings.inlineCount, countMidImageSpots(fullHtml))
       const coverExtras = extractCoverExtras(fullHtml)
-      send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
+      send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw && imageSettings.inlineCount === null ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
       const [coverResult, ...midResults] = await Promise.all([
-        generateGeminiImage({ client: orClient, keyword, title, type: 'cover', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: coverExtras.subtitle, coverBullets: coverExtras.bullets, imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' }),
+        imageSettings.cover
+          ? generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
+          : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
         ...Array.from({ length: midCount }, () =>
-          generateGeminiImage({ client: orClient, keyword, title, type: 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
+          generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.inlineWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
       ])
       const midResult = midResults[0]
       const midOk = midResults.filter(r => r.imageBase64).length
-      if (!coverResult.imageBase64) send({ type: 'status', step: 'cover', message: '⚠️ สร้างรูปปกไม่สำเร็จ (Gemini quota หรือ key หมด) — บทความยังใช้ได้' })
+      if (imageSettings.cover && !coverResult.imageBase64) send({ type: 'status', step: 'cover', message: '⚠️ สร้างรูปปกไม่สำเร็จ (Gemini quota หรือ key หมด) — บทความยังใช้ได้' })
       if (midOk < midCount) send({ type: 'status', step: 'cover', message: `⚠️ รูปประกอบสำเร็จ ${midOk}/${midCount} รูป — ดำเนินการต่อ` })
 
       // Log image generation costs (streaming path)
@@ -1280,7 +1322,7 @@ export async function POST(req: NextRequest) {
       send({
         type: 'done', html: fullHtml, keyword, title,
         coverImage: coverResult.imageBase64, coverMimeType: coverResult.mimeType,
-        midImage: midResult.imageBase64, midMimeType: midResult.mimeType,
+        midImage: midResult?.imageBase64 ?? '', midMimeType: midResult?.mimeType ?? '',
       })
 
     } catch (e: unknown) {

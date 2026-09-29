@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { stripInlineImages } from '@/lib/articleSample'
+import { preserveLabManagedThemeKeys } from '@/lib/article-settings'
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
@@ -21,7 +22,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(styleGuide !== undefined && { styleGuide }),
       ...(accentColor !== undefined && { accentColor }),
       ...(articleTheme !== undefined && { articleTheme }),
-      ...(themeColors !== undefined && { themeColors }),
+      // รูปภาพ / สไตล์การ์ดผู้เขียน บันทึกผ่าน /article-settings — คงค่าใน DB ไว้เสมอ
+      ...(themeColors !== undefined && { themeColors: typeof themeColors === 'string' ? preserveLabManagedThemeKeys(themeColors, project.themeColors) : themeColors }),
       ...(forbiddenWords !== undefined && { forbiddenWords }),
       // รูป base64 ในบทความตัวอย่างไม่มีประโยชน์กับ prompt และทำให้แถวบวมหลาย MB
       ...(sampleArticle !== undefined && { sampleArticle: typeof sampleArticle === 'string' ? stripInlineImages(sampleArticle) : sampleArticle }),

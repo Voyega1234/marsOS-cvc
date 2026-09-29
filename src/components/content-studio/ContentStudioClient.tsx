@@ -8,16 +8,18 @@ import {
   PenLine, Search, Sparkles, Copy, Eye, Code2, FileText, Upload,
   CheckCircle2, Circle, Brain, BookOpen, Link2, Target, Wand2, Check,
   Plus, RotateCcw, Lightbulb, ArrowRight, X, Palette, Edit3,
-  Bold, Italic, List, Heading2, Heading3, AlignLeft, Minus,
+  Bold, Italic, List, Heading2, Heading3, AlignLeft, Minus, Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import ScopedEditable from "@/components/shared/ScopedEditable";
+import StudioArticleSettings from "@/components/content-studio/StudioArticleSettings";
+import { defaultUploadCtaItem, UPLOAD_CTA_CHANNEL_TYPES, type UploadCtaChannelType, type UploadCtaSettings } from "@/lib/upload-article/cta";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type MainTab = "write" | "review";
+type MainTab = "write" | "review" | "settings";
 type ViewMode = "html" | "preview" | "text" | "edit";
 type ReviewTab = "suggestions" | "links" | "cta" | "prompt";
 type Priority = "High" | "Medium" | "Low";
@@ -33,6 +35,7 @@ interface ScrapedTypography {
   paragraphMargin: string | null;
 }
 
+// CTA แบบเดิมที่เคยเก็บใน localStorage (content_studio_settings_v3.cta) — ใช้ย้ายขึ้น server ครั้งเดียว
 interface CtaChannel {
   type: "line" | "facebook" | "phone" | "email" | "website" | "form" | "custom";
   label: string;       // ชื่อที่แสดง เช่น "ปรึกษาฟรีผ่าน Line"
@@ -59,8 +62,6 @@ interface WriteSettings {
   styleUrl: string;
   // Scraped typography (applied to article)
   typography: ScrapedTypography | null;
-  // CTA
-  cta: CtaSettings;
 }
 
 interface Suggestion {
@@ -132,15 +133,6 @@ function generatePalette(hex: string): { colorText: string; colorBorder: string;
   return { colorText, colorBorder, colorAccent };
 }
 
-const CTA_CHANNEL_OPTIONS: { type: CtaChannel["type"]; icon: string; placeholder: string }[] = [
-  { type: "line",     icon: "💬", placeholder: "https://lin.ee/xxxxxxx" },
-  { type: "facebook", icon: "📘", placeholder: "https://m.me/pagename" },
-  { type: "phone",    icon: "📞", placeholder: "0xx-xxx-xxxx" },
-  { type: "email",    icon: "📧", placeholder: "contact@example.com" },
-  { type: "website",  icon: "🌐", placeholder: "https://example.com/contact" },
-  { type: "form",     icon: "📝", placeholder: "https://example.com/form" },
-  { type: "custom",   icon: "✨", placeholder: "ข้อความหรือ URL" },
-];
 
 const DEFAULT_SETTINGS: WriteSettings = {
   keyword: "",
@@ -152,12 +144,6 @@ const DEFAULT_SETTINGS: WriteSettings = {
   colorAccent: "#16a34a",
   styleUrl: "",
   typography: null,
-  cta: {
-    enabled: false,
-    headline: "สนใจปรึกษาฟรี?",
-    subtext: "ทีมงานพร้อมตอบทุกคำถาม ไม่มีค่าใช้จ่าย",
-    channels: [],
-  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -244,6 +230,50 @@ export function ContentStudioClient() {
       .then(r => (r.ok ? r.json() : {}))
       .then((t: { elements?: ArticleElementStyles }) => { setElementStyles(t.elements ?? {}); elementStylesLoaded.current = true; })
       .catch(() => { elementStylesLoaded.current = true; });
+  }, []);
+  // ย้าย CTA เดิมในเครื่อง (localStorage) ขึ้นค่าตั้งค่า Studio ครั้งเดียว — เฉพาะตอนฝั่ง server ยังไม่มี CTA
+  useEffect(() => {
+    let legacy: CtaSettings | null = null;
+    try {
+      const raw = localStorage.getItem("content_studio_settings_v3");
+      legacy = raw ? (JSON.parse(raw).cta ?? null) : null;
+    } catch { legacy = null; }
+    const channels = (legacy?.channels ?? []).filter(c => c && c.value && UPLOAD_CTA_CHANNEL_TYPES.includes(c.type as UploadCtaChannelType));
+    if (!legacy?.enabled || channels.length === 0) return;
+    const clearLegacy = () => {
+      try {
+        const raw = localStorage.getItem("content_studio_settings_v3");
+        if (!raw) return;
+        const { cta: _cta, ...rest } = JSON.parse(raw);
+        localStorage.setItem("content_studio_settings_v3", JSON.stringify(rest));
+      } catch {}
+    };
+    (async () => {
+      const r = await fetch("/api/studio/article-settings");
+      if (!r.ok) return;
+      const current = (await r.json()) as { cta?: UploadCtaSettings };
+      if ((current.cta?.items?.length ?? 0) > 0) { clearLegacy(); return; }
+      const item = defaultUploadCtaItem("studio-legacy", "CTA เดิม");
+      const value: UploadCtaSettings = {
+        enabled: true,
+        perArticle: 3,
+        items: [{
+          ...item,
+          headline: legacy!.headline || item.headline,
+          subtext: legacy!.subtext || item.subtext,
+          channels: channels.map(c => ({ type: c.type as UploadCtaChannelType, label: c.label, value: c.value })),
+        }],
+      };
+      const put = await fetch("/api/studio/article-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: "cta", value }),
+      });
+      if (put.ok) {
+        clearLegacy();
+        toast.success("ย้าย CTA เดิมไปที่แท็บ ตั้งค่าบทความ แล้ว");
+      }
+    })().catch(() => {});
   }, []);
   const saveElementStyles = (next: ArticleElementStyles) => {
     setElementStyles(next);
@@ -418,7 +448,6 @@ export function ContentStudioClient() {
           colorBorder: settings.colorBorder,
           colorAccent: settings.colorAccent,
           typography: settings.typography ?? null,
-          cta: settings.cta,
           stream: false,
         }),
       });
@@ -526,6 +555,7 @@ export function ContentStudioClient() {
             {([
               ["write", "Write", PenLine, "text-orange-500"],
               ["review", "Review & Analyze", Search, "text-blue-500"],
+              ["settings", "ตั้งค่าบทความ", Settings2, "text-violet-500"],
             ] as const).map(([tab, label, Icon, color]) => (
               <button
                 key={tab}
@@ -821,122 +851,18 @@ export function ContentStudioClient() {
                 </div>
               </div>
 
-              {/* ── CTA Settings ── */}
-              <div className="space-y-3 border-t border-gray-100 pt-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
-                    <Target className="h-3.5 w-3.5 text-slate-400" /> CTA ในบทความ
-                  </label>
-                  <button
-                    onClick={() => updateSettings({ cta: { ...settings.cta, enabled: !settings.cta.enabled } })}
-                    className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors ${settings.cta.enabled ? "bg-emerald-500" : "bg-gray-200"}`}
-                  >
-                    <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${settings.cta.enabled ? "translate-x-4" : "translate-x-0"}`} />
-                  </button>
-                </div>
-
-                {settings.cta.enabled && (
-                  <div className="space-y-3 bg-emerald-50 border border-emerald-100 rounded-xl p-3">
-                    {/* Headline */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Headline CTA</label>
-                      <input
-                        value={settings.cta.headline}
-                        onChange={e => updateSettings({ cta: { ...settings.cta, headline: e.target.value } })}
-                        className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-emerald-400"
-                        placeholder="เช่น สนใจปรึกษาฟรี?"
-                      />
-                    </div>
-                    {/* Subtext */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Subtext</label>
-                      <input
-                        value={settings.cta.subtext}
-                        onChange={e => updateSettings({ cta: { ...settings.cta, subtext: e.target.value } })}
-                        className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-emerald-400"
-                        placeholder="เช่น ทีมงานพร้อมตอบทุกคำถาม"
-                      />
-                    </div>
-
-                    {/* Channels */}
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">ช่องทาง</label>
-                      {settings.cta.channels.map((ch, idx) => {
-                        const opt = CTA_CHANNEL_OPTIONS.find(o => o.type === ch.type);
-                        return (
-                          <div key={idx} className="flex items-start gap-1.5">
-                            <span className="mt-1.5 text-sm shrink-0">{opt?.icon ?? "✨"}</span>
-                            <div className="flex-1 space-y-1">
-                              <input
-                                value={ch.label}
-                                onChange={e => {
-                                  const next = [...settings.cta.channels];
-                                  next[idx] = { ...ch, label: e.target.value };
-                                  updateSettings({ cta: { ...settings.cta, channels: next } });
-                                }}
-                                className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1 text-[11px] text-slate-700 focus:outline-none focus:border-emerald-400"
-                                placeholder="ชื่อปุ่ม เช่น ปรึกษาฟรีผ่าน Line"
-                              />
-                              <input
-                                value={ch.value}
-                                onChange={e => {
-                                  const next = [...settings.cta.channels];
-                                  next[idx] = { ...ch, value: e.target.value };
-                                  updateSettings({ cta: { ...settings.cta, channels: next } });
-                                }}
-                                className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1 text-[11px] text-slate-700 focus:outline-none focus:border-emerald-400 font-mono"
-                                placeholder={opt?.placeholder ?? "URL หรือข้อความ"}
-                              />
-                            </div>
-                            <button
-                              onClick={() => {
-                                const next = settings.cta.channels.filter((_, i) => i !== idx);
-                                updateSettings({ cta: { ...settings.cta, channels: next } });
-                              }}
-                              className="mt-1.5 text-gray-300 hover:text-red-500 shrink-0 transition-colors"
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                        );
-                      })}
-
-                      {/* Add channel dropdown */}
-                      <div className="grid grid-cols-4 gap-1 pt-0.5">
-                        {CTA_CHANNEL_OPTIONS.filter(o => !settings.cta.channels.find(c => c.type === o.type)).map(opt => (
-                          <button
-                            key={opt.type}
-                            onClick={() => updateSettings({ cta: { ...settings.cta, channels: [...settings.cta.channels, { type: opt.type, label: "", value: "" }] } })}
-                            className="flex flex-col items-center gap-0.5 py-1.5 px-1 rounded-lg bg-white border border-dashed border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-center"
-                            title={`เพิ่ม ${opt.type}`}
-                          >
-                            <span className="text-base">{opt.icon}</span>
-                            <span className="text-[8px] text-gray-400 capitalize leading-none">{opt.type}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Preview pill */}
-                    {settings.cta.channels.filter(c => c.value).length > 0 && (
-                      <div className="bg-white rounded-lg border border-emerald-100 p-2 space-y-1">
-                        <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wide">Preview</p>
-                        <p className="text-[11px] font-bold text-gray-800">{settings.cta.headline || "—"}</p>
-                        <p className="text-[10px] text-gray-500">{settings.cta.subtext}</p>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {settings.cta.channels.filter(c => c.value).map((ch, i) => {
-                            const opt = CTA_CHANNEL_OPTIONS.find(o => o.type === ch.type);
-                            return (
-                              <span key={i} className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-medium">
-                                {opt?.icon} {ch.label || ch.type}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+              {/* ── รูปภาพ / CTA / Author Box — ย้ายไปแท็บ "ตั้งค่าบทความ" (หน้าตาเดียวกับ Upload Article) ── */}
+              <div className="border-t border-gray-100 pt-4">
+                <button
+                  onClick={() => setMainTab("settings")}
+                  className="w-full flex items-start gap-2 text-left bg-white border border-gray-200 rounded-xl p-3 hover:border-violet-300 transition-colors"
+                >
+                  <Settings2 className="h-3.5 w-3.5 text-violet-500 mt-0.5 shrink-0" />
+                  <span>
+                    <span className="block text-xs font-semibold text-slate-700">รูปภาพ / CTA / Author Box</span>
+                    <span className="block text-[11px] text-slate-400">ตั้งค่าที่แท็บ &quot;ตั้งค่าบทความ&quot; — ระบบใช้ให้อัตโนมัติทุกครั้งที่เขียน</span>
+                  </span>
+                </button>
               </div>
 
               <div className="pt-2">
@@ -1570,6 +1496,13 @@ export function ContentStudioClient() {
             </div>{/* end article editor column */}
 
           </div>{/* end Results panel */}
+        </div>
+      )}
+
+      {/* ────────────── SETTINGS TAB — รูปภาพ / CTA / Author Box ────────────── */}
+      {mainTab === "settings" && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <StudioArticleSettings accentColor={settings.colorTheme} border={settings.colorBorder} />
         </div>
       )}
     </div>

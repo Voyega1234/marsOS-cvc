@@ -1,7 +1,8 @@
 // ─── Upload Article — Internal Link: sanitize + สุ่มเลือกลิงก์ให้แต่ละบทความ ───────
 // ฟังก์ชันล้วน ไม่พึ่ง prisma/session — เรียกตรงจาก unit test ได้
 
-import type { UploadInternalLinks, UploadLinkPair } from './types'
+import type { UploadInternalLinks, UploadKeyword, UploadLinkPair } from './types'
+import { parseWriterSourceName } from './pbn'
 
 const URL_MAX = 500
 const KEYWORD_MAX = 200
@@ -125,14 +126,14 @@ function parseLinksPerArticle(raw: string): { min: number; max: number } {
   return { min: Math.min(a, b), max: Math.max(a, b) }
 }
 
-/** ลิงก์ทั้งหมดที่ใช้ได้กับบทความนี้ (ตัด excluded + ลิงก์เข้าตัวเอง) — manual ก่อน แล้ว gsc เรียงตามคลิกมากไปน้อย */
-export function linkPoolForArticle(links: UploadInternalLinks, params: { slug: string; excludeUrl?: string }): UploadLinkPair[] {
+/** ลิงก์ทั้งหมดที่ใช้ได้กับบทความนี้ (ตัด excluded + ลิงก์เข้าตัวเอง) — manual ก่อน แล้ว extra (บทความในระบบ) แล้ว gsc เรียงตามคลิกมากไปน้อย */
+export function linkPoolForArticle(links: UploadInternalLinks, params: { slug: string; excludeUrl?: string; extra?: UploadLinkPair[] }): UploadLinkPair[] {
   const excludedSet = new Set((links.excluded || []).map(normalizeUrl))
   if (params.excludeUrl) excludedSet.add(normalizeUrl(params.excludeUrl))
   const seen = new Set<string>()
   const out: UploadLinkPair[] = []
   const gsc = [...(links.gsc || [])].sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
-  for (const pair of [...(links.manual || []), ...gsc]) {
+  for (const pair of [...(links.manual || []), ...(params.extra || []), ...gsc]) {
     const key = normalizeUrl(pair.url)
     if (seen.has(key) || excludedSet.has(key)) continue
     if (pathEndsWithSlug(pair.url, params.slug)) continue
@@ -152,10 +153,12 @@ export interface PickLinksParams {
   slug: string
   /** URL ของบทความปัจจุบัน (ถ้ามี) — กันลิงก์เข้าตัวเอง */
   excludeUrl?: string
+  /** ลิงก์บทความในระบบ (auto) — แทรกแทรกระหว่าง manual กับ gsc */
+  extra?: UploadLinkPair[]
 }
 
 /**
- * เลือกลิงก์ภายในให้บทความ 1 ชิ้น: pool = gsc (ที่ไม่ถูกติ๊กออก) + manual (dedupe by url, manual ชนะ)
+ * เลือกลิงก์ภายในให้บทความ 1 ชิ้น: pool = gsc (ที่ไม่ถูกติ๊กออก) + extra (บทความในระบบ) + manual (dedupe by url, manual ชนะ)
  * ตัด URL ที่ path ลงท้ายด้วย slug ของบทความเอง แล้วสุ่มแบบ seed จาก keyword ให้ผลเดิมทุกครั้งที่ keyword เดิม
  */
 export function pickLinksForKeyword(links: UploadInternalLinks, params: PickLinksParams): UploadLinkPair[] {
@@ -169,11 +172,17 @@ export function pickLinksForKeyword(links: UploadInternalLinks, params: PickLink
     if (pathEndsWithSlug(pair.url, params.slug)) continue
     poolMap.set(key, pair)
   }
+  for (const pair of params.extra || []) {
+    const key = normalizeUrl(pair.url)
+    if (excludedSet.has(key)) continue
+    if (pathEndsWithSlug(pair.url, params.slug)) continue
+    poolMap.set(key, pair) // extra ชนะ gsc เมื่อ url ซ้ำกัน
+  }
   for (const pair of links.manual || []) {
     const key = normalizeUrl(pair.url)
     if (excludedSet.has(key)) continue
     if (pathEndsWithSlug(pair.url, params.slug)) continue
-    poolMap.set(key, pair) // manual ชนะ gsc เมื่อ url ซ้ำกัน
+    poolMap.set(key, pair) // manual ชนะ extra/gsc เมื่อ url ซ้ำกัน
   }
 
   let pool = Array.from(poolMap.values())
@@ -190,4 +199,55 @@ export function pickLinksForKeyword(links: UploadInternalLinks, params: PickLink
   const range = parseLinksPerArticle(links.linksPerArticle)
   const n = Math.min(pool.length, range.min + Math.floor(rand() * (range.max - range.min + 1)))
   return shuffled.slice(0, Math.max(0, n))
+}
+
+// ─── "จากบทความในระบบ" — บทความที่เขียน/นำเข้าในโปรเจกต์นี้ ใช้เป็นลิงก์ภายในอัตโนมัติ ───────
+
+const ARTICLE_ROWS_MAX = 500
+
+/** field ที่ต้องอ่านจาก UploadArticle เพื่อแปลงเป็นลิงก์ — ไม่ผูกกับ prisma type ตรง ๆ ให้เรียกจาก unit test ได้ */
+export interface ArticleLinkSourceRow {
+  id: string
+  title: string
+  sourceName: string
+  status: string
+  pushMode: string | null
+  wordpressUrl: string | null
+  createdAt: Date | string
+}
+
+export interface ArticleLinkRow {
+  articleId: string
+  title: string
+  /** anchor text: keyword จริงถ้าเขียนจากแผน keyword, ไม่งั้นใช้ชื่อบทความ */
+  keyword: string
+  /** null = ยังไม่เผยแพร่แบบ Publish จริง ยังใช้เป็นลิงก์ไม่ได้ */
+  url: string | null
+  status: string
+  createdAt: string
+}
+
+/** แปลงแถว UploadArticle → รายการลิงก์ภายใน (rows ควรเรียง createdAt ใหม่สุดก่อน + จำกัดจำนวนมาจากผู้เรียกแล้ว) */
+export function articleLinkRows(rows: ArticleLinkSourceRow[], keywordPlan: UploadKeyword[]): ArticleLinkRow[] {
+  const planById = new Map(keywordPlan.map((k) => [k.id, k]))
+  return rows.slice(0, ARTICLE_ROWS_MAX).map((r) => {
+    const parsed = parseWriterSourceName(r.sourceName)
+    const keyword = (parsed && planById.get(parsed.keywordId)?.keyword) || r.title
+    const url = r.status === 'PUSHED' && r.pushMode === 'publish' && r.wordpressUrl ? r.wordpressUrl : null
+    return {
+      articleId: r.id,
+      title: r.title,
+      keyword,
+      url,
+      status: r.status,
+      createdAt: typeof r.createdAt === 'string' ? r.createdAt : r.createdAt.toISOString(),
+    }
+  })
+}
+
+/** เฉพาะแถวที่เผยแพร่แล้วจริง (มี url) — ใช้เติม pool ลิงก์ภายใน */
+export function articleLinkPairs(rows: ArticleLinkRow[]): UploadLinkPair[] {
+  return rows
+    .filter((r): r is ArticleLinkRow & { url: string } => Boolean(r.url))
+    .map((r) => ({ keyword: r.keyword, url: r.url }))
 }

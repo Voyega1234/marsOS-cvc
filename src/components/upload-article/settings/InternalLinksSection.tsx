@@ -13,8 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadLinkPair } from "@/lib/upload-article/types";
+import type { ArticleLinkRow } from "@/lib/upload-article/internal-links";
 
-export default function InternalLinksSection({ clientId }: { clientId: string }) {
+export default function InternalLinksSection({ clientId, hideArticles = false }: { clientId: string; hideArticles?: boolean }) {
   const [data, setData] = useState<UploadInternalLinks>(DEFAULT_UPLOAD_INTERNAL_LINKS);
   const [savedKey, setSavedKey] = useState(JSON.stringify(DEFAULT_UPLOAD_INTERNAL_LINKS));
   const [loading, setLoading] = useState(true);
@@ -23,6 +24,7 @@ export default function InternalLinksSection({ clientId }: { clientId: string })
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [bulkText, setBulkText] = useState("");
+  const [articles, setArticles] = useState<ArticleLinkRow[]>([]);
 
   async function load() {
     setLoading(true);
@@ -48,7 +50,16 @@ export default function InternalLinksSection({ clientId }: { clientId: string })
     } catch { /* skip — ไม่ต้องแจ้ง error ตอนโหลด property list */ }
   }
 
-  useEffect(() => { void load(); void loadProperties(); }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function loadArticles() {
+    if (hideArticles) { setArticles([]); return; }
+    try {
+      const r = await fetch(`/api/upload-article/clients/${clientId}/internal-links/articles`);
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) setArticles(d.articles ?? []);
+    } catch { /* skip — ไม่ต้องแจ้ง error ตอนโหลดรายการบทความ */ }
+  }
+
+  useEffect(() => { void load(); void loadProperties(); void loadArticles(); }, [clientId, hideArticles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dirty = useMemo(() => JSON.stringify(data) !== savedKey, [data, savedKey]);
 
@@ -118,6 +129,7 @@ export default function InternalLinksSection({ clientId }: { clientId: string })
       if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); return; }
       toast.success("บันทึก Internal Link แล้ว");
       await load(); // อ่านกลับจาก server เพื่อพิสูจน์ว่าบันทึกจริง
+      await loadArticles();
     } finally {
       setSaving(false);
     }
@@ -130,6 +142,7 @@ export default function InternalLinksSection({ clientId }: { clientId: string })
   }, [data.gsc, search]);
 
   const includedCount = data.gsc.filter(l => !data.excluded.includes(l.url)).length;
+  const articlesUsedCount = articles.filter(a => a.url && !data.excluded.includes(a.url)).length;
 
   if (loading) return <p className="text-sm text-gray-400 text-center py-10">กำลังโหลด...</p>;
 
@@ -210,6 +223,43 @@ export default function InternalLinksSection({ clientId }: { clientId: string })
           </div>
         )}
       </div>
+
+      {!hideArticles && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-brand-navy">จากบทความในระบบ</p>
+              <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{articlesUsedCount} / {articles.length}</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-400">บทความที่เขียน/นำเข้าในโปรเจกต์นี้ถูกเพิ่มอัตโนมัติ — ใช้เป็นลิงก์เมื่อ push แบบ Publish แล้ว</p>
+          {articles.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-6">ยังไม่มีบทความ</p>
+          ) : (
+            <div className="max-h-72 overflow-y-auto space-y-0.5">
+              {articles.map(a => {
+                if (!a.url) {
+                  return (
+                    <div key={a.articleId} className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs opacity-40">
+                      <span className="w-40 shrink-0 truncate">{a.keyword}</span>
+                      <span className="flex-1 truncate text-gray-400">รอเผยแพร่ — จะใช้เป็นลิงก์หลัง push แบบ Publish</span>
+                    </div>
+                  );
+                }
+                const url = a.url;
+                const excluded = data.excluded.includes(url);
+                return (
+                  <label key={a.articleId} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer ${excluded ? "opacity-40" : "hover:bg-gray-50"}`}>
+                    <input type="checkbox" checked={!excluded} onChange={() => toggleExclude(url)} />
+                    <span className="w-40 shrink-0 truncate">{a.keyword}</span>
+                    <span className="flex-1 truncate text-brand-blue font-mono">{url}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
         <p className="text-sm font-semibold text-brand-navy">เพิ่มเอง ({data.manual.filter(l => l.url.trim()).length})</p>

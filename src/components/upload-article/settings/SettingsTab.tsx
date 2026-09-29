@@ -152,7 +152,7 @@ export default function SettingsTab({
               showFaqEditor={themeDraft.showFaqEditor} setShowFaqEditor={themeDraft.setShowFaqEditor} />
           </div>
         )}
-        {active === "links" && <InternalLinksSection clientId={client.id} />}
+        {active === "links" && <InternalLinksSection clientId={client.id} hideArticles={isPbn} />}
         {active === "images" && (
           <ImagesSection client={client} setClient={setClient}
             openEngine={() => go("engine")} />

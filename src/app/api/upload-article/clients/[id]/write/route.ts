@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { resolveContentEngine, type ResolvedLayer } from '@/lib/content-engine-resolve'
 import { readPrefs, updatePrefs } from '@/lib/upload-article/prefs-store'
 import { pickLinksForKeyword } from '@/lib/upload-article/internal-links'
+import { loadArticleLinkPairs } from '@/lib/upload-article/article-links'
 import {
   buildWriterSystemPrompt,
   buildWriterUserPrompt,
@@ -162,7 +163,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const links = readLinks(prefs)
-  const linkPairs = pickLinksForKeyword(links, { keyword: keyword.keyword, slug: keyword.slug })
+  const extraLinks = await loadArticleLinkPairs(client.id, orgId, prefs)
+  const linkPairs = pickLinksForKeyword(links, { keyword: keyword.keyword, slug: keyword.slug, extra: extraLinks })
 
   const title = keyword.title || keyword.keyword
   const seoTitle = title.slice(0, 70)

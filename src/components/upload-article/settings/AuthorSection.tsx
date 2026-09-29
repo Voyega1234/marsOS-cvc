@@ -22,13 +22,17 @@ function emptyAuthor(id: string): AuthorProfile {
   return { id, name: "", title: "", credentials: [] };
 }
 
-function AuthorProfileEditor({ author, onChange, isOpen, onToggle, onRemove, canRemove }: {
-  author: AuthorProfile;
-  onChange: (patch: Partial<AuthorProfile>) => void;
+/** SEO SME เก็บเพศผู้เขียนไว้ใช้กับ AUTHOR PERSONA ใน prompt — Upload Article ไม่มีช่องนี้ */
+export type EditableAuthorProfile = AuthorProfile & { gender?: string };
+
+function AuthorProfileEditor({ author, onChange, isOpen, onToggle, onRemove, canRemove, withGender }: {
+  author: EditableAuthorProfile;
+  onChange: (patch: Partial<EditableAuthorProfile>) => void;
   isOpen: boolean;
   onToggle: () => void;
   onRemove: () => void;
   canRemove: boolean;
+  withGender?: boolean;
 }) {
   return (
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
@@ -87,6 +91,17 @@ function AuthorProfileEditor({ author, onChange, isOpen, onToggle, onRemove, can
                 <input value={author.title} onChange={(e) => onChange({ title: e.target.value.slice(0, 150) })}
                   className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
               </div>
+              {withGender && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">เพศ (ใช้ปรับสรรพนามในบทความ)</label>
+                  <select value={author.gender || "none"} onChange={(e) => onChange({ gender: e.target.value })}
+                    className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200">
+                    <option value="none">ไม่ระบุ</option>
+                    <option value="male">ชาย</option>
+                    <option value="female">หญิง</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -106,9 +121,18 @@ function AuthorProfileEditor({ author, onChange, isOpen, onToggle, onRemove, can
   );
 }
 
-export default function AuthorSection({ client, setClient }: {
-  client: UploadClientDTO;
-  setClient: (c: UploadClientDTO) => void;
+/**
+ * ตัวแก้ Author Box (ไม่ผูกที่เก็บ) — Upload Article / PBN ใช้ผ่าน AuthorSection ด้านล่าง,
+ * SEO SME (Article Lab) และ Content Studio ใช้ตัวเดียวกันโดยส่ง load/save ของตัวเองมา
+ */
+export function AuthorSettingsEditor({ loadKey, load, save: persist, description, withGender }: {
+  /** เปลี่ยนค่านี้ = โหลดใหม่ */
+  loadKey: string;
+  load: () => Promise<UploadAuthorSettings>;
+  /** ส่งค่าที่ย่อรูปแล้ว คืนค่าที่บันทึกจริง — error ให้ throw Error(ข้อความ) */
+  save: (slim: UploadAuthorSettings) => Promise<UploadAuthorSettings>;
+  description?: React.ReactNode;
+  withGender?: boolean;
 }) {
   const [draft, setDraft] = useState<UploadAuthorSettings>(DEFAULT_UPLOAD_AUTHOR);
   const [saved, setSaved] = useState<UploadAuthorSettings>(DEFAULT_UPLOAD_AUTHOR);
@@ -116,24 +140,21 @@ export default function AuthorSection({ client, setClient }: {
   const [saving, setSaving] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  async function load() {
+  async function reload() {
     setLoading(true);
     try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}/author`);
-      const d = await r.json().catch(() => ({}));
-      if (r.ok) {
-        setDraft(d);
-        setSaved(d);
-        setOpenId(d.authors?.[0]?.id ?? null);
-      } else {
-        toast.error(d?.error || "โหลด Author Box ไม่สำเร็จ");
-      }
+      const d = await load();
+      setDraft(d);
+      setSaved(d);
+      setOpenId(d.authors?.[0]?.id ?? null);
+    } catch (e) {
+      toast.error(e instanceof Error && e.message ? e.message : "โหลด Author Box ไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { void load(); }, [client.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void reload(); }, [loadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
 
@@ -147,16 +168,15 @@ export default function AuthorSection({ client, setClient }: {
           a.image ? { ...a, image: await downscaleDataUrl(a.image, 600) } : a
         ))),
       };
-      const r = await fetch(`/api/upload-article/clients/${client.id}/author`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(slim),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); return; }
+      let d: UploadAuthorSettings;
+      try {
+        d = await persist(slim);
+      } catch (e) {
+        toast.error(e instanceof Error && e.message ? e.message : "บันทึกไม่สำเร็จ");
+        return;
+      }
       setDraft(d);
       setSaved(d);
-      setClient({ ...client, authorSummary: uploadAuthorSummary(d) });
       toast.success("บันทึก Author Box แล้ว");
     } finally {
       setSaving(false);
@@ -192,7 +212,7 @@ export default function AuthorSection({ client, setClient }: {
           <div>
             <p className="text-sm font-bold text-brand-navy flex items-center gap-1.5"><UserRound size={14} /> Author Box (กล่องผู้เขียน)</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              กล่องผู้เขียนจะถูกใส่ท้ายบทความอัตโนมัติทุกบทความที่เปิดใช้งานนี้ ระบบเลือก 1 คนตามโหมดที่ตั้งไว้
+              {description ?? "กล่องผู้เขียนจะถูกใส่ท้ายบทความอัตโนมัติทุกบทความที่เปิดใช้งานนี้ ระบบเลือก 1 คนตามโหมดที่ตั้งไว้"}
             </p>
           </div>
           <button
@@ -256,6 +276,7 @@ export default function AuthorSection({ client, setClient }: {
               onToggle={() => setOpenId((cur) => (cur === author.id ? null : author.id))}
               onRemove={() => removeAuthor(author.id)}
               canRemove
+              withGender={withGender}
             />
           ))}
 
@@ -282,5 +303,33 @@ export default function AuthorSection({ client, setClient }: {
         {dirty && <span className="text-xs text-amber-600">ยังไม่ได้บันทึก</span>}
       </div>
     </div>
+  );
+}
+
+export default function AuthorSection({ client, setClient }: {
+  client: UploadClientDTO;
+  setClient: (c: UploadClientDTO) => void;
+}) {
+  return (
+    <AuthorSettingsEditor
+      loadKey={client.id}
+      load={async () => {
+        const r = await fetch(`/api/upload-article/clients/${client.id}/author`);
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error || "โหลด Author Box ไม่สำเร็จ");
+        return d;
+      }}
+      save={async (slim) => {
+        const r = await fetch(`/api/upload-article/clients/${client.id}/author`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(slim),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error || "บันทึกไม่สำเร็จ");
+        setClient({ ...client, authorSummary: uploadAuthorSummary(d) });
+        return d;
+      }}
+    />
   );
 }

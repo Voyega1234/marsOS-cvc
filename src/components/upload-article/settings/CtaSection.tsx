@@ -412,9 +412,19 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
   );
 }
 
-export default function CtaSection({ client, setClient }: {
-  client: UploadClientDTO;
-  setClient: (c: UploadClientDTO) => void;
+/**
+ * ตัวแก้ CTA (ไม่ผูกที่เก็บ) — Upload Article / PBN ใช้ผ่าน CtaSection ด้านล่าง,
+ * SEO SME (Article Lab) และ Content Studio ใช้ตัวเดียวกันโดยส่ง load/save ของตัวเองมา
+ */
+export function CtaSettingsEditor({ loadKey, load, save: persist, accentColor, border, description }: {
+  /** เปลี่ยนค่านี้ = โหลดใหม่ */
+  loadKey: string;
+  load: () => Promise<UploadCtaSettings>;
+  /** ส่งค่าที่ย่อรูปแล้ว คืนค่าที่บันทึกจริง — error ให้ throw Error(ข้อความ) */
+  save: (slim: UploadCtaSettings) => Promise<UploadCtaSettings>;
+  accentColor: string;
+  border: string;
+  description: React.ReactNode;
 }) {
   const [draft, setDraft] = useState<UploadCtaSettings>(DEFAULT_UPLOAD_CTA);
   const [saved, setSaved] = useState<UploadCtaSettings>(DEFAULT_UPLOAD_CTA);
@@ -422,28 +432,23 @@ export default function CtaSection({ client, setClient }: {
   const [saving, setSaving] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  async function load() {
+  async function reload() {
     setLoading(true);
     try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}/cta`);
-      const d = await r.json().catch(() => ({}));
-      if (r.ok) {
-        setDraft(d);
-        setSaved(d);
-        setOpenId(d.items?.[0]?.id ?? null);
-      } else {
-        toast.error(d?.error || "โหลด CTA ไม่สำเร็จ");
-      }
+      const d = await load();
+      setDraft(d);
+      setSaved(d);
+      setOpenId(d.items?.[0]?.id ?? null);
+    } catch (e) {
+      toast.error(e instanceof Error && e.message ? e.message : "โหลด CTA ไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { void load(); }, [client.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void reload(); }, [loadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
-  const accentColor = client.theme.theme;
-  const border = client.theme.border;
 
   async function save() {
     setSaving(true);
@@ -461,16 +466,15 @@ export default function CtaSection({ client, setClient }: {
           ))),
         }))),
       };
-      const r = await fetch(`/api/upload-article/clients/${client.id}/cta`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(slim),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); return; }
+      let d: UploadCtaSettings;
+      try {
+        d = await persist(slim);
+      } catch (e) {
+        toast.error(e instanceof Error && e.message ? e.message : "บันทึกไม่สำเร็จ");
+        return;
+      }
       setDraft(d);
       setSaved(d);
-      setClient({ ...client, ctaSummary: uploadCtaSummary(d) });
       toast.success("บันทึก CTA แล้ว");
     } finally {
       setSaving(false);
@@ -523,9 +527,7 @@ export default function CtaSection({ client, setClient }: {
         <div className="flex items-center justify-between mb-1">
           <div>
             <p className="text-sm font-bold text-brand-navy flex items-center gap-1.5"><Megaphone size={14} /> CTA (Call-to-Action)</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              CTA จะถูกใส่เฉพาะบทความที่ติ๊ก "ใส่ CTA" ในแท็บเขียนบทความ — ระบบจะสุ่ม CTA จากรายการด้านล่างไปวางตามจำนวนที่ตั้งไว้ กระจายตามหัวข้อ อันสุดท้ายอยู่ก่อน FAQ
-            </p>
+            <p className="text-xs text-gray-500 mt-0.5">{description}</p>
           </div>
           <button
             onClick={() => setDraft((prev) => ({ ...prev, enabled: !prev.enabled }))}
@@ -603,5 +605,36 @@ export default function CtaSection({ client, setClient }: {
         {dirty && <span className="text-xs text-amber-600">ยังไม่ได้บันทึก</span>}
       </div>
     </div>
+  );
+}
+
+export default function CtaSection({ client, setClient }: {
+  client: UploadClientDTO;
+  setClient: (c: UploadClientDTO) => void;
+}) {
+  return (
+    <CtaSettingsEditor
+      loadKey={client.id}
+      accentColor={client.theme.theme}
+      border={client.theme.border}
+      description={'CTA จะถูกใส่เฉพาะบทความที่ติ๊ก "ใส่ CTA" ในแท็บเขียนบทความ — ระบบจะสุ่ม CTA จากรายการด้านล่างไปวางตามจำนวนที่ตั้งไว้ กระจายตามหัวข้อ อันสุดท้ายอยู่ก่อน FAQ'}
+      load={async () => {
+        const r = await fetch(`/api/upload-article/clients/${client.id}/cta`);
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error || "โหลด CTA ไม่สำเร็จ");
+        return d;
+      }}
+      save={async (slim) => {
+        const r = await fetch(`/api/upload-article/clients/${client.id}/cta`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(slim),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error || "บันทึกไม่สำเร็จ");
+        setClient({ ...client, ctaSummary: uploadCtaSummary(d) });
+        return d;
+      }}
+    />
   );
 }

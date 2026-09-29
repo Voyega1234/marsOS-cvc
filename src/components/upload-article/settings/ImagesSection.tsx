@@ -26,28 +26,42 @@ function TextChoice({ value, onChange, disabled }: { value: boolean; onChange: (
   );
 }
 
-export default function ImagesSection({ client, setClient, openEngine }: {
-  client: UploadClientDTO;
-  setClient: (c: UploadClientDTO) => void;
-  openEngine: () => void;
+/** inlineCount null = "ตาม Image Prompt" (ใช้เฉพาะ SEO SME / Studio ที่ส่ง autoOption มา) */
+export interface ImageSettingsValue {
+  cover: boolean;
+  coverWithText: boolean;
+  inlineCount: number | null;
+  inlineWithText: boolean;
+}
+
+/**
+ * ตัวแก้ค่ารูปภาพ (ไม่ผูกที่เก็บ) — Upload Article / PBN ใช้ผ่าน ImagesSection ด้านล่าง,
+ * SEO SME (Article Lab) และ Content Studio ใช้ตัวเดียวกันโดยส่ง saved/save ของตัวเองมา
+ */
+export function ImageSettingsEditor<T extends ImageSettingsValue>({ saved, save: persist, openEngine, intro, autoOption }: {
+  saved: T;
+  /** คืนค่าที่บันทึกจริง (ถ้ามี) — error ให้ throw Error(ข้อความ) */
+  save: (draft: T) => Promise<T | void>;
+  openEngine?: () => void;
+  intro?: React.ReactNode;
+  /** แสดงปุ่ม "ตาม Image Prompt" (inlineCount = null) */
+  autoOption?: boolean;
 }) {
-  const saved = client.pushPrefs.imageDefaults ?? DEFAULT_UPLOAD_IMAGE_DEFAULTS;
-  const [draft, setDraft] = useState<UploadImageDefaults>(saved);
+  const [draft, setDraft] = useState<T>(saved);
   const [saving, setSaving] = useState(false);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
 
   async function save() {
     setSaving(true);
     try {
-      const r = await fetch(`/api/upload-article/clients/${client.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pushPrefs: { imageDefaults: draft } }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); return; }
-      setClient(d);
-      if (d?.pushPrefs?.imageDefaults) setDraft(d.pushPrefs.imageDefaults);
+      let d: T | void;
+      try {
+        d = await persist(draft);
+      } catch (e) {
+        toast.error(e instanceof Error && e.message ? e.message : "บันทึกไม่สำเร็จ");
+        return;
+      }
+      if (d) setDraft(d);
       toast.success("บันทึกค่ารูปภาพแล้ว");
     } finally {
       setSaving(false);
@@ -59,9 +73,11 @@ export default function ImagesSection({ client, setClient, openEngine }: {
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-1.5">
         <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><ImageIcon size={14} /> รูปภาพบทความ</p>
         <p className="text-xs text-gray-500">
-          ใช้โมเดลสร้างรูปตัวเดียวกับหน้า Clients · Prompt และภาพตัวอย่าง 3-5 รูปที่ใช้เป็นไกด์ ตั้งที่ Content Engine &gt; Image Prompt
+          {intro ?? "ใช้โมเดลสร้างรูปตัวเดียวกับหน้า Clients · Prompt และภาพตัวอย่าง 3-5 รูปที่ใช้เป็นไกด์ ตั้งที่ Content Engine > Image Prompt"}
         </p>
-        <button type="button" onClick={openEngine} className="text-xs text-blue-600 hover:underline">ไปตั้ง Image Prompt / ภาพตัวอย่าง →</button>
+        {openEngine && (
+          <button type="button" onClick={openEngine} className="text-xs text-blue-600 hover:underline">ไปตั้ง Image Prompt / ภาพตัวอย่าง →</button>
+        )}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
@@ -79,6 +95,12 @@ export default function ImagesSection({ client, setClient, openEngine }: {
         <p className="text-sm font-medium text-gray-800">รูปประกอบในบทความ</p>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-500">จำนวน</span>
+          {autoOption && (
+            <button type="button" onClick={() => setDraft({ ...draft, inlineCount: null })}
+              className={`h-8 px-2.5 rounded-lg border text-xs ${draft.inlineCount === null ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+              ตาม Image Prompt
+            </button>
+          )}
           {Array.from({ length: UPLOAD_MAX_INLINE_IMAGES + 1 }, (_, n) => (
             <button key={n} type="button" onClick={() => setDraft({ ...draft, inlineCount: n })}
               className={`w-8 h-8 rounded-lg border text-xs ${draft.inlineCount === n ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
@@ -87,6 +109,9 @@ export default function ImagesSection({ client, setClient, openEngine }: {
           ))}
           <span className="text-xs text-gray-400">รูป (วางใต้หัวข้อ H2 กระจายทั้งบทความ ไม่วางในส่วน FAQ)</span>
         </div>
+        {autoOption && draft.inlineCount === null && (
+          <p className="text-[11px] text-gray-400">ตาม Image Prompt = ใช้บรรทัด &quot;จำนวนรูปประกอบ: N&quot; ใน Content Engine &gt; Image Prompt (ไม่มีบรรทัดนี้ = 1 รูป)</p>
+        )}
         <div className="space-y-1">
           <p className="text-xs text-gray-500">แบบรูปประกอบ</p>
           <TextChoice value={draft.inlineWithText} disabled={draft.inlineCount === 0} onChange={v => setDraft({ ...draft, inlineWithText: v })} />
@@ -100,5 +125,30 @@ export default function ImagesSection({ client, setClient, openEngine }: {
         {dirty && <span className="text-xs text-amber-600">ยังไม่ได้บันทึก</span>}
       </div>
     </div>
+  );
+}
+
+export default function ImagesSection({ client, setClient, openEngine }: {
+  client: UploadClientDTO;
+  setClient: (c: UploadClientDTO) => void;
+  openEngine: () => void;
+}) {
+  const saved = client.pushPrefs.imageDefaults ?? DEFAULT_UPLOAD_IMAGE_DEFAULTS;
+  return (
+    <ImageSettingsEditor<UploadImageDefaults>
+      saved={saved}
+      openEngine={openEngine}
+      save={async (draft) => {
+        const r = await fetch(`/api/upload-article/clients/${client.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pushPrefs: { imageDefaults: draft } }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error || "บันทึกไม่สำเร็จ");
+        setClient(d);
+        return d?.pushPrefs?.imageDefaults;
+      }}
+    />
   );
 }

@@ -14,7 +14,6 @@ import {
 } from 'lucide-react'
 
 import type { AuthorProfile } from '@/types'
-import { AUTHOR_CARD_STYLES, DEFAULT_AUTHOR_CARD_STYLE, normalizeAuthorCardStyle } from '@/lib/articleAuthorCard'
 import { ClientReportClient } from '@/components/report/ClientReportClient'
 import ArticleFrame from '@/components/shared/ArticleFrame'
 import ScopedEditable from '@/components/shared/ScopedEditable'
@@ -39,12 +38,16 @@ import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGap
 import { LabSiteScanCard } from '@/components/projects/workspace/LabSiteScanCard'
 import { LabContextFilesCard } from '@/components/projects/workspace/LabContextFilesCard'
 import { LabTestImageCard } from '@/components/projects/workspace/LabTestImageCard'
+import { CtaSettingsEditor } from '@/components/upload-article/settings/CtaSection'
+import { AuthorSettingsEditor } from '@/components/upload-article/settings/AuthorSection'
+import { ImageSettingsEditor } from '@/components/upload-article/settings/ImagesSection'
+import { readArticleImageSettings, type ArticleImageSettings } from '@/lib/article-settings'
+import type { UploadCtaSettings } from '@/lib/upload-article/cta'
+import type { UploadAuthorSettings } from '@/lib/upload-article/author'
 import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
 import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
-import { downscaleDataUrl, fileToDownscaledDataUrl } from '@/lib/imageDownscale'
-import { normalizeCtaItems, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem, type CtaItemChannel } from '@/lib/articleComponents'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -5078,57 +5081,6 @@ const THEMES = [
 
 interface InternalLink { keyword: string; url: string }
 
-type CtaChannel = CtaItemChannel
-interface CtaState {
-  enabled: boolean
-  perArticle: number          // 1-5 — จำนวน CTA ที่สุ่มแทรกต่อ 1 บทความ
-  items: CtaItem[]
-}
-const CTA_CHANNEL_OPTS: { type: CtaChannel['type']; icon: string; placeholder: string; defaultLabel: string }[] = [
-  { type: 'line',     icon: '💬', placeholder: 'https://line.me/ti/p/~...', defaultLabel: 'Line' },
-  { type: 'facebook', icon: '📘', placeholder: 'https://fb.me/...',          defaultLabel: 'Facebook' },
-  { type: 'phone',    icon: '📞', placeholder: '02-xxx-xxxx',                defaultLabel: 'Phone' },
-  { type: 'email',    icon: '✉️', placeholder: 'contact@example.com',       defaultLabel: 'Email' },
-  { type: 'website',  icon: '🌐', placeholder: 'https://example.com/contact',defaultLabel: 'Website' },
-  { type: 'form',     icon: '📋', placeholder: 'https://example.com/form',   defaultLabel: 'Form' },
-  { type: 'custom',   icon: '⭐', placeholder: 'ข้อความหรือลิงก์',           defaultLabel: 'ติดต่อเรา' },
-]
-function makeDefaultCtaItem(): CtaItem {
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    name: '',
-    headline: 'สนใจปรึกษาฟรี?',
-    subtext: 'ทีมงานพร้อมตอบทุกคำถาม',
-    channels: [],
-    alignment: 'center',
-    buttonLayout: 'row',
-  }
-}
-// ค่าเริ่มต้นตอนสลับไปโหมด "ออกแบบเอง" ครั้งแรก — ยึดสีจาก Article Lab (Style sub-tab) เป็นฐาน
-function defaultCtaCustom(theme: string, border?: string): CtaCustomDesign {
-  return {
-    boxBg: theme,
-    boxText: '#ffffff',
-    boxBorderColor: border || '#e2e8f0',
-    boxBorderWidth: 0,
-    boxRadius: 16,
-    buttonBg: '#ffffff',
-    buttonText: theme,
-    buttonBorderColor: 'transparent',
-    buttonRadius: 10,
-  }
-}
-// รองรับทั้งของเก่า (record เดี่ยว ไม่มี items[]) และของใหม่ (หลาย CTA) — ใช้ normalizeCtaItems
-// ตัวเดียวกับฝั่งเขียนบทความ เพื่อให้ผล perArticle/placement ตรงกันเป๊ะ
-function parseCta(raw?: string): CtaState {
-  let parsed: unknown = null
-  try { parsed = raw ? JSON.parse(raw) : null } catch { parsed = null }
-  const normalized = normalizeCtaItems(parsed)
-  const items = normalized.items.length > 0 ? normalized.items : [makeDefaultCtaItem()]
-  const perArticle = normalized.items.length > 0 ? normalized.perArticle : 3
-  return { enabled: normalized.enabled, perArticle, items }
-}
-
 function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; onSaved: (updated: Partial<ProjectData>) => void; keywordRows?: KeywordRow[] }) {
   // Style settings
   const [styleGuide, setStyleGuide] = useState(project.styleGuide ?? DEFAULT_STYLE_GUIDE)
@@ -5146,7 +5098,8 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   const [articleColors, setArticleColors] = useState<Record<string, string>>(() => {
     try {
       const parsed = JSON.parse(project.themeColors || '{}')
-      const { elements: _els, ...base } = parsed
+      // authorCard / authorPick / imageSettings เป็นของหน้า รูปภาพ / Author Box (บันทึกผ่าน /article-settings)
+      const { elements: _els, authorCard: _ac, authorPick: _ap, imageSettings: _is, ...base } = parsed
       return base
     } catch { return {} }
   })
@@ -5189,53 +5142,8 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
       return links.map(l => `${l.keyword} | ${l.url}`).join('\n')
     } catch { return '' }
   })
-  const [ctaState, setCtaState] = useState<CtaState>(() => parseCta(project.ctaSetting))
-  const [activeCtaId, setActiveCtaId] = useState<string>(() => parseCta(project.ctaSetting).items[0]?.id ?? '')
-  const activeCtaItem = ctaState.items.find(it => it.id === activeCtaId) ?? ctaState.items[0]
-  const updateActiveCtaItem = useCallback((patch: Partial<CtaItem>) =>
-    setCtaState(p => ({ ...p, items: p.items.map(it => it.id === activeCtaItem.id ? { ...it, ...patch } : it) })),
-    [activeCtaItem.id])
-  const addCtaItem = () => {
-    if (ctaState.items.length >= 10) { toast.error('เพิ่มได้สูงสุด 10 CTA'); return }
-    const item = makeDefaultCtaItem()
-    setCtaState(p => ({ ...p, items: [...p.items, item] }))
-    setActiveCtaId(item.id)
-  }
-  const duplicateCtaItem = (id: string) => {
-    if (ctaState.items.length >= 10) { toast.error('เพิ่มได้สูงสุด 10 CTA'); return }
-    const src = ctaState.items.find(it => it.id === id)
-    if (!src) return
-    const copy: CtaItem = { ...src, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: src.name ? `${src.name} (สำเนา)` : '' }
-    setCtaState(p => ({ ...p, items: [...p.items, copy] }))
-    setActiveCtaId(copy.id)
-  }
-  const deleteCtaItem = (id: string) => {
-    if (ctaState.items.length <= 1) { toast.error('ต้องมี CTA อย่างน้อย 1 รายการ'); return }
-    if (!window.confirm('ลบ CTA นี้? ไม่สามารถย้อนกลับได้')) return
-    setCtaState(p => ({ ...p, items: p.items.filter(it => it.id !== id) }))
-    if (activeCtaId === id) {
-      const remaining = ctaState.items.filter(it => it.id !== id)
-      setActiveCtaId(remaining[0]?.id ?? '')
-    }
-  }
-  const renameCtaItem = (id: string, name: string) =>
-    setCtaState(p => ({ ...p, items: p.items.map(it => it.id === id ? { ...it, name } : it) }))
-  const [authorEnabled, setAuthorEnabled] = useState(project.authorEnabled ?? false)
-  const [authors, setAuthors] = useState<AuthorProfile[]>(() => {
-    try {
-      const list = JSON.parse(project.authors ?? '[]')
-      if (Array.isArray(list) && list.length > 0) return list
-    } catch { /* fall through to legacy seed */ }
-    // โปรเจกต์ legacy ที่ตั้ง author เดี่ยวไว้ก่อนมีระบบหลายคน — seed เข้า list
-    // ให้เห็น/เลือกเพศได้ แล้วค่อย persist เป็น authors[] ตอนกดบันทึก
-    if (project.authorName || project.authorTitle) {
-      return [{ id: 'author-legacy', name: project.authorName ?? '', title: project.authorTitle ?? '', gender: 'none', image: project.authorImage ?? '' }]
-    }
-    return []
-  })
   const styleFileRef = useRef<HTMLInputElement>(null)
   const linkFileRef = useRef<HTMLInputElement>(null)
-  const authorImageRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   // Article lab settings
   const [keyword, setKeyword] = useState('')
@@ -5373,22 +5281,6 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   async function persistSettings(includeSample: boolean) {
     const words = forbiddenWords.split('\n').map((w: string) => w.trim()).filter(Boolean)
     const links = parseInternalLinks()
-    // รูปผู้เขียน/CTA ที่อัปโหลดไว้ก่อนมีการย่อรูป อาจเป็น base64 หลาย MB — ย่อก่อนส่งทุกครั้ง
-    const slimAuthors = await Promise.all(authors.map(async a => (
-      a.image ? { ...a, image: await downscaleDataUrl(a.image, 512) } : a
-    )))
-    const slimCta: CtaState = {
-      ...ctaState,
-      items: await Promise.all(ctaState.items.map(async it => ({
-        ...it,
-        channels: await Promise.all(it.channels.map(async c => (
-          c.imageUrl ? { ...c, imageUrl: await downscaleDataUrl(c.imageUrl, 600) } : c
-        ))),
-        banners: await Promise.all((it.banners ?? []).map(async b => (
-          b.imageUrl ? { ...b, imageUrl: await downscaleDataUrl(b.imageUrl, 1200) } : b
-        ))),
-      }))),
-    }
     const common = {
       styleGuide,
       projectContext,
@@ -5397,17 +5289,15 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
       themeColors: JSON.stringify({ ...articleColors, elements: elementStyles }),
       forbiddenWords: JSON.stringify(words),
       internalLinks: JSON.stringify(links),
-      ctaSetting: JSON.stringify(slimCta),
-      authorEnabled,
     }
     // บทความตัวอย่างจาก Generate มีรูปฝังเป็น base64 — ตัดออก เก็บแค่โครงบทความไว้เป็น Pattern
     const sample = includeSample && html ? stripInlineImages(html) : ''
-    const body: Record<string, unknown> = { ...common, authors: slimAuthors }
+    const body: Record<string, unknown> = { ...common }
     if (sample) body.sampleArticle = sample
     const payload = JSON.stringify(body)
     // Vercel รับ request body ได้ไม่เกิน 4.5MB — เกินแล้วจะตอบ 413 ก่อนถึงโค้ดเรา
     if (payload.length > 4_000_000) {
-      throw new Error(`ข้อมูลใหญ่เกินไป (${(payload.length / 1_000_000).toFixed(1)}MB) — ลองลดรูปผู้เขียน/รูป CTA หรือข้อความ Style Guide`)
+      throw new Error(`ข้อมูลใหญ่เกินไป (${(payload.length / 1_000_000).toFixed(1)}MB) — ลองลดข้อความ Style Guide / บริบทธุรกิจ`)
     }
     const res = await fetch(`/api/projects/${project.id}/style`, {
       method: 'PATCH',
@@ -5416,14 +5306,11 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
     })
     if (!res.ok) {
       const detail = await res.json().catch(() => null)
-      if (res.status === 413) throw new Error('ข้อมูลใหญ่เกินไป เซิร์ฟเวอร์ไม่รับ — ลองลดรูปผู้เขียน/รูป CTA')
+      if (res.status === 413) throw new Error('ข้อมูลใหญ่เกินไป เซิร์ฟเวอร์ไม่รับ — ลองลดข้อความ Style Guide')
       throw new Error(`บันทึกค่า Article Lab ไม่สำเร็จ (${detail?.error ?? `HTTP ${res.status}`})`)
     }
-    setAuthors(slimAuthors)
-    setCtaState(slimCta)
     onSaved({
       ...common,
-      authors: JSON.stringify(slimAuthors),
       ...(sample ? { sampleArticle: sample } : {}),
     })
   }
@@ -5644,14 +5531,43 @@ ${cover}${html}
   }
 
   // ── Lab sub-tab state ──────────────────────────────
-  const [labSubTab, setLabSubTab] = useState<'style' | 'cta' | 'author' | 'sitelink' | 'image'>('style')
+  const [labSubTab, setLabSubTab] = useState<'style' | 'images' | 'cta' | 'author' | 'sitelink' | 'image'>('style')
+
+  // ── รูปภาพ / CTA / Author Box — บันทึกแยกผ่าน /article-settings (ไม่ผูกกับปุ่ม "บันทึกทั้งหมด") ──
+  const articleSettingsUrl = `/api/projects/${project.id}/article-settings`
+  const loadArticleSettings = useCallback(async (): Promise<Record<string, unknown>> => {
+    const r = await fetch(articleSettingsUrl)
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(d.error || 'โหลดค่าตั้งค่าไม่สำเร็จ')
+    return d
+  }, [articleSettingsUrl])
+  async function putArticleSettings(section: 'images' | 'cta' | 'author', value: unknown): Promise<unknown> {
+    const r = await fetch(articleSettingsUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ section, value }),
+    })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(d.error || (r.status === 413 ? 'ข้อมูลใหญ่เกินไป — ลดขนาดรูป' : 'บันทึกไม่สำเร็จ'))
+    return d
+  }
+  const [labImages, setLabImages] = useState<ArticleImageSettings | null>(null)
+  useEffect(() => {
+    if (labSubTab !== 'images' || labImages) return
+    let cancelled = false
+    loadArticleSettings()
+      .then(d => { if (!cancelled) setLabImages(readArticleImageSettings(d.images)) })
+      .catch(e => toast.error(e instanceof Error ? e.message : 'โหลดค่ารูปภาพไม่สำเร็จ'))
+    return () => { cancelled = true }
+  }, [labSubTab, labImages, loadArticleSettings])
 
   const LAB_SUBTABS = [
     { id: 'style' as const,    label: 'Style',    icon: '🎨' },
+    { id: 'images' as const,   label: 'รูปภาพ',   icon: '🖼️' },
     { id: 'cta' as const,      label: 'CTA',      icon: '📣' },
-    { id: 'author' as const,   label: 'Author',   icon: '👤' },
+    { id: 'author' as const,   label: 'Author Box', icon: '👤' },
     { id: 'sitelink' as const, label: 'Internal Link', icon: '🔗' },
-    { id: 'image' as const,    label: 'Test Image', icon: '🖼️' },
+    { id: 'image' as const,    label: 'Test Image', icon: '🧪' },
   ]
 
   return (
@@ -6014,571 +5930,54 @@ ${cover}${html}
         </div>
       )}
 
-      {/* ══ CTA sub-tab ════════════════════════════════ */}
-      {labSubTab === 'cta' && (
-        <div className="max-w-2xl space-y-4">
-          <div className="bg-white border border-gray-200 rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-sm font-bold text-brand-navy">CTA (Call-to-Action)</p>
-                <p className="text-xs text-gray-500 mt-0.5">จะถูกแทรกในบทความทุกครั้งที่ Generate</p>
-              </div>
-              <button
-                onClick={() => setCtaState(prev => ({ ...prev, enabled: !prev.enabled }))}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${ctaState.enabled ? 'bg-emerald-500' : 'bg-gray-200'}`}
-              >
-                <span className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${ctaState.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
-            </div>
-
-            {!ctaState.enabled && (
-              <div className="text-center py-8 text-gray-400">
-                <p className="text-sm">เปิด CTA เพื่อตั้งค่า</p>
-              </div>
-            )}
-
-            {ctaState.enabled && (
-              <div className="space-y-4">
-                {/* จำนวน CTA ต่อ 1 บทความ — สุ่มเลือกจากรายการด้านล่าง */}
-                <div>
-                  <p className="text-xs font-medium text-gray-600 mb-1.5">จำนวน CTA ต่อ 1 บทความ</p>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map(n => (
-                      <button key={n} onClick={() => setCtaState(p => ({ ...p, perArticle: n }))}
-                        className={`text-xs w-8 h-8 rounded-lg border transition-colors ${ctaState.perArticle === n ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-gray-400 mt-1">ระบบจะสุ่มเลือก CTA จากรายการด้านล่างมาแทรกตามจำนวนนี้ในแต่ละบทความ</p>
-                </div>
-
-                {/* รายการ CTA — เพิ่ม/คัดลอก/ลบ/ตั้งชื่อ (สูงสุด 10 รายการ) */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-xs font-medium text-gray-600">รายการ CTA ({ctaState.items.length})</p>
-                    <button onClick={addCtaItem} disabled={ctaState.items.length >= 10}
-                      className="text-[11px] px-2.5 py-1 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                      + เพิ่ม CTA
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {ctaState.items.map((it, idx) => (
-                      <div key={it.id}
-                        className={`flex items-center gap-1 rounded-full border pl-3 pr-1 py-1 ${activeCtaId === it.id ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-600'}`}>
-                        <button onClick={() => setActiveCtaId(it.id)} className="text-xs font-medium">
-                          {it.name?.trim() || `CTA ${idx + 1}`}
-                        </button>
-                        <button onClick={() => duplicateCtaItem(it.id)} title="คัดลอก"
-                          className={`text-[10px] w-5 h-5 rounded-full flex items-center justify-center ${activeCtaId === it.id ? 'hover:bg-white/20' : 'hover:bg-gray-200'}`}>⧉</button>
-                        {ctaState.items.length > 1 && (
-                          <button onClick={() => deleteCtaItem(it.id)} title="ลบ"
-                            className={`text-[10px] w-5 h-5 rounded-full flex items-center justify-center ${activeCtaId === it.id ? 'hover:bg-white/20' : 'hover:bg-gray-200'}`}>✕</button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-2">
-                    <input value={activeCtaItem.name ?? ''} onChange={e => renameCtaItem(activeCtaItem.id, e.target.value)}
-                      placeholder="ตั้งชื่อ CTA นี้ (ไม่บังคับ เช่น โปรโมชั่น A)"
-                      className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
-                  </div>
-                </div>
-
-                {/* Mode selector — ปุ่มมาตรฐาน / ออกแบบเอง / แบนเนอร์รูป */}
-                <div>
-                  <p className="text-xs font-medium text-gray-600 mb-1.5">รูปแบบ CTA</p>
-                  <div className="flex gap-1">
-                    {([['buttons','ปุ่มมาตรฐาน'],['custom','ออกแบบเอง'],['banner','แบนเนอร์รูป']] as [CtaMode,string][]).map(([v,lbl]) => (
-                      <button key={v}
-                        onClick={() => updateActiveCtaItem({
-                          mode: v,
-                          custom: v === 'custom' && !activeCtaItem.custom ? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border) : activeCtaItem.custom,
-                        })}
-                        className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${(activeCtaItem.mode ?? 'buttons') === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-                        {lbl}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {activeCtaItem.mode !== 'banner' && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Headline</label>
-                      <input value={activeCtaItem.headline} onChange={e => updateActiveCtaItem({ headline: e.target.value })}
-                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Subtext</label>
-                      <input value={activeCtaItem.subtext} onChange={e => updateActiveCtaItem({ subtext: e.target.value })}
-                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Layout controls */}
-                {activeCtaItem.mode !== 'banner' && (
-                  <div className="flex items-center gap-6">
-                    <div>
-                      <p className="text-xs font-medium text-gray-600 mb-1.5">การจัดวาง</p>
-                      <div className="flex gap-1">
-                        {([['left','◀ ซ้าย'],['center','■ กลาง'],['right','ขวา ▶']] as [CtaItem['alignment'],string][]).map(([v,lbl]) => (
-                          <button key={v} onClick={() => updateActiveCtaItem({ alignment: v })}
-                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${activeCtaItem.alignment === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-                            {lbl}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-gray-600 mb-1.5">ปุ่มเรียงแนว</p>
-                      <div className="flex gap-1">
-                        {([['row','แนวนอน ▷▷'],['column','แนวตั้ง ↓']] as [CtaItem['buttonLayout'],string][]).map(([v,lbl]) => (
-                          <button key={v} onClick={() => updateActiveCtaItem({ buttonLayout: v })}
-                            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${activeCtaItem.buttonLayout === v ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-                            {lbl}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* ออกแบบกล่อง CTA — โหมด custom เท่านั้น */}
-                {activeCtaItem.mode === 'custom' && (() => {
-                  const custom = activeCtaItem.custom ?? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border)
-                  const updateCustom = (patch: Partial<CtaCustomDesign>) =>
-                    updateActiveCtaItem({ custom: { ...(activeCtaItem.custom ?? custom), ...patch } })
-                  const colorRows: { key: keyof CtaCustomDesign; label: string }[] = [
-                    { key: 'boxBg', label: 'พื้นกล่อง' },
-                    { key: 'boxText', label: 'สีตัวอักษร' },
-                    { key: 'boxBorderColor', label: 'สีกรอบกล่อง' },
-                    { key: 'buttonBg', label: 'พื้นปุ่ม' },
-                    { key: 'buttonText', label: 'สีตัวอักษรปุ่ม' },
-                    { key: 'buttonBorderColor', label: 'สีกรอบปุ่ม' },
-                  ]
-                  return (
-                    <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-semibold text-gray-700">ออกแบบกล่อง CTA</p>
-                        <button
-                          onClick={() => updateCustom(defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border))}
-                          className="text-[10px] text-gray-400 hover:text-brand-blue">รีเซ็ตเป็นสีธีม</button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                        {colorRows.map(({ key, label }) => {
-                          const val = (custom[key] as string) || '#ffffff'
-                          return (
-                            <div key={key} className="flex items-center gap-2">
-                              <label className="relative w-7 h-7 rounded-lg border border-gray-200 cursor-pointer shrink-0 overflow-hidden"
-                                style={{ backgroundColor: val === 'transparent' ? '#fff' : val }} title={label}>
-                                <input type="color" value={val === 'transparent' ? '#ffffff' : val}
-                                  onChange={e => updateCustom({ [key]: e.target.value } as Partial<CtaCustomDesign>)}
-                                  className="absolute inset-0 opacity-0 cursor-pointer" />
-                              </label>
-                              <span className="text-[11px] text-gray-600 flex-1">{label}</span>
-                              <input value={val}
-                                onChange={e => updateCustom({ [key]: e.target.value } as Partial<CtaCustomDesign>)}
-                                className="w-20 text-[10px] font-mono border border-gray-200 rounded-lg px-1.5 py-1 focus:outline-none" />
-                            </div>
-                          )
-                        })}
-                      </div>
-                      <div className="grid grid-cols-3 gap-3 pt-1">
-                        {([
-                          ['boxBorderWidth', 'กรอบกล่อง (px)', 0, 6],
-                          ['boxRadius', 'มุมกล่อง (px)', 0, 32],
-                          ['buttonRadius', 'มุมปุ่ม (px)', 0, 32],
-                        ] as [keyof CtaCustomDesign, string, number, number][]).map(([key, label, min, max]) => (
-                          <div key={key}>
-                            <p className="text-[10px] text-gray-500 mb-1">{label}: {custom[key]}</p>
-                            <input type="range" min={min} max={max} value={custom[key] as number}
-                              onChange={e => updateCustom({ [key]: Number(e.target.value) } as Partial<CtaCustomDesign>)}
-                              className="w-full" />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Preview card — buttons/custom เท่านั้น (banner ใช้พรีวิวรูปแทน) */}
-                {activeCtaItem.mode !== 'banner' && (activeCtaItem.headline || activeCtaItem.subtext || activeCtaItem.channels.filter(c => c.value).length > 0) && (() => {
-                  const custom = activeCtaItem.mode === 'custom' ? (activeCtaItem.custom ?? defaultCtaCustom(articleColors.theme ?? accentColor, articleColors.border)) : null
-                  const boxStyle: React.CSSProperties = custom
-                    ? { background: custom.boxBg, borderColor: custom.boxBorderColor, borderWidth: custom.boxBorderWidth, borderStyle: 'solid', borderRadius: custom.boxRadius, textAlign: activeCtaItem.alignment }
-                    : { borderColor: accentColor + '40', background: accentColor + '08', textAlign: activeCtaItem.alignment }
-                  const textColor = custom ? custom.boxText : undefined
-                  return (
-                    <div className={custom ? 'p-4' : 'rounded-2xl border-2 p-4'} style={boxStyle}>
-                      {activeCtaItem.headline && <p className={`font-bold text-sm ${custom ? '' : 'text-brand-navy'}`} style={custom ? { color: textColor } : undefined}>{activeCtaItem.headline}</p>}
-                      {activeCtaItem.subtext && <p className={`text-xs mt-0.5 ${custom ? '' : 'text-gray-500'}`} style={custom ? { color: textColor, opacity: 0.85 } : undefined}>{activeCtaItem.subtext}</p>}
-                      {activeCtaItem.channels.filter(c => c.value).length > 0 && (
-                        <div className={`flex gap-2 mt-3 flex-wrap ${activeCtaItem.alignment === 'center' ? 'justify-center' : activeCtaItem.alignment === 'right' ? 'justify-end' : 'justify-start'} ${activeCtaItem.buttonLayout === 'column' ? 'flex-col items-start' : ''} ${activeCtaItem.buttonLayout === 'column' && activeCtaItem.alignment === 'center' ? '!items-center' : ''} ${activeCtaItem.buttonLayout === 'column' && activeCtaItem.alignment === 'right' ? '!items-end' : ''}`}>
-                          {activeCtaItem.channels.filter(c => c.value).map((c, i) => {
-                            const opt = CTA_CHANNEL_OPTS.find(o => o.type === c.type)
-                            const icon = c.icon ?? opt?.icon ?? ''
-                            const style = c.buttonStyle ?? 'filled'
-                            const customBtnStyle: React.CSSProperties | null = custom
-                              ? (i === 0
-                                ? { background: custom.buttonBg, color: custom.buttonText, border: `1.5px solid ${custom.buttonBorderColor}`, borderRadius: custom.buttonRadius }
-                                : { background: 'transparent', color: custom.boxText, border: `1.5px solid ${custom.boxText}`, borderRadius: custom.buttonRadius })
-                              : null
-                            return (
-                              <span key={c.type} className={`text-xs px-3 py-1.5 rounded-full font-medium flex items-center gap-1.5 ${customBtnStyle ? '' : (style === 'filled' ? 'text-white' : style === 'outline' ? 'bg-transparent border-2' : 'bg-transparent')}`}
-                                style={customBtnStyle ?? (style === 'filled' ? { backgroundColor: accentColor } : style === 'outline' ? { borderColor: accentColor, color: accentColor } : { color: accentColor })}>
-                                {c.imageUrl
-                                  ? <img src={c.imageUrl} alt="" className="w-4 h-4 rounded-full object-cover shrink-0" />
-                                  : icon ? <span>{icon}</span> : null
-                                }
-                                {c.label}
-                              </span>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
-
-                {/* แบนเนอร์ CTA — โหมด banner เท่านั้น */}
-                {activeCtaItem.mode === 'banner' && (() => {
-                  const banners = activeCtaItem.banners ?? []
-                  const addBanner = () => {
-                    if (banners.length >= 5) return
-                    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-                    updateActiveCtaItem({ banners: [...(activeCtaItem.banners ?? []), { id, imageUrl: '', href: '', alt: '' }] })
-                  }
-                  const updateBanner = (id: string, patch: Partial<CtaBanner>) =>
-                    updateActiveCtaItem({ banners: (activeCtaItem.banners ?? []).map(b => b.id === id ? { ...b, ...patch } : b) })
-                  const removeBanner = (id: string) =>
-                    updateActiveCtaItem({ banners: (activeCtaItem.banners ?? []).filter(b => b.id !== id) })
-                  return (
-                    <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-semibold text-gray-700">แบนเนอร์ CTA (สูงสุด 5 รูป)</p>
-                        <button onClick={addBanner} disabled={banners.length >= 5}
-                          className="text-[11px] px-2.5 py-1 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                          + เพิ่มรูป
-                        </button>
-                      </div>
-                      <p className="text-[10px] text-gray-400 leading-4">
-                        1 รูป = ใช้รูปนั้นทุกบทความ · หลายรูป = ระบบสุ่มเลือก 1 รูปต่อบทความ · กดที่รูปแล้วไปที่ลิงก์ที่ใส่
-                      </p>
-                      {banners.length === 0 && (
-                        <p className="text-xs text-gray-400 text-center py-4">ยังไม่มีแบนเนอร์ — กด “+ เพิ่มรูป”</p>
-                      )}
-                      <div className="space-y-3">
-                        {banners.map(b => (
-                          <div key={b.id} className="bg-white rounded-xl border border-gray-200 p-3 flex gap-3">
-                            <div className="shrink-0">
-                              {b.imageUrl ? (
-                                <img src={b.imageUrl} alt="" className="max-h-32 rounded-lg border border-gray-100 object-contain" />
-                              ) : (
-                                <label className="w-28 h-20 rounded-lg border border-dashed border-blue-300 flex items-center justify-center cursor-pointer text-[10px] text-blue-500 hover:border-blue-500 transition-colors">
-                                  <span>+ อัพโหลด</span>
-                                  <input type="file" accept="image/*" className="hidden"
-                                    onChange={e => {
-                                      const file = e.target.files?.[0]
-                                      if (!file) return
-                                      fileToDownscaledDataUrl(file, 1200)
-                                        .then(url => updateBanner(b.id, { imageUrl: url }))
-                                        .catch(err => toast.error(err instanceof Error ? err.message : String(err)))
-                                      e.target.value = ''
-                                    }} />
-                                </label>
-                              )}
-                              {b.imageUrl && (
-                                <button onClick={() => updateBanner(b.id, { imageUrl: '' })}
-                                  className="mt-1 text-[10px] text-gray-400 hover:text-red-500">เปลี่ยนรูป</button>
-                              )}
-                            </div>
-                            <div className="flex-1 space-y-1.5 min-w-0">
-                              <input value={b.href} onChange={e => updateBanner(b.id, { href: e.target.value })}
-                                placeholder="ลิงก์เมื่อกด เช่น https://line.me/... / tel:02xxxxxxx"
-                                className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none" />
-                              <input value={b.alt} onChange={e => updateBanner(b.id, { alt: e.target.value })}
-                                placeholder="alt (คำบรรยายรูป)"
-                                className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none" />
-                            </div>
-                            <button onClick={() => removeBanner(b.id)}
-                              className="text-gray-300 hover:text-red-400 text-sm shrink-0 self-start">✕</button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                <div>
-                  <p className="text-xs font-semibold text-gray-700 mb-2">ช่องทางติดต่อ <span className="font-normal text-gray-400">(ลากเพื่อเรียงลำดับ)</span></p>
-                  {activeCtaItem.mode === 'banner' && (
-                    <p className="text-[10px] text-gray-400 -mt-1 mb-2">ช่องทางด้านล่างใช้เฉพาะลิงก์ข้อความหลัง Short Answer (ไม่บังคับ)</p>
-                  )}
-                  {/* Active channels — draggable to reorder */}
-                  {activeCtaItem.channels.length > 0 && (
-                    <div className="space-y-2 mb-3 pb-3 border-b border-gray-100">
-                      {activeCtaItem.channels.map((ch, idx) => {
-                        const opt = CTA_CHANNEL_OPTS.find(o => o.type === ch.type)!
-                        const currentIcon = ch.icon ?? opt.icon
-                        return (
-                          <div key={ch.type}
-                            draggable
-                            onDragStart={e => e.dataTransfer.setData('text/plain', String(idx))}
-                            onDragOver={e => e.preventDefault()}
-                            onDrop={e => {
-                              e.preventDefault()
-                              const from = Number(e.dataTransfer.getData('text/plain'))
-                              if (from === idx) return
-                              const arr = [...activeCtaItem.channels]
-                              const [item] = arr.splice(from, 1)
-                              arr.splice(idx, 0, item)
-                              updateActiveCtaItem({ channels: arr })
-                            }}
-                            className="bg-gray-50 rounded-xl px-3 py-2 cursor-grab active:cursor-grabbing group">
-                            {/* Row 1: drag handle + type + label + value + delete */}
-                            <div className="flex items-center gap-2">
-                              <span className="text-gray-300 text-xs select-none shrink-0">⠿</span>
-                              <span className="text-[10px] text-gray-400 w-16 shrink-0">{opt.type}</span>
-                              <input
-                                value={ch.label}
-                                onChange={e => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, label: e.target.value } : c) })}
-                                placeholder="ชื่อปุ่ม"
-                                className="w-24 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none bg-white shrink-0"
-                              />
-                              <input
-                                value={ch.value}
-                                onChange={e => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, value: e.target.value } : c) })}
-                                placeholder={opt.placeholder}
-                                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none bg-white"
-                              />
-                              <button
-                                onClick={() => updateActiveCtaItem({ channels: activeCtaItem.channels.filter(c => c.type !== ch.type) })}
-                                className="text-gray-300 hover:text-red-400 text-sm opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                                ✕
-                              </button>
-                            </div>
-                            {/* Row 2: image upload + button style */}
-                            <div className="flex items-center gap-3 mt-2 pl-7">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-[10px] text-gray-400 shrink-0">รูป/โลโก้:</span>
-                                {ch.imageUrl ? (
-                                  <div className="relative shrink-0">
-                                    <img src={ch.imageUrl} alt="" className="w-8 h-8 rounded-lg object-cover border border-gray-200" />
-                                    <button
-                                      onClick={() => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, imageUrl: undefined } : c) })}
-                                      className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center leading-none">
-                                      ✕
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <label className="cursor-pointer flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-700 border border-dashed border-blue-300 rounded-lg px-2 py-1 hover:border-blue-500 transition-colors">
-                                    <span>+ อัพโหลด</span>
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      className="hidden"
-                                      onChange={e => {
-                                        const file = e.target.files?.[0]
-                                        if (!file) return
-                                        fileToDownscaledDataUrl(file, 600)
-                                          .then(url => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, imageUrl: url } : c) }))
-                                          .catch(err => toast.error(err instanceof Error ? err.message : String(err)))
-                                        e.target.value = ''
-                                      }}
-                                    />
-                                  </label>
-                                )}
-                                {!ch.imageUrl && (
-                                  <span className="text-[10px] text-gray-300">{currentIcon}</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1 ml-auto shrink-0">
-                                <span className="text-[10px] text-gray-400">สไตล์:</span>
-                                {(['filled','outline','ghost'] as const).map(s => (
-                                  <button key={s} onClick={() => updateActiveCtaItem({ channels: activeCtaItem.channels.map(c => c.type === ch.type ? { ...c, buttonStyle: s } : c) })}
-                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${(ch.buttonStyle ?? 'filled') === s ? 'border-gray-700 bg-gray-700 text-white' : 'border-gray-200 text-gray-400 hover:border-gray-400'}`}>
-                                    {s === 'filled' ? 'ทึบ' : s === 'outline' ? 'กรอบ' : 'ข้อความ'}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {/* Add channel buttons */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {CTA_CHANNEL_OPTS.filter(opt => !activeCtaItem.channels.find(c => c.type === opt.type)).map(opt => (
-                      <button key={opt.type}
-                        onClick={() => updateActiveCtaItem({ channels: [...activeCtaItem.channels, { type: opt.type, label: opt.defaultLabel, value: '', icon: opt.icon, buttonStyle: 'filled' }] })}
-                        className="flex items-center gap-1 text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-full text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors">
-                        + {opt.icon} {opt.type}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+      {/* ══ รูปภาพ sub-tab — หน้าตาเดียวกับ Upload Article ═══ */}
+      {labSubTab === 'images' && (
+        labImages
+          ? (
+            <ImageSettingsEditor
+              key={project.id}
+              saved={labImages}
+              autoOption
+              intro="ตั้งค่ารูปปกและรูปประกอบที่ระบบสร้างให้ตอน Generate บทความของโปรเจกต์นี้"
+              save={async (draft) => {
+                const d = await putArticleSettings('images', draft) as ArticleImageSettings
+                setLabImages(d)
+                return d
+              }}
+            />
+          )
+          : <p className="text-xs text-gray-400 flex items-center gap-1.5"><RefreshCw size={12} className="animate-spin" /> กำลังโหลด...</p>
       )}
 
-      {/* ══ AUTHOR sub-tab ═════════════════════════════ */}
+      {/* ══ CTA sub-tab — หน้าตาเดียวกับ Upload Article ═══ */}
+      {labSubTab === 'cta' && (
+        <CtaSettingsEditor
+          loadKey={project.id}
+          load={async () => (await loadArticleSettings()).cta as UploadCtaSettings}
+          save={async (slim) => {
+            const d = await putArticleSettings('cta', slim) as UploadCtaSettings
+            onSaved({ ctaSetting: JSON.stringify(d) })
+            return d
+          }}
+          accentColor={articleColors.theme || accentColor}
+          border={articleColors.border || '#e5e7eb'}
+          description="CTA จะถูกแทรกในบทความอัตโนมัติทุกครั้งที่ Generate (เมื่อเปิดใช้งาน) — มีหลายชุดได้ ระบบสุ่มใช้ต่อบทความ"
+        />
+      )}
+
+      {/* ══ AUTHOR sub-tab — หน้าตาเดียวกับ Upload Article (+ เพศ ใช้ปรับสรรพนามในบทความ) ═══ */}
       {labSubTab === 'author' && (
-        <div className="max-w-2xl space-y-4">
-          <div className="bg-white border border-gray-200 rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-sm font-bold text-brand-navy">Author Box</p>
-                <p className="text-xs text-gray-500 mt-0.5">แนบท้ายบทความ + ปรับโทนภาษาตามผู้เขียน</p>
-              </div>
-              <button
-                onClick={() => setAuthorEnabled(prev => !prev)}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${authorEnabled ? 'bg-emerald-500' : 'bg-gray-200'}`}
-              >
-                <span className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${authorEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
-            </div>
-
-            {!authorEnabled && (
-              <div className="text-center py-8 text-gray-400">
-                <p className="text-sm">เปิด Author Box เพื่อตั้งค่า</p>
-              </div>
-            )}
-
-            {authorEnabled && (
-              <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-500 mb-2">สไตล์การ์ดผู้เขียน</p>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {AUTHOR_CARD_STYLES.map(opt => {
-                    const active = normalizeAuthorCardStyle(articleColors.authorCard) === opt.key
-                    return (
-                      <button
-                        key={opt.key}
-                        onClick={() => setArticleColor('authorCard', opt.key)}
-                        className={`text-left rounded-xl border p-3 transition-colors ${active ? 'border-brand-blue bg-blue-50' : 'border-gray-200 hover:border-gray-400'}`}
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <span className={`text-xs font-bold ${active ? 'text-brand-blue' : 'text-gray-700'}`}>{opt.label}</span>
-                          {opt.key === DEFAULT_AUTHOR_CARD_STYLE && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">ค่าเริ่มต้น</span>
-                          )}
-                        </span>
-                        <span className="block text-[11px] text-gray-500 mt-1 leading-snug">{opt.description}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  มีผลกับบทความที่เขียนใหม่หลังบันทึก — บทความเดิมยังใช้สไตล์ที่ถูกเขียนไว้ตอนนั้น
-                </p>
-              </div>
-            )}
-
-            {authorEnabled && (
-              <div className="space-y-3">
-                {authors.map((author, idx) => (
-                  <div key={author.id} className="border border-gray-100 rounded-xl p-4 bg-gray-50 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-gray-500">Author {idx + 1}</span>
-                      <button onClick={() => setAuthors(prev => prev.filter(a => a.id !== author.id))}
-                        className="text-xs text-red-400 hover:text-red-600">ลบ</button>
-                    </div>
-                    <div className="flex gap-4 items-start">
-                      <div className="flex flex-col items-center gap-1 shrink-0">
-                        <div
-                          className="w-16 h-16 rounded-full border-2 border-gray-200 overflow-hidden bg-gray-100 flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors"
-                          onClick={() => authorImageRefs.current[author.id]?.click()}
-                        >
-                          {author.image ? (
-                            <img src={author.image} alt={author.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <svg className="w-8 h-8 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
-                            </svg>
-                          )}
-                        </div>
-                        <button onClick={() => authorImageRefs.current[author.id]?.click()}
-                          className="text-[10px] text-blue-500 hover:text-blue-700">
-                          {author.image ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}
-                        </button>
-                        <input
-                          ref={el => { authorImageRefs.current[author.id] = el }}
-                          type="file" accept="image/*" className="hidden"
-                          onChange={e => {
-                            const file = e.target.files?.[0]; if (!file) return
-                            fileToDownscaledDataUrl(file, 512)
-                              .then(url => setAuthors(prev => prev.map(a =>
-                                a.id === author.id ? { ...a, image: url } : a
-                              )))
-                              .catch(err => toast.error(err instanceof Error ? err.message : String(err)))
-                          }}
-                        />
-                      </div>
-                      <div className="flex-1 space-y-2">
-                        <input
-                          value={author.name}
-                          onChange={e => setAuthors(prev => prev.map(a => a.id === author.id ? { ...a, name: e.target.value } : a))}
-                          placeholder="ชื่อ Author เช่น ทพญ.เอสิกา"
-                          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200"
-                        />
-                        <input
-                          value={author.title}
-                          onChange={e => setAuthors(prev => prev.map(a => a.id === author.id ? { ...a, title: e.target.value } : a))}
-                          placeholder="ตำแหน่ง เช่น ทันตแพทย์ผู้เชี่ยวชาญ"
-                          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200"
-                        />
-                        <div className="flex gap-1.5">
-                          {([['male','ชาย (ครับ/ผม)'],['female','หญิง (ค่ะ/ฉัน)'],['none','กลาง']] as [string,string][]).map(([val, lbl]) => (
-                            <button key={val}
-                              onClick={() => setAuthors(prev => prev.map(a => a.id === author.id ? { ...a, gender: val as AuthorProfile['gender'] } : a))}
-                              className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${author.gender === val ? 'border-gray-800 bg-gray-800 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-                              {lbl}
-                            </button>
-                          ))}
-                        </div>
-                        <textarea
-                          value={(author.credentials ?? []).join('\n')}
-                          onChange={e => setAuthors(prev => prev.map(a => a.id === author.id
-                            ? { ...a, credentials: e.target.value.split('\n').map(l => l.trim()).filter(Boolean) }
-                            : a))}
-                          rows={3}
-                          placeholder={'วุฒิ/ใบรับรอง บรรทัดละ 1 ข้อ เช่น\nวุฒิบัตรทันตแพทย์เฉพาะทางสาขาทันตกรรมจัดฟัน\nCertification of Invisalign Provider'}
-                          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200 resize-y"
-                        />
-                        <p className="text-[11px] text-gray-400">รายการนี้แสดงติดเครื่องหมายถูกในการ์ด (แบบ Profile และ Banner) — แบบ Byline จะไม่แสดง</p>
-                      </div>
-                    </div>
-                    {(author.name || author.title) && (
-                      <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
-                        {author.image && <img src={author.image} alt={author.name} className="w-9 h-9 rounded-full object-cover border border-gray-200" />}
-                        <div>
-                          {author.name && <p className="text-xs font-semibold text-gray-800">{author.name}</p>}
-                          {author.title && <p className="text-[11px] text-gray-400">{author.title}</p>}
-                        </div>
-                        <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full ${author.gender === 'male' ? 'bg-blue-100 text-brand-blue' : author.gender === 'female' ? 'bg-pink-100 text-pink-600' : 'bg-gray-100 text-gray-400'}`}>
-                          {author.gender === 'male' ? 'ชาย' : author.gender === 'female' ? 'หญิง' : 'กลาง'}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                <button
-                  onClick={() => setAuthors(prev => [...prev, { id: `author-${Date.now()}`, name: '', title: '', gender: 'none', image: '' }])}
-                  className="w-full text-sm text-gray-500 border border-dashed border-gray-300 rounded-xl py-3 hover:border-gray-500 hover:text-gray-700 transition-colors"
-                >
-                  + เพิ่ม Author
-                </button>
-                {authors.length === 0 && (
-                  <p className="text-xs text-gray-400 text-center">ยังไม่มี Author — กด "+ เพิ่ม Author" เพื่อเริ่ม</p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <AuthorSettingsEditor
+          loadKey={project.id}
+          withGender
+          load={async () => (await loadArticleSettings()).author as UploadAuthorSettings}
+          save={async (slim) => {
+            const d = await putArticleSettings('author', slim) as UploadAuthorSettings
+            onSaved({ authors: JSON.stringify(d.authors), authorEnabled: d.enabled })
+            return d
+          }}
+          description="แนบการ์ดผู้เขียนท้ายบทความ + ปรับโทนภาษาตามผู้เขียน — ถ้าบทความถูกกำหนดผู้เขียนไว้แล้วจะใช้คนนั้นก่อน"
+        />
       )}
 
       {/* ══ SITELINK sub-tab ═══════════════════════════ */}
