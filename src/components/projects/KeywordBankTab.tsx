@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { RefreshCw, Plus, Trash2, ArrowRight, Sparkles, AlertTriangle, X, Search } from 'lucide-react'
 
 import type { ProjectData, KeywordRow } from '@/components/projects/ClientDetailTabs'
+import { PAGE_TYPE_LABEL_TH } from '@/lib/wordgod/intent-skill/handoff'
 
 // ─── Keyword Bank — คลัง keyword ถาวรของ project (DB — refresh ไม่หาย) ─────────
 // รวม keyword จาก Keyword Research / Keywords Input / เพิ่มเองแบบ manual
@@ -37,6 +38,12 @@ const FUNNEL_COLOR: Record<string, string> = {
   BOFU: 'bg-red-100 text-red-700',
 }
 
+const FIT_COLOR: Record<string, string> = {
+  FIT: 'bg-emerald-100 text-emerald-700',
+  ARTICLE_ONLY: 'bg-amber-100 text-amber-700',
+  NOT_RECOMMENDED: 'bg-red-100 text-red-700',
+}
+
 const SOURCE_LABEL: Record<string, string> = {
   'keyword-research': 'Keyword Research',
   'keyword-research-local': 'Keyword Research (มีหน้าร้าน)',
@@ -54,6 +61,22 @@ const SOURCE_COLOR: Record<string, string> = {
 
 function parseMeta(meta: string): Record<string, unknown> {
   try { return JSON.parse(meta || '{}') } catch { return {} }
+}
+
+// ─── ตัวช่วย validate meta key ใหม่จาก Keyword Intent Skill — ผิดชนิด/ไม่รู้จักค่า = ignore ─────
+const INTENT_CODE_OPTIONS = ['I', 'C', 'T', 'N'] as const
+const FIT_OPTIONS = ['FIT', 'ARTICLE_ONLY', 'NOT_RECOMMENDED'] as const
+const PAGE_TIER_OPTIONS = ['PRIMARY', 'SECONDARY', 'BLOG'] as const
+const PAGE_TYPE_UNIFIED_OPTIONS = Object.keys(PAGE_TYPE_LABEL_TH) as (keyof typeof PAGE_TYPE_LABEL_TH)[]
+
+function metaStr(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() ? v.trim() : undefined
+}
+function metaBool(v: unknown): boolean | undefined {
+  return typeof v === 'boolean' ? v : undefined
+}
+function metaOneOf<T extends string>(v: unknown, opts: readonly T[]): T | undefined {
+  return typeof v === 'string' && (opts as readonly string[]).includes(v) ? (v as T) : undefined
 }
 
 function sourceLabel(row: BankKeyword): string {
@@ -88,6 +111,20 @@ export function toKeywordRow(row: BankKeyword, idx: number): KeywordRow {
     secondary_objective: meta.secondary_objective as string | undefined,
     article_type: meta.article_type as string | undefined,
     notes: meta.notes as string | undefined,
+    // Keyword Intent Skill fields — meta ใหม่ ผลรุ่นเก่าที่ไม่มีค่าพวกนี้แสดงเหมือนเดิม
+    slug: metaStr(meta.slug),
+    cluster: metaStr(meta.cluster),
+    keyword_group: metaStr(meta.keyword_group),
+    group_head: metaBool(meta.group_head),
+    cluster_name: metaStr(meta.cluster_name),
+    section: metaStr(meta.section),
+    page_tier: metaOneOf(meta.page_tier, PAGE_TIER_OPTIONS),
+    page_type_unified: metaOneOf(meta.page_type_unified, PAGE_TYPE_UNIFIED_OPTIONS),
+    pillar_intent: metaStr(meta.pillar_intent),
+    intent_code: metaOneOf(meta.intent_code, INTENT_CODE_OPTIONS),
+    fit: metaOneOf(meta.fit, FIT_OPTIONS),
+    remark: metaStr(meta.remark),
+    approved: metaBool(meta.approved),
   }
 }
 
@@ -475,6 +512,12 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                   const src = sourceLabel(row)
                   const intentOpts = INTENT_OPTIONS.includes(row.intent) ? INTENT_OPTIONS : [row.intent, ...INTENT_OPTIONS]
                   const funnelOpts = FUNNEL_OPTIONS.includes(row.funnelStage) ? FUNNEL_OPTIONS : [row.funnelStage, ...FUNNEL_OPTIONS]
+                  // Keyword Intent Skill — meta ใหม่ (ไม่มี = ไม่แสดงอะไรเพิ่ม เหมือนเดิม)
+                  const meta = parseMeta(row.meta)
+                  const metaIntentCode = metaOneOf(meta.intent_code, INTENT_CODE_OPTIONS)
+                  const metaFit = metaOneOf(meta.fit, FIT_OPTIONS)
+                  const metaPageTypeUnified = metaOneOf(meta.page_type_unified, PAGE_TYPE_UNIFIED_OPTIONS)
+                  const metaRemark = metaStr(meta.remark)
                   return (
                     <tr key={row.id} className={selectedIds.has(row.id) ? 'bg-blue-50/60' : 'hover:bg-gray-50/80'}>
                       <td className="px-3 py-2.5 w-8">
@@ -520,13 +563,26 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                         )}
                       </td>
 
-                      {/* Intent — select */}
+                      {/* Intent — select (+ badges จาก Keyword Intent Skill ถ้ามี) */}
                       <td className="px-3 py-2.5">
                         <select value={row.intent} disabled={isReadOnly}
                           onChange={e => patchRow(row.id, { intent: e.target.value })}
                           className="text-[10px] font-semibold border border-gray-200 rounded-lg px-1.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:bg-transparent disabled:border-transparent">
                           {intentOpts.map(o => <option key={o} value={o}>{o}</option>)}
                         </select>
+                        {(metaIntentCode || metaFit || metaPageTypeUnified) && (
+                          <div className="flex items-center gap-1 flex-wrap mt-1" title={metaRemark}>
+                            {metaIntentCode && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{metaIntentCode}</span>
+                            )}
+                            {metaFit && (
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${FIT_COLOR[metaFit]}`}>{metaFit}</span>
+                            )}
+                            {metaPageTypeUnified && (
+                              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-sky-50 text-sky-600">{PAGE_TYPE_LABEL_TH[metaPageTypeUnified]}</span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* Funnel — select */}

@@ -34,6 +34,27 @@ import {
   type StrategyGoal,
 } from '@/lib/wordgod/online/types';
 import { splitCountByRatio, type LanguageMode } from '@/lib/keyword-language';
+import BusinessProfileCard from '@/components/keyword-research/BusinessProfileCard';
+import IntentPlanView, { IntentBadge, FitBadge } from '@/components/keyword-research/IntentPlanView';
+import type { BusinessProfile, IntentSkillResult } from '@/lib/wordgod/intent-skill/types';
+import { type KeywordHandoffRow } from '@/lib/wordgod/intent-skill/handoff';
+
+/** OnlineResearchResponse ที่รวมผล Keyword Intent Skill (optional — ผลรุ่นเก่าไม่มี) */
+type OnlineResponseWithSkill = OnlineResearchResponse & { intentSkill?: IntentSkillResult };
+
+const EMPTY_BUSINESS_PROFILE: BusinessProfile = {
+  servicesOffered: [],
+  servicesNotOffered: [],
+  hasShop: false,
+  shopProducts: [],
+  branches: [],
+  competitorBrands: [],
+  ownBrand: '',
+};
+
+const ISK_INTENT_TO_BANK: Record<'I' | 'C' | 'T' | 'N', string> = {
+  I: 'INFORMATIONAL', C: 'COMMERCIAL', T: 'TRANSACTIONAL', N: 'NAVIGATIONAL',
+};
 
 interface OnlineProject {
   id: string;
@@ -48,6 +69,12 @@ interface Props {
   /** โหมดภาษาจาก LanguageModeSelect (ทุกโปรเจกต์): th/en ล็อกภาษา, both = แบ่งจำนวนตาม ratioThai */
   languageMode?: LanguageMode;
   ratioThai?: number;
+  /** true = ใช้แบบไม่ผูกโปรเจกต์ (เช่น หน้า Keyword Research แยกเดี่ยว) — ไม่ส่ง projectId, ไม่เช็คคำซ้ำกับโปรเจกต์ */
+  standalone?: boolean;
+  /** ถ้าใส่ — ปุ่ม "ส่งไปหน้า Keyword" จะเรียกฟังก์ชันนี้แทนการ POST เข้า keyword-bank ของโปรเจกต์ */
+  onSendRows?: (rows: KeywordHandoffRow[]) => Promise<void> | void;
+  /** override ข้อความปุ่มส่ง (ค่าเริ่มต้น "ส่งไปหน้า Keyword →") */
+  sendLabel?: string;
 }
 
 const fieldClass = 'w-full rounded-xl border border-[#cfd9ea] bg-white px-3.5 py-3 text-sm text-[#17233a] placeholder:text-[#91a0b8] shadow-sm outline-none transition focus:border-[#155eef] focus:ring-4 focus:ring-[#155eef]/10';
@@ -345,7 +372,7 @@ function GuardRiskCell({ row }: { row: OnlineKeywordResult }) {
   );
 }
 
-export default function WordGodOnlinePanel({ project, onSendToBank, languageMode, ratioThai = 50 }: Props) {
+export default function WordGodOnlinePanel({ project, onSendToBank, languageMode, ratioThai = 50, standalone = false, onSendRows, sendLabel }: Props) {
   // ── ฟอร์มซ้าย ──
   const [businessType, setBusinessType] = useState<OnlineBusinessType>('ONLINE_SERVICE');
   const [businessTypeOther, setBusinessTypeOther] = useState('');
@@ -436,11 +463,34 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
       phases,
     };
   }, [status, progressStep, targetCount, elapsedSec]);
-  const [data, setData] = useState<OnlineResearchResponse | null>(null);
+  const [data, setData] = useState<OnlineResponseWithSkill | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(EMPTY_BUSINESS_PROFILE);
+  const [intentQuota, setIntentQuota] = useState<number | null>(null);
+  const appliedIskKeyRef = useRef<string | null>(null);
+
+  // prefill ข้อมูลธุรกิจ/โควตาจากผลล่าสุดที่โหลดมา (ถ้ามี intentSkill)
+  useEffect(() => {
+    const isk = data?.intentSkill;
+    if (!isk) return;
+    const key = isk.generatedAt || '';
+    if (appliedIskKeyRef.current === key) return;
+    appliedIskKeyRef.current = key;
+    if (isk.profile) setBusinessProfile(isk.profile);
+    setIntentQuota(isk.quota?.requested ?? null);
+  }, [data]);
+
+  const iskGroupsById = useMemo(
+    () => new Map((data?.intentSkill?.groups ?? []).map(g => [g.id, g])),
+    [data]
+  );
+  const iskClustersById = useMemo(
+    () => new Map((data?.intentSkill?.clusters ?? []).map(c => [c.id, c])),
+    [data]
+  );
 
   // ── Workspace: tabs + ตัวกรอง + เรียง + หน้า + เลือก + drawer ──
-  type Tab = 'keywords' | 'wave1' | 'clusters' | 'blueprint' | 'sitemap' | 'sources';
+  type Tab = 'keywords' | 'wave1' | 'clusters' | 'blueprint' | 'sitemap' | 'sources' | 'plan';
   const [tab, setTab] = useState<Tab>('keywords');
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
@@ -479,20 +529,24 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/wordgod/online-research?projectId=${encodeURIComponent(project.id)}`);
+        const url = standalone
+          ? '/api/wordgod/online-research?standalone=1'
+          : `/api/wordgod/online-research?projectId=${encodeURIComponent(project.id)}`;
+        const res = await fetch(url);
         if (!res.ok) return;
         const json = await res.json();
         if (!cancelled && json?.results?.length && json?.meta) {
-          setData(json as OnlineResearchResponse);
+          setData(json as OnlineResponseWithSkill);
           setStatus('done');
           setStatusMessage(`โหลดผลรอบล่าสุด (${json.results.length} คำ · ${fmtDate(json.meta.generatedAt)})`);
         }
       } catch { /* ไม่มีผลเก่า — เริ่มจากฟอร์มว่าง */ }
     })();
     return () => { cancelled = true; };
-  }, [project.id]);
+  }, [project.id, standalone]);
 
   const results = data?.results ?? [];
+  const hasIskRows = useMemo(() => results.some(r => r.isk), [results]);
   const clusters = data?.clusters ?? [];
   const meta = data?.meta;
   const blueprint = data?.blueprint;
@@ -667,14 +721,16 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
       includeBrandKeywords: includeBrand,
       includeComparisonKeywords: includeComparison,
       includeProblemKeywords: includeProblem,
-      businessContext: [project.name, project.businessType].filter(Boolean).join(' — '),
-      projectId: project.id,
+      businessContext: (standalone ? [project.businessType] : [project.name, project.businessType]).filter(Boolean).join(' — '),
+      businessProfile,
+      intentQuota,
+      ...(standalone ? { standalone: true } : { projectId: project.id }),
       stream: true,
       resumable: true, // run ยาวถูกซอยเป็นหลาย request ฝั่ง server (กัน Vercel maxDuration ตัด)
     };
 
     try {
-      let payload: OnlineResearchResponse | null = null;
+      let payload: OnlineResponseWithSkill | null = null;
       let resumeRunId: string | null = null;
       let retries = 0;
       let lockWaits = 0;
@@ -724,7 +780,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   resumeRunId = event.runId;
                   yielded = true;
                 } else if (event.type === 'result') {
-                  payload = event.data as OnlineResearchResponse;
+                  payload = event.data as OnlineResponseWithSkill;
                 } else if (event.type === 'error') {
                   const e = new Error(String(event.error ?? 'เกิดข้อผิดพลาด'));
                   (e as any).fromServer = true;
@@ -762,7 +818,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             continue;
           }
           if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
-          payload = json as OnlineResearchResponse;
+          payload = json as OnlineResponseWithSkill;
           break;
         }
       }
@@ -814,6 +870,11 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
   // ── ส่งไปหน้า Keyword: ตรวจซ้ำก่อน → modal ยืนยัน → API เดิม → mark handoff ──
   async function openConfirm(): Promise<void> {
     if (selectedRows.length === 0) return;
+    if (standalone) {
+      setExistingBank(null);
+      setConfirmOpen(true);
+      return;
+    }
     setDupChecking(true);
     setConfirmOpen(true);
     try {
@@ -837,13 +898,43 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
     if (selectedRows.length === 0) return;
     setSending(true);
     try {
+      if (onSendRows) {
+        const handoffRows: KeywordHandoffRow[] = selectedRows.map(r => ({
+          keyword: r.keyword,
+          title: r.recommendedTitle ?? null,
+          volume: r.reference.volume ?? null,
+          slug: r.isk?.nestedSlug || r.suggestedSlug || null,
+          intent: r.isk?.intent.primary ?? null,
+          pageType: r.isk?.pageType ?? null,
+          clusterName: r.isk?.clusterName ?? null,
+          section: r.isk?.section ?? null,
+          groupHead: r.isk ? (iskGroupsById.get(r.isk.groupId)?.head ?? r.keyword) : null,
+          remark: r.isk?.remark ?? null,
+          approved: r.isk?.approved ?? null,
+        }));
+        await onSendRows(handoffRows);
+        setData(prev => prev ? {
+          ...prev,
+          results: prev.results.map(r =>
+            selectedKeys.has(r.keyword) ? { ...r, handoffStatus: 'SENT_TO_KEYWORDS' as const } : r
+          ),
+        } : prev);
+        setSelectedKeys(new Set());
+        setConfirmOpen(false);
+        toast.success(`ส่งไปหน้า Keyword แล้ว ${handoffRows.length} คำ`);
+        onSendToBank?.();
+        return;
+      }
+
+      const legacyIntent = (r: OnlineKeywordResult): string =>
+        r.businessIntent === 'TRANSACTIONAL' ? 'TRANSACTIONAL'
+          : r.businessIntent === 'EVALUATIVE' ? 'COMMERCIAL' : 'INFORMATIONAL';
       const rows = selectedRows.map(r => ({
         keyword: r.keyword,
         title: r.recommendedTitle ?? undefined,
         volume: r.reference.volume ?? undefined,
         difficulty: r.dfs.keywordDifficulty ?? undefined,
-        intent: r.businessIntent === 'TRANSACTIONAL' ? 'TRANSACTIONAL'
-          : r.businessIntent === 'EVALUATIVE' ? 'COMMERCIAL' : 'INFORMATIONAL',
+        intent: r.isk ? (ISK_INTENT_TO_BANK[r.isk.intent.primary] ?? legacyIntent(r)) : legacyIntent(r),
         funnelStage: r.funnelStage,
         priority: r.priorityWave === 1 ? 3 : r.priorityWave === 2 ? 2 : 1,
         seedKeyword: r.seedKeyword ?? undefined,
@@ -861,12 +952,25 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
           geoOpportunity: Math.round(r.scores.geoOpportunity),
           confidence: r.confidence,
           referenceSource: r.reference.source,
-          slug: r.suggestedSlug ?? undefined,
+          slug: r.isk?.nestedSlug || r.suggestedSlug || undefined,
           suggestedPath: r.sitemap.suggestedPath ?? undefined,
           topicRole: r.sitemap.topicRole,
           wave: r.priorityWave,
           secondaryKeywords: r.secondaryKeywords,
           problemGroup: r.problemGroup ?? undefined,
+          ...(r.isk ? {
+            keyword_group: iskGroupsById.get(r.isk.groupId)?.head ?? r.keyword,
+            group_head: r.isk.isGroupHead,
+            cluster_name: r.isk.clusterName,
+            section: r.isk.section,
+            page_tier: r.isk.tier,
+            page_type_unified: r.isk.pageType,
+            pillar_intent: iskClustersById.get(r.isk.clusterId)?.pillarIntent,
+            intent_code: r.isk.intent.primary,
+            fit: r.isk.fit.verdict,
+            remark: r.isk.remark,
+            approved: r.isk.approved,
+          } : {}),
         },
       }));
       const response = await fetch(`/api/projects/${project.id}/keyword-bank`, {
@@ -1032,6 +1136,8 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
               <th className="px-3 py-2.5">Page Type</th>
               <th className="px-3 py-2.5">Wave</th>
               <th className="px-3 py-2.5">สถานะ</th>
+              {hasIskRows ? <th className="px-3 py-2.5">Intent</th> : null}
+              {hasIskRows ? <th className="px-3 py-2.5">Fit</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -1121,6 +1227,12 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                         ? <span title="title/slug ยังไม่พร้อม — เปิด Detail เพื่อตรวจ" className="cursor-help rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">Needs Review</span>
                         : <span className="rounded bg-[#f1f3f8] px-1.5 py-0.5 text-[10px] font-semibold text-[#71809c]">Ready</span>}
                   </td>
+                  {hasIskRows ? (
+                    <td className="px-3 py-2.5">{row.isk ? <IntentBadge mix={row.isk.intent.mix} /> : '—'}</td>
+                  ) : null}
+                  {hasIskRows ? (
+                    <td className="px-3 py-2.5">{row.isk ? <FitBadge fit={row.isk.fit.verdict} remark={row.isk.remark} /> : '—'}</td>
+                  ) : null}
                 </tr>
               );
             })}
@@ -1306,25 +1418,36 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
               </div>
             ) : null}
 
-            <div className="mt-4 rounded-xl border border-[#eef1f7] bg-[#fafbfe] p-3">
-              <p className="mb-2 text-[11px] font-bold text-[#17233a]">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
-              <KeywordMemoryFields
-                projectId={project.id}
-                existingText={existingKwText}
-                onExistingText={setExistingKwText}
-                excludeText={excludeKwText}
-                onExcludeText={setExcludeKwText}
-                onSeeds={kws => setCgSeeds(prev => Array.from(new Set([...prev, ...kws])))}
-                fieldClass={fieldClass}
-                labelClass={labelClass}
-              />
-              {cgSeeds.length > 0 ? (
-                <p className="mt-2 text-[11px] text-[#495975]">
-                  คำตั้งต้นจาก Competitor Gap {cgSeeds.length} คำ
-                  <button type="button" onClick={() => setCgSeeds([])} className="ml-2 text-[#155eef] underline">ล้าง</button>
-                </p>
-              ) : null}
-            </div>
+            {!standalone ? (
+              <div className="mt-4 rounded-xl border border-[#eef1f7] bg-[#fafbfe] p-3">
+                <p className="mb-2 text-[11px] font-bold text-[#17233a]">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
+                <KeywordMemoryFields
+                  projectId={project.id}
+                  existingText={existingKwText}
+                  onExistingText={setExistingKwText}
+                  excludeText={excludeKwText}
+                  onExcludeText={setExcludeKwText}
+                  onSeeds={kws => setCgSeeds(prev => Array.from(new Set([...prev, ...kws])))}
+                  fieldClass={fieldClass}
+                  labelClass={labelClass}
+                />
+                {cgSeeds.length > 0 ? (
+                  <p className="mt-2 text-[11px] text-[#495975]">
+                    คำตั้งต้นจาก Competitor Gap {cgSeeds.length} คำ
+                    <button type="button" onClick={() => setCgSeeds([])} className="ml-2 text-[#155eef] underline">ล้าง</button>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <BusinessProfileCard
+              value={businessProfile}
+              onChange={setBusinessProfile}
+              quota={intentQuota}
+              onQuotaChange={setIntentQuota}
+              fieldClass={fieldClass}
+              labelClass={labelClass}
+            />
 
             <button
               onClick={runResearch}
@@ -1426,6 +1549,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                     ['blueprint', 'Business Blueprint'],
                     ['sitemap', 'Sitemap Plan'],
                     ['sources', 'Data Sources'],
+                    ...(data?.intentSkill ? [['plan', 'Keyword Plan (กลุ่ม/Cluster/Intent)'] as [Tab, string]] : []),
                   ] as Array<[Tab, string]>).map(([key, label]) => (
                     <button
                       key={key}
@@ -1569,6 +1693,10 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                     </p>
                   </div>
                 ) : null}
+
+                {tab === 'plan' && data?.intentSkill ? (
+                  <IntentPlanView result={data.intentSkill} rows={results} researchId={data?.meta?.researchId ?? undefined} />
+                ) : null}
               </div>
             </div>
           )}
@@ -1682,7 +1810,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
               onClick={openConfirm}
               className="rounded-xl bg-[#155eef] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d4fd8]"
             >
-              ส่งไปหน้า Keyword →
+              {sendLabel ?? 'ส่งไปหน้า Keyword →'}
             </button>
           </div>
         </div>

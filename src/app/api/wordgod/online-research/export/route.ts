@@ -22,6 +22,8 @@ import {
   type OnlineKeywordResult,
   type OnlineResearchResponse,
 } from '@/lib/wordgod/online/types';
+import type { FitVerdict, IntentSkillResult, KeywordGroup } from '@/lib/wordgod/intent-skill/types';
+import { SHEET_COLUMNS, toSheetRows } from '@/lib/wordgod/intent-skill/exportRows';
 
 export const maxDuration = 120;
 
@@ -105,6 +107,34 @@ const KEYWORD_COLUMNS: Array<{ header: string; key: string; width: number }> = [
   { header: 'DFS Retrieved', key: 'dfsAt', width: 13 },
 ];
 
+const FIT_LABEL_TH: Record<FitVerdict, string> = {
+  FIT: 'เหมาะ',
+  ARTICLE_ONLY: 'บทความเท่านั้น',
+  NOT_RECOMMENDED: 'ไม่แนะนำ',
+};
+
+// คอลัมน์ Keyword Intent Skill — ต่อท้ายชีตคีย์เวิร์ดหลักเท่านั้น เมื่อมีผล intentSkill จริง
+const ISK_EXTRA_COLUMNS: Array<{ header: string; key: string; width: number }> = [
+  { header: 'Intent', key: 'iskIntent', width: 12 },
+  { header: 'Fit', key: 'iskFit', width: 16 },
+  { header: 'Keyword Group', key: 'iskGroup', width: 28 },
+  { header: 'Remark', key: 'iskRemark', width: 30 },
+  { header: 'Approved', key: 'iskApproved', width: 11 },
+];
+
+function iskExtraRow(r: OnlineKeywordResult, groupById: Map<string, KeywordGroup>): Record<string, string | number | boolean> {
+  const isk = r.isk;
+  if (!isk) return { iskIntent: '', iskFit: '', iskGroup: '', iskRemark: '', iskApproved: '' };
+  const group = groupById.get(isk.groupId);
+  return {
+    iskIntent: isk.intent.mix,
+    iskFit: FIT_LABEL_TH[isk.fit.verdict] ?? isk.fit.verdict,
+    iskGroup: group?.head ?? '',
+    iskRemark: isk.remark,
+    iskApproved: isk.approved ? 'TRUE' : 'FALSE',
+  };
+}
+
 function keywordRow(r: OnlineKeywordResult): Record<string, string | number | boolean> {
   return {
     rank: r.rank,
@@ -143,14 +173,20 @@ function keywordRow(r: OnlineKeywordResult): Record<string, string | number | bo
   };
 }
 
-function buildKeywordSheet(wb: ExcelJS.Workbook, name: string, rows: OnlineKeywordResult[]): ExcelJS.Worksheet {
+function buildKeywordSheet(
+  wb: ExcelJS.Workbook, name: string, rows: OnlineKeywordResult[], intentSkill?: IntentSkillResult
+): ExcelJS.Worksheet {
+  const hasIsk = !!intentSkill && rows.some(r => r.isk);
+  const groupById = hasIsk ? new Map(intentSkill!.groups.map(g => [g.id, g] as const)) : null;
+  const columns = hasIsk ? [...KEYWORD_COLUMNS, ...ISK_EXTRA_COLUMNS] : KEYWORD_COLUMNS;
+
   const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1 }] });
-  ws.columns = KEYWORD_COLUMNS.map(c => ({ header: c.header, key: c.key, width: c.width }));
-  rows.forEach(r => ws.addRow(keywordRow(r)));
-  styleHeaderRow(ws, 1, KEYWORD_COLUMNS.length);
+  ws.columns = columns.map(c => ({ header: c.header, key: c.key, width: c.width }));
+  rows.forEach(r => ws.addRow(hasIsk ? { ...keywordRow(r), ...iskExtraRow(r, groupById!) } : keywordRow(r)));
+  styleHeaderRow(ws, 1, columns.length);
   if (rows.length > 0) {
-    zebra(ws, 2, rows.length + 1, KEYWORD_COLUMNS.length);
-    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: rows.length + 1, column: KEYWORD_COLUMNS.length } };
+    zebra(ws, 2, rows.length + 1, columns.length);
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: rows.length + 1, column: columns.length } };
     for (const key of ['refVolume', 'googleVolume', 'dfsVolume']) ws.getColumn(key).numFmt = '#,##0';
     ws.getColumn('cpc').numFmt = '#,##0.00';
     ws.getColumn('final').numFmt = '0.0';
@@ -164,6 +200,26 @@ function buildKeywordSheet(wb: ExcelJS.Workbook, name: string, rows: OnlineKeywo
         color: [{ argb: 'FFF8696B' }, { argb: 'FFFFEB84' }, { argb: 'FF63BE7B' }],
       }],
     });
+  }
+  return ws;
+}
+
+const PLAN_COLUMN_WIDTHS: Record<string, number> = {
+  'Section': 18, 'Cluster': 22, 'Page Title': 36, 'Slug': 26, 'Page Type': 20,
+  'Pillar Intent': 12, 'Page Tier': 11, 'Keyword Group': 26, 'Highest SV': 12,
+  'Keywords': 40, 'Intent': 10, 'Remark': 30, 'Approved': 11,
+};
+
+function buildKeywordPlanSheet(wb: ExcelJS.Workbook, intentSkill: IntentSkillResult): ExcelJS.Worksheet {
+  const rows = toSheetRows(intentSkill);
+  const ws = wb.addWorksheet('Keyword Plan', { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = SHEET_COLUMNS.map(col => ({ header: col, key: col, width: PLAN_COLUMN_WIDTHS[col] ?? 16 }));
+  rows.forEach(r => ws.addRow(r));
+  styleHeaderRow(ws, 1, SHEET_COLUMNS.length);
+  if (rows.length > 0) {
+    zebra(ws, 2, rows.length + 1, SHEET_COLUMNS.length);
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: rows.length + 1, column: SHEET_COLUMNS.length } };
+    ws.getColumn('Highest SV').numFmt = '#,##0';
   }
   return ws;
 }
@@ -265,11 +321,14 @@ export async function GET(req: NextRequest) {
   }
 
   // ── ชีต 2: Keywords_{TARGET} ────────────────────────────────────────────────
-  buildKeywordSheet(wb, `Keywords_${results.length}`, results);
+  buildKeywordSheet(wb, `Keywords_${results.length}`, results, data.intentSkill);
 
   // ── ชีต 3: Wave1_{COUNT} ────────────────────────────────────────────────────
   const wave1 = results.filter(r => r.priorityWave === 1);
   buildKeywordSheet(wb, `Wave1_${wave1.length}`, wave1);
+
+  // ── ชีต: Keyword Plan (เฉพาะเมื่อมีผล Keyword Intent Skill) ─────────────────
+  if (data.intentSkill) buildKeywordPlanSheet(wb, data.intentSkill);
 
   // ── ชีต 4: Seed_Taxonomy ────────────────────────────────────────────────────
   {

@@ -97,6 +97,10 @@ export interface OnlineResearchInput {
   includeComparisonKeywords?: boolean; // default true
   includeProblemKeywords?: boolean;    // default true
   businessContext?: string;
+  /** โปรไฟล์ธุรกิจจริงสำหรับ Keyword Intent Skill (optional) */
+  businessProfile?: import('@/lib/wordgod/intent-skill/types').BusinessProfile;
+  /** จำนวนกลุ่มที่ auto-approve (null/undefined = อนุมัติทุกกลุ่มที่ FIT/ARTICLE_ONLY) */
+  intentQuota?: number | null;
 }
 
 // ── Journey taxonomy (19 ขั้น, business-centric) ─────────────────────────────
@@ -317,6 +321,8 @@ export interface OnlineKeywordResult {
   guard?: KeywordGuardInfo;
   /** CORE = อยู่ใน targetCount ที่ผู้ใช้เลือก, EXTRA = ส่วนสำรอง +30% (optional — ผลรุ่นเก่าไม่มี, ถือเป็น CORE) */
   selectionTier?: 'CORE' | 'EXTRA';
+  /** ผล Keyword Intent Skill (optional — ผลรุ่นเก่าไม่มี) */
+  isk?: import('@/lib/wordgod/intent-skill/types').IntentSkillRowFields;
 }
 
 // ── Progress steps (~24 ขั้น ให้ UI แสดง checklist จริง ไม่มี blank loading) ──
@@ -348,6 +354,7 @@ export const ONLINE_STEPS: OnlineStepDef[] = [
   { index: 22, key: 'clusters',        label: 'จัด Cluster + กันคำกินกันเอง' },
   { index: 23, key: 'titles',          label: 'เขียน Title / Slug / เหตุผล' },
   { index: 24, key: 'finalize',        label: 'จัด Wave + Sitemap + สรุปผล' },
+  { index: 25, key: 'intent_skill',    label: 'วิเคราะห์ Intent + จัดกลุ่ม/Cluster ตามธุรกิจจริง' },
 ];
 
 // ── Response ────────────────────────────────────────────────────────────────
@@ -405,6 +412,8 @@ export interface OnlineResearchResponse {
   results: OnlineKeywordResult[];
   clusters: OnlineClusterSummary[];
   sourceStatus: OnlineSourceStatus;
+  /** ผล Keyword Intent Skill ของรอบนี้ (optional — ผลรุ่นเก่า/พังไม่มี) */
+  intentSkill?: import('@/lib/wordgod/intent-skill/types').IntentSkillResult;
 }
 
 // ── ค่าคงที่ระบบ ────────────────────────────────────────────────────────────

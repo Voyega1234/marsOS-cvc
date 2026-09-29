@@ -134,6 +134,8 @@ export interface KeywordResearchResult {
   intel?: import('./intelligence').KeywordIntel;
   /** ผล Keyword Guard ของแถวนี้ — Intent / Existing Match / Risk / Action (optional) */
   guard?: import('@/lib/keyword-guard/types').KeywordGuardInfo;
+  /** ผล Keyword Intent Skill (optional — ผลรุ่นเก่าไม่มี) */
+  isk?: import('@/lib/wordgod/intent-skill/types').IntentSkillRowFields;
 }
 
 export interface LocalClusterSummary {
@@ -169,6 +171,10 @@ export interface LocalResearchInput {
   existingKeywords?: string[];
   /** คีย์เวิร์ดที่ห้ามเข้าตาราง — คนละช่องกับ existing เสมอ */
   excludeKeywords?: string[];
+  /** โปรไฟล์ธุรกิจจริงสำหรับ Keyword Intent Skill (optional) */
+  businessProfile?: import('@/lib/wordgod/intent-skill/types').BusinessProfile;
+  /** จำนวนกลุ่มที่ auto-approve (null/undefined = อนุมัติทุกกลุ่มที่ FIT/ARTICLE_ONLY) */
+  intentQuota?: number | null;
 }
 
 export interface LocalResearchMeta {
@@ -216,4 +222,6 @@ export interface LocalResearchResponse {
   results: KeywordResearchResult[];
   clusters: LocalClusterSummary[];
   meta: LocalResearchMeta;
+  /** ผล Keyword Intent Skill ของรอบนี้ (optional — ผลรุ่นเก่า/พังไม่มี) */
+  intentSkill?: import('@/lib/wordgod/intent-skill/types').IntentSkillResult;
 }

@@ -33,6 +33,7 @@ import {
   Newspaper,
   Upload,
   Network,
+  SearchCheck,
 } from "lucide-react";
 import type { Route } from "./nav-main";
 import DashboardNavigation from "./nav-main";
@@ -58,7 +59,7 @@ function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Ro
     ];
   }
 
-  // เมนูหลัก: News & Update / SEO SME / Upload Article / PBN Backlinks / Article / Studio / Setting
+  // เมนูหลัก: News & Update / SEO SME / Upload Article / PBN Backlinks / Keyword Research / Article / Studio / Setting
   const base: Route[] = [
     {
       id: "morning-brief",
@@ -85,6 +86,12 @@ function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Ro
       title: "PBN Backlinks",
       icon: <Network className="size-4" />,
       link: "/pbn-backlinks",
+    },
+    {
+      id: "keyword-research",
+      title: "Keyword Research",
+      icon: <SearchCheck className="size-4" />,
+      link: "/keyword-research",
     },
     {
       id: "content",

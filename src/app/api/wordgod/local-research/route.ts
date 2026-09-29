@@ -94,6 +94,10 @@ import {
 import { callGemini, callGeminiWithGrounding, getSessionUsage } from '@/lib/wordgod/gemini';
 import { humanTitleSkillBlock } from '@/lib/article-human-voice-skill';
 import { clientSlugForProject, withOrClient } from '@/lib/orClient';
+import { standaloneProjectId, isStandaloneProjectId, STANDALONE_CLIENT_SLUG } from '@/lib/wordgod/intent-skill/standalone';
+import { runIntentSkill } from '@/lib/wordgod/intent-skill/run';
+import { fromLocalRow, parseBusinessProfile } from '@/lib/wordgod/intent-skill/adapters';
+import type { IntentSkillInputRow, IntentSkillResult } from '@/lib/wordgod/intent-skill/types';
 import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { DFS_COST_PER_KEYWORD } from '@/lib/logAIJob';
 import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
@@ -258,7 +262,7 @@ type ProgressEmit = (event: Record<string, unknown>) => void;
 // โหมดเดิม (ไม่ส่ง resumable) พฤติกรรมเหมือนเดิมทุกอย่าง: รันรวดเดียวจบ
 const STAGES = [
   'init', 'problem', 'expand', 'dfs_ideas', 'kp', 'dfs_volumes',
-  'intent', 'kd', 'serp', 'intel', 'titles', 'clusters', 'finalize',
+  'intent', 'kd', 'serp', 'intel', 'titles', 'clusters', 'intent_skill', 'finalize',
 ] as const;
 type StageName = (typeof STAGES)[number];
 const stageIdx = (s: string) => Math.max(0, STAGES.indexOf(s as StageName));
@@ -302,6 +306,11 @@ export async function POST(req: NextRequest) {
   }
 
   const resumeRunId = typeof body.resumeRunId === 'string' && body.resumeRunId ? String(body.resumeRunId) : null;
+
+  // ห้าม client ยัด sentinel ของ standalone มาเองโดยไม่ผ่าน flag `standalone: true`
+  if (typeof body.projectId === 'string' && isStandaloneProjectId(body.projectId) && body.standalone !== true) {
+    return NextResponse.json({ error: 'projectId ไม่ถูกต้อง' }, { status: 400 });
+  }
 
   let input: LocalResearchInput;
   let targetCount: number;
@@ -405,6 +414,11 @@ export async function POST(req: NextRequest) {
       excludeKeywords: Array.isArray(body.excludeKeywords)
         ? body.excludeKeywords.map((v: unknown) => String(v ?? '').trim()).filter(Boolean).slice(0, 1000)
         : undefined,
+      businessProfile: parseBusinessProfile(body.businessProfile),
+      intentQuota: (() => {
+        const q = Number(body.intentQuota);
+        return Number.isFinite(q) && q > 0 && q <= 500 ? Math.round(q) : null;
+      })(),
     };
     flags = {
       useProblemFirst: body.useProblemFirst !== false,
@@ -416,7 +430,9 @@ export async function POST(req: NextRequest) {
       checkSerp: body.checkSerp !== false,
       buildTopicClusters: body.buildTopicClusters !== false,
       forceRefresh: !!body.forceRefresh,
-      projectId: body.projectId ? String(body.projectId) : null,
+      projectId: body.standalone === true
+        ? standaloneProjectId(orgId)
+        : body.projectId ? String(body.projectId) : null,
       stepBudgetMs: Number(body.stepBudgetMs) > 0
         ? Number(body.stepBudgetMs)
         : Number(process.env.LOCAL_RESEARCH_STEP_BUDGET_MS) > 0
@@ -451,7 +467,7 @@ export async function POST(req: NextRequest) {
   const budgetMs = resumable ? Math.min(600_000, Math.max(30_000, flags.stepBudgetMs)) : Infinity;
 
   // SOP §3: บริบทลูกค้าของรอบนี้ — ทุก call ของ wordgod ข้างในติดป้าย mars_<client>_<action>
-  const orClientSlug = await clientSlugForProject(flags.projectId)
+  const orClientSlug = isStandaloneProjectId(flags.projectId) ? STANDALONE_CLIENT_SLUG : await clientSlugForProject(flags.projectId)
   const runPipeline = async (emit: ProgressEmit) => {
     const progress = (message: string, extra?: Record<string, unknown>) =>
       emit({ type: 'progress', at: new Date().toISOString(), message, ...(extra ?? {}) });
@@ -550,6 +566,7 @@ export async function POST(req: NextRequest) {
     const clusterByKey = new Map<string, ClusterMembership>(ckptData?.clusterMembers ?? []);
     let topicClusters: Array<{ clusterId: number; name: string; pillarSlug: string; memberSlugs: string[]; totalVolume: number }> =
       Array.isArray(ckptData?.topicClusters) ? ckptData.topicClusters : [];
+    let intentSkillResult: IntentSkillResult | undefined = ckptData?.intentSkillResult ?? undefined;
 
     /** stage นี้ต้องรันใน request นี้ไหม (stage ก่อน entryStage ถูกทำ+checkpoint ไปแล้ว) */
     const needs = (s: StageName) => stageIdx(entryStage) <= stageIdx(s);
@@ -1407,8 +1424,10 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
       // ลำดับ: exclude list → คีย์เวิร์ด/หัวข้อ/หน้าเดิมของโปรเจกต์ → คำที่ผ่านไปแล้วในรอบนี้
       // ตัดก่อนคัดเลือกเสมอ เพื่อให้คำถัดไปเลื่อนขึ้นมาแทน (จำนวนที่ส่งมอบเท่าเดิม)
       {
-        const kwMemory = await loadMemory(flags.projectId);
-        const bankSeeds = await loadBankKeywords(flags.projectId);
+        const kwMemory = isStandaloneProjectId(flags.projectId)
+          ? { existing: [], exclude: [], updatedAt: null }
+          : await loadMemory(flags.projectId);
+        const bankSeeds = isStandaloneProjectId(flags.projectId) ? [] : await loadBankKeywords(flags.projectId);
         const nowIso = new Date().toISOString();
         const runGuard = new KeywordGuard({
           existing: kwMemory.existing,
@@ -1646,13 +1665,50 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         warnings.push(`จัดโครงสร้าง pillar/cluster ไม่สำเร็จ — ใช้หมวดจาก local cluster แทน (${err instanceof Error ? err.message.slice(0, 60) : String(err)})`);
       }
     }
-    if (needs('clusters')) await checkpoint('finalize');
+    if (needs('clusters')) await checkpoint('intent_skill');
+
+    // ── intent_skill: Keyword Intent Skill — intent + fit + page type + group + cluster ──
+    if (needs('intent_skill')) {
+      progress('วิเคราะห์ Intent + จัดกลุ่ม/Cluster ตามธุรกิจจริง (Keyword Intent Skill) …');
+      try {
+        const bizContextParts = [
+          services.join(', '),
+          primaryLocation.name,
+          input.businessContext,
+        ].filter(Boolean) as string[];
+        const iskRows: IntentSkillInputRow[] = results.map(fromLocalRow);
+        const out = await runIntentSkill(iskRows, {
+          mode: 'local',
+          profile: input.businessProfile,
+          businessContext: bizContextParts.join(' — ') || services.join(', '),
+          language: language === 'th_en' ? 'both' : 'th',
+          quota: input.intentQuota ?? null,
+          llm: (prompt, label) => callGemini(prompt, { functionLabel: label }),
+        });
+        for (const r of results) {
+          const fields = out.rowFields[r.keyword];
+          if (fields) r.isk = fields;
+        }
+        intentSkillResult = out.result;
+        progress(
+          `Intent Skill: จัดกลุ่มได้ ${out.result.stats.groups} กลุ่ม / ${out.result.stats.clusters} cluster — ต้องตรวจ ${out.result.stats.needsReview} คำ`
+        );
+      } catch (err) {
+        console.warn('[local-research] intent skill failed:', err);
+        warnings.push(
+          `Keyword Intent Skill ไม่สำเร็จ — ตารางแสดงผลได้ตามปกติแต่ไม่มีคอลัมน์ Intent/Fit/Group (${err instanceof Error ? err.message.slice(0, 100) : String(err)})`
+        );
+      }
+      await checkpoint('finalize', { intentSkillResult });
+    }
 
     // ── Keyword Guard: ป้ายกำกับรายแถว (Intent / Existing Match / Risk / Action) ──
     // สร้าง index ใหม่จาก memory ของโปรเจกต์ แล้วไล่ตามลำดับคะแนน เพื่อให้แถวที่มาทีหลัง
     // ถูกจับว่าซ้ำกับแถวก่อนหน้าในชุดเดียวกันด้วย (§19) — ทำงานได้แม้ run นี้ resume มา
-    const finalMemory = await loadMemory(flags.projectId);
-    const finalBankSeeds = await loadBankKeywords(flags.projectId);
+    const finalMemory = isStandaloneProjectId(flags.projectId)
+      ? { existing: [], exclude: [], updatedAt: null }
+      : await loadMemory(flags.projectId);
+    const finalBankSeeds = isStandaloneProjectId(flags.projectId) ? [] : await loadBankKeywords(flags.projectId);
     const finalGuard = new KeywordGuard({
       existing: finalMemory.existing,
       exclude: [
@@ -1765,6 +1821,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
         guardSummary,
         excludedKeywords: guardExcluded.slice(0, 500),
       },
+      intentSkill: intentSkillResult,
     };
 
     // ── บันทึก canonical run (UI + Excel export อ่านชุดเดียวกันจากที่นี่) ──
@@ -1783,6 +1840,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
           weights,
           locationTarget: geoTarget,
           generatedAt: response.meta.generatedAt,
+          businessProfile: input.businessProfile ?? null,
         });
         if (runId) {
           // โหมด resumable: row ถูกสร้างตั้งแต่เริ่ม — ปิดงาน + ล้าง checkpoint/lock ในจังหวะเดียว
@@ -1838,7 +1896,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     if (dfsCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: flags.projectId,
+        projectId: isStandaloneProjectId(flags.projectId) ? null : flags.projectId,
         jobType: 'DFS_VOLUME_LOOKUP',
         modelProvider: 'DATAFORSEO',
         modelName: 'dataforseo/search_volume/live',
@@ -1853,7 +1911,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     if (dfsExtraCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: flags.projectId,
+        projectId: isStandaloneProjectId(flags.projectId) ? null : flags.projectId,
         jobType: 'DFS_INTEL_LOOKUP',
         modelProvider: 'DATAFORSEO',
         modelName: 'dataforseo/labs+serp (intent, ideas, kd, local serp)',
@@ -1868,7 +1926,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     if (kpCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: flags.projectId,
+        projectId: isStandaloneProjectId(flags.projectId) ? null : flags.projectId,
         jobType: 'KP_VOLUME_LOOKUP',
         modelProvider: 'GOOGLE',
         modelName: 'google_ads/keyword_planner',
@@ -1883,7 +1941,7 @@ ${unsureBatch.map(r => `- ${r.keyword}`).join('\n')}`;
     if (llmTokensSoFar() > 0 || llmCostSoFar() > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: flags.projectId,
+        projectId: isStandaloneProjectId(flags.projectId) ? null : flags.projectId,
         jobType: 'RESEARCH_LLM',
         modelProvider: 'OPENROUTER',
         modelName: 'openrouter (ตีความ/จัดหมวด/ตั้งชื่อ — ไม่ใช่แหล่งตัวเลข)',

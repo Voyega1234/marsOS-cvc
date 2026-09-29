@@ -34,6 +34,11 @@ import type {
 import { referenceSourceLabel } from '@/lib/wordgod/local/metrics';
 import { findNearbyAreas, normalizeAreaName, type AreaSuggestion } from '@/lib/wordgod/local/thaiAreas';
 import type { LanguageMode } from '@/lib/keyword-language';
+import BusinessProfileCard from '@/components/keyword-research/BusinessProfileCard';
+import IntentPlanView, { IntentBadge, FitBadge } from '@/components/keyword-research/IntentPlanView';
+import type { BusinessProfile, IntentSkillResult, KeywordGroup } from '@/lib/wordgod/intent-skill/types';
+import type { KeywordHandoffRow } from '@/lib/wordgod/intent-skill/handoff';
+import { SHEET_COLUMNS, toSheetRows } from '@/lib/wordgod/intent-skill/exportRows';
 
 interface LocalProject {
   id: string;
@@ -47,7 +52,30 @@ interface Props {
   onSendToBank?: () => void;
   /** โหมดภาษาจากโปรเจกต์ (en): th = ไทยล้วน, en/both = ไทย+อังกฤษ (local research มีแค่ 2 แบบ) */
   languageMode?: LanguageMode;
+  /** true = ใช้นอกโปรเจกต์ (หน้า Keyword Research แบบ standalone) — ซ่อนฟีเจอร์ที่ผูกกับโปรเจกต์ */
+  standalone?: boolean;
+  /** ถ้ามี = ส่งแถวที่เลือกไปให้ผู้เรียกจัดการเอง แทนการ POST เข้า Keyword Bank ของโปรเจกต์ */
+  onSendRows?: (rows: KeywordHandoffRow[]) => Promise<void> | void;
+  /** ป้ายปุ่มส่งคำ (default: "ส่งเข้า Keyword Bank") */
+  sendLabel?: string;
 }
+
+const EMPTY_BUSINESS_PROFILE: BusinessProfile = {
+  servicesOffered: [],
+  servicesNotOffered: [],
+  hasShop: false,
+  shopProducts: [],
+  branches: [],
+  competitorBrands: [],
+  ownBrand: '',
+};
+
+const ISK_INTENT_TO_BANK: Record<string, string> = {
+  I: 'INFORMATIONAL',
+  C: 'COMMERCIAL',
+  T: 'TRANSACTIONAL',
+  N: 'NAVIGATIONAL',
+};
 
 const fieldClass = 'w-full rounded-xl border border-[#cfd9ea] bg-white px-3.5 py-3 text-sm text-[#17233a] placeholder:text-[#91a0b8] shadow-sm outline-none transition focus:border-[#155eef] focus:ring-4 focus:ring-[#155eef]/10';
 const labelClass = 'mb-1.5 block text-xs font-semibold text-[#495975]';
@@ -314,7 +342,7 @@ function GuardRiskCell({ guard }: { guard?: KeywordResearchResult['guard'] }) {
   );
 }
 
-export default function WordGodLocalPanel({ project, onSendToBank, languageMode }: Props) {
+export default function WordGodLocalPanel({ project, onSendToBank, languageMode, standalone = false, onSendRows, sendLabel }: Props) {
   // ── ฟอร์มซ้าย ──
   const [serviceText, setServiceText] = useState('');
   const [primaryLocation, setPrimaryLocation] = useState('');
@@ -349,8 +377,30 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  // ── Keyword Intent Skill: โปรไฟล์ธุรกิจจริง + โควตาอนุมัติ ──
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(EMPTY_BUSINESS_PROFILE);
+  const [intentQuota, setIntentQuota] = useState<number | null>(null);
+  const appliedIskKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const isk = data?.intentSkill;
+    if (!isk || !isk.profile) return;
+    const key = isk.generatedAt;
+    if (appliedIskKeyRef.current === key) return;
+    appliedIskKeyRef.current = key;
+    setBusinessProfile(isk.profile);
+    setIntentQuota(isk.quota?.requested ?? null);
+  }, [data]);
+  const iskGroupsById = useMemo(
+    () => new Map((data?.intentSkill?.groups ?? []).map(g => [g.id, g])),
+    [data]
+  );
+  const iskClustersById = useMemo(
+    () => new Map((data?.intentSkill?.clusters ?? []).map(c => [c.id, c])),
+    [data]
+  );
+
   // ── Workspace: tabs + ตัวกรอง + เรียง + หน้า + drawer ──
-  type Tab = 'overview' | 'keywords' | 'wave1' | 'clusters' | 'sitemap' | 'sources' | 'method';
+  type Tab = 'overview' | 'keywords' | 'wave1' | 'clusters' | 'sitemap' | 'sources' | 'method' | 'plan';
   const [tab, setTab] = useState<Tab>('keywords');
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
@@ -379,6 +429,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
   const clusters = data?.clusters ?? [];
   const meta = data?.meta;
   const hasIntel = results.some(r => !!r.intel);
+  const hasIsk = results.some(r => !!r.isk);
 
   // ── ตัวกรอง + เรียง (ทำงานใน memory ทั้งหมด — ไม่มี API call) ──
   const filtered = useMemo(() => {
@@ -523,14 +574,16 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
       businessType,
       serviceRadiusKm: radius,
       language,
-      businessContext: [project.name, project.businessType].filter(Boolean).join(' — '),
+      businessContext: (standalone ? [project.businessType] : [project.name, project.businessType]).filter(Boolean).join(' — '),
       targetCount,
       salesWeight: salesWeightPct / 100,
       trafficWeight: (100 - salesWeightPct) / 100,
       expandWithKeywordPlanner: expandWithKP,
       existingKeywords: parseGuardLines(existingKwText),
       excludeKeywords: parseGuardLines(excludeKwText),
-      projectId: project.id,
+      businessProfile,
+      intentQuota,
+      ...(standalone ? { standalone: true } : { projectId: project.id }),
       stream: true,
       resumable: true, // run ยาวถูกซอยเป็นหลาย request ฝั่ง server (กัน Vercel maxDuration ตัด)
     };
@@ -716,17 +769,50 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
     );
   }
 
+  function exportKeywordPlanCsv(): void {
+    if (!data?.intentSkill) return;
+    const sheetRows = toSheetRows(data.intentSkill);
+    const lines = [SHEET_COLUMNS.join(',')];
+    for (const row of sheetRows) {
+      lines.push(SHEET_COLUMNS.map(col => csvCell(row[col])).join(','));
+    }
+    downloadBlob(
+      new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' }),
+      `keyword-plan-local-${Date.now()}.csv`,
+    );
+  }
+
   async function saveToKeywordBank(): Promise<void> {
     if (filtered.length === 0) return;
     setSaving(true);
     try {
+      if (onSendRows) {
+        const handoffRows: KeywordHandoffRow[] = filtered.map(row => ({
+          keyword: row.keyword,
+          volume: (row.intel?.referenceVolume ?? row.volume) ?? null,
+          title: row.suggestedTitle ?? null,
+          slug: row.isk?.nestedSlug || row.slug || null,
+          intent: row.isk?.intent.primary ?? null,
+          pageType: row.isk?.pageType ?? null,
+          clusterName: row.isk?.clusterName ?? null,
+          section: row.isk?.section ?? null,
+          groupHead: row.isk ? (iskGroupsById.get(row.isk.groupId)?.head ?? row.keyword) : null,
+          remark: row.isk?.remark ?? null,
+          approved: row.isk?.approved ?? null,
+        }));
+        await onSendRows(handoffRows);
+        toast.success(`${sendLabel ?? 'ส่งเข้า Keyword Bank'} แล้ว ${handoffRows.length} คำ`);
+        onSendToBank?.();
+        return;
+      }
+
       const rows = filtered.map(row => {
         const mapped = bankIntent(row.intents);
         const i = row.intel;
         return {
           keyword: row.keyword,
           volume: (i?.referenceVolume ?? row.volume) ?? undefined,
-          intent: mapped.intent,
+          intent: row.isk ? (ISK_INTENT_TO_BANK[row.isk.intent.primary] ?? mapped.intent) : mapped.intent,
           funnelStage: mapped.funnelStage,
           priority: PRIORITY_TO_NUMBER[row.priority] ?? undefined,
           seedKeyword: row.service || undefined,
@@ -749,6 +835,20 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
             cluster: row.cluster,
             suggestedPage: row.suggestedPage,
             sources: row.sources,
+            slug: row.isk?.nestedSlug || row.slug || undefined,
+            ...(row.isk ? {
+              keyword_group: iskGroupsById.get(row.isk.groupId)?.head ?? row.keyword,
+              group_head: row.isk.isGroupHead,
+              cluster_name: row.isk.clusterName,
+              section: row.isk.section,
+              page_tier: row.isk.tier,
+              page_type_unified: row.isk.pageType,
+              pillar_intent: iskClustersById.get(row.isk.clusterId)?.pillarIntent,
+              intent_code: row.isk.intent.primary,
+              fit: row.isk.fit.verdict,
+              remark: row.isk.remark,
+              approved: row.isk.approved,
+            } : {}),
           },
         };
       });
@@ -871,6 +971,12 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
               <th className="px-3 py-2.5 font-semibold" title="สิ่งที่ควรทำกับคำนี้ตามผลตรวจ">คำแนะนำ</th>
               <th className="px-3 py-2.5 font-semibold">หน้า</th>
               <th className="px-3 py-2.5 font-semibold" title="ลำดับการเผยแพร่: Wave 1 ≈15% แรก → Wave 2 ≈30% → Wave 3 ที่เหลือ">Wave</th>
+              {hasIsk ? (
+                <>
+                  <th className="px-3 py-2.5 font-semibold" title="Keyword Intent Skill — สัดส่วนเจตนา I/C/T/N">Intent</th>
+                  <th className="px-3 py-2.5 font-semibold" title="ควรทำหน้าขายไหม (Keyword Intent Skill)">Fit</th>
+                </>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -940,11 +1046,21 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
                       </span>
                     ) : <span className="text-[#c7cfde]">—</span>}
                   </td>
+                  {hasIsk ? (
+                    <>
+                      <td className="px-3 py-2.5">
+                        {row.isk ? <IntentBadge mix={row.isk.intent.mix} /> : <span className="text-[#c7cfde]">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {row.isk ? <FitBadge fit={row.isk.fit.verdict} remark={row.isk.remark} /> : <span className="text-[#c7cfde]">—</span>}
+                      </td>
+                    </>
+                  ) : null}
                 </tr>
               );
             })}
             {pageRows.length === 0 ? (
-              <tr><td colSpan={15} className="px-4 py-10 text-center text-[#91a0b8]">ไม่มีคีย์เวิร์ดที่ตรงกับตัวกรองนี้</td></tr>
+              <tr><td colSpan={hasIsk ? 17 : 15} className="px-4 py-10 text-center text-[#91a0b8]">ไม่มีคีย์เวิร์ดที่ตรงกับตัวกรองนี้</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -1174,18 +1290,29 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
               </div>
             ) : null}
 
-            <div className="space-y-3 rounded-2xl border border-[#cfdefa] bg-[#f4f8fe] p-4">
-              <p className="text-[11px] font-bold text-[#17233a]">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
-              <KeywordMemoryFields
-                projectId={project.id}
-                existingText={existingKwText}
-                onExistingText={setExistingKwText}
-                excludeText={excludeKwText}
-                onExcludeText={setExcludeKwText}
-                fieldClass={fieldClass}
-                labelClass={labelClass}
-              />
-            </div>
+            {!standalone ? (
+              <div className="space-y-3 rounded-2xl border border-[#cfdefa] bg-[#f4f8fe] p-4">
+                <p className="text-[11px] font-bold text-[#17233a]">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
+                <KeywordMemoryFields
+                  projectId={project.id}
+                  existingText={existingKwText}
+                  onExistingText={setExistingKwText}
+                  excludeText={excludeKwText}
+                  onExcludeText={setExcludeKwText}
+                  fieldClass={fieldClass}
+                  labelClass={labelClass}
+                />
+              </div>
+            ) : null}
+
+            <BusinessProfileCard
+              value={businessProfile}
+              onChange={setBusinessProfile}
+              quota={intentQuota}
+              onQuotaChange={setIntentQuota}
+              fieldClass={fieldClass}
+              labelClass={labelClass}
+            />
 
             <button
               disabled={status === 'running'}
@@ -1260,12 +1387,21 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
                   >
                     {exporting ? 'กำลังสร้างไฟล์…' : 'Export Excel'}
                   </button>
+                  {data.intentSkill ? (
+                    <button
+                      onClick={exportKeywordPlanCsv}
+                      className="rounded-xl border border-[#bcc9e2] bg-white px-3 py-2 text-xs font-bold text-[#0d4fd8] disabled:opacity-60"
+                      title="Export ตาราง Keyword Plan (กลุ่ม/Cluster/Intent) เป็น CSV"
+                    >
+                      Export Keyword Plan (CSV)
+                    </button>
+                  ) : null}
                   <button
                     disabled={saving || filtered.length === 0}
                     onClick={saveToKeywordBank}
                     className="rounded-xl bg-[#155eef] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
                   >
-                    {saving ? 'กำลังบันทึก...' : 'ส่งเข้า Keyword Bank'}
+                    {saving ? 'กำลังบันทึก...' : (sendLabel ?? 'ส่งเข้า Keyword Bank')}
                   </button>
                 </div>
               </div>
@@ -1322,6 +1458,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
                   ['sitemap', `Sitemap (${data.sitemap?.length ?? 0})`],
                   ['sources', 'Data Sources'],
                   ['method', 'Methodology'],
+                  ...(data.intentSkill ? [['plan', 'Keyword Plan (กลุ่ม/Cluster/Intent)']] : []),
                 ] as Array<[Tab, string]>).map(([key, label]) => (
                   <button
                     key={key}
@@ -1334,6 +1471,16 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode 
               </div>
 
               {tab === 'keywords' || tab === 'wave1' ? keywordTable : null}
+
+              {tab === 'plan' && data.intentSkill ? (
+                <div className="px-5 py-5">
+                  <IntentPlanView
+                    result={data.intentSkill}
+                    rows={results.map(r => ({ keyword: r.keyword, isk: r.isk }))}
+                    researchId={meta?.researchId ?? undefined}
+                  />
+                </div>
+              ) : null}
 
               {tab === 'overview' ? (
                 <div className="space-y-5 px-5 py-5">

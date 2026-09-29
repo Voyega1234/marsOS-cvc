@@ -72,6 +72,10 @@ import {
 import { scanWebsiteContext } from '@/lib/wordgod/online/siteScan';
 import { callGemini, getSessionUsage } from '@/lib/wordgod/gemini';
 import { clientSlugForProject, withOrClient } from '@/lib/orClient';
+import { standaloneProjectId, isStandaloneProjectId, STANDALONE_CLIENT_SLUG } from '@/lib/wordgod/intent-skill/standalone';
+import { runIntentSkill } from '@/lib/wordgod/intent-skill/run';
+import { fromOnlineRow, parseBusinessProfile } from '@/lib/wordgod/intent-skill/adapters';
+import type { IntentSkillInputRow, IntentSkillResult } from '@/lib/wordgod/intent-skill/types';
 import { buildRelevanceGuardPrompt, parseRelevanceGuardResponse, MAX_KEYWORDS_PER_CALL } from '@/lib/wordgod/local/relevanceGuard';
 import { KEYWORD_RESEARCH_PROMPT } from '@/lib/skills/keywordResearchSkill';
 import {
@@ -119,7 +123,7 @@ type ProgressEmit = (event: Record<string, unknown>) => void;
 // ── Stage machine (แพทเทิร์นเดียวกับ local-research ที่พิสูจน์แล้ว) ─────────
 const STAGES = [
   'init', 'site_scan', 'blueprint', 'discovery', 'expand', 'kp', 'dfs_volumes',
-  'intent', 'kd', 'classify', 'serp', 'scoring', 'titles', 'finalize',
+  'intent', 'kd', 'classify', 'serp', 'scoring', 'titles', 'intent_skill', 'finalize',
 ] as const;
 type StageName = (typeof STAGES)[number];
 const stageIdx = (s: string) => Math.max(0, STAGES.indexOf(s as StageName));
@@ -274,7 +278,8 @@ export async function GET(req: NextRequest) {
   const orgId = session?.user?.organizationId;
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const researchId = req.nextUrl.searchParams.get('researchId');
-  const projectId = req.nextUrl.searchParams.get('projectId');
+  const standalone = req.nextUrl.searchParams.get('standalone') === '1';
+  const projectId = standalone ? standaloneProjectId(orgId) : req.nextUrl.searchParams.get('projectId');
   const row = researchId
     ? await prisma.localKeywordResearchRun.findFirst({ where: { id: researchId, organizationId: orgId, mode: 'online_business' } })
     : projectId
@@ -309,6 +314,11 @@ export async function POST(req: NextRequest) {
   }
 
   const resumeRunId = typeof body.resumeRunId === 'string' && body.resumeRunId ? String(body.resumeRunId) : null;
+
+  // ห้าม client ยัด sentinel ของ standalone มาเองโดยไม่ผ่าน flag `standalone: true`
+  if (typeof body.projectId === 'string' && isStandaloneProjectId(body.projectId) && body.standalone !== true) {
+    return NextResponse.json({ error: 'projectId ไม่ถูกต้อง' }, { status: 400 });
+  }
 
   let input: OnlineResearchInput;
   let targetCount: number;
@@ -408,6 +418,11 @@ export async function POST(req: NextRequest) {
       includeComparisonKeywords: body.includeComparisonKeywords !== false,
       includeProblemKeywords: body.includeProblemKeywords !== false,
       businessContext: body.businessContext ? String(body.businessContext).slice(0, 1000) : undefined,
+      businessProfile: parseBusinessProfile(body.businessProfile),
+      intentQuota: (() => {
+        const q = Number(body.intentQuota);
+        return Number.isFinite(q) && q > 0 && q <= 500 ? Math.round(q) : null;
+      })(),
     };
     flags = {
       useSiteScan: !!input.websiteUrl && body.useSiteScan !== false,
@@ -416,7 +431,9 @@ export async function POST(req: NextRequest) {
       useDfsIdeas: body.useDfsIdeas !== false,
       useCompetitors: (input.competitorDomains?.length ?? 0) > 0,
       checkSerp: body.checkSerp !== false,
-      projectId: body.projectId ? String(body.projectId) : null,
+      projectId: body.standalone === true
+        ? standaloneProjectId(orgId)
+        : body.projectId ? String(body.projectId) : null,
       stepBudgetMs: Number(body.stepBudgetMs) > 0
         ? Number(body.stepBudgetMs)
         : Number(process.env.LOCAL_RESEARCH_STEP_BUDGET_MS) > 0
@@ -456,7 +473,7 @@ export async function POST(req: NextRequest) {
   const budgetMs = resumable ? Math.min(600_000, Math.max(30_000, flags.stepBudgetMs)) : Infinity;
 
   // SOP §3: บริบทลูกค้าของรอบนี้ — ทุก call ของ wordgod ข้างในติดป้าย mars_<client>_<action>
-  const orClientSlug = await clientSlugForProject(flags.projectId)
+  const orClientSlug = isStandaloneProjectId(flags.projectId) ? STANDALONE_CLIENT_SLUG : await clientSlugForProject(flags.projectId)
   const runPipeline = async (emit: ProgressEmit) => {
     const progress = (message: string, extra?: Record<string, unknown>) =>
       emit({ type: 'progress', at: new Date().toISOString(), message, ...(extra ?? {}) });
@@ -512,6 +529,7 @@ export async function POST(req: NextRequest) {
     let titleFailures: number = ckptData?.c?.titleFailures ?? 0;
 
     let selected: SelectedRow[] = Array.isArray(ckptData?.selected) ? ckptData.selected : [];
+    let intentSkillResult: IntentSkillResult | undefined = ckptData?.intentSkillResult ?? undefined;
 
     const needs = (s: StageName) => stageIdx(entryStage) <= stageIdx(s);
     const cursor = <T,>(stage: StageName, field: string, dflt: T): T =>
@@ -1735,8 +1753,10 @@ export async function POST(req: NextRequest) {
         ...(siteContext?.existingPaths ?? []),
         ...(input.existingPages ?? []),
       ];
-      const memory = await loadMemory(flags.projectId);
-      const bankSeeds = await loadBankKeywords(flags.projectId);
+      const memory = isStandaloneProjectId(flags.projectId)
+        ? { existing: [], exclude: [], updatedAt: null }
+        : await loadMemory(flags.projectId);
+      const bankSeeds = isStandaloneProjectId(flags.projectId) ? [] : await loadBankKeywords(flags.projectId);
       const nowIso = new Date().toISOString();
       const runGuard = new KeywordGuard({
         existing: memory.existing,
@@ -2051,7 +2071,52 @@ export async function POST(req: NextRequest) {
       } else if (selected.length < deliverTarget) {
         warnings.push(`หลังยุบบทความซ้ำเหลือ ${selected.length} จากเป้าส่ง ${deliverTarget} (เป้าหลัก ${targetCount}) — ตัวสำรองไม่พอชดเชย (ยุบเยอะผิดปกติ ควรตรวจ cluster ที่ชนกัน)`);
       }
-      await checkpoint('finalize');
+      await checkpoint('intent_skill');
+    }
+
+    // ── intent_skill: Keyword Intent Skill — intent + fit + page type + group + cluster ──
+    if (needs('intent_skill')) {
+      progress('วิเคราะห์ Intent + จัดกลุ่ม/Cluster ตามธุรกิจจริง (Keyword Intent Skill) …', stepOf('intent_skill'));
+      try {
+        const bizContextParts = [
+          input.brandName,
+          BUSINESS_TYPE_LABELS[input.businessType],
+          input.products.join(', '),
+          input.businessContext,
+        ].filter(Boolean) as string[];
+        const iskRows: IntentSkillInputRow[] = selected.map(r => fromOnlineRow({
+          ...r,
+          rank: 0,
+          recommendedTitle: r.title ?? null,
+          suggestedSlug: r.slug ?? null,
+          slugStatus: 'NEW',
+          whyThisKeyword: r.why ?? null,
+          sitemap: { section: '', parentTopic: null, topicRole: 'SUPPORTING', suggestedPath: '', internalLinkTarget: null },
+        } as unknown as OnlineKeywordResult));
+        const out = await runIntentSkill(iskRows, {
+          mode: 'online',
+          profile: input.businessProfile,
+          businessContext: bizContextParts.join(' — ') || input.products.join(', '),
+          language: language === 'en' ? 'en' : 'th',
+          quota: input.intentQuota ?? null,
+          llm: (prompt, label) => callGemini(prompt, { functionLabel: label }),
+        });
+        for (const r of selected) {
+          const fields = out.rowFields[r.keyword];
+          if (fields) r.isk = fields;
+        }
+        intentSkillResult = out.result;
+        progress(
+          `Intent Skill: จัดกลุ่มได้ ${out.result.stats.groups} กลุ่ม / ${out.result.stats.clusters} cluster — ต้องตรวจ ${out.result.stats.needsReview} คำ`,
+          stepOf('intent_skill')
+        );
+      } catch (err) {
+        console.warn('[online-research] intent skill failed:', err);
+        warnings.push(
+          `Keyword Intent Skill ไม่สำเร็จ — ตารางแสดงผลได้ตามปกติแต่ไม่มีคอลัมน์ Intent/Fit/Group (${err instanceof Error ? err.message.slice(0, 100) : String(err)})`
+        );
+      }
+      await checkpoint('finalize', { intentSkillResult });
     }
 
     // ── finalize: slug status + sitemap + response + save ───────────────────
@@ -2070,8 +2135,10 @@ export async function POST(req: NextRequest) {
     // ── Keyword Guard: ป้ายกำกับรายแถว (Intent / Existing Match / Risk / Action) ────
     // สร้าง index ใหม่จาก memory + หน้าจริงบนเว็บ แล้วไล่ตามลำดับคะแนน เพื่อให้แถวที่มาทีหลัง
     // ถูกจับว่าซ้ำกับแถวก่อนหน้าในชุดเดียวกันด้วย (§19) — ทำงานได้แม้ run นี้ resume มา
-    const finalMemory = await loadMemory(flags.projectId);
-    const finalBankSeeds = await loadBankKeywords(flags.projectId);
+    const finalMemory = isStandaloneProjectId(flags.projectId)
+      ? { existing: [], exclude: [], updatedAt: null }
+      : await loadMemory(flags.projectId);
+    const finalBankSeeds = isStandaloneProjectId(flags.projectId) ? [] : await loadBankKeywords(flags.projectId);
     const finalGuard = new KeywordGuard({
       existing: finalMemory.existing,
       exclude: [
@@ -2166,6 +2233,7 @@ export async function POST(req: NextRequest) {
         sitemap,
         priorityWave: r.priorityWave,
         handoffStatus: r.handoffStatus,
+        isk: r.isk,
       };
     });
 
@@ -2271,6 +2339,7 @@ export async function POST(req: NextRequest) {
           role: 'ตีความ/จัดหมวด/ตั้งชื่อเท่านั้น — ไม่ใช่แหล่งของตัวเลข volume/CPC/KD ใด ๆ',
         },
       },
+      intentSkill: intentSkillResult,
     };
 
     // ── save canonical run ──────────────────────────────────────────────────
@@ -2288,6 +2357,7 @@ export async function POST(req: NextRequest) {
           clientReady,
           verifiedVolumeCoverage: coverage,
           generatedAt: response.meta.generatedAt,
+          businessProfile: input.businessProfile ?? null,
         });
         if (runId) {
           response.meta.researchId = runId;
@@ -2340,7 +2410,7 @@ export async function POST(req: NextRequest) {
     if (dfsCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: flags.projectId,
+        projectId: isStandaloneProjectId(flags.projectId) ? null : flags.projectId,
         jobType: 'DFS_VOLUME_LOOKUP',
         modelProvider: 'DATAFORSEO',
         modelName: 'dataforseo/search_volume/live',
@@ -2355,7 +2425,7 @@ export async function POST(req: NextRequest) {
     if (dfsExtraCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: flags.projectId,
+        projectId: isStandaloneProjectId(flags.projectId) ? null : flags.projectId,
         jobType: 'DFS_INTEL_LOOKUP',
         modelProvider: 'DATAFORSEO',
         modelName: 'dataforseo/labs+serp (ideas, ranked, intent, kd, serp)',
@@ -2370,7 +2440,7 @@ export async function POST(req: NextRequest) {
     if (kpCalls > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: flags.projectId,
+        projectId: isStandaloneProjectId(flags.projectId) ? null : flags.projectId,
         jobType: 'KP_VOLUME_LOOKUP',
         modelProvider: 'GOOGLE',
         modelName: 'google_ads/keyword_planner',
@@ -2385,7 +2455,7 @@ export async function POST(req: NextRequest) {
     if (llmTokensSoFar() > 0 || llmCostSoFar() > 0) {
       logAIJob({
         organizationId: orgId,
-        projectId: flags.projectId,
+        projectId: isStandaloneProjectId(flags.projectId) ? null : flags.projectId,
         jobType: 'RESEARCH_LLM',
         modelProvider: 'OPENROUTER',
         modelName: 'openrouter (ตีความ/จัดหมวด/ตั้งชื่อ — ไม่ใช่แหล่งตัวเลข)',
