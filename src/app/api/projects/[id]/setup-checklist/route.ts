@@ -12,6 +12,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { timelineEntries } from '@/lib/project-timeline'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
+import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
 
 export interface ChecklistItem {
   id: string
@@ -39,7 +40,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
       ownerId: true, websitePlatform: true, wpUrl: true, wpUser: true, wpAppPassword: true,
       siteConnection: true, themeColors: true, ctaSetting: true, authorEnabled: true, authors: true,
       gscSiteUrl: true, ga4PropertyId: true, keywordRows: true, timeline: true, projectContext: true,
-      pushPrefs: true,
+      pushPrefs: true, internalLinks: true, styleGuide: true,
     },
   })
   if (!p) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -62,16 +63,27 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   const ce = await resolveContentEngine(orgId, { projectId: params.id })
 
   const themeColors = parse(p.themeColors, {}) as Record<string, unknown>
-  const colorsOk = Object.keys(themeColors).some(k => k !== 'styleMode')
-  const cta = parse(p.ctaSetting, {}) as { enabled?: boolean; channels?: Array<{ value?: string }> }
-  const ctaOk = !!cta.enabled && (cta.channels ?? []).some(c => c.value)
+  // themeColors เก็บค่าที่ไม่ใช่สีด้วย (โหมด/สไตล์ element/ตั้งค่ารูป/กล่องผู้เขียน) — นับเฉพาะ key สีจริง
+  const NON_COLOR_KEYS = new Set(['styleMode', 'elements', 'detail', 'imageSettings', 'authorCard', 'authorPick'])
+  const colorsOk = Object.keys(themeColors).some(k => !NON_COLOR_KEYS.has(k))
+  // ctaSetting รูปแบบปัจจุบันเป็น { enabled, items: [...] } — อ่านผ่านตัวอ่านเดียวกับตอนแทรก CTA (รองรับข้อมูลเก่าด้วย)
+  const ctaOk = isUploadCtaReady(readUploadCta(parse(p.ctaSetting, null)))
+  const imageSettingsOk = !!themeColors.imageSettings
   const authorsList = parse(p.authors, []) as unknown[]
   const authorOk = !!p.authorEnabled && authorsList.length > 0
   const keywordRows = parse(p.keywordRows, []) as unknown[]
   const timeline = timelineEntries(p.timeline)
 
-  const pushPrefs = parse(p.pushPrefs, {}) as { manualChecks?: Record<string, { done?: boolean; by?: string; at?: string }> }
+  const internalLinksList = parse(p.internalLinks, []) as unknown[]
+  const internalLinksCount = Array.isArray(internalLinksList) ? internalLinksList.length : 0
+
+  const pushPrefs = parse(p.pushPrefs, {}) as {
+    manualChecks?: Record<string, { done?: boolean; by?: string; at?: string }>
+    siteScan?: { scannedAt?: string }
+  }
   const elementorDone = !!pushPrefs.manualChecks?.elementorTheme?.done
+  // ผลสแกนเว็บปลายทางจาก Article Lab (POST /lab-scan) — ไม่มี = ยังไม่รู้ว่าเว็บมี TOC/FAQ/CTA ซ้ำหรือไม่
+  const scannedAt = pushPrefs.siteScan?.scannedAt
 
   const items: ChecklistItem[] = [
     {
@@ -120,6 +132,18 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
       action: { kind: 'manual' },
     },
     {
+      id: 'site-scan', label: 'สแกนเว็บปลายทาง (Article Lab)', ok: !!scannedAt, required: true,
+      hint: scannedAt
+        ? `สแกนล่าสุด ${new Date(scannedAt).toLocaleDateString('th-TH')}`
+        : 'ยังไม่เคยสแกน — ระบบยังไม่รู้ว่าเว็บลูกค้ามี TOC/FAQ/CTA อยู่แล้วหรือไม่ (ตัดซ้ำตอน push)',
+      action: { kind: 'drawer', tab: 'lab' },
+    },
+    {
+      id: 'internal-links', label: 'ใส่ Internal Link (Article Lab)', ok: internalLinksCount > 0, required: true,
+      hint: internalLinksCount > 0 ? `มีลิงก์ ${internalLinksCount} รายการ` : 'ยังไม่มีลิงก์ — บทความจะไม่มี internal link ไปหน้าอื่นของเว็บลูกค้า',
+      action: { kind: 'drawer', tab: 'lab' },
+    },
+    {
       id: 'colors', label: 'ตั้งชุดสี/สไตล์บทความ (Article Lab)', ok: colorsOk, required: false,
       hint: 'สีต่อ element + โหมด embed/clean — ไม่ตั้ง = ค่ามาตรฐาน',
       action: { kind: 'drawer', tab: 'lab' },
@@ -132,6 +156,16 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     {
       id: 'author', label: 'ตั้งผู้เขียนประจำ (E-E-A-T)', ok: authorOk, required: false,
       hint: 'ชื่อ + ตำแหน่ง + รูป — โทนภาษาและกล่องผู้เขียนท้ายบทความ',
+      action: { kind: 'drawer', tab: 'lab' },
+    },
+    {
+      id: 'image-settings', label: 'ตั้งค่ารูปภาพบทความ (Article Lab)', ok: imageSettingsOk, required: false,
+      hint: imageSettingsOk ? 'บันทึกค่ารูปภาพแล้ว' : 'ยังใช้ค่าตั้งต้น — ปกมีข้อความ + รูปประกอบตาม Image Prompt',
+      action: { kind: 'drawer', tab: 'lab' },
+    },
+    {
+      id: 'style-guide', label: 'บันทึก Style Guide (Article Lab)', ok: !!p.styleGuide?.trim(), required: false,
+      hint: 'แนวการเขียนของลูกค้า — ยังไม่บันทึก = ใช้ Style Guide ตั้งต้นของระบบ',
       action: { kind: 'drawer', tab: 'lab' },
     },
     {
