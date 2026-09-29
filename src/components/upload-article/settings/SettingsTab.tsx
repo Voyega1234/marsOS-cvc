@@ -2,11 +2,11 @@
 
 /**
  * แท็บ "Project Setting" (ไอคอนเฟือง) — รวมทุกการตั้งค่าของลูกค้า Upload Article รายนี้ไว้ที่เดียว:
- * เว็บไซต์ & Connect, สแกนเว็บปลายทาง, สไตล์บทความ, Internal Link, รูปภาพ, Content Engine, ลบลูกค้า
+ * Checklist (upload เท่านั้น), เว็บไซต์ & Connect, สแกนเว็บปลายทาง, สไตล์บทความ, Internal Link, รูปภาพ, Content Engine, ลบลูกค้า
  * ตำแหน่งซับแท็บ: เมนูแนวตั้งด้านซ้ายบนจอใหญ่ / แถบเลื่อนแนวนอนบนมือถือ
  */
 import { useEffect, useState } from "react";
-import { Cpu, Globe, ImageIcon, Link2, Megaphone, Palette, ScanSearch, Sparkles, Trash2, UserRound } from "lucide-react";
+import { ClipboardCheck, Cpu, Globe, ImageIcon, Link2, Megaphone, Palette, ScanSearch, Sparkles, Trash2, UserRound } from "lucide-react";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 import ConnectTab from "../tabs/ConnectTab";
 import ScanSection from "./ScanSection";
@@ -18,6 +18,8 @@ import CtaSection from "./CtaSection";
 import AuthorSection from "./AuthorSection";
 import TestImageSection from "./TestImageSection";
 import DangerSection from "./DangerSection";
+import UploadSetupChecklist from "./UploadSetupChecklist";
+import type { UploadSetupChecklistStatus } from "./useUploadSetupChecklist";
 import PbnSitesSection from "../pbn/PbnSitesSection";
 import { useThemeDraft } from "./useThemeDraft";
 import PbnStylePicker from "../pbn/PbnStylePicker";
@@ -26,9 +28,10 @@ import { usePbnProfiles } from "../pbn/usePbnProfiles";
 import { usePbnSiteThemeDraft, usePbnStyles } from "../pbn/usePbnSiteThemeDraft";
 import { PBN_MAIN_PROFILE } from "@/lib/upload-article/pbn-sets";
 
-export type SettingsSection = "website" | "scan" | "style" | "links" | "images" | "cta" | "author" | "test-image" | "engine" | "danger";
+export type SettingsSection = "checklist" | "website" | "scan" | "style" | "links" | "images" | "cta" | "author" | "test-image" | "engine" | "danger";
 
 const SECTIONS: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
+  { id: "checklist", label: "Checklist", icon: ClipboardCheck },
   { id: "website", label: "เว็บไซต์ & Connect", icon: Globe },
   { id: "scan", label: "สแกนเว็บปลายทาง", icon: ScanSearch },
   { id: "style", label: "สไตล์บทความ", icon: Palette },
@@ -43,6 +46,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
 
 export default function SettingsTab({
   client, setClient, onDeleted, userRole, section, onSectionChange, mode = "upload",
+  checklistMissing = 0, onChecklistStatus,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
@@ -52,15 +56,19 @@ export default function SettingsTab({
   onSectionChange?: (s: SettingsSection) => void;
   /** "pbn" = หน้า PBN Backlinks: เว็บไซต์ = รายการเว็บ PBN ทั้งหมด, ไม่มีเมนูลบโปรเจกต์ */
   mode?: "upload" | "pbn";
+  /** จำนวนข้อบังคับที่ยังไม่ครบ — แสดงเลขแดงที่เมนู Checklist */
+  checklistMissing?: number;
+  onChecklistStatus?: (s: UploadSetupChecklistStatus) => void;
 }) {
   const isPbn = mode === "pbn";
+  // Checklist เป็นของ Upload Article เท่านั้น — PBN ไม่มี
   const sections = isPbn
-    ? SECTIONS.filter(s => s.id !== "danger").map(s => (s.id === "website" ? { ...s, label: "เว็บ PBN & Connect" } : s))
+    ? SECTIONS.filter(s => s.id !== "danger" && s.id !== "checklist").map(s => (s.id === "website" ? { ...s, label: "เว็บ PBN & Connect" } : s))
     : SECTIONS;
   const [internalSection, setInternalSection] = useState<SettingsSection>("website");
   const requested = section ?? internalSection;
-  // โหมด PBN ไม่มีเมนูลบ — ลิงก์เก่า ?section=danger ตกกลับไปหน้าเว็บ
-  const active = isPbn && requested === "danger" ? "website" : requested;
+  // โหมด PBN ไม่มีเมนูลบ/Checklist — ลิงก์เก่า ?section=danger ตกกลับไปหน้าเว็บ
+  const active = isPbn && (requested === "danger" || requested === "checklist") ? "website" : requested;
 
   function go(s: SettingsSection) {
     setInternalSection(s);
@@ -113,6 +121,7 @@ export default function SettingsTab({
                 active === s.id ? "bg-brand-mist text-brand-blue border-brand-soft/60" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
               }`}>
               <s.icon size={13} /> {s.label}
+              {s.id === "checklist" && checklistMissing > 0 && <MissingBadge n={checklistMissing} />}
             </button>
           ))}
         </div>
@@ -126,13 +135,17 @@ export default function SettingsTab({
               className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
                 active === s.id ? "bg-brand-mist text-brand-blue" : "text-gray-500 hover:bg-gray-50 hover:text-brand-navy"
               }`}>
-              <s.icon size={15} /> {s.label}
+              <s.icon size={15} /> <span className="flex-1">{s.label}</span>
+              {s.id === "checklist" && checklistMissing > 0 && <MissingBadge n={checklistMissing} />}
             </button>
           ))}
         </div>
       </div>
 
       <div className="flex-1 min-w-0">
+        {active === "checklist" && !isPbn && (
+          <UploadSetupChecklist clientId={client.id} onNavigate={go} onStatus={onChecklistStatus} />
+        )}
         {active === "website" && (isPbn
           ? <PbnSitesSection client={client} setClient={setClient} />
           : <ConnectTab client={client} setClient={setClient} />)}
@@ -182,5 +195,13 @@ export default function SettingsTab({
         {active === "danger" && !isPbn && <DangerSection client={client} onDeleted={onDeleted} />}
       </div>
     </div>
+  );
+}
+
+function MissingBadge({ n }: { n: number }) {
+  return (
+    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-[18px] text-center">
+      {n}
+    </span>
   );
 }

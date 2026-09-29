@@ -21,6 +21,7 @@ import PublishTab from "@/components/upload-article/tabs/PublishTab";
 import SettingsTab, { type SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import PbnReportTab from "@/components/upload-article/pbn/PbnReportTab";
 import UploadGscReportTab from "@/components/upload-article/report/UploadGscReportTab";
+import { useUploadSetupChecklist } from "@/components/upload-article/settings/useUploadSetupChecklist";
 
 export type TabId = "keyword" | "write" | "import" | "generate" | "review" | "push" | "publish" | "report" | "settings";
 
@@ -38,7 +39,7 @@ const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   report: "Report",
 };
 
-const SETTINGS_SECTIONS: SettingsSection[] = ["website", "scan", "style", "links", "images", "engine", "danger"];
+const SETTINGS_SECTIONS: SettingsSection[] = ["checklist", "website", "scan", "style", "links", "images", "cta", "author", "test-image", "engine", "danger"];
 
 function resolveInitialTab(t: string | undefined, order: Exclude<TabId, "settings">[]): TabId {
   if (t === "connect" || t === "settings") return "settings";
@@ -76,6 +77,10 @@ export default function UploadClientWorkspace({
 
   const [tab, setTab] = useState<TabId>(resolveInitialTab(initialTab, tabOrder));
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(resolveInitialSection(initialTab, initialSection));
+
+  // badge แจ้งเตือนบนปุ่ม Project Setting — ตรวจใหม่ทุกครั้งที่สลับแท็บ/เมนูตั้งค่า หรือข้อมูลลูกค้าเปลี่ยน (Upload เท่านั้น)
+  const checklist = useUploadSetupChecklist(clientId, !isPbn, `${tab}|${settingsSection}|${client?.updatedAt ?? ""}`);
+  const checklistMissing = checklist.status?.missingRequired ?? 0;
 
   // preselect keyword ids ที่ยกมาจากแท็บ Keyword ตอนกด "ไปเขียนบทความ"
   const [writePreselect, setWritePreselect] = useState<string[]>([]);
@@ -187,13 +192,21 @@ export default function UploadClientWorkspace({
           </p>
         </div>
         <button
-          onClick={() => goTab("settings")}
-          title="Project Setting"
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-            tab === "settings" ? "bg-brand-mist text-brand-blue border-brand-soft/60" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+          // ยังตั้งค่าไม่ครบ = เปิดหน้า Checklist ให้เห็นว่าขาดอะไร
+          onClick={() => goTab("settings", undefined, checklistMissing > 0 && tab !== "settings" ? "checklist" : undefined)}
+          title={checklistMissing > 0 ? `Project Setting — ยังตั้งค่าไม่ครบ ${checklistMissing} ข้อ` : "Project Setting"}
+          className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            tab === "settings" ? "bg-brand-mist text-brand-blue border-brand-soft/60"
+              : checklistMissing > 0 ? "bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
+              : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
           }`}
         >
           <Settings size={13} /> Project Setting
+          {checklistMissing > 0 && (
+            <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-[18px] text-center shadow">
+              {checklistMissing}
+            </span>
+          )}
         </button>
       </div>
 
@@ -307,6 +320,8 @@ export default function UploadClientWorkspace({
           section={settingsSection}
           onSectionChange={onSectionChange}
           mode={mode}
+          checklistMissing={checklistMissing}
+          onChecklistStatus={checklist.setStatus}
         />
       )}
     </div>
