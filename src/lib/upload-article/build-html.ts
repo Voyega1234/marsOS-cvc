@@ -8,6 +8,7 @@ import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { type UploadOutputMode, type UploadTheme } from './types'
 import { buildUploadCss } from './theme-css'
 import { decodeTextEntities } from './entities'
+import { stripGoogleDocsCommentsHtml } from './clean-html'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import type { UploadCtaSettings } from './cta'
 import { buildAuthorCardHtml, type AuthorCardStyle } from '@/lib/articleAuthorCard'
@@ -402,7 +403,8 @@ function toPlainText(bodyHtml: string): string {
 export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult {
   const htmlMode = o.mode !== 'text'
   // บทความที่นำเข้าก่อนมีการถอด entity (Google Doc เก็บไทยเป็น &#NNNN;) — ถอดตอน Generate ด้วย ไม่ต้องนำเข้าใหม่
-  let blocks = stripAuthorNotes(parseTopLevelBlocks(decodeTextEntities(o.sourceHtml)))
+  // เช่นเดียวกับคอมเมนต์ Google Docs ([a]/[b] + ข้อความคอมเมนต์) ที่ค้างในต้นฉบับเก่า
+  let blocks = stripAuthorNotes(parseTopLevelBlocks(stripGoogleDocsCommentsHtml(decodeTextEntities(o.sourceHtml))))
 
   let h1Index = normalizeH1(blocks, o.meta.title)
   const h2Count = assignH2Ids(blocks)

@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
+import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
@@ -57,7 +58,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   const data: Record<string, unknown> = {}
   if (typeof body.title === 'string') data.title = body.title.trim().slice(0, 200)
   if (typeof body.sourceHtml === 'string') data.sourceHtml = body.sourceHtml
-  if (typeof body.htmlContent === 'string') data.htmlContent = body.htmlContent
+  // คอมเมนต์ Google Docs ที่ติดมากับการวางเนื้อหาใน editor — ตัดก่อนบันทึก
+  if (typeof body.htmlContent === 'string') data.htmlContent = stripGoogleDocsCommentsHtml(body.htmlContent)
   if (body.htmlContent === null) data.htmlContent = null
   if (body.outputMode === 'html' || body.outputMode === 'text') data.outputMode = body.outputMode
   if (typeof body.seoTitle === 'string') data.seoTitle = body.seoTitle.trim().slice(0, 120)

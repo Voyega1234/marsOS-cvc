@@ -231,6 +231,19 @@ function stripGoogleDocsComments(root: HTMLElement): void {
   }
 }
 
+/**
+ * ตัดคอมเมนต์ Google Docs ออกจาก HTML ที่ clean แล้ว — บทความที่นำเข้าก่อนมี stripGoogleDocsComments
+ * ยังเก็บ marker [a]/[b] (href #cmnt) กับข้อความคอมเมนต์ไว้ในต้นฉบับ — ใช้ตอน Generate, บันทึกจาก editor และ push
+ * (ด่านสุดท้าย) เพื่อไม่ให้หลุดออกไปบนเว็บลูกค้าไม่ว่าจะเข้ามาทางไหน
+ */
+export function stripGoogleDocsCommentsHtml(html: string): string {
+  if (!html || !/href=["']?#cmnt/i.test(html)) return html
+  // ใช้ blockTextElements ค่าตั้งต้น — <style>/<script> (CSS + schema) ของ HTML เต็มต้องคงเป็นข้อความดิบ
+  const root = parse(html, { comment: true })
+  stripGoogleDocsComments(root)
+  return root.toString()
+}
+
 /** ครอบ text node เดี่ยว ๆ ที่หลุดอยู่ระดับบนสุด (ไม่มี <p> ห่อ) ให้เป็น <p> */
 function wrapStrayTextAtRoot(root: HTMLElement): void {
   const next: (typeof root.childNodes) = []

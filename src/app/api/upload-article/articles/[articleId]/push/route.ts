@@ -14,6 +14,7 @@ import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import { isPbnPrefs, readPbnSites, readPbnPushes, type PbnSite } from '@/lib/upload-article/pbn'
 import { publishToGithub } from '@/lib/upload-article/github-push'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
+import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
 
 export const maxDuration = 300
 
@@ -89,7 +90,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const rawPublishAt = prevPrefs.publishAt?.[article.id]
   const publishAt = typeof rawPublishAt === 'string' && !Number.isNaN(Date.parse(rawPublishAt)) ? rawPublishAt : undefined
 
-  const fullHtml = article.htmlContent || ''
+  // ด่านสุดท้าย: HTML ที่ Generate ไว้ก่อนมีตัวกรองอาจยังมีคอมเมนต์ Google Docs ([a]/[b]) — ห้ามหลุดขึ้นเว็บ
+  const fullHtml = stripGoogleDocsCommentsHtml(article.htmlContent || '')
   if (!fullHtml) return NextResponse.json({ error: 'ยังไม่มี HTML ให้ push — กด Generate ก่อน' }, { status: 400 })
 
   // client ส่งแค่รายการ card ที่เลือก (กันตัว request body เกินเพดาน 4.5MB ของ Vercel เวลามีรูป base64)
