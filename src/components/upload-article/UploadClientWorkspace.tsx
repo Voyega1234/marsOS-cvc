@@ -18,15 +18,16 @@ import GenerateTab from "@/components/upload-article/tabs/GenerateTab";
 import ReviewTab from "@/components/upload-article/tabs/ReviewTab";
 import PushTab from "@/components/upload-article/tabs/PushTab";
 import PublishTab from "@/components/upload-article/tabs/PublishTab";
+import IndexTab from "@/components/upload-article/tabs/IndexTab";
 import SettingsTab, { type SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import PbnReportTab from "@/components/upload-article/pbn/PbnReportTab";
 import UploadGscReportTab from "@/components/upload-article/report/UploadGscReportTab";
 import { useUploadSetupChecklist } from "@/components/upload-article/settings/useUploadSetupChecklist";
 
-export type TabId = "keyword" | "write" | "import" | "generate" | "review" | "push" | "publish" | "report" | "settings";
+export type TabId = "keyword" | "write" | "import" | "generate" | "review" | "push" | "publish" | "index" | "report" | "settings";
 
 // Report = GSC ของเว็บลูกค้า (upload ปกติ) หรือ GSC/GA4 แยกตามเว็บ PBN (mode="pbn") — คนละ component กัน
-const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "generate", "review", "push", "publish", "report"];
+const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "generate", "review", "push", "publish", "index", "report"];
 
 const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   keyword: "Keyword",
@@ -36,6 +37,7 @@ const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   review: "Review",
   push: "Push",
   publish: "Publish",
+  index: "Request Index",
   report: "Report",
 };
 
@@ -299,6 +301,18 @@ export default function UploadClientWorkspace({
           <PublishTab
             articles={visibleArticles}
             goToPush={id => goTab("push", id)}
+          />
+        </TabsContent>
+
+        <TabsContent value="index">
+          <IndexTab
+            client={client}
+            setClient={setClient}
+            articles={visibleArticles}
+            loadArticleDetail={loadArticleDetail}
+            goToReport={() => goTab("report")}
+            onOpenPbnSites={() => openSettings("website")}
+            pbn={isPbn}
           />
         </TabsContent>
 

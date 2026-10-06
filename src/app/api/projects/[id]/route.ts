@@ -73,6 +73,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     };
     const existingPrefs = parseJson(existing.pushPrefs);
     const incomingPrefs = parseJson(data.pushPrefs);
+    // indexRequests เขียนฝั่งเซิร์ฟเวอร์เท่านั้น — ทิ้งค่าที่ client ส่งมา (สำเนาเก่าใน PushTab) กันทับผลจริง
+    delete incomingPrefs.indexRequests;
     data.pushPrefs = JSON.stringify({ ...existingPrefs, ...incomingPrefs });
   }
 

@@ -7,10 +7,12 @@
 
 import { getIndexingServiceAuth, getServiceIdentity } from '@/lib/google-auth'
 import { updatePrefs, type PrefsObject } from './prefs-store'
+import { safeFetch } from './safe-fetch'
 import type { UploadIndexRequest, UploadPushPrefs } from './types'
 
 const INDEXING_ENDPOINT = 'https://indexing.googleapis.com/v3/urlNotifications:publish'
 const TIMEOUT_MS = 15_000
+const CHECK_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
 /** URL ที่ส่งให้ Google ได้ — ต้องเป็น https ของเว็บจริง (ไม่ใช่ ?p=123 ของ Draft) */
 export function isIndexableUrl(url: string | null | undefined): url is string {
@@ -24,6 +26,37 @@ export function isIndexableUrl(url: string | null | undefined): url is string {
   } catch {
     return false
   }
+}
+
+/**
+ * เช็คว่าหน้าเปิดได้จริง (HTTP 200) ก่อนส่งให้ Google — ใช้กับ PBN (GitHub ต้องรอ build) และ SEO SME
+ * (ไม่มี post id ให้ถาม WordPress) Draft/ยังไม่ build เสร็จ = 404 → ไม่ส่ง
+ */
+export async function checkUrlLive(url: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isIndexableUrl(url)) return { ok: false, error: 'URL ของบทความยังไม่ใช่ลิงก์ https ที่เผยแพร่แล้ว' }
+  try {
+    const res = await safeFetch(url, {
+      headers: { 'User-Agent': CHECK_UA, Accept: 'text/html' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    res.body?.cancel().catch(() => {})
+    // บล็อกเฉพาะ "ไม่มีหน้านี้" — 403/5xx มักเป็น firewall กันบอท เช็คไม่ได้ก็ปล่อยให้ Google ตัดสินเอง
+    if (res.status === 404 || res.status === 410) {
+      return { ok: false, error: `หน้ายังเปิดไม่ได้ (${res.status}) — ยังเป็น Draft หรือเว็บยัง build ไม่เสร็จ รอสักครู่แล้วกด Request Index อีกครั้ง` }
+    }
+    return { ok: true }
+  } catch {
+    return { ok: true }
+  }
+}
+
+/** เช็คหน้า live ก่อน แล้วค่อยส่ง Google — คืน record พร้อมจดลงที่ไหนก็ได้ */
+export async function requestIndexIfLive(url: string): Promise<UploadIndexRequest> {
+  const at = new Date().toISOString()
+  const live = await checkUrlLive(url)
+  if (!live.ok) return { url, at, ok: false, error: live.error }
+  const r = await requestGoogleIndex(url)
+  return { url, at, ok: r.ok, ...(r.error ? { error: r.error } : {}) }
 }
 
 /** แปลง error ของ Google ให้ทีมรู้ว่าต้องแก้ที่ไหน */
@@ -92,6 +125,32 @@ export async function requestIndexForArticle(
     const cur = current as UploadPushPrefs
     const next: UploadPushPrefs = { ...cur, indexRequests: { ...(cur.indexRequests ?? {}), [articleId]: record } }
     return { prefs: next as PrefsObject, result: null }
+  }).catch(() => null)
+  return { record, prefs: saved?.prefs ?? null }
+}
+
+/** articleId → siteId → ผลล่าสุด (PBN) */
+export type PbnIndexRequests = Record<string, Record<string, UploadIndexRequest>>
+
+export function readPbnIndexRequests(prefs: Record<string, unknown> | null | undefined): PbnIndexRequests {
+  const raw = prefs?.pbnIndexRequests
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  return raw as PbnIndexRequests
+}
+
+/** PBN: เช็คหน้า live (GitHub ต้องรอ build) แล้วส่ง Google — จดผลลง pushPrefs.pbnIndexRequests[articleId][siteId] */
+export async function requestIndexForPbn(
+  clientId: string,
+  orgId: string,
+  articleId: string,
+  siteId: string,
+  url: string,
+): Promise<{ record: UploadIndexRequest; prefs: PrefsObject | null }> {
+  const record = await requestIndexIfLive(url)
+  const saved = await updatePrefs(clientId, orgId, (current) => {
+    const all = readPbnIndexRequests(current)
+    const next: PbnIndexRequests = { ...all, [articleId]: { ...(all[articleId] ?? {}), [siteId]: record } }
+    return { prefs: { ...current, pbnIndexRequests: next }, result: null }
   }).catch(() => null)
   return { record, prefs: saved?.prefs ?? null }
 }

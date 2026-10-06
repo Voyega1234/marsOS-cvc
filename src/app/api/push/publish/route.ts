@@ -13,6 +13,8 @@ import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { stripStyleTags, stripLeadingH1, normalizeCtaItems } from '@/lib/articleComponents'
 import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 import { buildArticleSchema } from '@/lib/articleSchema'
+import { isIndexableUrl, requestIndexIfLive } from '@/lib/upload-article/request-index'
+import { parsePushPrefs, saveProjectIndexRequest } from '@/lib/project-index-requests'
 
 function extractSeoMeta(html: string, fallbackTitle: string, fallbackKeyword: string) {
   // Parse <!-- CONVERT_CAKE_SEO_META ... --> block (line-based key: value format)
@@ -111,7 +113,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   // metaTitle/metaDescription = ค่าที่แก้เองในแท็บ Review (override) — ถ้ามีต้องชนะทุกแหล่ง
-  const { html, title, keyword, slug: manualSlug, coverImage = '', coverMimeType = 'image/webp', metaTitle: reviewMetaTitle = '', metaDescription: reviewMetaDesc = '', publishMode = 'draft', useElementor = false, wpPostType = 'post', projectId, connectionId, stripH1 } = body
+  const { html, title, keyword, slug: manualSlug, coverImage = '', coverMimeType = 'image/webp', metaTitle: reviewMetaTitle = '', metaDescription: reviewMetaDesc = '', publishMode = 'draft', useElementor = false, wpPostType = 'post', projectId, connectionId, stripH1, autoRequestIndex } = body
   const orgId = session.user.organizationId
 
   // Enrich with DB article data if we can match by projectId + title
@@ -459,6 +461,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Upsert article status in DB so Published tab persists across refreshes
+    let articleIdForIndex: string | null = null
     if (projectId && orgId && title) {
       try {
         const existing = await prisma.article.findFirst({
@@ -467,6 +470,7 @@ export async function POST(req: NextRequest) {
         })
         const articleStatus = publishMode === 'publish' ? 'POSTED' : 'WORDPRESS_DRAFTED'
         if (existing) {
+          articleIdForIndex = existing.id
           await prisma.article.update({
             where: { id: existing.id },
             data: { wordpressUrl: postUrl || null, status: articleStatus },
@@ -474,7 +478,7 @@ export async function POST(req: NextRequest) {
         } else {
           // Get createdById from session
           const userId = session.user.id
-          await prisma.article.create({
+          const created = await prisma.article.create({
             data: {
               projectId,
               title,
@@ -483,10 +487,24 @@ export async function POST(req: NextRequest) {
               wordpressUrl: postUrl || null,
               createdById: userId,
             },
+            select: { id: true },
           })
+          articleIdForIndex = created.id
         }
       } catch { /* non-fatal */ }
     }
+
+    // Request Index อัตโนมัติ (เฉพาะ Publish) — ห้ามทำให้ push ล้มเหลว
+    let indexRequest: { url: string; at: string; ok: boolean; error?: string } | undefined
+    try {
+      if (articleIdForIndex && projectId && publishMode === 'publish' && data.status === 'publish' && autoRequestIndex !== false && isIndexableUrl(postUrl)) {
+        const proj = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId }, select: { pushPrefs: true } })
+        if (parsePushPrefs(proj?.pushPrefs).autoRequestIndex !== false) {
+          indexRequest = await requestIndexIfLive(postUrl)
+          await saveProjectIndexRequest(projectId, articleIdForIndex, indexRequest)
+        }
+      }
+    } catch { /* non-fatal */ }
 
     // Activity log
     try {
@@ -504,7 +522,7 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* non-fatal */ }
 
-    return NextResponse.json({ ok: true, postId, postUrl, status: data.status, slug: data.slug ?? finalSlug })
+    return NextResponse.json({ ok: true, postId, postUrl, status: data.status, slug: data.slug ?? finalSlug, ...(indexRequest ? { indexRequest } : {}) })
 
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

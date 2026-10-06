@@ -48,6 +48,7 @@ import type { UploadThemeDetail } from '@/lib/upload-article/types'
 import { sanitizeThemeDetail } from '@/lib/upload-article/theme-css'
 import FaqStyleEditor from '@/components/upload-article/shared/FaqStyleEditor'
 import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
+import RequestIndexTab from '@/components/projects/RequestIndexTab'
 import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
@@ -55,7 +56,7 @@ import { PAGE_TYPE_LABEL_TH } from '@/lib/wordgod/intent-skill/handoff'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'timeline-view' | 'competitor-gap' | 'keyword-research' | 'keywords' | 'keyword-bank' | 'content-map' | 'articles' | 'content-refresh' | 'lab' | 'push' | 'review' | 'publish' | 'report' | 'on-page' | 'technical' | 'indexing' | 'proj-ce'
+type Tab = 'overview' | 'timeline-view' | 'competitor-gap' | 'keyword-research' | 'keywords' | 'keyword-bank' | 'content-map' | 'articles' | 'content-refresh' | 'lab' | 'push' | 'review' | 'publish' | 'report' | 'on-page' | 'technical' | 'indexing' | 'request-index' | 'proj-ce'
 
 export interface ProjectData {
   id: string
@@ -6437,6 +6438,7 @@ type ReadyPushItem = {
   html: string; coverImage: string; coverMimeType: string
 }
 type DbArticleLite = {
+  id: string; wordpressUrl?: string | null
   title?: string; slug?: string; status?: string; htmlContent?: string
   keyword?: { keyword?: string } | null
 }
@@ -6472,24 +6474,34 @@ function PushTab({
   // (card จริงทุกใบเลือก, card ที่ระบบสร้างเพิ่มเช่น TOC ไม่เลือก)
   const [cardSel, setCardSel] = useState<Record<number, Record<string, boolean>>>({})
   // ค่าจำของแผง Push ต่อโปรเจกต์ — ชนิด card ที่ไม่เอา (toc/cta/faq) + ตัด H1
-  const [pushPrefs, setPushPrefs] = useState<{ excludeCards?: Record<string, boolean>; stripH1?: boolean }>({})
+  type PushPrefsState = { excludeCards?: Record<string, boolean>; stripH1?: boolean; autoRequestIndex?: boolean }
+  const [pushPrefs, setPushPrefs] = useState<PushPrefsState>({})
+  // ผล Request Index ต่อบทความ (articleId) — เซิร์ฟเวอร์เป็นคนเขียน, ฝั่งนี้เก็บสำเนาไว้แสดงผล
+  type IndexRec = { url: string; at: string; ok: boolean; error?: string }
+  const [indexRequests, setIndexRequests] = useState<Record<string, IndexRec>>({})
+  const [indexBusy, setIndexBusy] = useState<Record<string, boolean>>({})
   useEffect(() => {
     let alive = true
     fetch(`/api/projects/${project.id}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (!alive || !d) return
-        try { setPushPrefs(JSON.parse(d.pushPrefs || '{}')) } catch { /* default */ }
+        try {
+          const pp = JSON.parse(d.pushPrefs || '{}')
+          setPushPrefs(pp)
+          if (pp.indexRequests && typeof pp.indexRequests === 'object') setIndexRequests(pp.indexRequests)
+        } catch { /* default */ }
       })
       .catch(() => {})
     return () => { alive = false }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id])
-  const savePushPrefs = (next: { excludeCards?: Record<string, boolean>; stripH1?: boolean }) => {
+  const savePushPrefs = (next: PushPrefsState) => {
     setPushPrefs(next)
     fetch(`/api/projects/${project.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      // indexRequests ไม่ได้อยู่ใน pushPrefs state นี้ และฝั่ง PUT ทิ้ง key นี้อยู่แล้ว
       body: JSON.stringify({ pushPrefs: JSON.stringify(next) }),
     }).catch(() => {})
   }
@@ -6722,7 +6734,7 @@ function PushTab({
       const res = await fetch('/api/push/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, html: htmlForPush(jobEntryIdx, job.html), title, keyword, slug, coverImage, coverMimeType, metaTitle: reviewMetaTitle, metaDescription: reviewMetaDesc, publishMode, useElementor, wpPostType: getWpPostType(jobEntryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true }),
+        body: JSON.stringify({ projectId: project.id, html: htmlForPush(jobEntryIdx, job.html), title, keyword, slug, coverImage, coverMimeType, metaTitle: reviewMetaTitle, metaDescription: reviewMetaDesc, publishMode, useElementor, wpPostType: getWpPostType(jobEntryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true, autoRequestIndex: pushPrefs.autoRequestIndex !== false }),
       })
       const data = await res.json()
       if (!res.ok || data.error) {
@@ -6733,6 +6745,17 @@ function PushTab({
         ? { ...p, status: 'done', postId: data.postId, postUrl: data.postUrl, pushedAt: new Date().toISOString() }
         : p
       ))
+      // ผล Request Index อัตโนมัติ (เซิร์ฟเวอร์ยิงให้หลัง Publish) + รีเฟรชรายการบทความเพื่อให้ได้ id ของ Article ใหม่
+      if (data.indexRequest) {
+        if (data.indexRequest.ok) toast.success('ส่ง Request Index ให้ Google แล้ว')
+        else toast.warning(`Push สำเร็จ แต่ Request Index ไม่สำเร็จ: ${data.indexRequest.error ?? 'ไม่ทราบสาเหตุ'}`)
+      }
+      fetch(`/api/articles?projectId=${project.id}`).then(r => (r.ok ? r.json() : null)).then(arts => {
+        if (Array.isArray(arts)) setDbArticles(arts)
+      }).catch(() => {})
+      fetch(`/api/projects/${project.id}`).then(r => (r.ok ? r.json() : null)).then(d => {
+        try { const pp = JSON.parse(d?.pushPrefs || '{}'); if (pp.indexRequests) setIndexRequests(pp.indexRequests) } catch { /* ignore */ }
+      }).catch(() => {})
       // Save wordpressUrl back to DB so Publish tab can show it persistently
       // ถ้าขั้นนี้ล้ม แท็บ Publish จะไม่ขึ้นรายการทั้งที่ขึ้นเว็บไปแล้ว — ต้องแจ้ง ไม่ใช่กลืนเงียบ
       if (data.postUrl && title) {
@@ -6749,6 +6772,26 @@ function PushTab({
       }
     } catch (e) {
       setPushJobs(prev => prev.map(p => p.entryIdx === jobEntryIdx ? { ...p, status: 'error', error: String(e) } : p))
+    }
+  }
+
+  /** หา id ของ Article ในฐานข้อมูลจาก title ของแถว (เหมือนที่ใช้จับคู่ timeline) */
+  const findDbArticle = (title: string) => dbArticles.find(a => (a.title ?? '').trim() === (title ?? '').trim())
+
+  async function handleRequestIndex(articleId: string) {
+    setIndexBusy(prev => ({ ...prev, [articleId]: true }))
+    try {
+      const r = await fetch(`/api/projects/${project.id}/request-index`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ articleId }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (d.indexRequests) setIndexRequests(d.indexRequests)
+      if (r.ok && d.ok) toast.success('ส่ง Request Index ให้ Google แล้ว')
+      else toast.error(`Request Index ไม่สำเร็จ: ${d?.error || r.status}`)
+    } catch (e) {
+      toast.error(`Request Index ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setIndexBusy(prev => ({ ...prev, [articleId]: false }))
     }
   }
 
@@ -6882,6 +6925,16 @@ function PushTab({
               <span className="text-xs text-gray-700">ใช้ Elementor HTML Widget</span>
             </label>
             <p className="text-[10px] text-gray-400 mt-1">เปิดถ้าเว็บใช้ Elementor — HTML จะถูก inject เป็น widget แทน native WP content</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">Request Index</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={pushPrefs.autoRequestIndex !== false}
+                onChange={e => savePushPrefs({ ...pushPrefs, autoRequestIndex: e.target.checked })}
+                className="w-4 h-4 rounded accent-brand-blue" />
+              <span className="text-xs text-gray-700">Request Index อัตโนมัติหลัง Publish</span>
+            </label>
+            <p className="text-[10px] text-gray-400 mt-1">ส่ง URL ให้ Google ทันทีเมื่อ Publish Live สำเร็จ (จำค่าต่อโปรเจกต์)</p>
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">หัวเรื่อง H1</p>
@@ -7051,6 +7104,26 @@ function PushTab({
                         🃏 {parsed.cards.length} Cards{offCount > 0 ? ` (−${offCount})` : ''}{tocOn ? ' +TOC' : ''}
                       </button>
                     )}
+                    {(() => {
+                      const dbA = findDbArticle(job.title)
+                      const pushed = (pj?.status === 'done' && !!pj.postUrl) || !!dbA?.wordpressUrl
+                      if (!pushed || !dbA?.id) return null
+                      const ir = indexRequests[dbA.id]
+                      return (
+                        <div className="text-right">
+                          <button onClick={() => handleRequestIndex(dbA.id)} disabled={!!indexBusy[dbA.id]}
+                            className="text-xs px-2.5 py-1.5 rounded-lg font-semibold border bg-white text-gray-600 border-gray-200 hover:border-gray-400 disabled:opacity-40">
+                            {indexBusy[dbA.id] ? <RefreshCw size={12} className="animate-spin" /> : 'Request Index'}
+                          </button>
+                          {ir && (
+                            <p className={`text-[10px] mt-0.5 max-w-[180px] truncate ${ir.ok ? 'text-emerald-600' : 'text-red-500'}`}
+                              title={ir.ok ? undefined : ir.error}>
+                              {ir.ok ? `ส่ง Google แล้ว · ${new Date(ir.at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : `ล่าสุดไม่สำเร็จ: ${ir.error ?? ''}`}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })()}
                     <button
                       onClick={() => handlePush(job.entryIdx)}
                       disabled={wpStatus !== 'connected' || pj?.status === 'pushing'}
@@ -7160,6 +7233,7 @@ const STUDIO_TABS: { id: Tab; label: string }[] = [
   { id: 'review',            label: 'Review' },
   { id: 'push',              label: 'Push' },
   { id: 'publish',           label: 'Publish' },
+  { id: 'request-index',     label: 'Request Index' },
   { id: 'content-refresh',   label: 'Content Refresh' },
   { id: 'report',            label: 'Report' },
 ]
@@ -7199,7 +7273,7 @@ const SIDEBAR_GROUPS: { label?: string; items: { id: Tab | 'studio'; label: stri
 ]
 
 // เนื้อหาที่กว้างเต็มจอ (ที่เหลือใช้ px-8 max-w-5xl)
-const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'competitor-gap', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'publish', 'articles', 'content-map', 'proj-ce', 'review', 'report']
+const WIDE_TABS: Tab[] = ['overview', 'timeline-view', 'competitor-gap', 'on-page', 'technical', 'indexing', 'keywords', 'keyword-research', 'keyword-bank', 'content-refresh', 'lab', 'push', 'publish', 'request-index', 'articles', 'content-map', 'proj-ce', 'review', 'report']
 
 const CLIENT_TABS: Tab[] = ['timeline-view', 'review', 'publish', 'report']
 
@@ -7296,7 +7370,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       setSettingsDrawerOpen(true)
       return
     }
-    const allowed = isClient ? CLIENT_TABS : ['overview','timeline-view','competitor-gap','keyword-research','keywords','keyword-bank','content-map','articles','content-refresh','push','review','publish','report','on-page','technical','indexing']
+    const allowed = isClient ? CLIENT_TABS : ['overview','timeline-view','competitor-gap','keyword-research','keywords','keyword-bank','content-map','articles','content-refresh','push','review','publish','request-index','report','on-page','technical','indexing']
     if (t && allowed.includes(t as Tab)) {
       setTab(t as Tab)
     }
@@ -7776,6 +7850,9 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             pushJobs={pushJobs} setPushJobs={setPushJobs}
             onOpenWebsiteSettings={() => { setSettingsDrawerTab('website'); setSettingsDrawerOpen(true) }}
           />
+        )}
+        {tab === 'request-index' && !isClient && (
+          <RequestIndexTab projectId={project.id} />
         )}
         {tab === 'publish' && (
           <PublishTab project={project} pushJobs={pushJobs} isClient={isClient} />

@@ -132,6 +132,8 @@ export interface UploadPushPrefs {
   autoRequestIndex?: boolean
   /** ผล Request Index ล่าสุดต่อบทความ */
   indexRequests?: Record<string, UploadIndexRequest>
+  /** PBN: ผล Request Index ล่าสุด articleId → siteId (บทความเดียวขึ้นได้หลายเว็บ) */
+  pbnIndexRequests?: Record<string, Record<string, UploadIndexRequest>>
 }
 
 /** ผล Request Index (Google Indexing API) ล่าสุดของบทความ */

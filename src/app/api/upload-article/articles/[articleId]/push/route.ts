@@ -16,7 +16,7 @@ import { publishToGithub } from '@/lib/upload-article/github-push'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
 import { pushArticleToWebflow, type WebflowUploadConfig } from '@/lib/upload-article/webflow-push'
-import { isIndexableUrl, requestIndexForArticle } from '@/lib/upload-article/request-index'
+import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
 import type { UploadIndexRequest } from '@/lib/upload-article/types'
 
 export const maxDuration = 300
@@ -382,12 +382,16 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     })
   }
 
-  // Request Index อัตโนมัติ: เฉพาะลูกค้า Upload Article (ไม่ใช่ PBN) ที่ขึ้นเว็บแบบ Publish จริงแล้ว
-  // ล้มก็ไม่กระทบผล push — จดผลไว้ใน pushPrefs.indexRequests ให้กดซ้ำได้จากหน้า Push
+  // Request Index อัตโนมัติหลังขึ้นเว็บแบบ Publish จริงแล้ว — ล้มก็ไม่กระทบผล push
+  // Upload: จดใน pushPrefs.indexRequests / PBN: จดใน pushPrefs.pbnIndexRequests ต่อเว็บ
+  // PBN GitHub ต้องรอ build — ถ้าหน้ายัง 404 จะจดเป็นไม่สำเร็จ ให้กดซ้ำได้จากหน้า Push / Request Index
   let indexRequest: UploadIndexRequest | undefined
   let clientRow = updatedClientRow
-  if (!pbnSite && ok && livePublished && isIndexableUrl(postUrl) && autoRequestIndex) {
-    const r = await requestIndexForArticle(client.id, orgId, article.id, postUrl).catch(() => null)
+  const pbnLive = pbnSite ? (pbnSite.platform === 'github' ? effectiveMode === 'publish' : livePublished) : false
+  if (ok && isIndexableUrl(postUrl) && autoRequestIndex && (pbnSite ? pbnLive : livePublished)) {
+    const r = pbnSite
+      ? await requestIndexForPbn(client.id, orgId, article.id, pbnSite.id, postUrl).catch(() => null)
+      : await requestIndexForArticle(client.id, orgId, article.id, postUrl).catch(() => null)
     if (r) {
       indexRequest = r.record
       if (r.prefs) clientRow = { ...clientRow, pushPrefs: JSON.stringify(r.prefs) }

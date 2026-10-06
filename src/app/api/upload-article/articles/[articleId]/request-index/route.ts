@@ -4,8 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
 import { getWordPressPostStatus } from '@/lib/upload-article/wp-push'
 import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
-import { isIndexableUrl, requestIndexForArticle } from '@/lib/upload-article/request-index'
-import { isPbnPrefs } from '@/lib/upload-article/pbn'
+import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
+import { isPbnPrefs, readPbnPushes, readPbnSites } from '@/lib/upload-article/pbn'
 import { parsePrefs } from '@/lib/upload-article/prefs-store'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
@@ -17,8 +17,9 @@ export const maxDuration = 60
  * กด Request Index เองจากหน้า Push — สำหรับบทความที่ขึ้นเว็บแล้ว
  * WordPress: เช็คสถานะจริงก่อน (บทความตั้งวันเผยแพร่ขึ้นไปเป็น Draft แล้วทีมกด Publish ใน WordPress เอง)
  * ถ้า Publish แล้ว อัปเดตลิงก์จริง + pushMode = publish ในระบบให้ด้วย
+ * PBN: body {siteId} — ใช้ URL จาก pbnPushes[articleId][siteId] แล้วเช็คว่าหน้าเปิดได้จริงก่อนส่ง (GitHub ต้องรอ build)
  */
-export async function POST(_req: NextRequest, { params }: { params: { articleId: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { articleId: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -31,7 +32,23 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
 
   const prefs = parsePrefs(client.pushPrefs) as UploadPushPrefs
   if (isPbnPrefs(prefs as Record<string, unknown>)) {
-    return NextResponse.json({ error: 'Request Index ใช้กับลูกค้า Upload Article เท่านั้น' }, { status: 400 })
+    const body = await req.json().catch(() => ({}))
+    const siteId = typeof body?.siteId === 'string' ? body.siteId : ''
+    const site = readPbnSites(prefs as Record<string, unknown>).find((s) => s.id === siteId)
+    if (!site) return NextResponse.json({ error: 'ไม่พบเว็บ PBN นี้' }, { status: 404 })
+    const pbnUrl = readPbnPushes(prefs as Record<string, unknown>)[article.id]?.[site.id]?.url || ''
+    if (!isIndexableUrl(pbnUrl)) {
+      return NextResponse.json({ error: `บทความนี้ยังไม่ได้ขึ้นเว็บ ${site.name} (ไม่มีลิงก์ https)` }, { status: 400 })
+    }
+    const { record, prefs: nextPrefs } = await requestIndexForPbn(client.id, orgId, article.id, site.id, pbnUrl)
+    const pbnClientRow = nextPrefs ? { ...client, pushPrefs: JSON.stringify(nextPrefs) } : client
+    const pbnArticleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true } })
+    return NextResponse.json({
+      ok: record.ok,
+      error: record.error,
+      indexRequest: record,
+      client: toUploadClientDTO(pbnClientRow, computeClientCounts(pbnArticleRows)),
+    }, { status: record.ok ? 200 : 502 })
   }
   if (article.status !== 'PUSHED' || (!article.wordpressPostId && !article.wordpressUrl)) {
     return NextResponse.json({ error: 'บทความนี้ยังไม่ได้ขึ้นเว็บ — Push ก่อน' }, { status: 400 })

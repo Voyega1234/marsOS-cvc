@@ -293,12 +293,17 @@ export default function PushTab({
     }
   }
 
-  /** กด Request Index เอง — WordPress เช็คว่าโพสต์ Publish จริงแล้วก่อนส่ง */
-  async function requestIndex(articleId: string) {
-    if (indexBusy[articleId]) return;
-    setIndexBusy(prev => ({ ...prev, [articleId]: true }));
+  /** กด Request Index เอง — WordPress เช็คว่าโพสต์ Publish จริงแล้วก่อนส่ง / PBN ส่ง siteId (เช็คหน้าเปิดได้จริงก่อน) */
+  async function requestIndex(articleId: string, siteId?: string) {
+    const busyKey = siteId ? `${articleId}::${siteId}` : articleId;
+    if (indexBusy[busyKey]) return;
+    setIndexBusy(prev => ({ ...prev, [busyKey]: true }));
     try {
-      const r = await fetch(`/api/upload-article/articles/${articleId}/request-index`, { method: "POST" });
+      const r = await fetch(`/api/upload-article/articles/${articleId}/request-index`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(siteId ? { siteId } : {}),
+      });
       const d = await r.json().catch(() => ({}));
       if (d.client) setClient(d.client);
       if (r.ok && d.ok) toast.success("ส่ง Request Index ให้ Google แล้ว");
@@ -307,7 +312,7 @@ export default function PushTab({
     } catch (e) {
       toast.error(`Request Index ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setIndexBusy(prev => ({ ...prev, [articleId]: false }));
+      setIndexBusy(prev => ({ ...prev, [busyKey]: false }));
     }
   }
 
@@ -385,11 +390,11 @@ export default function PushTab({
           <label className="flex items-center gap-1.5">
             <input type="checkbox" checked={stripH1} onChange={e => setStripH1(e.target.checked)} /> ตัด H1
           </label>
-          {!pbn && (
-            <label className="flex items-center gap-1.5" title="หลัง Push แบบ Publish สำเร็จ ส่ง URL ให้ Google Indexing API อัตโนมัติ (บทความที่ตั้งวันเผยแพร่ขึ้นเป็น Draft — กด Request Index เองหลัง Publish ใน WordPress)">
-              <input type="checkbox" checked={autoRequestIndex} onChange={e => setAutoRequestIndex(e.target.checked)} /> Request Index อัตโนมัติหลัง Publish
-            </label>
-          )}
+          <label className="flex items-center gap-1.5" title={pbn
+            ? "หลัง Push แบบ Publish สำเร็จ ส่ง URL ให้ Google Indexing API อัตโนมัติ (เว็บ GitHub ต้องรอ build — ถ้าหน้ายังไม่ขึ้นจะบันทึกว่าไม่สำเร็จ ให้กด Index ที่ชื่อเว็บอีกครั้งในไม่กี่นาที)"
+            : "หลัง Push แบบ Publish สำเร็จ ส่ง URL ให้ Google Indexing API อัตโนมัติ (บทความที่ตั้งวันเผยแพร่ขึ้นเป็น Draft — กด Request Index เองหลัง Publish ใน WordPress)"}>
+            <input type="checkbox" checked={autoRequestIndex} onChange={e => setAutoRequestIndex(e.target.checked)} /> Request Index อัตโนมัติหลัง Publish
+          </label>
         </div>
 
         <Button size="sm" disabled={!selectedIds.size || batchBusy} onClick={pushSelected}>
@@ -417,12 +422,30 @@ export default function PushTab({
                       {pbn && variantInfo.get(a.id) && (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-mist text-brand-blue">v{variantInfo.get(a.id)!.variant}</span>
                       )}
-                      {pbn && Object.entries(pbnPushes[a.id] ?? {}).map(([sid, rec]) => (
-                        <a key={sid} href={rec.url || undefined} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 hover:underline">
-                          <ExternalLink size={9} /> {siteName(sid)}
-                        </a>
-                      ))}
+                      {pbn && Object.entries(pbnPushes[a.id] ?? {}).map(([sid, rec]) => {
+                        const ir = client.pushPrefs.pbnIndexRequests?.[a.id]?.[sid];
+                        const busyKey = `${a.id}::${sid}`;
+                        return (
+                          <span key={sid} className="inline-flex items-center gap-0.5">
+                            <a href={rec.url || undefined} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-l bg-emerald-50 text-emerald-700 hover:underline">
+                              <ExternalLink size={9} /> {siteName(sid)}
+                            </a>
+                            {rec.url && (
+                              <button type="button" onClick={() => requestIndex(a.id, sid)} disabled={!!indexBusy[busyKey]}
+                                title={ir ? (ir.ok
+                                  ? `Request Index แล้ว · ${new Date(ir.at).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" })} — กดเพื่อส่งอีกครั้ง`
+                                  : `Request Index ล่าสุดไม่สำเร็จ: ${ir.error ?? ""} — กดเพื่อส่งอีกครั้ง`) : "Request Index ให้ Google"}
+                                className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-r disabled:opacity-50 ${
+                                  !ir ? "bg-gray-100 text-gray-500 hover:bg-gray-200" : ir.ok ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-rose-50 text-rose-600 hover:bg-rose-100"
+                                }`}>
+                                {indexBusy[busyKey] ? <Loader2 size={9} className="animate-spin" /> : <SearchCheck size={9} />}
+                                {!ir ? "Index" : ir.ok ? "Indexed" : "ส่งใหม่"}
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
                       {client.pushPrefs.publishAt?.[a.id] && (
                         <span className="inline-flex items-center gap-1 text-[11px] text-gray-500" title="ตั้งวันที่ได้ในแท็บ Review">
                           <CalendarClock size={11} /> Draft · วันที่ {formatPublishAt(client.pushPrefs.publishAt[a.id])}
