@@ -10,7 +10,7 @@ import { decodeTextEntities } from './entities'
 export type { ArticleCard, ParsedArticle }
 
 const WRAPPER_OPEN = '<div class="content-article">'
-const FAQ_HEADING_RE = /FAQ|คำถามที่พบบ่อย|คำถามยอดฮิต|Q\s*&\s*A|ถาม.?ตอบ|frequently asked/i
+const FAQ_HEADING_RE = /FAQ|คำถามที่พบบ่อย|คำถามยอดฮิต|Q\s*&\s*A|ถาม.?ตอบ|frequently asked|คำถามที่(หลายคน|คน|ผู้อ่าน|ลูกค้า)?(มัก|ชอบ)?(ถาม|สงสัย)/i
 const TOC_RE = /<nav\b[^>]*class="[^"]*\bcontent-toc\b[^"]*"[^>]*>[\s\S]*?<\/nav>/gi
 const CTA_OPEN_RE = /<div\b[^>]*class="[^"]*\b(?:content-cta|cta)\b[^"]*"[^>]*>/gi
 

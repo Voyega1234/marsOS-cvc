@@ -128,6 +128,19 @@ export interface UploadPushPrefs {
   imageDefaults?: UploadImageDefaults
   /** เว็บ GSC ที่เลือกไว้สำหรับแท็บ Report (service account เท่านั้น — ไม่ผูกกับ internalLinks.gscSiteUrl) */
   gscReport?: UploadGscReportPrefs
+  /** ขอให้ Google index อัตโนมัติหลัง push แบบ Publish สำเร็จ (ไม่ตั้ง = เปิด) */
+  autoRequestIndex?: boolean
+  /** ผล Request Index ล่าสุดต่อบทความ */
+  indexRequests?: Record<string, UploadIndexRequest>
+}
+
+/** ผล Request Index (Google Indexing API) ล่าสุดของบทความ */
+export interface UploadIndexRequest {
+  url: string
+  /** ISO เวลาที่ยิง */
+  at: string
+  ok: boolean
+  error?: string
 }
 
 /** ค่าที่เลือกไว้สำหรับแท็บ Report (GSC) */

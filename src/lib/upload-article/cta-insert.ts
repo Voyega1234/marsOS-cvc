@@ -7,7 +7,7 @@ import {
   type UploadCtaItem, type UploadCtaSettings,
 } from './cta'
 
-const FAQ_HEADING_RE = /FAQ|คำถามที่พบบ่อย|คำถามยอดฮิต|Q\s*&\s*A|ถาม.?ตอบ|frequently asked/i
+const FAQ_HEADING_RE = /FAQ|คำถามที่พบบ่อย|คำถามยอดฮิต|Q\s*&\s*A|ถาม.?ตอบ|frequently asked|คำถามที่(หลายคน|คน|ผู้อ่าน|ลูกค้า)?(มัก|ชอบ)?(ถาม|สงสัย)/i
 
 /** เลือก `count` ตำแหน่งกระจายสม่ำเสมอจาก [0, total) — ใช้วาง CTA กลางบทความให้ห่างเท่า ๆ กัน */
 function pickSpreadIndices(total: number, count: number): number[] {

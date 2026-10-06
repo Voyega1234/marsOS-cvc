@@ -35,7 +35,9 @@ export interface BuildUploadResult {
   h2Count: number
 }
 
-const FAQ_HEADING_RE = /FAQ|คำถามที่พบบ่อย|คำถามยอดฮิต|Q\s*&\s*A|ถาม.?ตอบ|frequently asked/i
+const FAQ_HEADING_RE = /FAQ|คำถามที่พบบ่อย|คำถามยอดฮิต|Q\s*&\s*A|ถาม.?ตอบ|frequently asked|คำถามที่(หลายคน|คน|ผู้อ่าน|ลูกค้า)?(มัก|ชอบ)?(ถาม|สงสัย)/i
+// หัวข้อที่บอกว่า FAQ จบแล้ว (หัวข้อระดับเดียวกับคำถามแต่ไม่ใช่คำถาม)
+const FAQ_END_RE = /อ้างอิง|แหล่งที่มา|แหล่งข้อมูล|^\s*(บท)?สรุป|บทความที่เกี่ยวข้อง|อ่านเพิ่มเติม|ติดต่อ|references?|sources?|related|conclusion|summary|contact/i
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -123,6 +125,18 @@ function isBoldOnlyParagraph(el: HTMLElement): boolean {
   return tag === 'strong' || tag === 'b'
 }
 
+/** ย่อหน้าที่ขึ้นต้นด้วยตัวหนา เช่น <p><strong>Q2</strong> ต่อสัญญาได้ไหม</p> */
+function startsWithBold(el: HTMLElement): boolean {
+  const first = el.childNodes.find((n) => !(n.nodeType === NodeType.TEXT_NODE && (n as TextNode).isWhitespace))
+  if (!first || first.nodeType !== NodeType.ELEMENT_NODE) return false
+  const tag = (first as HTMLElement).tagName.toLowerCase()
+  return tag === 'strong' || tag === 'b'
+}
+
+// ย่อหน้าคำถามต้องสั้น — กันย่อหน้าคำตอบที่บังเอิญลงท้ายด้วยคำถาม
+const MAX_PARAGRAPH_QUESTION_LENGTH = 160
+const Q_PREFIX_RE = /^(Q|ถาม)\s*\d*\s*[:：.)]/i
+
 function isQuestionBlock(el: HTMLElement): boolean {
   const tag = el.tagName.toLowerCase()
   if (tag === 'h3' || tag === 'h4') return true
@@ -130,19 +144,24 @@ function isQuestionBlock(el: HTMLElement): boolean {
   const text = el.text.trim()
   if (!text) return false
   if (isBoldOnlyParagraph(el)) return true
-  if (/^Q[:.]\s*/i.test(text)) return true
-  if (/^ถาม[:：]\s*/.test(text)) return true
-  if (text.endsWith('?') || text.endsWith('؟')) return true
-  return false
+  if (Q_PREFIX_RE.test(text)) return true
+  if (text.length > MAX_PARAGRAPH_QUESTION_LENGTH) return false
+  if (/[?？؟]$/.test(text)) return true
+  // คำถามภาษาไทยที่ไม่มี "?" (กฎ human voice ห้ามใส่ ? ถ้าไม่จำเป็น) — ลงท้ายคำถามชัด หรือขึ้นต้นตัวหนาและมีสัญญาณคำถาม
+  return THAI_QUESTION_RE.test(text) || (startsWithBold(el) && hasQuestionSignal(el))
 }
 
-const THAI_QUESTION_RE = /(ไหม|มั้ย|หรือไม่|หรือเปล่า|อย่างไร|ยังไง|เท่าไร|เท่าไหร่|อะไร|ทำไม|เมื่อไร|เมื่อไหร่|ที่ไหน|ใคร|กี่)\s*$/
+// คำถามภาษาไทยมักลงท้ายด้วยคำสร้อย (ครับ/คะ/ดี/บ้าง/กัน) หลังคำถาม เช่น "เลือกชั้นไหนดี" "คิดยังไงบ้าง"
+const THAI_QUESTION_RE = /(ไหม|มั้ย|ไหน|หรือไม่|หรือเปล่า|หรือยัง|อย่างไร|ยังไง|เท่าไร|เท่าไหร่|อะไร|ทำไม|เมื่อไร|เมื่อไหร่|ที่ไหน|ใคร|บ้าง|กี่\S{0,8})(\s*(ครับ|คะ|ค่ะ|นะ|ดี|บ้าง|กัน|เลย|เหรอ|หรอ))*\s*$/
+// \b ใช้กับอักษรไทยไม่ได้ (ไม่นับเป็น word char) — แยกคำขึ้นต้นไทยกับอังกฤษ
+const QUESTION_START_RE = /^(ทำไม|อย่างไร|ยังไง|ใคร|เมื่อไร|เมื่อไหร่|ที่ไหน)|^(what|how|why|when|where|who|which|can|could|do|does|is|are|should|will)\b/i
 
-/** มีสัญญาณว่าเป็นคำถามจริง (ลงท้าย ?, ขึ้นต้น Q:/ถาม:, หรือลงท้ายคำถามภาษาไทย) — ไว้แยกคำถามออกจากหัวข้อทั่วไปอย่าง "แหล่งอ้างอิง" */
+/** มีสัญญาณว่าเป็นคำถามจริง (ลงท้าย ?, ขึ้นต้น Q:/ถาม:, หรือมีคำถามภาษาไทย) — ไว้แยกคำถามออกจากหัวข้อทั่วไปอย่าง "แหล่งอ้างอิง" */
 function hasQuestionSignal(el: HTMLElement): boolean {
   const text = el.text.replace(/\s+/g, ' ').trim()
   if (/[?？؟]$/.test(text)) return true
-  if (/^(Q[:.]|ถาม[:：])/i.test(text)) return true
+  if (Q_PREFIX_RE.test(text)) return true
+  if (QUESTION_START_RE.test(text)) return true
   return THAI_QUESTION_RE.test(text)
 }
 
@@ -192,10 +211,25 @@ function stripAuthorNotes(blocks: HTMLElement[]): HTMLElement[] {
 
 /** แปลงคู่ Q/A ใน section ให้เป็น <details class="content-faq__item"> — คืน null ถ้าไม่เจอคู่เลย (ปล่อยผ่าน) */
 function convertFaqSection(section: HTMLElement[]): { blocks: HTMLElement[]; count: number } | null {
-  const leadIdx = section.findIndex(isQuestionBlock)
+  // มีคำถามเป็นหัวข้อ (H3/H4) → ยึดหัวข้อเป็นคำถาม ย่อหน้าก่อนหน้าเป็นบทนำ (กันย่อหน้าเกริ่นที่ลงท้าย "?" กลายเป็นคำถาม)
+  const headingIdx = section.findIndex((b) => /^h[34]$/i.test(b.tagName))
+  const leadIdx = headingIdx !== -1 ? headingIdx : section.findIndex(isQuestionBlock)
   if (leadIdx === -1) return null
   const lead = section.slice(0, leadIdx)
   const rest = section.slice(leadIdx)
+
+  // รูปแบบคำถามยึดตามคำถามแรก: หัวข้อ (h3/h4) หรือย่อหน้า — คำถามข้อต่อ ๆ ไปต้องเป็นรูปแบบเดียวกัน
+  // (เดิมเจอหัวข้อที่ไม่มี "?" หรือคำตอบตัวหนาแล้วตัด FAQ ทิ้งทันที → เหลือ 1 ข้อ)
+  const qLevel = headingLevel(rest[0])
+  /** มีหัวข้อระดับเดียวกันที่เป็นคำถามชัด ๆ ถัดจากตำแหน่ง i ไปไหม (ก่อนเจอหัวข้อที่ใหญ่กว่า) */
+  const laterSignalHeading = (i: number): boolean => {
+    for (let j = i + 1; j < rest.length; j++) {
+      const l = headingLevel(rest[j])
+      if (l > 0 && l < qLevel) return false
+      if (l === qLevel && hasQuestionSignal(rest[j])) return true
+    }
+    return false
+  }
 
   const groups: Array<{ q: HTMLElement; a: HTMLElement[] }> = []
   let current: { q: HTMLElement; a: HTMLElement[] } | null = null
@@ -203,13 +237,38 @@ function convertFaqSection(section: HTMLElement[]): { blocks: HTMLElement[]; cou
   let tail: HTMLElement[] = []
   for (let i = 0; i < rest.length; i++) {
     const el = rest[i]
-    if (isQuestionBlock(el)) {
-      // เจอคำถามจริงมาแล้ว แต่หัวข้อนี้ไม่ใช่คำถาม (เช่น "แหล่งอ้างอิง") → FAQ จบตรงนี้ ที่เหลือคงเป็นเนื้อหาปกติ
-      if (sawSignal && !hasQuestionSignal(el)) {
+    const level = headingLevel(el)
+    const signal = hasQuestionSignal(el)
+    let isQuestion = false
+    if (qLevel > 0) {
+      // คำถามเป็นหัวข้อ: หัวข้อใหญ่กว่า = จบ FAQ, หัวข้อย่อยกว่า/ย่อหน้าตัวหนา = ส่วนของคำตอบ
+      if (level > 0 && level < qLevel) {
         tail = rest.slice(i)
         break
       }
-      if (hasQuestionSignal(el)) sawSignal = true
+      if (level === qLevel && !signal) {
+        // หัวข้อระดับเดียวกันที่ไม่ใช่คำถาม (เช่น "แหล่งอ้างอิง") → FAQ จบ
+        // ยกเว้นยังมีคำถามชัด ๆ ตามมาอีก หรือทั้ง FAQ ไม่มีคำถามที่มีสัญญาณเลย
+        if (FAQ_END_RE.test(el.text) || (sawSignal && !laterSignalHeading(i))) {
+          tail = rest.slice(i)
+          break
+        }
+      }
+      isQuestion = level === qLevel
+    } else if (level > 0) {
+      // คำถามเป็นย่อหน้า แต่เจอหัวข้อ — เป็นคำถามต่อได้เฉพาะถ้าเป็นคำถามชัด ไม่งั้นจบ FAQ
+      if (!signal || FAQ_END_RE.test(el.text)) {
+        tail = rest.slice(i)
+        break
+      }
+      isQuestion = true
+    } else if (isQuestionBlock(el)) {
+      // ย่อหน้าตัวหนาที่ไม่มีสัญญาณคำถามหลังเจอคำถามจริงแล้ว = คำตอบที่เน้นตัวหนา ไม่ใช่คำถามใหม่
+      isQuestion = !(sawSignal && !signal)
+    }
+
+    if (isQuestion) {
+      if (signal) sawSignal = true
       if (current) groups.push(current)
       current = { q: el, a: [] }
     } else if (current) {
@@ -228,6 +287,34 @@ function convertFaqSection(section: HTMLElement[]): { blocks: HTMLElement[]; cou
     converted.push(parseTopLevelBlocks(detailsHtml)[0])
   }
   return { blocks: [...lead, ...converted, ...tail], count: groups.length }
+}
+
+/**
+ * จัดโครง FAQ ที่ไม่ได้มาตรฐานให้เป็น H2 FAQ + คำถามใต้หัวข้อ ก่อนใส่ id/TOC (เฉพาะโหมด HTML)
+ * - หัว FAQ เป็น H3/H4 หรือย่อหน้าตัวหนา (Google Docs) → เลื่อนเป็น H2 (ใช้ก็ต่อเมื่อไม่มี H2 FAQ อยู่แล้ว)
+ * - คำถามเป็น H2 ต่อจากหัว FAQ ทันที (Docs ใช้ Heading 1 = หัวข้อ, Heading 2 = คำถาม) → ลดเป็น H3 จนเจอ H2 ที่ไม่ใช่คำถาม
+ * ไม่แตะข้อความ — เปลี่ยนแค่ระดับหัวข้อ
+ */
+function normalizeFaqStructure(blocks: HTMLElement[]): void {
+  let faqIdx = blocks.findIndex((b) => b.tagName.toLowerCase() === 'h2' && FAQ_HEADING_RE.test(b.text))
+  if (faqIdx === -1) {
+    faqIdx = blocks.findIndex((b) => {
+      const tag = b.tagName.toLowerCase()
+      const text = b.text.replace(/\s+/g, ' ').trim()
+      const headingLike = tag === 'h3' || tag === 'h4' || (tag === 'p' && isBoldOnlyParagraph(b))
+      return headingLike && text.length <= 80 && FAQ_HEADING_RE.test(text) && !/[?？؟]$/.test(text)
+    })
+    if (faqIdx === -1) return
+    blocks[faqIdx].tagName = 'h2'
+  }
+  const next = blocks[faqIdx + 1]
+  if (!next || next.tagName.toLowerCase() !== 'h2' || !hasQuestionSignal(next)) return
+  for (let i = faqIdx + 1; i < blocks.length; i++) {
+    const b = blocks[i]
+    if (b.tagName.toLowerCase() !== 'h2') continue
+    if (!hasQuestionSignal(b)) break
+    b.tagName = 'h3'
+  }
 }
 
 /** หา section H2 ที่เป็น FAQ แล้วแปลงคู่ Q/A ภายใน — คืนจำนวนคู่ที่แปลงได้ */
@@ -407,6 +494,7 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
   let blocks = stripAuthorNotes(parseTopLevelBlocks(stripGoogleDocsCommentsHtml(decodeTextEntities(o.sourceHtml))))
 
   let h1Index = normalizeH1(blocks, o.meta.title)
+  if (htmlMode) normalizeFaqStructure(blocks)
   const h2Count = assignH2Ids(blocks)
 
   let faqCount = 0

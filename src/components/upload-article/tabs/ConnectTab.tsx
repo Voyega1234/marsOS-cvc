@@ -5,7 +5,7 @@
  * หน้าตา/พฤติกรรมอ้างอิงจาก ProjectWebsitePanel.tsx (อ่านอย่างเดียว ไม่แก้ไฟล์เดิม)
  * ผูกกับ endpoint ใหม่ /api/upload-article/clients/{id} และ /connect-test
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Globe, Loader2, Plug, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,13 +34,42 @@ export default function ConnectTab({
   const [wpUrl, setWpUrl] = useState(client.wpUrl);
   const [wpUser, setWpUser] = useState(client.wpUser);
   const [wpAppPassword, setWpAppPassword] = useState("");
-  const [siteConn, setSiteConn] = useState<Record<string, Record<string, string>>>({});
+  const WF_KEYS = ["collectionId", "collectionSlug", "siteUrl", "bodyField", "imageField", "descriptionField", "seoTitleField"] as const;
+  // Webflow: ค่าที่ไม่ใช่ secret ถูกส่งกลับมาแบบไม่ mask → เติมล่วงหน้า (token ไม่เติม)
+  const [siteConn, setSiteConn] = useState<Record<string, Record<string, string>>>((): Record<string, Record<string, string>> => {
+    const wf: Record<string, string> = {};
+    for (const k of WF_KEYS) { const v = client.siteConnectionMasked?.[`webflow.${k}`]; if (v) wf[k] = v; }
+    return Object.keys(wf).length ? { webflow: wf } : {};
+  });
+  const [wfCollections, setWfCollections] = useState<{ id: string; name: string; slug: string }[]>([]);
+  const [wfFields, setWfFields] = useState<{ slug: string; displayName: string; type: string }[]>([]);
   const setConnField = (plat: string, key: string, val: string) =>
     setSiteConn(prev => ({ ...prev, [plat]: { ...(prev[plat] ?? {}), [key]: val } }));
 
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function loadWfFields(collectionId: string) {
+    setWfFields([]);
+    if (!collectionId) return;
+    try {
+      const r = await fetch(`/api/upload-article/clients/${client.id}/webflow-fields?collectionId=${encodeURIComponent(collectionId)}`);
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setWfFields(d.fields ?? []);
+        if (d.collectionSlug) setConnField("webflow", "collectionSlug", d.collectionSlug);
+      } else toast.error(d?.error || "ดึงฟิลด์ของ Collection ไม่สำเร็จ");
+    } catch { toast.error("ดึงฟิลด์ของ Collection ไม่สำเร็จ"); }
+  }
+
+  // เปิดหน้ามาแล้วมี Collection ที่บันทึกไว้ → โหลดรายการฟิลด์ให้เลือกต่อได้เลย
+  useEffect(() => {
+    if (platform === "webflow" && client.siteConnectionMasked?.["webflow.collectionId"] && client.siteConnectionMasked?.["webflow.apiToken"]) {
+      void loadWfFields(client.siteConnectionMasked["webflow.collectionId"]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function maskedPlaceholder(plat: string, key: string): string {
     return client.siteConnectionMasked?.[`${plat}.${key}`] ?? "";
@@ -90,6 +119,10 @@ export default function ConnectTab({
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.ok) {
         setTestResult({ ok: true, message: d.message || "เชื่อมต่อสำเร็จ" });
+        if (platform === "webflow") {
+          setWfCollections(d.choices?.collections ?? []);
+          if (d.url) setConnField("webflow", "siteUrl", d.url);
+        }
       } else {
         setTestResult({ ok: false, message: d.message || d.error || "เชื่อมต่อไม่สำเร็จ" });
       }
@@ -180,14 +213,60 @@ export default function ConnectTab({
           </div>
         )}
 
-        {platform === "webflow" && (
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Site API token</label>
-            <input type="password" value={siteConn.webflow?.apiToken ?? ""} onChange={e => setConnField("webflow", "apiToken", e.target.value)}
-              placeholder={maskedPlaceholder("webflow", "apiToken") || "Webflow API token"}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl" />
-          </div>
-        )}
+        {platform === "webflow" && (() => {
+          const wf = siteConn.webflow ?? {};
+          const colId = wf.collectionId ?? "";
+          const colOptions = colId && !wfCollections.some(c => c.id === colId)
+            ? [{ id: colId, name: wf.collectionSlug || colId, slug: wf.collectionSlug ?? "" }, ...wfCollections]
+            : wfCollections;
+          const fieldSelect = (key: string, label: string, type: string, emptyLabel: string) => (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
+              <select value={wf[key] || "none"} onChange={e => setConnField("webflow", key, e.target.value)}
+                className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                <option value="none">{emptyLabel}</option>
+                {/* ค่าที่บันทึกไว้แต่ยังโหลดรายการฟิลด์ไม่ได้ (token หมดอายุ/ยังไม่กดทดสอบ) — ยังแสดงค่าเดิม */}
+                {wf[key] && wf[key] !== "none" && !wfFields.some(f => f.slug === wf[key]) && <option value={wf[key]}>{wf[key]}</option>}
+                {wfFields.filter(f => f.type === type).map(f => <option key={f.slug} value={f.slug}>{f.displayName} ({f.slug})</option>)}
+              </select>
+            </div>
+          );
+          return (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Site API token</label>
+                <input type="password" value={wf.apiToken ?? ""} onChange={e => setConnField("webflow", "apiToken", e.target.value)}
+                  placeholder={maskedPlaceholder("webflow", "apiToken") || "Webflow API token"}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Collection (กดทดสอบการเชื่อมต่อก่อนเพื่อโหลดรายการ)</label>
+                <select value={colId}
+                  onChange={e => {
+                    const c = colOptions.find(x => x.id === e.target.value);
+                    setConnField("webflow", "collectionId", e.target.value);
+                    setConnField("webflow", "collectionSlug", c?.slug ?? "");
+                    void loadWfFields(e.target.value);
+                  }}
+                  className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                  <option value="">— เลือก Collection —</option>
+                  {colOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              {colId && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {fieldSelect("bodyField", "เนื้อหาบทความ", "RichText", "RichText ตัวแรกอัตโนมัติ")}
+                  {fieldSelect("imageField", "รูปปก", "Image", "ไม่ส่งรูปปก")}
+                  {fieldSelect("descriptionField", "Meta Description / คำโปรย", "PlainText", "ไม่ส่ง")}
+                  {fieldSelect("seoTitleField", "SEO Title", "PlainText", "ไม่ส่ง")}
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400">
+                Webflow: รูปในบทความจะอัปโหลดเข้า Assets ของเว็บอัตโนมัติ (token ต้องมีสิทธิ์ CMS + Assets read/write) · ฟิลด์ที่ไม่ได้เลือกจะไม่ถูกเขียน · สไตล์/กล่องพิเศษในบทความจะเหลือเป็น HTML พื้นฐานตามที่ RichText ของ Webflow รองรับ
+              </p>
+            </div>
+          );
+        })()}
 
         {platform === "wix" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -378,3 +378,37 @@ export async function testWordPressConnection(
     return { ok: false, error: `เชื่อมต่อไม่ได้: ${e instanceof Error ? e.message : String(e)}` }
   }
 }
+
+/**
+ * อ่านสถานะจริงของโพสต์บน WordPress (publish/draft/future/...) + ลิงก์ถาวร
+ * ใช้ก่อน Request Index — บทความที่ตั้งวันเผยแพร่ขึ้นไปเป็น Draft ทีมจะกด Publish ใน WordPress เอง
+ */
+export async function getWordPressPostStatus(
+  wpUrl: string, wpUser: string, wpPass: string, postId: string, postType: 'post' | 'page' = 'post',
+): Promise<{ ok: boolean; status?: string; link?: string; error?: string }> {
+  const url = normalizeWpUrl(wpUrl)
+  if (!url || !wpUser || !wpPass) return { ok: false, error: 'ไม่พบ WordPress credentials' }
+  if (!/^\d+$/.test(postId)) return { ok: false, error: 'ไม่พบ ID โพสต์บน WordPress' }
+  const creds = Buffer.from(`${wpUser}:${wpPass.replace(/\s+/g, '')}`).toString('base64')
+  const headers = { Authorization: `Basic ${creds}`, 'User-Agent': 'MarsOS/1.0' }
+  // ไม่รู้ว่าเคย push เป็น post หรือ page — ลองชนิดที่ตั้งไว้ก่อน แล้วค่อยลองอีกชนิด
+  const types = postType === 'page' ? ['pages', 'posts'] : ['posts', 'pages']
+  try {
+    let lastStatus = 0
+    for (const t of types) {
+      const res = await safeFetch(`${url}/wp-json/wp/v2/${t}/${postId}?context=edit&_fields=status,link`, {
+        headers,
+        signal: AbortSignal.timeout(10000),
+      }, { requireHttps: true, sameHostOnly: true })
+      if (res.ok) {
+        const data = await res.json() as { status?: string; link?: string }
+        return { ok: true, status: data.status, link: data.link }
+      }
+      lastStatus = res.status
+      if (res.status !== 404) break
+    }
+    return { ok: false, error: lastStatus === 404 ? 'ไม่พบโพสต์นี้บน WordPress แล้ว (อาจถูกลบ)' : `WordPress ตอบ ${lastStatus}` }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}

@@ -39,6 +39,7 @@ const ALLOWED_EMAILS = new Set([
   "wave@convertcake.com",
   "apps@convertcake.com",
   "mickey@convertcake.com",
+  "tata@convertcake.com",
 ]);
 
 /**

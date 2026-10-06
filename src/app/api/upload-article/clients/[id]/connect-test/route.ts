@@ -24,7 +24,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     }
     const result = await testSiteConnection(client.websitePlatform as SitePlatform, conn)
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
-    return NextResponse.json({ ok: true, message: result.name || client.websitePlatform })
+    return NextResponse.json({ ok: true, message: result.name || client.websitePlatform, url: result.url, choices: result.choices })
   }
 
   if (!client.wpUrl || !client.wpUser || !client.wpAppPasswordEnc) {

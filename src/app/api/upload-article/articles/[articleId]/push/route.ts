@@ -15,6 +15,9 @@ import { isPbnPrefs, readPbnSites, readPbnPushes, type PbnSite } from '@/lib/upl
 import { publishToGithub } from '@/lib/upload-article/github-push'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
+import { pushArticleToWebflow, type WebflowUploadConfig } from '@/lib/upload-article/webflow-push'
+import { isIndexableUrl, requestIndexForArticle } from '@/lib/upload-article/request-index'
+import type { UploadIndexRequest } from '@/lib/upload-article/types'
 
 export const maxDuration = 300
 
@@ -85,6 +88,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     body.wpPostType === 'page' ? 'page' : body.wpPostType === 'post' ? 'post' : (prevPrefs.wpPostType ?? 'post')
   const useElementor = boolPref(body.useElementor, Boolean(prevPrefs.useElementor))
   const stripH1 = boolPref(body.stripH1, prevPrefs.stripH1 ?? true)
+  const autoRequestIndex = boolPref(body.autoRequestIndex, prevPrefs.autoRequestIndex ?? true)
 
   // วัน-เวลาเผยแพร่ที่ตั้งไว้ในหน้า Review (pushPrefs.publishAt) — ส่งเฉพาะ WordPress
   const rawPublishAt = prevPrefs.publishAt?.[article.id]
@@ -117,7 +121,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // เก็บ preference ที่ใช้รอบนี้ไว้ใน client.pushPrefs (ไม่รอ push สำเร็จก่อน — ผู้ใช้ตั้งใจเลือกแล้ว)
   // เขียนผ่าน updatePrefs (ล็อกแถว อ่านค่าล่าสุดก่อนแก้) กัน prefs ที่เพิ่งถูกแก้จากที่อื่นระหว่างที่ request นี้กำลังทำงานหาย (lost update)
   const prefsResult = await updatePrefs(client.id, orgId, (current) => {
-    const next: UploadPushPrefs = { ...(current as UploadPushPrefs), useElementor, wpPostType, publishMode, stripH1 }
+    const next: UploadPushPrefs = { ...(current as UploadPushPrefs), useElementor, wpPostType, publishMode, stripH1, autoRequestIndex }
     return { prefs: next as PrefsObject, result: next }
   })
   const updatedClientRow = prefsResult ? { ...client, pushPrefs: JSON.stringify(prefsResult.result) } : client
@@ -218,6 +222,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   let postUrl: string | undefined
   let postId: string | undefined
   let error: string | undefined
+  /** บทความเผยแพร่จริงบนเว็บแล้วหรือยัง (WordPress ตั้งเวลา/ปลั๊กอินบังคับ draft = ยัง) — ใช้ตัดสิน Request Index */
+  let livePublished = false
 
   try {
     const { base64, mime } = coverToBase64(article.coverImageUrl)
@@ -250,6 +256,29 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       postUrl = result.postUrl
       postId = result.postId
       error = result.ok ? result.deployHookError : result.error
+    } else if (platform === 'webflow' && !pbnSite) {
+      // Webflow ของ Upload Article: อัปโหลดรูปเข้า Assets + แก้ item เดิมเมื่อ push ซ้ำ (เทียบเท่า WordPress)
+      const wfCfg = (conn.webflow ?? {}) as WebflowUploadConfig
+      const result = await pushArticleToWebflow(
+        { ...wfCfg, siteUrl: wfCfg.siteUrl || client.website || undefined },
+        {
+          title: article.title,
+          html: processedHtml,
+          slug: article.slug || undefined,
+          metaTitle: article.seoTitle || article.title,
+          metaDescription: article.metaDescription || undefined,
+          coverBase64: base64,
+          coverMimeType: mime,
+          coverAlt: article.coverAlt || article.title,
+          publishMode,
+          existingItemId: article.wordpressPostId,
+        },
+      )
+      ok = result.ok
+      postUrl = result.postUrl || undefined
+      postId = result.itemId
+      error = result.error
+      livePublished = result.ok && result.status === 'publish'
     } else if (platform !== 'wordpress') {
       const result = await publishToSite(platform as SitePlatform, conn, {
         title: article.title,
@@ -264,6 +293,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       postUrl = result.postUrl
       postId = result.postId
       error = result.error
+      livePublished = result.ok && publishMode === 'publish'
     } else {
       // PBN: แก้โพสต์เดิมเฉพาะเว็บเดียวกับที่เคย push บทความนี้ไป — เว็บอื่นสร้างโพสต์ใหม่
       const existingPostId = pbnSite
@@ -291,6 +321,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       postUrl = result.postUrl
       postId = result.postId ? String(result.postId) : undefined
       error = result.error
+      // ยึดสถานะที่ WordPress ตอบกลับจริง (future/draft/pending = ยังไม่ขึ้นเว็บ)
+      livePublished = result.ok && effectiveMode === 'publish' && (result.status ?? 'publish') === 'publish'
     }
   } catch (e) {
     ok = false
@@ -350,8 +382,20 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     })
   }
 
-  const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true } })
-  const clientDto = toUploadClientDTO(updatedClientRow, computeClientCounts(articleRows))
+  // Request Index อัตโนมัติ: เฉพาะลูกค้า Upload Article (ไม่ใช่ PBN) ที่ขึ้นเว็บแบบ Publish จริงแล้ว
+  // ล้มก็ไม่กระทบผล push — จดผลไว้ใน pushPrefs.indexRequests ให้กดซ้ำได้จากหน้า Push
+  let indexRequest: UploadIndexRequest | undefined
+  let clientRow = updatedClientRow
+  if (!pbnSite && ok && livePublished && isIndexableUrl(postUrl) && autoRequestIndex) {
+    const r = await requestIndexForArticle(client.id, orgId, article.id, postUrl).catch(() => null)
+    if (r) {
+      indexRequest = r.record
+      if (r.prefs) clientRow = { ...clientRow, pushPrefs: JSON.stringify(r.prefs) }
+    }
+  }
 
-  return NextResponse.json({ ok, postUrl, postId, error, client: clientDto })
+  const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true } })
+  const clientDto = toUploadClientDTO(clientRow, computeClientCounts(articleRows))
+
+  return NextResponse.json({ ok, postUrl, postId, error, indexRequest, client: clientDto })
 }

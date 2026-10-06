@@ -4,7 +4,7 @@
  * (การสแกนเว็บปลายทางย้ายไปอยู่ที่ Project Setting > สแกนเว็บปลายทาง แล้ว) */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Settings, CalendarClock } from "lucide-react";
+import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Settings, CalendarClock, SearchCheck, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/upload-article/cards";
@@ -61,6 +61,8 @@ export default function PushTab({
   const [wpPostType, setWpPostType] = useState<"post" | "page">(client.pushPrefs.wpPostType ?? "post");
   const [useElementor, setUseElementor] = useState(!!client.pushPrefs.useElementor);
   const [stripH1, setStripH1] = useState(client.pushPrefs.stripH1 !== false);
+  const [autoRequestIndex, setAutoRequestIndex] = useState(client.pushPrefs.autoRequestIndex !== false);
+  const [indexBusy, setIndexBusy] = useState<Record<string, boolean>>({});
 
   // เก็บเวอร์ชัน HTML ของบทความไว้คู่กับ selection — ถ้า HTML บทความเปลี่ยน (เวอร์ชันไม่ตรง) ต้องเมิน selection เก่า
   // (ไม่ใช้ updatedAt เพราะเปลี่ยนทุกครั้งที่ push แม้ HTML เดิม — กด push ซ้ำหลัง fail แล้ว card ที่ตัดออกจะกลับมา)
@@ -124,7 +126,9 @@ export default function PushTab({
 
   const notConnected = pbn
     ? !pbnData.loading && pbnSites.length === 0
-    : client.websitePlatform === "wordpress" ? !client.hasWpPassword || !client.wpUrl : !client.wpUrl;
+    : client.websitePlatform === "wordpress" ? !client.hasWpPassword || !client.wpUrl
+    : client.websitePlatform === "webflow" ? !client.siteConnectionMasked?.["webflow.apiToken"] || !client.siteConnectionMasked?.["webflow.collectionId"]
+    : false;
 
   /** keyword + เวอร์ชันของบทความ (เขียนจากแท็บเขียนบทความ) — ใช้โชว์ v2/v3 และเตือนเวอร์ชันพี่น้องขึ้นเว็บเดียวกัน */
   const variantInfo = useMemo(() => {
@@ -260,7 +264,7 @@ export default function PushTab({
       const r = await fetch(`/api/upload-article/articles/${articleId}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, ...(siteId ? { siteId } : {}) }),
+        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, autoRequestIndex, ...(siteId ? { siteId } : {}) }),
       });
       const d = await r.json().catch(() => ({}));
       // PBN GitHub: push สำเร็จแต่ Deploy Hook พัง = ok + error → นับเป็นสำเร็จแล้วเตือน
@@ -273,6 +277,10 @@ export default function PushTab({
         if (d.client) setClient(d.client);
         toast.success(siteId ? `Push ขึ้น ${siteName(siteId)} สำเร็จ` : "Push สำเร็จ");
         if (hookWarning) toast.warning(`ไฟล์ขึ้น repo แล้ว แต่สั่ง deploy ไม่สำเร็จ: ${hookWarning}`);
+        if (d.indexRequest) {
+          if (d.indexRequest.ok) toast.success("ส่ง Request Index ให้ Google แล้ว");
+          else toast.warning(`Push สำเร็จ แต่ Request Index ไม่สำเร็จ: ${d.indexRequest.error}`);
+        }
       }
       if (pbn) await pbnData.reload();
       await loadArticleDetail(articleId, true);
@@ -282,6 +290,24 @@ export default function PushTab({
       toast.error(`Push ไม่สำเร็จ: ${msg}`);
     } finally {
       setPushBusy(prev => ({ ...prev, [articleId]: false }));
+    }
+  }
+
+  /** กด Request Index เอง — WordPress เช็คว่าโพสต์ Publish จริงแล้วก่อนส่ง */
+  async function requestIndex(articleId: string) {
+    if (indexBusy[articleId]) return;
+    setIndexBusy(prev => ({ ...prev, [articleId]: true }));
+    try {
+      const r = await fetch(`/api/upload-article/articles/${articleId}/request-index`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (d.client) setClient(d.client);
+      if (r.ok && d.ok) toast.success("ส่ง Request Index ให้ Google แล้ว");
+      else toast.error(`Request Index ไม่สำเร็จ: ${d?.error || r.status}`);
+      if (r.ok || d.indexRequest) await loadArticleDetail(articleId, true);
+    } catch (e) {
+      toast.error(`Request Index ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setIndexBusy(prev => ({ ...prev, [articleId]: false }));
     }
   }
 
@@ -329,11 +355,11 @@ export default function PushTab({
             </Button>
           )}
         </div>
-        {pbn && (
-          <p className="text-[11px] text-gray-400">
-            Draft/Publish ใช้กับทุกเว็บ · Post/Page, Elementor ใช้กับ WordPress เท่านั้น — เว็บ GitHub ขึ้นเป็นไฟล์ในโฟลเดอร์ที่ตั้งไว้ (Draft = draft: true)
-          </p>
-        )}
+        <p className="text-[11px] text-gray-400">
+          {pbn
+            ? "Draft/Publish ใช้กับทุกเว็บ · Post/Page, Elementor ใช้กับ WordPress เท่านั้น — เว็บ GitHub ขึ้นเป็นไฟล์ในโฟลเดอร์ที่ตั้งไว้ (Draft = draft: true)"
+            : "Draft/Publish ใช้กับทุกเว็บ · Post/Page, Elementor ใช้กับ WordPress เท่านั้น · Webflow อัปเดต item เดิมเมื่อ push ซ้ำ"}
+        </p>
 
         <div className="flex flex-wrap gap-4 text-xs pt-1">
           <label className="flex items-center gap-1.5">
@@ -359,6 +385,11 @@ export default function PushTab({
           <label className="flex items-center gap-1.5">
             <input type="checkbox" checked={stripH1} onChange={e => setStripH1(e.target.checked)} /> ตัด H1
           </label>
+          {!pbn && (
+            <label className="flex items-center gap-1.5" title="หลัง Push แบบ Publish สำเร็จ ส่ง URL ให้ Google Indexing API อัตโนมัติ (บทความที่ตั้งวันเผยแพร่ขึ้นเป็น Draft — กด Request Index เองหลัง Publish ใน WordPress)">
+              <input type="checkbox" checked={autoRequestIndex} onChange={e => setAutoRequestIndex(e.target.checked)} /> Request Index อัตโนมัติหลัง Publish
+            </label>
+          )}
         </div>
 
         <Button size="sm" disabled={!selectedIds.size || batchBusy} onClick={pushSelected}>
@@ -491,6 +522,22 @@ export default function PushTab({
                   <ExternalLink size={11} /> เปิดโพสต์ที่ push แล้ว
                 </a>
               )}
+              {/* WordPress: Draft ที่ทีมกด Publish ในหลังบ้านเองก็กดได้ (route เช็คสถานะจริงให้) — แพลตฟอร์มอื่นต้อง push แบบ Publish */}
+              {!pbn && a.status === "PUSHED" && (client.websitePlatform === "wordpress" || a.pushMode === "publish") && (() => {
+                const ir = client.pushPrefs.indexRequests?.[a.id];
+                return (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <button type="button" onClick={() => requestIndex(a.id)} disabled={!!indexBusy[a.id]}
+                      className="flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                      {indexBusy[a.id] ? <Loader2 size={11} className="animate-spin" /> : <SearchCheck size={11} />}
+                      {ir?.ok ? "Request Index อีกครั้ง" : "Request Index"}
+                    </button>
+                    {ir && (ir.ok
+                      ? <span className="text-emerald-600">ส่ง Google แล้ว · {new Date(ir.at).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" })}</span>
+                      : <span className="text-rose-500">ล่าสุดไม่สำเร็จ: {ir.error}</span>)}
+                  </div>
+                );
+              })()}
             </div>
           );
         })}

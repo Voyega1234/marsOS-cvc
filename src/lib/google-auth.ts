@@ -167,6 +167,14 @@ export async function getGSCServiceAuth() {
   return getGoogleServiceOnlyAuth([GSC_SCOPE]);
 }
 
+/**
+ * ตัวตน service เท่านั้น สำหรับ Indexing API (Upload Article > Request Index)
+ * เงื่อนไขฝั่ง Google: service account ต้องเป็น Owner ของ property ใน GSC + เปิด Indexing API ใน GCP project ของ SA
+ */
+export async function getIndexingServiceAuth() {
+  return getGoogleServiceOnlyAuth(["https://www.googleapis.com/auth/indexing"]);
+}
+
 // ดึง access token เป็น string ไม่ว่า auth จะเป็นแบบไหน (OAuth2 user token / GoogleAuth)
 export async function getGoogleAccessToken(
   auth: Awaited<ReturnType<typeof getGoogleAuth>>
