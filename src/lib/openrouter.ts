@@ -237,7 +237,7 @@ export async function orChatStream(params: {
   temperature?: number
   timeoutMs?: number
   onDelta: (text: string) => void
-}): Promise<{ text: string; usage: ORUsage }> {
+}): Promise<{ text: string; usage: ORUsage; finishReason: string }> {
   const body: Record<string, unknown> = {
     model: params.model || OR_MODELS.writer(),
     messages: params.messages,
@@ -272,6 +272,8 @@ export async function orChatStream(params: {
   let buffer = ''
   let full = ''
   let usage: ORUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 }
+  // เหตุที่สตรีมจบ — 'length' = ชน max_tokens (เนื้อหาถูกตัดกลางทาง) ให้ผู้เรียกเขียนต่อเองได้
+  let finishReason = ''
   try {
   while (true) {
     const { done, value } = await reader.read()
@@ -291,6 +293,8 @@ export async function orChatStream(params: {
         }
         const delta: string = chunk.choices?.[0]?.delta?.content ?? ''
         if (delta) { full += delta; params.onDelta(delta) }
+        const finish = chunk.choices?.[0]?.finish_reason
+        if (typeof finish === 'string' && finish) finishReason = finish
         if (chunk.usage) usage = parseUsage(chunk.usage)
       } catch (e) {
         if (e instanceof Error && e.message.startsWith('OpenRouter stream error')) throw e
@@ -305,7 +309,7 @@ export async function orChatStream(params: {
     // สตรีมจบแบบไม่มีเนื้อหาเลย — ถือว่าล้มเหลว ไม่ปล่อยค่าว่างไปให้ pipeline ทำต่อ
     throw new Error(`OpenRouter คืนคำตอบว่าง (model: ${String(body.model)}, output tokens: ${usage.outputTokens})`)
   }
-  return { text: full, usage }
+  return { text: full, usage, finishReason }
 }
 
 export interface ORImageResult {

@@ -335,6 +335,42 @@ function convertFaqInPlace(blocks: HTMLElement[]): number {
   return converted.count
 }
 
+/** นับคำถาม FAQ ใน HTML ต้นฉบับ ด้วยตัวแปลงชุดเดียวกับตอน Generate — ใช้เช็คว่าบทความที่ AI เขียนมี FAQ ครบไหม */
+export function countFaqItems(sourceHtml: string): number {
+  const blocks = parseTopLevelBlocks(sourceHtml)
+  normalizeFaqStructure(blocks)
+  return convertFaqInPlace(blocks)
+}
+
+/**
+ * แทนส่วน FAQ เดิม (H2 FAQ จนถึง H2 ถัดไป) ด้วย faqHtml — ไม่มี FAQ เดิม = แทรกก่อน H2 สุดท้ายถ้าเป็นสรุป/อ้างอิง ไม่งั้นต่อท้าย
+ * faqHtml ต้องขึ้นต้นด้วย <h2> FAQ เอง (มาจาก AI ตามสัญญาเดียวกับตอนเขียน)
+ */
+export function replaceFaqSection(sourceHtml: string, faqHtml: string): string {
+  const blocks = parseTopLevelBlocks(sourceHtml)
+  normalizeFaqStructure(blocks)
+  const fresh = parseTopLevelBlocks(faqHtml)
+  if (fresh.length === 0) return sourceHtml
+  const isH2 = (b: HTMLElement) => b.tagName.toLowerCase() === 'h2'
+  const faqIdx = blocks.findIndex((b) => isH2(b) && FAQ_HEADING_RE.test(b.text))
+  if (faqIdx !== -1) {
+    let endIdx = blocks.length
+    for (let i = faqIdx + 1; i < blocks.length; i++) {
+      if (isH2(blocks[i])) {
+        endIdx = i
+        break
+      }
+    }
+    blocks.splice(faqIdx, endIdx - faqIdx, ...fresh)
+  } else {
+    let lastH2 = -1
+    blocks.forEach((b, i) => { if (isH2(b)) lastH2 = i })
+    const at = lastH2 !== -1 && FAQ_END_RE.test(blocks[lastH2].text) ? lastH2 : blocks.length
+    blocks.splice(at, 0, ...fresh)
+  }
+  return blocks.map((b) => b.outerHTML).join('\n')
+}
+
 /** ห่อ table/img/blockquote ด้วย component class มาตรฐาน (ทำงานผ่าน reparse เดียวกันทั้งก้อน รองรับ FAQ ซ้อน) */
 function wrapComponents(blocks: HTMLElement[], titleFallback: string): HTMLElement[] {
   const joined = blocks.map((b) => b.outerHTML).join('\n')

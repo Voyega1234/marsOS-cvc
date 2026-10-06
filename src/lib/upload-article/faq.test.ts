@@ -2,7 +2,8 @@
  * Regression: FAQ ในบทความ Upload Article หาย / เหลือ 1 ข้อ (แจ้ง 2026-10-06)
  * Run: npx tsx src/lib/upload-article/faq.test.ts
  */
-import { buildUploadArticleHtml } from './build-html';
+import { buildUploadArticleHtml, countFaqItems, replaceFaqSection } from './build-html';
+import { cleanContinuation, cleanFaqFill, isTruncatedFinish, parseWriterOutput } from './writer';
 import { DEFAULT_UPLOAD_THEME } from './types';
 
 let passed = 0;
@@ -119,6 +120,31 @@ console.log('Guard — ไม่สร้าง FAQ เกินจริง');
   const r = build('<h2>FAQ</h2><h3>A?</h3><p>a</p><h3>B?</h3><p>b</p>');
   const schema = /"@type":\s*"FAQPage"/.test(r.html);
   assert(schema, 'มี FAQPage schema');
+}
+
+console.log('G — บทความถูกตัด / FAQ ขาด (เขียนต่อ + เติม FAQ ตอนเขียน)');
+{
+  assert(isTruncatedFinish('length') && !isTruncatedFinish('stop') && !isTruncatedFinish(''), 'finish_reason length = ถูกตัด, stop = จบ');
+  const head = 'META_DESCRIPTION: คำโปรย\n---HTML---\n<h1>T</h1><p>บทนำ</p><h2>FAQ</h2><h3>ข้อแรก?</h3><p>ตอบ</p><h3>ข้อสอ';
+  const cont = '```html\nง?</h3><p>ตอบสอง</p>```';
+  const merged = parseWriterOutput(head + cleanContinuation(cont));
+  assert(countFaqItems(merged.html) === 2, 'ต่อส่วนที่ถูกตัดแล้ว FAQ ครบ 2 ข้อ');
+  assert(merged.metaDescription === 'คำโปรย', 'meta description ยังอยู่หลังต่อข้อความ');
+  assert(cleanContinuation('META_DESCRIPTION: x\n---HTML---\n<p>ต่อ</p>') === '<p>ต่อ</p>', 'ตัดหัวสัญญาที่โมเดลใส่ซ้ำ');
+}
+{
+  const fill = cleanFaqFill('นี่คือ FAQ\n<h2>คำถามที่พบบ่อย</h2><h3>หนึ่ง?</h3><p>1</p><h3>สอง?</h3><p>2</p><h2>สรุป</h2><p>แถม</p>');
+  assert(!fill.includes('สรุป') && fill.startsWith('<h2>'), 'เติม FAQ: ตัดข้อความนอกแท็กและหัวข้อที่แถมมา');
+  const withOne = '<h1>T</h1><p>a</p><h2>FAQ</h2><h3>เดียว?</h3><p>x</p><h2>สรุป</h2><p>จบ</p>';
+  assert(countFaqItems(withOne) === 1, 'นับ FAQ 1 ข้อ');
+  const replaced = replaceFaqSection(withOne, fill);
+  assert(countFaqItems(replaced) === 2 && !replaced.includes('เดียว?'), 'แทน FAQ เดิมทั้งส่วน');
+  assert(replaced.indexOf('คำถามที่พบบ่อย') < replaced.indexOf('สรุป'), 'FAQ ใหม่อยู่ก่อนสรุปตามเดิม');
+  const noFaq = '<h1>T</h1><p>a</p><h2>เนื้อหา</h2><p>b</p><h2>บทสรุป</h2><p>จบ</p>';
+  const inserted = replaceFaqSection(noFaq, fill);
+  assert(countFaqItems(inserted) === 2 && inserted.indexOf('คำถามที่พบบ่อย') < inserted.indexOf('บทสรุป'), 'ไม่มี FAQ เดิม: แทรกก่อนบทสรุป');
+  const noEnd = replaceFaqSection('<h1>T</h1><h2>เนื้อหา</h2><p>b</p>', fill);
+  assert(noEnd.trim().endsWith('<p>2</p>'), 'ไม่มีสรุป: ต่อท้ายบทความ');
 }
 
 console.log(`\n${passed} passed`);

@@ -194,3 +194,58 @@ export function parseWriterOutput(raw: string): ParsedWriterOutput {
 
   return { metaDescription, html: stripFences(html) }
 }
+
+// ─── เขียนให้จบ: บทความยาวจนชน max_tokens / FAQ ขาด ─────────────────────────────
+// ไม่แก้ prompt ของ Content Engine — รอบเสริมส่ง system + user เดิมทุกคำ แล้วต่อด้วยคำสั่งเทคนิคสั้น ๆ ด้านล่าง
+
+/** รอบเขียนต่อสูงสุดเมื่อชน max_tokens (ยังไม่จบอีก = ล้มเหลว ให้ทีมกดเขียนใหม่) */
+export const WRITER_MAX_CONTINUATIONS = 2
+/** FAQ ต้องมีอย่างน้อยกี่ข้อถึงนับว่ามี FAQ — ต่ำกว่านี้ (0 หรือ 1 ข้อ) เขียนส่วน FAQ ใหม่ทั้งส่วน */
+export const WRITER_MIN_FAQ_ITEMS = 2
+
+/** สตรีมจบเพราะชน max_tokens = เนื้อหาถูกตัดกลางทาง */
+export function isTruncatedFinish(finishReason: string | undefined): boolean {
+  return finishReason === 'length' || finishReason === 'max_tokens' || finishReason === 'max_output_tokens'
+}
+
+/** คำสั่งเขียนต่อจากจุดที่ถูกตัด (ส่งหลังข้อความ assistant ที่เขียนค้างไว้) */
+export function buildContinuePrompt(language: 'th' | 'en' | undefined): string {
+  return [
+    'คำตอบก่อนหน้าถูกตัดกลางทางเพราะยาวเกินขีดจำกัด — เขียนต่อจากตัวอักษรสุดท้ายทันทีจนจบบทความ (รวมส่วน FAQ ตามสัญญารูปแบบเดิม)',
+    '- ห้ามเขียนซ้ำส่วนที่เขียนไปแล้ว ห้ามขึ้นต้นใหม่ ห้ามมี META_DESCRIPTION หรือ ---HTML--- อีก',
+    '- ถ้าถูกตัดกลางแท็กหรือกลางประโยค ให้ต่อจากตรงนั้นเลย',
+    `- ภาษาเดิมของบทความ (${language === 'en' ? 'English' : 'ไทย'}) ตอบเป็น HTML ล้วนตามกฎเดิม`,
+  ].join('\n')
+}
+
+/** คำสั่งเขียนส่วน FAQ ใหม่ทั้งส่วน (บทความเขียนจบแล้ว แต่ไม่มี FAQ หรือมีแค่ข้อเดียว) */
+export function buildFaqFillPrompt(language: 'th' | 'en' | undefined): string {
+  return [
+    'บทความด้านบนส่วน FAQ ขาดหรือไม่ครบ — เขียนเฉพาะส่วน FAQ ใหม่ทั้งส่วนสำหรับบทความนี้',
+    '- จำนวนคำถามและรูปแบบคำตอบตาม Business Skill / Master Prompt / Article Brief / Validator Pack ด้านบน ถ้าไม่ได้กำหนดจำนวน ให้ครอบคลุมคำถามสำคัญที่ผู้อ่านของ keyword นี้น่าจะถามจริง (มากกว่า 1 ข้อ)',
+    '- ข้อเท็จจริงต้องมาจาก Business Skill และเนื้อหาบทความเท่านั้น ห้ามแต่งตัวเลข/ราคา/ข้อมูลใหม่',
+    `- ภาษา: ${language === 'en' ? 'English' : 'ไทย'} และใช้น้ำเสียงเดียวกับบทความ`,
+    '- ตอบเป็น HTML ล้วน ขึ้นต้นด้วย <h2> ที่มีคำว่า "FAQ" หรือ "คำถามที่พบบ่อย" ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>',
+    '- ห้ามมีส่วนอื่นของบทความ ห้ามมี META_DESCRIPTION, ---HTML---, markdown code fence, style, class',
+  ].join('\n')
+}
+
+/** ส่วนที่เขียนต่อ — ตัด fence/หัวสัญญาที่โมเดลอาจใส่มาซ้ำ ก่อนต่อท้ายข้อความเดิม */
+export function cleanContinuation(raw: string): string {
+  return raw
+    .replace(/^\s*```[a-z]*\n?/i, '')
+    .replace(/```\s*$/i, '')
+    .replace(/^\s*META_DESCRIPTION:.*\n?/i, '')
+    .replace(/^\s*---HTML---\s*\n?/, '')
+}
+
+/** HTML ส่วน FAQ ที่ได้จากรอบเติม FAQ — ตัด fence และข้อความนอกแท็กก่อน <h2> แรก */
+export function cleanFaqFill(raw: string): string {
+  const text = stripFences(raw)
+  const idx = text.search(/<h2[\s>]/i)
+  if (idx === -1) return ''
+  const faq = text.slice(idx)
+  // โมเดลแถมหัวข้ออื่นต่อท้าย (เช่น สรุป) — เก็บแค่ส่วน FAQ
+  const next = faq.slice(3).search(/<h2[\s>]/i)
+  return (next === -1 ? faq : faq.slice(0, next + 3)).trim()
+}

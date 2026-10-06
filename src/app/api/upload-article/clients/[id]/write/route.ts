@@ -12,9 +12,16 @@ import {
   missingWriterLayers,
   parseWriterOutput,
   MIN_CLEANED_HTML_LENGTH,
+  WRITER_MAX_CONTINUATIONS,
+  WRITER_MIN_FAQ_ITEMS,
+  isTruncatedFinish,
+  buildContinuePrompt,
+  buildFaqFillPrompt,
+  cleanContinuation,
+  cleanFaqFill,
 } from '@/lib/upload-article/writer'
 import { cleanSemanticHtml } from '@/lib/upload-article/clean-html'
-import { buildUploadArticleHtml, uploadArticleLanguage } from '@/lib/upload-article/build-html'
+import { buildUploadArticleHtml, countFaqItems, replaceFaqSection, uploadArticleLanguage } from '@/lib/upload-article/build-html'
 import { readUploadAuthor, pickAuthorForArticle } from '@/lib/upload-article/author'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { orChatStream, OR_MODELS } from '@/lib/openrouter'
@@ -29,6 +36,10 @@ import { pbnEffectiveClient, resolveCeSet } from '@/lib/upload-article/pbn-conte
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
 export const maxDuration = 800
+/** เวลาที่ใช้ได้ทั้งงาน (เผื่อบันทึกผลก่อนชน maxDuration) — รอบเขียนต่อ/เติม FAQ ต้องอยู่ในกรอบนี้ */
+const WRITE_BUDGET_MS = 770_000
+/** รอบเสริมต้องมีเวลาเหลืออย่างน้อยเท่านี้ถึงจะเริ่ม */
+const EXTRA_ROUND_MIN_MS = 60_000
 
 function readPlan(prefs: Record<string, unknown> | null): UploadKeyword[] {
   const raw = prefs?.keywordPlan
@@ -73,6 +84,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 /** POST /api/upload-article/clients/[id]/write body {keywordId, withCta?, variant?, variantTotal?} — สตรีม NDJSON ระหว่างเขียนบทความจาก keyword */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const requestStartedAt = Date.now()
   const session = await getSession()
   if (!session?.user?.organizationId || !session.user.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -246,26 +258,80 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }, 5000)
 
       try {
-        const result = await withOrClient(clientSlug, () =>
-          orChatStream({
-            trace: 'upload_article_write',
-            messages: [
-              { role: 'system', content: system },
-              { role: 'user', content: user },
-            ],
-            model: OR_MODELS.writer(),
-            maxTokens: 20000,
-            timeoutMs: 700_000,
-            onDelta: (delta) => {
-              charCount += delta.length
-            },
-          }),
-        )
+        const baseMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ]
+        const remainingMs = () => WRITE_BUDGET_MS - (Date.now() - requestStartedAt)
+        const usage = { totalTokens: 0, costUsd: 0 }
+        const runWriter = async (messages: typeof baseMessages, timeoutMs: number) => {
+          const r = await withOrClient(clientSlug, () =>
+            orChatStream({
+              trace: 'upload_article_write',
+              messages,
+              model: OR_MODELS.writer(),
+              maxTokens: 20000,
+              timeoutMs,
+              onDelta: (delta) => {
+                charCount += delta.length
+              },
+            }),
+          )
+          usage.totalTokens += r.usage.totalTokens
+          usage.costUsd += r.usage.costUsd
+          return r
+        }
+        // รอบเสริมทำให้เขียนนานเกิน 6 นาทีได้ — ขยับ updatedAt กันคำขอใหม่มองว่าค้าง (isWritingStale) แล้วลบทิ้งกลางทาง
+        const touchWriting = () =>
+          prisma.uploadArticle.update({ where: { id: article.id }, data: { status: 'WRITING' } }).catch(() => {})
 
-        const parsed = parseWriterOutput(result.text)
-        const cleaned = cleanSemanticHtml(parsed.html)
+        const first = await runWriter(baseMessages, 700_000)
+        let rawText = first.text
+
+        // ชน max_tokens = บทความถูกตัดกลางทาง (FAQ ท้ายบทความหาย) → เขียนต่อจากจุดที่ขาดจนจบ
+        let truncated = isTruncatedFinish(first.finishReason)
+        for (let round = 0; truncated && round < WRITER_MAX_CONTINUATIONS; round++) {
+          if (remainingMs() < EXTRA_ROUND_MIN_MS) break
+          await touchWriting()
+          const more = await runWriter(
+            [...baseMessages, { role: 'assistant', content: rawText }, { role: 'user', content: buildContinuePrompt(language) }],
+            Math.max(30_000, remainingMs() - 20_000),
+          )
+          rawText += cleanContinuation(more.text)
+          truncated = isTruncatedFinish(more.finishReason)
+        }
+        if (truncated) {
+          throw new Error('บทความยาวเกินจนเขียนไม่จบ (ถูกตัดกลางทาง) — ลองเขียนใหม่อีกครั้ง')
+        }
+
+        const parsed = parseWriterOutput(rawText)
+        let cleaned = cleanSemanticHtml(parsed.html)
         if (cleaned.trim().length < MIN_CLEANED_HTML_LENGTH) {
           throw new Error('เนื้อหาที่ได้สั้นเกินไป (โมเดลอาจตอบว่างหรือถูกตัดกลางทาง) ลองเขียนใหม่อีกครั้ง')
+        }
+
+        // FAQ ไม่มีหรือมีแค่ข้อเดียว → เขียนส่วน FAQ ใหม่ทั้งส่วน (ไม่สำเร็จ = เก็บบทความเดิมไว้ ไม่ทิ้งค่าเขียนทั้งบทความ)
+        let faqItems = countFaqItems(cleaned)
+        for (let attempt = 0; faqItems < WRITER_MIN_FAQ_ITEMS && attempt < 2; attempt++) {
+          if (remainingMs() < EXTRA_ROUND_MIN_MS) break
+          try {
+            await touchWriting()
+            const fill = await runWriter(
+              [...baseMessages, { role: 'assistant', content: rawText }, { role: 'user', content: buildFaqFillPrompt(language) }],
+              Math.max(30_000, remainingMs() - 20_000),
+            )
+            const faqHtml = cleanSemanticHtml(cleanFaqFill(fill.text))
+            if (!faqHtml || isTruncatedFinish(fill.finishReason)) continue
+            const next = replaceFaqSection(cleaned, faqHtml)
+            const nextItems = countFaqItems(next)
+            if (nextItems > faqItems) {
+              cleaned = next
+              faqItems = nextItems
+            }
+          } catch (e) {
+            // รอบเติม FAQ ล้ม — ลองอีกรอบ/ใช้บทความเดิม
+            console.warn('[upload-article/write] เติม FAQ ไม่สำเร็จ', e instanceof Error ? e.message : e)
+          }
         }
 
         // แทรกกล่อง CTA ลง sourceHtml เลย — Generate ใหม่กี่รอบก็ยังอยู่ (ข้อความ CTA มาจากที่ทีมตั้ง ไม่ใช่ AI)
@@ -301,8 +367,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           modelProvider: 'OPENROUTER',
           modelName: OR_MODELS.writer(),
           status: 'SUCCESS',
-          tokenUsed: result.usage.totalTokens,
-          estimatedCost: result.usage.costUsd,
+          tokenUsed: usage.totalTokens,
+          estimatedCost: usage.costUsd,
           createdById: userId,
         }).catch(() => {})
 
