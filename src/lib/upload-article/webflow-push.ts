@@ -82,6 +82,18 @@ async function uploadAsset(token: string, siteId: string, b64: string, mime: str
   return meta.hostedUrl
 }
 
+/** Webflow รับ slug เฉพาะ a-z 0-9 และ - (ภาษาไทย/อักขระอื่นถูกปฏิเสธ) — แปลงให้ถูกรูป ว่างแล้วสร้างให้ใหม่ */
+export function webflowSlug(raw?: string): string {
+  let s = ''
+  try { s = decodeURIComponent(raw || '') } catch { s = raw || '' }
+  const latin = s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  const lossy = /[^\x00-\x7f]/.test(latin) // มีภาษาไทย/อักขระอื่นที่ถูกตัดทิ้ง → ต่อท้ายรหัสกันชนกัน
+  s = latin.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '')
+  const suffix = Date.now().toString(36)
+  if (!lossy && s.length >= 3) return s
+  return /[a-z]/.test(s) ? `${s}-${suffix}` : `article-${s ? `${s}-` : ''}${suffix}`
+}
+
 /** หา siteId ที่มี collection นี้ — Webflow v2 GET /collections/{id} ไม่ส่ง siteId กลับมา จึงต้องไล่ดูจากรายการเว็บของ token */
 export async function findWebflowSiteIdForCollection(token: string, collectionId: string): Promise<string | null> {
   const auth = { Authorization: `Bearer ${token}` }
@@ -153,7 +165,11 @@ export async function pushArticleToWebflow(cfg: WebflowUploadConfig, input: Webf
     // เติม alt ที่ขาดให้ img
     html = html.replace(/<img\b[^>]*>/gi, tag => (/\balt\s*=/i.test(tag) ? tag : tag.replace(/<img\b/i, `<img alt="${alt}"`)))
 
-    const fieldData: Record<string, unknown> = { name: input.title, slug: input.slug || undefined, [bodyField]: html }
+    // push ซ้ำ (แก้ item เดิม) ไม่ส่ง slug ถ้าไม่ได้ตั้งไว้ — กัน URL เดิมเปลี่ยน
+    const isUpdate = !!(input.existingItemId && ID_RE.test(input.existingItemId))
+    const cleanSlug = !!input.slug && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.slug)
+    const slug = isUpdate ? (cleanSlug ? input.slug : undefined) : webflowSlug(input.slug || input.title)
+    const fieldData: Record<string, unknown> = { name: input.title, ...(slug ? { slug } : {}), [bodyField]: html }
     const imageField = mapped(cfg.imageField)
     if (imageField && coverMd5 && hosted.get(coverMd5)) {
       fieldData[imageField] = { url: hosted.get(coverMd5), alt: input.coverAlt || input.title }
@@ -185,13 +201,13 @@ export async function pushArticleToWebflow(cfg: WebflowUploadConfig, input: Webf
     }
     if (!res.ok) {
       const err = await readError(res)
-      if (res.status === 409 || /slug|unique|duplicate/i.test(err)) {
+      if (res.status === 409 || /unique|duplicate|already (exists|in use)/i.test(err)) {
         return { ok: false, error: `Slug ซ้ำกับบทความอื่นใน Webflow — เปลี่ยน slug แล้วลองใหม่ (${err})` }
       }
       return { ok: false, error: `Webflow push ไม่สำเร็จ — ${err}` }
     }
     const item = await res.json()
-    const itemSlug: string = item?.fieldData?.slug || input.slug || ''
+    const itemSlug: string = item?.fieldData?.slug || slug || ''
     // customDomains[].url ของ Webflow ไม่มี protocol (เช่น www.example.com) — เติม https:// ให้
     const rawSite = (cfg.siteUrl || '').trim().replace(/\/+$/, '')
     const site = rawSite && !/^https?:\/\//i.test(rawSite) ? `https://${rawSite}` : rawSite
