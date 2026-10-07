@@ -259,8 +259,9 @@ function detectPlatform(pages: string[]): UploadSiteScan['platform'] {
   const generator = Array.from(all.matchAll(/<meta[^>]+name="generator"[^>]+content="([^"]+)"/gi), (m) => m[1])
   let cms = 'ไม่ทราบ'
   if (/\/wp-content\/|\/wp-json\/|wp-includes/i.test(all)) cms = 'WordPress'
+  else if (/data-wf-site|data-wf-page|webflow\.js|assets\.website-files\.com|cdn\.prod\.website-files\.com/i.test(all)) cms = 'Webflow'
   else if (/cdn\.shopify\.com|Shopify\.theme/i.test(all)) cms = 'Shopify'
-  else if (/static\.wixstatic\.com|wix-bolt/i.test(all)) cms = 'Wix'
+  else if (/static\.wixstatic\.com|wix-bolt|wixstatic\.com/i.test(all)) cms = 'Wix'
   else if (/squarespace/i.test(all)) cms = 'Squarespace'
   const wpVer = generator.find((g) => /^WordPress/i.test(g))
   if (wpVer) cms = wpVer
@@ -749,7 +750,11 @@ function safeHex(v: unknown): string | undefined {
   return c && /^#[0-9a-f]{3,8}$/i.test(c) ? c : undefined
 }
 
-const SYSTEM = `คุณคือนักวิเคราะห์ CSS ของเว็บ WordPress
+function buildSystem(cms: string): string {
+  return SYSTEM_TEMPLATE.replace('{CMS}', cms)
+}
+
+const SYSTEM_TEMPLATE = `คุณคือนักวิเคราะห์ CSS ของเว็บ {CMS}
 หน้าที่: อ่าน HTML ตัวอย่างของกล่อง FAQ และกฎ CSS ที่เกี่ยวข้องของเว็บ แล้วสรุปหน้าตาจริงที่ผู้อ่านเห็นเป็น JSON
 กติกา:
 - ใช้เฉพาะค่าที่มีหลักฐานใน CSS/HTML ที่ให้มา ห้ามเดา ถ้าไม่มีหลักฐานให้ละ key นั้นไป
@@ -785,6 +790,8 @@ async function analyzeStyle(input: {
   /** CSS ของ class ที่ใช้ในเนื้อบทความ (เช่นกล่อง CTA ที่ผู้เขียนเขียนเอง) */
   contentClassCss: string
   computed: ComputedArticleStyle | null
+  /** ชื่อ CMS ที่ตรวจเจอ (ใส่ใน prompt) — ไม่ส่ง = WordPress เหมือนเดิม */
+  cms?: string
 }): Promise<{ data: AiStyle | null; usage: ORUsage | null; error: string | null }> {
   if (!input.articleCss && !input.faqCss && !input.contentCss && !input.faqSnippet && !input.computed) return { data: null, usage: null, error: 'ไม่พบ CSS ของเว็บให้วิเคราะห์' }
   const c = input.computed
@@ -807,7 +814,7 @@ async function analyzeStyle(input: {
     `## CSS ธีมสำหรับเนื้อหาบทความ (ค่าตั้งต้น — ใช้เมื่อ CSS ที่บทความฝังมาไม่ได้กำหนด)\n${input.contentCss || '(ไม่มี)'}`,
     ...(input.contentClassCss ? [`## CSS ของกล่องที่ใช้ในเนื้อบทความ (เช่นกล่อง CTA ที่ผู้เขียนเขียนเอง — ใช้เป็นแนวทางสี/มุมโค้งของกล่อง)\n${input.contentClassCss}`] : []),
   ].join('\n\n')
-  const r = await askJson<AiStyle>({ trace: 'uploadSiteScanStyle', system: SYSTEM, user, maxTokens: 1500, temperature: 0.1, timeoutMs: 90_000 })
+  const r = await askJson<AiStyle>({ trace: 'uploadSiteScanStyle', system: buildSystem(input.cms || 'WordPress'), user, maxTokens: 1500, temperature: 0.1, timeoutMs: 90_000 })
   return { data: r.data, usage: r.usage, error: r.error }
 }
 
@@ -821,7 +828,39 @@ export interface SiteScanResult {
   usage: ORUsage | null
 }
 
-export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promise<SiteScanResult> {
+export interface ScanUploadSiteOptions {
+  /** แพลตฟอร์มที่ลูกค้าเชื่อมไว้ — ไม่ส่ง = ตรวจจาก HTML เหมือนเดิม */
+  platform?: 'wordpress' | 'webflow' | 'shopify' | 'wix' | 'custom'
+  /** Webflow collection slug (ใช้เลือก URL บทความจาก sitemap) */
+  collectionSlug?: string
+}
+
+/** หา URL บทความจาก sitemap (เว็บที่ไม่ใช่ WordPress) — เลือกตามรูปแบบ path ของแพลตฟอร์มก่อน */
+async function articleUrlsFromSitemap(target: string, host: string, prefer: string | null): Promise<string[]> {
+  const locs = (xml: string) => Array.from(xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi), (m) => m[1].trim())
+  const root = await fetchText(`${target}/sitemap.xml`)
+  if (!root) return []
+  let urls = locs(root)
+  const isIndex = /<sitemapindex/i.test(root)
+  if (isIndex) {
+    const children = urls.slice(0, 6)
+    const pick = (prefer && children.find((c) => /blog|post|article/i.test(c))) || children.find((c) => /blog|post|article/i.test(c)) || children[0]
+    const sub = pick ? await fetchText(pick) : null
+    urls = sub ? locs(sub) : []
+  }
+  const ok = urls.filter((u) => {
+    try {
+      const url = new URL(u)
+      return url.host.replace(/^www\./, '') === host.replace(/^www\./, '') && url.pathname.length > 12 && !/\.(xml|jpg|png|webp|pdf)$/i.test(url.pathname)
+    } catch {
+      return false
+    }
+  })
+  const preferred = prefer ? ok.filter((u) => new URL(u).pathname.includes(prefer)) : []
+  return uniq([...preferred, ...ok]).slice(0, 3)
+}
+
+export async function scanUploadSite(siteUrl: string, sampleUrl?: string, options: ScanUploadSiteOptions = {}): Promise<SiteScanResult> {
   let target = normalizeSite(siteUrl)
   const checked: string[] = []
   const warnings: string[] = []
@@ -849,7 +888,11 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
   // WP REST: เนื้อหาบทความ 8 โพสต์ล่าสุด — ข้ามโพสต์ที่เรา push ไปเอง
   const posts: PostSample[] = []
   let ownSkipped = 0
-  const restRaw = await fetchText(`${target}/wp-json/wp/v2/posts?per_page=8&_fields=link,content.rendered`)
+  // เว็บที่ไม่ใช่ WordPress ไม่มี REST นี้ — ข้ามเพื่อไม่ยิงฟรี ๆ (ไม่ทราบ CMS + ไม่มี hint ว่าไม่ใช่ WP = ลองเหมือนเดิม)
+  const hintNonWp = !!options.platform && options.platform !== 'wordpress'
+  const homeCms = home ? detectPlatform([homeRes.html]).cms : 'ไม่ทราบ'
+  const tryRest = /^WordPress/i.test(homeCms) || (homeCms === 'ไม่ทราบ' && !hintNonWp)
+  const restRaw = !tryRest ? null : await fetchText(`${target}/wp-json/wp/v2/posts?per_page=8&_fields=link,content.rendered`)
   if (restRaw) {
     try {
       const arr = JSON.parse(restRaw) as Array<{ link?: string; content?: { rendered?: string } }>
@@ -872,6 +915,23 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
   if (ownSkipped) checked.push(`ข้ามบทความที่ส่งจากระบบเรา ${ownSkipped} โพสต์`)
 
   // ไม่มี REST — เดาลิงก์บทความจากหน้าแรก
+  if (!posts.length && home && !tryRest) {
+    const prefer =
+      options.platform === 'webflow' || /^Webflow/i.test(homeCms)
+        ? options.collectionSlug
+          ? `/${options.collectionSlug}/`
+          : null
+        : options.platform === 'shopify' || homeCms === 'Shopify'
+          ? '/blogs/'
+          : options.platform === 'wix' || homeCms === 'Wix'
+            ? '/post/'
+            : null
+    const smHost = new URL(homeRes.finalUrl || target).host
+    const fromMap = await articleUrlsFromSitemap(target, smHost, prefer)
+    for (const link of fromMap) posts.push({ link, content: null, page: null })
+    if (fromMap.length) checked.push(`ลิงก์บทความจาก sitemap ${fromMap.length} ลิงก์`)
+  }
+
   if (!posts.length && home) {
     const host = new URL(homeRes.finalUrl || target).host
     const links = uniq(Array.from(home.matchAll(/<a[^>]+href="(https?:\/\/[^"#?]+)"/gi), (m) => m[1].replace(/\/$/, '')))
@@ -911,6 +971,9 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
   const allRaw = [homeRes.html, ...rendered.filter((r) => r.ok).map((r) => r.html)].join('\n')
   const platform = detectPlatform([allRaw])
   const pluginSlugs = uniq(Array.from(allRaw.matchAll(/\/wp-content\/plugins\/([a-z0-9_.-]+)\//gi), (m) => m[1].toLowerCase()))
+
+  if (/^Webflow/i.test(platform.cms)) warnings.push('Webflow ตัด <style> ที่แนบมากับบทความทิ้ง — ตั้งสไตล์ผ่าน CSS ใน Webflow Custom Code (หน้าสไตล์บทความ)')
+  else if (platform.cms === 'Wix') warnings.push('Wix ใส่บทความเป็นกล่อง HTML — ใช้โหมด embed')
 
   const components = {
     toc: findComponent('toc', posts, home, pluginSlugs),
@@ -989,7 +1052,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string): Promi
           : 'บทความตัวอย่างไม่มี FAQ — ใช้รูปแบบ FAQ จากบทความอื่นของเว็บเดียวกัน แต่สีตามบทความตัวอย่าง',
       )
     }
-    const ai = await analyzeStyle({ faqSnippet: snippet?.html || '', faqLabel: snippet?.label || '', articleCss, faqCss, contentCss, contentClassCss, computed })
+    const ai = await analyzeStyle({ faqSnippet: snippet?.html || '', faqLabel: snippet?.label || '', articleCss, faqCss, contentCss, contentClassCss, computed, cms: /^(WordPress)/i.test(platform.cms) ? undefined : platform.cms === 'ไม่ทราบ' ? 'เว็บ' : platform.cms })
     usage = ai.usage
     const t: Partial<UploadTheme> = {}
     if (ai.data) {

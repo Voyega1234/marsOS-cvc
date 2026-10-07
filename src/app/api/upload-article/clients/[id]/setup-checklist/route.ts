@@ -14,6 +14,7 @@ import { isPbnPrefs } from '@/lib/upload-article/pbn'
 import { missingWriterLayers } from '@/lib/upload-article/writer'
 import { uploadCtaSummary } from '@/lib/upload-article/cta'
 import { uploadAuthorSummary } from '@/lib/upload-article/author'
+import { UPLOAD_PLATFORM_LABEL, uploadPlatformOf } from '@/lib/upload-article/platform-info'
 import type { UploadInternalLinks, UploadSiteScan } from '@/lib/upload-article/types'
 
 export type UploadChecklistSection = 'website' | 'scan' | 'style' | 'links' | 'images' | 'cta' | 'author' | 'engine'
@@ -61,7 +62,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   if (platform === 'wordpress') websiteOk = !!(c.wpUrl && c.wpUser && c.wpAppPasswordEnc)
   else if (platform === 'shopify') websiteOk = !!(conn.shopify?.storeDomain && conn.shopify?.accessToken)
   else if (platform === 'webflow') websiteOk = !!(conn.webflow?.apiToken && conn.webflow?.collectionId)
-  else if (platform === 'wix') websiteOk = !!(conn.wix?.apiKey && conn.wix?.siteId)
+  else if (platform === 'wix') websiteOk = !!(conn.wix?.apiKey && conn.wix?.siteId && conn.wix?.memberId)
   else if (platform === 'custom') websiteOk = !!conn.custom?.webhookUrl
 
   // ── สแกนเว็บปลายทาง — มีผลสแกนที่บันทึกไว้ ──
@@ -92,7 +93,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 
   const items: UploadChecklistItem[] = [
     {
-      id: 'website', label: 'เชื่อมเว็บไซต์ลูกค้า', ok: websiteOk, required: true, section: 'website',
+      id: 'website', label: `เชื่อมต่อเว็บ (${UPLOAD_PLATFORM_LABEL[uploadPlatformOf({ websitePlatform: platform })]})`, ok: websiteOk, required: true, section: 'website',
       hint: websiteOk ? `แพลตฟอร์ม: ${platform}` : `แพลตฟอร์ม: ${platform} — ใส่ข้อมูลเชื่อมต่อให้ครบแล้วกดบันทึก`,
     },
     {

@@ -13,7 +13,7 @@ export const maxDuration = 300
 
 /**
  * POST /api/upload-article/clients/[id]/site-scan — สแกนเว็บปลายทางแบบละเอียด
- * Body: { url?, sampleUrl? } — url ว่าง = ใช้ wpUrl หรือ website ของลูกค้า
+ * Body: { url?, sampleUrl? } — url ว่าง = ใช้เว็บที่ push ไปตามแพลตฟอร์ม (WordPress = wpUrl หรือ website)
  *
  * บันทึกผลสแกนไว้ที่ pushPrefs.siteScan และตั้ง excludeCards ให้ component ที่ธีม/ปลั๊กอินใส่เองทุกบทความ
  * (ส่วนที่มีเฉพาะบางบทความไม่ตัด เพราะไม่ซ้ำกับบทความใหม่)
@@ -29,7 +29,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))
-  const url = (typeof body.url === 'string' && body.url.trim()) || client.wpUrl || client.website || ''
+  // แพลตฟอร์มที่เชื่อมไว้ — ค่าเริ่มต้นของ URL สแกนตามเว็บที่ push ไป (WordPress = wpUrl || website เหมือนเดิม)
+  const platform = (['webflow', 'wix', 'shopify', 'custom'] as const).find((p) => p === client.websitePlatform) || 'wordpress'
+  let conn: Record<string, Record<string, unknown>> = {}
+  try {
+    const parsed = JSON.parse(client.siteConnection || '{}')
+    if (parsed && typeof parsed === 'object') conn = parsed
+  } catch {
+    /* siteConnection เสีย — ใช้ค่าเริ่มต้นของ client */
+  }
+  const connStr = (plat: string, key: string): string => {
+    const v = conn[plat]?.[key]
+    return typeof v === 'string' ? v.trim() : ''
+  }
+  const withProto = (u: string) => (u ? (/^https?:\/\//i.test(u) ? u : `https://${u}`) : '')
+  let defaultUrl = client.wpUrl || client.website || ''
+  if (platform === 'webflow') defaultUrl = withProto(connStr('webflow', 'siteUrl')) || client.website || ''
+  else if (platform === 'shopify') defaultUrl = client.website || withProto(connStr('shopify', 'storeDomain'))
+  else if (platform !== 'wordpress') defaultUrl = client.website || ''
+  const url = (typeof body.url === 'string' && body.url.trim()) || defaultUrl
   if (!url.trim()) {
     return NextResponse.json({ error: 'ยังไม่มี URL เว็บไซต์ — กรอก URL ในแท็บเชื่อมต่อหรือใส่ในช่องสแกนก่อน' }, { status: 400 })
   }
@@ -37,7 +55,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   let result
   try {
-    result = await scanUploadSite(url, sampleUrl || undefined)
+    result = await scanUploadSite(url, sampleUrl || undefined, {
+      platform,
+      collectionSlug: platform === 'webflow' ? connStr('webflow', 'collectionSlug') || undefined : undefined,
+    })
   } catch (err) {
     return NextResponse.json({ error: `สแกนไม่สำเร็จ: ${(err as Error).message}` }, { status: 502 })
   }

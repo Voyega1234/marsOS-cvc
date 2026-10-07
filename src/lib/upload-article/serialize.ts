@@ -18,7 +18,7 @@ function safeParse<T>(json: string | null | undefined, fallback: T): T {
 }
 
 /** ช่องที่ไม่ใช่ secret ในแต่ละแพลตฟอร์ม (โดเมน/URL/ID) — แสดงค่าจริงได้ ส่วนที่เหลือถือเป็น secret ทั้งหมด */
-const NON_SECRET_SITE_CONN_FIELDS = new Set(['storeDomain', 'webhookUrl', 'siteId', 'collectionId', 'collectionSlug', 'siteUrl', 'bodyField', 'imageField', 'descriptionField', 'seoTitleField'])
+const NON_SECRET_SITE_CONN_FIELDS = new Set(['storeDomain', 'blogId', 'blogHandle', 'memberId', 'webhookUrl', 'siteId', 'collectionId', 'collectionSlug', 'siteUrl', 'bodyField', 'imageField', 'descriptionField', 'seoTitleField'])
 
 /** mask ทุกค่าใน siteConnection แบบตื้น (ระดับ 1 ชั้น key: string) ให้ใช้แสดงผลอย่างเดียว
  * secret ไม่เปิดเผยแม้แต่บางส่วน (ไม่มีตัวท้าย 4 ตัวให้เดางอกได้) — ช่องที่ไม่ใช่ secret (โดเมน) แสดงค่าจริง */

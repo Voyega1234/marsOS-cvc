@@ -331,3 +331,15 @@ export function buildUploadCss(
   const scopedCtaCss = (cta?.items ?? []).map(ctaItemScopedCss).filter(Boolean).join('\n')
   return `${fontImport}${css}\n${UPLOAD_EXTRA_CSS}\n${UPLOAD_CTA_EXTRA_CSS}${scopedCtaCss ? `\n${scopedCtaCss}` : ''}${detailCss ? `\n${detailCss}` : ''}`
 }
+
+/** CSS สำหรับวางใน Webflow Site settings > Custom code (Head code) — Webflow ตัด <style> ในบทความทิ้งตอน push
+ *  ใช้ CSS เดียวกับพรีวิว (buildUploadCss) แต่เปลี่ยน root `.content-article` เป็น `.w-richtext` ให้ลง Rich Text ของ Webflow
+ *  คืนเป็น `<style>…</style>` พร้อมวางทั้งก้อน (@import ฟอนต์อยู่บนสุด) */
+export function buildWebflowCustomCss(
+  theme: UploadTheme,
+  cta?: UploadCtaSettings,
+  extra?: { articleCta?: ArticleCssOptions['cta'] },
+): string {
+  const css = buildUploadCss(theme, cta, extra).replace(/\.content-article(?![\w-])/g, '.w-richtext')
+  return `<style>\n${css}\n</style>`
+}

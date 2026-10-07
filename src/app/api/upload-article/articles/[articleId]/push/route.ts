@@ -222,6 +222,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   let postUrl: string | undefined
   let postId: string | undefined
   let error: string | undefined
+  let warning: string | undefined
   /** บทความเผยแพร่จริงบนเว็บแล้วหรือยัง (WordPress ตั้งเวลา/ปลั๊กอินบังคับ draft = ยัง) — ใช้ตัดสิน Request Index */
   let livePublished = false
 
@@ -288,11 +289,16 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         coverBase64: base64,
         coverMimeType: mime,
         publishMode,
+        existingId: article.wordpressPostId ? String(article.wordpressPostId) : undefined,
+        metaTitle: article.seoTitle || article.title,
+        metaDescription: article.metaDescription || undefined,
+        coverAlt: article.coverAlt || article.title,
       })
       ok = result.ok
       postUrl = result.postUrl
       postId = result.postId
       error = result.error
+      warning = result.warning
       livePublished = result.ok && publishMode === 'publish'
     } else {
       // PBN: แก้โพสต์เดิมเฉพาะเว็บเดียวกับที่เคย push บทความนี้ไป — เว็บอื่นสร้างโพสต์ใหม่
@@ -401,5 +407,5 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true } })
   const clientDto = toUploadClientDTO(clientRow, computeClientCounts(articleRows))
 
-  return NextResponse.json({ ok, postUrl, postId, error, indexRequest, client: clientDto })
+  return NextResponse.json({ ok, postUrl, postId, error, warning, indexRequest, client: clientDto })
 }

@@ -7,10 +7,14 @@
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Globe, Loader2, Plug, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Globe, Loader2, Plug, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
+import {
+  UPLOAD_PLATFORM_LABEL, uploadPlatformOf, pushTargetUrl, pushTargetDetail, missingConnectionFields,
+} from "@/lib/upload-article/platform-info";
+import ConnectHowTo from "../settings/ConnectHowTo";
 
 const PLATFORMS = [
   { id: "wordpress", label: "WordPress" },
@@ -34,13 +38,24 @@ export default function ConnectTab({
   const [wpUrl, setWpUrl] = useState(client.wpUrl);
   const [wpUser, setWpUser] = useState(client.wpUser);
   const [wpAppPassword, setWpAppPassword] = useState("");
-  const WF_KEYS = ["collectionId", "collectionSlug", "siteUrl", "bodyField", "imageField", "descriptionField", "seoTitleField"] as const;
-  // Webflow: ค่าที่ไม่ใช่ secret ถูกส่งกลับมาแบบไม่ mask → เติมล่วงหน้า (token ไม่เติม)
+  // ค่าที่ไม่ใช่ secret ของทุกแพลตฟอร์มถูกส่งกลับมาแบบไม่ mask → เติมล่วงหน้า (secret ไม่เติม)
+  const PLAIN_KEYS: Record<string, readonly string[]> = {
+    webflow: ["collectionId", "collectionSlug", "siteUrl", "bodyField", "imageField", "descriptionField", "seoTitleField"],
+    shopify: ["storeDomain", "blogId", "blogHandle"],
+    wix: ["siteId", "memberId"],
+    custom: ["webhookUrl"],
+  };
   const [siteConn, setSiteConn] = useState<Record<string, Record<string, string>>>((): Record<string, Record<string, string>> => {
-    const wf: Record<string, string> = {};
-    for (const k of WF_KEYS) { const v = client.siteConnectionMasked?.[`webflow.${k}`]; if (v) wf[k] = v; }
-    return Object.keys(wf).length ? { webflow: wf } : {};
+    const out: Record<string, Record<string, string>> = {};
+    for (const [plat, keys] of Object.entries(PLAIN_KEYS)) {
+      const o: Record<string, string> = {};
+      for (const k of keys) { const v = client.siteConnectionMasked?.[`${plat}.${k}`]; if (v) o[k] = v; }
+      if (Object.keys(o).length) out[plat] = o;
+    }
+    return out;
   });
+  const [shBlogs, setShBlogs] = useState<{ id: string; title: string; handle: string }[]>([]);
+  const [wixMembers, setWixMembers] = useState<{ id: string; name: string }[]>([]);
   const [wfCollections, setWfCollections] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [wfFields, setWfFields] = useState<{ slug: string; displayName: string; type: string }[]>([]);
   const setConnField = (plat: string, key: string, val: string) =>
@@ -49,6 +64,7 @@ export default function ConnectTab({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [lastTest, setLastTest] = useState<{ ok: boolean; message: string; platform: PlatformId } | null>(null);
 
   async function loadWfFields(collectionId: string) {
     setWfFields([]);
@@ -119,22 +135,61 @@ export default function ConnectTab({
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.ok) {
         setTestResult({ ok: true, message: d.message || "เชื่อมต่อสำเร็จ" });
+        setLastTest({ ok: true, message: d.message || "เชื่อมต่อสำเร็จ", platform });
         if (platform === "webflow") {
           setWfCollections(d.choices?.collections ?? []);
           if (d.url) setConnField("webflow", "siteUrl", d.url);
         }
+        if (platform === "shopify") setShBlogs(d.choices?.blogs ?? []);
+        if (platform === "wix") setWixMembers(d.choices?.members ?? []);
       } else {
-        setTestResult({ ok: false, message: d.message || d.error || "เชื่อมต่อไม่สำเร็จ" });
+        const m = d.message || d.error || "เชื่อมต่อไม่สำเร็จ";
+        setTestResult({ ok: false, message: m });
+        setLastTest({ ok: false, message: m, platform });
       }
     } catch (e) {
-      setTestResult({ ok: false, message: `เชื่อมต่อไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}` });
+      const m = `เชื่อมต่อไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`;
+      setTestResult({ ok: false, message: m });
+      setLastTest({ ok: false, message: m, platform });
     } finally {
       setTesting(false);
     }
   }
 
+  const savedPlatform = uploadPlatformOf(client);
+  const savedLabel = UPLOAD_PLATFORM_LABEL[savedPlatform];
+  const missing = missingConnectionFields(client);
+  const targetUrl = pushTargetUrl(client);
+  const targetDetail = pushTargetDetail(client);
+
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,42rem)_minmax(0,1fr)] gap-4 items-start">
+    <div className="space-y-4 min-w-0">
+      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+        <p className="text-sm font-semibold text-brand-navy">ตอนนี้เชื่อมต่อกับ</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-brand-mist text-brand-blue border border-brand-soft/60">{savedLabel}</span>
+          {targetUrl && <span className="text-xs text-gray-600 break-all">{targetUrl}</span>}
+          {targetDetail && <span className="text-xs text-gray-400">· {targetDetail}</span>}
+        </div>
+        {missing.length === 0 ? (
+          <p className="flex items-center gap-1.5 text-xs text-emerald-700"><CheckCircle2 size={13} /> ตั้งค่าครบ</p>
+        ) : (
+          <p className="flex items-start gap-1.5 text-xs text-amber-700"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> ยังขาด: {missing.join(", ")}</p>
+        )}
+        {lastTest && (
+          <p className={`text-xs ${lastTest.ok ? "text-emerald-700" : "text-red-600"}`}>
+            ผลทดสอบล่าสุด ({UPLOAD_PLATFORM_LABEL[lastTest.platform]}): {lastTest.message}
+          </p>
+        )}
+        <p className="text-[11px] text-gray-400">Push / สแกนเว็บ / สไตล์บทความ จะทำงานแบบ {savedLabel} ตามที่เลือกไว้</p>
+        {platform !== savedPlatform && (
+          <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1">
+            ยังไม่บันทึก — กดบันทึกเพื่อสลับไปใช้ {UPLOAD_PLATFORM_LABEL[platform]}
+          </p>
+        )}
+      </div>
+
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <p className="text-sm font-semibold text-brand-navy">ข้อมูลลูกค้า</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -210,6 +265,26 @@ export default function ConnectTab({
                 placeholder={maskedPlaceholder("shopify", "accessToken") || "shpat_..."}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl" />
             </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Blog ที่จะลงบทความ (กดทดสอบการเชื่อมต่อก่อนเพื่อโหลดรายการ)</label>
+              {(() => {
+                const sh = siteConn.shopify ?? {};
+                const bid = sh.blogId ?? "";
+                return (
+                  <select value={bid}
+                    onChange={e => {
+                      const b = shBlogs.find(x => x.id === e.target.value);
+                      setConnField("shopify", "blogId", e.target.value);
+                      setConnField("shopify", "blogHandle", b?.handle ?? "");
+                    }}
+                    className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                    <option value="">บล็อกแรกของร้าน (อัตโนมัติ)</option>
+                    {bid && !shBlogs.some(b => b.id === bid) && <option value={bid}>{sh.blogHandle || bid}</option>}
+                    {shBlogs.map(b => <option key={b.id} value={b.id}>{b.title} ({b.handle})</option>)}
+                  </select>
+                );
+              })()}
+            </div>
           </div>
         )}
 
@@ -261,6 +336,16 @@ export default function ConnectTab({
                   {fieldSelect("seoTitleField", "SEO Title", "PlainText", "ไม่ส่ง")}
                 </div>
               )}
+              {wf.seoTitleField === "name" && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1">
+                  Name คือชื่อบทความใน Webflow อยู่แล้ว — map SEO Title ไปช่องนี้จะเขียนทับชื่อด้วย SEO Title
+                </p>
+              )}
+              {wf.imageField && wf.imageField.toLowerCase().includes("thumb") && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1">
+                  ช่อง &quot;{wf.imageField}&quot; น่าจะเป็นรูปย่อ (thumbnail) — หน้าบทความมักแสดงฟิลด์ &quot;Main Image&quot; แนะนำให้เลือกฟิลด์นั้นเป็นรูปปก
+                </p>
+              )}
               <p className="text-[11px] text-gray-400">
                 Webflow: รูปในบทความจะอัปโหลดเข้า Assets ของเว็บอัตโนมัติ (token ต้องมีสิทธิ์ CMS + Assets read/write) · ฟิลด์ที่ไม่ได้เลือกจะไม่ถูกเขียน · สไตล์/กล่องพิเศษในบทความจะเหลือเป็น HTML พื้นฐานตามที่ RichText ของ Webflow รองรับ
               </p>
@@ -280,6 +365,23 @@ export default function ConnectTab({
               <label className="block text-xs font-semibold text-gray-600 mb-1">Site ID</label>
               <Input value={siteConn.wix?.siteId ?? ""} onChange={e => setConnField("wix", "siteId", e.target.value)}
                 placeholder={maskedPlaceholder("wix", "siteId") || "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-gray-600 mb-1">ผู้เขียน (Member) — กดทดสอบการเชื่อมต่อก่อน</label>
+              {(() => {
+                const mid = siteConn.wix?.memberId ?? "";
+                return wixMembers.length > 0 ? (
+                  <select value={mid} onChange={e => setConnField("wix", "memberId", e.target.value)}
+                    className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                    <option value="">— เลือกผู้เขียน —</option>
+                    {mid && !wixMembers.some(m => m.id === mid) && <option value={mid}>{mid}</option>}
+                    {wixMembers.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                  </select>
+                ) : (
+                  <Input value={mid} onChange={e => setConnField("wix", "memberId", e.target.value)}
+                    placeholder="Member ID (หรือกดทดสอบการเชื่อมต่อเพื่อโหลดรายการ)" />
+                );
+              })()}
             </div>
           </div>
         )}
@@ -317,6 +419,10 @@ export default function ConnectTab({
           </div>
         )}
       </div>
+    </div>
+    <div className="lg:sticky lg:top-4 min-w-0">
+      <ConnectHowTo platform={platform} />
+    </div>
     </div>
   );
 }

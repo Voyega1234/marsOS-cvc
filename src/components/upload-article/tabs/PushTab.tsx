@@ -13,8 +13,17 @@ import { formatPublishAt } from "@/components/upload-article/shared/PublishDateP
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { parseWriterSourceName } from "@/lib/upload-article/pbn";
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
+import { uploadPlatformOf, UPLOAD_PLATFORM_LABEL, pushTargetUrl as getPushTargetUrl, pushTargetDetail, missingConnectionFields, pushCapabilities, hostOf } from "@/lib/upload-article/platform-info";
 
 const PUSHABLE = new Set(["GENERATED", "REVIEWED", "PUSHING", "PUSHED", "FAILED"]);
+
+const PLATFORM_HINT: Record<ReturnType<typeof uploadPlatformOf>, string> = {
+  wordpress: "Draft/Publish ใช้กับทุกเว็บ · Post/Page, Elementor ใช้กับ WordPress เท่านั้น",
+  webflow: "Draft = item แบบ Draft ใน CMS · Publish = ขึ้นเว็บทันที (เว็บต้องเคย Publish มาแล้ว) · รูปอัปโหลดเข้า Assets ให้ · push ซ้ำ = อัปเดต item เดิม · สไตล์ตาม CSS ใน Webflow Custom Code (ดูสไตล์บทความ)",
+  shopify: "Draft = บทความซ่อน (Hidden) · Publish = แสดงบนร้านทันที · รูปอัปโหลดเข้า Files ให้ · SEO title/description ลง metafield · push ซ้ำ = อัปเดตบทความเดิม",
+  wix: "Draft = ฉบับร่างใน Wix Blog · Publish = เผยแพร่ทันที · เนื้อหาลงเป็นกล่อง HTML · ปกอัปโหลดเข้า Media Manager · push ซ้ำ = อัปเดตโพสต์เดิม",
+  custom: "ส่ง JSON ไปที่ Webhook ที่ตั้งไว้ · Draft/Publish ส่งเป็น publishMode · push ซ้ำส่ง existingId ไปด้วย",
+};
 
 const TYPE_CHIP: Record<string, { label: string; cls: string }> = {
   title: { label: "หัวเรื่อง", cls: "bg-blue-50 text-blue-700 border-blue-200" },
@@ -70,9 +79,19 @@ export default function PushTab({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pushBusy, setPushBusy] = useState<Record<string, boolean>>({});
   const [batchBusy, setBatchBusy] = useState(false);
-  const [pushResult, setPushResult] = useState<Record<string, { ok: boolean; postUrl?: string; error?: string }>>({});
+  const [pushResult, setPushResult] = useState<Record<string, { ok: boolean; postUrl?: string; error?: string; warning?: string }>>({});
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const siteScan = client.pushPrefs.siteScan;
+  const platform = uploadPlatformOf(client);
+  const platformLabel = UPLOAD_PLATFORM_LABEL[platform];
+  const caps = pushCapabilities(platform);
+  // ตัวเลือก Post/Page, Elementor มีผลกับ WordPress เท่านั้น (PBN มีหลายแพลตฟอร์มปนกัน แสดงไว้)
+  const showWpOptions = pbn || caps.postType;
+  const pushTargetUrl = getPushTargetUrl(client);
+  const missingFields = pbn ? [] : missingConnectionFields(client);
+  // ผลสแกนเป็นของเว็บอื่น (เช่น สแกนเว็บ WordPress เดิมแต่ push ขึ้น Webflow) — ไม่เอามาเตือนว่าการ์ดซ้อน
+  const scanMismatch = !pbn && !!client.pushPrefs.siteScan?.target && !!pushTargetUrl
+    && hostOf(client.pushPrefs.siteScan.target) !== hostOf(pushTargetUrl);
+  const siteScan = scanMismatch ? undefined : client.pushPrefs.siteScan;
 
   // เก็บ client ล่าสุดไว้ใน ref — การบันทึก card selection debounce 600ms อาจ fire หลังจาก client เปลี่ยนแล้ว
   // (เช่น push สำเร็จคืน client ใหม่มา) อ่านจาก ref กันข้อมูล pushPrefs อื่นที่เพิ่งอัปเดตถูกทับ
@@ -126,9 +145,7 @@ export default function PushTab({
 
   const notConnected = pbn
     ? !pbnData.loading && pbnSites.length === 0
-    : client.websitePlatform === "wordpress" ? !client.hasWpPassword || !client.wpUrl
-    : client.websitePlatform === "webflow" ? !client.siteConnectionMasked?.["webflow.apiToken"] || !client.siteConnectionMasked?.["webflow.collectionId"]
-    : false;
+    : missingFields.length > 0;
 
   /** keyword + เวอร์ชันของบทความ (เขียนจากแท็บเขียนบทความ) — ใช้โชว์ v2/v3 และเตือนเวอร์ชันพี่น้องขึ้นเว็บเดียวกัน */
   const variantInfo = useMemo(() => {
@@ -273,9 +290,11 @@ export default function PushTab({
         setPushResult(prev => ({ ...prev, [articleId]: { ok: false, error: d?.error || "Push ไม่สำเร็จ" } }));
         toast.error(`Push ไม่สำเร็จ: ${d?.error || r.status}`);
       } else {
-        setPushResult(prev => ({ ...prev, [articleId]: { ok: true, postUrl: d.postUrl } }));
+        const pushWarning = typeof d.warning === "string" && d.warning ? d.warning : undefined;
+        setPushResult(prev => ({ ...prev, [articleId]: { ok: true, postUrl: d.postUrl, warning: pushWarning } }));
         if (d.client) setClient(d.client);
         toast.success(siteId ? `Push ขึ้น ${siteName(siteId)} สำเร็จ` : "Push สำเร็จ");
+        if (pushWarning) toast.warning(pushWarning);
         if (hookWarning) toast.warning(`ไฟล์ขึ้น repo แล้ว แต่สั่ง deploy ไม่สำเร็จ: ${hookWarning}`);
         if (d.indexRequest) {
           if (d.indexRequest.ok) toast.success("ส่ง Request Index ให้ Google แล้ว");
@@ -345,12 +364,20 @@ export default function PushTab({
               </p>
             ) : (
               <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5">
-                <Globe size={14} /> {client.websitePlatform} · {client.wpUrl || client.website || "ยังไม่ตั้งเว็บ"}
+                <Globe size={14} /> เชื่อมต่อกับ
+                <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-brand-mist text-brand-blue">{platformLabel}</span>
+                <span>{pushTargetUrl || "ยังไม่ตั้งเว็บ"}</span>
+                {pushTargetDetail(client) && <span className="font-normal text-gray-500">· {pushTargetDetail(client)}</span>}
               </p>
+            )}
+            {!pbn && (
+              <button onClick={() => onOpenSettings("website")} className="text-[11px] text-brand-blue hover:underline mt-0.5">
+                เปลี่ยนที่ Project Setting &gt; เว็บไซต์ &amp; Connect
+              </button>
             )}
             {notConnected && (
               <button onClick={() => onOpenSettings("website")} className="text-xs text-rose-600 hover:underline flex items-center gap-1 mt-1">
-                <AlertTriangle size={11} /> {pbn ? "ยังไม่มีเว็บ PBN — ไปเพิ่มที่ Project Setting > เว็บ PBN & Connect" : "ยังไม่เชื่อมต่อเว็บ — ไปตั้งค่าที่ Connect Website"}
+                <AlertTriangle size={11} /> {pbn ? "ยังไม่มีเว็บ PBN — ไปเพิ่มที่ Project Setting > เว็บ PBN & Connect" : `ยังตั้งค่า ${platformLabel} ไม่ครบ: ${missingFields.join(", ")} — ไปตั้งค่าที่ Connect Website`}
               </button>
             )}
           </div>
@@ -363,8 +390,13 @@ export default function PushTab({
         <p className="text-[11px] text-gray-400">
           {pbn
             ? "Draft/Publish ใช้กับทุกเว็บ · Post/Page, Elementor ใช้กับ WordPress เท่านั้น — เว็บ GitHub ขึ้นเป็นไฟล์ในโฟลเดอร์ที่ตั้งไว้ (Draft = draft: true)"
-            : "Draft/Publish ใช้กับทุกเว็บ · Post/Page, Elementor ใช้กับ WordPress เท่านั้น · Webflow อัปเดต item เดิมเมื่อ push ซ้ำ"}
+            : PLATFORM_HINT[platform]}
         </p>
+        {scanMismatch && (
+          <p className="text-[11px] text-amber-700">
+            ผลสแกนเว็บที่มีอยู่เป็นของ {client.pushPrefs.siteScan?.target} ไม่ใช่เว็บที่ push ({pushTargetUrl}) — ไม่ใช้เตือนการ์ดซ้อน · การ์ดที่ถูกปิดไว้จากผลสแกนเดิมติ๊กเปิดเองได้
+          </p>
+        )}
 
         <div className="flex flex-wrap gap-4 text-xs pt-1">
           <label className="flex items-center gap-1.5">
@@ -376,17 +408,22 @@ export default function PushTab({
           {publishMode === "publish" && Object.keys(client.pushPrefs.publishAt ?? {}).length > 0 && (
             <span className="text-[11px] text-amber-700">บทความที่ตั้งวันเผยแพร่ไว้จะขึ้นเป็น Draft เสมอ</span>
           )}
+          {showWpOptions && (
+            <>
+              <span className="text-gray-300">|</span>
+              <label className="flex items-center gap-1.5">
+                <input type="radio" checked={wpPostType === "post"} onChange={() => setWpPostType("post")} /> Post
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input type="radio" checked={wpPostType === "page"} onChange={() => setWpPostType("page")} /> Page
+              </label>
+              <span className="text-gray-300">|</span>
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={useElementor} onChange={e => setUseElementor(e.target.checked)} /> Elementor
+              </label>
+            </>
+          )}
           <span className="text-gray-300">|</span>
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={wpPostType === "post"} onChange={() => setWpPostType("post")} /> Post
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={wpPostType === "page"} onChange={() => setWpPostType("page")} /> Page
-          </label>
-          <span className="text-gray-300">|</span>
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={useElementor} onChange={e => setUseElementor(e.target.checked)} /> Elementor
-          </label>
           <label className="flex items-center gap-1.5">
             <input type="checkbox" checked={stripH1} onChange={e => setStripH1(e.target.checked)} /> ตัด H1
           </label>
@@ -539,6 +576,7 @@ export default function PushTab({
                   <p className="text-xs text-rose-500">{result.error}</p>
                 )
               )}
+              {result?.ok && result.warning && <p className="text-xs text-amber-700">{result.warning}</p>}
               {!result && a.status === "FAILED" && a.pushError && <p className="text-xs text-rose-500">{a.pushError}</p>}
               {!result && !pbn && a.status === "PUSHED" && a.wordpressUrl && (
                 <a href={a.wordpressUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-emerald-600 hover:underline w-fit">
@@ -546,7 +584,7 @@ export default function PushTab({
                 </a>
               )}
               {/* WordPress: Draft ที่ทีมกด Publish ในหลังบ้านเองก็กดได้ (route เช็คสถานะจริงให้) — แพลตฟอร์มอื่นต้อง push แบบ Publish */}
-              {!pbn && a.status === "PUSHED" && (client.websitePlatform === "wordpress" || a.pushMode === "publish") && (() => {
+              {!pbn && a.status === "PUSHED" && (platform === "wordpress" || a.pushMode === "publish") && (platform === "wordpress" || !!a.wordpressUrl) && (() => {
                 const ir = client.pushPrefs.indexRequests?.[a.id];
                 return (
                   <div className="flex flex-wrap items-center gap-2 text-xs">

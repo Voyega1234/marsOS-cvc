@@ -9,6 +9,7 @@
  */
 import { toast } from "sonner";
 import SiteScanView, { COMPONENT_LABEL } from "./SiteScanView";
+import { UPLOAD_PLATFORM_LABEL, hostOf, pushTargetUrl, uploadPlatformOf } from "@/lib/upload-article/platform-info";
 import type { UploadClientDTO, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
 
 export default function SiteScanPanel({
@@ -43,8 +44,29 @@ export default function SiteScanPanel({
     }
   }
 
+  // สแกนเว็บที่ push ไปจริง (ตามแพลตฟอร์มที่เชื่อม) — WordPress = wpUrl / website เหมือนเดิม
+  const platform = uploadPlatformOf(client);
+  const pushUrl = pushTargetUrl(client);
+  const scanned = client.pushPrefs.siteScan?.target || "";
+  const stale = !defaultUrl && !!scanned && !!pushUrl && hostOf(scanned) !== hostOf(pushUrl);
+
   return (
-    <SiteScanView initialUrl={defaultUrl || client.wpUrl || client.website || ""} scan={client.pushPrefs.siteScan}
-      onRun={run} onApplyTheme={onApplyTheme} title={title} />
+    <div className="space-y-2">
+      {!defaultUrl && pushUrl && (
+        <p className="text-xs text-gray-600 flex items-center gap-1.5 flex-wrap">
+          สแกนเว็บที่ push ไป:
+          <span className="px-1.5 py-0.5 rounded bg-brand-navy/10 text-brand-navy text-[11px] font-semibold">{UPLOAD_PLATFORM_LABEL[platform]}</span>
+          <span>·</span>
+          <span className="font-mono">{pushUrl}</span>
+        </p>
+      )}
+      {stale && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          ผลสแกนเดิมเป็นของ {scanned} — ไม่ใช่เว็บที่ push ตอนนี้ กดสแกนใหม่
+        </p>
+      )}
+      <SiteScanView key={defaultUrl || pushUrl} initialUrl={defaultUrl || pushUrl} scan={client.pushPrefs.siteScan}
+        onRun={run} onApplyTheme={onApplyTheme} title={title} />
+    </div>
   );
 }

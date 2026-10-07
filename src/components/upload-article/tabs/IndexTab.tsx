@@ -8,6 +8,7 @@
  */
 import { useCallback, useMemo } from "react";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
+import { uploadPlatformOf } from "@/lib/upload-article/platform-info";
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
 import RequestIndexTable, { type IndexPerfResult, type IndexRecord, type IndexTableRow } from "@/components/shared/RequestIndexTable";
 
@@ -32,8 +33,11 @@ export default function IndexTab({
     if (!pbn) {
       // ปุ่มกดได้ตามเงื่อนไขเดียวกับแท็บ Push — WordPress route เช็คสถานะจริงให้, แพลตฟอร์มอื่นต้อง push แบบ Publish
       return pushed.map(a => {
-        const canRequest = client.websitePlatform === "wordpress" || a.pushMode === "publish";
-        return { key: a.id, title: a.title, url: a.wordpressUrl || "", canRequest, blockedReason: canRequest ? undefined : "ต้อง Push แบบ Publish ก่อน" };
+        const isWp = uploadPlatformOf(client) === "wordpress";
+        const modeOk = isWp || a.pushMode === "publish";
+        const hasUrl = isWp || !!a.wordpressUrl;
+        const canRequest = modeOk && hasUrl;
+        return { key: a.id, title: a.title, url: a.wordpressUrl || "", canRequest, blockedReason: canRequest ? undefined : !modeOk ? "ต้อง Push แบบ Publish ก่อน" : "ไม่มีลิงก์บทความจากเว็บปลายทาง" };
       });
     }
     const out: IndexTableRow[] = [];

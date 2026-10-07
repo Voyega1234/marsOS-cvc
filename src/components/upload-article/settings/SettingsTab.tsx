@@ -162,7 +162,8 @@ export default function SettingsTab({
             {stylePicker}
             <StyleSection themeDraft={themeDraft.themeDraft} setThemeDraft={themeDraft.setThemeDraft}
               setColor={themeDraft.setColor} savingTheme={themeDraft.savingTheme} saveTheme={themeDraft.saveTheme}
-              showFaqEditor={themeDraft.showFaqEditor} setShowFaqEditor={themeDraft.setShowFaqEditor} />
+              showFaqEditor={themeDraft.showFaqEditor} setShowFaqEditor={themeDraft.setShowFaqEditor}
+              client={isPbn ? undefined : client} />
           </div>
         )}
         {active === "links" && <InternalLinksSection clientId={client.id} hideArticles={isPbn} />}

@@ -4,16 +4,20 @@
  * Settings > "สไตล์บทความ" — สี/ฟอนต์/รูปแบบ CSS/หน้าตา FAQ ที่ใช้ตอน Generate
  * ค่าที่แก้ตรงนี้ (themeDraft) มาจาก useThemeDraft — ใช้ร่วมกับผลสแกนใน ScanSection
  */
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import FontPicker from "../shared/FontPicker";
 import FaqStyleEditor from "../shared/FaqStyleEditor";
 import { UPLOAD_FONT_INHERIT } from "@/lib/upload-article/types";
-import type { UploadTheme } from "@/lib/upload-article/types";
+import { uploadPlatformOf } from "@/lib/upload-article/platform-info";
+import { buildWebflowCustomCss } from "@/lib/upload-article/theme-css";
+import type { UploadClientDTO, UploadTheme } from "@/lib/upload-article/types";
 
 export default function StyleSection({
-  themeDraft, setThemeDraft, setColor, savingTheme, saveTheme, showFaqEditor, setShowFaqEditor,
+  themeDraft, setThemeDraft, setColor, savingTheme, saveTheme, showFaqEditor, setShowFaqEditor, client,
 }: {
   themeDraft: UploadTheme;
   setThemeDraft: React.Dispatch<React.SetStateAction<UploadTheme>>;
@@ -22,7 +26,21 @@ export default function StyleSection({
   saveTheme: () => void;
   showFaqEditor: boolean;
   setShowFaqEditor: React.Dispatch<React.SetStateAction<boolean>>;
+  /** ลูกค้า Upload Article — ใช้สลับหน้าตามแพลตฟอร์ม (ไม่ส่ง = WordPress/เดิม; SEO SME ไม่ส่ง) */
+  client?: Pick<UploadClientDTO, "websitePlatform">;
 }) {
+  const platform = client ? uploadPlatformOf(client) : "wordpress";
+  const [copied, setCopied] = useState(false);
+  const webflowCss = platform === "webflow" ? buildWebflowCustomCss(themeDraft) : "";
+  async function copyCss() {
+    try {
+      await navigator.clipboard.writeText(webflowCss);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("คัดลอกไม่สำเร็จ — เลือกข้อความในกล่องแล้วคัดลอกเอง");
+    }
+  }
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
       <p className="text-sm font-semibold text-brand-navy">สไตล์บทความ</p>
@@ -69,19 +87,43 @@ export default function StyleSection({
           noneValue="" noneLabel="ไม่ใส่ฟอนต์ — ใช้ตาม Font ตัวอักษร / ธีมเว็บ" />
       </div>
 
-      <div>
-        <label className="block text-[11px] font-semibold text-gray-500 mb-1.5">รูปแบบ CSS</label>
-        <div className="flex gap-3 text-xs">
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input type="radio" checked={themeDraft.styleMode === "embed"} onChange={() => setThemeDraft(p => ({ ...p, styleMode: "embed" }))} />
-            embed — ใส่ CSS มากับบทความ
-          </label>
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input type="radio" checked={themeDraft.styleMode === "clean"} onChange={() => setThemeDraft(p => ({ ...p, styleMode: "clean" }))} />
-            clean — ใช้ CSS ของธีมเว็บ
-          </label>
+      {platform === "webflow" ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2 text-xs text-blue-900">
+          <p className="font-semibold">Webflow ใช้ CSS จาก Custom Code ของเว็บ</p>
+          <p>Webflow ตัด &lt;style&gt; ที่แนบมากับบทความทิ้งตอน push จึงไม่มีตัวเลือก embed / clean — วาง CSS ด้านล่างใน Custom Code ของเว็บแทน (สี/ฟอนต์ด้านบนใช้สร้าง CSS นี้)</p>
+          <div className="relative">
+            <textarea readOnly value={webflowCss} onFocus={e => e.currentTarget.select()} rows={8}
+              className="w-full rounded border border-blue-200 bg-white p-2 font-mono text-[11px] text-gray-700" />
+            <Button type="button" size="sm" variant="outline" onClick={copyCss} className="absolute top-2 right-2 h-7 bg-white">
+              <Copy size={12} className="mr-1" />{copied ? "คัดลอกแล้ว" : "Copy"}
+            </Button>
+          </div>
+          <ol className="list-decimal pl-5 space-y-0.5">
+            <li>Webflow Dashboard → ⚙ Site settings → Custom code</li>
+            <li>วางใน “Head code” (ทั้งก้อนรวม &lt;style&gt;...&lt;/style&gt;)</li>
+            <li>Save changes</li>
+            <li>Publish เว็บ 1 ครั้ง</li>
+          </ol>
+          <p className="text-[11px] text-blue-800">Rich text ของ Webflow เก็บเฉพาะแท็กพื้นฐาน (หัวข้อ ย่อหน้า ลิสต์ ลิงก์ รูป คำพูด) — สีและตัวอักษรจึงใช้ได้ แต่กล่อง FAQ / สารบัญ จะเป็น HTML ธรรมดา</p>
         </div>
-      </div>
+      ) : (
+        <div>
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1.5">รูปแบบ CSS</label>
+          <div className="flex gap-3 text-xs">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" checked={themeDraft.styleMode === "embed"} onChange={() => setThemeDraft(p => ({ ...p, styleMode: "embed" }))} />
+              embed — ใส่ CSS มากับบทความ
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" checked={themeDraft.styleMode === "clean"} onChange={() => setThemeDraft(p => ({ ...p, styleMode: "clean" }))} />
+              clean — ใช้ CSS ของธีมเว็บ
+            </label>
+          </div>
+          {platform === "wix" && (
+            <p className="mt-1.5 text-[11px] text-gray-500">Wix: บทความลงเป็นกล่อง HTML — แนะนำ embed (CSS ไปกับบทความ)</p>
+          )}
+        </div>
+      )}
 
       <div className="border border-gray-100 rounded-lg">
         <button onClick={() => setShowFaqEditor(v => !v)} className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-brand-navy">
