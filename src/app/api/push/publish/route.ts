@@ -11,6 +11,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { stripStyleTags, stripLeadingH1, normalizeCtaItems } from '@/lib/articleComponents'
+import { buildProjectArticleCss } from '@/lib/project-theme'
 import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 import { buildArticleSchema } from '@/lib/articleSchema'
 import { isIndexableUrl, requestIndexIfLive } from '@/lib/upload-article/request-index'
@@ -140,6 +141,7 @@ export async function POST(req: NextRequest) {
   // 3. ตัด H1 (เว็บส่วนใหญ่แสดง H1 จาก post title อยู่แล้ว — default: ตัด)
   let processedHtml = sanitizeArticleHtml(html)
   let projectStyleMode = 'embed'
+  let projectEmbedCss: string | null = null
   let prefStripH1: boolean | undefined
   let sitePlatform: string | null = null
   let siteConn: SiteConnectionConfig = {}
@@ -147,15 +149,18 @@ export async function POST(req: NextRequest) {
     try {
       const proj = await (prisma.project as any).findFirst({
         where: { id: projectId, organizationId: orgId },
-        select: { themeColors: true, pushPrefs: true, websitePlatform: true, siteConnection: true },
+        select: { themeColors: true, accentColor: true, ctaSetting: true, pushPrefs: true, websitePlatform: true, siteConnection: true },
       })
       try { projectStyleMode = JSON.parse(proj?.themeColors || '{}').styleMode === 'clean' ? 'clean' : 'embed' } catch { /* default */ }
       try { prefStripH1 = JSON.parse(proj?.pushPrefs || '{}').stripH1 } catch { /* default */ }
+      if (proj && projectStyleMode === 'embed') projectEmbedCss = buildProjectArticleCss(proj)
       sitePlatform = proj?.websitePlatform ?? null
       try { siteConn = JSON.parse(proj?.siteConnection || '{}') } catch { /* ว่าง */ }
     } catch { /* non-fatal */ }
   }
   if (projectStyleMode === 'clean') processedHtml = stripStyleTags(processedHtml)
+  // โหมด embed: แนบ CSS ล่าสุดของโปรเจกต์ใหม่ (ถอด <style> เดิมก่อนแล้วแปะใหม่ — idempotent ไม่แตะโครงอื่น เช่น schema)
+  else if (projectEmbedCss && /class="content-article"/.test(processedHtml)) processedHtml = `<style>\n${projectEmbedCss}\n</style>\n${stripStyleTags(processedHtml)}`
   const shouldStripH1 = typeof stripH1 === 'boolean' ? stripH1 : (prefStripH1 ?? true)
   if (shouldStripH1) processedHtml = stripLeadingH1(processedHtml)
 

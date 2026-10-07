@@ -75,6 +75,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const incomingPrefs = parseJson(data.pushPrefs);
     // indexRequests เขียนฝั่งเซิร์ฟเวอร์เท่านั้น — ทิ้งค่าที่ client ส่งมา (สำเนาเก่าใน PushTab) กันทับผลจริง
     delete incomingPrefs.indexRequests;
+    // siteScan เขียนโดย lab-scan/Article Lab เท่านั้น — แท็บ Push ส่งสำเนาเก่ามาไม่ได้
+    delete incomingPrefs.siteScan;
     data.pushPrefs = JSON.stringify({ ...existingPrefs, ...incomingPrefs });
   }
 

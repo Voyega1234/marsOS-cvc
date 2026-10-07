@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import {
   ChevronRight, Upload, Sparkles, RefreshCw, Download,
   Calendar, CheckCircle2, XCircle, Clock, AlertTriangle,
-  Zap, Image as ImageIcon, Eye, Palette, Save, X,
+  Zap, Image as ImageIcon, Eye, Save, X,
   Lock, Unlock, ChevronDown, Info, Target, BarChart2, Globe,
   Code2, FileText, Edit3, Bold, Italic, List, AlignLeft, Minus, Copy, Check,
   Settings as SettingsIcon, Maximize2, Minimize2,
@@ -24,9 +24,6 @@ import { TechnicalSeo } from '@/components/projects/workspace/TechnicalSeo'
 import { IndexingCrawling } from '@/components/projects/workspace/IndexingCrawling'
 import KeywordBankTab, { toKeywordRow as bankRowToKeywordRow, type BankKeyword } from '@/components/projects/KeywordBankTab'
 import WordGodTab from '@/components/projects/WordGodTab'
-import { parseArticleCards, assembleArticleHtml, type ParsedArticle } from '@/lib/articleCards'
-import { ArticleElementStylesEditor } from '@/components/shared/ArticleElementStyles'
-import type { ArticleElementStyles } from '@/lib/articleTheme'
 import ContentEngineReadyBar, { useContentEngineStatus } from '@/components/projects/ContentEngineReadyBar'
 import { ProjectContentRefresh } from '@/components/projects/workspace/ProjectContentRefresh'
 import { ProjectContentEngine } from '@/components/projects/workspace/ProjectContentEngine'
@@ -35,7 +32,6 @@ import { ProjectWebsitePanel } from '@/components/projects/ProjectWebsitePanel'
 import { ProjectSetupChecklist } from '@/components/projects/ProjectSetupChecklist'
 import { useSetupChecklistStatus } from '@/components/projects/useSetupChecklistStatus'
 import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGapTab'
-import { LabSiteScanCard } from '@/components/projects/workspace/LabSiteScanCard'
 import { LabContextFilesCard } from '@/components/projects/workspace/LabContextFilesCard'
 import { LabTestImageCard } from '@/components/projects/workspace/LabTestImageCard'
 import { CtaSettingsEditor } from '@/components/upload-article/settings/CtaSection'
@@ -44,11 +40,11 @@ import { ImageSettingsEditor } from '@/components/upload-article/settings/Images
 import { readArticleImageSettings, type ArticleImageSettings } from '@/lib/article-settings'
 import type { UploadCtaSettings } from '@/lib/upload-article/cta'
 import type { UploadAuthorSettings } from '@/lib/upload-article/author'
-import type { UploadThemeDetail } from '@/lib/upload-article/types'
-import { sanitizeThemeDetail } from '@/lib/upload-article/theme-css'
-import FaqStyleEditor from '@/components/upload-article/shared/FaqStyleEditor'
+import SmeStyleSettings, { type SmeScanContext } from '@/components/projects/sme-style/SmeStyleSettings'
+import { projectThemeToUpload } from '@/lib/project-theme'
 import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
 import RequestIndexTab from '@/components/projects/RequestIndexTab'
+import SmePushTab from '@/components/projects/sme-push/SmePushTab'
 import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
@@ -5063,21 +5059,6 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
 
 // ─── Article Lab Tab ──────────────────────────────────────────────────────────
 
-const ACCENT_COLORS = [
-  { id: '#2563eb', label: 'Blue' },
-  { id: '#16a34a', label: 'Green' },
-  { id: '#dc2626', label: 'Red' },
-  { id: '#9333ea', label: 'Purple' },
-  { id: '#ea580c', label: 'Orange' },
-  { id: '#0891b2', label: 'Cyan' },
-  { id: '#be185d', label: 'Pink' },
-  { id: '#1c1c1c', label: 'Black' },
-  { id: '#ca8a04', label: 'Gold' },
-  { id: '#0f766e', label: 'Teal' },
-  { id: '#7c3aed', label: 'Violet' },
-  { id: '#c2410c', label: 'Rust' },
-]
-
 // Default style guide — ใช้เป็น fallback เมื่อ client ยังไม่ได้กำหนด style
 const DEFAULT_STYLE_GUIDE = `## Tone & Voice
 - เป็นกันเอง ให้ข้อมูล ตรงประเด็น ไม่เยิ่นเย้อ
@@ -5100,15 +5081,6 @@ const DEFAULT_STYLE_GUIDE = `## Tone & Voice
 - ใส่ Internal Links ตามรายการที่ระบุในส่วน INTERNAL LINKS
 `
 
-const THEMES = [
-  { id: 'professional', label: 'Professional', desc: 'เรียบ น่าเชื่อถือ ทางการ' },
-  { id: 'modern', label: 'Modern', desc: 'ทันสมัย clean minimalist' },
-  { id: 'warm', label: 'Warm', desc: 'อบอุ่น เป็นมิตร lifestyle' },
-  { id: 'bold', label: 'Bold', desc: 'โดดเด่น กล้า สะดุดตา' },
-  { id: 'minimal', label: 'Minimal', desc: 'เรียบง่าย ข้อมูลชัด' },
-  { id: 'editorial', label: 'Editorial', desc: 'สไตล์นิตยสาร longform' },
-]
-
 interface InternalLink { keyword: string; url: string }
 
 function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; onSaved: (updated: Partial<ProjectData>) => void; keywordRows?: KeywordRow[] }) {
@@ -5121,57 +5093,19 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   // ก่อน LanguageModeSelect โหลดค่าที่บันทึกไว้เสร็จ ห้ามส่ง language_mode (ค่า default อาจไม่ตรง DB) — ให้ route อ่านจาก DB เอง
   const [langLoaded, setLangLoaded] = useState(false)
   const onLangChange = useCallback((next: ReturnType<typeof readLanguagePrefs>) => { setLangPrefs(next); setLangLoaded(true) }, [])
-  const [accentColor, setAccentColor] = useState(project.accentColor ?? '#2563eb')
-  const [theme, setTheme] = useState(project.articleTheme ?? 'professional')
-  // ชุดสีบทความของ client — ใช้กับทุกบทความที่เขียนบนเว็บนั้น (เก็บใน Project.themeColors)
-  // โครง: { background, theme, text, border, accent, elements: { h1: {color,font}, ... } }
-  const [articleColors, setArticleColors] = useState<Record<string, string>>(() => {
-    try {
-      const parsed = JSON.parse(project.themeColors || '{}')
-      // authorCard / authorPick / imageSettings เป็นของหน้า รูปภาพ / Author Box (บันทึกผ่าน /article-settings)
-      // detail (หน้าตา FAQ/ตาราง) เป็น object — เก็บแยกใน themeDetail
-      const { elements: _els, authorCard: _ac, authorPick: _ap, imageSettings: _is, detail: _dt, ...base } = parsed
-      return base
-    } catch { return {} }
-  })
-  const [elementStyles, setElementStyles] = useState<ArticleElementStyles>(() => {
-    try { return JSON.parse(project.themeColors || '{}').elements ?? {} } catch { return {} }
-  })
-  // สไตล์ละเอียดจากการสแกนเว็บปลายทาง (FAQ card / ตาราง) — ใช้ builder เดียวกับ Upload Article
-  const [themeDetail, setThemeDetail] = useState<UploadThemeDetail | null>(() => {
-    try { return sanitizeThemeDetail(JSON.parse(project.themeColors || '{}').detail) ?? null } catch { return null }
-  })
-  const [faqEditorOpen, setFaqEditorOpen] = useState(false)
-  const setArticleColor = (key: string, val: string) =>
-    setArticleColors(prev => ({ ...prev, [key]: val }))
-  const clearArticleColor = (key: string) =>
-    setArticleColors(prev => { const next = { ...prev }; delete next[key]; return next })
+  // ธีมบทความ (สี/ฟอนต์/หน้าตา FAQ) แก้และบันทึกใน SmeStyleSettings — ที่นี่เก็บแค่ค่าล่าสุดไว้ใช้กับพรีวิว/CTA
+  const [themeColorsRaw, setThemeColorsRaw] = useState<string | null>(project.themeColors ?? null)
+  const accentColor = project.accentColor ?? '#2563eb'
+  const articleColors = useMemo(() => {
+    const t = projectThemeToUpload(themeColorsRaw, project.accentColor ?? null)
+    return { theme: t.theme, border: t.border, background: t.background, pageBackground: t.pageBackground ?? '' }
+  }, [themeColorsRaw, project.accentColor])
   const [forbiddenWords, setForbiddenWords] = useState(() => {
     try { return JSON.parse(project.forbiddenWords ?? '[]').join('\n') } catch { return '' }
   })
 
-  // รับผลสแกนเว็บไซต์มาเติมฟอร์ม — เฉพาะส่วนที่ทีมติ๊กเลือก ค่าที่ว่างคือไม่เอา
-  // ทีมยังแก้ต่อได้ทุกช่อง และต้องกดบันทึกเองถึงจะลง DB
-  const applyScan = (r: import('@/components/projects/workspace/LabSiteScanCard').LabScanApply) => {
-    if (r.articleTheme) setTheme(r.articleTheme)
-    if (r.accentColor) setAccentColor(r.accentColor)
-    const colorEntries = Object.entries(r.colors).filter(([, v]) => Boolean(v))
-    // พื้นโปร่งใส ('') = บทความใช้พื้นของธีมเว็บ, pageBackground ใช้แค่แสดงตัวอย่าง
-    if (r.transparentBackground) colorEntries.push(['background', ''])
-    if (r.pageBackground) colorEntries.push(['pageBackground', r.pageBackground])
-    if (colorEntries.length) {
-      setArticleColors(prev => ({ ...prev, ...Object.fromEntries(colorEntries) }))
-    }
-    if (r.detail) setThemeDetail(sanitizeThemeDetail(r.detail) ?? null)
-    if (Object.keys(r.elements).length) {
-      setElementStyles(prev => {
-        const next = { ...prev }
-        for (const [k, v] of Object.entries(r.elements)) {
-          next[k] = { ...(next[k] ?? {}), ...v }
-        }
-        return next
-      })
-    }
+  // รับบริบทธุรกิจ/Style Guide/คำต้องห้ามจากผลสแกน — ทีมยังแก้ต่อได้ และต้องกดบันทึกเองถึงจะลง DB
+  const applyScanContext = (r: SmeScanContext) => {
     if (r.projectContext) setProjectContext(r.projectContext)
     if (r.styleGuide) setStyleGuide(r.styleGuide)
     if (r.forbiddenWords.length) setForbiddenWords(r.forbiddenWords.join('\n'))
@@ -5324,9 +5258,7 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
     const common = {
       styleGuide,
       projectContext,
-      accentColor,
-      articleTheme: theme,
-      themeColors: JSON.stringify({ ...articleColors, elements: elementStyles, ...(themeDetail ? { detail: themeDetail } : {}) }),
+      // ธีม (themeColors/accentColor/articleTheme) ไม่ส่งตรงนี้ — บันทึกผ่าน SmeStyleSettings ไม่ให้ Generate ทับธีมด้วยค่าเก่า
       forbiddenWords: JSON.stringify(words),
       internalLinks: JSON.stringify(links),
     }
@@ -5647,16 +5579,18 @@ ${cover}${html}
 
       {/* ══ STYLE sub-tab ══════════════════════════════ */}
       {labSubTab === 'style' && (
+        <>
+        <SmeStyleSettings
+          projectId={project.id}
+          website={project.website}
+          themeColors={themeColorsRaw}
+          accentColor={project.accentColor}
+          onSaved={(tc) => { setThemeColorsRaw(tc); onSaved({ themeColors: tc }) }}
+          onApplyContext={applyScanContext}
+        />
         <div className="flex gap-6 items-start">
           {/* Left settings */}
           <div className="w-72 shrink-0 space-y-4">
-            {/* สแกนเว็บไซต์ — เติมธีม สี ฟอนต์ บริบทธุรกิจ Style Guide คำต้องห้ามให้อัตโนมัติ */}
-            <LabSiteScanCard
-              projectId={project.id}
-              defaultUrl={project.website}
-              onApply={applyScan}
-            />
-
             {/* อ่านไฟล์ธุรกิจลูกค้า (CSV/PDF) — เติม Project Context + เขียนลง Business Skill ให้อัตโนมัติ */}
             <LabContextFilesCard
               projectId={project.id}
@@ -5665,161 +5599,6 @@ ${cover}${html}
                 setProjectContext((prev) => (prev.trim() ? `${prev}\n\n${r.projectContext}` : r.projectContext))
               }}
             />
-
-            {/* Theme */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Palette size={13} className="text-gray-400" />
-                <span className="text-xs font-semibold text-gray-800">Theme บทความ</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {THEMES.map(t => (
-                  <button key={t.id} onClick={() => setTheme(t.id)}
-                    className={`text-left px-3 py-2 rounded-xl border-2 transition-all ${theme === t.id ? 'border-brand-blue bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                    <div className="text-xs font-semibold text-brand-navy">{t.label}</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5 leading-tight">{t.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Accent Color */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300" style={{ backgroundColor: accentColor }} />
-                <span className="text-xs font-semibold text-gray-800">Accent Color</span>
-                <span className="text-[10px] text-gray-400 font-mono ml-auto">{accentColor}</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {ACCENT_COLORS.map(c => (
-                  <button key={c.id} onClick={() => setAccentColor(c.id)} title={c.label}
-                    className={`w-7 h-7 rounded-full border-4 transition-all ${accentColor === c.id ? 'border-gray-400 scale-110' : 'border-transparent hover:scale-105'}`}
-                    style={{ backgroundColor: c.id }} />
-                ))}
-                <label title="Custom color" className="w-7 h-7 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-gray-400">
-                  <span className="text-[9px] text-gray-400">+</span>
-                  <input type="color" value={accentColor} onChange={e => setAccentColor(e.target.value)} className="sr-only" />
-                </label>
-              </div>
-              <div className="mt-3 h-1.5 rounded-full" style={{ background: `linear-gradient(to right, ${accentColor}22, ${accentColor})` }} />
-            </div>
-
-            {/* Article Colors — ชุดสีของ client ใช้กับทุกบทความบนเว็บนั้น */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-semibold text-gray-800">🎨 Article Colors</span>
-                <span className="text-[10px] text-gray-400 ml-auto">ใช้กับทุกบทความของเว็บนี้</span>
-              </div>
-              <p className="text-[10px] text-gray-400 mb-3">ไม่ตั้ง = ระบบใช้ค่ามาตรฐาน (พื้นขาว ตัวอักษรเข้ม ปุ่มตาม Accent)</p>
-
-              {/* โหมดสไตล์ของบทความ — embed (แนบ CSS ในบทความ) / clean (HTML ล้วน + Global CSS) */}
-              <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
-                <div className="flex items-center gap-1.5 mb-2">
-                  {([
-                    { id: 'embed', label: 'ฝังสไตล์ในบทความ', hint: 'พร้อมใช้ทุกเว็บ ไม่ต้อง setup' },
-                    { id: 'clean', label: 'Clean HTML', hint: 'ใช้ธีมของเว็บ — ติดตั้ง CSS ครั้งเดียว' },
-                  ] as const).map(m => (
-                    <button key={m.id} onClick={() => setArticleColor('styleMode', m.id)}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
-                        (articleColors.styleMode ?? 'embed') === m.id
-                          ? 'bg-brand-mist text-brand-blue border-brand-soft/60'
-                          : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                      }`} title={m.hint}>
-                      {m.label}
-                    </button>
-                  ))}
-                  <a href={`/api/projects/${project.id}/article-css`} download
-                    className="ml-auto px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-brand-blue border border-brand-soft/50 bg-white hover:bg-brand-mist transition-colors">
-                    ⬇ ดาวน์โหลด CSS ของ client
-                  </a>
-                </div>
-                <p className="text-[10px] text-gray-400 leading-4">
-                  {(articleColors.styleMode ?? 'embed') === 'embed'
-                    ? 'บทความจะแนบ <style> ของชุดสีนี้ไปด้วย — push แล้วหน้าตาถูกทันที'
-                    : 'บทความออกเป็น HTML ล้วน (ไม่มีสไตล์) — เอาไฟล์ CSS ไปติดในธีมเว็บครั้งเดียว แก้ดีไซน์ทีหลังมีผลทุกบทความ'}
-                </p>
-              </div>
-              <div className="space-y-2">
-                {([
-                  { key: 'background', label: 'สีพื้นหลังบทความ', fallback: '#ffffff' },
-                  { key: 'theme', label: 'สีหัวข้อ / ปุ่ม CTA', fallback: accentColor },
-                  { key: 'text', label: 'สีตัวอักษร', fallback: '#1c1c1c' },
-                  { key: 'border', label: 'สีเส้นขอบ / กล่อง', fallback: '#e2e8f0' },
-                  { key: 'accent', label: 'สีลิงก์ / badge', fallback: '#16a34a' },
-                ] as const).map(({ key, label, fallback }) => {
-                  const isSet = articleColors[key] !== undefined
-                  // พื้นหลัง '' = โปร่งใส (ใช้พื้นของธีมเว็บ) — ได้จากการสแกนเว็บ
-                  const transparent = key === 'background' && articleColors.background === ''
-                  const val = transparent ? '#ffffff' : (articleColors[key] || fallback)
-                  return (
-                    <div key={key} className="flex items-center gap-2.5">
-                      <label className="relative w-7 h-7 rounded-lg border border-gray-200 cursor-pointer shrink-0 overflow-hidden"
-                        style={transparent
-                          ? { backgroundImage: 'repeating-conic-gradient(#e5e7eb 0% 25%, #ffffff 0% 50%)', backgroundSize: '8px 8px' }
-                          : { backgroundColor: val }} title={`เลือก${label}`}>
-                        <input type="color" value={val} onChange={e => setArticleColor(key, e.target.value)}
-                          className="absolute inset-0 opacity-0 cursor-pointer" />
-                      </label>
-                      <span className="text-xs text-gray-700 flex-1">{label}</span>
-                      <span className={`text-[10px] font-mono ${isSet ? 'text-gray-600' : 'text-gray-300'}`}>{transparent ? 'โปร่งใส' : isSet ? val : 'ค่ามาตรฐาน'}</span>
-                      {isSet && (
-                        <button onClick={() => clearArticleColor(key)}
-                          className="text-[10px] text-gray-400 hover:text-red-500" title="กลับไปใช้ค่ามาตรฐาน">✕</button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              {/* preview แถบสีรวม */}
-              <div className="mt-3 rounded-xl border p-3 text-center"
-                style={{ backgroundColor: articleColors.background || articleColors.pageBackground || '#ffffff', borderColor: articleColors.border ?? '#e2e8f0' }}>
-                <div className="text-xs font-bold" style={{ color: articleColors.theme ?? accentColor }}>ตัวอย่างหัวข้อบทความ</div>
-                <p className="text-[10px] mt-1" style={{ color: articleColors.text ?? '#1c1c1c' }}>ตัวอย่างเนื้อหาบทความตามชุดสีที่เลือก</p>
-                <span className="inline-block text-[10px] font-semibold text-white px-3 py-1 rounded-lg mt-2"
-                  style={{ backgroundColor: articleColors.theme ?? accentColor }}>ปุ่ม CTA</span>
-                <a className="block text-[10px] mt-1.5 underline" style={{ color: articleColors.accent ?? '#16a34a' }}>ตัวอย่างลิงก์</a>
-              </div>
-
-              {/* หน้าตา FAQ / ตาราง — ตัวแก้เดียวกับ Upload Article ค่าเริ่มต้นมาจากการสแกนเว็บ */}
-              <div className="mt-4 border-t border-gray-100 pt-3 flex items-center gap-2">
-                <span className="text-xs font-semibold text-gray-800">หน้าตา FAQ / ตาราง</span>
-                {themeDetail ? <span className="text-[10px] text-emerald-600">ตั้งค่าแล้ว</span> : <span className="text-[10px] text-gray-400">ใช้ค่าตามสีธีม</span>}
-                <button type="button" onClick={() => setFaqEditorOpen(true)} className="ml-auto text-[11px] font-medium text-blue-600 hover:underline">แก้ไข</button>
-              </div>
-              {faqEditorOpen && (
-                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setFaqEditorOpen(false)}>
-                  <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center mb-3">
-                      <p className="text-sm font-semibold text-gray-900">หน้าตา FAQ / ตาราง</p>
-                      <span className="text-[11px] text-gray-400 ml-2">ค่าเริ่มต้นมาจากการสแกนเว็บ — บันทึกพร้อมการตั้งค่า Article Lab</span>
-                      <button type="button" onClick={() => setFaqEditorOpen(false)} className="ml-auto text-xs font-medium text-gray-600 border border-gray-200 rounded-lg px-3 py-1 hover:bg-gray-50">เสร็จ</button>
-                    </div>
-                      <FaqStyleEditor
-                        theme={{
-                          theme: articleColors.theme || accentColor,
-                          text: articleColors.text || '#1c1c1c',
-                          border: articleColors.border || '#e2e8f0',
-                          accent: articleColors.accent || '#16a34a',
-                          background: articleColors.background ?? '',
-                          styleMode: 'embed',
-                          detail: themeDetail ?? undefined,
-                          pageBackground: articleColors.pageBackground,
-                        }}
-                        onChange={d => setThemeDetail(d ? (sanitizeThemeDetail(d) ?? null) : null)}
-                      />
-                  </div>
-                </div>
-              )}
-
-              {/* สี + ฟอนต์ราย element — H1-H6 / Text / URL / Author / FAQ */}
-              <div className="mt-4 border-t border-gray-100 pt-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-semibold text-gray-800">ปรับราย Element</span>
-                  <span className="text-[10px] text-gray-400 ml-auto">H1-H6 · Text · URL · Author · FAQ — เลือกสีและฟอนต์แยกได้</span>
-                </div>
-                <ArticleElementStylesEditor value={elementStyles} onChange={setElementStyles} />
-              </div>
-            </div>
 
             {/* Project Context — ข้อเท็จจริงของธุรกิจ (Setup Checklist ชี้มาที่นี่) */}
             <div className="bg-white border border-gray-200 rounded-2xl p-4">
@@ -6005,6 +5784,7 @@ ${cover}${html}
             )}
           </div>
         </div>
+        </>
       )}
 
       {/* ══ รูปภาพ sub-tab — หน้าตาเดียวกับ Upload Article ═══ */}
@@ -6416,7 +6196,6 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
 
 // ─── Push Tab ─────────────────────────────────────────────────────────────────
 
-type WpStatus = 'idle' | 'connecting' | 'connected' | 'error'
 type PushStatus = 'idle' | 'pushing' | 'done' | 'error'
 
 interface PushJob {
@@ -6432,792 +6211,6 @@ interface PushJob {
 }
 
 interface WpConnection { id: string; name: string; siteUrl: string; username: string }
-
-type ReadyPushItem = {
-  entryIdx: number; title: string; keyword: string; slug: string
-  html: string; coverImage: string; coverMimeType: string
-}
-type DbArticleLite = {
-  id: string; wordpressUrl?: string | null
-  title?: string; slug?: string; status?: string; htmlContent?: string
-  keyword?: { keyword?: string } | null
-}
-
-function PushTab({
-  project, timeline, jobs,
-  wpConnections, setWpConnections, selectedConnId, setSelectedConnId,
-  pushJobs, setPushJobs, onOpenWebsiteSettings,
-}: {
-  project: ProjectData
-  timeline: TimelineEntry[]
-  jobs: ArticleJob[]
-  wpConnections: WpConnection[]
-  setWpConnections: (c: WpConnection[]) => void
-  selectedConnId: string
-  setSelectedConnId: (id: string) => void
-  pushJobs: PushJob[]
-  setPushJobs: React.Dispatch<React.SetStateAction<PushJob[]>>
-  /** เปิด Project Settings › Website ของ client นี้ (หน้า Website Connect กลางถูกถอดแล้ว) */
-  onOpenWebsiteSettings?: () => void
-}) {
-  const [wpStatus, setWpStatus] = useState<WpStatus>('idle')
-  const [wpInfo, setWpInfo] = useState<{ url: string; name: string; version: string; source?: string } | null>(null)
-  const [wpError, setWpError] = useState('')
-  const [publishMode, setPublishMode] = useState<'draft' | 'publish'>('draft')
-  const [useElementor, setUseElementor] = useState(false)
-  const [selectedIdx, setSelectedIdx] = useState<Set<number>>(new Set())
-  // per-article WP post type override: 'auto' | 'post' | 'page'
-  const [wpTypeOverride, setWpTypeOverride] = useState<Record<number, 'auto' | 'post' | 'page'>>({})
-
-  // ── Card selection: แยกบทความเป็น card แล้วเลือกได้ว่า push ส่วนไหน ──────────
-  // key = entryIdx, value = { cardId: เลือก? } — ไม่มี record = ค่า default
-  // (card จริงทุกใบเลือก, card ที่ระบบสร้างเพิ่มเช่น TOC ไม่เลือก)
-  const [cardSel, setCardSel] = useState<Record<number, Record<string, boolean>>>({})
-  // ค่าจำของแผง Push ต่อโปรเจกต์ — ชนิด card ที่ไม่เอา (toc/cta/faq) + ตัด H1
-  type PushPrefsState = { excludeCards?: Record<string, boolean>; stripH1?: boolean; autoRequestIndex?: boolean }
-  const [pushPrefs, setPushPrefs] = useState<PushPrefsState>({})
-  // ผล Request Index ต่อบทความ (articleId) — เซิร์ฟเวอร์เป็นคนเขียน, ฝั่งนี้เก็บสำเนาไว้แสดงผล
-  type IndexRec = { url: string; at: string; ok: boolean; error?: string }
-  const [indexRequests, setIndexRequests] = useState<Record<string, IndexRec>>({})
-  const [indexBusy, setIndexBusy] = useState<Record<string, boolean>>({})
-  useEffect(() => {
-    let alive = true
-    fetch(`/api/projects/${project.id}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (!alive || !d) return
-        try {
-          const pp = JSON.parse(d.pushPrefs || '{}')
-          setPushPrefs(pp)
-          if (pp.indexRequests && typeof pp.indexRequests === 'object') setIndexRequests(pp.indexRequests)
-        } catch { /* default */ }
-      })
-      .catch(() => {})
-    return () => { alive = false }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id])
-  const savePushPrefs = (next: PushPrefsState) => {
-    setPushPrefs(next)
-    fetch(`/api/projects/${project.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      // indexRequests ไม่ได้อยู่ใน pushPrefs state นี้ และฝั่ง PUT ทิ้ง key นี้อยู่แล้ว
-      body: JSON.stringify({ pushPrefs: JSON.stringify(next) }),
-    }).catch(() => {})
-  }
-  const [openCardsIdx, setOpenCardsIdx] = useState<number | null>(null)
-  // ── Scanner: เช็คเว็บปลายทางก่อน push ว่ามี component ซ้ำกับ card ไหนแล้ว ──
-  type ScanSignal = { found: boolean; where: 'template' | 'content' | 'site' | null; evidence: string }
-  type ScanResult = { target: string; checked: string[]; found: { toc: ScanSignal; cta: ScanSignal; faq: ScanSignal } }
-  const [scanState, setScanState] = useState<'idle' | 'scanning' | 'done' | 'error'>('idle')
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null)
-  const [scanError, setScanError] = useState('')
-
-  function getWpPostType(entryIdx: number): 'post' | 'page' {
-    const override = wpTypeOverride[entryIdx]
-    if (override === 'post') return 'post'
-    if (override === 'page') return 'page'
-    // auto: ดู page_type จาก timeline entry
-    const entry = timeline[entryIdx]
-    const pt = (entry as any)?.kw_page_type ?? (entry as any)?.page_type ?? ''
-    const isPage = /service|page|core/i.test(pt)
-    return isPage ? 'page' : 'post'
-  }
-  const connections = wpConnections
-  const setConnections = setWpConnections
-  const [savingConn, setSavingConn] = useState(false)
-
-  // Load org-level WP connections on mount (only if not already loaded)
-  useEffect(() => {
-    if (connections.length > 0) {
-      // Already loaded — just ensure selectedConnId is valid
-      if (project.wordpressConnectionId && !selectedConnId) setSelectedConnId(project.wordpressConnectionId)
-      return
-    }
-    fetch('/api/settings/wordpress')
-      .then(r => r.ok ? r.json() : [])
-      .then((data: WpConnection[]) => {
-        setConnections(data)
-        // Auto-select if project already has one linked
-        if (project.wordpressConnectionId) setSelectedConnId(project.wordpressConnectionId)
-        else if (data.length === 1) setSelectedConnId(data[0].id)
-      })
-      .catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function handleSaveConnection() {
-    setSavingConn(true)
-    await fetch(`/api/projects/${project.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wordpressConnectionId: selectedConnId || null }),
-    })
-    setSavingConn(false)
-  }
-
-  // Ready-to-push articles come from TWO sources merged:
-  //  1) session `jobs` — freshest, includes generated cover/mid images
-  //  2) the DB — survives page refresh / other devices (the real handoff)
-  // Without (2) a fresh page load shows an empty queue even though the article
-  // was written & approved in a previous session (the reported Approve→Push bug).
-  const [dbArticles, setDbArticles] = useState<DbArticleLite[]>([])
-  useEffect(() => {
-    fetch(`/api/articles?projectId=${project.id}`)
-      .then(r => (r.ok ? r.json() : []))
-      .then((arts) => setDbArticles(Array.isArray(arts) ? arts : []))
-      .catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const readyArticles: ReadyPushItem[] = (() => {
-    const NOT_PUSHABLE = new Set(['POSTED', 'PUBLISHED', 'WORDPRESS_DRAFTED'])
-    const byEntry = new Map<number, ReadyPushItem>()
-    // 1) session jobs (carry the generated images)
-    for (const j of jobs) {
-      if (j.html && (j.status === 'done' || j.status === 'review' || j.status === 'approved')) {
-        byEntry.set(j.entryIdx, {
-          entryIdx: j.entryIdx, title: j.title, keyword: j.keyword, slug: (j as any).slug ?? '',
-          html: j.html, coverImage: j.coverImage ?? '', coverMimeType: j.coverMimeType ?? 'image/webp',
-        })
-      }
-    }
-    // 2) DB articles with HTML that aren't already pushed, mapped to timeline by title
-    for (const a of dbArticles) {
-      if (!a.htmlContent || NOT_PUSHABLE.has(a.status ?? '')) continue
-      const entryIdx = timeline.findIndex(t => (t.title ?? '').trim() === (a.title ?? '').trim())
-      if (entryIdx < 0 || byEntry.has(entryIdx)) continue
-      byEntry.set(entryIdx, {
-        entryIdx,
-        title: a.title ?? timeline[entryIdx]?.title ?? '',
-        keyword: a.keyword?.keyword ?? timeline[entryIdx]?.keyword ?? '',
-        slug: a.slug ?? timeline[entryIdx]?.slug ?? '',
-        html: a.htmlContent, coverImage: '', coverMimeType: 'image/webp',
-      })
-    }
-    return Array.from(byEntry.values())
-  })()
-
-  // แยกบทความเป็น card (cache ตาม html — บทความเดิม parse ครั้งเดียว)
-  const parsedMap = useMemo(() => {
-    const map = new Map<number, ParsedArticle>()
-    for (const j of readyArticles) { if (j.html) map.set(j.entryIdx, parseArticleCards(j.html)) }
-    return map
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readyArticles.map(j => `${j.entryIdx}:${j.html.length}`).join('|')])
-
-  /** สถานะเลือกของ card — default: card จริงเลือก, card derived (TOC) ไม่เลือก
-   *  และชนิดที่โปรเจกต์นี้ตั้งไว้ว่า "ไม่เอา" (จำจากครั้งก่อน/ผล scan) ไม่เลือก */
-  function isCardOn(entryIdx: number, cardId: string): boolean {
-    const parsed = parsedMap.get(entryIdx)
-    const card = parsed?.cards.find(c => c.id === cardId)
-    if (!card) return false
-    const explicit = cardSel[entryIdx]?.[cardId]
-    if (explicit !== undefined) return explicit
-    if (pushPrefs.excludeCards?.[card.type]) return false
-    return !card.derived
-  }
-
-  function toggleCard(entryIdx: number, cardId: string) {
-    const nextOn = !isCardOn(entryIdx, cardId)
-    setCardSel(prev => ({
-      ...prev,
-      [entryIdx]: { ...(prev[entryIdx] ?? {}), [cardId]: nextOn },
-    }))
-    // ชนิด component ระดับเว็บ (toc/cta/faq) — จำเป็นค่า default ของโปรเจกต์ไว้ครั้งหน้า
-    const card = parsedMap.get(entryIdx)?.cards.find(c => c.id === cardId)
-    if (card && ['toc', 'cta', 'faq'].includes(card.type)) {
-      savePushPrefs({ ...pushPrefs, excludeCards: { ...(pushPrefs.excludeCards ?? {}), [card.type]: !nextOn } })
-    }
-  }
-
-  /** HTML ที่จะ push จริงตาม card ที่เลือก — ถ้าไม่ได้แตะอะไรเลยใช้ไฟล์เดิมแบบ byte เดิม */
-  function htmlForPush(entryIdx: number, originalHtml: string): string {
-    const parsed = parsedMap.get(entryIdx)
-    if (!parsed) return originalHtml
-    const untouched = parsed.cards.every(c => isCardOn(entryIdx, c.id) === !c.derived)
-    if (untouched) return originalHtml
-    const ids = new Set(parsed.cards.filter(c => isCardOn(entryIdx, c.id)).map(c => c.id))
-    return assembleArticleHtml(parsed, ids)
-  }
-
-  /** สแกนเว็บปลายทาง แล้วติ๊ก card ชนิดที่เว็บมีอยู่แล้วออกจากทุกบทความ */
-  async function handleScanSite() {
-    setScanState('scanning'); setScanError('')
-    try {
-      const res = await fetch('/api/push/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, connectionId: selectedConnId || undefined }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) { setScanState('error'); setScanError(data.error ?? 'สแกนไม่สำเร็จ'); return }
-      setScanResult(data); setScanState('done')
-      // ติ๊กออกอัตโนมัติ: ชนิดที่เว็บมีอยู่แล้ว → push ไปจะซ้ำ (ผู้ใช้ติ๊กกลับได้)
-      const dupTypes = (['toc', 'cta', 'faq'] as const).filter(t => data.found?.[t]?.found)
-      if (dupTypes.length) {
-        savePushPrefs({
-          ...pushPrefs,
-          excludeCards: { ...(pushPrefs.excludeCards ?? {}), ...Object.fromEntries(dupTypes.map(t => [t, true])) },
-        })
-        setCardSel(prev => {
-          const next = { ...prev }
-          for (const j of readyArticles) {
-            const parsed = parsedMap.get(j.entryIdx)
-            if (!parsed) continue
-            const patch: Record<string, boolean> = { ...(next[j.entryIdx] ?? {}) }
-            for (const c of parsed.cards) if ((dupTypes as readonly string[]).includes(c.type)) patch[c.id] = false
-            next[j.entryIdx] = patch
-          }
-          return next
-        })
-      }
-    } catch (e) { setScanState('error'); setScanError(String(e)) }
-  }
-
-  async function handleConnect() {
-    setWpStatus('connecting')
-    setWpError('')
-    setWpInfo(null)
-    try {
-      const res = await fetch('/api/push/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, connectionId: selectedConnId || undefined }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) { setWpStatus('error'); setWpError(data.error ?? 'เชื่อมต่อไม่ได้'); return }
-      setWpStatus('connected')
-      setWpInfo({ url: data.url, name: data.name, version: data.version, source: data.source })
-      // Auto-save if user selected a connection
-      if (selectedConnId) handleSaveConnection()
-    } catch (e) {
-      setWpStatus('error')
-      setWpError(String(e))
-    }
-  }
-
-  function toggleSelect(idx: number) {
-    setSelectedIdx(prev => {
-      const next = new Set(prev)
-      if (next.has(idx)) next.delete(idx); else next.add(idx)
-      return next
-    })
-  }
-
-  function selectAll() {
-    setSelectedIdx(new Set(readyArticles.map(j => j.entryIdx)))
-  }
-
-  async function handlePush(jobEntryIdx: number) {
-    // Source from the merged ready list (session jobs + DB) so articles loaded
-    // from the DB on a fresh session can still be pushed.
-    const job = readyArticles.find(j => j.entryIdx === jobEntryIdx)
-    if (!job?.html) return
-    const entry = timeline[jobEntryIdx]
-    const title = entry?.title ?? job.title ?? ''
-    const keyword = entry?.keyword ?? job.keyword ?? ''
-    const slug = entry?.slug || job.slug || ''
-    // meta ที่แก้ในแท็บ Review — ส่งเป็น override ให้ publish ใช้ก่อนทุกแหล่ง
-    // ถ้ายังไม่เคยแก้ที่หน้า Review จะเป็นค่าว่าง → publish ใช้ลำดับเดิม (HTML → DB → title)
-    const reviewMetaTitle = entry?.reviewSeoTitle?.trim() ?? ''
-    const reviewMetaDesc = entry?.reviewMetaDescription?.trim() ?? ''
-    const coverImage = job.coverImage ?? ''
-    const coverMimeType = job.coverMimeType ?? 'image/webp'
-
-    setPushJobs(prev => {
-      const next = prev.filter(p => p.entryIdx !== jobEntryIdx)
-      return [...next, { entryIdx: jobEntryIdx, keyword, title, slug, status: 'pushing' }]
-    })
-
-    try {
-      const res = await fetch('/api/push/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, html: htmlForPush(jobEntryIdx, job.html), title, keyword, slug, coverImage, coverMimeType, metaTitle: reviewMetaTitle, metaDescription: reviewMetaDesc, publishMode, useElementor, wpPostType: getWpPostType(jobEntryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true, autoRequestIndex: pushPrefs.autoRequestIndex !== false }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) {
-        setPushJobs(prev => prev.map(p => p.entryIdx === jobEntryIdx ? { ...p, status: 'error', error: data.error ?? 'Push ล้มเหลว' } : p))
-        return
-      }
-      setPushJobs(prev => prev.map(p => p.entryIdx === jobEntryIdx
-        ? { ...p, status: 'done', postId: data.postId, postUrl: data.postUrl, pushedAt: new Date().toISOString() }
-        : p
-      ))
-      // ผล Request Index อัตโนมัติ (เซิร์ฟเวอร์ยิงให้หลัง Publish) + รีเฟรชรายการบทความเพื่อให้ได้ id ของ Article ใหม่
-      if (data.indexRequest) {
-        if (data.indexRequest.ok) toast.success('ส่ง Request Index ให้ Google แล้ว')
-        else toast.warning(`Push สำเร็จ แต่ Request Index ไม่สำเร็จ: ${data.indexRequest.error ?? 'ไม่ทราบสาเหตุ'}`)
-      }
-      fetch(`/api/articles?projectId=${project.id}`).then(r => (r.ok ? r.json() : null)).then(arts => {
-        if (Array.isArray(arts)) setDbArticles(arts)
-      }).catch(() => {})
-      fetch(`/api/projects/${project.id}`).then(r => (r.ok ? r.json() : null)).then(d => {
-        try { const pp = JSON.parse(d?.pushPrefs || '{}'); if (pp.indexRequests) setIndexRequests(pp.indexRequests) } catch { /* ignore */ }
-      }).catch(() => {})
-      // Save wordpressUrl back to DB so Publish tab can show it persistently
-      // ถ้าขั้นนี้ล้ม แท็บ Publish จะไม่ขึ้นรายการทั้งที่ขึ้นเว็บไปแล้ว — ต้องแจ้ง ไม่ใช่กลืนเงียบ
-      if (data.postUrl && title) {
-        try {
-          const wb = await fetch('/api/articles/by-title', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId: project.id, title, wordpressUrl: data.postUrl, status: publishMode === 'publish' ? 'POSTED' : 'WORDPRESS_DRAFTED' }),
-          })
-          if (!wb.ok) throw new Error(`HTTP ${wb.status}`)
-        } catch (e) {
-          toast.error(`ขึ้นเว็บสำเร็จ แต่บันทึกสถานะลงฐานข้อมูลไม่สำเร็จ (${e instanceof Error ? e.message : String(e)}) — แท็บ Publish จะยังไม่ขึ้นรายการนี้`)
-        }
-      }
-    } catch (e) {
-      setPushJobs(prev => prev.map(p => p.entryIdx === jobEntryIdx ? { ...p, status: 'error', error: String(e) } : p))
-    }
-  }
-
-  /** หา id ของ Article ในฐานข้อมูลจาก title ของแถว (เหมือนที่ใช้จับคู่ timeline) */
-  const findDbArticle = (title: string) => dbArticles.find(a => (a.title ?? '').trim() === (title ?? '').trim())
-
-  async function handleRequestIndex(articleId: string) {
-    setIndexBusy(prev => ({ ...prev, [articleId]: true }))
-    try {
-      const r = await fetch(`/api/projects/${project.id}/request-index`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ articleId }),
-      })
-      const d = await r.json().catch(() => ({}))
-      if (d.indexRequests) setIndexRequests(d.indexRequests)
-      if (r.ok && d.ok) toast.success('ส่ง Request Index ให้ Google แล้ว')
-      else toast.error(`Request Index ไม่สำเร็จ: ${d?.error || r.status}`)
-    } catch (e) {
-      toast.error(`Request Index ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setIndexBusy(prev => ({ ...prev, [articleId]: false }))
-    }
-  }
-
-  async function handlePushSelected() {
-    for (const idx of Array.from(selectedIdx)) {
-      await handlePush(idx)
-    }
-  }
-
-  const getPushJob = (entryIdx: number) => pushJobs.find(p => p.entryIdx === entryIdx)
-
-  const PUSH_STATUS_COLOR: Record<PushStatus, string> = {
-    idle: 'bg-gray-100 text-gray-500',
-    pushing: 'bg-blue-100 text-blue-700',
-    done: 'bg-emerald-100 text-emerald-700',
-    error: 'bg-red-100 text-red-600',
-  }
-
-  return (
-    <div className="space-y-5 w-full">
-      {/* ─── Connect Card ─── */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-bold text-brand-navy">🔗 WordPress Connection</div>
-            <p className="text-xs text-gray-400 mt-0.5">ใช้ค่าที่ตั้งไว้ใน Project Settings › Website ของ client นี้</p>
-          </div>
-          <button onClick={handleConnect} disabled={wpStatus === 'connecting'}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-              wpStatus === 'connected' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-              : wpStatus === 'error' ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-              : 'bg-brand-blue text-white hover:bg-brand-deep'
-            }`}>
-            {wpStatus === 'connecting' ? <RefreshCw size={13} className="animate-spin" /> : <Globe size={13} />}
-            {wpStatus === 'connecting' ? 'กำลังเชื่อมต่อ...' : wpStatus === 'connected' ? '✓ Connected' : 'Test Connect'}
-          </button>
-        </div>
-
-        {/* Connection selector */}
-        {connections.length > 0 ? (
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-[10px] font-bold text-gray-500 uppercase">เลือก Site จากการเชื่อมต่อกลางเดิม (ถ้ามี)</p>
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedConnId}
-                onChange={e => setSelectedConnId(e.target.value)}
-                className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-gray-300"
-              >
-                <option value="">— ไม่เลือก (ใช้ Project Settings หรือ .env) —</option>
-                {connections.map(c => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.siteUrl})</option>
-                ))}
-              </select>
-              <button
-                onClick={handleSaveConnection}
-                disabled={savingConn}
-                className="px-3 py-2 rounded-lg text-xs font-semibold bg-brand-blue text-white hover:bg-brand-deep disabled:opacity-50 transition-colors whitespace-nowrap"
-              >
-                {savingConn ? 'กำลังบันทึก...' : 'บันทึก'}
-              </button>
-            </div>
-            {selectedConnId && (() => {
-              const c = connections.find(x => x.id === selectedConnId)
-              return c ? (
-                <div className="text-[10px] text-gray-500 flex items-center gap-1.5">
-                  <CheckCircle2 size={10} className="text-emerald-500" />
-                  <span className="font-mono">{c.siteUrl}</span>
-                  <span className="text-gray-300">·</span>
-                  <span>User: {c.username}</span>
-                </div>
-              ) : null
-            })()}
-          </div>
-        ) : (
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2">
-            <Globe size={12} className="text-blue-400 mt-0.5 shrink-0" />
-            <p className="text-[10px] text-brand-blue">
-              ยังไม่มี WordPress connection — ตั้งค่าได้ที่{' '}
-              <button type="button" onClick={onOpenWebsiteSettings} className="font-semibold underline">
-                Project Settings › Website
-              </button>{' '}
-              ของ client นี้ (ฟันเฟืองมุมขวาบน)
-            </p>
-          </div>
-        )}
-
-        {/* Status */}
-        {wpStatus === 'connected' && wpInfo && (
-          <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-            <div>
-              <div className="text-sm font-semibold text-emerald-800">{wpInfo.name}</div>
-              <div className="text-xs text-emerald-600">{wpInfo.url} · WordPress {wpInfo.version}</div>
-              <div className="text-[10px] text-emerald-500 mt-0.5">
-                {wpInfo.source === 'connection' ? '🔗 ใช้การเชื่อมต่อกลางเดิม' : wpInfo.source === 'project' ? '🔑 ใช้ Project Settings' : '🔑 ใช้ .env'}
-              </div>
-            </div>
-          </div>
-        )}
-        {wpStatus === 'error' && wpError && (
-          <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl p-3">
-            <XCircle size={16} className="text-red-500 shrink-0" />
-            <div className="text-xs text-red-600">{wpError}</div>
-          </div>
-        )}
-      </div>
-
-      {/* ─── Publish Settings ─── */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-5">
-        <div className="text-sm font-bold text-brand-navy mb-4">⚙️ Publish Settings</div>
-        <div className="flex flex-wrap gap-6">
-          <div>
-            <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">สถานะเริ่มต้น</p>
-            <div className="flex gap-2">
-              {(['draft', 'publish'] as const).map(m => (
-                <button key={m} onClick={() => setPublishMode(m)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${publishMode === m ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-                  {m === 'draft' ? '📝 Draft' : '🚀 Publish Live'}
-                </button>
-              ))}
-            </div>
-            {publishMode === 'publish' && (
-              <p className="text-[10px] text-amber-600 mt-1.5">⚠️ จะ Publish บทความขึ้น Live ทันที</p>
-            )}
-          </div>
-          <div>
-            <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">Page Builder</p>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={useElementor} onChange={e => setUseElementor(e.target.checked)}
-                className="w-4 h-4 rounded accent-brand-blue" />
-              <span className="text-xs text-gray-700">ใช้ Elementor HTML Widget</span>
-            </label>
-            <p className="text-[10px] text-gray-400 mt-1">เปิดถ้าเว็บใช้ Elementor — HTML จะถูก inject เป็น widget แทน native WP content</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">Request Index</p>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={pushPrefs.autoRequestIndex !== false}
-                onChange={e => savePushPrefs({ ...pushPrefs, autoRequestIndex: e.target.checked })}
-                className="w-4 h-4 rounded accent-brand-blue" />
-              <span className="text-xs text-gray-700">Request Index อัตโนมัติหลัง Publish</span>
-            </label>
-            <p className="text-[10px] text-gray-400 mt-1">ส่ง URL ให้ Google ทันทีเมื่อ Publish Live สำเร็จ (จำค่าต่อโปรเจกต์)</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">หัวเรื่อง H1</p>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={pushPrefs.stripH1 ?? true}
-                onChange={e => savePushPrefs({ ...pushPrefs, stripH1: e.target.checked })}
-                className="w-4 h-4 rounded accent-brand-blue" />
-              <span className="text-xs text-gray-700">ตัด H1 ออกจากเนื้อหา</span>
-            </label>
-            <p className="text-[10px] text-gray-400 mt-1">เว็บส่วนใหญ่แสดง H1 จาก post title อยู่แล้ว — เปิดไว้กันหัวเรื่องซ้ำ (จำค่าต่อโปรเจกต์)</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── Articles Queue ─── */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <div className="text-sm font-bold text-brand-navy">📋 บทความพร้อม Push</div>
-            <p className="text-xs text-gray-400 mt-0.5">{readyArticles.length} บทความที่เขียนเสร็จแล้ว</p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={handleScanSite} disabled={scanState === 'scanning'}
-              className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 disabled:opacity-50 transition-colors font-semibold">
-              {scanState === 'scanning' ? '🔍 กำลังสแกน...' : '🔍 สแกนเว็บกันซ้ำ'}
-            </button>
-            <button onClick={selectAll} className="text-xs px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors">
-              เลือกทั้งหมด
-            </button>
-            {selectedIdx.size > 0 && (
-              <button onClick={handlePushSelected}
-                disabled={wpStatus !== 'connected'}
-                className="text-xs px-4 py-1.5 bg-brand-blue text-white rounded-lg hover:bg-brand-deep disabled:opacity-40 transition-colors font-semibold">
-                Push {selectedIdx.size} บทความ →
-              </button>
-            )}
-          </div>
-        </div>
-
-        {scanState === 'error' && (
-          <div className="px-5 py-2.5 bg-red-50 border-b border-red-100 text-xs text-red-600">✗ {scanError}</div>
-        )}
-        {scanState === 'done' && scanResult && (() => {
-          const WHERE_LABEL: Record<string, string> = {
-            template: 'template ของโพสต์ — ระบบเว็บใส่เองทุกโพสต์ ถ้า push ไปด้วยจะซ้ำซ้อน',
-            content: 'ในบทความเดิมของเว็บ',
-            site: 'ในโครงหน้าเว็บ (เช่น header/footer)',
-          }
-          const dup = (['toc', 'cta', 'faq'] as const).filter(t => scanResult.found[t].found)
-          return (
-            <div className="px-5 py-2.5 bg-amber-50/60 border-b border-amber-100 space-y-1">
-              <div className="text-[10px] text-gray-500">สแกน {scanResult.target} ({scanResult.checked.join(' + ')})</div>
-              {dup.length === 0 ? (
-                <span className="inline-block text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
-                  ✓ เว็บนี้ยังไม่มี สารบัญ / CTA / FAQ — ใส่ได้ครบทุก card ไม่ซ้ำ
-                </span>
-              ) : (
-                <div className="flex items-center gap-2 flex-wrap">
-                  {dup.map(t => {
-                    const sig = scanResult.found[t]
-                    const label = t === 'toc' ? 'สารบัญ' : t.toUpperCase()
-                    return (
-                      <span key={t} className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full" title={sig.evidence}>
-                        ⚠ มี {label} อยู่แล้ว · {WHERE_LABEL[sig.where ?? 'site']} · ({sig.evidence}) → ติ๊กออกให้แล้ว
-                      </span>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })()}
-        {readyArticles.length === 0 ? (
-          <div className="px-5 py-12 text-center">
-            <div className="text-3xl mb-2">📝</div>
-            <p className="text-sm text-gray-500 font-medium">ยังไม่มีบทความพร้อม Push</p>
-            <p className="text-xs text-gray-400 mt-1">ไปที่ tab Articles แล้ว Generate บทความก่อน</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {readyArticles.map(job => {
-              const entry = timeline[job.entryIdx]
-              const pj = getPushJob(job.entryIdx)
-              const isSelected = selectedIdx.has(job.entryIdx)
-              const slug = entry?.slug ?? ''
-              const hasCover = !!job.coverImage
-
-              const parsed = parsedMap.get(job.entryIdx)
-              const cardsOpen = openCardsIdx === job.entryIdx
-              const offCount = parsed ? parsed.cards.filter(c => !c.derived && !isCardOn(job.entryIdx, c.id)).length : 0
-              const tocOn = parsed ? parsed.cards.some(c => c.derived && isCardOn(job.entryIdx, c.id)) : false
-              return (
-                <Fragment key={job.entryIdx}>
-                <div className={`px-5 py-4 flex items-start gap-4 ${isSelected ? 'bg-blue-50/30' : 'hover:bg-gray-50/50'} transition-colors`}>
-                  {/* Checkbox */}
-                  <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(job.entryIdx)}
-                    className="mt-1 w-4 h-4 rounded accent-brand-blue shrink-0" />
-
-                  {/* Article info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-brand-navy truncate">{entry?.title ?? job.title}</div>
-                    <div className="text-xs text-gray-400 mt-0.5 truncate">{entry?.keyword ?? job.keyword}</div>
-                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                      {slug && (
-                        <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded font-mono flex items-center gap-1">
-                          <span className="text-gray-300">slug:</span>/{slug}
-                        </span>
-                      )}
-                      {entry?.articleObjectiveTag && (
-                        <span className="text-[10px] text-gray-400">{entry.articleObjectiveTag}</span>
-                      )}
-                      {hasCover && (
-                        <span className="text-[10px] bg-blue-50 text-brand-blue px-1.5 py-0.5 rounded flex items-center gap-1">
-                          <ImageIcon size={9} />รูปปก
-                        </span>
-                      )}
-                      {entry?.date && (
-                        <span className="text-[10px] text-gray-400">📅 {entry.thaiDate}</span>
-                      )}
-                    </div>
-
-                    {/* WP Post Type selector — only show when Elementor is on */}
-                    {useElementor && (
-                      <div className="flex items-center gap-1.5 mt-2">
-                        <span className="text-[10px] text-gray-400">Push as:</span>
-                        {(['auto', 'post', 'page'] as const).map(t => {
-                          const isActive = (wpTypeOverride[job.entryIdx] ?? 'auto') === t
-                          const resolvedLabel = t === 'auto' ? `Auto → ${getWpPostType(job.entryIdx)}` : t
-                          return (
-                            <button key={t} onClick={() => setWpTypeOverride(prev => ({ ...prev, [job.entryIdx]: t }))}
-                              className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
-                                isActive ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
-                              }`}>
-                              {resolvedLabel}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Push status + button */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {pj && (
-                      <div className="text-right">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PUSH_STATUS_COLOR[pj.status]}`}>
-                          {pj.status === 'pushing' ? 'กำลัง Push...' : pj.status === 'done' ? '✓ Push แล้ว' : pj.status === 'error' ? '✗ Error' : ''}
-                        </span>
-                        {pj.status === 'done' && pj.postUrl && (
-                          <a href={pj.postUrl} target="_blank" rel="noopener noreferrer"
-                            className="block text-[10px] text-brand-blue hover:underline mt-0.5">
-                            ดูบทความ →
-                          </a>
-                        )}
-                        {pj.status === 'error' && pj.error && (
-                          <p className="text-[10px] text-red-500 mt-0.5 max-w-[180px] truncate" title={pj.error}>{pj.error}</p>
-                        )}
-                      </div>
-                    )}
-                    {parsed && (
-                      <button onClick={() => setOpenCardsIdx(cardsOpen ? null : job.entryIdx)}
-                        className={`text-xs px-2.5 py-1.5 rounded-lg font-semibold border transition-colors ${
-                          cardsOpen ? 'bg-brand-blue text-white border-brand-blue'
-                          : offCount > 0 || tocOn ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-                        }`}>
-                        🃏 {parsed.cards.length} Cards{offCount > 0 ? ` (−${offCount})` : ''}{tocOn ? ' +TOC' : ''}
-                      </button>
-                    )}
-                    {(() => {
-                      const dbA = findDbArticle(job.title)
-                      const pushed = (pj?.status === 'done' && !!pj.postUrl) || !!dbA?.wordpressUrl
-                      if (!pushed || !dbA?.id) return null
-                      const ir = indexRequests[dbA.id]
-                      return (
-                        <div className="text-right">
-                          <button onClick={() => handleRequestIndex(dbA.id)} disabled={!!indexBusy[dbA.id]}
-                            className="text-xs px-2.5 py-1.5 rounded-lg font-semibold border bg-white text-gray-600 border-gray-200 hover:border-gray-400 disabled:opacity-40">
-                            {indexBusy[dbA.id] ? <RefreshCw size={12} className="animate-spin" /> : 'Request Index'}
-                          </button>
-                          {ir && (
-                            <p className={`text-[10px] mt-0.5 max-w-[180px] truncate ${ir.ok ? 'text-emerald-600' : 'text-red-500'}`}
-                              title={ir.ok ? undefined : ir.error}>
-                              {ir.ok ? `ส่ง Google แล้ว · ${new Date(ir.at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : `ล่าสุดไม่สำเร็จ: ${ir.error ?? ''}`}
-                            </p>
-                          )}
-                        </div>
-                      )
-                    })()}
-                    <button
-                      onClick={() => handlePush(job.entryIdx)}
-                      disabled={wpStatus !== 'connected' || pj?.status === 'pushing'}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors ${
-                        pj?.status === 'done' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-                        : 'bg-brand-blue text-white hover:bg-brand-deep disabled:opacity-40'
-                      }`}>
-                      {pj?.status === 'pushing' ? <RefreshCw size={12} className="animate-spin" />
-                        : pj?.status === 'done' ? '↩ Re-push'
-                        : '→ Push'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── Card panel: เลือกส่วนที่จะ push (ตัด tag แสดงเป็นข้อความล้วน) ── */}
-                {cardsOpen && parsed && (
-                  <div className="px-5 pb-4 bg-gray-50/60 border-t border-gray-100">
-                    <p className="text-[10px] text-gray-400 pt-3 pb-2">
-                      เลือก card ที่จะรวมตอน push — ระบบประกอบ HTML ให้ใหม่ตามที่เลือก (การ์ดที่เว็บปลายทางมีอยู่แล้วควรติ๊กออก กันซ้ำ)
-                      {scanState !== 'done' && (
-                        <span className="block mt-1 text-amber-600 font-semibold">
-                          ยังไม่ได้เช็คเว็บปลายทาง — กดปุ่ม 🔍 สแกนเว็บกันซ้ำ (มุมขวาบนของตาราง) ระบบจะติ๊ก card ที่เว็บมีอยู่แล้วออกให้ พร้อมป้าย ⚠ บน card นั้น
-                        </span>
-                      )}
-                    </p>
-                    <div className="space-y-1.5">
-                      {parsed.cards.map(card => {
-                        const on = isCardOn(job.entryIdx, card.id)
-                        const dup = scanState === 'done' && scanResult && (card.type === 'toc' || card.type === 'cta' || card.type === 'faq')
-                          ? scanResult.found[card.type as 'toc' | 'cta' | 'faq']?.found : false
-                        const TYPE_CHIP: Record<string, string> = {
-                          title: 'bg-blue-50 text-blue-700', toc: 'bg-purple-50 text-purple-700',
-                          content: 'bg-gray-100 text-gray-600', cta: 'bg-emerald-50 text-emerald-700', faq: 'bg-orange-50 text-orange-700',
-                        }
-                        return (
-                          <label key={card.id}
-                            className={`flex items-start gap-3 p-2.5 rounded-xl border cursor-pointer transition-colors ${
-                              on ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100 opacity-60'
-                            }`}>
-                            <input type="checkbox" checked={on} onChange={() => toggleCard(job.entryIdx, card.id)}
-                              className="mt-0.5 w-3.5 h-3.5 rounded accent-brand-blue shrink-0" />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${TYPE_CHIP[card.type] ?? 'bg-gray-100 text-gray-600'}`}>
-                                  {card.type === 'toc' ? 'สารบัญ' : card.type}
-                                </span>
-                                <span className="text-xs font-semibold text-gray-800 truncate">{card.label}</span>
-                                {card.derived && <span className="text-[9px] text-purple-500">ระบบสร้างให้ — ติ๊กเพื่อเพิ่ม</span>}
-                                {dup && (() => {
-                                  const w = scanResult?.found[card.type as 'toc' | 'cta' | 'faq']?.where
-                                  const wLabel = w === 'template' ? 'template ใส่เองทุกโพสต์' : w === 'content' ? 'ในบทความเดิม' : 'ในหน้าเว็บ'
-                                  return <span className="text-[9px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">⚠ เว็บมีอยู่แล้ว ({wLabel}) — push ซ้ำจะซ้อนกัน</span>
-                                })()}
-                              </div>
-                              <p className="text-[10px] text-gray-400 mt-1 line-clamp-2">{card.plainText}</p>
-                            </div>
-                          </label>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-                </Fragment>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ─── Push Log ─── */}
-      {pushJobs.filter(p => p.status === 'done').length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-5">
-          <div className="text-sm font-bold text-brand-navy mb-3">✅ Push Log</div>
-          <div className="space-y-2">
-            {pushJobs.filter(p => p.status === 'done').map(pj => (
-              <div key={pj.entryIdx} className="flex items-center justify-between text-xs">
-                <span className="text-gray-700 truncate max-w-xs">{pj.title}</span>
-                <div className="flex items-center gap-3 shrink-0">
-                  {pj.slug && <code className="text-gray-400 font-mono text-[10px]">/{pj.slug}</code>}
-                  {pj.postId && <span className="text-gray-400">Post ID: {pj.postId}</span>}
-                  {pj.postUrl && (
-                    <a href={pj.postUrl} target="_blank" rel="noopener noreferrer"
-                      className="text-brand-blue hover:underline">ดูบทความ →</a>
-                  )}
-                  {pj.pushedAt && <span className="text-gray-400">{new Date(pj.pushedAt).toLocaleTimeString('th-TH')}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -7843,7 +6836,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
         )}
         {/* Article Lab / Content Engine อยู่ใน settings drawer ด้านขวาแล้ว */}
         {tab === 'push' && (
-          <PushTab
+          <SmePushTab
             project={project} timeline={timeline} jobs={jobs}
             wpConnections={wpConnections} setWpConnections={setWpConnections}
             selectedConnId={pushSelectedConnId} setSelectedConnId={setPushSelectedConnId}

@@ -2,7 +2,7 @@
 // ไฟล์นี้ pure ไม่มี dependency ฝั่ง server — ใช้ได้ทั้ง build-html และ live preview ในหน้า Generate
 // ทุกค่าที่มาจากผู้ใช้หรือ AI ต้องผ่าน sanitizeThemeDetail ก่อนต่อเป็น CSS เสมอ (กัน CSS injection)
 
-import { buildArticleCss } from '@/lib/articleComponents'
+import { buildArticleCss, type ArticleCssOptions } from '@/lib/articleComponents'
 import {
   UPLOAD_GOOGLE_FONTS,
   type UploadTheme,
@@ -312,7 +312,11 @@ function ctaItemScopedCss(item: UploadCtaItem): string {
 
 /** CSS เต็มของบทความ Upload Article (ใช้ทั้งตอน generate และพรีวิวสดในหน้า Generate)
  *  cta = ตั้งค่า CTA ของลูกค้า (หลายแบบ) — แบบ "ออกแบบเอง" ได้ CSS เจาะจงของตัวเอง ส่วนโหมดอื่นใช้สีธีมเดียวกันหมด */
-export function buildUploadCss(theme: UploadTheme, cta?: UploadCtaSettings): string {
+export function buildUploadCss(
+  theme: UploadTheme,
+  cta?: UploadCtaSettings,
+  extra?: { articleCta?: ArticleCssOptions['cta'] },
+): string {
   const css = buildArticleCss({
     themeColor: theme.theme,
     textColor: theme.text,
@@ -320,6 +324,7 @@ export function buildUploadCss(theme: UploadTheme, cta?: UploadCtaSettings): str
     accentColor: theme.accent,
     backgroundColor: theme.background,
     typography: { fontFamily: theme.fontFamily, headingFont: theme.headingFont },
+    ...(extra?.articleCta ? { cta: extra.articleCta } : {}),
   })
   const fontImport = googleFontImport([theme.fontFamily, theme.headingFont])
   const detailCss = themeDetailCss(theme.detail)

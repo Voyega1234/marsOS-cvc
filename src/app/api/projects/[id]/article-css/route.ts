@@ -8,9 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { buildArticleCss, normalizeCtaItems, type CtaMode, type CtaCustomDesign } from '@/lib/articleComponents'
-import type { ArticleElementStyles } from '@/lib/articleTheme'
-import { sanitizeThemeDetail, themeDetailCss } from '@/lib/upload-article/theme-css'
+import { buildProjectArticleCss } from '@/lib/project-theme'
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
@@ -23,35 +21,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   })
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  let colors: Record<string, unknown> = {}
-  try { colors = JSON.parse(project.themeColors || '{}') } catch { /* ใช้ default */ }
-
-  let ctaCss: { mode?: CtaMode; custom?: CtaCustomDesign | null; items?: Array<{ id: string; mode?: CtaMode; custom?: CtaCustomDesign | null }> } | null = null
-  try {
-    const parsed = project.ctaSetting ? JSON.parse(project.ctaSetting) : null
-    if (parsed) {
-      const normalized = normalizeCtaItems(parsed)
-      ctaCss = {
-        mode: normalized.items[0]?.mode,
-        custom: normalized.items[0]?.custom,
-        items: normalized.items.length > 1 ? normalized.items.map(it => ({ id: it.id, mode: it.mode, custom: it.custom })) : undefined,
-      }
-    }
-  } catch { /* ใช้ default */ }
-
-  const cssBase = buildArticleCss({
-    themeColor: (colors.theme as string) || project.accentColor || '#2563eb',
-    textColor: (colors.text as string) || '#000000',
-    borderColor: (colors.border as string) || '#e2e8f0',
-    accentColor: (colors.accent as string) || project.accentColor || '#2563eb',
-    backgroundColor: (colors.background as string) || '',
-    elementStyles: (colors.elements as ArticleElementStyles) ?? null,
-    cta: ctaCss,
-  })
-  // หน้าตา FAQ card / ตารางละเอียด (จากผลสแกนเว็บปลายทางที่กดรับไว้) — ต่อท้ายเฉพาะเมื่อมีค่า
-  const themeDetail = colors.detail ? sanitizeThemeDetail(colors.detail) : undefined
-  const detailCss = themeDetail ? themeDetailCss(themeDetail) : ''
-  const css = detailCss ? `${cssBase}\n${detailCss}` : cssBase
+  const css = buildProjectArticleCss(project)
 
   const header = `/* Article CSS — ${project.clientName || project.name}
  * ติดตั้งครั้งเดียวในธีมเว็บ (เช่น WP: Appearance > Customize > Additional CSS)
