@@ -16,6 +16,7 @@ import {
 } from "@/lib/upload-article/platform-info";
 import AiHelpPanel, { requestConnectHelp, type AiHelp } from "../shared/AiHelpPanel";
 import ConnectHowTo from "../settings/ConnectHowTo";
+import { connectGuideCtx } from "@/lib/upload-article/connect-guide";
 
 const PLATFORMS = [
   { id: "wordpress", label: "WordPress" },
@@ -458,7 +459,12 @@ export default function ConnectTab({
       </div>
     </div>
     <div className="lg:sticky lg:top-4 min-w-0">
-      <ConnectHowTo platform={platform} />
+      <ConnectHowTo platform={platform} ctx={connectGuideCtx({
+        wpUrl,
+        storeDomain: siteConn.shopify?.storeDomain,
+        siteUrl: siteConn.webflow?.siteUrl || (platform === "webflow" ? website : ""),
+        siteId: siteConn.wix?.siteId,
+      })} />
     </div>
     </div>
   );

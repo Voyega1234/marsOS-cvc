@@ -4,7 +4,36 @@
  */
 import type { UploadPlatformId } from './platform-info'
 
-export type ConnectGuideItem = { field: string; steps: string[]; why: string; problems?: string[]; code?: string }
+/** ลิงก์ลัดไปหน้าที่ต้องใช้ — href มี {wp} {shop} {wfShort} {wixSite} ได้ ถ้ายังไม่มีค่านั้นจะใช้ fallback (ไม่มี fallback = ไม่แสดง) */
+export type ConnectGuideLink = { label: string; href: string; fallback?: string }
+export type ConnectGuideItem = { field: string; steps: string[]; why: string; problems?: string[]; code?: string; links?: ConnectGuideLink[] }
+export type ConnectGuideCtx = { wp?: string; shop?: string; wfShort?: string; wixSite?: string }
+
+/** ค่าจากฟอร์ม Connect → ตัวแปรสำหรับลิงก์ (ตัด / ท้าย, เอาแค่ชื่อร้าน shopify, ชื่อย่อ webflow จาก xxx.webflow.io) */
+export function connectGuideCtx(input: { wpUrl?: string; storeDomain?: string; siteUrl?: string; siteId?: string }): ConnectGuideCtx {
+  const host = (u?: string) => { try { return new URL(/^https?:\/\//i.test(u || '') ? u! : `https://${u}`).hostname.toLowerCase() } catch { return '' } }
+  const wp = (input.wpUrl || '').trim().replace(/\/+$/, '')
+  const shopHost = host(input.storeDomain)
+  const wfHost = host(input.siteUrl)
+  return {
+    wp: /^https?:\/\/[^/]+/i.test(wp) ? wp : undefined,
+    shop: shopHost.endsWith('.myshopify.com') ? shopHost.slice(0, -'.myshopify.com'.length) : undefined,
+    wfShort: wfHost.endsWith('.webflow.io') ? wfHost.slice(0, -'.webflow.io'.length) : undefined,
+    wixSite: /^[0-9a-f-]{36}$/i.test((input.siteId || '').trim()) ? input.siteId!.trim() : undefined,
+  }
+}
+
+/** แทนค่าตัวแปรใน href — คืน null ถ้าขาดค่าและไม่มี fallback */
+export function resolveGuideLink(link: ConnectGuideLink, ctx: ConnectGuideCtx): string | null {
+  let missing = false
+  const href = link.href.replace(/\{(wp|shop|wfShort|wixSite)\}/g, (_, k: keyof ConnectGuideCtx) => {
+    const v = ctx[k]
+    if (!v) { missing = true; return '' }
+    return k === 'wp' ? v : encodeURIComponent(v)
+  })
+  if (!missing) return href
+  return link.fallback ?? null
+}
 
 const CUSTOM_PAYLOAD = `{
   "event": "article.publish",
@@ -41,6 +70,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "ดูช่อง \"Username\" (สีเทา แก้ไม่ได้) แล้วคัดลอกมาใส่",
       ],
       why: "ใช้คู่กับ Application Password — ต้องเป็น username ที่ใช้ล็อกอิน ไม่ใช่อีเมลหรือชื่อที่แสดง และผู้ใช้ต้องมีสิทธิ์ Editor หรือ Administrator",
+      links: [{ label: "เปิดหน้า Profile ใน wp-admin", href: "{wp}/wp-admin/profile.php" }],
     },
     {
       field: "Application Password",
@@ -52,6 +82,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "คัดลอกรหัส 24 ตัวที่ขึ้นมา (มีเว้นวรรคได้) — จะโชว์ครั้งเดียวเท่านั้น",
       ],
       why: "ให้ Mars โพสต์ผ่าน REST API ได้โดยไม่ต้องใช้รหัสผ่านจริง และเพิกถอนได้ทุกเมื่อ",
+      links: [{ label: "เปิดหัวข้อ Application Passwords", href: "{wp}/wp-admin/profile.php#application-passwords-section" }],
       problems: [
         "ไม่เห็นหัวข้อ Application Passwords = เว็บไม่ใช่ https หรือมีปลั๊กอินความปลอดภัย (Wordfence, iThemes/Solid Security, Really Simple SSL hardening) ปิดไว้ / บล็อก REST API",
         "ขึ้น 401 = username ผิด หรือรหัสถูกเพิกถอนแล้ว ให้สร้างใหม่",
@@ -71,6 +102,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "กด Generate แล้วคัดลอกทันที — โชว์ครั้งเดียว",
       ],
       why: "เป็นกุญแจรายเว็บ: CMS ใช้สร้าง/แก้ item บทความ, Assets ใช้อัปโหลดรูปปกและรูปในบทความ, Sites ใช้อ่าน URL เว็บและรายการ Collection",
+      links: [{ label: "เปิด Apps & integrations ของเว็บนี้", href: "https://webflow.com/dashboard/sites/{wfShort}/integrations", fallback: "https://webflow.com/dashboard" }],
     },
     {
       field: "Collection",
@@ -80,6 +112,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "ถ้ายังไม่มี: Designer → ไอคอน CMS → \"+ New Collection\" และต้องมีอย่างน้อย 1 ฟิลด์ Rich text",
       ],
       why: "Webflow รับบทความเป็น item ใน CMS Collection เท่านั้น และหน้า template ของ Collection คือดีไซน์หน้าบทความ (ออกแบบครั้งเดียวใน Designer)",
+      links: [{ label: "เปิด Designer ของเว็บนี้", href: "https://{wfShort}.design.webflow.com/" }],
     },
     {
       field: "จับคู่ฟิลด์ (Field mapping)",
@@ -98,8 +131,15 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "แพ็กเกจฟรี Starter จำกัดจำนวน CMS item (ประมาณ 50)",
         "Rich text ของ Webflow เก็บ HTML พื้นฐานเท่านั้น (หัวข้อ ย่อหน้า ลิสต์ ลิงก์ รูป คำพูดอ้างอิง)",
         "ปรับหน้าตาผ่านเมนู สไตล์บทความ → CSS สำหรับ Webflow Custom Code",
+        "ช่อง Head code ใน Site settings → Custom code ใช้ได้เฉพาะเว็บที่มี Site plan (แพ็กเกจเสียเงิน)",
       ],
       why: "ช่วยให้เข้าใจข้อจำกัดของ Webflow ก่อนเริ่มใช้งานจริง",
+      problems: [
+        "หน้า Custom code ขึ้น \"To unlock custom code, add a site plan to this site\" = เว็บยังเป็นแพ็กเกจฟรี ไม่มีช่อง Head code ให้วาง CSS",
+        "ทางแก้ 1 (แนะนำ): ให้เจ้าของเว็บซื้อ Site plan (Basic ขึ้นไป) แล้วกลับมาวาง CSS ใน Head code → Save → Publish",
+        "ทางแก้ 2: ไม่วาง CSS — Push ได้ตามปกติ บทความจะใช้สไตล์ Rich text ของธีม Webflow เอง (ปรับใน Designer ที่หน้า template ของ Collection ได้) ข้อ checklist เรื่อง CSS จะยังไม่ผ่าน",
+      ],
+      links: [{ label: "เปิด Custom code ของเว็บนี้", href: "https://webflow.com/dashboard/sites/{wfShort}/custom-code" }, { label: "เปิด Publishing ของเว็บนี้", href: "https://webflow.com/dashboard/sites/{wfShort}/publishing" }],
     },
   ],
   shopify: [
@@ -111,6 +151,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "หรือดูจาก URL ของหน้า admin: admin.shopify.com/store/<xxx> → โดเมนคือ <xxx>.myshopify.com",
       ],
       why: "การเรียก API ไปที่โดเมน myshopify ไม่ใช่โดเมนจริงของเว็บ (ใส่โดเมนจริงในช่อง \"เว็บไซต์\" ด้านบน เพื่อให้ลิงก์บทความ/Request Index ใช้โดเมนนั้น)",
+      links: [{ label: "เปิด Settings → Domains", href: "https://admin.shopify.com/store/{shop}/settings/domains", fallback: "https://admin.shopify.com" }],
     },
     {
       field: "Admin API access token (ขึ้นต้น shpat_)",
@@ -122,6 +163,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "แท็บ API credentials → กด \"Install app\" → \"Reveal token once\" แล้วคัดลอก",
       ],
       why: "scope content ใช้สร้าง/แก้บทความบล็อก, scope files ใช้อัปโหลดรูป — ต้องเป็น Owner หรือ Staff ที่มีสิทธิ์ \"Develop apps\"",
+      links: [{ label: "เปิดหน้า Develop apps", href: "https://admin.shopify.com/store/{shop}/settings/apps/development", fallback: "https://admin.shopify.com" }, { label: "เปิด Shopify Dev Dashboard", href: "https://dev.shopify.com/dashboard" }],
       problems: [
         "ถ้าร้านไม่มีเมนู \"Develop apps\" (ร้านรุ่นใหม่) ให้สร้างแอปที่ Shopify Dev Dashboard (dev.shopify.com) ด้วย scope เดียวกัน แล้วติดตั้งลงร้าน จากนั้นใช้ Admin API token ของแอปนั้น",
       ],
@@ -134,6 +176,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "เว้นว่าง = ใช้บล็อกแรกของร้าน",
       ],
       why: "ร้าน Shopify มีได้หลายบล็อก ต้องระบุว่าจะลงบทความที่บล็อกไหน",
+      links: [{ label: "เปิดหน้า Blog posts", href: "https://admin.shopify.com/store/{shop}/content/articles" }],
     },
   ],
   wix: [
@@ -146,6 +189,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "กด Generate แล้วคัดลอก — โชว์ครั้งเดียว",
       ],
       why: "ให้ Mars สร้าง/แก้บทความบล็อก และอัปโหลดรูปปกได้",
+      links: [{ label: "เปิด Wix API Keys Manager", href: "https://manage.wix.com/account/api-keys" }],
     },
     {
       field: "Site ID",
@@ -155,6 +199,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "คัดลอกรหัสยาวที่อยู่ระหว่าง /dashboard/ กับ / ตัวถัดไป",
       ],
       why: "API Key ตัวเดียวเข้าถึงได้หลายเว็บ — Site ID ใช้ระบุว่าจะลงเว็บไหน",
+      links: [{ label: "เปิดรายการเว็บใน Wix", href: "https://manage.wix.com/account/sites" }],
     },
     {
       field: "Member ID (ผู้เขียน)",
@@ -163,6 +208,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "คนนั้นต้องเป็นสมาชิกของเว็บ: Dashboard → Contacts → Site Members",
       ],
       why: "Wix บังคับให้ทุกบทความที่สร้างผ่าน API Key ต้องมี Member เป็นผู้เขียน",
+      links: [{ label: "เปิด Dashboard ของเว็บนี้", href: "https://manage.wix.com/dashboard/{wixSite}/home" }],
     },
     {
       field: "ข้อควรรู้",
@@ -171,6 +217,7 @@ export const CONNECT_GUIDE: Record<UploadPlatformId, ConnectGuideItem[]> = {
         "เนื้อหาบทความจะเข้าเป็นบล็อก HTML",
       ],
       why: "ถ้าไม่มี Wix Blog จะสร้างบทความไม่ได้",
+      links: [{ label: "เปิด Wix App Market (Wix Blog)", href: "https://www.wix.com/app-market/wix-blog" }],
     },
   ],
   custom: [

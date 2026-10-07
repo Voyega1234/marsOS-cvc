@@ -4,11 +4,11 @@
  * คู่มือ "วิธีเอาค่ามาใส่" ของแต่ละแพลตฟอร์ม — แสดงข้างฟอร์ม Connect (สลับตามปุ่มแพลตฟอร์มที่เลือก)
  * ต่อฟิลด์: ไปเอาที่ไหน (ทีละขั้น) / ทำไมต้องใช้ / ปัญหาที่เจอบ่อย
  */
-import { BookOpen } from "lucide-react";
+import { BookOpen, ExternalLink } from "lucide-react";
 import { UPLOAD_PLATFORM_LABEL, type UploadPlatformId } from "@/lib/upload-article/platform-info";
-import { CONNECT_GUIDE } from "@/lib/upload-article/connect-guide";
+import { CONNECT_GUIDE, resolveGuideLink, type ConnectGuideCtx } from "@/lib/upload-article/connect-guide";
 
-export default function ConnectHowTo({ platform }: { platform: UploadPlatformId }) {
+export default function ConnectHowTo({ platform, ctx = {} }: { platform: UploadPlatformId; ctx?: ConnectGuideCtx }) {
   const items = CONNECT_GUIDE[platform];
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
@@ -26,6 +26,19 @@ export default function ConnectHowTo({ platform }: { platform: UploadPlatformId 
                   {it.steps.map((s, i) => <li key={i}>{s}</li>)}
                 </ol>
               </div>
+              {(() => {
+                const links = (it.links ?? []).map(l => ({ label: l.label, href: resolveGuideLink(l, ctx) })).filter((l): l is { label: string; href: string } => !!l.href);
+                return links.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {links.map(l => (
+                      <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md border border-brand-blue/30 bg-white px-2 py-1 text-[11px] font-medium text-brand-blue hover:bg-brand-blue/5">
+                        {l.label} <ExternalLink size={11} />
+                      </a>
+                    ))}
+                  </div>
+                );
+              })()}
               {it.code && (
                 <pre className="bg-white border border-gray-200 rounded-md p-2 text-[10px] leading-snug font-mono text-gray-700 overflow-x-auto whitespace-pre">{it.code}</pre>
               )}
