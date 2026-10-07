@@ -105,6 +105,10 @@ export default function StyleSection({
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2 text-xs text-blue-900">
           <p className="font-semibold">Webflow ใช้ CSS จาก Custom Code ของเว็บ</p>
           <p>Webflow ตัด &lt;style&gt; ที่แนบมากับบทความทิ้งตอน push จึงไม่มีตัวเลือก embed / clean — วาง CSS ด้านล่างใน Custom Code ของเว็บแทน (สี/ฟอนต์ด้านบนใช้สร้าง CSS นี้)</p>
+          <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+            <p className="font-semibold">⚠ Webflow แพ็กเกจฟรีไม่มีช่อง Custom code (Head code)</p>
+            <p>ถ้าหน้า Custom code ขึ้น “To unlock custom code, add a site plan to this site” ต้องให้เจ้าของเว็บซื้อ Site plan (Basic ขึ้นไป) ก่อนถึงจะวาง CSS นี้ได้ — ถ้ายังไม่ซื้อ ยัง Push บทความได้ตามปกติ แต่บทความจะใช้สไตล์ Rich text ของธีม Webflow เอง</p>
+          </div>
           <div className="relative">
             <textarea readOnly value={webflowCss} onFocus={e => e.currentTarget.select()} rows={8}
               className="w-full rounded border border-blue-200 bg-white p-2 font-mono text-[11px] text-gray-700" />

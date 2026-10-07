@@ -17,7 +17,7 @@ export interface WebflowCssCheck {
 const MSG = {
   ok: 'CSS ในเว็บเป็นเวอร์ชันล่าสุดแล้ว',
   outdated: 'CSS ในเว็บเป็นเวอร์ชันเก่า — ธีมถูกแก้หลังวาง ให้ Copy ใหม่ไปวางทับแล้ว Publish',
-  missing: 'ยังไม่พบ CSS ในเว็บ — วางใน Site settings → Custom code → Head code แล้วกด Publish',
+  missing: 'ยังไม่พบ CSS ในเว็บ — วางใน Site settings → Custom code → Head code แล้วกด Publish (แพ็กเกจฟรีไม่มีช่องนี้ ต้องซื้อ Site plan ก่อน)',
   unreachable: 'เปิดเว็บไม่ได้ — เว็บต้อง Publish แล้ว',
 }
 
