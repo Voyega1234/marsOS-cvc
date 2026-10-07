@@ -7,13 +7,14 @@
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Globe, Loader2, Plug, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Globe, Loader2, Plug, Sparkles, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 import {
   UPLOAD_PLATFORM_LABEL, uploadPlatformOf, pushTargetUrl, pushTargetDetail, missingConnectionFields,
 } from "@/lib/upload-article/platform-info";
+import AiHelpPanel, { requestConnectHelp, type AiHelp } from "../shared/AiHelpPanel";
 import ConnectHowTo from "../settings/ConnectHowTo";
 
 const PLATFORMS = [
@@ -61,6 +62,8 @@ export default function ConnectTab({
   const setConnField = (plat: string, key: string, val: string) =>
     setSiteConn(prev => ({ ...prev, [plat]: { ...(prev[plat] ?? {}), [key]: val } }));
 
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiHelp, setAiHelp] = useState<AiHelp | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -125,9 +128,34 @@ export default function ConnectTab({
     }
   }
 
+  async function askAi(error: string) {
+    setAiBusy(true);
+    setAiHelp(null);
+    try {
+      // ส่งเฉพาะ true/false ว่ากรอกแล้วหรือยัง — ไม่ส่งค่าจริง
+      const filled: Record<string, boolean> = {};
+      if (platform === "wordpress") {
+        filled["WordPress URL"] = !!wpUrl.trim();
+        filled["WP Username"] = !!wpUser.trim();
+        filled["Application Password"] = !!wpAppPassword.trim() || client.hasWpPassword;
+      } else {
+        const keys = new Set<string>([...(PLAIN_KEYS[platform] ?? []), ...Object.keys(siteConn[platform] ?? {}), "apiToken", "accessToken", "apiKey", "secret"]);
+        for (const k of Array.from(keys)) {
+          filled[k] = !!(siteConn[platform]?.[k]?.trim()) || !!client.siteConnectionMasked?.[`${platform}.${k}`];
+        }
+      }
+      setAiHelp(await requestConnectHelp(client.id, { context: "connect", platform, error, filled }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "AI ช่วยไม่ได้ตอนนี้");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   async function testConnection() {
     setTesting(true);
     setTestResult(null);
+    setAiHelp(null);
     const ok = await save();
     if (!ok) { setTesting(false); return; }
     try {
@@ -416,6 +444,15 @@ export default function ConnectTab({
           <div className={`flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs ${testResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
             {testResult.ok ? <CheckCircle2 size={14} className="shrink-0 mt-0.5" /> : <XCircle size={14} className="shrink-0 mt-0.5" />}
             <span>{testResult.message}</span>
+          </div>
+        )}
+        {testResult && !testResult.ok && (
+          <div className="space-y-2">
+            <Button variant="outline" disabled={aiBusy} onClick={() => askAi(testResult.message)}>
+              {aiBusy ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Sparkles size={12} className="mr-1.5" />}
+              ให้ AI ช่วยดูว่าผิดตรงไหน
+            </Button>
+            {aiHelp && <AiHelpPanel help={aiHelp} />}
           </div>
         )}
       </div>

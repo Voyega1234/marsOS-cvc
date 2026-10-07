@@ -388,6 +388,15 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     })
   }
 
+  // จดว่าแพลตฟอร์มนี้ push สำเร็จแล้ว (Setup Checklist: ทดลอง Push) — ไม่รวม WordPress/PBN, ล้มก็ไม่กระทบผล push
+  if (ok && !pbnSite && platform !== 'wordpress') {
+    await updatePrefs(client.id, orgId, (current) => {
+      const prev = (current as Record<string, unknown>).pushVerified
+      const base = prev && typeof prev === 'object' ? (prev as Record<string, string>) : {}
+      return { prefs: { ...current, pushVerified: { ...base, [platform]: new Date().toISOString() } }, result: null }
+    }).catch(() => null)
+  }
+
   // Request Index อัตโนมัติหลังขึ้นเว็บแบบ Publish จริงแล้ว — ล้มก็ไม่กระทบผล push
   // Upload: จดใน pushPrefs.indexRequests / PBN: จดใน pushPrefs.pbnIndexRequests ต่อเว็บ
   // PBN GitHub ต้องรอ build — ถ้าหน้ายัง 404 จะจดเป็นไม่สำเร็จ ให้กดซ้ำได้จากหน้า Push / Request Index

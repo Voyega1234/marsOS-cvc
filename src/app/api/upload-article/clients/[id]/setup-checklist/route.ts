@@ -15,6 +15,9 @@ import { missingWriterLayers } from '@/lib/upload-article/writer'
 import { uploadCtaSummary } from '@/lib/upload-article/cta'
 import { uploadAuthorSummary } from '@/lib/upload-article/author'
 import { UPLOAD_PLATFORM_LABEL, uploadPlatformOf } from '@/lib/upload-article/platform-info'
+import { webflowCssHash } from '@/lib/upload-article/theme-css'
+import { checkWebflowCss, savedUploadTheme } from '@/lib/upload-article/webflow-css-check'
+import { withProtocol, hostOf } from '@/lib/upload-article/platform-info'
 import type { UploadInternalLinks, UploadSiteScan } from '@/lib/upload-article/types'
 
 export type UploadChecklistSection = 'website' | 'scan' | 'style' | 'links' | 'images' | 'cta' | 'author' | 'engine'
@@ -47,7 +50,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     where: { id: params.id, organizationId: orgId },
     select: {
       websitePlatform: true, wpUrl: true, wpUser: true, wpAppPasswordEnc: true,
-      siteConnection: true, themeColors: true, pushPrefs: true,
+      website: true, siteConnection: true, themeColors: true, pushPrefs: true,
     },
   })
   if (!c) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
@@ -91,6 +94,40 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   const ce = await resolveContentEngine(orgId, { projectId: params.id })
   const missingLayers = missingWriterLayers(ce)
 
+  // ── Webflow: CSS สไตล์บทความต้องวางใน Custom Code เอง — ระบบอ่านเว็บที่ Publish แล้วเทียบแฮชให้ ──
+  let webflowItem: UploadChecklistItem | null = null
+  if (platform === 'webflow') {
+    const siteUrl = withProtocol(conn.webflow?.siteUrl || '') || withProtocol(c.website || '')
+    let ok = false
+    let hint = 'ยังไม่ได้ตั้ง URL เว็บ — ใส่ Site URL ในหน้า Connect เพื่อให้ระบบตรวจให้'
+    if (siteUrl) {
+      const last = await prisma.uploadArticle.findFirst({
+        where: { clientId: params.id, organizationId: orgId, status: 'PUSHED', wordpressUrl: { not: null } },
+        orderBy: { pushedAt: 'desc' },
+        select: { wordpressUrl: true },
+      })
+      const h = last?.wordpressUrl ? hostOf(last.wordpressUrl) : ''
+      const sampleUrl = last?.wordpressUrl && h && (h === hostOf(siteUrl) || h.endsWith('.webflow.io')) ? last.wordpressUrl : undefined
+      const r = await checkWebflowCss(siteUrl, webflowCssHash(savedUploadTheme(c.themeColors)), sampleUrl).catch(() => null)
+      ok = r?.status === 'ok'
+      hint = r ? r.message : 'เปิดเว็บไม่ได้ — เว็บต้อง Publish แล้ว'
+    }
+    webflowItem = { id: 'webflow_css', label: 'วาง CSS สไตล์บทความใน Webflow Custom Code', ok, required: true, section: 'style', hint }
+  }
+
+  // ── ลอง Push 1 บทความขึ้นเว็บจริง (Webflow/Shopify/Wix/Custom) — จดอัตโนมัติเมื่อ push สำเร็จ ──
+  let pushItem: UploadChecklistItem | null = null
+  if (platform !== 'wordpress') {
+    const verified = (prefs.pushVerified as Record<string, string> | undefined)?.[platform]
+    const at = verified && !Number.isNaN(Date.parse(verified)) ? verified : ''
+    pushItem = {
+      id: 'push_verified',
+      label: `ทดลอง Push 1 บทความขึ้น ${UPLOAD_PLATFORM_LABEL[uploadPlatformOf({ websitePlatform: platform })]} สำเร็จ`,
+      ok: !!at, required: false, section: 'website',
+      hint: at ? `ผ่านเมื่อ ${new Date(at).toLocaleDateString('th-TH')}` : 'กด Push แบบ Draft 1 บทความ แล้วเปิดหลังบ้านเช็ครูป ปก และ SEO',
+    }
+  }
+
   const items: UploadChecklistItem[] = [
     {
       id: 'website', label: `เชื่อมต่อเว็บ (${UPLOAD_PLATFORM_LABEL[uploadPlatformOf({ websitePlatform: platform })]})`, ok: websiteOk, required: true, section: 'website',
@@ -129,6 +166,8 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
       hint: authorOk ? `ผู้เขียน ${author.count} คน` : author.enabled ? 'เปิดอยู่แต่ยังไม่มีผู้เขียน' : 'ปิดอยู่',
     },
   ]
+  if (webflowItem) items.splice(items.findIndex((i) => i.id === 'style') + 1, 0, webflowItem)
+  if (pushItem) items.splice(items.findIndex((i) => i.id === 'scan') + 1, 0, pushItem)
 
   return NextResponse.json({
     items,

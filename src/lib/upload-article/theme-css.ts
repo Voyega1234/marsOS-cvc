@@ -335,11 +335,35 @@ export function buildUploadCss(
 /** CSS สำหรับวางใน Webflow Site settings > Custom code (Head code) — Webflow ตัด <style> ในบทความทิ้งตอน push
  *  ใช้ CSS เดียวกับพรีวิว (buildUploadCss) แต่เปลี่ยน root `.content-article` เป็น `.w-richtext` ให้ลง Rich Text ของ Webflow
  *  คืนเป็น `<style>…</style>` พร้อมวางทั้งก้อน (@import ฟอนต์อยู่บนสุด) */
+function webflowCssBody(theme: UploadTheme, cta?: UploadCtaSettings, extra?: { articleCta?: ArticleCssOptions['cta'] }): string {
+  return buildUploadCss(theme, cta, extra).replace(/\.content-article(?![\w-])/g, '.w-richtext')
+}
+
+/** แฮช FNV-1a 32-bit (hex) — pure JS ใช้ได้ทั้ง browser + node ไม่พึ่ง node:crypto */
+function fnv1a32(text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(16).padStart(8, '0')
+}
+
+/** แฮชเวอร์ชันของ CSS Webflow (คิดจากตัว CSS ล้วน) — ใช้เทียบกับ marker ที่วางในเว็บ */
+export function webflowCssHash(
+  theme: UploadTheme,
+  cta?: UploadCtaSettings,
+  extra?: { articleCta?: ArticleCssOptions['cta'] },
+): string {
+  return fnv1a32(webflowCssBody(theme, cta, extra))
+}
+
 export function buildWebflowCustomCss(
   theme: UploadTheme,
   cta?: UploadCtaSettings,
   extra?: { articleCta?: ArticleCssOptions['cta'] },
 ): string {
-  const css = buildUploadCss(theme, cta, extra).replace(/\.content-article(?![\w-])/g, '.w-richtext')
-  return `<style>\n${css}\n</style>`
+  const css = webflowCssBody(theme, cta, extra)
+  const hash = fnv1a32(css)
+  return `<style data-mars-css="${hash}">\n/* mars-article-css:${hash} */\n${css}\n</style>`
 }

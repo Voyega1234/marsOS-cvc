@@ -8,6 +8,7 @@ import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Se
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/upload-article/cards";
+import { AiHelpInline } from "@/components/upload-article/shared/AiHelpPanel";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
 import { formatPublishAt } from "@/components/upload-article/shared/PublishDatePanel";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
@@ -573,11 +574,19 @@ export default function PushTab({
                     <ExternalLink size={11} /> เปิดโพสต์ที่ push แล้ว
                   </a>
                 ) : (
-                  <p className="text-xs text-rose-500">{result.error}</p>
+                  <div className="space-y-1">
+                    <p className="text-xs text-rose-500">{result.error}</p>
+                    {result.error && <AiHelpInline clientId={client.id} platform={platform} error={result.error} articleTitle={a.title} />}
+                  </div>
                 )
               )}
               {result?.ok && result.warning && <p className="text-xs text-amber-700">{result.warning}</p>}
-              {!result && a.status === "FAILED" && a.pushError && <p className="text-xs text-rose-500">{a.pushError}</p>}
+              {!result && a.status === "FAILED" && a.pushError && (
+                <div className="space-y-1">
+                  <p className="text-xs text-rose-500">{a.pushError}</p>
+                  <AiHelpInline clientId={client.id} platform={platform} error={a.pushError} articleTitle={a.title} />
+                </div>
+              )}
               {!result && !pbn && a.status === "PUSHED" && a.wordpressUrl && (
                 <a href={a.wordpressUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-emerald-600 hover:underline w-fit">
                   <ExternalLink size={11} /> เปิดโพสต์ที่ push แล้ว

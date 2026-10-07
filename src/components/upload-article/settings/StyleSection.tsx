@@ -27,11 +27,25 @@ export default function StyleSection({
   showFaqEditor: boolean;
   setShowFaqEditor: React.Dispatch<React.SetStateAction<boolean>>;
   /** ลูกค้า Upload Article — ใช้สลับหน้าตามแพลตฟอร์ม (ไม่ส่ง = WordPress/เดิม; SEO SME ไม่ส่ง) */
-  client?: Pick<UploadClientDTO, "websitePlatform">;
+  client?: Pick<UploadClientDTO, "websitePlatform"> & { id?: string };
 }) {
   const platform = client ? uploadPlatformOf(client) : "wordpress";
   const [copied, setCopied] = useState(false);
   const webflowCss = platform === "webflow" ? buildWebflowCustomCss(themeDraft) : "";
+  const [cssCheck, setCssCheck] = useState<{ status: "ok" | "outdated" | "missing" | "unreachable"; checkedUrl: string; message: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  async function checkCssInSite() {
+    if (!client?.id) return;
+    setChecking(true);
+    try {
+      const r = await fetch(`/api/upload-article/clients/${client.id}/webflow-css-check`);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d?.error || "ตรวจ CSS ไม่สำเร็จ"); return; }
+      setCssCheck(d);
+    } finally {
+      setChecking(false);
+    }
+  }
   async function copyCss() {
     try {
       await navigator.clipboard.writeText(webflowCss);
@@ -98,6 +112,20 @@ export default function StyleSection({
               <Copy size={12} className="mr-1" />{copied ? "คัดลอกแล้ว" : "Copy"}
             </Button>
           </div>
+          <p className="text-[11px] text-blue-800">กดบันทึกธีมก่อน Copy — ระบบเทียบกับธีมที่บันทึกไว้</p>
+          {client?.id && (
+            <div className="space-y-1.5">
+              <Button type="button" size="sm" variant="outline" onClick={checkCssInSite} disabled={checking} className="h-7 bg-white">
+                {checking ? "กำลังตรวจ…" : "ตรวจว่าวางในเว็บแล้วหรือยัง"}
+              </Button>
+              {cssCheck && (
+                <p className={`rounded border px-2 py-1.5 text-[11px] ${cssCheck.status === "ok" ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+                  {cssCheck.message}
+                  <span className="block break-all text-[10px] opacity-70">ตรวจที่ {cssCheck.checkedUrl}</span>
+                </p>
+              )}
+            </div>
+          )}
           <ol className="list-decimal pl-5 space-y-0.5">
             <li>Webflow Dashboard → ⚙ Site settings → Custom code</li>
             <li>วางใน “Head code” (ทั้งก้อนรวม &lt;style&gt;...&lt;/style&gt;)</li>
