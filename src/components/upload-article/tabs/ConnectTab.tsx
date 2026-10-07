@@ -68,7 +68,6 @@ export default function ConnectTab({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [lastTest, setLastTest] = useState<{ ok: boolean; message: string; platform: PlatformId } | null>(null);
 
   async function loadWfFields(collectionId: string) {
     setWfFields([]);
@@ -95,7 +94,12 @@ export default function ConnectTab({
     return client.siteConnectionMasked?.[`${plat}.${key}`] ?? "";
   }
 
-  async function save(): Promise<boolean> {
+  // ค่าที่บันทึกล่าสุด — เทียบกับฟอร์มเพื่อเตือน "ยังไม่บันทึก" (Push ใช้ค่าที่บันทึกไว้เท่านั้น)
+  const snapshot = (conn = siteConn) => JSON.stringify([name.trim(), website.trim(), language, platform, wpUrl.trim(), wpUser.trim(), conn]);
+  const [savedSnap, setSavedSnap] = useState<string>(snapshot);
+  const dirty = snapshot() !== savedSnap || !!wpAppPassword.trim();
+
+  async function save(): Promise<UploadClientDTO | null> {
     setSaving(true);
     setTestResult(null);
     try {
@@ -115,15 +119,16 @@ export default function ConnectTab({
         body: JSON.stringify(body),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); return false; }
+      if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); return null; }
       setClient(d);
+      setSavedSnap(snapshot());
       if (wpAppPassword.trim()) setWpAppPassword("");
       toast.success("บันทึกแล้ว");
       if (d.wpPasswordCleared) toast.warning("เปลี่ยนเว็บ/ผู้ใช้แล้ว — กรุณาใส่ Application Password ใหม่");
       if (Array.isArray(d.siteConnectionSecretsCleared) && d.siteConnectionSecretsCleared.length) {
         toast.warning("เปลี่ยนโดเมน/URL แล้ว — กรุณาใส่ key/secret ใหม่ของแพลตฟอร์มนั้นอีกครั้ง");
       }
-      return true;
+      return d as UploadClientDTO;
     } finally {
       setSaving(false);
     }
@@ -157,29 +162,36 @@ export default function ConnectTab({
     setTesting(true);
     setTestResult(null);
     setAiHelp(null);
-    const ok = await save();
-    if (!ok) { setTesting(false); return; }
+    const saved = await save();
+    if (!saved) { setTesting(false); return; }
+    // ผลทดสอบถูกจดฝั่งเซิร์ฟเวอร์แล้ว — อัปเดตการ์ดสถานะทันทีโดยไม่ต้องโหลดใหม่
+    const markTested = (ok: boolean, message: string) =>
+      setClient({ ...saved, connectionStatus: { platform, ok, message, at: new Date().toISOString(), stale: false } });
     try {
       const r = await fetch(`/api/upload-article/clients/${client.id}/connect-test`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.ok) {
         setTestResult({ ok: true, message: d.message || "เชื่อมต่อสำเร็จ" });
-        setLastTest({ ok: true, message: d.message || "เชื่อมต่อสำเร็จ", platform });
+        markTested(true, d.message || "เชื่อมต่อสำเร็จ");
         if (platform === "webflow") {
           setWfCollections(d.choices?.collections ?? []);
-          if (d.url) setConnField("webflow", "siteUrl", d.url);
+          // URL เว็บถูกบันทึกฝั่งเซิร์ฟเวอร์ตอนทดสอบแล้ว — อัปเดตฟอร์มโดยไม่ขึ้นเตือน "ยังไม่บันทึก"
+          if (d.url) {
+            const next = { ...siteConn, webflow: { ...(siteConn.webflow ?? {}), siteUrl: d.url } };
+            setSiteConn(next);
+            setSavedSnap(snapshot(next));
+          }
         }
         if (platform === "shopify") setShBlogs(d.choices?.blogs ?? []);
         if (platform === "wix") setWixMembers(d.choices?.members ?? []);
       } else {
         const m = d.message || d.error || "เชื่อมต่อไม่สำเร็จ";
         setTestResult({ ok: false, message: m });
-        setLastTest({ ok: false, message: m, platform });
+        if (r.status === 400) markTested(false, m);
       }
     } catch (e) {
       const m = `เชื่อมต่อไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`;
       setTestResult({ ok: false, message: m });
-      setLastTest({ ok: false, message: m, platform });
     } finally {
       setTesting(false);
     }
@@ -206,11 +218,33 @@ export default function ConnectTab({
         ) : (
           <p className="flex items-start gap-1.5 text-xs text-amber-700"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> ยังขาด: {missing.join(", ")}</p>
         )}
-        {lastTest && (
-          <p className={`text-xs ${lastTest.ok ? "text-emerald-700" : "text-red-600"}`}>
-            ผลทดสอบล่าสุด ({UPLOAD_PLATFORM_LABEL[lastTest.platform]}): {lastTest.message}
-          </p>
-        )}
+        {(() => {
+          const cs = client.connectionStatus;
+          const when = (iso: string) => new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
+          if (!cs) {
+            return (
+              <p className="flex items-start gap-1.5 rounded-lg bg-gray-50 px-2 py-1.5 text-xs text-gray-600">
+                <Plug size={13} className="shrink-0 mt-0.5" /> ยังไม่เคยทดสอบการเชื่อมต่อ — กด &quot;ทดสอบการเชื่อมต่อ&quot; ด้านล่าง 1 ครั้ง
+              </p>
+            );
+          }
+          if (cs.stale) {
+            return (
+              <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                <AlertTriangle size={13} className="shrink-0 mt-0.5" /> ค่าการเชื่อมต่อเปลี่ยนหลังทดสอบล่าสุด ({when(cs.at)}) — กดทดสอบใหม่อีกครั้ง
+              </p>
+            );
+          }
+          return cs.ok ? (
+            <p className="flex items-start gap-1.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs font-medium text-emerald-800">
+              <CheckCircle2 size={13} className="shrink-0 mt-0.5" /> เชื่อมต่อ {UPLOAD_PLATFORM_LABEL[cs.platform as PlatformId] ?? cs.platform} สำเร็จแล้ว — {cs.message} · ทดสอบเมื่อ {when(cs.at)}
+            </p>
+          ) : (
+            <p className="flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">
+              <XCircle size={13} className="shrink-0 mt-0.5" /> ทดสอบล่าสุดไม่ผ่าน ({when(cs.at)}): {cs.message}
+            </p>
+          );
+        })()}
         <p className="text-[11px] text-gray-400">Push / สแกนเว็บ / สไตล์บทความ จะทำงานแบบ {savedLabel} ตามที่เลือกไว้</p>
         {platform !== savedPlatform && (
           <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1">
@@ -435,6 +469,12 @@ export default function ConnectTab({
           </div>
         )}
 
+        {dirty && (
+          <p className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+            <span><b>มีการแก้ไขที่ยังไม่บันทึก</b> — Push ใช้ค่าที่บันทึกไว้เท่านั้น กด &quot;บันทึก&quot; ก่อนออกจากหน้านี้ (เช่น เลือก Collection / ฟิลด์ หลังกดทดสอบ)</span>
+          </p>
+        )}
         <div className="flex items-center gap-2 pt-1">
           <Button disabled={saving || !website.trim()} onClick={save}>
             {saving ? "กำลังบันทึก..." : "บันทึก"}

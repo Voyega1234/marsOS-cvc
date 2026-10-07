@@ -26,6 +26,8 @@ export interface ConnectionTestResult {
   ok: boolean
   name?: string
   url?: string
+  /** Webflow: id ของเว็บที่ token เห็น — บันทึกไว้ใช้อัปโหลดรูปตอน push */
+  siteId?: string
   error?: string
   /** ตัวเลือกให้ผู้ใช้เลือกต่อ (Shopify: blog / Webflow: collection) */
   choices?: {
@@ -274,6 +276,7 @@ async function webflowTest(cfg: NonNullable<SiteConnectionConfig['webflow']>): P
   return {
     ok: true,
     name: site.displayName ?? site.shortName,
+    siteId: site.id,
     url: site.customDomains?.[0]?.url ?? (site.shortName ? `https://${site.shortName}.webflow.io` : ''),
     choices: {
       collections: collections.map((c: { id: string; displayName?: string; slug: string }) => ({

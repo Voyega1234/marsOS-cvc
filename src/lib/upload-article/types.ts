@@ -251,6 +251,8 @@ export interface UploadClientDTO {
   ctaSummary: UploadCtaSummary
   /** สถานะกล่องผู้เขียน (Project Setting > Author Box) แบบย่อ — ค่าเต็มโหลดผ่าน /clients/[id]/author */
   authorSummary: UploadAuthorSummary
+  /** ผลทดสอบการเชื่อมต่อล่าสุดที่บันทึกไว้ — stale = credentials/แพลตฟอร์มเปลี่ยนหลังทดสอบ ต้องทดสอบใหม่ */
+  connectionStatus?: { platform: string; ok: boolean; message: string; at: string; stale: boolean } | null
   counts: { total: number; imported: number; generated: number; reviewed: number; pushed: number; failed: number }
   createdAt: string
   updatedAt: string

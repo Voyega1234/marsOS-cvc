@@ -82,6 +82,22 @@ async function uploadAsset(token: string, siteId: string, b64: string, mime: str
   return meta.hostedUrl
 }
 
+/** หา siteId ที่มี collection นี้ — Webflow v2 GET /collections/{id} ไม่ส่ง siteId กลับมา จึงต้องไล่ดูจากรายการเว็บของ token */
+export async function findWebflowSiteIdForCollection(token: string, collectionId: string): Promise<string | null> {
+  const auth = { Authorization: `Bearer ${token}` }
+  const sitesRes = await fetch(`${WF}/sites`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT) })
+  if (!sitesRes.ok) return null
+  const sites: { id: string }[] = (await sitesRes.json()).sites ?? []
+  if (sites.length === 1) return sites[0].id
+  for (const s of sites) {
+    const r = await fetch(`${WF}/sites/${s.id}/collections`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT) })
+    if (!r.ok) continue
+    const cols: { id: string }[] = (await r.json()).collections ?? []
+    if (cols.some(c => c.id === collectionId)) return s.id
+  }
+  return null
+}
+
 export async function pushArticleToWebflow(cfg: WebflowUploadConfig, input: WebflowPushInput): Promise<WebflowPushResult> {
   const token = cfg.apiToken
   const cid = cfg.collectionId
@@ -125,6 +141,7 @@ export async function pushArticleToWebflow(cfg: WebflowUploadConfig, input: Webf
     if (assets.size) {
       let siteId = cfg.siteId
       if (!siteId) siteId = (await getCollection()).siteId
+      if (!siteId) siteId = (await findWebflowSiteIdForCollection(token, cid)) ?? undefined
       if (!siteId) return { ok: false, error: 'หา Webflow site ของ Collection ไม่เจอ — กดทดสอบการเชื่อมต่อใหม่' }
       const sid = siteId
       await mapLimit(Array.from(assets.entries()), 3, async ([md5, a]) => {

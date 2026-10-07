@@ -7,6 +7,7 @@ import { HEAVY_PREF_KEYS } from './prefs-store'
 import { readImageDefaults } from './article-images'
 import { uploadCtaSummary } from './cta'
 import { uploadAuthorSummary } from './author'
+import { connectionFingerprint, readConnectionTest } from './connection-status'
 
 function safeParse<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback
@@ -91,6 +92,7 @@ export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCoun
   // key หนัก (keywordPlan/internalLinks) ไม่ส่งไปกับ DTO นี้ — หน้า UI โหลดผ่าน route เฉพาะของมันเอง
   const pushPrefs: UploadPushPrefs = { ...rawPrefs }
   for (const key of HEAVY_PREF_KEYS) delete (pushPrefs as Record<string, unknown>)[key]
+  delete (pushPrefs as Record<string, unknown>).connectionTest // ส่งเป็น connectionStatus แทน (ไม่ส่ง fp)
   const cardSel = sanitizeCardSel((rawPrefs as Record<string, unknown>).cardSel)
   if (cardSel) pushPrefs.cardSel = cardSel
   else delete pushPrefs.cardSel
@@ -112,6 +114,12 @@ export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCoun
     siteConnectionMasked: maskSiteConnection(row.siteConnection),
     ctaSummary: uploadCtaSummary((rawPrefs as Record<string, unknown>).cta),
     authorSummary: uploadAuthorSummary((rawPrefs as Record<string, unknown>).author),
+    connectionStatus: (() => {
+      const t = readConnectionTest((rawPrefs as Record<string, unknown>).connectionTest)
+      if (!t) return null
+      const stale = t.platform !== (row.websitePlatform || 'wordpress') || t.fp !== connectionFingerprint(row)
+      return { platform: t.platform, ok: t.ok, message: t.message, at: t.at, stale }
+    })(),
     counts,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
