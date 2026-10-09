@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
+import { setImageAltAt, setImageAltBySrc } from '@/lib/upload-article/image-alt'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
@@ -66,6 +67,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   if (typeof body.metaDescription === 'string') data.metaDescription = body.metaDescription.trim().slice(0, 300)
   if (typeof body.slug === 'string') data.slug = sanitizeSlug(body.slug)
   if (typeof body.coverAlt === 'string') data.coverAlt = body.coverAlt.trim().slice(0, 200)
+  // แก้ alt ของรูปในเนื้อหาทีละรูป (ส่งแค่ลำดับ + ข้อความ ไม่ต้องส่ง HTML ก้อนใหญ่ที่มีรูป base64)
+  // แก้ทั้ง htmlContent และรูปเดียวกันในต้นฉบับ — Generate ใหม่แล้ว alt ไม่หาย
+  if (body.imageAlt && typeof body.imageAlt === 'object' && typeof body.htmlContent !== 'string') {
+    const index = Number(body.imageAlt.index)
+    const alt = typeof body.imageAlt.alt === 'string' ? body.imageAlt.alt.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+    if (!Number.isInteger(index) || index < 0 || !existing.htmlContent) {
+      return NextResponse.json({ error: 'ไม่พบรูปที่จะแก้ alt' }, { status: 400 })
+    }
+    const res = setImageAltAt(existing.htmlContent, index, alt)
+    if (!res) return NextResponse.json({ error: 'ไม่พบรูปที่จะแก้ alt — โหลดบทความใหม่แล้วลองอีกครั้ง' }, { status: 409 })
+    data.htmlContent = res.html
+    const nextSource = setImageAltBySrc(existing.sourceHtml || '', res.src, alt)
+    if (nextSource !== existing.sourceHtml) data.sourceHtml = nextSource
+  }
   if (body.coverImageUrl === null) {
     data.coverImageUrl = null
   } else if (typeof body.coverImageUrl === 'string') {

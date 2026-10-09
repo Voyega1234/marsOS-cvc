@@ -19,6 +19,7 @@ import { listH2Sections, insertFigureAfterH2 } from "@/components/upload-article
 import DriveImagesPanel from "@/components/upload-article/shared/DriveImagesPanel";
 import AiImagesPanel from "@/components/upload-article/shared/AiImagesPanel";
 import PublishDatePanel from "@/components/upload-article/shared/PublishDatePanel";
+import ArticleImagesPanel from "@/components/upload-article/shared/ArticleImagesPanel";
 
 const PAGE_BG_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i;
 
@@ -394,6 +395,23 @@ export default function ReviewTab({
               </div>
             )}
           </div>
+
+          {html && (
+            <ArticleImagesPanel
+              html={html}
+              coverImageUrl={detail.coverImageUrl}
+              onSaveAlt={async (index, alt) => {
+                const d = await patchArticle(detail.id, { imageAlt: { index, alt } });
+                if (d) toast.success("บันทึก alt แล้ว");
+                return !!d;
+              }}
+              onSetCover={async (src, alt) => {
+                const d = await patchArticle(detail.id, { coverImageUrl: src, coverAlt: alt || coverAlt || detail.title });
+                if (d) { setCoverAlt(d.coverAlt || ""); toast.success("ตั้งเป็นภาพปกแล้ว"); }
+                return !!d;
+              }}
+            />
+          )}
 
           <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
             <p className="text-xs font-bold text-brand-navy">แทรกรูปในเนื้อหา</p>
