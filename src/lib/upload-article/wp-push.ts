@@ -76,17 +76,32 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
  * (HTML สั้นลงมาก และ WordPress บางเว็บตัด data: URI ทิ้ง) อัปไม่สำเร็จ = คงรูปเดิมไว้
  * อัปพร้อมกันไม่เกิน 3 รูป — data URI ซ้ำ (Map dedupe โดย key) อัปครั้งเดียว
  */
+/** alt ของแท็ก <img> ที่ครอบตำแหน่ง pos (ตำแหน่ง src ใน html) — ถอด entity พื้นฐาน, ไม่มี = '' */
+function imgAltAt(html: string, pos: number): string {
+  const start = html.lastIndexOf('<img', pos)
+  const end = html.indexOf('>', pos)
+  if (start < 0 || end < 0) return ''
+  const tag = html.slice(start, end + 1)
+  const alt = /\balt="([^"]*)"/i.exec(tag)?.[1] || ''
+  return alt.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim()
+}
+
 async function replaceInlineImages(
   wpUrl: string, creds: string, html: string, title: string, known: Map<string, string>,
 ): Promise<string> {
   const re = /src="(data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+))"/gi
-  const found = new Map<string, { mime: string; base64: string }>()
+  const found = new Map<string, { mime: string; base64: string; alt: string }>()
   let m: RegExpExecArray | null
-  while ((m = re.exec(html))) found.set(m[1], { mime: m[2].toLowerCase(), base64: m[3] })
+  while ((m = re.exec(html))) {
+    if (found.get(m[1])?.alt) continue
+    found.set(m[1], { mime: m[2].toLowerCase(), base64: m[3], alt: imgAltAt(html, m.index) })
+  }
   const toUpload = Array.from(found.entries()).filter(([dataUri]) => !known.has(dataUri))
   const uploadedNow = new Map<string, string>()
   await mapWithConcurrency(toUpload, 3, async ([dataUri, img]) => {
-    const result = await uploadMedia(wpUrl, creds, img.base64, img.mime, title, title)
+    // ชื่อรูปใน Media Library = alt ของรูปนั้น (ไม่มี alt = ชื่อบทความแบบเดิม)
+    const name = img.alt || title
+    const result = await uploadMedia(wpUrl, creds, img.base64, img.mime, name, name)
     if (result?.url) uploadedNow.set(dataUri, result.url)
   })
   let out = html
