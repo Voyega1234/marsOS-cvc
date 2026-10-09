@@ -20,6 +20,28 @@ import DriveImagesPanel from "@/components/upload-article/shared/DriveImagesPane
 import AiImagesPanel from "@/components/upload-article/shared/AiImagesPanel";
 import PublishDatePanel from "@/components/upload-article/shared/PublishDatePanel";
 
+const PAGE_BG_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i;
+
+/** พื้นหลังตอนแก้ไขให้ตรงกับ Preview (สีพื้นหน้าเว็บปลายทาง) — รับเฉพาะ hex/rgb */
+function editBackground(pageBackground?: string): string {
+  const bg = (pageBackground || "").trim();
+  return bg && PAGE_BG_RE.test(bg) ? bg : "#fff";
+}
+
+/** โหมด "สีอ่านง่าย" — บังคับตัวอักษรเข้มบนพื้นขาว อยู่นอกตัว editor จึงไม่ถูกบันทึกลงบทความ */
+const EDIT_READABLE_CSS = `
+.ua-edit-readable .cc-scoped-editor,
+.ua-edit-readable .cc-scoped-editor *:not(img):not(svg) {
+  color: #111827 !important;
+  background-color: transparent !important;
+  -webkit-text-fill-color: #111827 !important;
+}
+.ua-edit-readable .cc-scoped-editor a, .ua-edit-readable .cc-scoped-editor a * {
+  color: #1d4ed8 !important;
+  -webkit-text-fill-color: #1d4ed8 !important;
+}
+`;
+
 const MAX_PATCH_BYTES = 4_000_000;
 
 export default function ReviewTab({
@@ -35,6 +57,8 @@ export default function ReviewTab({
   applyArticleUpdate: (a: UploadArticleDTO) => void;
 }) {
   const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
+  // สีตอนแก้ไขเท่านั้น — ใส่ที่กรอบนอก editorRef จึงไม่ติดไปกับ innerHTML ที่บันทึก/push
+  const [editTone, setEditTone] = useState<"site" | "readable">("site");
   const editorRef = useRef<HTMLDivElement>(null);
   const [editSaving, setEditSaving] = useState(false);
 
@@ -273,6 +297,13 @@ export default function ReviewTab({
                   แก้ไข
                 </button>
                 {viewMode === "edit" && (
+                  <button onClick={() => setEditTone(t => (t === "site" ? "readable" : "site"))}
+                    title="เปลี่ยนสีเฉพาะตอนแก้ไข ไม่มีผลกับบทความที่บันทึก/push"
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${editTone === "readable" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-500 border-gray-200"}`}>
+                    {editTone === "readable" ? "สีอ่านง่าย ✓" : "สีอ่านง่าย"}
+                  </button>
+                )}
+                {viewMode === "edit" && (
                   <Button size="sm" disabled={editSaving} onClick={saveEditedHtml}>
                     {editSaving ? "กำลังบันทึก..." : "บันทึก"}
                   </Button>
@@ -282,7 +313,11 @@ export default function ReviewTab({
             <div className="border border-gray-200 rounded-xl overflow-hidden max-h-[55vh] overflow-y-auto">
               {viewMode === "preview" && <ArticleFrame html={html} pageBackground={client.theme.pageBackground} />}
               {viewMode === "edit" && (
-                <ScopedEditable html={html} editorRef={editorRef} className="p-5 outline-none min-h-[200px]" />
+                <div className={editTone === "readable" ? "ua-edit-readable" : ""}
+                  style={{ background: editTone === "site" ? editBackground(client.theme.pageBackground) : "#fff" }}>
+                  {editTone === "readable" && <style>{EDIT_READABLE_CSS}</style>}
+                  <ScopedEditable html={html} editorRef={editorRef} className="p-5 outline-none min-h-[200px]" />
+                </div>
               )}
             </div>
 

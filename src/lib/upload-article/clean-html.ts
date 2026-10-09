@@ -142,6 +142,23 @@ function wrapNodes(tag: 'strong' | 'em', nodes: Node[]): HTMLElement {
   return shell
 }
 
+// ตัวนับเลขลิสต์ของ Google Docs ต่อ list id (class lst-kix_<id>-<level>) — ใช้เมื่อ <ol> ไม่มี start
+let listCounters = new Map<string, number>()
+
+/** เลขเริ่มของ <ol>: ใช้ start ถ้ามี ไม่งั้นนับต่อจากก้อนก่อนหน้าของลิสต์ Google Docs เดียวกัน (ก้อนที่มี class "start" = เริ่มใหม่) */
+function olStartNumber(el: HTMLElement): number {
+  const classes = (el.getAttribute('class') || '').split(/\s+/)
+  const listId = classes.find(c => /^lst-kix_/.test(c))
+  const items = el.childNodes.filter(n => n.nodeType === NodeType.ELEMENT_NODE && (n as HTMLElement).tagName.toLowerCase() === 'li').length
+  const raw = parseInt(el.getAttribute('start') || '', 10)
+  let start: number
+  if (Number.isFinite(raw) && raw >= 1) start = raw
+  else if (listId && !classes.includes('start')) start = (listCounters.get(listId) ?? 0) + 1
+  else start = 1
+  if (listId) listCounters.set(listId, start + items - 1)
+  return Math.min(start, 100000)
+}
+
 /** ทำความสะอาด element หนึ่งตัวแบบ bottom-up (mutate in place ผ่าน node-html-parser API) */
 function cleanElement(el: HTMLElement): void {
   const tag = el.tagName.toLowerCase()
@@ -176,6 +193,13 @@ function cleanElement(el: HTMLElement): void {
     }
     const alt = el.getAttribute('alt') || ''
     el.setAttributes({ src, alt })
+    return
+  }
+  if (tag === 'ol') {
+    // Google Docs แตกลิสต์ตัวเลขที่มีเนื้อหาคั่น (เช่น หัวข้อ 1/2/3) เป็น <ol> แยกก้อน — เลขต่อเนื่องอยู่ที่ start
+    // ตัดทิ้งแล้วทุกก้อนจะกลับเป็น "1." หมด จึงเก็บ start ที่เป็นตัวเลข > 1 ไว้
+    const start = olStartNumber(el)
+    el.setAttributes(start > 1 ? { start: String(start) } : {})
     return
   }
   if (BLOCK_PASSTHROUGH.has(tag)) {
@@ -269,6 +293,7 @@ function stripEmptyParagraphs(html: string): string {
  */
 export function cleanSemanticHtml(rawHtml: string): string {
   collectFormatClasses(String(rawHtml || ''))
+  listCounters = new Map()
   const stripped = String(rawHtml || '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
