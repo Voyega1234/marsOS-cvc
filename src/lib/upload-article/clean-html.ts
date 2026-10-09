@@ -268,6 +268,46 @@ export function stripGoogleDocsCommentsHtml(html: string): string {
   return root.toString()
 }
 
+// คำบรรยายที่ผู้เขียนใส่ใต้รูปเพื่อบอก alt เช่น "(Alt: ระบบ Sentricon กำจัดปลวก)" / "Alt text: ..."
+const ALT_CAPTION_RE = /^\(?\s*alt(?:\s*text)?\s*[:：]\s*([\s\S]*?)\s*\)?\s*$/i
+
+/**
+ * ย้ายคำบรรยาย "(Alt: ...)" ใต้รูปไปเป็น alt ของรูปนั้น แล้วลบข้อความออกจากบทความ
+ * - <p> ที่มีแต่คำบรรยาย: ใช้รูปสุดท้ายในบล็อกก่อนหน้า (ข้าม <p> ว่าง) — ไม่มีรูปก่อนหน้า = ไม่แตะ
+ * - <p> ที่มีรูป + คำบรรยายในก้อนเดียวกัน: เหลือแค่รูป
+ */
+function applyAltCaptions(root: HTMLElement): void {
+  for (const p of root.querySelectorAll('p')) {
+    const m = ALT_CAPTION_RE.exec(p.text.replace(/\u00a0/g, ' ').trim())
+    const alt = m?.[1]?.replace(/\s+/g, ' ').trim()
+    if (!alt) continue
+    const own = p.querySelectorAll('img')
+    if (own.length > 0) {
+      const img = own[own.length - 1]
+      img.setAttribute('alt', alt)
+      p.childNodes = own
+      continue
+    }
+    let prev = p.previousElementSibling
+    while (prev && prev.tagName.toLowerCase() === 'p' && !prev.text.trim() && prev.querySelectorAll('img').length === 0) {
+      prev = prev.previousElementSibling
+    }
+    if (!prev) continue
+    const imgs = prev.tagName.toLowerCase() === 'img' ? [prev] : prev.querySelectorAll('img')
+    if (imgs.length === 0) continue
+    imgs[imgs.length - 1].setAttribute('alt', alt)
+    p.remove()
+  }
+}
+
+/** ใช้กับต้นฉบับที่นำเข้าไปแล้ว (ตอน Generate) — ต้นฉบับเก่ายังมีคำบรรยาย Alt ค้างอยู่ */
+export function applyAltCaptionsHtml(html: string): string {
+  if (!html || !/alt(?:\s*text)?\s*[:：]/i.test(html)) return html
+  const root = parse(html, { comment: true })
+  applyAltCaptions(root)
+  return root.toString()
+}
+
 /** ครอบ text node เดี่ยว ๆ ที่หลุดอยู่ระดับบนสุด (ไม่มี <p> ห่อ) ให้เป็น <p> */
 function wrapStrayTextAtRoot(root: HTMLElement): void {
   const next: (typeof root.childNodes) = []
@@ -309,6 +349,7 @@ export function cleanSemanticHtml(rawHtml: string): string {
     if (child.nodeType === NodeType.ELEMENT_NODE) cleanElement(child as HTMLElement)
   }
   wrapStrayTextAtRoot(root)
+  applyAltCaptions(root)
 
   return mergeSplitInline(stripEmptyParagraphs(decodeTextEntities(root.innerHTML))).trim()
 }
