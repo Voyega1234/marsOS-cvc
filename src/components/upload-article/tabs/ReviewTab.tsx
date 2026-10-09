@@ -14,7 +14,7 @@ import ScopedEditable from "@/components/shared/ScopedEditable";
 import { fileToDownscaledDataUrl } from "@/lib/imageDownscale";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import SerpPreview from "@/components/upload-article/shared/SerpPreview";
-import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
+import UploadStatusBadge, { UPLOAD_STATUS_OPTIONS } from "@/components/upload-article/shared/StatusBadge";
 import { listH2Sections, insertFigureAfterH2 } from "@/components/upload-article/shared/htmlSections";
 import DriveImagesPanel from "@/components/upload-article/shared/DriveImagesPanel";
 import AiImagesPanel from "@/components/upload-article/shared/AiImagesPanel";
@@ -58,6 +58,7 @@ export default function ReviewTab({
   applyArticleUpdate: (a: UploadArticleDTO) => void;
 }) {
   const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
+  const [statusFilter, setStatusFilter] = useState<string>("");
   // สีตอนแก้ไขเท่านั้น — ใส่ที่กรอบนอก editorRef จึงไม่ติดไปกับ innerHTML ที่บันทึก/push
   const [editTone, setEditTone] = useState<"site" | "readable">("site");
   const editorRef = useRef<HTMLDivElement>(null);
@@ -82,6 +83,8 @@ export default function ReviewTab({
 
   const detail = selectedId ? articleDetails[selectedId] : null;
   const html = detail?.htmlContent || "";
+  const statusCounts = articles.reduce<Record<string, number>>((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc; }, {});
+  const visibleArticles = statusFilter ? articles.filter(a => a.status === statusFilter) : articles;
 
   useEffect(() => {
     if (detail) {
@@ -265,9 +268,20 @@ export default function ReviewTab({
     <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_340px] gap-4 items-start">
       {/* รายการบทความ */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-3 py-2.5 border-b border-gray-100 text-xs font-semibold text-gray-500">บทความ ({articles.length})</div>
+        <div className="px-3 py-2.5 border-b border-gray-100 space-y-1.5">
+          <p className="text-xs font-semibold text-gray-500">
+            บทความ ({statusFilter ? `${visibleArticles.length}/${articles.length}` : articles.length})
+          </p>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+            <option value="">ทุกสถานะ ({articles.length})</option>
+            {UPLOAD_STATUS_OPTIONS.filter(o => statusCounts[o.value] || o.value === statusFilter).map(o => (
+              <option key={o.value} value={o.value}>{o.label} ({statusCounts[o.value] || 0})</option>
+            ))}
+          </select>
+        </div>
         <div className="max-h-[70vh] overflow-y-auto divide-y divide-gray-50">
-          {articles.map(a => (
+          {visibleArticles.map(a => (
             <button key={a.id} onClick={() => setSelectedId(a.id)}
               className={`w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors ${selectedId === a.id ? "bg-brand-mist/40" : ""}`}>
               <p className="text-xs font-medium text-brand-navy truncate">{a.title}</p>
@@ -275,6 +289,7 @@ export default function ReviewTab({
             </button>
           ))}
           {articles.length === 0 && <p className="text-xs text-gray-400 text-center py-8">ยังไม่มีบทความ</p>}
+          {articles.length > 0 && visibleArticles.length === 0 && <p className="text-xs text-gray-400 text-center py-8">ไม่มีบทความในสถานะนี้</p>}
         </div>
       </div>
 
@@ -403,6 +418,11 @@ export default function ReviewTab({
               onSaveAlt={async (index, alt) => {
                 const d = await patchArticle(detail.id, { imageAlt: { index, alt } });
                 if (d) toast.success("บันทึก alt แล้ว");
+                return !!d;
+              }}
+              onSaveLink={async (index, href) => {
+                const d = await patchArticle(detail.id, { imageLink: { index, href } });
+                if (d) toast.success(href ? "ใส่ลิงก์ให้รูปแล้ว" : "เอาลิงก์ออกจากรูปแล้ว");
                 return !!d;
               }}
               onSetCover={async (src, alt) => {

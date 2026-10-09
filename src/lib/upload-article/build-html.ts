@@ -398,6 +398,18 @@ function wrapComponents(blocks: HTMLElement[], titleFallback: string): HTMLEleme
       parent.setAttribute('class', (cls ? `${cls} ` : '') + 'content-figure')
       continue
     }
+    // รูปที่ใส่ลิงก์ไว้ <p><a><img></a></p> → <figure><a><img></a></figure> (กดรูปแล้วไปลิงก์)
+    if (parentTag === 'a' && parent.childNodes.every((n: Node) => n === img || (n.nodeType === NodeType.TEXT_NODE && (n as TextNode).isWhitespace))) {
+      const grand = parent.parentNode as HTMLElement | null
+      const grandTag = grand?.tagName?.toLowerCase()
+      if (grand && grandTag === 'p' && grand.childNodes.every((n: Node) => n === parent || (n.nodeType === NodeType.TEXT_NODE && (n as TextNode).isWhitespace))) {
+        grand.replaceWith(`<figure class="content-figure">${parent.outerHTML}</figure>`)
+      } else if (grand && grandTag === 'figure') {
+        const cls = grand.getAttribute('class') || ''
+        if (!/\bcontent-figure\b/.test(cls)) grand.setAttribute('class', (cls ? `${cls} ` : '') + 'content-figure')
+      }
+      continue
+    }
     if (parentTag === 'p') {
       const meaningfulSiblings = parent.childNodes.filter((n: Node) => {
         if (n === img) return false

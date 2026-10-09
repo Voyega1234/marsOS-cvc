@@ -3,8 +3,8 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
-import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
-import { setImageAltAt, setImageAltBySrc } from '@/lib/upload-article/image-alt'
+import { stripGoogleDocsCommentsHtml, sanitizeHref } from '@/lib/upload-article/clean-html'
+import { setImageAltAt, setImageAltBySrc, setImageLinkAt, setImageLinkBySrc } from '@/lib/upload-article/image-alt'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
@@ -79,6 +79,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
     if (!res) return NextResponse.json({ error: 'ไม่พบรูปที่จะแก้ alt — โหลดบทความใหม่แล้วลองอีกครั้ง' }, { status: 409 })
     data.htmlContent = res.html
     const nextSource = setImageAltBySrc(existing.sourceHtml || '', res.src, alt)
+    if (nextSource !== existing.sourceHtml) data.sourceHtml = nextSource
+  }
+  // ลิงก์บนรูป (กดรูปแล้วไปลิงก์) — รับเฉพาะ http(s) หรือ path ในเว็บ, ค่าว่าง = เอาลิงก์ออก
+  if (body.imageLink && typeof body.imageLink === 'object' && typeof body.htmlContent !== 'string' && !body.imageAlt) {
+    const index = Number(body.imageLink.index)
+    const raw = typeof body.imageLink.href === 'string' ? body.imageLink.href.trim().slice(0, 2000) : ''
+    const href = raw ? sanitizeHref(raw) : ''
+    if (raw && (!href || !/^(https?:\/\/|\/)/i.test(href))) {
+      return NextResponse.json({ error: 'ลิงก์ต้องขึ้นต้นด้วย https:// หรือ /' }, { status: 400 })
+    }
+    if (!Number.isInteger(index) || index < 0 || !existing.htmlContent) {
+      return NextResponse.json({ error: 'ไม่พบรูปที่จะใส่ลิงก์' }, { status: 400 })
+    }
+    const res = setImageLinkAt(existing.htmlContent, index, href)
+    if (!res) return NextResponse.json({ error: 'ไม่พบรูปที่จะใส่ลิงก์ — โหลดบทความใหม่แล้วลองอีกครั้ง' }, { status: 409 })
+    data.htmlContent = res.html
+    const nextSource = setImageLinkBySrc(existing.sourceHtml || '', res.src, href)
     if (nextSource !== existing.sourceHtml) data.sourceHtml = nextSource
   }
   if (body.coverImageUrl === null) {

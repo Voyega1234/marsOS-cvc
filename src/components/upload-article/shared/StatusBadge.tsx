@@ -10,6 +10,9 @@ const CONFIG: Record<UploadArticleStatus, { label: string; className: string }> 
   FAILED: { label: "Push ไม่สำเร็จ", className: "bg-rose-100 text-rose-600" },
 };
 
+/** ลำดับ + ชื่อสถานะ ใช้ทำตัวกรองรายการบทความ */
+export const UPLOAD_STATUS_OPTIONS = (Object.keys(CONFIG) as UploadArticleStatus[]).map(value => ({ value, label: CONFIG[value].label }));
+
 export default function UploadStatusBadge({ status, className = "" }: { status: string; className?: string }) {
   const cfg = CONFIG[status as UploadArticleStatus] ?? { label: status, className: "bg-gray-100 text-gray-500" };
   return (
