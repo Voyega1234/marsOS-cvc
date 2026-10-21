@@ -84,7 +84,8 @@ export default function PushTab({
   const [pushBusy, setPushBusy] = useState<Record<string, boolean>>({});
   const [batchBusy, setBatchBusy] = useState(false);
   const [pushResult, setPushResult] = useState<Record<string, { ok: boolean; postUrl?: string; error?: string; warning?: string }>>({});
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // รายการ card ของแต่ละบทความหุบไว้ก่อน (ยาว) — กดขยายเอง
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const platform = uploadPlatformOf(client);
   const platformLabel = UPLOAD_PLATFORM_LABEL[platform];
   const caps = pushCapabilities(platform);
@@ -565,10 +566,10 @@ export default function PushTab({
               )}
               {parsed && (() => {
                 const offCount = parsed.cards.filter(c => !isCardOn(a.id, c.id)).length;
-                const isOpen = !collapsed[a.id];
+                const isOpen = !!expanded[a.id];
                 return (
                   <div className="border border-gray-100 rounded-lg">
-                    <button onClick={() => setCollapsed(prev => ({ ...prev, [a.id]: isOpen }))} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-gray-600 hover:text-brand-navy">
+                    <button onClick={() => setExpanded(prev => ({ ...prev, [a.id]: !isOpen }))} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-gray-600 hover:text-brand-navy">
                       {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                       {parsed.cards.length} Cards{offCount ? ` (ไม่ push ${offCount})` : ""}
                     </button>
