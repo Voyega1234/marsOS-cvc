@@ -99,5 +99,5 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   // เว้น static assets ทั้งหมด — ที่เหลือผ่าน middleware หมดรวม /api
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|mjs)$).*)"],
 };

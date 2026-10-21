@@ -4,6 +4,8 @@ import { Check, FileText, Loader2, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
+import { readPdfText } from '@/lib/pdf-text-client'
+
 /** ผลลัพธ์ที่ทีมกดใส่ Project Context ได้ — parent เป็นคนตัดสินว่าจะแทนที่หรือต่อท้ายข้อความเดิม */
 export interface ContextFilesApply {
   projectContext: string
@@ -20,8 +22,14 @@ interface ContextFilesResult {
 
 const ALLOWED_EXT = ['.csv', '.pdf']
 const MAX_FILES = 5
-const MAX_FILE_BYTES = 10 * 1024 * 1024
-const MAX_TOTAL_BYTES = 4 * 1024 * 1024
+/** เบราว์เซอร์อ่านข้อความเองแล้วส่งแค่ข้อความ ไฟล์จึงใหญ่ได้ — เพดานนี้กันแท็บค้างตอนเปิด PDF ยักษ์ */
+const MAX_FILE_BYTES = 50 * 1024 * 1024
+/**
+ * งบไฟล์ดิบต่อ request — Vercel ตัด body เกิน ~4.5MB ทิ้งเงียบ เผื่อที่ให้ข้อความจากเบราว์เซอร์ (≤ ~0.9MB)
+ * ไฟล์ที่อยู่ในงบส่งดิบให้ pdf-parse บนเซิร์ฟเวอร์อ่าน (ภาษาไทยสะอาดกว่า pdf.js ที่แทรกช่องว่างกลางคำ)
+ * ไฟล์ที่เกินงบให้เบราว์เซอร์อ่านเป็นข้อความแทน
+ */
+const MAX_RAW_TOTAL_BYTES = 3 * 1024 * 1024
 
 function isAllowed(file: File): boolean {
   const ext = '.' + (file.name.split('.').pop()?.toLowerCase() ?? '')
@@ -59,7 +67,7 @@ export function LabContextFilesCard({
     const accepted: File[] = []
     for (const f of incoming) {
       if (!isAllowed(f)) { rejected.push(`${f.name} (นามสกุลไม่รองรับ)`); continue }
-      if (f.size > MAX_FILE_BYTES) { rejected.push(`${f.name} (ใหญ่เกิน 10MB)`); continue }
+      if (f.size > MAX_FILE_BYTES) { rejected.push(`${f.name} (ใหญ่เกิน 50MB)`); continue }
       accepted.push(f)
     }
     if (rejected.length) toast.error(`ข้ามไฟล์: ${rejected.join(', ')}`)
@@ -84,15 +92,31 @@ export function LabContextFilesCard({
       toast.error('ยังไม่ได้เลือกไฟล์ — วางไฟล์ .csv หรือ .pdf ก่อน')
       return
     }
-    if (totalBytes > MAX_TOTAL_BYTES) {
-      toast.error(`ไฟล์รวมกันใหญ่เกิน 4MB (ตอนนี้ ${formatSize(totalBytes)}) — ลดจำนวนไฟล์หรือบีบอัดก่อน`)
-      return
-    }
     setBusy(true)
     setResult(null)
     try {
+      // ไฟล์ที่ยังอยู่ในงบส่งดิบตามเดิม ไฟล์ที่เกินงบให้เบราว์เซอร์อ่านเป็นข้อความแล้วส่งแค่ข้อความ
+      const texts: { name: string; kind: 'pdf' | 'csv'; text: string; pages?: number }[] = []
+      const raw: File[] = []
+      let rawBytes = 0
+      for (const f of files) {
+        if (rawBytes + f.size <= MAX_RAW_TOTAL_BYTES) {
+          raw.push(f)
+          rawBytes += f.size
+        } else if (f.name.toLowerCase().endsWith('.pdf')) {
+          try {
+            const { text, pages } = await readPdfText(f)
+            texts.push({ name: f.name, kind: 'pdf', text, pages })
+          } catch (err) {
+            throw new Error(`อ่านไฟล์ ${f.name} ในเบราว์เซอร์ไม่ได้ (${(err as Error).message}) — บีบอัดให้ต่ำกว่า 3MB แล้วลองใหม่`)
+          }
+        } else {
+          texts.push({ name: f.name, kind: 'csv', text: (await f.text()).slice(0, 200_000) })
+        }
+      }
       const form = new FormData()
-      for (const f of files) form.append('files', f)
+      if (texts.length) form.append('texts', JSON.stringify(texts))
+      for (const f of raw) form.append('files', f)
       const res = await fetch(`/api/projects/${projectId}/context-files`, { method: 'POST', body: form })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`)
@@ -119,7 +143,7 @@ export function LabContextFilesCard({
       </div>
       <p className="text-[10px] text-gray-400 leading-relaxed mb-2">
         ลากไฟล์รายการสินค้า ราคา โบรชัวร์ หรือเอกสารบริษัทมาวาง ระบบจะอ่านแล้วสรุปเป็นบริบทธุรกิจ
-        และเติมลง Business Skill ของโปรเจกต์นี้ให้ (สูงสุด {MAX_FILES} ไฟล์ รวมไม่เกิน 4MB)
+        และเติมลง Business Skill ของโปรเจกต์นี้ให้ (สูงสุด {MAX_FILES} ไฟล์ ไฟล์ละไม่เกิน 50MB)
       </p>
 
       <div
@@ -137,7 +161,7 @@ export function LabContextFilesCard({
       >
         <Upload size={16} className="text-gray-400" />
         <span className="text-[11px] text-gray-500">ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์</span>
-        <span className="text-[10px] text-gray-300">.csv, .pdf — ไฟล์ละไม่เกิน 10MB</span>
+        <span className="text-[10px] text-gray-300">.csv, .pdf — ไฟล์ละไม่เกิน 50MB</span>
         <input
           ref={inputRef}
           type="file"
@@ -160,9 +184,7 @@ export function LabContextFilesCard({
               </button>
             </div>
           ))}
-          <p className={`text-[10px] ${totalBytes > MAX_TOTAL_BYTES ? 'text-red-500' : 'text-gray-400'}`}>
-            รวม {formatSize(totalBytes)} / 4 MB
-          </p>
+          <p className="text-[10px] text-gray-400">รวม {formatSize(totalBytes)}</p>
         </div>
       )}
 

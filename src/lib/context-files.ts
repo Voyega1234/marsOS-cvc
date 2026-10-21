@@ -14,6 +14,14 @@ export interface ContextFileInput {
   buffer: Buffer
 }
 
+/** ข้อความที่เบราว์เซอร์อ่านจากไฟล์มาแล้ว — ส่งแทนไฟล์ทั้งก้อนเพื่อไม่ชนเพดาน body ของ Vercel */
+export interface ContextTextInput {
+  name: string
+  kind: 'pdf' | 'csv'
+  text: string
+  pages?: number
+}
+
 export interface ExtractedFile {
   name: string
   /** จำนวนตัวอักษรก่อนตัด (ไว้เตือนถ้าไฟล์ยาวมากจนถูกตัดทิ้งบางส่วน) */
@@ -87,14 +95,18 @@ function csvToText(name: string, raw: string): ExtractedFile {
   return { name, originalChars, text: lines.join('\n'), warning: warnings.join(' · ') || undefined }
 }
 
+function pdfTextToFile(name: string, raw: string, pages: number): ExtractedFile {
+  const text = (raw ?? '').trim()
+  if (!text) {
+    return { name, originalChars: 0, text: '(ไฟล์ PDF นี้ไม่มีข้อความ อาจเป็นภาพสแกน)', warning: 'ไม่พบข้อความในไฟล์ (อาจเป็น PDF ภาพสแกน)' }
+  }
+  return { name, originalChars: text.length, text: `ไฟล์: ${name} (PDF — ${pages} หน้า)\n${text}` }
+}
+
 async function pdfToText(name: string, buffer: Buffer): Promise<ExtractedFile> {
   try {
     const data = await pdfParse(buffer)
-    const text = (data.text ?? '').trim()
-    if (!text) {
-      return { name, originalChars: 0, text: '(ไฟล์ PDF นี้ไม่มีข้อความ อาจเป็นภาพสแกน)', warning: 'ไม่พบข้อความในไฟล์ (อาจเป็น PDF ภาพสแกน)' }
-    }
-    return { name, originalChars: text.length, text: `ไฟล์: ${name} (PDF — ${data.numpages} หน้า)\n${text}` }
+    return pdfTextToFile(name, data.text ?? '', data.numpages)
   } catch (err) {
     return { name, originalChars: 0, text: `(อ่านไฟล์ ${name} ไม่สำเร็จ)`, warning: `อ่าน PDF ไม่สำเร็จ: ${(err as Error).message}` }
   }
@@ -104,8 +116,15 @@ async function pdfToText(name: string, buffer: Buffer): Promise<ExtractedFile> {
  * แปลงไฟล์ CSV/PDF ที่อัปโหลดมาเป็นข้อความรวม พร้อมคำเตือนต่อไฟล์
  * ความยาวรวมทุกไฟล์ถูกตัดไม่ให้เกิน TOTAL_MAX_CHARS กันโมเดลรับข้อมูลเกินเพดาน token
  */
-export async function extractText(files: ContextFileInput[]): Promise<{ files: ExtractedFile[]; combinedText: string; warnings: string[] }> {
+export async function extractText(
+  files: ContextFileInput[],
+  texts: ContextTextInput[] = [],
+): Promise<{ files: ExtractedFile[]; combinedText: string; warnings: string[] }> {
   const results: ExtractedFile[] = []
+  // ข้อความที่เบราว์เซอร์อ่านมาให้แล้ว (pdf.js / CSV) — ไม่ต้องส่งไฟล์ทั้งก้อน
+  for (const t of texts) {
+    results.push(t.kind === 'pdf' ? pdfTextToFile(t.name, t.text, t.pages ?? 0) : csvToText(t.name, t.text))
+  }
   for (const f of files) {
     const isPdf = f.mime === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
     if (isPdf) {
