@@ -173,6 +173,11 @@ console.log('H — มาตรฐานโครง: คำถาม FAQ = H3, 
   assert(normalizeFaqAndTakeaways(out) === out, 'แปลงซ้ำไม่เปลี่ยน (idempotent)');
 }
 {
+  const seo = '<h1>T</h1><div class="content-highlight">\n  <p><strong>Key Takeaways</strong></p>\n  <ul><li>k</li></ul>\n</div><div class="content-highlight"><p>อื่น</p></div>';
+  const out = normalizeFaqAndTakeaways(seo);
+  assert(out.startsWith('<h1>T</h1><div class="content-takeaways"><p class="content-takeaways__title">Key Takeaways</p>') && (out.match(/content-highlight/g) || []).length === 1, 'SEO เก่า: Key Takeaways ใน content-highlight ไม่เป็นกล่องซ้อน');
+}
+{
   const html = '<div class="content-article"><h1>T</h1><nav class="content-toc" aria-label="สารบัญ"><p class="content-toc__title">สารบัญ</p><ol><li><a href="#a">A</a></li></ol></nav><p>intro</p><p><strong>สารบัญ</strong></p><ul><li><a href="#a">A</a></li><li><a href="#b">B</a></li></ul><h2 id="a">A</h2><p>x</p></div>';
   const p = parseUploadCards(html);
   const tocs = p.cards.filter((c) => c.type === 'toc');

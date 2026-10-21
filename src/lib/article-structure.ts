@@ -71,7 +71,12 @@ export function faqHeadingToH2(html: string): string {
 /** หัวข้อ Key Takeaways + รายการถัดไป → กล่อง content-takeaways (คง id เดิมไว้ ลิงก์สารบัญเก่ายังกระโดดถึง) */
 export function boxKeyTakeaways(html: string): string {
   const removedIds: string[] = []
+  // AI รุ่นก่อนใส่ Key Takeaways ไว้ในกล่อง content-highlight/notice — แกะกล่องเดิมออกก่อน กันกล่องซ้อนกล่อง
   let out = html.replace(
+    /<div\b[^>]*class="[^"]*\bcontent-(?:highlight|notice)\b[^"]*"[^>]*>\s*(<(h[2-6]|p)\b[^>]*>((?:(?!<\/\2>)[\s\S]){1,200})<\/\2>\s*<(ul|ol)\b[^>]*>[\s\S]*?<\/\4>)\s*<\/div>/gi,
+    (m, inner: string, _tag: string, title: string) => (TAKEAWAYS_HEADING_RE.test(stripTags(title)) ? inner : m),
+  )
+  out = out.replace(
     /<(h[2-6]|p)\b([^>]*)>((?:(?!<\/\1>)[\s\S]){1,200})<\/\1>(\s*)(<(ul|ol)\b[^>]*>[\s\S]*?<\/\6>)/gi,
     (m, _tag: string, attrs: string, inner: string, _ws: string, list: string, listTag: string) => {
       if (/content-takeaways/i.test(attrs)) return m
