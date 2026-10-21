@@ -9,6 +9,8 @@ export const GEN_FIGURE_ATTR = 'data-ua-gen'
 
 const H2_RE = /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi
 const FAQ_HEADING_RE = /(faq|คำถามที่พบบ่อย|คำถามยอดฮิต|ถาม\s*-?\s*ตอบ)/i
+/** หัวข้อสารบัญที่ผู้เขียน/AI เขียนมาในเนื้อหา — ระบบใส่สารบัญเอง ไม่ใช่หัวข้อเนื้อหา (ไม่วางรูป/ไม่ขึ้นปก) */
+export const TOC_HEADING_RE = /^\s*(?:สารบัญ(?:บทความ|เนื้อหา)?|table of contents|contents|in this article)\s*:?\s*$/i
 
 function textOf(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/\s+/g, ' ').trim()
@@ -35,13 +37,13 @@ export function listH2(html: string): H2Slot[] {
 
 /** H2 ที่ใช้เป็นหัวข้อบนปกได้ (ตัด FAQ ออก) — สูงสุด 3 ข้อ */
 export function coverBulletsFromHtml(html: string): string[] {
-  return listH2(html).filter((h) => h.text && !FAQ_HEADING_RE.test(h.text)).map((h) => h.text).slice(0, 3)
+  return listH2(html).filter((h) => h.text && !FAQ_HEADING_RE.test(h.text) && !TOC_HEADING_RE.test(h.text)).map((h) => h.text).slice(0, 3)
 }
 
 /** เลือก H2 ที่จะวางรูปประกอบ กระจายให้ทั่วบทความ (ไม่วางใต้หัวข้อ FAQ) */
 export function pickInlineSlots(html: string, count: number): H2Slot[] {
   const n = Math.max(0, Math.min(UPLOAD_MAX_INLINE_IMAGES, Math.floor(count)))
-  const candidates = listH2(html).filter((h) => h.text && !FAQ_HEADING_RE.test(h.text))
+  const candidates = listH2(html).filter((h) => h.text && !FAQ_HEADING_RE.test(h.text) && !TOC_HEADING_RE.test(h.text))
   if (n === 0 || candidates.length === 0) return []
   if (candidates.length <= n) return candidates
   const picked: H2Slot[] = []

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/upload-article/cards";
 import { AiHelpInline } from "@/components/upload-article/shared/AiHelpPanel";
-import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
+import UploadStatusBadge, { UPLOAD_STATUS_OPTIONS } from "@/components/upload-article/shared/StatusBadge";
 import { formatPublishAt } from "@/components/upload-article/shared/PublishDatePanel";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { parseWriterSourceName } from "@/lib/upload-article/pbn";
@@ -66,6 +66,9 @@ export default function PushTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pbn, targetsKey]);
   const pushable = useMemo(() => articles.filter(a => PUSHABLE.has(a.status)), [articles]);
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const statusCounts = pushable.reduce<Record<string, number>>((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc; }, {});
+  const visible = statusFilter ? pushable.filter(a => a.status === statusFilter) : pushable;
 
   const [publishMode, setPublishMode] = useState<"draft" | "publish">(client.pushPrefs.publishMode ?? "draft");
   const [wpPostType, setWpPostType] = useState<"post" | "page">(client.pushPrefs.wpPostType ?? "post");
@@ -346,6 +349,20 @@ export default function PushTab({
     }
   }
 
+  // เปลี่ยนตัวกรองแล้วตัดบทความที่ซ่อนออกจากที่เลือก — กัน Push ที่เลือกไปโดนบทความที่มองไม่เห็น
+  function changeStatusFilter(v: string) {
+    setStatusFilter(v);
+    if (v) setSelectedIds(prev => new Set(Array.from(prev).filter(id => pushable.find(a => a.id === id)?.status === v)));
+  }
+  const allVisibleSelected = visible.length > 0 && visible.every(a => selectedIds.has(a.id));
+  function toggleSelectVisible() {
+    setSelectedIds(prev => {
+      const n = new Set(prev);
+      for (const a of visible) { if (allVisibleSelected) n.delete(a.id); else n.add(a.id); }
+      return n;
+    });
+  }
+
   function toggleSelect(id: string) {
     setSelectedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
@@ -441,10 +458,28 @@ export default function PushTab({
       </div>
 
       <div className="space-y-3">
+        {pushable.length > 0 && (
+          <div className="flex items-center gap-3 flex-wrap text-xs">
+            <label className="flex items-center gap-1.5 text-gray-600">
+              <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectVisible} /> เลือกทั้งหมดที่แสดง
+            </label>
+            <select value={statusFilter} onChange={e => changeStatusFilter(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+              <option value="">ทุกสถานะ ({pushable.length})</option>
+              {UPLOAD_STATUS_OPTIONS.filter(o => statusCounts[o.value] || o.value === statusFilter).map(o => (
+                <option key={o.value} value={o.value}>{o.label} ({statusCounts[o.value] || 0})</option>
+              ))}
+            </select>
+            {statusFilter && <span className="text-gray-400">แสดง {visible.length}/{pushable.length} บทความ</span>}
+          </div>
+        )}
         {pushable.length === 0 && (
           <p className="text-sm text-gray-400 text-center py-10 bg-white border border-gray-200 rounded-xl">ยังไม่มีบทความที่พร้อม Push (ต้อง Generate ก่อน)</p>
         )}
-        {pushable.map(a => {
+        {pushable.length > 0 && visible.length === 0 && (
+          <p className="text-sm text-gray-400 text-center py-10 bg-white border border-gray-200 rounded-xl">ไม่มีบทความในสถานะนี้</p>
+        )}
+        {visible.map(a => {
           const parsed = parsedMap.get(a.id);
           const result = pushResult[a.id];
           const busy = !!pushBusy[a.id] || (a.status === "PUSHING" && Date.now() - new Date(a.updatedAt).getTime() < 6 * 60 * 1000);

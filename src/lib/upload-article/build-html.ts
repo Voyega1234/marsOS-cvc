@@ -9,6 +9,7 @@ import { type UploadOutputMode, type UploadTheme } from './types'
 import { buildUploadCss } from './theme-css'
 import { decodeTextEntities } from './entities'
 import { stripGoogleDocsCommentsHtml, applyAltCaptionsHtml } from './clean-html'
+import { TOC_HEADING_RE } from './article-images'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import type { UploadCtaSettings } from './cta'
 import { buildAuthorCardHtml, type AuthorCardStyle } from '@/lib/articleAuthorCard'
@@ -207,6 +208,32 @@ function stripAuthorNotes(blocks: HTMLElement[]): HTMLElement[] {
     i = j - 1
   }
   return out
+}
+
+/**
+ * สารบัญที่เขียนมาในเนื้อหา (หัวข้อ "สารบัญ" + รายการลิงก์ #anchor) — ตัดทิ้ง เพราะระบบใส่ nav.content-toc เอง
+ * หรือเว็บมีปลั๊กอิน/ธีมใส่สารบัญให้อยู่แล้ว ปล่อยไว้จะขึ้นซ้ำ · ตัดเฉพาะหัวข้อกับรายการลิงก์ ของอื่นใต้หัวข้อ (เช่นรูป) คงไว้
+ */
+function stripAuthorToc(blocks: HTMLElement[]): HTMLElement[] {
+  const drop = new Set<number>()
+  for (let i = 0; i < blocks.length; i++) {
+    const el = blocks[i]
+    const level = headingLevel(el)
+    const isLabel = level > 0 || isBoldOnlyParagraph(el) || el.tagName.toLowerCase() === 'p'
+    if (!isLabel || !TOC_HEADING_RE.test(el.text)) continue
+    for (let j = i + 1; j < blocks.length; j++) {
+      if (headingLevel(blocks[j]) > 0) break
+      if (!/^(ul|ol)$/i.test(blocks[j].tagName)) continue
+      const links = blocks[j].querySelectorAll('a')
+      const anchors = links.filter((a) => (a.getAttribute('href') || '').startsWith('#'))
+      if (anchors.length >= 2 && anchors.length * 2 >= links.length) {
+        drop.add(i)
+        drop.add(j)
+      }
+      break
+    }
+  }
+  return drop.size ? blocks.filter((_, i) => !drop.has(i)) : blocks
 }
 
 /** แปลงคู่ Q/A ใน section ให้เป็น <details class="content-faq__item"> — คืน null ถ้าไม่เจอคู่เลย (ปล่อยผ่าน) */
@@ -539,7 +566,7 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
   const htmlMode = o.mode !== 'text'
   // บทความที่นำเข้าก่อนมีการถอด entity (Google Doc เก็บไทยเป็น &#NNNN;) — ถอดตอน Generate ด้วย ไม่ต้องนำเข้าใหม่
   // เช่นเดียวกับคอมเมนต์ Google Docs ([a]/[b] + ข้อความคอมเมนต์) และคำบรรยาย (Alt: ...) ใต้รูปที่ค้างในต้นฉบับเก่า
-  let blocks = stripAuthorNotes(parseTopLevelBlocks(applyAltCaptionsHtml(stripGoogleDocsCommentsHtml(decodeTextEntities(o.sourceHtml)))))
+  let blocks = stripAuthorToc(stripAuthorNotes(parseTopLevelBlocks(applyAltCaptionsHtml(stripGoogleDocsCommentsHtml(decodeTextEntities(o.sourceHtml))))))
 
   let h1Index = normalizeH1(blocks, o.meta.title)
   if (htmlMode) normalizeFaqStructure(blocks)
