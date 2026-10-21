@@ -10,6 +10,7 @@ import { buildUploadCss } from './theme-css'
 import { decodeTextEntities } from './entities'
 import { stripGoogleDocsCommentsHtml, applyAltCaptionsHtml } from './clean-html'
 import { TOC_HEADING_RE } from './article-images'
+import { TAKEAWAYS_HEADING_RE, boxKeyTakeaways } from '@/lib/article-structure'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import type { UploadCtaSettings } from './cta'
 import { buildAuthorCardHtml, type AuthorCardStyle } from '@/lib/articleAuthorCard'
@@ -307,10 +308,11 @@ function convertFaqSection(section: HTMLElement[]): { blocks: HTMLElement[]; cou
 
   const converted: HTMLElement[] = []
   for (const g of groups) {
-    // ห่อคำถามด้วย span เดียว — summary เป็น flex ถ้ามีหลาย inline child (ตัวหนาแตกหลายก้อนจาก Google Docs) ข้อความจะถูกดันไปกลางกล่อง
+    // ห่อคำถามด้วย element เดียว — summary เป็น flex ถ้ามีหลาย inline child (ตัวหนาแตกหลายก้อนจาก Google Docs) ข้อความจะถูกดันไปกลางกล่อง
     const qHtml = g.q.innerHTML.trim()
     const aHtml = g.a.map((b) => b.outerHTML).join('\n')
-    const detailsHtml = `<details class="content-faq__item"><summary class="content-faq__question"><span class="content-faq__q">${qHtml}</span></summary><div class="content-faq__answer">${aHtml}</div></details>`
+    // element นั้นคือ <h3> (มาตรฐาน FAQ ทั้งระบบ: หัว FAQ = H2, คำถาม = H3) — CSS reset ให้หน้าตาเท่าแถบคำถามเดิม
+    const detailsHtml = `<details class="content-faq__item"><summary class="content-faq__question"><h3 class="content-faq__q">${qHtml}</h3></summary><div class="content-faq__answer">${aHtml}</div></details>`
     converted.push(parseTopLevelBlocks(detailsHtml)[0])
   }
   return { blocks: [...lead, ...converted, ...tail], count: groups.length }
@@ -341,6 +343,19 @@ function normalizeFaqStructure(blocks: HTMLElement[]): void {
     if (b.tagName.toLowerCase() !== 'h2') continue
     if (!hasQuestionSignal(b)) break
     b.tagName = 'h3'
+  }
+}
+
+/** หัวข้อ Key Takeaways + รายการถัดไป → กล่อง content-takeaways (ไม่ใช่ H2 แล้ว จึงไม่เข้าสารบัญ) */
+function boxTakeawayBlocks(blocks: HTMLElement[]): void {
+  for (let i = 0; i < blocks.length - 1; i++) {
+    const tag = blocks[i].tagName.toLowerCase()
+    const next = blocks[i + 1].tagName.toLowerCase()
+    if (!/^(h[2-6]|p)$/.test(tag) || (next !== 'ul' && next !== 'ol')) continue
+    if (!TAKEAWAYS_HEADING_RE.test(blocks[i].text.replace(/\s+/g, ' ').trim())) continue
+    const boxed = boxKeyTakeaways(`${blocks[i].outerHTML}${blocks[i + 1].outerHTML}`)
+    if (!boxed.includes('content-takeaways')) continue
+    blocks.splice(i, 2, parseTopLevelBlocks(boxed)[0])
   }
 }
 
@@ -532,6 +547,10 @@ function toPlainText(bodyHtml: string): string {
       lines.push('')
       return
     }
+    if (tag === 'div' && /\bcontent-takeaways\b/.test(el.getAttribute('class') || '')) {
+      for (const child of el.children) walkBlock(child)
+      return
+    }
     if (tag === 'table') {
       for (const tr of el.querySelectorAll('tr')) {
         const cells = tr.querySelectorAll('th, td').map((c) => textOf(c))
@@ -569,7 +588,10 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
   let blocks = stripAuthorToc(stripAuthorNotes(parseTopLevelBlocks(applyAltCaptionsHtml(stripGoogleDocsCommentsHtml(decodeTextEntities(o.sourceHtml))))))
 
   let h1Index = normalizeH1(blocks, o.meta.title)
-  if (htmlMode) normalizeFaqStructure(blocks)
+  if (htmlMode) {
+    normalizeFaqStructure(blocks)
+    boxTakeawayBlocks(blocks)
+  }
   const h2Count = assignH2Ids(blocks)
 
   let faqCount = 0

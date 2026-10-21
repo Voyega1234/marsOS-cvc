@@ -12,9 +12,9 @@ import { buildUploadCss, sanitizeThemeDraft } from "@/lib/upload-article/theme-c
 import type { UploadFaqStyle, UploadTableStyle, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
 
 const SAMPLE = `<h2 id="faq">คำถามที่พบบ่อย</h2>
-<details class="content-faq__item" open><summary class="content-faq__question"><span class="content-faq__q">คำถามตัวอย่างข้อที่ 1 ยาวพอให้เห็นการตัดบรรทัด?</span></summary><div class="content-faq__answer"><p>คำตอบตัวอย่าง แสดงสีตัวอักษร พื้นหลัง และระยะห่างของคำตอบเมื่อเปิดอยู่</p></div></details>
-<details class="content-faq__item"><summary class="content-faq__question"><span class="content-faq__q">คำถามตัวอย่างข้อที่ 2?</span></summary><div class="content-faq__answer"><p>คำตอบข้อที่ 2</p></div></details>
-<details class="content-faq__item"><summary class="content-faq__question"><span class="content-faq__q">คำถามตัวอย่างข้อที่ 3?</span></summary><div class="content-faq__answer"><p>คำตอบข้อที่ 3</p></div></details>
+<details class="content-faq__item" open><summary class="content-faq__question"><h3 class="content-faq__q">คำถามตัวอย่างข้อที่ 1 ยาวพอให้เห็นการตัดบรรทัด?</h3></summary><div class="content-faq__answer"><p>คำตอบตัวอย่าง แสดงสีตัวอักษร พื้นหลัง และระยะห่างของคำตอบเมื่อเปิดอยู่</p></div></details>
+<details class="content-faq__item"><summary class="content-faq__question"><h3 class="content-faq__q">คำถามตัวอย่างข้อที่ 2?</h3></summary><div class="content-faq__answer"><p>คำตอบข้อที่ 2</p></div></details>
+<details class="content-faq__item"><summary class="content-faq__question"><h3 class="content-faq__q">คำถามตัวอย่างข้อที่ 3?</h3></summary><div class="content-faq__answer"><p>คำตอบข้อที่ 3</p></div></details>
 <div class="content-table-wrap"><table class="content-table"><tr><th>หัวตาราง</th><th>ราคา</th></tr><tr><td>แถวที่ 1</td><td>1,000</td></tr><tr><td>แถวที่ 2</td><td>2,000</td></tr></table></div>`;
 
 type ColorKey = "itemBackground" | "itemBorderColor" | "questionBackground" | "questionColor" | "openQuestionBackground" | "openQuestionColor" | "answerBackground" | "answerColor" | "iconColor";

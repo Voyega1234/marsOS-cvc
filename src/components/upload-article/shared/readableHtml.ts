@@ -15,8 +15,10 @@ export function toReadableHtml(html: string): string {
     const a = det.querySelector(".content-faq__answer");
     const frag = doc.createDocumentFragment();
     if (q) {
+      // คำถามรุ่นใหม่เป็น <h3> ใน summary อยู่แล้ว — ใช้เนื้อในของมัน กัน h3 ซ้อน h3
+      const inner = q.querySelector("h1, h2, h3, h4, h5, h6, .content-faq__q") ?? q;
       const h = doc.createElement("h3");
-      h.innerHTML = q.innerHTML;
+      h.innerHTML = inner.innerHTML;
       frag.appendChild(h);
     }
     if (a) while (a.firstChild) frag.appendChild(a.firstChild);

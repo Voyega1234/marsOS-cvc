@@ -4,6 +4,7 @@ import { assertCanRunJob } from "../permissions";
 import { AINoDataError, AIPreConditionError } from "../errors";
 import { safeJson } from "@/lib/utils";
 import { humanVoiceSkillBlock } from "@/lib/article-human-voice-skill";
+import { articleStructureSkillBlock, normalizeFaqAndTakeaways } from "@/lib/article-structure";
 import type { ArticleJobInput, ArticleAuditOutput, ArticleFixOutput } from "../types";
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
@@ -179,7 +180,7 @@ export async function runArticleFix(input: ArticleJobInput) {
     userId,
     mockFn: () => mockFixOutput(article.title, kw),
     // Mars Human Voice Skill — ให้เนื้อหา/title อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
-    appendPrompt: humanVoiceSkillBlock('th'),
+    appendPrompt: humanVoiceSkillBlock('th') + "\n\n" + articleStructureSkillBlock('th'),
   });
 
   const fix = result.output as ArticleFixOutput;
@@ -187,7 +188,7 @@ export async function runArticleFix(input: ArticleJobInput) {
   await prisma.article.update({
     where: { id: articleId },
     data: {
-      htmlContent:     fix.htmlContent,
+      htmlContent:     fix.htmlContent ? normalizeFaqAndTakeaways(fix.htmlContent) : fix.htmlContent,
       seoTitle:        fix.seoTitle,
       metaDescription: fix.metaDescription,
       faqSchema:       fix.faqSchema,

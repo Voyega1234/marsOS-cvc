@@ -5,6 +5,8 @@
 import { buildUploadArticleHtml, countFaqItems, replaceFaqSection } from './build-html';
 import { cleanContinuation, cleanFaqFill, isTruncatedFinish, parseWriterOutput } from './writer';
 import { DEFAULT_UPLOAD_THEME } from './types';
+import { normalizeFaqAndTakeaways } from '@/lib/article-structure';
+import { parseUploadCards } from './cards';
 
 let passed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -145,6 +147,37 @@ console.log('G — บทความถูกตัด / FAQ ขาด (เข�
   assert(countFaqItems(inserted) === 2 && inserted.indexOf('คำถามที่พบบ่อย') < inserted.indexOf('บทสรุป'), 'ไม่มี FAQ เดิม: แทรกก่อนบทสรุป');
   const noEnd = replaceFaqSection('<h1>T</h1><h2>เนื้อหา</h2><p>b</p>', fill);
   assert(noEnd.trim().endsWith('<p>2</p>'), 'ไม่มีสรุป: ต่อท้ายบทความ');
+}
+
+console.log('H — มาตรฐานโครง: คำถาม FAQ = H3, หัว FAQ = H2, Key Takeaways เป็นกล่อง (2026-10-21)');
+{
+  const r = build('<h2>สรุปประเด็นสำคัญ</h2><ul><li>ข้อ 1</li><li>ข้อ 2</li></ul><h2>เนื้อหา</h2><p>x</p><h2>อีกหัวข้อ</h2><p>y</p><h2>คำถามที่พบบ่อย</h2><h3>หนึ่ง?</h3><p>1</p><h3>สอง?</h3><p>2</p>');
+  assert((r.html.match(/<summary class="content-faq__question"><h3 class="content-faq__q">/g) || []).length === 2, 'คำถาม FAQ อยู่ใน <h3> ภายใน summary');
+  assert(/<h2[^>]*>คำถามที่พบบ่อย<\/h2>/.test(r.html), 'หัว FAQ เป็น H2');
+  assert(/<div class="content-takeaways"><p class="content-takeaways__title">สรุปประเด็นสำคัญ<\/p><ul>/.test(r.html), 'Key Takeaways เป็นกล่อง');
+  assert(r.h2Count === 3 && !/<h2[^>]*>สรุปประเด็นสำคัญ/.test(r.html), 'Key Takeaways ไม่นับเป็น H2 / ไม่เข้าสารบัญ');
+  assert(!/content-toc[\s\S]*สรุปประเด็นสำคัญ[\s\S]*<\/nav>/.test(r.html.slice(0, r.html.indexOf('</nav>') + 6)), 'สารบัญไม่มี Key Takeaways');
+  assert(r.plainText.includes('- ข้อ 1'), 'plain text ของกล่องยังเป็นรายการ');
+}
+{
+  const r = build('<p><strong>สรุป</strong></p><ul><li>ไม่ใช่กล่อง</li></ul>');
+  assert(!r.html.includes('<div class="content-takeaways"'), '"สรุป" เฉย ๆ ไม่กลายเป็นกล่อง');
+}
+{
+  const old = '<style>.x{}</style><div class="content-article"><h1>T</h1><p>a</p><nav class="content-toc"><ol><li><a href="#key-takeaways">Key Takeaways</a></li><li><a href="#b">B</a></li></ol></nav><h2 id="key-takeaways">Key Takeaways</h2><ul><li>k</li></ul><h2 id="b">B</h2><p>b</p><h3>FAQ</h3><details class="content-faq__item"><summary class="content-faq__question"><span class="content-faq__q"><strong>Q1?</strong></span></summary><div class="content-faq__answer"><p>a</p></div></details><details><summary>Q2?</summary><p>b</p></details></div>';
+  const out = normalizeFaqAndTakeaways(old);
+  assert(out.includes('<summary class="content-faq__question"><h3 class="content-faq__q"><strong>Q1?</strong></h3></summary>'), 'บทความเก่า: span → h3');
+  assert(out.includes('<summary><h3 class="content-faq__q">Q2?</h3></summary>'), 'บทความเก่า: summary ข้อความเปล่า → h3');
+  assert(/<h2 id="faq">FAQ<\/h2>/.test(out), 'บทความเก่า: หัว FAQ H3 → H2');
+  assert(out.includes('<div class="content-takeaways" id="key-takeaways">') && !out.includes('href="#key-takeaways"'), 'บทความเก่า: Key Takeaways เป็นกล่อง + ตัดออกจากสารบัญ');
+  assert(normalizeFaqAndTakeaways(out) === out, 'แปลงซ้ำไม่เปลี่ยน (idempotent)');
+}
+{
+  const html = '<div class="content-article"><h1>T</h1><nav class="content-toc" aria-label="สารบัญ"><p class="content-toc__title">สารบัญ</p><ol><li><a href="#a">A</a></li></ol></nav><p>intro</p><p><strong>สารบัญ</strong></p><ul><li><a href="#a">A</a></li><li><a href="#b">B</a></li></ul><h2 id="a">A</h2><p>x</p></div>';
+  const p = parseUploadCards(html);
+  const tocs = p.cards.filter((c) => c.type === 'toc');
+  assert(tocs.length === 2 && !tocs[0].derived && !!tocs[1].derived, 'หน้า Push: สารบัญที่เขียนมาในเนื้อหาเป็นการ์ดสารบัญ ปิดไว้ก่อน');
+  assert(p.head + p.cards.map((c) => c.html).join('') + p.tail === html, 'หน้า Push: ประกอบกลับได้ HTML เดิม');
 }
 
 console.log(`\n${passed} passed`);

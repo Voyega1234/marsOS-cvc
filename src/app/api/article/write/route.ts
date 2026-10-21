@@ -14,6 +14,7 @@ import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-language'
 import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
 import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
+import { articleStructureSkillBlock, normalizeFaqAndTakeaways } from '@/lib/article-structure'
 import { readArticleImageSettings, type ArticleImageSettings, readArticleAuthorPick, type ArticleAuthorPick, pickAuthorIndex, STUDIO_ARTICLE_SETTINGS_KEY, readStudioArticleSettings } from '@/lib/article-settings'
 import { pickAuthorForArticle } from '@/lib/upload-article/author'
 import { buildProjectArticleCss, projectThemeToUpload } from '@/lib/project-theme'
@@ -1020,6 +1021,8 @@ export async function POST(req: NextRequest) {
   })
   // Mars Human Voice Skill — skill หลักแนบทุกครั้งที่เขียน (เจ้าของสั่ง 2026-09-28)
   const humanVoiceBlock = humanVoiceSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
+    // Mars Article Structure — กล่อง Key Takeaways + FAQ (หัว H2 / คำถาม H3) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
+    + '\n\n' + articleStructureSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
 
   // ── CTA (หลายชุด — เลือกจำนวนต่อบทความได้) — สุ่ม spots ครั้งเดียวต่อ request แล้วใช้ต่อ
   //    ทั้งตอนสร้าง prompt และตอนแทรกแบนเนอร์หลังบทความเขียนเสร็จ ──
@@ -1090,7 +1093,8 @@ export async function POST(req: NextRequest) {
    *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="content-article">
    *  (schema ของ AI/รอบก่อนถูกถอดทิ้งเสมอ กัน URL มั่วและกัน FAQPage ไม่ตรงเนื้อหา) */
   const finalizeArticleHtml = (raw: string): string => {
-    const body = wrapArticleHtml(stripSchemaScripts(sanitizeArticleHtml(raw)), resolvedStyleMode === 'embed' ? articleCss : null)
+    // FAQ คำถามเป็น H3 + Key Takeaways เป็นกล่อง เสมอ แม้ Master Prompt/AI จะเขียนมาแบบอื่น
+    const body = wrapArticleHtml(normalizeFaqAndTakeaways(stripSchemaScripts(sanitizeArticleHtml(raw))), resolvedStyleMode === 'embed' ? articleCss : null)
     const metaBlock = body.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
     const metaOf = (k: string) => metaBlock.match(new RegExp(`${k}\\s*:\\s*(.+)`, 'i'))?.[1]?.trim() ?? ''
     type CtaChan = { type?: string; label?: string; value?: string }

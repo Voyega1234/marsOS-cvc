@@ -3,6 +3,7 @@
 // ที่นี่ทำแค่: หา H2 ที่จะวางรูป, แทรก <figure> หลัง H2, ลบรูปที่ระบบสร้างไว้รอบก่อน — ไม่แตะถ้อยคำของบทความ
 
 import { UPLOAD_MAX_INLINE_IMAGES, DEFAULT_UPLOAD_IMAGE_DEFAULTS, type UploadImageDefaults } from './types'
+import { TAKEAWAYS_HEADING_RE } from '@/lib/article-structure'
 
 /** ป้ายบน <figure> ที่ระบบสร้าง — ใช้หาแล้วลบ/แทนที่ตอนสร้างใหม่ (รูปของผู้เขียนไม่มีป้ายนี้ ไม่โดนแตะ) */
 export const GEN_FIGURE_ATTR = 'data-ua-gen'
@@ -37,13 +38,13 @@ export function listH2(html: string): H2Slot[] {
 
 /** H2 ที่ใช้เป็นหัวข้อบนปกได้ (ตัด FAQ ออก) — สูงสุด 3 ข้อ */
 export function coverBulletsFromHtml(html: string): string[] {
-  return listH2(html).filter((h) => h.text && !FAQ_HEADING_RE.test(h.text) && !TOC_HEADING_RE.test(h.text)).map((h) => h.text).slice(0, 3)
+  return listH2(html).filter((h) => h.text && !FAQ_HEADING_RE.test(h.text) && !TOC_HEADING_RE.test(h.text) && !TAKEAWAYS_HEADING_RE.test(h.text)).map((h) => h.text).slice(0, 3)
 }
 
 /** เลือก H2 ที่จะวางรูปประกอบ กระจายให้ทั่วบทความ (ไม่วางใต้หัวข้อ FAQ) */
 export function pickInlineSlots(html: string, count: number): H2Slot[] {
   const n = Math.max(0, Math.min(UPLOAD_MAX_INLINE_IMAGES, Math.floor(count)))
-  const candidates = listH2(html).filter((h) => h.text && !FAQ_HEADING_RE.test(h.text) && !TOC_HEADING_RE.test(h.text))
+  const candidates = listH2(html).filter((h) => h.text && !FAQ_HEADING_RE.test(h.text) && !TOC_HEADING_RE.test(h.text) && !TAKEAWAYS_HEADING_RE.test(h.text))
   if (n === 0 || candidates.length === 0) return []
   if (candidates.length <= n) return candidates
   const picked: H2Slot[] = []

@@ -6,6 +6,7 @@
 import { stripTags, type ArticleCard, type ArticleCardType, type ParsedArticle } from '@/lib/articleCards'
 
 import { decodeTextEntities } from './entities'
+import { TOC_HEADING_RE } from './article-images'
 
 export type { ArticleCard, ParsedArticle }
 
@@ -14,10 +15,15 @@ const FAQ_HEADING_RE = /FAQ|คำถามที่พบบ่อย|คำถ
 const TOC_RE = /<nav\b[^>]*class="[^"]*\bcontent-toc\b[^"]*"[^>]*>[\s\S]*?<\/nav>/gi
 const CTA_OPEN_RE = /<div\b[^>]*class="[^"]*\b(?:content-cta|cta)\b[^"]*"[^>]*>/gi
 
+// สารบัญที่ผู้เขียนพิมพ์มาในเนื้อหา (หัวข้อ "สารบัญ" + รายการลิงก์ #anchor) — บทความที่ Generate ก่อนมี stripAuthorToc ยังมีค้าง
+const AUTHOR_TOC_RE = /<(h[1-6]|p)\b[^>]*>((?:(?!<\/\1>)[\s\S]){1,200})<\/\1>((?:\s*<figure\b[\s\S]*?<\/figure>)*\s*<(ul|ol)\b[^>]*>[\s\S]*?<\/\4>)/gi
+
 interface Range {
   start: number
   end: number
   type: 'toc' | 'cta'
+  /** สารบัญของผู้เขียน ไม่ใช่ nav.content-toc ของระบบ */
+  author?: boolean
 }
 
 /** หาตำแหน่งปิดของ <div> ที่เปิดที่ start (นับ div ซ้อน) — ไม่เจอคืน -1 */
@@ -58,6 +64,15 @@ function specialRanges(body: string): Range[] {
   for (const m of Array.from(body.matchAll(TOC_RE))) {
     ranges.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, type: 'toc' })
   }
+  for (const m of Array.from(body.matchAll(AUTHOR_TOC_RE))) {
+    const s = m.index ?? 0
+    if (ranges.some((r) => s >= r.start && s < r.end)) continue
+    if (!TOC_HEADING_RE.test(stripTags(m[2]))) continue
+    const links = m[3].match(/<a\b[^>]*href="/gi) || []
+    const anchors = m[3].match(/<a\b[^>]*href="#/gi) || []
+    if (anchors.length < 2 || anchors.length * 2 < links.length) continue
+    ranges.push({ start: s, end: s + m[0].length, type: 'toc', author: true })
+  }
   for (const m of Array.from(body.matchAll(CTA_OPEN_RE))) {
     const s = m.index ?? 0
     if (ranges.some((r) => s >= r.start && s < r.end)) continue
@@ -80,9 +95,9 @@ export function parseUploadCards(html: string): ParsedArticle {
   let seenHeading = false
   let lastLabel = ''
 
-  const push = (type: ArticleCardType, label: string, chunk: string) => {
+  const push = (type: ArticleCardType, label: string, chunk: string, derived?: boolean) => {
     // ถอด entity เฉพาะข้อความที่แสดงใน UI (บทความเก่าจาก Google Doc เก็บไทยเป็น &#NNNN;) — html ของ card ไม่แตะ
-    cards.push({ id: `${type}-${cards.length}`, type, label: decodeTextEntities(label), html: chunk, plainText: decodeTextEntities(stripTags(chunk)) })
+    cards.push({ id: `${type}-${cards.length}`, type, label: decodeTextEntities(label), html: chunk, plainText: decodeTextEntities(stripTags(chunk)), ...(derived ? { derived } : {}) })
   }
   /** ช่องว่างล้วน — ต่อท้าย card ก่อนหน้า ให้ประกอบกลับได้ byte เดิม */
   const glue = (chunk: string): boolean => {
@@ -126,7 +141,10 @@ export function parseUploadCards(html: string): ParsedArticle {
   for (const r of specialRanges(body)) {
     addNormal(body.slice(pos, r.start))
     const chunk = body.slice(r.start, r.end)
-    if (r.type === 'toc') {
+    if (r.type === 'toc' && r.author) {
+      // ระบบมีสารบัญของตัวเอง (หรือเว็บใส่ให้) อยู่แล้ว — ส่งซ้ำ = สารบัญซ้อนกัน จึงปิดไว้ก่อน ผู้ใช้เปิดเองได้
+      push('toc', 'สารบัญที่เขียนมาในเนื้อหา (ปิดไว้กันซ้อน)', chunk, true)
+    } else if (r.type === 'toc') {
       const title = chunk.match(/<p\b[^>]*content-toc__title[^>]*>([\s\S]*?)<\/p>/i)
       push('toc', title ? stripTags(title[1]) : 'สารบัญ', chunk)
     } else {
