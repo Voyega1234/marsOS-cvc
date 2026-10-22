@@ -149,10 +149,11 @@ console.log('G — บทความถูกตัด / FAQ ขาด (เข�
   assert(noEnd.trim().endsWith('<p>2</p>'), 'ไม่มีสรุป: ต่อท้ายบทความ');
 }
 
-console.log('H — มาตรฐานโครง: คำถาม FAQ = H3, หัว FAQ = H2, Key Takeaways เป็นกล่อง (2026-10-21)');
+console.log('H — มาตรฐานโครง: คำถาม FAQ = span ใน summary, หัว FAQ = H2, Key Takeaways เป็นกล่อง (2026-10-22)');
 {
   const r = build('<h2>สรุปประเด็นสำคัญ</h2><ul><li>ข้อ 1</li><li>ข้อ 2</li></ul><h2>เนื้อหา</h2><p>x</p><h2>อีกหัวข้อ</h2><p>y</p><h2>คำถามที่พบบ่อย</h2><h3>หนึ่ง?</h3><p>1</p><h3>สอง?</h3><p>2</p>');
-  assert((r.html.match(/<summary class="content-faq__question"><h3 class="content-faq__q">/g) || []).length === 2, 'คำถาม FAQ อยู่ใน <h3> ภายใน summary');
+  assert((r.html.match(/<summary class="content-faq__question"><span class="content-faq__q">/g) || []).length === 2, 'คำถาม FAQ อยู่ใน <span> ภายใน summary');
+  assert(!/<summary\b[^>]*>\s*<h[1-6]\b/.test(r.html), 'ไม่มีหัวข้อใน summary (บางเว็บตัด summary ทิ้ง)');
   assert(/<h2[^>]*>คำถามที่พบบ่อย<\/h2>/.test(r.html), 'หัว FAQ เป็น H2');
   assert(/<div class="content-takeaways"><p class="content-takeaways__title">สรุปประเด็นสำคัญ<\/p><ul>/.test(r.html), 'Key Takeaways เป็นกล่อง');
   assert(r.h2Count === 3 && !/<h2[^>]*>สรุปประเด็นสำคัญ/.test(r.html), 'Key Takeaways ไม่นับเป็น H2 / ไม่เข้าสารบัญ');
@@ -166,8 +167,10 @@ console.log('H — มาตรฐานโครง: คำถาม FAQ = H3, 
 {
   const old = '<style>.x{}</style><div class="content-article"><h1>T</h1><p>a</p><nav class="content-toc"><ol><li><a href="#key-takeaways">Key Takeaways</a></li><li><a href="#b">B</a></li></ol></nav><h2 id="key-takeaways">Key Takeaways</h2><ul><li>k</li></ul><h2 id="b">B</h2><p>b</p><h3>FAQ</h3><details class="content-faq__item"><summary class="content-faq__question"><span class="content-faq__q"><strong>Q1?</strong></span></summary><div class="content-faq__answer"><p>a</p></div></details><details><summary>Q2?</summary><p>b</p></details></div>';
   const out = normalizeFaqAndTakeaways(old);
-  assert(out.includes('<summary class="content-faq__question"><h3 class="content-faq__q"><strong>Q1?</strong></h3></summary>'), 'บทความเก่า: span → h3');
-  assert(out.includes('<summary><h3 class="content-faq__q">Q2?</h3></summary>'), 'บทความเก่า: summary ข้อความเปล่า → h3');
+  assert(out.includes('<summary class="content-faq__question"><span class="content-faq__q"><strong>Q1?</strong></span></summary>'), 'บทความเก่า: span คงเดิม');
+  assert(out.includes('<summary>Q2?</summary>'), 'บทความเก่า: summary ข้อความเปล่า คงเดิม');
+  const h3Era = '<details class="content-faq__item"><summary class="content-faq__question"><h3 class="content-faq__q">Q3?</h3></summary><div class="content-faq__answer"><p>c</p></div></details>';
+  assert(normalizeFaqAndTakeaways(h3Era).includes('<summary class="content-faq__question"><span class="content-faq__q">Q3?</span></summary>'), 'บทความช่วง h3: h3 ใน summary → span');
   assert(/<h2 id="faq">FAQ<\/h2>/.test(out), 'บทความเก่า: หัว FAQ H3 → H2');
   assert(out.includes('<div class="content-takeaways" id="key-takeaways">') && !out.includes('href="#key-takeaways"'), 'บทความเก่า: Key Takeaways เป็นกล่อง + ตัดออกจากสารบัญ');
   assert(normalizeFaqAndTakeaways(out) === out, 'แปลงซ้ำไม่เปลี่ยน (idempotent)');

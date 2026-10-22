@@ -11,8 +11,6 @@ const GSC_MAX = 1000
 const EXCLUDED_MAX = 2000
 const GSC_SITE_URL_MAX = 300
 const LINKS_PER_ARTICLE_RE = /^\d{1,2}(-\d{1,2})?$/
-/** กันสระ pool ใหญ่เกินจำเป็นก่อนสุ่ม (ประสิทธิภาพ) */
-const POOL_CAP = 200
 
 function sanitizePair(raw: unknown): UploadLinkPair | null {
   if (!raw || typeof raw !== 'object') return null
@@ -98,24 +96,33 @@ function pathEndsWithSlug(url: string, slug: string): boolean {
   }
 }
 
-function hashSeed(seed: string): number {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) {
-    h = (Math.imul(h, 31) + seed.charCodeAt(i)) >>> 0
-  }
-  return h || 1
-}
+/** คำเชื่อม/คำถามที่ไม่บอกหัวข้อ — ไม่นับเป็นคำที่ "ตรงกัน" */
+const STOP_TOKENS = new Set([
+  'ที่', 'การ', 'และ', 'หรือ', 'ของ', 'ได้', 'ไหม', 'ไม่', 'มี', 'เป็น', 'ใน', 'กับ', 'ให้', 'จะ', 'คือ', 'อะไร', 'อย่างไร', 'ยังไง',
+  'วิธี', 'แบบ', 'เรื่อง', 'ทำ', 'ใช้', 'ดี', 'ราคา', 'รีวิว', 'คน', 'ไป', 'มา', 'ต้อง', 'เท่าไร', 'เท่าไหร่',
+  'the', 'and', 'or', 'of', 'to', 'in', 'for', 'a', 'an', 'is', 'how', 'what', 'with', 'best',
+])
 
-/** mulberry32 — สุ่มเทียม deterministic จาก seed ตัวเลข */
-function seededRandom(seed: number): () => number {
-  let s = seed
-  return () => {
-    s |= 0
-    s = (s + 0x6d2b79f5) | 0
-    let t = Math.imul(s ^ (s >>> 15), 1 | s)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+let tokenSegmenter: Intl.Segmenter | null | undefined
+/** ตัดคำ keyword/ชื่อบทความเป็นชุดคำ (ไทยใช้ Intl.Segmenter) — ตัดคำสั้น/คำเชื่อมทิ้ง */
+function topicTokens(text: string): string[] {
+  const out = new Set<string>()
+  const s = (text || '').toLowerCase()
+  if (tokenSegmenter === undefined) {
+    try {
+      tokenSegmenter = new Intl.Segmenter('th', { granularity: 'word' })
+    } catch {
+      tokenSegmenter = null
+    }
   }
+  const words = tokenSegmenter
+    ? Array.from(tokenSegmenter.segment(s)).filter((seg) => seg.isWordLike).map((seg) => seg.segment)
+    : s.split(/[^a-z0-9฀-๿]+/)
+  for (const w of words) {
+    const t = w.trim()
+    if (t.length >= 2 && !STOP_TOKENS.has(t)) out.add(t)
+  }
+  return Array.from(out)
 }
 
 function parseLinksPerArticle(raw: string): { min: number; max: number } {
@@ -150,6 +157,8 @@ export function maxLinksPerArticle(raw: string): number {
 
 export interface PickLinksParams {
   keyword: string
+  /** ชื่อบทความ (ถ้ามี) — ใช้ร่วมกับ keyword หาลิงก์ที่หัวข้อตรงกัน */
+  title?: string
   slug: string
   /** URL ของบทความปัจจุบัน (ถ้ามี) — กันลิงก์เข้าตัวเอง */
   excludeUrl?: string
@@ -159,7 +168,12 @@ export interface PickLinksParams {
 
 /**
  * เลือกลิงก์ภายในให้บทความ 1 ชิ้น: pool = gsc (ที่ไม่ถูกติ๊กออก) + extra (บทความในระบบ) + manual (dedupe by url, manual ชนะ)
- * ตัด URL ที่ path ลงท้ายด้วย slug ของบทความเอง แล้วสุ่มแบบ seed จาก keyword ให้ผลเดิมทุกครั้งที่ keyword เดิม
+ * ตัด URL ที่ path ลงท้ายด้วย slug ของบทความเอง
+ *
+ * เลือกเฉพาะคู่ที่ keyword ตรงหัวข้อบทความ (มีคำร่วมกับ keyword/ชื่อบทความ) เรียงจากตรงมากสุด — ไม่สุ่มแล้ว
+ * เดิมสุ่มจากทั้ง pool ทำให้ได้ลิงก์ไม่เกี่ยวกับบทความ (เจ้าของแจ้ง 2026-10-22) — ตรงไม่พอ = ได้ลิงก์น้อยกว่าที่ตั้ง ดีกว่ายัดลิงก์มั่ว
+ * คำที่อยู่ในคู่ลิงก์เกือบทุกคู่ (เช่น "ปลวก" ในเว็บกำจัดปลวก) ไม่นับ เพราะไม่ได้บอกว่าตรงหัวข้อ
+ * คู่ที่ไม่มี keyword (anchor ว่าง) ไม่เอา — เดิม anchor ว่างถูกแทนด้วย keyword หลักของบทความเอง ลิงก์ keyword ตัวเองไปหน้าอื่น
  */
 export function pickLinksForKeyword(links: UploadInternalLinks, params: PickLinksParams): UploadLinkPair[] {
   const excludedSet = new Set((links.excluded || []).map(normalizeUrl))
@@ -185,20 +199,36 @@ export function pickLinksForKeyword(links: UploadInternalLinks, params: PickLink
     poolMap.set(key, pair) // manual ชนะ extra/gsc เมื่อ url ซ้ำกัน
   }
 
-  let pool = Array.from(poolMap.values())
+  const ownKeyword = params.keyword.trim().toLowerCase()
+  const manualKeys = new Set((links.manual || []).map((p) => normalizeUrl(p.url)))
+  const pool = Array.from(poolMap.values())
+    // anchor ว่าง หรือ anchor = keyword หลักของบทความนี้ (ลิงก์ไปหน้าอื่นจะแย่งอันดับกันเอง) — ไม่เอา
+    .filter((p) => p.keyword.trim() && p.keyword.trim().toLowerCase() !== ownKeyword)
+    .map((p) => ({ pair: p, manual: manualKeys.has(normalizeUrl(p.url)), tokens: topicTokens(p.keyword) }))
   if (pool.length === 0) return []
-  if (pool.length > POOL_CAP) pool = pool.slice(0, POOL_CAP)
 
-  const rand = seededRandom(hashSeed(params.keyword))
-  const shuffled = [...pool]
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1))
-    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  const articleTokens = new Set(topicTokens(`${params.keyword} ${params.title ?? ''}`))
+  const df = new Map<string, number>()
+  for (const item of pool) for (const t of item.tokens) df.set(t, (df.get(t) ?? 0) + 1)
+  const n = pool.length
+  /** คำยิ่งหายากใน pool ยิ่งบอกหัวข้อได้ชัด — คำที่อยู่ในคู่ลิงก์เกิน 30% (pool ตั้งแต่ 5 คู่) ไม่นับ */
+  const weight = (t: string) => {
+    const d = df.get(t) ?? 0
+    if (!d || (n >= 5 && d / n > 0.3)) return 0
+    return Math.log((n + 1) / d)
   }
 
-  const range = parseLinksPerArticle(links.linksPerArticle)
-  const n = Math.min(pool.length, range.min + Math.floor(rand() * (range.max - range.min + 1)))
-  return shuffled.slice(0, Math.max(0, n))
+  const scored = pool
+    .map((item) => {
+      let score = 0
+      for (const t of item.tokens) if (articleTokens.has(t)) score += weight(t)
+      return { ...item, score }
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || Number(b.manual) - Number(a.manual) || (b.pair.clicks ?? 0) - (a.pair.clicks ?? 0))
+
+  const max = parseLinksPerArticle(links.linksPerArticle).max
+  return scored.slice(0, max).map((item) => item.pair)
 }
 
 // ─── "จากบทความในระบบ" — บทความที่เขียน/นำเข้าในโปรเจกต์นี้ ใช้เป็นลิงก์ภายในอัตโนมัติ ───────

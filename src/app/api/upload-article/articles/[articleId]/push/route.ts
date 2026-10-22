@@ -15,6 +15,7 @@ import { isPbnPrefs, readPbnSites, readPbnPushes, type PbnSite } from '@/lib/upl
 import { publishToGithub } from '@/lib/upload-article/github-push'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
+import { faqQuestionsToSpan } from '@/lib/article-structure'
 import { pushArticleToWebflow, type WebflowUploadConfig } from '@/lib/upload-article/webflow-push'
 import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
 import type { UploadIndexRequest } from '@/lib/upload-article/types'
@@ -112,7 +113,9 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   }
 
   // schema ต้องตรงกับ meta/slug ล่าสุดเสมอ (แก้ meta หลัง generate ได้)
-  let processedHtml = stripDocumentWrapper(refreshUploadSchema(rawHtml, uploadSchemaOptions(article, eff.client)))
+  // บทความที่ generate ช่วง 2026-10-21 มี <h3> ใน <summary> FAQ — บางเว็บตัด summary ทิ้ง แปลงกลับเป็น <span> ก่อนขึ้นเว็บ
+  // (ทำหลังประกอบ card — id ของ card ต้องตรงกับที่หน้าเว็บแยกจาก htmlContent เดิม)
+  let processedHtml = stripDocumentWrapper(refreshUploadSchema(faqQuestionsToSpan(rawHtml), uploadSchemaOptions(article, eff.client)))
   if (theme.styleMode === 'clean') processedHtml = stripStyleTags(processedHtml)
   if (stripH1) processedHtml = stripLeadingH1(processedHtml)
   // บทความที่ generate ก่อนเลิกแสดง breadcrumb ในเนื้อหา — ตัดทิ้งตอน push (schema ยังมี BreadcrumbList)

@@ -311,8 +311,8 @@ function convertFaqSection(section: HTMLElement[]): { blocks: HTMLElement[]; cou
     // ห่อคำถามด้วย element เดียว — summary เป็น flex ถ้ามีหลาย inline child (ตัวหนาแตกหลายก้อนจาก Google Docs) ข้อความจะถูกดันไปกลางกล่อง
     const qHtml = g.q.innerHTML.trim()
     const aHtml = g.a.map((b) => b.outerHTML).join('\n')
-    // element นั้นคือ <h3> (มาตรฐาน FAQ ทั้งระบบ: หัว FAQ = H2, คำถาม = H3) — CSS reset ให้หน้าตาเท่าแถบคำถามเดิม
-    const detailsHtml = `<details class="content-faq__item"><summary class="content-faq__question"><h3 class="content-faq__q">${qHtml}</h3></summary><div class="content-faq__answer">${aHtml}</div></details>`
+    // element นั้นคือ <span> — ห้ามใช้ <h3>: เว็บลูกค้าบางเว็บตัด <summary> ที่มีหัวข้อทิ้ง FAQ เหลือแต่ "Details" (ดู faqQuestionsToSpan)
+    const detailsHtml = `<details class="content-faq__item"><summary class="content-faq__question"><span class="content-faq__q">${qHtml}</span></summary><div class="content-faq__answer">${aHtml}</div></details>`
     converted.push(parseTopLevelBlocks(detailsHtml)[0])
   }
   return { blocks: [...lead, ...converted, ...tail], count: groups.length }

@@ -51,10 +51,10 @@ Key Takeaways (ต่อจากย่อหน้าเปิดเรื่�
 </div>
 
 FAQ (ใช้ <details> — กดเปิด/ปิดได้โดยไม่ต้องมี JavaScript, ห้ามมี wrapper ครอบ):
-หัวส่วน FAQ เป็น <h2> เสมอ และทุกคำถามต้องอยู่ใน <h3 class="content-faq__q"> ภายใน <summary>
+หัวส่วน FAQ เป็น <h2> เสมอ และทุกคำถามอยู่ใน <span class="content-faq__q"> ภายใน <summary> (ห้ามใส่ h3 หรือหัวข้ออื่นใน <summary>)
 <h2 id="faq">คำถามที่พบบ่อย</h2>
 <details class="content-faq__item">
-  <summary class="content-faq__question"><h3 class="content-faq__q">คำถาม?</h3></summary>
+  <summary class="content-faq__question"><span class="content-faq__q">คำถาม?</span></summary>
   <div class="content-faq__answer"><p>คำตอบ</p></div>
 </details>
 
@@ -314,7 +314,7 @@ export function buildArticleCss(opts: ArticleCssOptions): string {
   lines.push(`.content-article .content-faq__question::after{content:"+";font-weight:700;color:${theme};flex-shrink:0;}`)
   lines.push(`.content-article .content-faq__item[open] .content-faq__question::after{content:"−";}`)
   lines.push(`.content-article .content-faq__answer{padding:0 1.2em .9em;}`)
-  // คำถาม FAQ เป็น <h3> ใน summary + กล่อง Key Takeaways (มาตรฐานโครงบทความ ดู article-structure.ts)
+  // คำถาม FAQ ใน summary (span / h3 ของบทความเก่า) + กล่อง Key Takeaways (มาตรฐานโครงบทความ ดู article-structure.ts)
   lines.push(...articleStructureCss(theme, border))
 
   // Author box — 3 สไตล์ให้เลือก (ดู articleAuthorCard.ts) ใส่ CSS ครบทุกแบบเสมอ

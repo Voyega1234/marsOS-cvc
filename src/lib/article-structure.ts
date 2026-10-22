@@ -1,6 +1,6 @@
 // ─── Mars Article Structure — FAQ (H2 + คำถาม H3) และกล่อง Key Takeaways ─────────────
 // มาตรฐานกลางทุกตัวเขียน (Upload / PBN / SEO / Audit fix) — เจ้าของสั่ง 2026-10-21
-// - หัวส่วน FAQ = <h2> เสมอ, แต่ละคำถาม = <h3> (ใน <summary> ของ <details>)
+// - หัวส่วน FAQ = <h2> เสมอ, คำถามใน <summary> ของ <details> = <span class="content-faq__q"> (ไม่ใช่ h3 — ดู faqQuestionsToSpan)
 // - Key Takeaways = กล่อง <div class="content-takeaways"> หัวกล่องเป็น <p> (ไม่ใช่ H2 จึงไม่เข้าสารบัญ)
 // ไฟล์นี้ไม่มี dependency — ใช้ได้ทั้ง server, client และสคริปต์ย้ายข้อมูล
 
@@ -34,19 +34,18 @@ export function articleStructureSkillBlock(language: 'th' | 'en' = 'th'): string
 }
 
 /**
- * คำถามใน <summary> → <h3 class="content-faq__q"> — รองรับของเดิมทุกแบบ:
- * ข้อความเปล่า, <span class="content-faq__q">, หรือหัวข้อระดับอื่น (h2/h4) ที่ AI ใส่มา
+ * หัวข้อ (h1-h6) ใน <summary> → <span class="content-faq__q"> กลับเป็นแบบเดิม
+ * เคยใส่ <h3> ใน <summary> (2026-10-21) แต่เว็บลูกค้าบางเว็บ (mfactors) ตัด <summary> ที่มี <h3> ทิ้ง
+ * FAQ เหลือแต่ "Details" ไม่มีคำถาม — เจ้าของสั่งกลับไปใช้ <span> (2026-10-22) หัวส่วน FAQ ยังเป็น <h2>
+ * summary ที่เป็นข้อความเปล่าหรือ <span> อยู่แล้ว ปล่อยตามเดิม
  */
-export function faqQuestionsToH3(html: string): string {
+export function faqQuestionsToSpan(html: string): string {
   return html.replace(/<summary\b([^>]*)>([\s\S]*?)<\/summary>/gi, (m, attrs: string, inner: string) => {
-    let q = inner.trim()
-    if (/^<h3\b[^>]*>[\s\S]*<\/h3>$/i.test(q) && (q.match(/<h3\b/gi) || []).length === 1) return m
-    const span = /^<span\b[^>]*\bcontent-faq__q\b[^>]*>([\s\S]*)<\/span>$/i.exec(q)
-    if (span) q = span[1].trim()
-    const heading = /^<(h[1-6])\b[^>]*>([\s\S]*)<\/\1>$/i.exec(q)
-    if (heading) q = heading[2].trim()
+    const heading = /^<(h[1-6])\b[^>]*>([\s\S]*)<\/\1>$/i.exec(inner.trim())
+    if (!heading) return m
+    const q = heading[2].trim()
     if (!stripTags(q)) return m
-    return `<summary${attrs}><h3 class="content-faq__q">${q}</h3></summary>`
+    return `<summary${attrs}><span class="content-faq__q">${q}</span></summary>`
   })
 }
 
@@ -99,13 +98,13 @@ export function boxKeyTakeaways(html: string): string {
 
 /** ทั้งชุด — ใช้หลัง AI เขียนเสร็จ (SEO) และตอนย้ายบทความเก่า */
 export function normalizeFaqAndTakeaways(html: string): string {
-  return boxKeyTakeaways(faqQuestionsToH3(faqHeadingToH2(html)))
+  return boxKeyTakeaways(faqQuestionsToSpan(faqHeadingToH2(html)))
 }
 
 /** CSS ของ H3 ในคำถาม FAQ + กล่อง Key Takeaways — ต่อท้าย buildArticleCss */
 export function articleStructureCss(theme: string, border: string): string[] {
   return [
-    // H3 ในคำถาม: หน้าตาตามแถบคำถาม FAQ เดิม ไม่เอาขนาด/สี/margin ของ h3 จากเนื้อหาหรือธีมเว็บ
+    // คำถาม (span หรือ h3 ในบทความที่ยังไม่ได้แปลงกลับ): หน้าตาตามแถบคำถาม FAQ เดิม ไม่เอาขนาด/สี/margin ของ h3 จากเนื้อหาหรือธีมเว็บ
     `.content-article .content-faq__question h3,.content-article .content-faq__question .content-faq__q{margin:0;padding:0;border:0;background:none;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;flex:1 1 auto;min-width:0;text-align:left;}`,
     `.content-article .content-faq__question h3::before,.content-article .content-faq__question h3::after{content:none;display:none;}`,
     `.content-article .content-takeaways{border:1px solid color-mix(in srgb, ${theme} 30%, ${border});background:color-mix(in srgb, ${theme} 6%, transparent);border-radius:12px;padding:1.1em 1.3em;margin:1.6em 0;}`,

@@ -179,7 +179,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const links = readLinks(prefs)
-  const linkPairs = pickLinksForKeyword(links, { keyword: keyword.keyword, slug: keyword.slug, extra: extraLinks })
+  const linkPairs = pickLinksForKeyword(links, { keyword: keyword.keyword, title: keyword.title, slug: keyword.slug, extra: extraLinks })
 
   const title = keyword.title || keyword.keyword
   const seoTitle = title.slice(0, 70)

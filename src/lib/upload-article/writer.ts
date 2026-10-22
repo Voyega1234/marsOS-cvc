@@ -103,7 +103,7 @@ export const WRITER_NOTE_MAX = 2000
 export function buildWriterUserPrompt(task: WriterTask): string {
   const { keyword, links } = task
   const linkLines = links.length
-    ? links.map((l) => `- anchor: "${l.keyword || keyword.keyword}" → url: ${l.url}`).join('\n')
+    ? links.map((l) => `- anchor: "${l.keyword}" → url: ${l.url}`).join('\n')
     : '(ไม่มี internal link ให้ใช้รอบนี้)'
 
   const lines: string[] = [
@@ -150,6 +150,13 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push('')
   lines.push('# Internal Link ที่ต้องแทรกในเนื้อหา (ใช้แต่ละลิงก์ไม่เกิน 1 ครั้ง แทรก anchor text ให้เนียนเข้ากับประโยค ห้ามยัดทุกลิงก์ในย่อหน้าเดียว)')
   lines.push(linkLines)
+  if (links.length) {
+    // เจ้าของแจ้ง 2026-10-22: AI แต่ง anchor เอง/เอา keyword หลักไปลิงก์หน้าอื่น — ลิงก์ไม่ตรงกับคู่ keyword→URL ที่ตั้งไว้
+    lines.push('กฎ Internal Link:')
+    lines.push('- ข้อความใน <a> ต้องเป็น anchor ตามที่ให้ไว้คำต่อคำ ห้ามเปลี่ยน ห้ามย่อ ห้ามเติมคำ และห้ามสลับ url ข้ามคู่')
+    lines.push('- วางลิงก์เฉพาะในประโยคที่พูดถึงเรื่องของ anchor นั้นจริง ๆ ถ้าไม่มีจุดที่เข้ากันได้อย่างเป็นธรรมชาติ ให้ข้ามลิงก์นั้นไป ดีกว่ายัดผิดบริบท')
+    lines.push(`- ห้ามทำ "${keyword.keyword}" (keyword หลักของบทความนี้) เป็นลิงก์ไปหน้าอื่น`)
+  }
   const variantText = variantBlock(task.variant)
   if (variantText) {
     lines.push('')
