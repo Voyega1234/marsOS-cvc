@@ -5070,7 +5070,7 @@ const DEFAULT_STYLE_GUIDE = `## Tone & Voice
 - H2 แต่ละหัวข้อไม่เกิน 3 ย่อหน้า
 - มีตารางหรือ checklist อย่างน้อย 1 รายการ
 - Key Takeaways 3-5 ข้อเป็นกล่องต่อจาก Short Answer
-- FAQ อย่างน้อย 5 ข้อ หัว FAQ เป็น H2 แต่ละคำถามเป็น H3 ใน <details><summary>
+- FAQ อย่างน้อย 5 ข้อ หัว FAQ เป็น H2 แต่ละคำถามอยู่ใน <details><summary> เป็น <span class="content-faq__q"> (ห้ามใส่ H3/หัวข้อใน <summary>)
 
 ## Style
 - ไม่มี Hero section / CTA แบบ hard sell เว้นแต่ระบุ

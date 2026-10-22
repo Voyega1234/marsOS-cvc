@@ -100,12 +100,13 @@ function pathEndsWithSlug(url: string, slug: string): boolean {
 const STOP_TOKENS = new Set([
   'ที่', 'การ', 'และ', 'หรือ', 'ของ', 'ได้', 'ไหม', 'ไม่', 'มี', 'เป็น', 'ใน', 'กับ', 'ให้', 'จะ', 'คือ', 'อะไร', 'อย่างไร', 'ยังไง',
   'วิธี', 'แบบ', 'เรื่อง', 'ทำ', 'ใช้', 'ดี', 'ราคา', 'รีวิว', 'คน', 'ไป', 'มา', 'ต้อง', 'เท่าไร', 'เท่าไหร่',
+  'ทำไม', 'แค่ไหน', 'ยัง', 'ไง', 'บ้าง', 'ได้แก่', 'สรุป',
   'the', 'and', 'or', 'of', 'to', 'in', 'for', 'a', 'an', 'is', 'how', 'what', 'with', 'best',
 ])
 
 let tokenSegmenter: Intl.Segmenter | null | undefined
 /** ตัดคำ keyword/ชื่อบทความเป็นชุดคำ (ไทยใช้ Intl.Segmenter) — ตัดคำสั้น/คำเชื่อมทิ้ง */
-function topicTokens(text: string): string[] {
+export function topicTokens(text: string): string[] {
   const out = new Set<string>()
   const s = (text || '').toLowerCase()
   if (tokenSegmenter === undefined) {
@@ -134,9 +135,14 @@ function parseLinksPerArticle(raw: string): { min: number; max: number } {
 }
 
 /** ลิงก์ทั้งหมดที่ใช้ได้กับบทความนี้ (ตัด excluded + ลิงก์เข้าตัวเอง) — manual ก่อน แล้ว extra (บทความในระบบ) แล้ว gsc เรียงตามคลิกมากไปน้อย */
-export function linkPoolForArticle(links: UploadInternalLinks, params: { slug: string; excludeUrl?: string; extra?: UploadLinkPair[] }): UploadLinkPair[] {
+export function linkPoolForArticle(
+  links: UploadInternalLinks,
+  params: { slug: string; excludeUrl?: string; extra?: UploadLinkPair[]; ownKeywords?: string[] },
+): UploadLinkPair[] {
   const excludedSet = new Set((links.excluded || []).map(normalizeUrl))
   if (params.excludeUrl) excludedSet.add(normalizeUrl(params.excludeUrl))
+  // keyword หลัก/ชื่อบทความนี้เอง ห้ามเป็น anchor ไปหน้าอื่น (แย่งอันดับกันเอง)
+  const own = new Set((params.ownKeywords || []).map((k) => k.trim().toLowerCase()).filter(Boolean))
   const seen = new Set<string>()
   const out: UploadLinkPair[] = []
   const gsc = [...(links.gsc || [])].sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
@@ -144,6 +150,7 @@ export function linkPoolForArticle(links: UploadInternalLinks, params: { slug: s
     const key = normalizeUrl(pair.url)
     if (seen.has(key) || excludedSet.has(key)) continue
     if (pathEndsWithSlug(pair.url, params.slug)) continue
+    if (own.has(pair.keyword.trim().toLowerCase())) continue
     seen.add(key)
     out.push(pair)
   }
@@ -201,13 +208,107 @@ export function pickLinksForKeyword(links: UploadInternalLinks, params: PickLink
 
   const ownKeyword = params.keyword.trim().toLowerCase()
   const manualKeys = new Set((links.manual || []).map((p) => normalizeUrl(p.url)))
-  const pool = Array.from(poolMap.values())
-    // anchor ว่าง หรือ anchor = keyword หลักของบทความนี้ (ลิงก์ไปหน้าอื่นจะแย่งอันดับกันเอง) — ไม่เอา
-    .filter((p) => p.keyword.trim() && p.keyword.trim().toLowerCase() !== ownKeyword)
+  // anchor = keyword หลักของบทความนี้ (ลิงก์ไปหน้าอื่นจะแย่งอันดับกันเอง) — ไม่เอา
+  const pool = Array.from(poolMap.values()).filter((p) => p.keyword.trim().toLowerCase() !== ownKeyword)
+  const max = parseLinksPerArticle(links.linksPerArticle).max
+  return rankLinksByTopic(pool, { keyword: params.keyword, title: params.title }, manualKeys).slice(0, max)
+}
+
+/** anchor สำรองต้องยาวอย่างน้อยเท่านี้ (นับตัวอักษรรวมวรรณยุกต์) — ตัดคำสั้นกว้าง ๆ อย่าง "บ้าน" "วงจร" */
+const FALLBACK_ANCHOR_MIN = 5
+
+/** วลีย่อยของ keyword ที่เป็นคำติดกัน (ไม่ข้ามช่องว่าง) เรียงยาวไปสั้น — ไทยตัดคำละเอียดเกิน เช่น "แมลงเม่า" = "แมลง"+"เม่า" */
+function keywordPhrases(keyword: string): { text: string; tokens: string[] }[] {
+  const s = (keyword || '').toLowerCase().trim()
+  if (!tokenSegmenter) topicTokens('') // init segmenter
+  const out: { text: string; tokens: string[] }[] = []
+  for (const chunk of s.split(/\s+/).filter(Boolean)) {
+    const words = tokenSegmenter
+      ? Array.from(tokenSegmenter.segment(chunk)).filter((seg) => seg.isWordLike).map((seg) => ({ w: seg.segment, i: seg.index }))
+      : [{ w: chunk, i: 0 }]
+    for (let a = 0; a < words.length; a++) {
+      for (let b = a; b < words.length; b++) {
+        const text = chunk.slice(words[a].i, words[b].i + words[b].w.length)
+        out.push({ text, tokens: words.slice(a, b + 1).map((x) => x.w) })
+      }
+    }
+  }
+  return out.sort((x, y) => y.text.length - x.text.length)
+}
+
+/**
+ * pool สำหรับแทรกลิงก์: คู่ที่ตรงหัวข้อ (anchor = keyword เต็ม) ก่อน แล้วตามด้วย anchor สำรอง
+ * anchor สำรอง = วลีในคู่ลิงก์ที่มีคำเฉพาะร่วมกับบทความ เช่น คู่ "แมลงเม่า คือปลวกไหม" ในบทความเรื่องแมลงเม่า ใช้วลี "แมลงเม่า"
+ * (keyword จาก GSC มักยาวเป็นประโยคค้นหา ไม่โผล่ในเนื้อหาตรงทุกตัว) — วลีที่เป็นแค่คำกว้าง ๆ ไม่ใช้
+ */
+export function anchorPoolForTopic(
+  ranked: UploadLinkPair[],
+  topic: { keyword: string; title?: string },
+  allPairs: UploadLinkPair[],
+): UploadLinkPair[] {
+  const common = commonTopicTokens(allPairs)
+  const topicSet = new Set(topicTokens(`${topic.keyword} ${topic.title ?? ''}`))
+  const fallback: UploadLinkPair[] = []
+  for (const p of ranked) {
+    const full = p.keyword.trim().toLowerCase()
+    const seen = new Set<string>()
+    for (const ph of keywordPhrases(p.keyword)) {
+      if (ph.text === full || seen.has(ph.text) || Array.from(ph.text).length < FALLBACK_ANCHOR_MIN) continue
+      if (!ph.tokens.some((t) => topicSet.has(t) && !common.has(t) && !STOP_TOKENS.has(t) && !GENERIC_SHARED.has(t))) continue
+      // คำเดียว (เช่น "ศัตรู") หรือคำเดียว + คำเชื่อม (เช่น "ในบ้าน") กว้างเกิน — ต้องเป็นวลีที่มีคำเนื้อหาอย่างน้อย 2 คำ
+      const content = ph.tokens.filter((t) => t.length >= 2 && !STOP_TOKENS.has(t))
+      if (content.length < 2) continue
+      seen.add(ph.text)
+      fallback.push({ ...p, keyword: ph.text })
+    }
+  }
+  return [...ranked, ...fallback]
+}
+
+const ANCHOR_MAX = 80
+
+/** หน้ารวม/หน้าระบบ (ผู้เขียน หมวด แท็ก หน้าแรก หน้ารวมบล็อก ติดต่อ) — ไม่ใช่หน้าที่ตรงหัวข้อบทความ */
+const NON_TOPIC_PATH = /^\/(?:(?:en|th)\/)?(?:(?:blog|news|articles?|contact-us|contact|about-us|about|faqs?|our-review|comparison|reviews?)\/?)?$|\/(?:author|category|tag|page|feed)\//i
+
+export function isTopicPageUrl(url: string): boolean {
+  try {
+    return !NON_TOPIC_PATH.test(new URL(url).pathname)
+  } catch {
+    return true
+  }
+}
+
+/** คำกว้าง ๆ ที่บังเอิญตรงกับชื่อบทความ — ไม่นับเป็นคำที่ตรงหัวข้อ */
+export const GENERIC_SHARED = new Set(['ก่อน', 'หลัง', 'เลือก', 'เข้า', 'ออก', 'ง่าย', 'จริง', 'ได้ผล', 'ถาวร', 'รวม', 'สาเหตุ', 'อันตราย', 'กำจัด', 'กํา', 'จัด', 'ป้องกัน', 'แก้', 'ไข', 'สังเกต', 'รู้จัก', 'ตัว'])
+
+/** คำที่อยู่ในคู่ลิงก์เกิน 30% (pool ตั้งแต่ 5 คู่) — บอกหัวข้อไม่ได้ เช่น "ปลวก" ในเว็บกำจัดปลวก */
+export function commonTopicTokens(pairs: UploadLinkPair[]): Set<string> {
+  const df = new Map<string, number>()
+  const withKeyword = pairs.filter((p) => p.keyword.trim())
+  for (const p of withKeyword) for (const t of topicTokens(p.keyword)) df.set(t, (df.get(t) ?? 0) + 1)
+  const n = withKeyword.length
+  const out = new Set<string>()
+  if (n < 5) return out
+  df.forEach((d, t) => { if (d / n > 0.3) out.add(t) })
+  return out
+}
+
+/**
+ * คู่ลิงก์ที่ keyword มีคำร่วมกับ keyword/ชื่อบทความ เรียงจากตรงมากสุด — คู่ที่ไม่มีคำร่วมเลยถูกตัดทิ้ง
+ * คำที่อยู่ในคู่ลิงก์เกิน 30% (pool ตั้งแต่ 5 คู่) ไม่นับ, anchor ว่างไม่เอา, เสมอกัน = manual ก่อน แล้วคลิกมากก่อน
+ */
+export function rankLinksByTopic(
+  pairs: UploadLinkPair[],
+  topic: { keyword: string; title?: string },
+  manualKeys: Set<string> = new Set(),
+): UploadLinkPair[] {
+  const pool = pairs
+    // anchor ว่าง / ยาวเป็นย่อหน้า (query จากผู้ช่วย AI ใน GSC เช่น "context: location: ...") ไม่ใช่ keyword
+    .filter((p) => p.keyword.trim() && Array.from(p.keyword.trim()).length <= ANCHOR_MAX && isTopicPageUrl(p.url))
     .map((p) => ({ pair: p, manual: manualKeys.has(normalizeUrl(p.url)), tokens: topicTokens(p.keyword) }))
   if (pool.length === 0) return []
 
-  const articleTokens = new Set(topicTokens(`${params.keyword} ${params.title ?? ''}`))
+  const articleTokens = new Set(topicTokens(`${topic.keyword} ${topic.title ?? ''}`))
   const df = new Map<string, number>()
   for (const item of pool) for (const t of item.tokens) df.set(t, (df.get(t) ?? 0) + 1)
   const n = pool.length
@@ -218,17 +319,15 @@ export function pickLinksForKeyword(links: UploadInternalLinks, params: PickLink
     return Math.log((n + 1) / d)
   }
 
-  const scored = pool
+  return pool
     .map((item) => {
       let score = 0
-      for (const t of item.tokens) if (articleTokens.has(t)) score += weight(t)
+      for (const t of item.tokens) if (articleTokens.has(t) && !GENERIC_SHARED.has(t)) score += weight(t)
       return { ...item, score }
     })
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || Number(b.manual) - Number(a.manual) || (b.pair.clicks ?? 0) - (a.pair.clicks ?? 0))
-
-  const max = parseLinksPerArticle(links.linksPerArticle).max
-  return scored.slice(0, max).map((item) => item.pair)
+    .map((item) => item.pair)
 }
 
 // ─── "จากบทความในระบบ" — บทความที่เขียน/นำเข้าในโปรเจกต์นี้ ใช้เป็นลิงก์ภายในอัตโนมัติ ───────

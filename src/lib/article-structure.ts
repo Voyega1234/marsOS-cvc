@@ -21,14 +21,14 @@ export function articleStructureSkillBlock(language: 'th' | 'en' = 'th'): string
     return [
       '════ Mars Article Structure — Key Takeaways box + FAQ headings (system default) ════',
       '1. Key Takeaways: right after the opening paragraph and before the first <h2>, add a heading "Key Takeaways" followed by a <ul> of 3-5 short points (one sentence each) that sum up what the reader gets from this article. Do not repeat the closing summary word for word. The system turns it into a box.',
-      '2. FAQ: the FAQ section heading is always <h2> (e.g. "FAQ" or "Frequently Asked Questions"). Every question is an <h3> (never <h2>, <h4> or bold text) and its answer follows as <p>.',
+      '2. FAQ: the FAQ section heading is always <h2> (e.g. "FAQ" or "Frequently Asked Questions"). Every question is an <h3> (never <h2>, <h4> or bold text) and its answer follows as <p>. If the FAQ uses <details><summary>, put the question in <summary> as <span class="content-faq__q">…</span> — never an <h3> or any heading inside <summary>.',
       'If the task\'s HTML contract specifies exact markup for these parts, follow that markup; these rules decide where they go and which heading level they use.',
     ].join('\n')
   }
   return [
     '════ Mars Article Structure — กล่อง Key Takeaways + หัวข้อ FAQ (ค่าเริ่มต้นของระบบ) ════',
     '1. Key Takeaways: ต่อจากย่อหน้าเปิดเรื่อง ก่อน <h2> แรก ใส่หัวข้อ "สรุปประเด็นสำคัญ" ตามด้วย <ul> 3-5 ข้อ ข้อละ 1 ประโยคสั้น สรุปสิ่งที่ผู้อ่านจะได้จากบทความนี้ ห้ามลอกบทสรุปท้ายบทมาทั้งประโยค ระบบจะแปลงเป็นกล่องให้เอง',
-    '2. FAQ: หัวส่วน FAQ ต้องเป็น <h2> เสมอ (เช่น "คำถามที่พบบ่อย" หรือ "FAQ") แต่ละคำถามต้องเป็น <h3> เท่านั้น (ห้าม <h2>, <h4> หรือตัวหนา) คำตอบตามหลังเป็น <p>',
+    '2. FAQ: หัวส่วน FAQ ต้องเป็น <h2> เสมอ (เช่น "คำถามที่พบบ่อย" หรือ "FAQ") แต่ละคำถามต้องเป็น <h3> เท่านั้น (ห้าม <h2>, <h4> หรือตัวหนา) คำตอบตามหลังเป็น <p> ถ้า FAQ ใช้ <details><summary> ให้ใส่คำถามใน <summary> เป็น <span class="content-faq__q">…</span> — ห้ามใส่ <h3> หรือหัวข้อใด ๆ ใน <summary>',
     'ถ้าสัญญา HTML ของงานนี้กำหนดโครงแท็กของส่วนเหล่านี้ไว้ ให้ใช้โครงนั้น — กฎนี้คุมตำแหน่งและระดับหัวข้อ',
   ].join('\n')
 }

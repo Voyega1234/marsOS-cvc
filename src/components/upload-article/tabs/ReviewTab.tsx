@@ -209,8 +209,9 @@ export default function ReviewTab({
   /**
    * Generate ใหม่จาก sourceHtml — ใช้ตัวเลือกเดิมของบทความนี้ (Internal Link / Breadcrumb schema ดูจาก HTML ปัจจุบัน)
    * รูปปก/รูปประกอบอยู่ใน coverImageUrl/sourceHtml จึงไม่หาย แต่ที่แก้มือในโหมด "แก้ไข" (เก็บแค่ใน htmlContent) จะหาย
+   * relink: บทความที่ AI เขียน — ถอดลิงก์ภายในเดิมแล้วใส่ใหม่เฉพาะคำที่ตรงคู่ keyword→URL (เซิร์ฟเวอร์ข้ามบทความที่ไม่ใช่ AI/PBN เอง)
    */
-  async function regenerate(successMessage: string) {
+  async function regenerate(successMessage: string, relink = false) {
     if (!detail) return;
     setRegenBusy(true);
     try {
@@ -221,13 +222,16 @@ export default function ReviewTab({
           mode: detail.outputMode,
           internalLinks: /\bdata-ua-link=/.test(html),
           breadcrumb: !html || /"BreadcrumbList"/.test(html),
+          relink,
         }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "Generate ใหม่ไม่สำเร็จ"); return; }
       applyArticleUpdate(d);
       setViewMode("preview");
-      toast.success(successMessage);
+      const removed = Number(r.headers.get("X-Links-Removed") || 0);
+      const added = Number(r.headers.get("X-Links-Added") || 0);
+      toast.success(relink && (removed || added) ? `${successMessage} (Internal Link: ถอด ${removed} ใส่ใหม่ ${added})` : successMessage);
     } finally {
       setRegenBusy(false);
     }
@@ -243,10 +247,11 @@ export default function ReviewTab({
     const msg = [
       "Generate บทความนี้ใหม่จากต้นฉบับ?",
       "ที่แก้มือในโหมด \"แก้ไข\" จะหาย (รูปปก/รูปประกอบยังอยู่)",
+      detail.sourceType === "ai" ? "Internal Link จะถูกจัดใหม่ให้ตรงหัวข้อ" : "",
       pushed ? "บทความบนเว็บยังเป็นเวอร์ชันเดิมจนกว่าจะกด ผ่าน Review แล้ว Re-push" : "",
     ].filter(Boolean).join("\n");
     if (!confirm(msg)) return;
-    void regenerate(pushed ? "Generate ใหม่แล้ว — กด ผ่าน Review แล้วไป Re-push ที่หน้า Push" : "Generate ใหม่แล้ว — ตรวจแล้วกด ผ่าน Review");
+    void regenerate(pushed ? "Generate ใหม่แล้ว — กด ผ่าน Review แล้วไป Re-push ที่หน้า Push" : "Generate ใหม่แล้ว — ตรวจแล้วกด ผ่าน Review", true);
   }
 
   const h2List = html ? listH2Sections(html) : [];

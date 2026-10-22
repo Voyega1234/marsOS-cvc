@@ -17,6 +17,7 @@ import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
 import { articleStructureSkillBlock, normalizeFaqAndTakeaways } from '@/lib/article-structure'
 import { readArticleImageSettings, type ArticleImageSettings, readArticleAuthorPick, type ArticleAuthorPick, pickAuthorIndex, STUDIO_ARTICLE_SETTINGS_KEY, readStudioArticleSettings } from '@/lib/article-settings'
 import { pickAuthorForArticle } from '@/lib/upload-article/author'
+import { rankLinksByTopic } from '@/lib/upload-article/internal-links'
 import { buildProjectArticleCss, projectThemeToUpload } from '@/lib/project-theme'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
@@ -196,17 +197,6 @@ function buildAuthorHtml(
   credentials: string[] = [], style: AuthorCardStyle = DEFAULT_AUTHOR_CARD_STYLE,
 ): string {
   return buildAuthorCardHtml({ name, title, image: imageBase64, credentials, style })
-}
-
-function shuffleSeed<T>(arr: T[], seed: string): T[] {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0
-  const out = [...arr]
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.abs((h * (i + 1)) % (i + 1))
-    ;[out[i], out[j]] = [out[j], out[i]]
-  }
-  return out
 }
 
 function buildArticlePrompt(opts: {
@@ -934,10 +924,23 @@ export async function POST(req: NextRequest) {
   try {
     const parsed = typeof resolvedRawInternalLinks === 'string' ? JSON.parse(resolvedRawInternalLinks || '[]') : resolvedRawInternalLinks
     if (Array.isArray(parsed) && parsed.length > 0) {
-      const clean = parsed.filter((l: { keyword: string; url: string }) => l.url?.trim())
-      const sampled = clean.length <= resolvedLinksPerArticle ? clean : shuffleSeed(clean, keyword).slice(0, resolvedLinksPerArticle)
-      internalLinks = `ใส่ internal link ประมาณ ${lpaDisplay} links จากรายการต่อไปนี้ (เลือก links ที่เกี่ยวข้องกับเนื้อหาที่กำลังเขียนมากที่สุด):\n`
-        + sampled.map((l: { keyword: string; url: string }) => `- anchor: "${l.keyword}" → url: ${l.url}`).join('\n')
+      // เลือกเฉพาะลิงก์ที่หัวข้อตรงกับ keyword/title (เดิมสุ่มจากทั้งรายการ ทำให้ลิงก์ไม่ตรงเรื่อง — แจ้ง 2026-10-22)
+      // ตัดคู่ที่ anchor = keyword หลัก/ชื่อบทความเอง ไม่ให้ลิงก์ keyword หลักไปหน้าอื่น
+      const own = new Set([keyword, title].map((k) => String(k || '').trim().toLowerCase()).filter(Boolean))
+      const clean = (parsed as { keyword?: string; url?: string }[])
+        .filter((l) => l?.url?.trim() && l?.keyword?.trim() && !own.has(l.keyword.trim().toLowerCase()))
+        .map((l) => ({ keyword: String(l.keyword).trim(), url: String(l.url).trim() }))
+      const sampled = rankLinksByTopic(clean, { keyword, title }).slice(0, resolvedLinksPerArticle)
+      if (sampled.length > 0) {
+        internalLinks = `ใส่ internal link ไม่เกิน ${lpaDisplay} links จากรายการต่อไปนี้ (คัดมาเฉพาะหน้าที่ตรงหัวข้อแล้ว):\n`
+          + sampled.map((l) => `- anchor: "${l.keyword}" → url: ${l.url}`).join('\n')
+          + '\n\nกฎ Internal Link:'
+          + '\n- ข้อความใน <a> ต้องเป็น anchor ตามที่ให้ไว้คำต่อคำ ห้ามเปลี่ยน ห้ามย่อ ห้ามเติมคำ และห้ามสลับ url ข้ามคู่'
+          + '\n- วางลิงก์เฉพาะในประโยคที่พูดถึงเรื่องของ anchor นั้นจริง ๆ ถ้าไม่มีจุดที่เข้ากันได้อย่างเป็นธรรมชาติ ให้ข้ามลิงก์นั้นไป ดีกว่ายัดผิดบริบท'
+          + `\n- ห้ามทำ "${keyword}" (keyword หลักของบทความนี้) เป็นลิงก์ไปหน้าอื่น · ห้ามสร้าง URL เองนอกรายการ`
+      } else {
+        internalLinks = `(ไม่มีหน้าที่ตรงหัวข้อ — ห้ามใส่ internal link และห้ามสร้าง URL เอง)`
+      }
     }
   } catch { internalLinks = resolvedRawInternalLinks }
 
@@ -1021,7 +1024,7 @@ export async function POST(req: NextRequest) {
   })
   // Mars Human Voice Skill — skill หลักแนบทุกครั้งที่เขียน (เจ้าของสั่ง 2026-09-28)
   const humanVoiceBlock = humanVoiceSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
-    // Mars Article Structure — กล่อง Key Takeaways + FAQ (หัว H2 / คำถาม H3) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
+    // Mars Article Structure — กล่อง Key Takeaways + FAQ (หัว H2 / คำถามเป็น <span> ใน <summary>) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
     + '\n\n' + articleStructureSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
 
   // ── CTA (หลายชุด — เลือกจำนวนต่อบทความได้) — สุ่ม spots ครั้งเดียวต่อ request แล้วใช้ต่อ
@@ -1093,7 +1096,7 @@ export async function POST(req: NextRequest) {
    *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="content-article">
    *  (schema ของ AI/รอบก่อนถูกถอดทิ้งเสมอ กัน URL มั่วและกัน FAQPage ไม่ตรงเนื้อหา) */
   const finalizeArticleHtml = (raw: string): string => {
-    // FAQ คำถามเป็น H3 + Key Takeaways เป็นกล่อง เสมอ แม้ Master Prompt/AI จะเขียนมาแบบอื่น
+    // FAQ คำถามเป็น <span> ใน <summary> + Key Takeaways เป็นกล่อง เสมอ แม้ Master Prompt/AI จะเขียนมาแบบอื่น
     const body = wrapArticleHtml(normalizeFaqAndTakeaways(stripSchemaScripts(sanitizeArticleHtml(raw))), resolvedStyleMode === 'embed' ? articleCss : null)
     const metaBlock = body.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
     const metaOf = (k: string) => metaBlock.match(new RegExp(`${k}\\s*:\\s*(.+)`, 'i'))?.[1]?.trim() ?? ''

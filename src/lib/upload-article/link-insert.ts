@@ -3,7 +3,7 @@
 // ใส่เฉพาะย่อหน้า/รายการ/ช่องตาราง ไม่แตะหัวข้อ, ลิงก์เดิม, รูป, โค้ด และใส่ได้ย่อหน้าละ 1 ลิงก์
 
 import { parse, HTMLElement, Node, NodeType, TextNode } from 'node-html-parser'
-import { normalizeUrl } from './internal-links'
+import { commonTopicTokens, GENERIC_SHARED, normalizeUrl, topicTokens } from './internal-links'
 import type { UploadLinkPair } from './types'
 
 /** ต้องตรงกับ clean-html — ไม่ให้ parser ถือเนื้อใน script/style/pre เป็น raw text */
@@ -17,6 +17,8 @@ const CONTAINERS = new Set(['p', 'li', 'td', 'dd', 'blockquote'])
 const BLOCKED = new Set(['a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th', 'summary', 'figure', 'figcaption', 'code', 'pre', 'script', 'style', 'button', 'label', 'select', 'option', 'textarea', 'svg'])
 
 const MIN_KEYWORD_LEN = 2
+
+const SYSTEM_BLOCK_RE = /\bcontent-(?:cta|author|toc|breadcrumb)\b/
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -81,8 +83,8 @@ function blockedOrContainer(node: Node): HTMLElement | null {
     const el = cur as HTMLElement
     const tag = (el.rawTagName || '').toLowerCase()
     if (BLOCKED.has(tag)) return null
-    // กล่อง CTA ที่ระบบแทรก — ไม่ใส่ Internal Link ในหัวข้อ/คำโปรย CTA
-    if (/\bcontent-cta\b/.test(el.getAttribute('class') || '')) return null
+    // กล่องที่ระบบแทรก (CTA, ผู้เขียน, สารบัญ, breadcrumb) — ไม่ใส่/ไม่ถอด Internal Link ในนั้น
+    if (SYSTEM_BLOCK_RE.test(el.getAttribute('class') || '')) return null
     if (!container && CONTAINERS.has(tag)) container = el
     cur = el.parentNode
   }
@@ -128,10 +130,13 @@ export function insertInternalLinks(html: string, pool: UploadLinkPair[], max: n
   }
 
   const inserted: UploadLinkPair[] = []
+  const usedAnchors = new Set<string>()
   for (const pair of pool) {
     if (inserted.length >= max) break
     const keyword = pair.keyword.trim()
     if (keyword.length < MIN_KEYWORD_LEN) continue
+    // anchor เดียวกันชี้หลาย URL ในบทความเดียว = สับสน — ใช้คู่แรก (ตรงหัวข้อสุด)
+    if (usedAnchors.has(keyword.toLowerCase())) continue
     const key = normalizeUrl(pair.url)
     if (linkedUrls.has(key)) continue
     const needle = escapeHtml(keyword)
@@ -156,10 +161,97 @@ export function insertInternalLinks(html: string, pool: UploadLinkPair[], max: n
 
       linkedUrls.add(key)
       linkedContainers.add(container)
+      usedAnchors.add(keyword.toLowerCase())
       inserted.push(pair)
       break
     }
   }
 
   return { html: inserted.length ? root.toString() : html, inserted }
+}
+
+/** host ไม่มี www. — ใช้เทียบว่าลิงก์ชี้เข้าเว็บลูกค้าเองไหม */
+export function linkHost(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * ถอดลิงก์ภายใน (ชี้เข้าเว็บลูกค้าเอง) ในเนื้อหาออก เหลือข้อความเดิม — ไม่แตะลิงก์ภายนอก, #anchor และกล่องที่ระบบแทรก
+ * ใช้ล้างลิงก์ที่ AI ใส่เอง (anchor ไม่ตรงคู่ keyword→URL ที่ตั้งไว้ — เจ้าของแจ้ง 2026-10-22) ก่อนใส่ใหม่ด้วย insertInternalLinks
+ */
+export function unwrapSiteLinks(
+  html: string,
+  siteHosts: Set<string>,
+  keep?: (url: string, text: string) => boolean,
+): { html: string; removed: number; kept: number } {
+  if (!html || siteHosts.size === 0) return { html, removed: 0, kept: 0 }
+  const root = parse(html, { comment: true, ...PARSE_OPTIONS })
+  let removed = 0
+  let kept = 0
+  for (const a of root.querySelectorAll('a')) {
+    const href = a.getAttribute('href') || ''
+    const host = linkHost(href)
+    if (!host || !siteHosts.has(host)) continue
+    // ต้องอยู่ในย่อหน้า/รายการ/ช่องตาราง และไม่อยู่ใต้หัวข้อ/รูป/กล่องของระบบ (ด่านเดียวกับตอนใส่ลิงก์)
+    let cur: Node | null = a.parentNode
+    let ok = false
+    while (cur && cur.nodeType === NodeType.ELEMENT_NODE) {
+      const el = cur as HTMLElement
+      const tag = (el.rawTagName || '').toLowerCase()
+      if (BLOCKED.has(tag) || SYSTEM_BLOCK_RE.test(el.getAttribute('class') || '')) { ok = false; break }
+      if (CONTAINERS.has(tag)) ok = true
+      cur = el.parentNode
+    }
+    if (!ok) continue
+    if (keep?.(href, a.text)) { kept++; continue }
+    const parent = a.parentNode as HTMLElement
+    const idx = parent.childNodes.indexOf(a)
+    if (idx < 0) continue
+    for (const n of a.childNodes) n.parentNode = parent
+    parent.childNodes.splice(idx, 1, ...a.childNodes)
+    removed++
+  }
+  return { html: removed ? root.toString() : html, removed, kept }
+}
+
+/**
+ * ถอดลิงก์ภายในเดิมในเนื้อหา (ยกเว้นที่ keep รับไว้) แล้วใส่ใหม่จากคู่ keyword→URL ที่ข้อความตรงกันจริง
+ * ลิงก์ที่เก็บไว้นับรวมในเพดาน max
+ */
+export function relinkInternalLinks(
+  html: string,
+  pool: UploadLinkPair[],
+  max: number,
+  siteHosts: Set<string>,
+  keep?: (url: string, text: string) => boolean,
+): { html: string; removed: number; kept: number; inserted: UploadLinkPair[] } {
+  const un = unwrapSiteLinks(html, siteHosts, keep)
+  const ins = insertInternalLinks(un.html, pool, Math.max(0, max - un.kept))
+  return { html: ins.html, removed: un.removed, kept: un.kept, inserted: ins.inserted }
+}
+
+/**
+ * ลิงก์เดิมที่ควรเก็บ: URL อยู่ใน pool ที่ตรงหัวข้อบทความ และ anchor มีคำเฉพาะร่วมกับ keyword ของ URL นั้น
+ * (ไม่ใช่แค่คำกว้าง ๆ อย่าง "ปลวก" หรือชื่อแบรนด์ที่ชี้ไปหน้าอื่น)
+ */
+export function topicLinkKeeper(
+  rankedPool: UploadLinkPair[],
+  allPairs: UploadLinkPair[],
+): (url: string, text: string) => boolean {
+  const common = commonTopicTokens(allPairs)
+  const byUrl = new Map<string, Set<string>>()
+  for (const p of rankedPool) {
+    const key = normalizeUrl(p.url)
+    const set = byUrl.get(key) ?? new Set<string>()
+    for (const t of topicTokens(p.keyword)) if (!common.has(t) && !GENERIC_SHARED.has(t)) set.add(t)
+    byUrl.set(key, set)
+  }
+  return (url, text) => {
+    const tokens = byUrl.get(normalizeUrl(url))
+    return !!tokens && topicTokens(text).some((t) => tokens.has(t))
+  }
 }
