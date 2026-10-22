@@ -96,13 +96,28 @@ function pathEndsWithSlug(url: string, slug: string): boolean {
   }
 }
 
-/** คำเชื่อม/คำถามที่ไม่บอกหัวข้อ — ไม่นับเป็นคำที่ "ตรงกัน" */
+/**
+ * คำเชื่อม/คำถาม/คำเปรียบเทียบที่ไม่บอกหัวข้อ — ไม่นับเป็นคำที่ "ตรงกัน" (ระดับภาษา ใช้ได้ทุกวงการ ห้ามใส่คำเฉพาะธุรกิจ)
+ * เช่น "ต่างกันอย่างไร" "ยี่ห้อไหนดี" "ราคาเท่าไหร่" มีในคำค้นทุกเว็บ ถ้านับจะลิงก์ข้ามเรื่อง (บทความโซล่าเซลล์ไปหน้าฟันปลอม)
+ */
 const STOP_TOKENS = new Set([
   'ที่', 'การ', 'และ', 'หรือ', 'ของ', 'ได้', 'ไหม', 'ไม่', 'มี', 'เป็น', 'ใน', 'กับ', 'ให้', 'จะ', 'คือ', 'อะไร', 'อย่างไร', 'ยังไง',
   'วิธี', 'แบบ', 'เรื่อง', 'ทำ', 'ใช้', 'ดี', 'ราคา', 'รีวิว', 'คน', 'ไป', 'มา', 'ต้อง', 'เท่าไร', 'เท่าไหร่',
   'ทำไม', 'แค่ไหน', 'ยัง', 'ไง', 'บ้าง', 'ได้แก่', 'สรุป',
-  'the', 'and', 'or', 'of', 'to', 'in', 'for', 'a', 'an', 'is', 'how', 'what', 'with', 'best',
+  'ต่าง', 'กัน', 'ไหน', 'ยี่ห้อ', 'เท่า', 'ไหร่', 'ไร', 'อย่าง', 'เกิด', 'จาก', 'กี่', 'ใคร', 'เหมาะ', 'แนะนำ', 'ปกติ',
+  'นี้', 'นั้น', 'แล้ว', 'ควร', 'ก็', 'ถึง', 'ว่า', 'ซึ่ง', 'โดย', 'เพื่อ', 'ตาม', 'ขึ้น', 'ช่วง', 'ล่าสุด', 'ปี',
+  'the', 'and', 'or', 'of', 'to', 'in', 'for', 'a', 'an', 'is', 'are', 'how', 'what', 'why', 'when', 'where', 'which', 'who',
+  'with', 'without', 'best', 'vs', 'versus', 'near', 'me', 'my', 'your', 'you', 'can', 'do', 'does', 'on', 'at', 'by', 'from',
+  'top', 'guide', 'tips', 'review', 'it', 'this', 'that', 'should', 'much', 'many',
 ])
+
+/** คำอังกฤษพหูพจน์ → เอกพจน์อย่างง่าย (termites = termite) */
+function stemToken(t: string): string {
+  if (!/^[a-z]+$/.test(t) || t.length <= 3) return t
+  if (t.endsWith('ies') && t.length > 4) return `${t.slice(0, -3)}y`
+  if (t.endsWith('s') && !t.endsWith('ss') && !t.endsWith('us') && !t.endsWith('is')) return t.slice(0, -1)
+  return t
+}
 
 let tokenSegmenter: Intl.Segmenter | null | undefined
 /** ตัดคำ keyword/ชื่อบทความเป็นชุดคำ (ไทยใช้ Intl.Segmenter) — ตัดคำสั้น/คำเชื่อมทิ้ง */
@@ -120,8 +135,9 @@ export function topicTokens(text: string): string[] {
     ? Array.from(tokenSegmenter.segment(s)).filter((seg) => seg.isWordLike).map((seg) => seg.segment)
     : s.split(/[^a-z0-9฀-๿]+/)
   for (const w of words) {
-    const t = w.trim()
-    if (t.length >= 2 && !STOP_TOKENS.has(t)) out.add(t)
+    const t = stemToken(w.trim())
+    // ตัวเลขล้วน (ปี ราคา จำนวน) ไม่บอกหัวข้อ
+    if (t.length >= 2 && !STOP_TOKENS.has(t) && !/^\d+$/.test(t)) out.add(t)
   }
   return Array.from(out)
 }
@@ -226,8 +242,13 @@ function keywordPhrases(keyword: string): { text: string; tokens: string[] }[] {
     const words = tokenSegmenter
       ? Array.from(tokenSegmenter.segment(chunk)).filter((seg) => seg.isWordLike).map((seg) => ({ w: seg.segment, i: seg.index }))
       : [{ w: chunk, i: 0 }]
+    // วลีต้องเริ่ม/จบตรงขอบคำจริง (ต้นช่วง/ท้ายช่วง หรือติดคำเชื่อม) — กันวลีหั่นกลางคำประสม
+    // เช่น "ฟันกับวีเนียร์" จาก "ครอบฟันกับวีเนียร์", "ปลวกในบ้าน" จาก "รังปลวกในบ้าน", "ฟันปลอมมีกี่" ที่ห้อยคำถาม
+    const isStop = (k: number) => STOP_TOKENS.has(words[k].w)
     for (let a = 0; a < words.length; a++) {
+      if (isStop(a) || (a > 0 && !isStop(a - 1))) continue
       for (let b = a; b < words.length; b++) {
+        if (isStop(b) || (b < words.length - 1 && !isStop(b + 1))) continue
         const text = chunk.slice(words[a].i, words[b].i + words[b].w.length)
         out.push({ text, tokens: words.slice(a, b + 1).map((x) => x.w) })
       }
@@ -246,15 +267,19 @@ export function anchorPoolForTopic(
   topic: { keyword: string; title?: string },
   allPairs: UploadLinkPair[],
 ): UploadLinkPair[] {
-  const common = commonTopicTokens(allPairs)
+  const weight = topicWeigher(allPairs)
   const topicSet = new Set(topicTokens(`${topic.keyword} ${topic.title ?? ''}`))
   const fallback: UploadLinkPair[] = []
   for (const p of ranked) {
     const full = p.keyword.trim().toLowerCase()
+    const pairTokens = topicTokens(p.keyword)
     const seen = new Set<string>()
     for (const ph of keywordPhrases(p.keyword)) {
       if (ph.text === full || seen.has(ph.text) || Array.from(ph.text).length < FALLBACK_ANCHOR_MIN) continue
-      if (!ph.tokens.some((t) => topicSet.has(t) && !common.has(t) && !STOP_TOKENS.has(t) && !GENERIC_SHARED.has(t))) continue
+      const phTokens = ph.tokens.map((t) => stemToken(t))
+      if (!phTokens.some((t) => topicSet.has(t) && weight(t) > 0)) continue
+      // วลีต้องพาหัวข้อหลักของหน้าปลายทางมาด้วย — "ปลวกในบ้าน" จาก "รังปลวกในบ้าน" ขาด "รัง" = กว้างเกิน
+      if (topicCoverage(pairTokens, new Set(phTokens), weight) <= TOPIC_COVER_MIN) continue
       // คำเดียว (เช่น "ศัตรู") หรือคำเดียว + คำเชื่อม (เช่น "ในบ้าน") กว้างเกิน — ต้องเป็นวลีที่มีคำเนื้อหาอย่างน้อย 2 คำ
       const content = ph.tokens.filter((t) => t.length >= 2 && !STOP_TOKENS.has(t))
       if (content.length < 2) continue
@@ -278,8 +303,44 @@ export function isTopicPageUrl(url: string): boolean {
   }
 }
 
-/** คำกว้าง ๆ ที่บังเอิญตรงกับชื่อบทความ — ไม่นับเป็นคำที่ตรงหัวข้อ */
-export const GENERIC_SHARED = new Set(['ก่อน', 'หลัง', 'เลือก', 'เข้า', 'ออก', 'ง่าย', 'จริง', 'ได้ผล', 'ถาวร', 'รวม', 'สาเหตุ', 'อันตราย', 'กำจัด', 'กํา', 'จัด', 'ป้องกัน', 'แก้', 'ไข', 'สังเกต', 'รู้จัก', 'ตัว'])
+/**
+ * คำขยายกว้าง ๆ ที่บังเอิญตรงกับชื่อบทความ — ไม่นับเป็นคำที่ตรงหัวข้อ
+ * ระดับภาษาเท่านั้น ห้ามใส่คำเฉพาะธุรกิจ (เคยใส่ "จัด/กำจัด/ป้องกัน" จากเว็บปลวก ทำให้ "จัดฟัน" "จัดเบรค" จับคู่ไม่ได้)
+ * คำประจำวงการของแต่ละเว็บ (ปลวก, ฟัน, คอนโด) ตัดอัตโนมัติด้วยความถี่ใน pool ของโปรเจกต์นั้น — ดู topicWeigher
+ */
+export const GENERIC_SHARED = new Set(['ก่อน', 'หลัง', 'เลือก', 'เข้า', 'ออก', 'ง่าย', 'จริง', 'ได้ผล', 'ถาวร', 'รวม', 'สาเหตุ', 'อันตราย', 'แก้', 'ไข', 'สังเกต', 'รู้จัก', 'ตัว'])
+
+/** บทความ/anchor ต้องครอบคลุมน้ำหนักหัวข้อของหน้าปลายทาง "เกิน" สัดส่วนนี้ — ได้แค่ครึ่ง (เช่น "สี" จาก "ฟอกสีฟัน") = แค่บังเอิญมีคำเดียวกัน */
+export const TOPIC_COVER_MIN = 0.5
+
+/**
+ * น้ำหนักคำ (IDF) จาก pool ลิงก์ของโปรเจกต์นั้นเอง — ไม่ผูกกับวงการ
+ * คำที่อยู่ในคู่ลิงก์เกิน 30% (pool ตั้งแต่ 5 คู่) = คำประจำเว็บ น้ำหนัก 0; คำเชื่อม/คำกว้าง น้ำหนัก 0
+ */
+export function topicWeigher(pairs: UploadLinkPair[]): (t: string) => number {
+  const df = new Map<string, number>()
+  const withKeyword = pairs.filter((p) => p.keyword.trim())
+  for (const p of withKeyword) for (const t of topicTokens(p.keyword)) df.set(t, (df.get(t) ?? 0) + 1)
+  const n = withKeyword.length
+  return (t: string) => {
+    if (GENERIC_SHARED.has(t) || STOP_TOKENS.has(t)) return 0
+    const d = df.get(t) ?? 0
+    if (n >= 5 && d / n > 0.3) return 0
+    return Math.log((n + 1) / Math.max(d, 1))
+  }
+}
+
+/** สัดส่วนน้ำหนักของ pairTokens ที่อยู่ใน covered (0..1) — pair ที่ไม่มีคำมีน้ำหนักเลย = 0 */
+export function topicCoverage(pairTokens: string[], covered: Set<string>, weight: (t: string) => number): number {
+  let total = 0
+  let hit = 0
+  for (const t of pairTokens) {
+    const w = weight(t)
+    total += w
+    if (covered.has(t)) hit += w
+  }
+  return total > 0 ? hit / total : 0
+}
 
 /** คำที่อยู่ในคู่ลิงก์เกิน 30% (pool ตั้งแต่ 5 คู่) — บอกหัวข้อไม่ได้ เช่น "ปลวก" ในเว็บกำจัดปลวก */
 export function commonTopicTokens(pairs: UploadLinkPair[]): Set<string> {
@@ -309,24 +370,18 @@ export function rankLinksByTopic(
   if (pool.length === 0) return []
 
   const articleTokens = new Set(topicTokens(`${topic.keyword} ${topic.title ?? ''}`))
-  const df = new Map<string, number>()
-  for (const item of pool) for (const t of item.tokens) df.set(t, (df.get(t) ?? 0) + 1)
-  const n = pool.length
-  /** คำยิ่งหายากใน pool ยิ่งบอกหัวข้อได้ชัด — คำที่อยู่ในคู่ลิงก์เกิน 30% (pool ตั้งแต่ 5 คู่) ไม่นับ */
-  const weight = (t: string) => {
-    const d = df.get(t) ?? 0
-    if (!d || (n >= 5 && d / n > 0.3)) return 0
-    return Math.log((n + 1) / d)
-  }
+  /** คำยิ่งหายากใน pool ยิ่งบอกหัวข้อได้ชัด — คำประจำเว็บ (เกิน 30% ของ pool) และคำกว้างไม่นับ */
+  const weight = topicWeigher(pool.map((item) => item.pair))
 
   return pool
     .map((item) => {
       let score = 0
-      for (const t of item.tokens) if (articleTokens.has(t) && !GENERIC_SHARED.has(t)) score += weight(t)
-      return { ...item, score }
+      for (const t of item.tokens) if (articleTokens.has(t)) score += weight(t)
+      // บทความต้องครอบคลุมหัวข้อหลักของหน้าปลายทางอย่างน้อยครึ่ง — มีคำเดียวกันคำเดียวจากคำค้นยาว ๆ ไม่พอ
+      return { ...item, score, cover: topicCoverage(item.tokens, articleTokens, weight) }
     })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || Number(b.manual) - Number(a.manual) || (b.pair.clicks ?? 0) - (a.pair.clicks ?? 0))
+    .filter((item) => item.score > 0 && item.cover > TOPIC_COVER_MIN)
+    .sort((a, b) => b.score - a.score || b.cover - a.cover || Number(b.manual) - Number(a.manual) || (b.pair.clicks ?? 0) - (a.pair.clicks ?? 0))
     .map((item) => item.pair)
 }
 

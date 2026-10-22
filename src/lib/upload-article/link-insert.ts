@@ -3,7 +3,7 @@
 // ใส่เฉพาะย่อหน้า/รายการ/ช่องตาราง ไม่แตะหัวข้อ, ลิงก์เดิม, รูป, โค้ด และใส่ได้ย่อหน้าละ 1 ลิงก์
 
 import { parse, HTMLElement, Node, NodeType, TextNode } from 'node-html-parser'
-import { commonTopicTokens, GENERIC_SHARED, normalizeUrl, topicTokens } from './internal-links'
+import { normalizeUrl, TOPIC_COVER_MIN, topicCoverage, topicTokens, topicWeigher } from './internal-links'
 import type { UploadLinkPair } from './types'
 
 /** ต้องตรงกับ clean-html — ไม่ให้ parser ถือเนื้อใน script/style/pre เป็น raw text */
@@ -247,16 +247,17 @@ export function topicLinkKeeper(
   rankedPool: UploadLinkPair[],
   allPairs: UploadLinkPair[],
 ): (url: string, text: string) => boolean {
-  const common = commonTopicTokens(allPairs)
-  const byUrl = new Map<string, Set<string>>()
+  const weight = topicWeigher(allPairs)
+  const byUrl = new Map<string, string[][]>()
   for (const p of rankedPool) {
     const key = normalizeUrl(p.url)
-    const set = byUrl.get(key) ?? new Set<string>()
-    for (const t of topicTokens(p.keyword)) if (!common.has(t) && !GENERIC_SHARED.has(t)) set.add(t)
-    byUrl.set(key, set)
+    byUrl.set(key, [...(byUrl.get(key) ?? []), topicTokens(p.keyword)])
   }
+  // anchor ต้องพาหัวข้อหลักของหน้าปลายทางอย่างน้อยครึ่ง (เกณฑ์เดียวกับตอนเลือกลิงก์)
   return (url, text) => {
-    const tokens = byUrl.get(normalizeUrl(url))
-    return !!tokens && topicTokens(text).some((t) => tokens.has(t))
+    const pairs = byUrl.get(normalizeUrl(url))
+    if (!pairs) return false
+    const anchor = new Set(topicTokens(text))
+    return pairs.some((tokens) => topicCoverage(tokens, anchor, weight) > TOPIC_COVER_MIN)
   }
 }
