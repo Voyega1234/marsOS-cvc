@@ -4,7 +4,7 @@
  * (การสแกนเว็บปลายทางย้ายไปอยู่ที่ Project Setting > สแกนเว็บปลายทาง แล้ว) */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Settings, CalendarClock, SearchCheck, Loader2 } from "lucide-react";
+import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Settings, CalendarClock, SearchCheck, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/upload-article/cards";
@@ -543,8 +543,10 @@ export default function PushTab({
                       ))}
                     </select>
                   )}
-                  <Button size="sm" variant="outline" disabled={busy || batchBusy || (pbn && (!targetSite[a.id] || !pbnSites.some(s => s.id === targetSite[a.id])))} onClick={() => pushOne(a.id)}>
-                    {busy ? "กำลัง Push..." : pbn && pbnPushes[a.id]?.[targetSite[a.id] ?? ""] ? "Push อัปเดต" : "Push"}
+                  {/* เคย push แล้ว (มี post id บนเว็บ) = server อัปเดตโพสต์เดิมตาม wordpressPostId ไม่สร้างใหม่ — ป้ายต้องบอกให้ชัด */}
+                  <Button size="sm" variant="outline" disabled={busy || batchBusy || (pbn && (!targetSite[a.id] || !pbnSites.some(s => s.id === targetSite[a.id])))} onClick={() => pushOne(a.id)}
+                    title={!pbn && a.wordpressPostId ? `อัปเดตทับโพสต์เดิมบนเว็บ (ID ${a.wordpressPostId}) ไม่สร้างโพสต์ใหม่` : undefined}>
+                    {busy ? "กำลัง Push..." : pbn ? (pbnPushes[a.id]?.[targetSite[a.id] ?? ""] ? "Push อัปเดต" : "Push") : a.wordpressPostId ? <><RotateCcw size={12} className="mr-1" /> Re-push (ทับของเดิม)</> : "Push"}
                   </Button>
                 </div>
               </div>

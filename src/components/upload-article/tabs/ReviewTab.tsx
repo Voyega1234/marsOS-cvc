@@ -206,22 +206,47 @@ export default function ReviewTab({
     await patchArticle(detail.id, { coverAlt });
   }
 
-  async function regenerateWithCover() {
+  /**
+   * Generate ใหม่จาก sourceHtml — ใช้ตัวเลือกเดิมของบทความนี้ (Internal Link / Breadcrumb schema ดูจาก HTML ปัจจุบัน)
+   * รูปปก/รูปประกอบอยู่ใน coverImageUrl/sourceHtml จึงไม่หาย แต่ที่แก้มือในโหมด "แก้ไข" (เก็บแค่ใน htmlContent) จะหาย
+   */
+  async function regenerate(successMessage: string) {
     if (!detail) return;
     setRegenBusy(true);
     try {
       const r = await fetch(`/api/upload-article/articles/${detail.id}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: detail.outputMode }),
+        body: JSON.stringify({
+          mode: detail.outputMode,
+          internalLinks: /\bdata-ua-link=/.test(html),
+          breadcrumb: !html || /"BreadcrumbList"/.test(html),
+        }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "Generate ใหม่ไม่สำเร็จ"); return; }
       applyArticleUpdate(d);
-      toast.success("Generate ใหม่แล้ว — ปกถูกใส่ใน HTML แล้ว");
+      setViewMode("preview");
+      toast.success(successMessage);
     } finally {
       setRegenBusy(false);
     }
+  }
+
+  function regenerateWithCover() {
+    void regenerate("Generate ใหม่แล้ว — ปกถูกใส่ใน HTML แล้ว");
+  }
+
+  function regenerateFromReview() {
+    if (!detail) return;
+    const pushed = detail.status === "PUSHED";
+    const msg = [
+      "Generate บทความนี้ใหม่จากต้นฉบับ?",
+      "ที่แก้มือในโหมด \"แก้ไข\" จะหาย (รูปปก/รูปประกอบยังอยู่)",
+      pushed ? "บทความบนเว็บยังเป็นเวอร์ชันเดิมจนกว่าจะกด ผ่าน Review แล้ว Re-push" : "",
+    ].filter(Boolean).join("\n");
+    if (!confirm(msg)) return;
+    void regenerate(pushed ? "Generate ใหม่แล้ว — กด ผ่าน Review แล้วไป Re-push ที่หน้า Push" : "Generate ใหม่แล้ว — ตรวจแล้วกด ผ่าน Review");
   }
 
   const h2List = html ? listH2Sections(html) : [];
@@ -311,6 +336,11 @@ export default function ReviewTab({
                 <button onClick={() => setViewMode("edit")}
                   className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${viewMode === "edit" ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-500 border-gray-200"}`}>
                   แก้ไข
+                </button>
+                <button onClick={regenerateFromReview} disabled={regenBusy || editSaving}
+                  title="Generate ใหม่จากต้นฉบับ (ตัวเลือก Internal Link เดิม) — ที่แก้มือจะหาย"
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
+                  <RefreshCw size={11} className={regenBusy ? "animate-spin" : ""} /> {regenBusy ? "กำลัง Generate..." : "Re-generate"}
                 </button>
                 {viewMode === "edit" && (
                   <button onClick={() => setEditTone(t => (t === "site" ? "readable" : "site"))}
