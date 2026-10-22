@@ -53,4 +53,15 @@ const stripA = (s: string) => s.replace(/<\/?a\b[^>]*>/g, '');
   assert(picked.length === 1 && picked[0].keyword === 'ปลวกกินไม้', 'เลือกเฉพาะลิงก์ที่หัวข้อตรงกับ keyword');
 }
 
+{
+  const pool = [
+    { keyword: 'ปลวกกินไม้', url: 'https://example.com/termite/' },
+    { keyword: 'ปลวกกินไม้', url: 'https://example.com/other/' },
+  ];
+  const html = '<p>บ้านนี้ปลวกกินไม้ เยอะ</p><p>อีกหลังก็ปลวกกินไม้ เหมือนกัน</p>';
+  const once = relinkInternalLinks(html, pool, 5, hosts, () => true);
+  const twice = relinkInternalLinks(once.html, pool, 5, hosts, () => true);
+  assert(once.inserted.length === 1 && twice.inserted.length === 0 && twice.html === once.html, 'relink รันซ้ำได้ผลเท่าเดิม ไม่ใช้ anchor เดิมซ้ำไปหน้าอื่น');
+}
+
 console.log(`\n${passed} passed`);

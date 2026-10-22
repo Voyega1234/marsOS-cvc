@@ -118,9 +118,15 @@ export function insertInternalLinks(html: string, pool: UploadLinkPair[], max: n
 
   const linkedUrls = new Set<string>()
   const linkedContainers = new Set<HTMLElement>()
+  // anchor ของลิงก์ที่มีอยู่แล้วห้ามใช้ซ้ำไปหน้าอื่น (รัน relink ซ้ำต้องได้ผลเท่าเดิม)
+  const usedAnchors = new Set<string>()
   for (const a of root.querySelectorAll('a')) {
     const href = a.getAttribute('href') || ''
-    if (/^https?:\/\//i.test(href)) linkedUrls.add(normalizeUrl(href))
+    if (/^https?:\/\//i.test(href)) {
+      linkedUrls.add(normalizeUrl(href))
+      const text = a.text.trim().toLowerCase()
+      if (text) usedAnchors.add(text)
+    }
     // ย่อหน้าที่มีลิงก์อยู่แล้วไม่ใส่เพิ่ม
     let cur: Node | null = a.parentNode
     while (cur && cur.nodeType === NodeType.ELEMENT_NODE) {
@@ -130,7 +136,6 @@ export function insertInternalLinks(html: string, pool: UploadLinkPair[], max: n
   }
 
   const inserted: UploadLinkPair[] = []
-  const usedAnchors = new Set<string>()
   for (const pair of pool) {
     if (inserted.length >= max) break
     const keyword = pair.keyword.trim()
