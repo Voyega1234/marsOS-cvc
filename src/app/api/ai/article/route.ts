@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { legacyWriterGuard } from "@/lib/legacy-writer-server";
 import { runArticleWriter, toUserMessage } from "@/services/ai";
 
 export async function POST(req: NextRequest) {
+  // เส้นทางเขียนแบบเก่าไม่ใช้ข้อจำกัดของ Content Engine — ปิดถาวร (ตอบ 410 ก่อนทำอะไร)
+  const gone = legacyWriterGuard();
+  if (gone) return gone;
+
   const session = await getSession();
   
 

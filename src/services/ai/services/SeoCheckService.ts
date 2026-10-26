@@ -4,7 +4,39 @@ import { assertCanRunJob } from "../permissions";
 import { mockSeoCheck, mockSeoMetadata } from "../mock";
 import { AINoDataError, AIPreConditionError } from "../errors";
 import { humanTitleSkillBlock } from "@/lib/article-human-voice-skill";
+import { cleanGeneratedFields, cleanPlainText, tallyWarning } from "@/lib/ce-restrictions";
+import { loadTitleRestrictions } from "@/lib/ce-restrictions-server";
+import type { TitleRestrictions } from "@/lib/ce-restrictions";
 import type { ArticleJobInput, SeoCheckOutput } from "../types";
+
+/**
+ * faqSchema เป็น JSON-LD ที่เก็บเป็นสตริง — แทนคำต้องห้ามในทุกค่าข้อความ (question/answer/name/text ฯลฯ)
+ * ยกเว้น key ที่ขึ้นต้นด้วย "@" (@type/@context) · parse ไม่ได้ = คืนสตริงเดิม ไม่แตะ
+ */
+function cleanFaqSchema(raw: string, tr: TitleRestrictions, tally: Map<string, number>): string {
+  if (!raw || !tr.terms.length) return raw;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") {
+      const r = cleanPlainText(v, tr.terms);
+      for (const h of r.remaining) tally.set(h.term, (tally.get(h.term) ?? 0) + h.count);
+      return r.text;
+    }
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = k.startsWith("@") ? val : walk(val);
+      return out;
+    }
+    return v;
+  };
+  return JSON.stringify(walk(data));
+}
 
 export async function runSeoCheck(input: ArticleJobInput) {
   const { organizationId, articleId, userId, userRole } = input;
@@ -65,6 +97,10 @@ export async function runSeoCheck(input: ArticleJobInput) {
       ? seoOutput.approvalRecommendation === "APPROVE"
       : (seoOutput.passed ?? seoOutput.seoScore >= 70);
 
+    // ข้อจำกัดคำต้องห้ามของ Content Engine โปรเจกต์นี้ (ไม่มี/โหลดพัง = ไม่มีข้อจำกัด ไม่ทำให้งานล้ม)
+    const tr = await loadTitleRestrictions(organizationId, { projectId: article.projectId });
+    const restrictionTally = new Map<string, number>();
+
     // 5. Generate SEO metadata using mock (or real provider via SEO_METADATA job)
     const metaResult = await runAIJob<{ seoTitle: string; metaDescription: string; faqSchema: string }>({
       organizationId,
@@ -81,10 +117,21 @@ export async function runSeoCheck(input: ArticleJobInput) {
       userId,
       mockFn: () => mockSeoMetadata(article.title, kw, template?.brandName ?? article.project.name),
       // Mars Human Voice Skill — ให้ meta title/description อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
-      appendPrompt: humanTitleSkillBlock('th'),
+      appendPrompt: [humanTitleSkillBlock('th'), tr.block].filter(Boolean).join("\n\n"),
     });
 
-    const metaOutput = metaResult.output;
+    // seoTitle / metaDescription / faqSchema ถูกบันทึกและ push เป็นของจริง — แทนคำต้องห้ามก่อนลง DB
+    const cleaned = cleanGeneratedFields(
+      tr,
+      { title: metaResult.output.seoTitle, metaDescription: metaResult.output.metaDescription },
+      restrictionTally,
+    );
+    const metaOutput = {
+      ...metaResult.output,
+      seoTitle:        cleaned.title ?? metaResult.output.seoTitle,
+      metaDescription: cleaned.metaDescription ?? metaResult.output.metaDescription,
+      faqSchema:       cleanFaqSchema(metaResult.output.faqSchema, tr, restrictionTally),
+    };
 
     // 6. Save Review record
     const review = await prisma.review.create({
@@ -126,7 +173,10 @@ export async function runSeoCheck(input: ArticleJobInput) {
       jobId:                  checkResult.jobId,
     });
 
-    return { review, seoOutput, metaOutput, passed, jobId: checkResult.jobId, isMock: checkResult.isMock };
+    const leftover = tallyWarning("คำต้องห้ามที่ยังเหลือใน SEO title/meta/FAQ", restrictionTally);
+    const restrictionWarnings: string[] = leftover ? [leftover] : [];
+
+    return { review, seoOutput, metaOutput, passed, jobId: checkResult.jobId, isMock: checkResult.isMock, restrictionWarnings };
 
   } catch (err) {
     await prisma.article.update({

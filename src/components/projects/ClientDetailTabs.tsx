@@ -46,9 +46,13 @@ import { projectThemeToUpload } from '@/lib/project-theme'
 import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
 import RequestIndexTab from '@/components/projects/RequestIndexTab'
 import SmePushTab from '@/components/projects/sme-push/SmePushTab'
+import type { OwnerControls } from '@/components/upload-article/ArticleOwnerSelect'
+import type { UploadOwnerTag } from '@/lib/upload-article/types'
 import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
+import { extractCoverExtras } from '@/lib/cover-extras'
+import { boxKeyTakeaways } from '@/lib/article-structure'
 import { PAGE_TYPE_LABEL_TH } from '@/lib/wordgod/intent-skill/handoff'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -4119,7 +4123,7 @@ function ArticlesTab({
                 drawerHtml.trim()
                   ? (
                     <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
-                      <ArticleFrame html={drawerHtml} />
+                      <ArticleFrame html={boxKeyTakeaways(drawerHtml)} />
                     </div>
                   )
                   : (
@@ -4529,22 +4533,35 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
       }
       if (!artId) { alert('ยังไม่พบบทความนี้ใน DB — ลองกด "ดู" ใหม่อีกครั้ง'); return }
 
-      const cleanSlug = slugifyEnSlug(draft.slug)
-      const seoTitle = draft.seoTitle.trim()
-      const metaDescription = draft.metaDescription.trim()
+      const draftSlug = slugifyEnSlug(draft.slug)
+      const draftTitle = draft.seoTitle.trim()
+      const draftMeta = draft.metaDescription.trim()
       const baseHtml = htmlOf(entryIdx)
-      const nextHtml = baseHtml ? syncSeoMetaIntoHtml(baseHtml, { metaTitle: seoTitle, metaDescription, slug: cleanSlug }) : ''
+      const draftHtml = baseHtml ? syncSeoMetaIntoHtml(baseHtml, { metaTitle: draftTitle, metaDescription: draftMeta, slug: draftSlug }) : ''
+      const sentHtml = Boolean(draftHtml && draftHtml !== baseHtml)
 
       const res = await fetch(`/api/articles/${artId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          seoTitle, metaDescription,
-          ...(cleanSlug ? { slug: cleanSlug } : {}),
-          ...(nextHtml && nextHtml !== baseHtml ? { htmlContent: nextHtml } : {}),
+          seoTitle: draftTitle, metaDescription: draftMeta,
+          ...(draftSlug ? { slug: draftSlug } : {}),
+          ...(sentHtml ? { htmlContent: draftHtml } : {}),
         }),
       })
       if (!res.ok) { alert('บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง'); return }
+      // server แทนคำต้องห้ามของ Content Engine ให้แล้ว — ใช้ค่าที่บันทึกจริงต่อ (timeline override/Push ต้องตรงกับ DB)
+      const saved = await res.json().catch(() => ({})) as { seoTitle?: string | null; metaDescription?: string | null; slug?: string | null; htmlContent?: string | null; restrictionWarnings?: string[] }
+      const seoTitle = typeof saved.seoTitle === 'string' ? saved.seoTitle : draftTitle
+      const metaDescription = typeof saved.metaDescription === 'string' ? saved.metaDescription : draftMeta
+      const cleanSlug = draftSlug && typeof saved.slug === 'string' && saved.slug ? saved.slug : draftSlug
+      const nextHtml = sentHtml && typeof saved.htmlContent === 'string' && saved.htmlContent ? saved.htmlContent : draftHtml
+      if (seoTitle !== draftTitle || metaDescription !== draftMeta || cleanSlug !== draftSlug) {
+        toast.info('แทนคำต้องห้ามตามข้อจำกัดของ Content Engine ให้แล้ว')
+      }
+      if (Array.isArray(saved.restrictionWarnings) && saved.restrictionWarnings.length) {
+        toast.warning(saved.restrictionWarnings.join(' · '))
+      }
 
       if (nextHtml && nextHtml !== baseHtml) {
         setLocalJobHtml(prev => ({ ...prev, [entryIdx]: nextHtml }))
@@ -4572,6 +4589,9 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
   async function regenerateCover(entryIdx: number, entry: TimelineEntry) {
     setCoverBusy(entryIdx)
     try {
+      // ข้อความบนปกเหมือนตอนเขียนบทความ: คำโปรย = meta description, bullet = H2 จริง 3 หัวข้อแรก
+      // followImageSettings = เคารพตั้งค่า "ปกมีตัวหนังสือ" ของโปรเจกต์ (ปิด = server วาดแบบไม่มีข้อความ)
+      const extras = extractCoverExtras(htmlOf(entryIdx))
       const res = await fetch('/api/article/cover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4580,6 +4600,9 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
           keyword: entry.keyword,
           title: seoDraft[entryIdx]?.seoTitle?.trim() || entry.title,
           type: 'cover',
+          subtitle: seoDraft[entryIdx]?.metaDescription?.trim() || extras.subtitle,
+          bullets: extras.bullets,
+          followImageSettings: true,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -4918,7 +4941,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                       </p>
                     )}
                     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden max-h-[60vh] overflow-y-auto">
-                      {viewMode === 'preview' && <ArticleFrame html={html} />}
+                      {viewMode === 'preview' && <ArticleFrame html={boxKeyTakeaways(html)} />}
                       {viewMode === 'text' && (
                         <div className="p-5 text-sm text-gray-800 whitespace-pre-wrap leading-7">{htmlToPlainText(html)}</div>
                       )}
@@ -5142,7 +5165,7 @@ const DEFAULT_STYLE_GUIDE = `## Tone & Voice
 - เริ่มด้วย Short Answer 2-3 บรรทัดก่อน H2 แรก
 - H2 แต่ละหัวข้อไม่เกิน 3 ย่อหน้า
 - มีตารางหรือ checklist อย่างน้อย 1 รายการ
-- กล่องสรุปประเด็นสำคัญ 3-5 ข้อ ต่อจาก Short Answer
+- กล่องสรุปประเด็นสำคัญ 3-5 ข้อ ต่อจาก Short Answer (บทความภาษาอังกฤษใช้หัวกล่อง "Key Takeaways")
 - FAQ อย่างน้อย 5 ข้อ หัว FAQ เป็น H2 แต่ละคำถามอยู่ใน <details><summary> เป็น <span class="content-faq__q"> (ห้ามใส่ H3/หัวข้อใน <summary>)
 
 ## Style
@@ -6385,6 +6408,35 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
   const [pushSelectedConnId, setPushSelectedConnId] = useState<string>(initialProject.wordpressConnectionId ?? '')
   const [pushJobs, setPushJobs] = useState<PushJob[]>([])
 
+  // ผู้ดูแลบทความ (owner tags) — ใช้ร่วมกันระหว่างแท็บ Push (เลือกต่อบทความ) กับแท็บ Report (จัดรายชื่อ + กรอง GSC)
+  // เฉพาะทีมงาน; ฝั่งลูกค้าไม่โหลด/ไม่แสดง
+  const [ownerTags, setOwnerTags] = useState<UploadOwnerTag[]>([])
+  const [articleOwners, setArticleOwners] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (isClient) return
+    let cancelled = false
+    fetch(`/api/projects/${project.id}/owner-tags`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (cancelled || !d) return
+        setOwnerTags(Array.isArray(d.ownerTags) ? d.ownerTags : [])
+        setArticleOwners(d.articleOwners && typeof d.articleOwners === 'object' ? d.articleOwners : {})
+      })
+      .catch(() => { /* โหลดไม่ได้ = ถือว่ายังไม่มีผู้ดูแล ไม่ต้องเตือน */ })
+    return () => { cancelled = true }
+  }, [isClient, project.id])
+  const ownerControls: OwnerControls | undefined = isClient ? undefined : {
+    ownerTags,
+    articleOwners,
+    onOwnerChange: (articleId, tagId) => setArticleOwners(prev => {
+      const next = { ...prev }
+      if (tagId) next[articleId] = tagId
+      else delete next[articleId]
+      return next
+    }),
+    goToReport: () => setTab('report'),
+  }
+
   // Content Map ใช้ keyword จาก "คลัง Keyword" เท่านั้น
   // (Keyword Research / Keywords Input ต้องบันทึกเข้าคลังก่อน แล้วค่อยเลือกส่งมาที่นี่)
   const [wgContentMapKws, setWgContentMapKws] = useState<KeywordRow[]>([])
@@ -6924,6 +6976,17 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             selectedConnId={pushSelectedConnId} setSelectedConnId={setPushSelectedConnId}
             pushJobs={pushJobs} setPushJobs={setPushJobs}
             onOpenWebsiteSettings={() => { setSettingsDrawerTab('website'); setSettingsDrawerOpen(true) }}
+            canDelete={!isClient}
+            onArticleDeleted={(id) => {
+              setJobs(prev => prev.map(j => (j.articleId === id ? { ...j, articleId: undefined } : j)))
+              setArticleOwners(prev => {
+                if (!(id in prev)) return prev
+                const next = { ...prev }
+                delete next[id]
+                return next
+              })
+            }}
+            ownerControls={isClient ? undefined : ownerControls}
           />
         )}
         {tab === 'request-index' && !isClient && (
@@ -6945,6 +7008,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
               ga4PropertyId: project.ga4PropertyId ?? null,
             }}
             isClient={isClient}
+            ownerControls={isClient ? undefined : { ownerTags, articleOwners, onOwnerTagsChange: (tags, owners) => { setOwnerTags(tags); setArticleOwners(owners) } }}
           />
         )}
         {tab === 'review' && (

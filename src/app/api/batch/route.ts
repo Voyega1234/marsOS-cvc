@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/utils";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 
 export async function GET(_req: NextRequest) {
   const session = await getSession();
@@ -36,7 +37,10 @@ export async function POST(req: NextRequest) {
     competitorUrls?: string[];
   };
 
-  const { projectId, keywords, funnelStage = "TOFU", searchIntent = "INFORMATIONAL", automationMode = "FULL_AUTO", competitorUrls = [] } = body;
+  const { projectId, keywords, funnelStage = "TOFU", searchIntent = "INFORMATIONAL", competitorUrls = [] } = body;
+  // auto-run ใช้ตัวเขียนแบบเก่าที่ปิดแล้ว (ไม่ใช้ข้อจำกัดของ Content Engine) — บังคับ MANUAL ไม่ว่า body จะส่งอะไรมา
+  // ยังสร้างบทความได้ตามปกติ แค่ไม่ยิง /api/ai/auto-run
+  const automationMode = LEGACY_AI_WRITER_ENABLED ? (body.automationMode ?? "FULL_AUTO") : "MANUAL";
 
   if (!projectId || !keywords?.length) {
     return NextResponse.json({ error: "projectId and keywords required" }, { status: 400 });

@@ -7,6 +7,7 @@ import {
   bannedTermsFromTable,
   buildRestrictionsBlock,
   chunkText,
+  cleanArticlePatch,
   cleanGeneratedFields,
   cleanPlainText,
   cleanSeoMetaBlock,
@@ -151,5 +152,28 @@ const gen = cleanGeneratedFields(tr, { title: 'cheap สูตรลับ', met
 assert(gen.title === 'budget สูตรลับ' && gen.metaDescription === 'budget' && gen.slug === 'budget-x', 'cleanGeneratedFields: cleans each field');
 assert(tally.get('สูตรลับ') === 1 && tally.size === 1, 'cleanGeneratedFields: tally holds leftovers only');
 assert(tallyWarning('t', tally) === 't: สูตรลับ (1)' && tallyWarning('t', new Map()) === null, 'tallyWarning: formats / null when empty');
+
+// ── cleanArticlePatch (PATCH /api/articles/[id] แก้มือหน้า Review) ──
+const trP = { terms: pt, block: '' };
+const draft: Record<string, unknown> = { title: 'cheap hotel', seoTitle: 'โรงแรมราคาถูก', metaDescription: 'สูตรลับ stay', slug: 'cheap-hotel', htmlContent: metaHtml + '<p>cheap body</p>' };
+const wDraft = cleanArticlePatch(trP, { wordpressUrl: null, status: 'DRAFT' }, draft);
+assert(draft.title === 'budget hotel' && draft.seoTitle === 'โรงแรมราคาประหยัด', 'patch: title/seoTitle replaced');
+assert(draft.slug === 'budget-hotel', 'patch: draft slug replaced');
+assert(String(draft.htmlContent).includes('en_slug: budget-hotel'), 'patch: draft en_slug replaced');
+assert(String(draft.htmlContent).includes('<p>cheap body</p>'), 'patch: body never rewritten');
+assert(wDraft.some((w) => w.includes('meta description') && w.includes('สูตรลับ')), 'patch: leftover meta term warned');
+assert(wDraft.some((w) => w.startsWith('เนื้อหายังมีคำต้องห้าม') && w.includes('cheap')), 'patch: body hit warned');
+assert(new Set(wDraft).size === wDraft.length, 'patch: warnings deduped');
+
+const live: Record<string, unknown> = { slug: 'cheap-hotel', htmlContent: metaHtml };
+const wLive = cleanArticlePatch(trP, { wordpressUrl: 'https://x.com/cheap-hotel/', status: 'POSTED' }, live);
+assert(live.slug === 'cheap-hotel', 'patch: pushed article slug kept');
+assert(String(live.htmlContent).includes('en_slug: cheap-hotel') && String(live.htmlContent).includes('meta_title: โรงแรมราคาประหยัด'), 'patch: pushed keeps en_slug, still cleans meta_title');
+assert(wLive.some((w) => w.startsWith('slug มีคำต้องห้าม (บทความขึ้นเว็บแล้ว')), 'patch: pushed slug warned');
+const drafted: Record<string, unknown> = { slug: 'cheap-hotel' };
+cleanArticlePatch(trP, { wordpressUrl: null, status: 'WORDPRESS_DRAFTED' }, drafted);
+assert(drafted.slug === 'cheap-hotel', 'patch: WP draft counts as pushed');
+const noTerms: Record<string, unknown> = { title: 'cheap' };
+assert(cleanArticlePatch({ terms: [], block: '' }, {}, noTerms).length === 0 && noTerms.title === 'cheap', 'patch: no terms = identity');
 
 console.log(`\n${passed} passed`);

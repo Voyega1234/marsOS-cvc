@@ -146,10 +146,14 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
         body: JSON.stringify({ projectId: project.id, keywords: keywordList }),
       });
       if (!res.ok) throw new Error();
-      const { contentMap: cm } = await res.json();
+      const { contentMap: cm, restrictionWarnings } = await res.json();
       setContentMap(cm);
       setSelectedIds(new Set());
       toast.success("สร้าง Content Map ใหม่เรียบร้อย!");
+      // คำต้องห้ามที่ยังเหลือในชื่อบทความ / keyword ที่มีคำต้องห้าม (Content Engine ข้อจำกัด)
+      if (Array.isArray(restrictionWarnings) && restrictionWarnings.length) {
+        toast.warning(`ข้อจำกัด Content Engine: ${restrictionWarnings.join(" | ")}`, { duration: 12000 });
+      }
     } catch {
       toast.error("เกิดข้อผิดพลาด กรุณาลองใหม่");
     } finally {

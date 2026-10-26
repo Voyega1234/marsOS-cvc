@@ -4,6 +4,8 @@ import { assertCanRunJob } from "../permissions";
 import { mockKeywordResearch } from "../mock";
 import { AINoDataError } from "../errors";
 import { humanTitleSkillBlock } from "@/lib/article-human-voice-skill";
+import { keywordWarnings } from "@/lib/ce-restrictions";
+import { loadTitleRestrictions } from "@/lib/ce-restrictions-server";
 import type { KeywordResearchInput, KeywordOutput } from "../types";
 
 export async function runKeywordResearch(input: KeywordResearchInput) {
@@ -17,6 +19,9 @@ export async function runKeywordResearch(input: KeywordResearchInput) {
     where: { id: projectId, organizationId },
   });
   if (!project) throw new AINoDataError(`Project ${projectId}`);
+
+  // ข้อจำกัดคำต้องห้ามของ Content Engine โปรเจกต์นี้ (ไม่มี/โหลดพัง = ไม่มีข้อจำกัด ไม่ทำให้งานล้ม)
+  const tr = await loadTitleRestrictions(organizationId, { projectId });
 
   // 3. Run job
   const result = await runAIJob<KeywordOutput>({
@@ -35,7 +40,7 @@ export async function runKeywordResearch(input: KeywordResearchInput) {
     userId,
     mockFn: () => mockKeywordResearch(seedKeyword, project.language),
     // Mars Human Voice Skill — ให้ ไอเดียหัวข้อบทความ อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
-    appendPrompt: humanTitleSkillBlock(project.language === 'en' ? 'en' : 'th'),
+    appendPrompt: [humanTitleSkillBlock(project.language === 'en' ? 'en' : 'th'), tr.block].filter(Boolean).join("\n\n"),
   });
 
   const output = result.output;
@@ -61,5 +66,10 @@ export async function runKeywordResearch(input: KeywordResearchInput) {
     jobId: result.jobId,
   });
 
-  return { keyword, output, jobId: result.jobId, isMock: result.isMock };
+  // keyword ไม่แก้/ไม่ตัดทิ้ง (นโยบาย: เตือนอย่างเดียว) — มีคำต้องห้ามใน main/related แจ้งทีมให้ตัดสินใจเอง
+  const restrictionWarnings = Array.from(
+    new Set([output.mainKeyword, ...(output.relatedKeywords ?? [])].flatMap((k) => (typeof k === "string" ? keywordWarnings(k, tr.terms) : []))),
+  );
+
+  return { keyword, output, jobId: result.jobId, isMock: result.isMock, restrictionWarnings };
 }

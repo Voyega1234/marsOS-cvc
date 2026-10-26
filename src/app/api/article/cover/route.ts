@@ -15,6 +15,9 @@ import { callGeminiImage } from '@/lib/geminiImage'
 import { clientSlugForProject } from '@/lib/orClient'
 import { OR_MODELS } from '@/lib/openrouter'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
+import { loadTitleRestrictions } from '@/lib/ce-restrictions-server'
+import { cleanPlainText } from '@/lib/ce-restrictions'
+import { readArticleImageSettings } from '@/lib/article-settings'
 
 export const maxDuration = 120
 
@@ -32,6 +35,8 @@ export async function POST(req: NextRequest) {
     projectId,
     subtitle = '',
     bullets = [],
+    // true = ทำตามตั้งค่ารูปปกของโปรเจกต์ (ปก มี/ไม่มีตัวหนังสือ) แบบเดียวกับตอนเขียนบทความ — ปุ่มสร้างปกใหม่หน้า SME ส่งมา
+    followImageSettings = false,
     language: languageFromBody = null,
     language_mode: languageModeFromBody = null,
   } = body
@@ -64,6 +69,7 @@ export async function POST(req: NextRequest) {
   // ภาษาของข้อความบนปก: ผู้เรียกส่งมาได้ตรง ๆ ไม่งั้นคิดจากภาษาโปรเจกต์ + โหมดภาษา + title/keyword
   // (โหมดไทย+อังกฤษ = อิงจาก title ก่อน, title อังกฤษล้วน = ปกอังกฤษ — กติกาเดียวกับตัวบทความ)
   let coverLanguage: 'th' | 'en' = languageFromBody === 'en' ? 'en' : 'th'
+  let effectiveType: 'cover' | 'mid' = type === 'mid' ? 'mid' : 'cover'
   if (projectId) {
     try {
       const proj = await prisma.project.findFirst({
@@ -80,14 +86,28 @@ export async function POST(req: NextRequest) {
       backgroundColor = palette.backgroundColor
       textColor = palette.textColor
       if (!effectiveAccent) effectiveAccent = palette.accentColor
+      if (followImageSettings && effectiveType === 'cover') {
+        let colors: Record<string, unknown> = {}
+        try {
+          const raw = proj?.themeColors as unknown
+          colors = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw && typeof raw === 'object' ? raw as Record<string, unknown> : {})
+        } catch { /* ค่าเสีย — ใช้ default */ }
+        // ปิด "ปกมีตัวหนังสือ" = วาดแบบภาพไม่มีข้อความ เหมือน /api/article/write
+        if (!readArticleImageSettings(colors.imageSettings).coverWithText) effectiveType = 'mid'
+      }
     } catch { /* non-fatal */ }
   }
 
   try {
     // ข้อมูลเสริมบนปก (คำโปรย + bullet) — ผู้เรียกส่งมาเอง เช่น หน้า UI ที่มีบทความอยู่แล้ว
-    const coverSubtitle = typeof subtitle === 'string' ? subtitle : ''
-    const coverBullets = Array.isArray(bullets) ? bullets.filter((b: unknown): b is string => typeof b === 'string').slice(0, 3) : []
-    const result = await callGeminiImage({ client: await clientSlugForProject(projectId), keyword, title, type, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets, imageAssets: ce.imageAssets, language: coverLanguage })
+    // ข้อความที่จะวาดบนปก ต้องผ่านคำต้องห้ามของ scope เดียวกับ Content Engine ก่อน (บทความเก่า/แก้มือ อาจยังมีคำต้องห้าม)
+    const tr = await loadTitleRestrictions(orgId, projectId ? { projectId } : 'studio')
+    const clean = (t: string) => (tr.terms.length ? cleanPlainText(t, tr.terms).text : t)
+    const coverTitle = clean(String(title))
+    const withText = effectiveType === 'cover'
+    const coverSubtitle = withText ? clean(typeof subtitle === 'string' ? subtitle : '') : ''
+    const coverBullets = withText ? (Array.isArray(bullets) ? bullets.filter((b: unknown): b is string => typeof b === 'string').slice(0, 3) : []).map(clean) : []
+    const result = await callGeminiImage({ client: await clientSlugForProject(projectId), keyword, title: coverTitle, type: effectiveType, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets, imageAssets: ce.imageAssets, language: coverLanguage })
 
     // Log AI job for cost tracking
     try {
@@ -99,6 +119,7 @@ export async function POST(req: NextRequest) {
             organizationId: orgId,
             createdById: userId,
             ...(projectId && { projectId }),
+            // ปก (แม้วาดแบบไม่มีตัวหนังสือ) นับเป็นค่าปก — 'mid' เฉพาะผู้เรียกขอรูปประกอบเอง
             jobType: type === 'mid' ? 'IMAGE_MID' : 'IMAGE_COVER',
             status: 'COMPLETED',
             modelProvider: 'OPENROUTER',
@@ -113,7 +134,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       imageBase64: result.imageBase64,
       mimeType: result.mimeType,
-      type, keyword, title,
+      type: effectiveType, keyword, title,
       // ข้อมูลประกอบสำหรับหน้า Test Image (Article Lab) — ใช้ตรวจว่า prompt/ภาพอ้างอิง/โมเดลตรงตามที่ตั้งไว้
       meta: {
         model: result.model,

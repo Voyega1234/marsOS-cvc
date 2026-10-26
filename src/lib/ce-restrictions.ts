@@ -748,3 +748,50 @@ export function tallyWarning(label: string, tally: Map<string, number>): string 
   if (!tally.size) return null;
   return `${label}: ${Array.from(tally.entries()).map(([term, n]) => `${term} (${n})`).join(", ")}`;
 }
+
+/**
+ * PATCH บทความ (แก้มือในหน้า Review): แทนคำต้องห้ามใน title / seoTitle / metaDescription / slug
+ * + บล็อก SEO meta ใน htmlContent — แก้ data ในที่ แล้วคืนคำเตือน
+ * - บทความที่ขึ้นเว็บแล้ว: slug ไม่เปลี่ยน (เปลี่ยน = URL เดิมหาย/Re-push หาโพสต์เดิมไม่เจอ) — แค่เตือน
+ * - เนื้อหาบทความ (body) ที่แก้มือ: ไม่เขียนทับ แค่เตือนคำที่เจอ
+ */
+export function cleanArticlePatch(
+  tr: TitleRestrictions,
+  existing: { wordpressUrl?: string | null; status?: string | null },
+  data: Record<string, unknown>,
+): string[] {
+  if (!tr.terms.length) return [];
+  const pushed = Boolean(existing.wordpressUrl) || existing.status === "POSTED" || existing.status === "WORDPRESS_DRAFTED";
+  const warnings: string[] = [];
+  const LABEL: Record<string, string> = { title: "ชื่อบทความ", seoTitle: "SEO title", metaDescription: "meta description" };
+  for (const k of ["title", "seoTitle", "metaDescription"] as const) {
+    const v = data[k];
+    if (typeof v !== "string" || !v) continue;
+    const r = cleanPlainText(v, tr.terms);
+    data[k] = r.text;
+    warnings.push(...hitWarnings(`${LABEL[k]} ยังมีคำต้องห้าม`, r.remaining));
+  }
+  if (typeof data.slug === "string" && data.slug) {
+    if (pushed) {
+      const hits = findBannedInText(data.slug.replace(/-/g, " "), tr.terms);
+      warnings.push(...hitWarnings("slug มีคำต้องห้าม (บทความขึ้นเว็บแล้ว ไม่เปลี่ยน slug ให้)", hits));
+    } else {
+      const r = cleanSlug(data.slug, tr.terms);
+      data.slug = r.text;
+      warnings.push(...hitWarnings("slug ยังมีคำต้องห้าม", r.remaining));
+    }
+  }
+  if (typeof data.htmlContent === "string" && data.htmlContent) {
+    const html = data.htmlContent;
+    const EN_SLUG_LINE = /^([ \t]*en_slug[ \t]*[:=][ \t]*)(.*)$/im;
+    const enSlugBefore = EN_SLUG_LINE.exec(html)?.[2];
+    const meta = cleanSeoMetaBlock(html, tr.terms);
+    let out = meta.html;
+    // บทความที่ขึ้นเว็บแล้ว: คง en_slug ในบล็อก meta ไว้ตามเดิม (เหตุผลเดียวกับ slug ด้านบน)
+    if (pushed && enSlugBefore !== undefined) out = out.replace(EN_SLUG_LINE, (_a, head: string) => head + enSlugBefore);
+    data.htmlContent = out;
+    warnings.push(...meta.warnings);
+    warnings.push(...hitWarnings("เนื้อหายังมีคำต้องห้าม", findBannedTerms(out.replace(/<!--[\s\S]*?-->/g, " "), tr.terms)));
+  }
+  return Array.from(new Set(warnings));
+}

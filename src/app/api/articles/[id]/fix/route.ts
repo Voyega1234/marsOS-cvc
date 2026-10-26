@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { legacyWriterGuard } from "@/lib/legacy-writer-server";
 import { runArticleFix } from "@/services/ai/services/ArticleAuditService";
 import { AINoDataError, AIPreConditionError, AIPermissionError, AINoPromptError } from "@/services/ai/errors";
 import type { Role } from "@/types";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+  // AI Fix เขียนเนื้อหาใหม่โดยไม่ใช้ข้อจำกัดของ Content Engine — ปิดถาวร
+  const gone = legacyWriterGuard();
+  if (gone) return gone;
+
   const session = await getSession();
   
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, RefreshCw, TrendingUp, TrendingDown, Minus,
@@ -14,6 +14,8 @@ import {
   deriveGSCInsights, deriveGA4Insights, deriveConversionInsights,
   derivePSIInsights, deriveConnectedInsights, deriveAIInsights,
 } from "@/lib/report/seo-insights";
+import OwnerTagsEditor from "@/components/upload-article/report/OwnerTagsEditor";
+import type { UploadOwnerTag } from "@/lib/upload-article/types";
 
 interface Project {
   id: string;
@@ -1600,7 +1602,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
 type ReportMode = "dashboard" | "seo-performance" | "simple";
 
 export function ClientReportClient({
-  project, isClient = false, embedded = false, setupHint,
+  project, isClient = false, embedded = false, setupHint, ownerControls,
 }: {
   project: Project;
   isClient?: boolean;
@@ -1608,6 +1610,12 @@ export function ClientReportClient({
   embedded?: boolean;
   /** ข้อความบอกที่ตั้งค่า GSC/GA4 เมื่อ embedded */
   setupHint?: string;
+  /** ผู้ดูแลบทความ (เฉพาะ SEO SME ฝั่งทีมงาน) — ไม่ส่ง = ไม่แสดงตัวจัดการ/ตัวกรองผู้ดูแล (PBN, ลูกค้า) */
+  ownerControls?: {
+    ownerTags: UploadOwnerTag[];
+    articleOwners: Record<string, string>;
+    onOwnerTagsChange: (tags: UploadOwnerTag[], owners: Record<string, string>) => void;
+  };
 }) {
   const [days, setDays]               = useState(28);
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
@@ -1627,43 +1635,65 @@ export function ClientReportClient({
   const [gscError, setGscError]       = useState<string | null>(null);
   const [ga4Error, setGa4Error]       = useState<string | null>(null);
   const [psiError, setPsiError]       = useState<string | null>(null);
+  // กรอง GSC ตามผู้ดูแลบทความ ("" = ทั้งหมด) — กระทบเฉพาะ GSC ส่วน GA4 / PageSpeed ยังเป็นข้อมูลทั้งเว็บ
+  const [ownerFilter, setOwnerFilter] = useState("");
+
+  // เปลี่ยนตัวกรอง = ล้างข้อมูล GSC เดิมก่อน กันของผู้ดูแลคนก่อนค้างอยู่ระหว่างรอดึงใหม่
+  const changeOwnerFilter = useCallback((next: string) => {
+    setOwnerFilter(next);
+    setGscData(null); setGscAiData(null); setGscInsights(null);
+  }, []);
+
+  // ผู้ดูแลที่เลือกกรองอยู่ถูกลบไปแล้ว → กลับไปดูทั้งหมด
+  useEffect(() => {
+    if (ownerFilter && !(ownerControls?.ownerTags ?? []).some(t => t.id === ownerFilter)) changeOwnerFilter("");
+  }, [ownerControls?.ownerTags, ownerFilter, changeOwnerFilter]);
 
   // GA4 property — read-only here; ผูก property ทำที่ Settings › GSC · GA4
   const ga4PropertyId = project.ga4PropertyId ?? "";
 
+  // นับรอบการดึง GSC — ผลของรอบเก่า (เช่นสลับผู้ดูแลเร็ว ๆ) ห้ามทับผลรอบล่าสุด
+  const gscReqRef = useRef(0);
+
   const fetchGSC = useCallback(async () => {
     if (!project.gscSiteUrl) return;
+    const reqId = ++gscReqRef.current;
+    const stale = () => reqId !== gscReqRef.current;
     setGscLoading(true); setGscError(null);
+    // ส่ง projectId + ownerTagId เฉพาะตอนเลือกกรองผู้ดูแล — เซิร์ฟเวอร์จะกรองหน้า GSC ให้เหลือแต่บทความของผู้ดูแลคนนั้น
+    const ownerBody = ownerFilter ? { projectId: project.id, ownerTagId: ownerFilter } : {};
     try {
       const [gscRes, aiRes] = await Promise.allSettled([
         fetch("/api/report/gsc", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}) }),
+          body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}), ...ownerBody }),
         }).then(r => r.json()),
         fetch("/api/report/gsc-ai", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}) }),
+          body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}), ...ownerBody }),
         }).then(r => r.json()),
       ]);
+      if (stale()) return;
       if (gscRes.status === "fulfilled" && !gscRes.value.error) setGscData(gscRes.value);
       else if (gscRes.status === "rejected") throw new Error(String(gscRes.reason));
       else if (gscRes.status === "fulfilled" && gscRes.value.error) throw new Error(gscRes.value.error);
       if (aiRes.status === "fulfilled" && !aiRes.value.error) setGscAiData(aiRes.value as GscAiData);
-    } catch (e) { setGscError(e instanceof Error ? e.message : "Error"); }
-    finally { setGscLoading(false); }
+    } catch (e) { if (!stale()) setGscError(e instanceof Error ? e.message : "Error"); }
+    finally { if (!stale()) setGscLoading(false); }
+    if (stale()) return;
 
     // Fetch GSC Insights (per-query comparison)
     setGscInsLoading(true);
     try {
       const r = await fetch("/api/report/gsc-insights", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}) }),
+        body: JSON.stringify({ siteUrl: project.gscSiteUrl, days, ...(customRange ? { startDate: customRange.start, endDate: customRange.end } : {}), ...ownerBody }),
       });
       const d = await r.json();
-      if (!d.error) setGscInsights(d);
+      if (!d.error && !stale()) setGscInsights(d);
     } catch { /* non-fatal */ }
-    finally { setGscInsLoading(false); }
-  }, [project.gscSiteUrl, days, customRange]);
+    finally { if (!stale()) setGscInsLoading(false); }
+  }, [project.gscSiteUrl, project.id, days, customRange, ownerFilter]);
 
   const fetchGA4 = useCallback(async (overrideId?: string) => {
     const pid = overrideId ?? ga4PropertyId;
@@ -1701,9 +1731,9 @@ export function ClientReportClient({
     finally { setPsiLoading(false); }
   }, [project.gscSiteUrl, project.website]);
 
-  useEffect(() => {
-    fetchGSC(); fetchGA4(); fetchPSI();
-  }, [fetchGSC, fetchGA4, fetchPSI]);
+  // แยก effect: เปลี่ยนตัวกรองผู้ดูแลต้องดึงใหม่เฉพาะ GSC (GA4 / PageSpeed ไม่ผูกกับผู้ดูแล จึงไม่ต้องยิงซ้ำ)
+  useEffect(() => { fetchGSC(); }, [fetchGSC]);
+  useEffect(() => { fetchGA4(); fetchPSI(); }, [fetchGA4, fetchPSI]);
 
   const gsc  = gscData as { overview?: Record<string, number>; pages?: {page:string;clicks:number;impressions:number;ctr:number;position:number}[]; queries?: {query:string;clicks:number;impressions:number;ctr:number;position:number}[]; devices?: {device:string;clicks:number}[]; period?: Record<string,string|number> } | null;
   const ga4  = ga4Data as { overview?: Record<string, number>; channels?: {channel:string;sessions:number;conversions:number;revenue:number}[]; pages?: {path:string;views:number;sessions:number;bounceRate:number;engagementRate:number}[]; devices?: {device:string;sessions:number;conversions:number}[]; events?: {event:string;isConversion:boolean;count:number;conversions:number}[] } | null;
@@ -1728,8 +1758,23 @@ export function ClientReportClient({
     };
   }, [gsc, ga4, psi, gscAiData]);
 
+  // ข้อมูลสรุปการกรองผู้ดูแลที่เซิร์ฟเวอร์ตอบกลับมากับ GSC (มีเฉพาะตอนเลือกกรอง)
+  const ownerInfo = (gscData as { ownerFilter?: { tagId: string; articles: number; pagesMatched: number } } | null)?.ownerFilter;
+
   return (
     <div className="space-y-5 w-full">
+      {/* ผู้ดูแลบทความ — จัดรายชื่อที่นี่ แล้วเลือกต่อบทความที่แท็บ Push (เฉพาะทีมงาน) */}
+      {ownerControls && !isClient && !embedded && (
+        <OwnerTagsEditor
+          clientId={project.id}
+          saveUrl={`/api/projects/${project.id}/owner-tags`}
+          ownerTags={ownerControls.ownerTags}
+          articleOwners={ownerControls.articleOwners}
+          onChange={ownerControls.onOwnerTagsChange}
+          description="พิมพ์ชื่อคนในทีมที่ดูแลลูกค้านี้ แล้วเลือกผู้ดูแลต่อบทความที่แท็บ Push — กรองรายงาน GSC ทั้งหน้าตามผู้ดูแลได้"
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
@@ -1769,6 +1814,13 @@ export function ClientReportClient({
                 ดู
               </button>
             </span>
+          )}
+          {ownerControls && ownerControls.ownerTags.length > 0 && (
+            <select value={ownerFilter} onChange={e => changeOwnerFilter(e.target.value)} title="กรองรายงาน GSC ตามผู้ดูแลบทความ"
+              className={`h-8 rounded-full border px-2.5 text-xs bg-white ${ownerFilter ? "border-brand-soft/60 text-brand-blue font-semibold" : "border-gray-200"}`}>
+              <option value="">ผู้ดูแล: ทั้งหมด</option>
+              {ownerControls.ownerTags.map(t => <option key={t.id} value={t.id}>ผู้ดูแล: {t.name}</option>)}
+            </select>
           )}
           <button onClick={() => { fetchGSC(); fetchGA4(); fetchPSI(); }}
             className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
@@ -1831,6 +1883,18 @@ export function ClientReportClient({
           </span>
         )}
       </div>
+
+      {/* แบนเนอร์บอกว่ากำลังกรองตามผู้ดูแลคนไหน (ขึ้นทุกโหมดรายงาน) */}
+      {ownerInfo && (
+        <div className="bg-brand-mist/60 border border-brand-soft/40 rounded-xl px-4 py-2.5 text-xs text-brand-navy">
+          <p>
+            กรองเฉพาะบทความของ <b>{ownerControls?.ownerTags.find(t => t.id === ownerInfo.tagId)?.name ?? "ผู้ดูแลที่ถูกลบ"}</b>
+            {" "}— {ownerInfo.articles.toLocaleString()} บทความ, พบใน GSC {ownerInfo.pagesMatched.toLocaleString()} หน้า
+            {ownerInfo.articles === 0 && <span className="text-gray-500"> (ยังไม่มีบทความที่ผูกกับผู้ดูแลนี้)</span>}
+          </p>
+          <p className="text-gray-500 mt-0.5">GA4 และ PageSpeed ยังเป็นข้อมูลทั้งเว็บ</p>
+        </div>
+      )}
 
       {/* ── SEO Performance Report Skill ── */}
       {reportMode === "seo-performance" && (

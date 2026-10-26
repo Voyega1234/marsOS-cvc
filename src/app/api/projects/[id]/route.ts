@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { SECRET_MASK, maskProjectSecrets } from "@/lib/secret-mask";
 import { mergeTimelineWrite } from "@/lib/project-timeline";
 import { logActivity } from "@/lib/logActivity";
+import { stripServerOwnedPrefs } from "@/lib/project-prefs-store";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession();
@@ -73,11 +74,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     };
     const existingPrefs = parseJson(existing.pushPrefs);
     const incomingPrefs = parseJson(data.pushPrefs);
-    // indexRequests เขียนฝั่งเซิร์ฟเวอร์เท่านั้น — ทิ้งค่าที่ client ส่งมา (สำเนาเก่าใน PushTab) กันทับผลจริง
-    delete incomingPrefs.indexRequests;
-    // siteScan เขียนโดย lab-scan/Article Lab เท่านั้น — แท็บ Push ส่งสำเนาเก่ามาไม่ได้
-    delete incomingPrefs.siteScan;
-    data.pushPrefs = JSON.stringify({ ...existingPrefs, ...incomingPrefs });
+    // indexRequests / siteScan / ownerTags / articleOwners เขียนฝั่งเซิร์ฟเวอร์เท่านั้น (route เฉพาะของมัน)
+    // — ทิ้งค่าที่ client ส่งมา (สำเนาเก่าในแท็บ Push/Article Lab) กันทับผลจริง
+    data.pushPrefs = JSON.stringify({ ...existingPrefs, ...stripServerOwnedPrefs(incomingPrefs) });
   }
 
   const project = await prisma.project.update({ where: { id: params.id }, data });

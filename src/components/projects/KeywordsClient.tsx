@@ -112,10 +112,14 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
         body: JSON.stringify({ projectId: project.id, seedKeyword: seed }),
       });
       if (!res.ok) throw new Error();
-      const { keyword } = await res.json();
+      const { keyword, restrictionWarnings } = await res.json();
       setKeywords((prev) => [keyword, ...prev]);
       setSingleInput("");
       toast.success(`วิจัย "${keyword.keyword}" สำเร็จ`);
+      // keyword ไม่ถูกแก้ — มีคำต้องห้ามของ Content Engine แค่เตือนให้ทีมตัดสินใจ
+      if (Array.isArray(restrictionWarnings) && restrictionWarnings.length) {
+        toast.warning(`ข้อจำกัด Content Engine: ${restrictionWarnings.join(" | ")}`, { duration: 12000 });
+      }
     } catch {
       toast.error("เกิดข้อผิดพลาด กรุณาลองใหม่");
     } finally {
@@ -132,6 +136,7 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
     setBulkRunning(true);
     setBulkProgress({ current: 0, total: seeds.length });
     const newKeywords: Keyword[] = [];
+    const bulkWarnings = new Set<string>();
     for (let i = 0; i < seeds.length; i++) {
       setBulkProgress({ current: i + 1, total: seeds.length });
       try {
@@ -141,8 +146,9 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
           body: JSON.stringify({ projectId: project.id, seedKeyword: seeds[i] }),
         });
         if (res.ok) {
-          const { keyword } = await res.json();
+          const { keyword, restrictionWarnings } = await res.json();
           newKeywords.push(keyword);
+          if (Array.isArray(restrictionWarnings)) restrictionWarnings.forEach((w: string) => bulkWarnings.add(w));
         }
       } catch {}
     }
@@ -151,6 +157,9 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
     setBulkOpen(false);
     setBulkRunning(false);
     toast.success(`เสร็จแล้ว ${newKeywords.length}/${seeds.length} keywords`);
+    if (bulkWarnings.size) {
+      toast.warning(`ข้อจำกัด Content Engine: ${Array.from(bulkWarnings).join(" | ")}`, { duration: 12000 });
+    }
     router.refresh();
   }
 
@@ -199,6 +208,11 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
       });
       if (!res.ok) throw new Error();
       toast.success("สร้าง Content Map สำเร็จ!");
+      // คำเตือนข้อจำกัด Content Engine (หน้าถัดไปจะ push ทันที จึงแจ้งตรงนี้)
+      const data = await res.json().catch(() => null);
+      if (Array.isArray(data?.restrictionWarnings) && data.restrictionWarnings.length) {
+        toast.warning(`ข้อจำกัด Content Engine: ${data.restrictionWarnings.join(" | ")}`, { duration: 12000 });
+      }
       router.push(`/projects/${project.id}/content-map`);
     } catch {
       toast.error("เกิดข้อผิดพลาด กรุณาลองใหม่");

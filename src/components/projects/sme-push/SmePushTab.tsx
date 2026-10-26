@@ -4,10 +4,13 @@
  * แต่ยังใช้ backend เดิมของ SME (/api/push/publish, /api/articles, /api/projects/[id]/request-index) */
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, SearchCheck, Loader2, CheckCircle2, XCircle, RefreshCw, Settings } from 'lucide-react'
+import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, SearchCheck, Loader2, CheckCircle2, XCircle, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { parseArticleCards, assembleArticleHtml, type ParsedArticle } from '@/lib/articleCards'
 import type { UploadSiteScan } from '@/lib/upload-article/types'
+import { smeDuplicateMap } from '@/lib/sme-articles/duplicates'
+import SmeDeleteArticleDialog from '@/components/projects/sme-push/SmeDeleteArticleDialog'
+import ArticleOwnerSelect, { type OwnerControls } from '@/components/upload-article/ArticleOwnerSelect'
 
 type WpStatus = 'idle' | 'connecting' | 'connected' | 'error'
 type PushStatus = 'idle' | 'pushing' | 'done' | 'error'
@@ -63,6 +66,7 @@ export default function SmePushTab({
   project, timeline, jobs,
   wpConnections, setWpConnections, selectedConnId, setSelectedConnId,
   pushJobs, setPushJobs, onOpenWebsiteSettings,
+  canDelete = false, onArticleDeleted, ownerControls,
 }: {
   project: SmeProject
   timeline: SmeTimelineEntry[]
@@ -75,6 +79,12 @@ export default function SmePushTab({
   setPushJobs: React.Dispatch<React.SetStateAction<SmePushJob[]>>
   /** เปิด Project Settings › Website ของ client นี้ */
   onOpenWebsiteSettings?: () => void
+  /** แสดงปุ่มลบแถวบทความในระบบ (ซ่อนสำหรับ CLIENT) */
+  canDelete?: boolean
+  /** เรียกหลังลบแถวสำเร็จ — ให้แม่ล้าง articleId ที่อ้างถึงแถวนั้น */
+  onArticleDeleted?: (id: string) => void
+  /** ผู้ดูแลบทความ (ไม่ส่ง = ไม่แสดงตัวเลือก เช่นฝั่ง CLIENT) */
+  ownerControls?: OwnerControls
 }) {
   const [wpStatus, setWpStatus] = useState<WpStatus>('idle')
   const [wpInfo, setWpInfo] = useState<{ url: string; name: string; version: string; source?: string } | null>(null)
@@ -93,6 +103,8 @@ export default function SmePushTab({
   const [indexBusy, setIndexBusy] = useState<Record<string, boolean>>({})
   const [savingConn, setSavingConn] = useState(false)
   const [dbArticles, setDbArticles] = useState<DbArticleLite[]>([])
+  /** แถวที่กำลังยืนยันลบ (dialog เดียวใช้ร่วมทุกการ์ด) */
+  const [deleting, setDeleting] = useState<DbArticleLite | null>(null)
   /** โหมดที่ push ล่าสุดในเซสชันนี้ (entryIdx → draft/publish) ไว้ทำป้ายสถานะ */
   const [pushedMode, setPushedMode] = useState<Record<number, 'draft' | 'publish'>>({})
 
@@ -245,6 +257,12 @@ export default function SmePushTab({
     const pt = entry?.page_type ?? (entry as unknown as { kw_page_type?: string })?.kw_page_type ?? ''
     return /service|page|core/i.test(pt) ? 'page' : 'post'
   }
+
+  // แถว DB ที่ซ้ำกันในโปรเจกต์ (โพสต์/slug/ชื่อเดียวกัน) — ใช้ขึ้นป้าย "ซ้ำ"
+  const dupMap = useMemo(
+    () => smeDuplicateMap(dbArticles.map(a => ({ ...a, title: a.title ?? '', slug: a.slug ?? null, wordpressUrl: a.wordpressUrl ?? null }))),
+    [dbArticles],
+  )
 
   const findDbArticle = (title: string) => dbArticles.find(a => (a.title ?? '').trim() === (title ?? '').trim())
   const getPushJob = (entryIdx: number) => pushJobs.find(p => p.entryIdx === entryIdx)
@@ -479,6 +497,7 @@ export default function SmePushTab({
           const pushed = (pj?.status === 'done') || !!dbA?.wordpressUrl
           const isDraft = pj?.status === 'done' ? pushedMode[job.entryIdx] === 'draft' : dbA?.status === 'WORDPRESS_DRAFTED'
           const ir = dbA?.id ? indexRequests[dbA.id] : undefined
+          const dupCount = dbA ? (dupMap.get(dbA.id)?.length ?? 0) : 0
           const open = openCardsIdx.has(job.entryIdx)
           const offCount = parsed ? parsed.cards.filter(c => !c.derived && !isCardOn(job.entryIdx, c.id)).length : 0
           const featureCards = parsed ? parsed.cards.filter(c => c.type === 'toc' || c.type === 'faq' || c.type === 'cta') : []
@@ -504,10 +523,28 @@ export default function SmePushTab({
                           <ExternalLink size={9} /> เปิดโพสต์
                         </a>
                       )}
+                      {/* ผู้ดูแลบทความ — เฉพาะทีมงาน และเมื่อบทความมีแถวในระบบแล้ว */}
+                      {ownerControls && dbA?.id && (
+                        <ArticleOwnerSelect
+                          articleId={dbA.id}
+                          ownerTags={ownerControls.ownerTags}
+                          ownerTagId={ownerControls.articleOwners[dbA.id]}
+                          onChange={ownerControls.onOwnerChange}
+                          goToReport={ownerControls.goToReport}
+                          saveUrl={`/api/articles/${dbA.id}/owner`}
+                          emptyHint="เพิ่มผู้ดูแลที่แท็บ Report"
+                        />
+                      )}
                     </div>
                   </div>
                 </label>
                 <div className="flex items-center gap-2 flex-wrap">
+                  {dupCount > 0 && (
+                    <span title={`มีแถวในระบบที่ซ้ำกับบทความนี้ ${dupCount} แถว`}
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">
+                      ซ้ำ
+                    </span>
+                  )}
                   <select value={wpTypeOverride[job.entryIdx] ?? 'auto'}
                     onChange={e => setWpTypeOverride(prev => ({ ...prev, [job.entryIdx]: e.target.value as 'auto' | 'post' | 'page' }))}
                     title={`ประเภทที่จะ push: ${getWpPostType(job.entryIdx)}`}
@@ -525,6 +562,12 @@ export default function SmePushTab({
                   <Button size="sm" variant="outline" disabled={!connected || pushing || batchBusy} onClick={() => handlePush(job.entryIdx)}>
                     {pushing ? 'กำลัง Push...' : pushed ? 'Push ซ้ำ' : 'Push'}
                   </Button>
+                  {canDelete && dbA?.id && (
+                    <Button size="sm" variant="outline" title="ลบแถวนี้ในระบบ" aria-label="ลบแถวนี้ในระบบ"
+                      className="text-rose-600 hover:text-rose-700" onClick={() => setDeleting(dbA)}>
+                      <Trash2 size={12} />
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -589,6 +632,20 @@ export default function SmePushTab({
           )
         })}
       </div>
+
+      {deleting && (
+        <SmeDeleteArticleDialog
+          article={deleting}
+          allArticles={dbArticles}
+          onClose={() => setDeleting(null)}
+          onDeleted={id => {
+            // ลบเฉพาะแถวใน state ของแท็บนี้ — ไม่แตะ timeline
+            setDbArticles(prev => prev.filter(a => a.id !== id))
+            setDeleting(null)
+            onArticleDeleted?.(id)
+          }}
+        />
+      )}
     </div>
   )
 }

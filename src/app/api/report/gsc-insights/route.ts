@@ -4,6 +4,7 @@ import { clientCanAccessSite } from "@/lib/client-access";
 import { getGSCAuth } from "@/lib/google-auth";
 import { google } from "googleapis";
 import type { GscInsightItem } from "@/lib/report/seo-insights";
+import { makeScopedGscQuery, ownerFilterSummary, readOwnerFilterInput, resolveSmeOwnerScope, type SmeOwnerScope } from "@/lib/sme-articles/owner-report";
 
 // GscInsightItem is defined in @/lib/report/seo-insights — import from there directly
 
@@ -20,7 +21,11 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.organizationId)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { siteUrl, days = 28 } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const { siteUrl, days = 28 } = body;
+  // กรองตามผู้ดูแลบทความ (SEO SME) — ทีมภายในเท่านั้น
+  const ownerInput = readOwnerFilterInput(body);
+  if (ownerInput && session.user.role === "CLIENT") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   // CLIENT ดูได้เฉพาะเว็บของโปรเจกต์ตัวเอง — กันดึงข้อมูลของลูกค้ารายอื่น
   if (!(await clientCanAccessSite(session, siteUrl))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -38,8 +43,17 @@ export async function POST(req: NextRequest) {
     const prevStart = new Date(prevEnd.getTime() - days * 86400000);
     const fmt = (d: Date) => d.toISOString().split("T")[0];
 
-    const q = (body: Record<string, unknown>) =>
-      sc.searchanalytics.query({ siteUrl, requestBody: body as never });
+    let scope: SmeOwnerScope | null = null;
+    if (ownerInput) {
+      const r = await resolveSmeOwnerScope({
+        sc, siteUrl, orgId: session.user.organizationId, ...ownerInput,
+        ranges: [{ startDate: fmt(startDate), endDate: fmt(endDate) }, { startDate: fmt(prevStart), endDate: fmt(prevEnd) }],
+      });
+      if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
+      scope = r.scope;
+    }
+    // ไม่มี scope = ทั้งเว็บเหมือนเดิม, มี scope = เฉพาะหน้าของบทความผู้ดูแล
+    const q = makeScopedGscQuery(sc, siteUrl, scope);
 
     // Fetch curr + prev for queries and pages (rowLimit 500 for comparison depth)
     const [queryCurr, queryPrev, pageCurr, pagePrev] = await Promise.all([
@@ -53,18 +67,18 @@ export async function POST(req: NextRequest) {
 
     // Build prev maps
     const prevQueryMap = new Map<string, GSCRow>();
-    for (const r of queryPrev.data.rows ?? []) {
+    for (const r of queryPrev) {
       if (r.keys?.[0]) prevQueryMap.set(r.keys[0], r);
     }
     const prevPageMap = new Map<string, GSCRow>();
-    for (const r of pagePrev.data.rows ?? []) {
+    for (const r of pagePrev) {
       if (r.keys?.[0]) prevPageMap.set(r.keys[0], r);
     }
 
     const insights: GscInsightItem[] = [];
 
     // ── Analyse per-query ─────────────────────────────────────────────────────
-    for (const row of queryCurr.data.rows ?? []) {
+    for (const row of queryCurr) {
       const query = row.keys?.[0] ?? "";
       const curr = {
         clicks:      row.clicks ?? 0,
@@ -214,7 +228,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Analyse per-page (position gain/loss for pages) ───────────────────────
-    for (const row of pageCurr.data.rows ?? []) {
+    for (const row of pageCurr) {
       const page = row.keys?.[0] ?? "";
       const curr = {
         clicks:      row.clicks ?? 0,
@@ -279,6 +293,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       period: { start: fmt(startDate), end: fmt(endDate), prevStart: fmt(prevStart), prevEnd: fmt(prevEnd), days },
+      ownerFilter: ownerFilterSummary(scope),
       insights: insights.slice(0, 50), // cap at 50
       counts: {
         total: insights.length,

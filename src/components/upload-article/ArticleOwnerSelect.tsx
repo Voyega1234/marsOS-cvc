@@ -20,7 +20,7 @@ export interface OwnerControls {
 }
 
 export default function ArticleOwnerSelect({
-  articleId, ownerTags, ownerTagId, onChange, goToReport, emptyHint = "เพิ่มผู้ดูแลที่แท็บ Report",
+  articleId, ownerTags, ownerTagId, onChange, goToReport, emptyHint = "เพิ่มผู้ดูแลที่แท็บ Report", saveUrl,
 }: {
   articleId: string;
   ownerTags: UploadOwnerTag[];
@@ -32,6 +32,8 @@ export default function ArticleOwnerSelect({
   goToReport?: () => void;
   /** ข้อความตอนยังไม่มีรายชื่อผู้ดูแล */
   emptyHint?: string;
+  /** URL สำหรับ PATCH ผู้ดูแล (ไม่ส่ง = ใช้ endpoint ของ Upload Article) — SEO SME ส่ง /api/articles/[id]/owner */
+  saveUrl?: string;
 }) {
   const [saving, setSaving] = useState(false);
 
@@ -56,7 +58,7 @@ export default function ArticleOwnerSelect({
     onChange(articleId, nextId);
     setSaving(true);
     try {
-      const r = await fetch(`/api/upload-article/articles/${articleId}/owner`, {
+      const r = await fetch(saveUrl ?? `/api/upload-article/articles/${articleId}/owner`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ownerTagId: nextId }),

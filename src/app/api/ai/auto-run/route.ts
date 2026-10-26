@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { legacyWriterGuard } from "@/lib/legacy-writer-server";
 import { prisma } from "@/lib/prisma";
 import { toUserMessage } from "@/services/ai/errors";
 import type { Role } from "@/types";
@@ -67,6 +68,10 @@ type RunArgs = {
 };
 
 export async function POST(req: NextRequest) {
+  // auto-run เรียกตัวเขียนแบบเก่า (ไม่ใช้ข้อจำกัดของ Content Engine) — ปิดถาวร
+  const gone = legacyWriterGuard();
+  if (gone) return gone;
+
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!session.user.organizationId) return NextResponse.json({ error: "No organization" }, { status: 403 });

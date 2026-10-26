@@ -3,6 +3,8 @@ import { getSession } from "@/lib/auth";
 import { clientCanAccessSite } from "@/lib/client-access";
 import { getGSCAuth } from "@/lib/google-auth";
 import { google } from "googleapis";
+import { makeScopedGscQuery, ownerFilterSummary, readOwnerFilterInput, resolveSmeOwnerScope, type SmeOwnerScope } from "@/lib/sme-articles/owner-report";
+import type { RawGscRow } from "@/lib/upload-article/gsc-report";
 
 interface GSCRow {
   clicks?: number | null;
@@ -16,7 +18,11 @@ export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { siteUrl, days = 28 } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const { siteUrl, days = 28 } = body;
+  // กรองตามผู้ดูแลบทความ (SEO SME) — ทีมภายในเท่านั้น
+  const ownerInput = readOwnerFilterInput(body);
+  if (ownerInput && session.user.role === "CLIENT") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   // CLIENT ดูได้เฉพาะเว็บของโปรเจกต์ตัวเอง — กันดึงข้อมูลของลูกค้ารายอื่น
   if (!(await clientCanAccessSite(session, siteUrl))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -34,11 +40,18 @@ export async function POST(req: NextRequest) {
     const prevStart = new Date(prevEnd.getTime() - days * 86400000);
     const fmt = (d: Date) => d.toISOString().split("T")[0];
 
-    const query = (searchType: string, body: Record<string, unknown>) =>
-      sc.searchanalytics.query({
-        siteUrl,
-        requestBody: { ...body, searchType } as never,
+    let scope: SmeOwnerScope | null = null;
+    if (ownerInput) {
+      const r = await resolveSmeOwnerScope({
+        sc, siteUrl, orgId: session.user.organizationId, ...ownerInput,
+        ranges: [{ startDate: fmt(startDate), endDate: fmt(endDate) }, { startDate: fmt(prevStart), endDate: fmt(prevEnd) }],
       });
+      if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
+      scope = r.scope;
+    }
+    // ไม่มี scope = ทั้งเว็บเหมือนเดิม, มี scope = เฉพาะหน้าของบทความผู้ดูแล
+    const scopedQuery = makeScopedGscQuery(sc, siteUrl, scope);
+    const query = (searchType: string, body: Record<string, unknown>) => scopedQuery({ ...body, searchType });
 
     // Fetch AI Overviews and AI Mode in parallel (current + prev periods)
     const [aoCurrentRes, aoPrevRes, amCurrentRes, amPrevRes] = await Promise.allSettled([
@@ -48,9 +61,9 @@ export async function POST(req: NextRequest) {
       query("AI_MODE", { startDate: fmt(prevStart), endDate: fmt(prevEnd) }),
     ]);
 
-    const extractRow = (res: PromiseSettledResult<{ data: { rows?: GSCRow[] } }>) => {
+    const extractRow = (res: PromiseSettledResult<RawGscRow[]>) => {
       if (res.status === "rejected") return null;
-      const row: GSCRow = res.value.data.rows?.[0] ?? {};
+      const row: GSCRow = res.value[0] ?? {};
       return {
         clicks: row.clicks ?? 0,
         impressions: row.impressions ?? 0,
@@ -68,12 +81,13 @@ export async function POST(req: NextRequest) {
 
     // If both are null — account doesn't have AI Performance data
     if (!aoCurr && !amCurr) {
-      return NextResponse.json({ available: false });
+      return NextResponse.json({ available: false, ownerFilter: ownerFilterSummary(scope) });
     }
 
     return NextResponse.json({
       available: true,
       period: { start: fmt(startDate), end: fmt(endDate), days },
+      ownerFilter: ownerFilterSummary(scope),
       aiOverviews: aoCurr
         ? {
             ...aoCurr,

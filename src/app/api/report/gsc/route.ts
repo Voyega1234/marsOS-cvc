@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { clientCanAccessSite } from "@/lib/client-access";
 import { getGSCAuth } from "@/lib/google-auth";
 import { google } from "googleapis";
+import { makeScopedGscQuery, ownerFilterSummary, readOwnerFilterInput, resolveSmeOwnerScope, type SmeOwnerScope } from "@/lib/sme-articles/owner-report";
 
 interface GSCRow {
   clicks?: number | null;
@@ -16,7 +17,11 @@ export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { siteUrl, days = 28, startDate: customStart, endDate: customEnd } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const { siteUrl, days = 28, startDate: customStart, endDate: customEnd } = body;
+  // กรองตามผู้ดูแลบทความ (SEO SME) — ทีมภายในเท่านั้น
+  const ownerInput = readOwnerFilterInput(body);
+  if (ownerInput && session.user.role === "CLIENT") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   // CLIENT ดูได้เฉพาะเว็บของโปรเจกต์ตัวเอง — กันดึงข้อมูลของลูกค้ารายอื่น
   if (!(await clientCanAccessSite(session, siteUrl))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -39,8 +44,17 @@ export async function POST(req: NextRequest) {
     const prevStart = new Date(prevEnd.getTime() - rangeDays * 86400000);
     const fmt = (d: Date) => d.toISOString().split("T")[0];
 
-    const query = (body: Record<string, unknown>) =>
-      sc.searchanalytics.query({ siteUrl, requestBody: body as never });
+    let scope: SmeOwnerScope | null = null;
+    if (ownerInput) {
+      const r = await resolveSmeOwnerScope({
+        sc, siteUrl, orgId: session.user.organizationId, ...ownerInput,
+        ranges: [{ startDate: fmt(startDate), endDate: fmt(endDate) }, { startDate: fmt(prevStart), endDate: fmt(prevEnd) }],
+      });
+      if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
+      scope = r.scope;
+    }
+    // ไม่มี scope = ทั้งเว็บเหมือนเดิม, มี scope = เฉพาะหน้าของบทความผู้ดูแล (รวมผลหลาย batch ให้แล้ว)
+    const query = makeScopedGscQuery(sc, siteUrl, scope);
 
     const [overviewCurr, overviewPrev, byPage, byQuery, byDevice, byDate, byQueryPage] = await Promise.all([
       query({ startDate: fmt(startDate), endDate: fmt(endDate) }),
@@ -53,8 +67,8 @@ export async function POST(req: NextRequest) {
       query({ startDate: fmt(startDate), endDate: fmt(endDate), dimensions: ["query", "page"], rowLimit: 250 }),
     ]);
 
-    const curr: GSCRow = overviewCurr.data.rows?.[0] ?? {};
-    const prev: GSCRow = overviewPrev.data.rows?.[0] ?? {};
+    const curr: GSCRow = overviewCurr[0] ?? {};
+    const prev: GSCRow = overviewPrev[0] ?? {};
 
     const pct = (a: number, b: number) => b ? Math.round((a - b) / b * 100) : 0;
 
@@ -72,6 +86,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       period: { start: fmt(startDate), end: fmt(endDate), days: rangeDays },
+      ownerFilter: ownerFilterSummary(scope),
       overview: {
         clicks: currClicks, impressions: currImpr,
         ctr: Number((currCtr * 100).toFixed(1)),
@@ -81,11 +96,11 @@ export async function POST(req: NextRequest) {
         ctrDelta: pct(currCtr, prevCtr),
         positionDelta: Number((currPos - prevPos).toFixed(1)),
       },
-      pages: (byPage.data.rows ?? []).map(r => ({ page: r.keys?.[0] ?? "", ...mapRow(r) })),
-      queryPages: (byQueryPage.data.rows ?? []).map(r => ({ query: r.keys?.[0] ?? "", page: r.keys?.[1] ?? "", clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 })),
-      queries: (byQuery.data.rows ?? []).map(r => ({ query: r.keys?.[0] ?? "", ...mapRow(r) })),
-      devices: (byDevice.data.rows ?? []).map(r => ({ device: r.keys?.[0] ?? "", clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 })),
-      daily: (byDate.data.rows ?? []).map(r => ({
+      pages: byPage.map(r => ({ page: r.keys?.[0] ?? "", ...mapRow(r) })),
+      queryPages: byQueryPage.map(r => ({ query: r.keys?.[0] ?? "", page: r.keys?.[1] ?? "", clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 })),
+      queries: byQuery.map(r => ({ query: r.keys?.[0] ?? "", ...mapRow(r) })),
+      devices: byDevice.map(r => ({ device: r.keys?.[0] ?? "", clicks: r.clicks ?? 0, impressions: r.impressions ?? 0 })),
+      daily: byDate.map(r => ({
         date: r.keys?.[0] ?? "",
         clicks: r.clicks ?? 0,
         impressions: r.impressions ?? 0,

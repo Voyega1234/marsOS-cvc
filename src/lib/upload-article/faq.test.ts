@@ -195,6 +195,19 @@ console.log('H2 — บทความไทย: หัวกล่องเป�
   assert(normalizeFaqAndTakeaways('<h2>Key Takeaways</h2><ul><li>ข้อ</li></ul>', 'en').includes('<p class="content-takeaways__title">Key Takeaways</p>'), 'บทความอังกฤษคง Key Takeaways');
   assert(normalizeFaqAndTakeaways('<h2>Key Takeaways</h2><ul><li>k</li></ul>', 'th').includes('<p class="content-takeaways__title">สรุปประเด็นสำคัญ</p>'), 'ส่งภาษาไทยมา: ชนะการเดาจากเนื้อหา');
 }
+console.log('H2b — บทความอังกฤษ: หัวกล่องเป็น "Key Takeaways" เสมอ แม้ AI/prompt เก่าใส่หัวไทยมา');
+{
+  const en = '<h1>English title</h1><p>Intro for English readers.</p><h2>สรุปประเด็นสำคัญ</h2><ul><li>First point</li></ul><h2>Body</h2><p>Details</p>';
+  const out = normalizeFaqAndTakeaways(en, 'en');
+  assert(out.includes('<p class="content-takeaways__title">Key Takeaways</p>') && !out.includes('สรุปประเด็นสำคัญ'), 'อังกฤษ: หัวไทยที่ AI ใส่มา → Key Takeaways');
+  assert(normalizeFaqAndTakeaways(out, 'en') === out, 'อังกฤษ: แปลงซ้ำไม่เปลี่ยน');
+  const boxedEn = '<p>English intro paragraph.</p><div class="content-takeaways"><p class="content-takeaways__title">สรุปประเด็นสำคัญ</p><ul><li>English point</li></ul></div>';
+  assert(normalizeFaqAndTakeaways(boxedEn).includes('<p class="content-takeaways__title">Key Takeaways</p>'), 'อังกฤษไม่ส่งภาษา: กล่องเดิมหัวไทย → Key Takeaways');
+  const bold = normalizeFaqAndTakeaways('<p><strong>Key takeaway:</strong></p><ul><li>k</li></ul>', 'en');
+  assert(bold.includes('<p class="content-takeaways__title">Key Takeaways</p>'), 'อังกฤษ: หัวตัวหนา/เอกพจน์ → คำมาตรฐาน');
+  const customEn = '<p>English intro.</p><div class="content-takeaways"><p class="content-takeaways__title">Why it matters</p><ul><li>k</li></ul></div>';
+  assert(normalizeFaqAndTakeaways(customEn, 'en') === customEn, 'อังกฤษ: หัวกล่องที่ไม่ใช่หัวสรุป ไม่แตะ');
+}
 {
   const html = '<div class="content-article"><h1>T</h1><nav class="content-toc" aria-label="สารบัญ"><p class="content-toc__title">สารบัญ</p><ol><li><a href="#a">A</a></li></ol></nav><p>intro</p><p><strong>สารบัญ</strong></p><ul><li><a href="#a">A</a></li><li><a href="#b">B</a></li></ul><h2 id="a">A</h2><p>x</p></div>';
   const p = parseUploadCards(html);

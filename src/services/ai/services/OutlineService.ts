@@ -5,6 +5,8 @@ import { mockOutline } from "../mock";
 import { AINoDataError } from "../errors";
 import { safeJson } from "@/lib/utils";
 import { humanTitleSkillBlock } from "@/lib/article-human-voice-skill";
+import { cleanGeneratedFields, cleanPlainText, keywordWarnings, tallyWarning } from "@/lib/ce-restrictions";
+import { loadTitleRestrictions } from "@/lib/ce-restrictions-server";
 import type { ArticleJobInput, OutlineOutput } from "../types";
 
 export async function runOutline(input: ArticleJobInput) {
@@ -33,6 +35,10 @@ export async function runOutline(input: ArticleJobInput) {
   });
 
   try {
+    // ข้อจำกัดคำต้องห้ามของ Content Engine โปรเจกต์นี้ (ไม่มี/โหลดพัง = ไม่มีข้อจำกัด ไม่ทำให้งานล้ม)
+    const tr = await loadTitleRestrictions(organizationId, { projectId: article.projectId });
+    const restrictionTally = new Map<string, number>();
+
     // 4. Run AI job
     const result = await runAIJob<OutlineOutput>({
       organizationId,
@@ -69,10 +75,37 @@ export async function runOutline(input: ArticleJobInput) {
       userId,
       mockFn: () => mockOutline(article.title, kw),
       // Mars Human Voice Skill — ให้ seoTitle อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
-      appendPrompt: humanTitleSkillBlock('th'),
+      appendPrompt: [humanTitleSkillBlock('th'), tr.block].filter(Boolean).join("\n\n"),
     });
 
     const output = result.output;
+
+    // outline ถูกเก็บและใช้เป็นโครงให้ตัวเขียน — แทนคำต้องห้ามใน seoTitle/meta และหัวข้อทั้งหมด ก่อนบันทึก
+    const cleanText = (s: string): string => {
+      if (typeof s !== "string" || !s) return s;
+      const r = cleanPlainText(s, tr.terms);
+      for (const h of r.remaining) restrictionTally.set(h.term, (restrictionTally.get(h.term) ?? 0) + h.count);
+      return r.text;
+    };
+    const cleanedMeta = cleanGeneratedFields(
+      tr,
+      { title: output.seoTitle, metaDescription: output.metaDescription },
+      restrictionTally,
+    );
+    if (tr.terms.length) {
+      output.title = cleanText(output.title);
+      output.seoTitle = cleanedMeta.title ?? output.seoTitle;
+      output.metaDescription = cleanedMeta.metaDescription ?? output.metaDescription;
+      for (const s of output.sections ?? []) {
+        s.h2 = cleanText(s.h2);
+        if (Array.isArray(s.h3s)) s.h3s = s.h3s.map(cleanText);
+        if (Array.isArray(s.keyPoints)) s.keyPoints = s.keyPoints.map(cleanText);
+      }
+      for (const f of output.faqItems ?? []) {
+        f.question = cleanText(f.question);
+        f.answer = cleanText(f.answer);
+      }
+    }
 
     // 5. Snapshot existing content before overwriting
     await snapshotArticleVersion(articleId, userId, "Before regenerating outline");
@@ -95,7 +128,10 @@ export async function runOutline(input: ArticleJobInput) {
       jobId: result.jobId,
     });
 
-    return { outline: output, jobId: result.jobId, isMock: result.isMock };
+    const leftover = tallyWarning("คำต้องห้ามที่ยังเหลือใน outline/SEO title/meta", restrictionTally);
+    const restrictionWarnings: string[] = [...(leftover ? [leftover] : []), ...keywordWarnings(kw, tr.terms)];
+
+    return { outline: output, jobId: result.jobId, isMock: result.isMock, restrictionWarnings };
 
   } catch (err) {
     // Roll back status to ERROR on failure

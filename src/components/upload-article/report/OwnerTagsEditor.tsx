@@ -12,13 +12,19 @@ import { UPLOAD_MAX_OWNER_TAGS, UPLOAD_MAX_OWNER_TAG_NAME, type UploadOwnerTag }
 
 type TagInput = { id?: string; name: string };
 
+const DEFAULT_DESCRIPTION = "พิมพ์ชื่อคนในทีมที่ดูแลลูกค้านี้ แล้วเลือกผู้ดูแลต่อบทความ (แท็บนำเข้า / Publish / ตาราง “บทความที่อัปโหลด” ด้านล่าง) — กรองรายงานทั้งหน้าตามผู้ดูแลได้";
+
 export default function OwnerTagsEditor({
-  clientId, ownerTags, articleOwners, onChange,
+  clientId, ownerTags, articleOwners, onChange, saveUrl, description = DEFAULT_DESCRIPTION,
 }: {
   clientId: string;
   ownerTags: UploadOwnerTag[];
   articleOwners: Record<string, string>;
   onChange: (ownerTags: UploadOwnerTag[], articleOwners: Record<string, string>) => void;
+  /** URL สำหรับ PUT รายชื่อผู้ดูแล (ไม่ส่ง = ใช้ endpoint ของ Upload Article) — SEO SME ส่ง /api/projects/[id]/owner-tags */
+  saveUrl?: string;
+  /** ข้อความอธิบายใต้หัวข้อ (ไม่ส่ง = ข้อความของ Upload Article) */
+  description?: string;
 }) {
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -29,7 +35,7 @@ export default function OwnerTagsEditor({
   async function save(tags: TagInput[]): Promise<boolean> {
     setSaving(true);
     try {
-      const r = await fetch(`/api/upload-article/clients/${clientId}/owner-tags`, {
+      const r = await fetch(saveUrl ?? `/api/upload-article/clients/${clientId}/owner-tags`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tags }),
@@ -79,7 +85,7 @@ export default function OwnerTagsEditor({
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2.5">
       <div>
         <p className="text-sm font-semibold text-brand-navy">ผู้ดูแลบทความ</p>
-        <p className="text-xs text-gray-500 mt-0.5">พิมพ์ชื่อคนในทีมที่ดูแลลูกค้านี้ แล้วเลือกผู้ดูแลต่อบทความ (แท็บนำเข้า / Publish / ตาราง “บทความที่อัปโหลด” ด้านล่าง) — กรองรายงานทั้งหน้าตามผู้ดูแลได้</p>
+        <p className="text-xs text-gray-500 mt-0.5">{description}</p>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         {ownerTags.length === 0 && <span className="text-[11px] text-gray-400">ยังไม่มีชื่อผู้ดูแล</span>}

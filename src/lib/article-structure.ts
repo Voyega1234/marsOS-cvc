@@ -11,6 +11,8 @@ export const TAKEAWAYS_HEADING_RE =
 
 /** หัวกล่องมาตรฐานของบทความไทย */
 export const TAKEAWAYS_TITLE_TH = 'สรุปประเด็นสำคัญ'
+/** หัวกล่องมาตรฐานของบทความอังกฤษ — กัน AI/prompt เก่าใส่หัวไทยมาในบทความอังกฤษ */
+export const TAKEAWAYS_TITLE_EN = 'Key Takeaways'
 
 const FAQ_HEADING_RE = /FAQ|คำถามที่พบบ่อย|คำถามยอดฮิต|Q\s*&\s*A|ถาม.?ตอบ|frequently asked|คำถามที่(หลายคน|คน|ผู้อ่าน|ลูกค้า)?(มัก|ชอบ)?(ถาม|สงสัย)/i
 
@@ -23,8 +25,6 @@ export function detectContentLanguage(html: string): 'th' | 'en' {
   const latin = (text.match(/[A-Za-z]/g) || []).length
   return th > 0 && th >= latin ? 'th' : 'en'
 }
-/** ตัดตัวหนาที่ครอบทั้งหัวข้อ — หัวกล่องหนาอยู่แล้ว */
-const unwrapBold = (s: string) => s.trim().replace(/^<(strong|b)\b[^>]*>([\s\S]*)<\/\1>$/i, '$2').trim()
 
 /** กฎโครงสร้างที่แนบทุกครั้งที่สั่งเขียนบทความ (ต่อจาก Human Voice Skill) */
 export function articleStructureSkillBlock(language: 'th' | 'en' = 'th'): string {
@@ -79,9 +79,9 @@ export function faqHeadingToH2(html: string): string {
 }
 
 /** หัวข้อสรุปประเด็นสำคัญ/Key Takeaways + รายการถัดไป → กล่อง content-takeaways (คง id เดิมไว้ ลิงก์สารบัญเก่ายังกระโดดถึง)
- *  บทความไทย: หัวกล่องเป็น "สรุปประเด็นสำคัญ" เสมอ รวมกล่องเดิมที่ยังเขียนว่า Key Takeaways · language ไม่ส่ง = เดาจากเนื้อหา */
+ *  หัวกล่องเป็นคำมาตรฐานตามภาษาเสมอ (ไทย "สรุปประเด็นสำคัญ" / อังกฤษ "Key Takeaways") รวมกล่องเดิม · language ไม่ส่ง = เดาจากเนื้อหา */
 export function boxKeyTakeaways(html: string, language?: 'th' | 'en'): string {
-  const thai = (language ?? detectContentLanguage(html)) === 'th'
+  const title = (language ?? detectContentLanguage(html)) === 'th' ? TAKEAWAYS_TITLE_TH : TAKEAWAYS_TITLE_EN
   const removedIds: string[] = []
   // AI รุ่นก่อนใส่ Key Takeaways ไว้ในกล่อง content-highlight/notice — แกะกล่องเดิมออกก่อน กันกล่องซ้อนกล่อง
   let out = html.replace(
@@ -97,15 +97,13 @@ export function boxKeyTakeaways(html: string, language?: 'th' | 'en'): string {
       if ((list.match(new RegExp(`<${listTag}\\b`, 'gi')) || []).length !== 1) return m
       const id = idOf(attrs)
       if (id) removedIds.push(id)
-      return `<div class="content-takeaways"${id ? ` id="${id}"` : ''}><p class="content-takeaways__title">${thai ? TAKEAWAYS_TITLE_TH : unwrapBold(inner)}</p>${list}</div>`
+      return `<div class="content-takeaways"${id ? ` id="${id}"` : ''}><p class="content-takeaways__title">${title}</p>${list}</div>`
     },
   )
-  // กล่องที่มีอยู่แล้ว (บทความเก่า/AI ใส่กล่องมาเอง) — บทความไทยเปลี่ยนหัวกล่องเป็นคำมาตรฐาน
-  if (thai) {
-    out = out.replace(/(<p\b[^>]*class="[^"]*\bcontent-takeaways__title\b[^"]*"[^>]*>)((?:(?!<\/p>)[\s\S]){1,200})(<\/p>)/gi, (m, open: string, inner: string, close: string) =>
-      TAKEAWAYS_HEADING_RE.test(stripTags(inner)) ? `${open}${TAKEAWAYS_TITLE_TH}${close}` : m,
-    )
-  }
+  // กล่องที่มีอยู่แล้ว (บทความเก่า/AI ใส่กล่องมาเอง) — เปลี่ยนหัวกล่องเป็นคำมาตรฐานของภาษานั้น (หัวกล่องที่ไม่ใช่หัวสรุป ไม่แตะ)
+  out = out.replace(/(<p\b[^>]*class="[^"]*\bcontent-takeaways__title\b[^"]*"[^>]*>)((?:(?!<\/p>)[\s\S]){1,200})(<\/p>)/gi, (m, open: string, inner: string, close: string) =>
+    TAKEAWAYS_HEADING_RE.test(stripTags(inner)) ? `${open}${title}${close}` : m,
+  )
   // หัวข้อที่กลายเป็นกล่องไม่ใช่ section แล้ว — ตัดรายการในสารบัญของระบบ
   for (const id of removedIds) {
     out = out.replace(/(<nav\b[^>]*content-toc[\s\S]*?<\/nav>)/i, (nav) =>

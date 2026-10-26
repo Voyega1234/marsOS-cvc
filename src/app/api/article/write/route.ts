@@ -4,6 +4,7 @@ import { clientSlugFromProject, withOrClient } from '@/lib/orClient'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
+import { extractCoverExtras } from '@/lib/cover-extras'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
 import {
   buildRestrictionsBlock, cleanPlainText, cleanSeoMetaBlock, cleanSlug, findBannedInText, hasRestrictions, hitWarnings,
@@ -388,7 +389,13 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   ])
 }
 
-const IMAGE_TIMEOUT_MS = 75_000
+// ปกต้องเรียก vision เพิ่ม (Art Director + อ่านข้อความแบรนด์จากภาพอ้างอิง) — 75s เดิมสั้นไป ปกจึงหลุดบ่อย
+// แต่ต้องไม่ล้น maxDuration 300s: แต่ละรอบใช้เวลาเท่าที่เหลือก่อนเส้นตาย (ดู imageDeadlineAt)
+const IMAGE_TIMEOUT_MS = 120_000
+/** เวลาที่ต้องเหลือไว้หลังสร้างรูป (ฝังรูป + บันทึก DB + ส่ง stream) */
+const IMAGE_TAIL_MS = 25_000
+/** รอบที่เหลือเวลาน้อยกว่านี้ไม่ยิง (ยิงไปก็ไม่ทัน เสียเงินเปล่า) */
+const IMAGE_MIN_ATTEMPT_MS = 30_000
 
 async function generateGeminiImage(params: {
   keyword: string; title: string; type: 'cover' | 'mid'
@@ -405,8 +412,15 @@ async function generateGeminiImage(params: {
   imageAssets?: Parameters<typeof callGeminiImage>[0]['imageAssets']
   /** ภาษาของข้อความบนปก — ตามภาษาบทความที่ resolve แล้ว */
   language?: 'th' | 'en'
+  /** เส้นตายของ request (epoch ms) — ไม่ส่ง = ใช้ IMAGE_TIMEOUT_MS เต็มทุกรอบ */
+  deadlineAt?: number
 }): Promise<{ imageBase64: string; mimeType: string; costUsd: number; totalTokens: number }> {
   for (let attempt = 0; attempt < 2; attempt++) {
+    const left = params.deadlineAt ? params.deadlineAt - IMAGE_TAIL_MS - Date.now() : IMAGE_TIMEOUT_MS
+    if (left < IMAGE_MIN_ATTEMPT_MS) {
+      console.error(`[write] generateGeminiImage ${params.type} skipped attempt ${attempt + 1}: only ${Math.round(left / 1000)}s left before maxDuration`)
+      break
+    }
     try {
       const result = await withTimeout(callGeminiImage({
         client: params.client,
@@ -421,7 +435,7 @@ async function generateGeminiImage(params: {
         coverBullets: params.coverBullets ?? [],
         imageAssets: params.imageAssets,
         language: params.language ?? 'th',
-      }), IMAGE_TIMEOUT_MS, `gemini-image-${params.type}`)
+      }), Math.min(IMAGE_TIMEOUT_MS, left), `gemini-image-${params.type}`)
       if (!result.imageBase64) {
         console.error(`[write] generateGeminiImage ${params.type} returned no image`)
         if (attempt === 0) { await new Promise(r => setTimeout(r, 3000)); continue }
@@ -436,24 +450,6 @@ async function generateGeminiImage(params: {
 }
 
 // AI ทั้งระบบวิ่งผ่าน OpenRouter — ตัวเขียนบทความใช้ OPENROUTER_MODEL_WRITER (gpt-5.6-sol)
-
-// ── ข้อมูลจริงจากบทความสำหรับวางบนปก (overlay ฟอนต์จริง — ดู coverOverlay.ts) ──────
-// bullet = หัวข้อ H2 จริง (ข้าม FAQ/สรุป) · คำโปรย = meta_description ที่ writer สร้าง
-// ใช้ของจริงเท่านั้น ไม่ให้ AI แต่งคำใหม่ — ข้อความบนปกจึงตรงกับเนื้อหาเสมอ
-function extractCoverExtras(html: string): { subtitle: string; bullets: string[] } {
-  const stripTags = (t: string) => t.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim()
-  const bullets: string[] = []
-  for (const m of Array.from(html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi))) {
-    const t = stripTags(m[1])
-    if (!t) continue
-    if (/คำถามที่พบบ่อย|FAQ|สรุป|บทส่งท้าย/i.test(t)) continue
-    bullets.push(t)
-    if (bullets.length >= 3) break
-  }
-  const metaBlock = html.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
-  const subtitle = metaBlock.match(/meta_description\s*[:=]\s*([^\n]+)/i)?.[1]?.trim() ?? ''
-  return { subtitle, bullets }
-}
 
 // ── จำนวนรูปประกอบกลางบทความ — ตั้งใน Image Prompt layer ด้วยบรรทัด "จำนวนรูปประกอบ: N" ──
 //  default 1 (พฤติกรรมเดิม), เลือกได้ 1-7 · บรรทัด directive ถูกตัดออกก่อนส่งเป็น brief ให้ตัววาดภาพ
@@ -986,6 +982,8 @@ export async function POST(req: NextRequest) {
   }
   const ceScope: CEScope = projectId ? { projectId } : 'studio'
   const requestStartedAt = Date.now()
+  // เส้นตายของการสร้างรูป = maxDuration (300s) ลบกันชน 10s
+  const imageDeadlineAt = requestStartedAt + (maxDuration - 10) * 1000
   // Content Engine > ข้อจำกัด ของ scope เดียวกัน (ไม่มี/Draft = null) — โหลดพร้อม CE
   const [ce, restrictions] = await Promise.all([
     resolveContentEngine(orgId, ceScope),
@@ -1207,10 +1205,10 @@ export async function POST(req: NextRequest) {
     const coverExtras = extractCoverExtras(html)
     const [coverResult, ...midResults] = await Promise.all([
       imageSettings.cover
-        ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
+        ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })
         : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
       ...Array.from({ length: midCount }, () =>
-        generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
+        generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })),
     ])
     const midResult = midResults[0]
 
@@ -1354,10 +1352,10 @@ export async function POST(req: NextRequest) {
       send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw && imageSettings.inlineCount === null ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
       const [coverResult, ...midResults] = await Promise.all([
         imageSettings.cover
-          ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
+          ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })
           : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
         ...Array.from({ length: midCount }, () =>
-          generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
+          generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })),
       ])
       const midResult = midResults[0]
       const midOk = midResults.filter(r => r.imageBase64).length

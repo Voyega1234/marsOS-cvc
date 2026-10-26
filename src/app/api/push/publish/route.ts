@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
-import { faqQuestionsToSpan } from '@/lib/article-structure'
+import { boxKeyTakeaways, faqQuestionsToSpan } from '@/lib/article-structure'
 import { stripStyleTags, stripLeadingH1, normalizeCtaItems, flattenEmbeddedNewlines } from '@/lib/articleComponents'
 import { buildProjectArticleCss } from '@/lib/project-theme'
 import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
@@ -125,7 +125,8 @@ export async function POST(req: NextRequest) {
   // 1. sanitize กันข้อความ AI หลุด  2. โหมด clean = ถอด <style> ให้ธีมเว็บคุม
   // 3. ตัด H1 (เว็บส่วนใหญ่แสดง H1 จาก post title อยู่แล้ว — default: ตัด)
   // บทความเก่าที่บันทึกช่วง 2026-10-21..22 มี <h3> ใน <summary> ซึ่ง WordPress ตัดทิ้ง — แปลงเป็น span ก่อน
-  let processedHtml = sanitizeArticleHtml(faqQuestionsToSpan(html))
+  // หัวกล่องสรุปเป็นคำมาตรฐานตามภาษาของเนื้อหา (บทความไทยเก่าที่ยังเขียน Key Takeaways ไม่ต้อง Re-generate)
+  let processedHtml = sanitizeArticleHtml(boxKeyTakeaways(faqQuestionsToSpan(html)))
   let projectStyleMode = 'embed'
   let projectEmbedCss: string | null = null
   let prefStripH1: boolean | undefined

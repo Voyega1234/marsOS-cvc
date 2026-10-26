@@ -16,6 +16,7 @@ import type { ArticleStatus, FunnelStage } from "@/types";
 import { ArticleKanban } from "@/components/professional/ArticleKanban";
 import { ArticleFunnelBoard } from "@/components/professional/ArticleFunnelBoard";
 import { toast } from "sonner";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 
 interface ArticleRow {
   id: string;
@@ -196,14 +197,17 @@ function ProfessionalTable({
         <div className="px-4 py-2.5 bg-brand-blue flex items-center gap-3 flex-wrap">
           <span className="text-sm font-medium text-white">{selected.size} บทความที่เลือก</span>
           <div className="flex items-center gap-2 ml-auto flex-wrap">
-            <button
-              onClick={() => bulkAction("auto-run")}
-              disabled={bulkLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
-            >
-              {bulkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-              Auto Run ทั้งหมด
-            </button>
+            {/* Auto Run ใช้ตัวเขียนแบบเก่าที่ปิดแล้ว (ไม่ใช้ข้อจำกัดของ Content Engine) — ซ่อนตามสวิตช์ */}
+            {LEGACY_AI_WRITER_ENABLED && (
+              <button
+                onClick={() => bulkAction("auto-run")}
+                disabled={bulkLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                {bulkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                Auto Run ทั้งหมด
+              </button>
+            )}
             <button
               onClick={() => bulkAction("approve-outline")}
               disabled={bulkLoading}

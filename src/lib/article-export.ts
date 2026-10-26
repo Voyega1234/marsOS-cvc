@@ -10,6 +10,7 @@ import {
   Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, LevelFormat,
   ShadingType, UnderlineType,
 } from 'docx'
+import { boxKeyTakeaways } from '@/lib/article-structure'
 
 const escHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -32,7 +33,8 @@ export function buildStandaloneArticleHtml(o: {
   /** สีพื้นหน้าเว็บปลายทาง (เหมือน ArticleFrame) — รับเฉพาะ hex/rgb, ไม่ตรงรูปแบบ = ขาว */
   pageBackground?: string
 }): string {
-  const html = o.html || ''
+  // หัวกล่องสรุปตามภาษาของเนื้อหา (บทความเก่า / โหมดไทย+อังกฤษ ที่ project.language ไม่บอกภาษาจริง)
+  const html = boxKeyTakeaways(o.html || '')
   const bg = o.pageBackground && PAGE_BG_RE.test(o.pageBackground.trim()) ? o.pageBackground.trim() : '#fff'
   const cover = o.coverSrc && !html.includes('content-cover')
     ? `<img src="${escHtml(o.coverSrc)}" alt="${escHtml(o.coverAlt ?? o.title)}" style="width:100%;height:auto;display:block;margin:0 0 24px;border-radius:12px" />\n`
@@ -481,7 +483,7 @@ export async function buildArticleDocx(o: {
   coverSrc?: string
   coverAlt?: string
 }): Promise<Blob> {
-  const doc = new DOMParser().parseFromString(o.html || '', 'text/html')
+  const doc = new DOMParser().parseFromString(boxKeyTakeaways(o.html || ''), 'text/html')
   const body = doc.body
   const cx: Ctx = { olCount: { n: 0 }, imgCache: new Map() }
   const out: DocxBlock[] = []

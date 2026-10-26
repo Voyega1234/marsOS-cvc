@@ -5,6 +5,7 @@ import { AINoDataError, AIPreConditionError } from "../errors";
 import { safeJson } from "@/lib/utils";
 import { humanVoiceSkillBlock } from "@/lib/article-human-voice-skill";
 import { articleStructureSkillBlock, normalizeFaqAndTakeaways } from "@/lib/article-structure";
+import { LEGACY_AI_WRITER_ENABLED, LEGACY_WRITER_GONE_MESSAGE } from "@/lib/legacy-writer";
 import type { ArticleJobInput, ArticleAuditOutput, ArticleFixOutput } from "../types";
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
@@ -137,6 +138,9 @@ export async function runArticleAudit(input: ArticleJobInput) {
 // ── Fix ───────────────────────────────────────────────────────────────────────
 
 export async function runArticleFix(input: ArticleJobInput) {
+  // AI Fix เขียนเนื้อหาใหม่โดยไม่ผ่านข้อจำกัดของ Content Engine — ปิดตามสวิตช์ writer เก่า (กันเรียกตรงจาก service)
+  if (!LEGACY_AI_WRITER_ENABLED) throw new AIPreConditionError(LEGACY_WRITER_GONE_MESSAGE);
+
   const { organizationId, articleId, userId, userRole } = input;
 
   assertCanRunJob(userRole, "ARTICLE_HTML");

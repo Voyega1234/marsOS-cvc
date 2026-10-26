@@ -472,6 +472,11 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
       });
       if (!res.ok) throw new Error("Failed");
       toast.success("สำเร็จ!");
+      // คำเตือนข้อจำกัด Content Engine (คำต้องห้ามที่ยังเหลือ / keyword มีคำต้องห้าม) จาก outline และ seo-check
+      const data = await res.json().catch(() => null);
+      if (Array.isArray(data?.restrictionWarnings) && data.restrictionWarnings.length) {
+        toast.warning(`ข้อจำกัด Content Engine: ${data.restrictionWarnings.join(" | ")}`, { duration: 12000 });
+      }
       router.refresh();
     } catch {
       toast.error("เกิดข้อผิดพลาด กรุณาลองใหม่");

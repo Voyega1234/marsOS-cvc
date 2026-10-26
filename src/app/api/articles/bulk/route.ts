@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runOutline, runArticleWriter, runSeoCheck } from "@/services/ai";
 import { logActivity } from "@/lib/logActivity";
+import { legacyWriterGuard } from "@/lib/legacy-writer-server";
 import type { Role } from "@/types";
 
 export async function POST(req: NextRequest) {
@@ -65,6 +66,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "auto-run") {
+    // auto-run เขียนบทความแบบเก่า (ไม่ใช้ข้อจำกัดของ Content Engine) — ปิด ส่วน assign/delete/approve ยังใช้ได้
+    const gone = legacyWriterGuard();
+    if (gone) return gone;
+
     const results: { id: string; ok: boolean; error?: string }[] = [];
 
     for (const article of articles) {
