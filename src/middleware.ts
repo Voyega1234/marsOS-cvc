@@ -7,7 +7,7 @@ import { IDLE_COOKIE, IDLE_LIMIT_MS, IDLE_TOUCH_MS, setActiveCookie } from "@/li
  * - refresh session cookie ทุก request
  * - ไม่มี session → หน้า UI redirect ไป /login, API ตอบ 401
  * - เส้นทางสาธารณะ: /login, /share/[id] (ลิงก์ส่งลูกค้า)
- * - ถ้า env Supabase ไม่ครบ (local dev) → ผ่านหมด (โหมดไม่มี login เหมือนเดิม)
+ * - ถ้า env Supabase ไม่ครบ: local dev → ผ่านหมด (โหมดไม่มี login เหมือนเดิม), บน Vercel → ปิดทั้งเว็บ (ห้ามเปิดโล่ง)
  * - ไม่ได้ใช้งานเกิน 12 ชม. → ออกจากระบบ ต้อง login ใหม่ (ดู lib/idle-session.ts)
  */
 export async function middleware(request: NextRequest) {
@@ -21,7 +21,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers } });
   };
 
-  if (!url || !key) return withCtx();
+  if (!url || !key) {
+    // บน Vercel ต้องมี login เสมอ — env หาย (เช่น Preview ที่ไม่ได้ตั้งค่า) ห้ามเปิดโล่งเป็น ADMIN
+    if (process.env.VERCEL) return new NextResponse("Auth is not configured", { status: 503 });
+    return withCtx();
+  }
 
   let response = withCtx();
   const supabase = createServerClient(url, key, {
@@ -99,5 +103,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   // เว้น static assets ทั้งหมด — ที่เหลือผ่าน middleware หมดรวม /api
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|mjs)$).*)"],
+  // /api ทุก path ต้องผ่าน middleware เสมอ แม้ลงท้าย .png ฯลฯ — ไม่งั้น header x-pathname/x-method มาจากผู้ใช้ตรง ๆ
+  // (getSession ใช้ header นี้บังคับ allowlist ของ CLIENT)
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|mjs)$).*)", "/api/:path*"],
 };

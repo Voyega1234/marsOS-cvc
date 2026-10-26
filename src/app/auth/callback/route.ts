@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
 import { LOGIN_ACTION } from "@/lib/activity-describe";
 import { setActiveCookie } from "@/lib/idle-session";
+import { safeNextPath } from "@/lib/safe-redirect";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,8 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const next = url.searchParams.get("next");
-  // path ภายในเว็บเท่านั้น — กัน //evil.com หรือ /\evil.com พาออกไปเว็บอื่น (open redirect)
-  const dest = next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
+  // path ภายในเว็บเท่านั้น — กัน //evil.com, /\evil.com, /<tab>/evil.com พาออกไปเว็บอื่น (open redirect)
+  const dest = safeNextPath(next) ?? "/";
 
   let loggedIn = false;
   if (code) {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { safeNextPath } from "@/lib/safe-redirect";
 
 /**
  * หน้า Login — Supabase Auth (บัญชีเดียวกับ plasai)
@@ -17,11 +18,11 @@ function LoginForm() {
   async function signInWithGoogle() {
     setError(null);
     const supabase = createSupabaseBrowser();
-    const next = searchParams.get("next");
+    const next = safeNextPath(searchParams.get("next"));
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback${next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? `?next=${encodeURIComponent(next)}` : ""}`,
+        redirectTo: `${window.location.origin}/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}`,
       },
     });
     if (err) setError(`เข้าสู่ระบบด้วย Google ไม่สำเร็จ: ${err.message}`);

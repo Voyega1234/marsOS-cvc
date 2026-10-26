@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageViewTracker } from "@/components/layout/PageViewTracker";
+import { NoAccessScreen } from "@/components/layout/NoAccessScreen";
 import { getSessionRaw } from "@/lib/auth";
 import { isClientPageAllowed } from "@/lib/client-access";
 
@@ -15,7 +16,9 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
   // ที่เหลือเด้งกลับไป /projects (ซึ่ง redirect ต่อไปยังโปรเจกต์ที่ถูก assign)
   // role อื่นไม่โดนเงื่อนไขนี้เลย
   const session = await getSessionRaw();
-  if (session?.user?.role === "CLIENT") {
+  // login Supabase ผ่าน (middleware ปล่อย) แต่ไม่ใช่ผู้ใช้ MarsOS — ห้าม render หน้าใด ๆ ของระบบ
+  if (!session) return <NoAccessScreen />;
+  if (session.user.role === "CLIENT") {
     const pathname = headers().get("x-pathname");
     if (pathname && !isClientPageAllowed(pathname)) redirect("/projects");
   }

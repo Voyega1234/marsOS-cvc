@@ -72,6 +72,8 @@ const resolveSession = cache(async (): Promise<AppSession | null> => {
 
   // ── โหมด local dev (ไม่มี env Supabase) — พฤติกรรมเดิมก่อนมี login ──
   if (!supabase) {
+    // บน Vercel ห้าม fallback เป็น ADMIN คนแรก (middleware ปิดเว็บไว้แล้ว กันซ้ำอีกชั้น)
+    if (process.env.VERCEL) return null;
     const user =
       (await prisma.user.findFirst({ where: { status: "ACTIVE", role: "ADMIN" }, orderBy: { createdAt: "asc" } })) ??
       (await prisma.user.findFirst({ where: { status: "ACTIVE" }, orderBy: { createdAt: "asc" } }));
@@ -164,6 +166,8 @@ export async function getSession(): Promise<AppSession | null> {
   } catch {
     return session; // ไม่มี request context (build/prerender) — ไม่มีอะไรต้องกัน
   }
-  if (!pathname || !pathname.startsWith("/api/")) return session;
+  // ไม่มี x-pathname = request ไม่ผ่าน middleware (ค่า header อาจมาจากผู้ใช้) — CLIENT ไม่ได้ session
+  if (!pathname) return null;
+  if (!pathname.startsWith("/api/")) return session;
   return isClientApiAllowed(pathname, method) ? session : null;
 }
