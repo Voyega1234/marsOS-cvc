@@ -35,7 +35,7 @@ type DbArticleLite = {
   title?: string; slug?: string; status?: string; htmlContent?: string
   keyword?: { keyword?: string } | null
 }
-type PushPrefsState = { excludeCards?: Record<string, boolean>; stripH1?: boolean; autoRequestIndex?: boolean }
+type PushPrefsState = { excludeCards?: Record<string, boolean>; stripH1?: boolean; autoRequestIndex?: boolean; useElementor?: boolean }
 type IndexRec = { url: string; at: string; ok: boolean; error?: string }
 
 // ชนิดขั้นต่ำที่แท็บนี้ใช้ (ชนิดจริงใน ClientDetailTabs เป็น superset — assign ได้ตรง ๆ)
@@ -80,7 +80,6 @@ export default function SmePushTab({
   const [wpInfo, setWpInfo] = useState<{ url: string; name: string; version: string; source?: string } | null>(null)
   const [wpError, setWpError] = useState('')
   const [publishMode, setPublishMode] = useState<'draft' | 'publish'>('draft')
-  const [useElementor, setUseElementor] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState<Set<number>>(new Set())
   const [batchBusy, setBatchBusy] = useState(false)
   /** ประเภทหน้าต่อบทความ: auto = ดู page_type จาก timeline */
@@ -105,7 +104,7 @@ export default function SmePushTab({
         if (!alive || !d) return
         try {
           const pp = JSON.parse(d.pushPrefs || '{}')
-          setPushPrefs({ excludeCards: pp.excludeCards, stripH1: pp.stripH1, autoRequestIndex: pp.autoRequestIndex })
+          setPushPrefs({ excludeCards: pp.excludeCards, stripH1: pp.stripH1, autoRequestIndex: pp.autoRequestIndex, useElementor: pp.useElementor })
           if (pp.indexRequests && typeof pp.indexRequests === 'object') setIndexRequests(pp.indexRequests)
           if (pp.siteScan && typeof pp.siteScan === 'object' && pp.siteScan.components) setSiteScan(pp.siteScan)
         } catch { /* default */ }
@@ -115,10 +114,10 @@ export default function SmePushTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id])
 
-  /** ส่งเฉพาะ 3 key นี้ — server merge ทับของเดิม และเก็บ siteScan/indexRequests ไว้เอง */
+  /** ส่งเฉพาะ key เหล่านี้ — server merge ทับของเดิม และเก็บ siteScan/indexRequests ไว้เอง */
   const savePushPrefs = (next: PushPrefsState) => {
     setPushPrefs(next)
-    const body = { excludeCards: next.excludeCards, stripH1: next.stripH1, autoRequestIndex: next.autoRequestIndex }
+    const body = { excludeCards: next.excludeCards, stripH1: next.stripH1, autoRequestIndex: next.autoRequestIndex, useElementor: next.useElementor }
     fetch(`/api/projects/${project.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -267,7 +266,7 @@ export default function SmePushTab({
       const res = await fetch('/api/push/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, html: htmlForPush(entryIdx, job.html), title, keyword, slug, coverImage, coverMimeType, metaTitle: reviewMetaTitle, metaDescription: reviewMetaDesc, publishMode, useElementor, wpPostType: getWpPostType(entryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true, autoRequestIndex: pushPrefs.autoRequestIndex !== false }),
+        body: JSON.stringify({ projectId: project.id, html: htmlForPush(entryIdx, job.html), title, keyword, slug, coverImage, coverMimeType, metaTitle: reviewMetaTitle, metaDescription: reviewMetaDesc, publishMode, useElementor: pushPrefs.useElementor === true, wpPostType: getWpPostType(entryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true, autoRequestIndex: pushPrefs.autoRequestIndex !== false }),
       })
       const data = await res.json()
       if (!res.ok || data.error) {
@@ -418,7 +417,8 @@ export default function SmePushTab({
           </label>
           <span className="text-gray-300">|</span>
           <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={useElementor} onChange={e => setUseElementor(e.target.checked)} /> Elementor
+            <input type="checkbox" checked={pushPrefs.useElementor === true}
+              onChange={e => savePushPrefs({ ...pushPrefs, useElementor: e.target.checked })} /> Elementor
           </label>
           <label className="flex items-center gap-1.5" title="เว็บส่วนใหญ่แสดง H1 จาก post title อยู่แล้ว — เปิดไว้กันหัวเรื่องซ้ำ (จำค่าต่อโปรเจกต์)">
             <input type="checkbox" checked={pushPrefs.stripH1 ?? true}

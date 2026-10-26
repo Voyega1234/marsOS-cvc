@@ -2,7 +2,7 @@
 // คัดลอก/ปรับจากตรรกะใน src/app/api/push/publish/route.ts (ห้ามแก้ไฟล์เดิม)
 // เป็น pure function ล้วน — ไม่แตะ prisma/session, รับ credentials ตรงจากผู้เรียก
 
-import { safeFetch } from './safe-fetch'
+import { safeFetch, safeFetchHtml } from './safe-fetch'
 import { flattenEmbeddedNewlines } from '@/lib/articleComponents'
 
 export interface WpPushInput {
@@ -42,16 +42,24 @@ export function normalizeWpUrl(raw: string): string {
   return raw.trim().replace(/\/(wp-admin|wp-login\.php)(\/.*)?$/, '').replace(/\/$/, '')
 }
 
-function buildElementorData(html: string): string {
-  const uid = () => Math.random().toString(16).slice(2, 10)
+/** id แบบที่ Elementor ใช้ (hex 7 ตัว) */
+const elementorId = () => Math.random().toString(16).slice(2, 9).padEnd(7, '0')
+
+/**
+ * เอกสาร Elementor = 1 section → 1 column → HTML widget ที่ถือ HTML ชุดเดียวกับ post_content ทั้งก้อน
+ * ไม่แยกเป็น Text Editor ราย H2 — TinyMCE ตัด <summary> (FAQ) + ใส่ <br> ใน <style>
+ * และ CSS บทความผูกกับ .content-article ตัวเดียว แยก widget แล้วหน้าตาเพี้ยน
+ * section เต็มความกว้าง + คอลัมน์ไม่มีช่องไฟ (gap no) → หน้าเว็บออกมาเหมือนตอนไม่ใช้ Elementor
+ */
+export function buildElementorData(html: string, widgetId: string = elementorId()): string {
   const data = [{
-    id: uid(), elType: 'section',
-    settings: { layout: 'full_width', content_width: { unit: '%', size: 100 } },
+    id: elementorId(), elType: 'section',
+    settings: { layout: 'full_width', gap: 'no', content_width: { unit: '%', size: 100 } },
     elements: [{
-      id: uid(), elType: 'column',
+      id: elementorId(), elType: 'column',
       settings: { _column_size: 100, _inline_size: null },
       elements: [{
-        id: uid(), elType: 'widget', widgetType: 'html',
+        id: widgetId, elType: 'widget', widgetType: 'html',
         settings: { html },
         elements: [],
       }],
@@ -61,24 +69,26 @@ function buildElementorData(html: string): string {
 }
 
 type WpFetcher = (url: string, init: RequestInit) => Promise<Response>
+/** ดึง HTML หน้าเว็บจริงแบบไม่ล็อกอิน — null = ดึงไม่ได้ (บล็อก/timeout/ไม่ใช่ 200) */
+type PageFetcher = (url: string) => Promise<string | null>
 
 export const ELEMENTOR_STUCK_WARNING =
-  'โพสต์นี้ถูกเปิดแก้ด้วย Elementor — หน้าเว็บยังแสดงเวอร์ชันเก่าจาก Elementor และระบบสลับกลับให้ไม่ได้ ' +
+  'โพสต์นี้ถูกเปิดแก้ด้วย Elementor — หน้าเว็บอาจยังแสดงเวอร์ชันเก่าจาก Elementor และระบบสลับกลับให้ไม่ได้ ' +
   'ให้กด "กลับไปใช้ตัวแก้ไข WordPress" ในหน้าแก้โพสต์ แล้ว push ใหม่'
 export const ELEMENTOR_WRITE_WARNING =
   'เขียนข้อมูล Elementor ไม่สำเร็จ — หน้าเว็บแสดงเวอร์ชันใหม่แล้ว แต่กด "Edit with Elementor" จะเจอเวอร์ชันเก่า'
+export const ELEMENTOR_NOT_APPLIED_WARNING =
+  'ติ๊ก Elementor ไว้ แต่เว็บไม่ยอมให้เขียนเอกสาร Elementor — หน้าเว็บแสดงเวอร์ชันใหม่แบบปกติ (ไม่ผ่าน Elementor)'
+export const ELEMENTOR_STALE_WARNING =
+  'ติ๊ก Elementor ไว้ แต่ยืนยันไม่ได้ว่าหน้าเว็บแสดงเอกสาร Elementor ชุดใหม่ (ล้าง cache ของ Elementor ไม่ได้) — ' +
+  'ระบบสลับกลับให้หน้าเว็บแสดงเวอร์ชันใหม่แบบปกติแทน ถ้าต้องการเอกสาร Elementor ให้กด Elementor → Tools → Regenerate CSS & Data แล้ว push ใหม่'
+export const ELEMENTOR_PLUGIN_STALE_WARNING =
+  'เขียนเอกสาร Elementor ผ่านปลั๊กอิน convert-cake แล้ว แต่ยืนยันไม่ได้ว่าหน้าเว็บแสดงชุดใหม่ (ล้าง cache ของ Elementor ไม่ได้) — ' +
+  'ให้กด Elementor → Tools → Regenerate CSS & Data แล้วเปิดหน้าเว็บดู'
+export const ELEMENTOR_UNSUPPORTED_WARNING =
+  'ติ๊ก Elementor ไว้ แต่เว็บนี้ไม่เปิดให้เขียน Elementor ผ่าน REST และไม่มีปลั๊กอิน convert-cake — หน้าเว็บแสดงเวอร์ชันใหม่แบบปกติ (ไม่ผ่าน Elementor)'
 
-/**
- * ให้หน้าเว็บแสดงเนื้อหาที่เพิ่ง push จริง เมื่อโพสต์เป็นเอกสาร Elementor
- * Elementor แสดง _elementor_data แทน post_content — คนเปิด "Edit with Elementor" ครั้งเดียว
- * Re-push ที่เขียนแค่ content จะไม่เห็นผลบนเว็บอีกเลย (mfactors 2026-10-26)
- * Elementor รุ่นใหม่เปิด meta พวกนี้ให้เขียนผ่าน REST (context=edit) ได้เอง ไม่ต้องมีปลั๊กอิน convert-cake
- * ทั้งสองโหมดจบที่: ออกจากโหมด builder (หน้าเว็บแสดง post_content) + _elementor_data = HTML widget ชุดใหม่
- * - ไม่ใช้ Elementor: ทำเฉพาะโพสต์ที่ถูกเปิดใน Elementor ไปแล้ว
- * - ใช้ Elementor: ทำทุกครั้ง ให้ "Edit with Elementor" เปิดมาเจอเวอร์ชันล่าสุด
- * supported = false → เว็บไม่เปิด meta ของ Elementor ผ่าน REST (ไม่มี Elementor / รุ่นเก่า / อ่านไม่ได้)
- */
-export async function syncElementorDocument(opts: {
+export interface ElementorSyncOptions {
   wpUrl: string
   creds: string
   postId: number
@@ -86,8 +96,16 @@ export async function syncElementorDocument(opts: {
   useElementor: boolean
   html: string
   fetcher: WpFetcher
-}): Promise<{ supported: boolean; warning?: string }> {
-  const { creds, postId, isPage, useElementor, html, fetcher } = opts
+  /** โพสต์เดิม (re-push) — Elementor อาจมี cache ของหน้านี้ค้างอยู่ */
+  isUpdate?: boolean
+  /** ลิงก์หน้าเว็บ เมื่อโพสต์ publish แล้ว — ใช้ตรวจว่าหน้าเว็บแสดงเวอร์ชันนี้จริง */
+  liveUrl?: string
+  pageFetcher?: PageFetcher
+}
+
+/** คำขอ REST ของ Elementor สำหรับโพสต์เดียว — ใช้ทั้งทาง REST และหลังเรียกปลั๊กอิน convert-cake */
+function elementorRest(opts: ElementorSyncOptions) {
+  const { creds, postId, isPage, fetcher } = opts
   const postEndpoint = `${opts.wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`
   const auth = { Authorization: `Basic ${creds}` }
 
@@ -109,29 +127,160 @@ export async function syncElementorDocument(opts: {
     }).catch(() => null)
     return !!res?.ok
   }
+  // ล้าง cache ของ Elementor ทั้งเว็บ (เท่ากับปุ่ม Regenerate CSS & Data) — ต้องเป็นสิทธิ์ admin
+  const clearCache = async (): Promise<boolean> => {
+    const res = await fetcher(`${opts.wpUrl}/wp-json/elementor/v1/cache`, {
+      method: 'DELETE',
+      headers: auth,
+      signal: AbortSignal.timeout(30000),
+    }).catch(() => null)
+    return !!res?.ok
+  }
+  // Elementor ใส่ data-id และ class elementor-element-<id> ให้ทุก element — id ของ widget ชุดนี้ใหม่ทุก push
+  // ดูเฉพาะใน attribute class (ไม่นับ selector ใน <style> ที่ Elementor สร้างแยกจาก cache ของ HTML)
+  // query string กัน page cache (WP Rocket ไม่ cache URL ที่มี query, Cloudflare แยก key ตาม query)
+  const liveShowsWidget = async (widgetId: string): Promise<boolean | null> => {
+    if (!opts.liveUrl || !opts.pageFetcher) return null
+    const url = `${opts.liveUrl}${opts.liveUrl.includes('?') ? '&' : '?'}mars_v=${widgetId}`
+    const page = await opts.pageFetcher(url).catch(() => null)
+    if (page == null) return null
+    return page.includes(`data-id="${widgetId}"`) || new RegExp(`class="[^"]*\\belementor-element-${widgetId}\\b`).test(page)
+  }
+  /**
+   * หลังเปิด builder ด้วย widget ชุดนี้: หน้าเว็บแสดงชุดนี้จริงไหม
+   * ok = แสดงแล้ว / ยังไม่ publish ของโพสต์ใหม่ (ไม่มี cache) / ล้าง cache แล้ว
+   * stale = ยังเป็นของเก่า หรือ re-push ที่ตรวจหน้าเว็บไม่ได้และล้าง cache ไม่ได้
+   */
+  const verifyLive = async (widgetId: string): Promise<'ok' | 'stale'> => {
+    const live = await liveShowsWidget(widgetId)
+    if (live === true) return 'ok'
+    if (live === null) {
+      if (!opts.isUpdate) return 'ok'
+      if (await clearCache()) {
+        await update({})
+        return 'ok'
+      }
+      return 'stale'
+    }
+    if (!(await clearCache())) return 'stale'
+    await update({})
+    return (await liveShowsWidget(widgetId)) === false ? 'stale' : 'ok'
+  }
+  // ออกจากโหมด builder → หน้าเว็บแสดง post_content (ที่เพิ่ง push) | false = ยังติด builder หรืออ่านสถานะไม่ได้
+  const exitBuilder = async (): Promise<boolean> => {
+    await update({ meta: { _elementor_edit_mode: '' } })
+    // meta ถูกเขียนหลัง save_post — แตะโพสต์อีกรอบให้ปลั๊กอิน cache (WP Rocket) ล้างหน้าเว็บตามสถานะใหม่
+    await update({})
+    const after = await readMeta()
+    return after != null && after._elementor_edit_mode !== 'builder'
+  }
+  return { readMeta, update, clearCache, verifyLive, exitBuilder }
+}
+
+/**
+ * จัดโหมด Elementor ของโพสต์ให้ตรงกับที่ติ๊ก และให้หน้าเว็บแสดงเนื้อหาที่เพิ่ง push จริง
+ * Elementor เปิด meta พวกนี้ให้เขียนผ่าน REST (context=edit) ได้เอง ไม่ต้องมีปลั๊กอิน convert-cake
+ * - ไม่ใช้ Elementor: โพสต์ที่ถูกเปิดใน Elementor ไปแล้ว → ออกจากโหมด builder (หน้าเว็บแสดง post_content)
+ * - ใช้ Elementor: เขียน HTML widget ชุดใหม่ + โหมด builder → เป็นเอกสาร Elementor จริง ทีมแก้ต่อใน Elementor ได้
+ *   Elementor แสดงผลจาก cache ของตัวเอง ซึ่งการเขียน meta ผ่าน REST ไม่ล้าง (mfactors 5248 2026-10-26)
+ *   จึงเปิดหน้าเว็บจริงดูว่ามี widget ชุดนี้ไหม — ไม่มี = ล้าง cache ของ Elementor แล้วดูซ้ำ
+ *   ยังไม่มีอีก = กลับไปโหมดปกติ หน้าเว็บต้องเป็นเวอร์ชันใหม่เสมอ ห้ามค้างของเก่า
+ * supported = false → เว็บไม่เปิด meta ของ Elementor ผ่าน REST (ไม่มี Elementor / รุ่นเก่า / อ่านไม่ได้)
+ * builder = true → จบที่เอกสาร Elementor
+ */
+export async function syncElementorDocument(opts: ElementorSyncOptions): Promise<{ supported: boolean; builder?: boolean; warning?: string }> {
+  const { isPage, useElementor, html } = opts
+  const { readMeta, update, verifyLive, exitBuilder } = elementorRest(opts)
+  const dataHas = (meta: Record<string, unknown> | null, widgetId: string) =>
+    JSON.stringify(meta?._elementor_data ?? '').includes(widgetId)
+  const templateType = isPage ? 'wp-page' : 'wp-post'
 
   const before = await readMeta()
   if (!before || !('_elementor_edit_mode' in before)) return { supported: false }
+  const wasBuilder = before._elementor_edit_mode === 'builder'
 
-  // โพสต์ที่ไม่เคยเปิดใน Elementor และไม่ได้เลือก Elementor = ไม่ต้องแตะ
-  if (!useElementor && before._elementor_edit_mode !== 'builder') return { supported: true }
+  if (!useElementor) {
+    // โพสต์ที่ไม่เคยเปิดใน Elementor และไม่ได้เลือก Elementor = ไม่ต้องแตะ
+    if (!wasBuilder) return { supported: true }
+    // _elementor_data เขียนเป็น HTML widget ชุดเดียวกัน — กด "Edit with Elementor" แล้วได้เวอร์ชันนี้
+    // ไม่ใช่ Text Editor ที่ Elementor แปลงจาก content เอง (TinyMCE ตัด <summary> + ใส่ <br> ใน <style>)
+    const widgetId = elementorId()
+    // แยกคำขอ — data ใหญ่ถูกปฏิเสธก็ไม่ลากการออกจาก builder (ตัวที่ทำให้หน้าเว็บถูก) ล้มไปด้วย
+    await update({ meta: { _elementor_edit_mode: '' } })
+    await update({ meta: { _elementor_template_type: templateType, _elementor_data: buildElementorData(html, widgetId) } })
+    await update({})
+    const after = await readMeta()
+    // อ่านสถานะไม่ได้ = ไม่รู้ว่าออกจาก builder แล้วหรือยัง → เตือนให้ตรวจเอง
+    if (!after || after._elementor_edit_mode === 'builder') return { supported: true, warning: ELEMENTOR_STUCK_WARNING }
+    return dataHas(after, widgetId) ? { supported: true } : { supported: true, warning: ELEMENTOR_WRITE_WARNING }
+  }
 
-  // หน้าเว็บแสดง post_content เสมอ (โหมด '') — Elementor 4 แสดงผลจาก cache ของตัวเอง ซึ่งการเขียน
-  // _elementor_data ผ่าน REST ไม่ล้าง (mfactors 5248: data ใหม่แล้วแต่หน้าเว็บยังเป็น Text Editor เก่า)
-  // _elementor_data เขียนเป็น HTML widget ชุดเดียวกัน — กด "Edit with Elementor" แล้วได้เวอร์ชันนี้
-  // ไม่ใช่ Text Editor ที่ Elementor แปลงจาก content เอง (TinyMCE ตัด <summary> + ใส่ <br> ใน <style>)
-  const elementorData = buildElementorData(html)
-  // แยกคำขอ — data ใหญ่ถูกปฏิเสธก็ไม่ลากการออกจาก builder (ตัวที่ทำให้หน้าเว็บถูก) ล้มไปด้วย
-  await update({ meta: { _elementor_edit_mode: '' } })
-  await update({ meta: { _elementor_template_type: isPage ? 'wp-page' : 'wp-post', _elementor_data: elementorData } })
-  // meta ถูกเขียนหลัง save_post — แตะโพสต์อีกรอบให้ปลั๊กอิน cache (WP Rocket) ล้างหน้าเว็บตามสถานะใหม่
+  // ── ใช้ Elementor ──
+  const widgetId = elementorId()
+  // data ก่อน แล้วค่อยเปิด builder — เปิด builder ทั้งที่ data ไม่เข้า = หน้าเว็บแสดงของเก่า/หน้าว่าง
+  await update({ meta: { _elementor_template_type: templateType, _elementor_data: buildElementorData(html, widgetId) } })
+  if (!dataHas(await readMeta(), widgetId)) {
+    if (wasBuilder && !(await exitBuilder())) return { supported: true, warning: ELEMENTOR_STUCK_WARNING }
+    return { supported: true, builder: false, warning: ELEMENTOR_NOT_APPLIED_WARNING }
+  }
+  if (!wasBuilder) await update({ meta: { _elementor_edit_mode: 'builder' } })
   await update({})
   const after = await readMeta()
-  if (after?._elementor_edit_mode === 'builder') return { supported: true, warning: ELEMENTOR_STUCK_WARNING }
-  // ตรวจด้วย id ของ widget ชุดนี้ — Elementor อาจคืน _elementor_data เป็น string หรือ object ที่ถอดแล้ว
-  const widgetId = String(JSON.parse(elementorData)[0].elements[0].elements[0].id)
-  const written = JSON.stringify(after?._elementor_data ?? '').includes(widgetId)
-  return written ? { supported: true } : { supported: true, warning: ELEMENTOR_WRITE_WARNING }
+  // อ่านสถานะไม่ได้ = อาจเปิด builder ไปแล้ว → ถอยกลับให้แน่ใจ ไม่ปล่อยค้างโดยไม่ได้ตรวจหน้าเว็บ
+  if (!after) {
+    if (!(await exitBuilder())) return { supported: true, warning: ELEMENTOR_STUCK_WARNING }
+    return { supported: true, builder: false, warning: ELEMENTOR_NOT_APPLIED_WARNING }
+  }
+  if (after._elementor_edit_mode !== 'builder') {
+    // เปิด builder ไม่ได้ — หน้าเว็บยังแสดง post_content ชุดใหม่ ไม่พัง
+    return { supported: true, builder: false, warning: ELEMENTOR_NOT_APPLIED_WARNING }
+  }
+
+  if ((await verifyLive(widgetId)) === 'ok') return { supported: true, builder: true }
+  // หน้าเว็บยังเป็นของเก่า (cache ของ Elementor) หรือยืนยันไม่ได้ → กลับโหมดปกติ
+  if (!(await exitBuilder())) return { supported: true, warning: ELEMENTOR_STUCK_WARNING }
+  return { supported: true, builder: false, warning: ELEMENTOR_STALE_WARNING }
+}
+
+/** หน้าเว็บจริงผ่าน SSRF guard (ไม่ส่งรหัสผ่าน) */
+const fetchLivePage: PageFetcher = async (url) => {
+  const r = await safeFetchHtml(url)
+  return r.ok ? r.html : null
+}
+
+/**
+ * หลังบันทึกโพสต์: จัดโหมด Elementor ตามที่ติ๊ก — ใช้ร่วมกันทั้ง Upload Article และ SEO/SME push
+ * REST ก่อน — เว็บที่ไม่เปิด meta ของ Elementor ผ่าน REST หรือไม่ยอมให้เขียนผ่าน REST ค่อยใช้ปลั๊กอิน convert-cake
+ * คืนคำเตือน (ถ้ามี) — push สำเร็จเสมอ เพราะ post_content ใส่เนื้อหาจริงไปตั้งแต่คำขอแรก
+ */
+export async function applyElementorMode(
+  opts: Omit<ElementorSyncOptions, 'pageFetcher'> & { yoastMeta: Record<string, string>; pageFetcher?: PageFetcher },
+): Promise<string | undefined> {
+  const full: ElementorSyncOptions = { ...opts, pageFetcher: opts.pageFetcher ?? fetchLivePage }
+  const sync = await syncElementorDocument(full)
+  if (!opts.useElementor) return sync.warning
+  // จบทาง REST: เป็นเอกสาร Elementor แล้ว / ถอยกลับเพราะ cache ค้าง (ปลั๊กอินเปิด builder ซ้ำก็เจอ cache เดิม)
+  if (sync.supported && (sync.builder || sync.warning === ELEMENTOR_STALE_WARNING)) return sync.warning
+  // เหลือ: REST ไม่มี / REST ไม่ยอมเขียน data หรือ builder / ค้าง builder — ปลั๊กอินเขียน data แบบ base64 + เปิด builder
+  const widgetId = elementorId()
+  const ccRes = await opts.fetcher(`${opts.wpUrl}/wp-json/convert-cake/v1/elementor-meta`, {
+    method: 'POST',
+    headers: { Authorization: `Basic ${opts.creds}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      post_id: opts.postId,
+      elementor_data_b64: Buffer.from(buildElementorData(opts.html, widgetId)).toString('base64'),
+      edit_mode: 'builder',
+      template_type: opts.isPage ? 'wp-page' : 'wp-post',
+      yoast_meta: opts.yoastMeta,
+    }),
+    signal: AbortSignal.timeout(30000),
+  }).catch(() => null)
+  if (!ccRes?.ok) return sync.supported ? sync.warning : ELEMENTOR_UNSUPPORTED_WARNING
+  // ปลั๊กอินเปิด builder ด้วย widget ชุดนี้แล้ว — ตรวจหน้าเว็บเหมือนทาง REST
+  const rest = elementorRest(full)
+  if ((await rest.verifyLive(widgetId)) === 'ok') return undefined
+  if (!sync.supported) return ELEMENTOR_PLUGIN_STALE_WARNING
+  return (await rest.exitBuilder()) ? ELEMENTOR_STALE_WARNING : ELEMENTOR_STUCK_WARNING
 }
 
 /** เรียก fn กับ items พร้อมกันไม่เกิน limit ตัว — คงลำดับผลลัพธ์ตาม items เดิม */
@@ -352,35 +501,18 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
     const postId: number = data.id
     const postUrl: string = data.link ?? ''
 
-    // Elementor: เขียน/ออกจากโหมด builder ผ่าน REST ก่อน — เว็บที่ไม่เปิด meta นี้ค่อยใช้ convert-cake plugin
+    // Elementor: ติ๊ก = เอกสาร Elementor (HTML widget ชุดเดียวกับ content) ไม่ติ๊ก = ออกจาก builder
     let warning: string | undefined
     if (postId) {
-      const sync = await syncElementorDocument({
+      warning = await applyElementorMode({
         wpUrl, creds, postId, isPage,
         useElementor: !!input.useElementor,
         html: htmlLinked,
+        isUpdate: existingPostId != null,
+        liveUrl: data.status === 'publish' && postUrl ? postUrl : undefined,
+        yoastMeta: wpMeta,
         fetcher: (url, init) => safeFetch(url, init, { requireHttps: true, sameHostOnly: true }),
       })
-      warning = sync.warning
-      if (input.useElementor && (!sync.supported || sync.warning)) {
-        const ccEndpoint = `${wpUrl}/wp-json/convert-cake/v1/elementor-meta`
-        const elementorData = buildElementorData(htmlLinked)
-        const ccRes = await safeFetch(ccEndpoint, {
-          method: 'POST',
-          headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            post_id: postId,
-            elementor_data_b64: Buffer.from(elementorData).toString('base64'),
-            edit_mode: 'builder',
-            template_type: isPage ? 'wp-page' : 'wp-post',
-            yoast_meta: wpMeta,
-          }),
-          signal: AbortSignal.timeout(30000),
-        }, { requireHttps: true, sameHostOnly: true }).catch(() => null)
-        if (ccRes?.ok) warning = undefined
-        // ไม่มีทั้ง REST meta และปลั๊กอิน = ใช้ Elementor ไม่ได้ แต่เนื้อหาปกติขึ้นแล้ว (content ส่งไปในคำขอแรก)
-        else if (!sync.supported) warning = undefined
-      }
       if (Object.keys(wpMeta).length > 0) {
         // ส่ง Yoast meta ซ้ำทุกโหมด (รวม Elementor) — คำขอแรกอาจ retry แบบตัด meta ทิ้งไปแล้ว
         const normalEndpoint = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`

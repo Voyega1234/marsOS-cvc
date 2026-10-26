@@ -3,7 +3,7 @@
  * Follows Convert-Cake wordpress_client.py logic:
  *   - Upload cover SVG as featured image (wp/v2/media)
  *   - Create post with: title, HTML content, slug, meta (Yoast), featured_media
- *   - Optionally wrap HTML in Elementor HTML widget
+ *   - Elementor ticked: same HTML as content in one Elementor HTML widget (applyElementorMode)
  *   - Set: meta_title, meta_description, focus_keyword via Yoast meta keys
  */
 import { NextRequest, NextResponse } from 'next/server'
@@ -17,7 +17,8 @@ import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/l
 import { buildArticleSchema } from '@/lib/articleSchema'
 import { isIndexableUrl, requestIndexIfLive } from '@/lib/upload-article/request-index'
 import { parsePushPrefs, saveProjectIndexRequest } from '@/lib/project-index-requests'
-import { syncElementorDocument } from '@/lib/upload-article/wp-push'
+import { applyElementorMode, buildElementorData } from '@/lib/upload-article/wp-push'
+import { safeFetch } from '@/lib/upload-article/safe-fetch'
 
 function extractSeoMeta(html: string, fallbackTitle: string, fallbackKeyword: string) {
   // Parse <!-- CONVERT_CAKE_SEO_META ... --> block (line-based key: value format)
@@ -46,24 +47,6 @@ function extractSeoMeta(html: string, fallbackTitle: string, fallbackKeyword: st
   }
 
   return { metaTitle, metaDescription, focusKeyword, coverAlt, enSlug }
-}
-
-function buildElementorData(html: string): string {
-  const uid = () => Math.random().toString(16).slice(2, 10)
-  const data = [{
-    id: uid(), elType: 'section',
-    settings: { layout: 'full_width', content_width: { unit: '%', size: 100 } },
-    elements: [{
-      id: uid(), elType: 'column',
-      settings: { _column_size: 100, _inline_size: null },
-      elements: [{
-        id: uid(), elType: 'widget', widgetType: 'html',
-        settings: { html },
-        elements: [],
-      }],
-    }],
-  }]
-  return JSON.stringify(data)
 }
 
 function svgToPngDataUrl(svg: string): string {
@@ -331,7 +314,8 @@ export async function POST(req: NextRequest) {
   }
 
   // 3. Build post payload
-  const content = useElementor ? '' : htmlWithAlt
+  // content ใส่ HTML จริงเสมอ — ติ๊ก Elementor ก็ตาม (Elementor ล้ม = หน้าเว็บยังแสดงเนื้อหาปกติ ไม่ว่าง)
+  const content = htmlWithAlt
   const payload: Record<string, unknown> = {
     // For pages: send empty title so WP doesn't show a title block above content (H1 is in HTML)
     title:   isPage ? '' : finalMetaTitle,
@@ -349,12 +333,8 @@ export async function POST(req: NextRequest) {
   if (meta.focusKeyword) wpMeta['_yoast_wpseo_focuskw']  = meta.focusKeyword
   // Do NOT set _yoast_wpseo_slug — Yoast appends it to WP slug causing duplicates
 
-  // 5. Elementor wrapping (non-data keys only in initial POST)
+  // 5. โหมด Elementor ตั้งใน applyElementorMode หลังบันทึกโพสต์ — ไม่ปนในคำขอแรก (ล้ม = retry ทิ้ง Yoast meta ไปด้วย)
   const wpEndpoint = isPage ? `${wpUrl}/wp-json/wp/v2/pages` : `${wpUrl}/wp-json/wp/v2/posts`
-  if (useElementor) {
-    wpMeta['_elementor_edit_mode']      = 'builder'
-    wpMeta['_elementor_template_type']  = isPage ? 'wp-page' : 'wp-post'
-  }
 
   if (Object.keys(wpMeta).length > 0) payload.meta = wpMeta
 
@@ -405,8 +385,8 @@ export async function POST(req: NextRequest) {
     const postId: number = data.id
     const postUrl: string = data.link ?? ''
 
-    // 7. Inject Yoast meta + optional Elementor data via convert-cake plugin
-    const ccEndpoint = `${wpUrl}/wp-json/convert-cake/v1/elementor-meta`
+    // 7. Elementor: ติ๊ก = เอกสาร Elementor (HTML widget ชุดเดียวกับ content) ไม่ติ๊ก = ออกจาก builder
+    //    ใช้ตัวเดียวกับ Upload Article — REST ก่อน ตรวจหน้าเว็บจริง เว็บที่ไม่เปิด meta ของ Elementor ค่อยใช้ปลั๊กอิน convert-cake
     const yoastMeta: Record<string, string> = {}
     if (finalMetaTitle)    yoastMeta['_yoast_wpseo_title']    = finalMetaTitle
     if (finalMetaDesc)     yoastMeta['_yoast_wpseo_metadesc'] = finalMetaDesc.slice(0, 160)
@@ -415,36 +395,42 @@ export async function POST(req: NextRequest) {
     console.log('[push/publish] postId:', postId, 'wpPostType:', wpPostType, 'yoastMeta keys:', Object.keys(yoastMeta))
     let warning: string | undefined
     if (postId) {
-      const elementorData = buildElementorData(htmlWithAlt)
-      const ccRes = await fetch(ccEndpoint, {
+      // Yoast meta ผ่านปลั๊กอิน convert-cake เหมือนเดิม (หลายเว็บไม่เปิด meta ของ Yoast ผ่าน REST)
+      // ปลั๊กอินตั้งโหมด builder ไปด้วยเสมอ — applyElementorMode ด้านล่างตั้งโหมดตามที่ติ๊กทับอีกรอบ
+      const ccRes = await fetch(`${wpUrl}/wp-json/convert-cake/v1/elementor-meta`, {
         method: 'POST',
         headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           post_id: postId,
-          elementor_data_b64: Buffer.from(elementorData).toString('base64'),
+          elementor_data_b64: Buffer.from(buildElementorData(htmlWithAlt)).toString('base64'),
           edit_mode: 'builder',
           template_type: isPage ? 'wp-page' : 'wp-post',
           yoast_meta: yoastMeta,
         }),
         signal: AbortSignal.timeout(30000),
       }).catch(() => null)
-      const ccText = await ccRes?.text().catch(() => '')
-      console.log('[push/publish] cc status:', ccRes?.status, 'body:', ccText?.slice(0, 200))
+      console.log('[push/publish] cc status:', ccRes?.status)
 
-      if (!ccRes?.ok) {
-        // fallback: native content PATCH
-        const fallbackEndpoint = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`
-        await fetch(fallbackEndpoint, {
+      warning = await applyElementorMode({
+        wpUrl, creds, postId, isPage,
+        useElementor: !!useElementor,
+        html: htmlWithAlt,
+        isUpdate: existingPostId != null,
+        liveUrl: data.status === 'publish' && postUrl ? postUrl : undefined,
+        yoastMeta,
+        // มีรหัสผ่าน + ล้าง cache ทั้งเว็บ — ห้ามถูกรีไดเรกต์ไปโดเมนอื่น หรือจาก https ลงไป http
+        fetcher: (url, init) => safeFetch(url, init, { requireHttps: wpUrl.startsWith('https://'), sameHostOnly: true }),
+      })
+      console.log('[push/publish] elementor:', useElementor ? 'on' : 'off', warning ? `warning: ${warning.slice(0, 80)}` : 'ok')
+
+      if (Object.keys(yoastMeta).length > 0) {
+        // ส่ง Yoast meta ซ้ำทาง REST — เว็บที่ไม่มีปลั๊กอิน และคำขอแรกอาจ retry แบบตัด meta ทิ้งไปแล้ว
+        await fetch(`${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`, {
           method: 'POST',
           headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: htmlWithAlt }),
+          body: JSON.stringify({ meta: yoastMeta }),
           signal: AbortSignal.timeout(20000),
         }).catch(() => {})
-        // ไม่มีปลั๊กอิน — โพสต์ที่ถูกเปิดแก้ใน Elementor จะยังแสดงเวอร์ชันเก่า ต้องจัดโหมด Elementor ผ่าน REST เอง
-        const sync = await syncElementorDocument({
-          wpUrl, creds, postId, isPage, useElementor: !!useElementor, html: htmlWithAlt, fetcher: fetch,
-        })
-        warning = sync.warning
       }
 
       // For pages: set Yoast meta via XML-RPC (WP REST doesn't expose Yoast fields for pages)
