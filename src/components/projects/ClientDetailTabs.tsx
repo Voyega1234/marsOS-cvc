@@ -17,6 +17,7 @@ import type { AuthorProfile } from '@/types'
 import { ClientReportClient } from '@/components/report/ClientReportClient'
 import ArticleFrame from '@/components/shared/ArticleFrame'
 import ScopedEditable from '@/components/shared/ScopedEditable'
+import RestrictionWarningBox from '@/components/shared/RestrictionWarningBox'
 import { ClientOverview } from '@/components/projects/workspace/ClientOverview'
 import { ProjectTimeline } from '@/components/projects/workspace/ProjectTimeline'
 import { OnPageSeo } from '@/components/projects/workspace/OnPageSeo'
@@ -3095,6 +3096,12 @@ function ArticlesTab({
   const writeAbortRef = useRef<Map<number, AbortController>>(new Map())
   const [streamTexts, setStreamTexts] = useState<Record<number, string>>({})
   const [stepLabels, setStepLabels] = useState<Record<number, string>>({})
+  // คำต้องห้ามที่ server แก้ไม่หมด ต่อบทความ — ค้างจนเขียนรอบใหม่หรือกด ✕ (ไม่ถูก status ทับ)
+  const [restrictionWarns, setRestrictionWarns] = useState<Record<number, string[]>>({})
+  const clearRestrictionWarn = (idx: number) => setRestrictionWarns(prev => {
+    if (!prev[idx]) return prev
+    const n = { ...prev }; delete n[idx]; return n
+  })
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
   const [drawerIdx, setDrawerIdx] = useState<number | null>(null)
   const [drawerViewMode, setDrawerViewMode] = useState<'preview' | 'edit' | 'html' | 'text'>('preview')
@@ -3233,6 +3240,7 @@ function ArticlesTab({
 
     setWriting(prev => new Set(Array.from(prev).concat(entryIdx)))
     setStreamTexts(prev => ({ ...prev, [entryIdx]: '' }))
+    clearRestrictionWarn(entryIdx)
 
     const abort = new AbortController()
     writeAbortRef.current.set(entryIdx, abort)
@@ -3324,6 +3332,9 @@ function ArticlesTab({
                 coverMimeType = evt.coverMimeType ?? 'image/webp'
                 midImage = evt.midImage ?? ''
                 midMimeType = evt.midMimeType ?? 'image/webp'
+                if (Array.isArray(evt.restrictionWarnings) && evt.restrictionWarnings.length) {
+                  setRestrictionWarns(prev => ({ ...prev, [entryIdx]: evt.restrictionWarnings.map(String) }))
+                }
               } else if (evt.type === 'error') {
                 throw new Error(evt.error)
               }
@@ -3576,6 +3587,11 @@ function ArticlesTab({
 
         {job?.error && (
           <div className="px-4 py-2 bg-red-50 border-t border-red-200 text-xs text-red-600">{job.error}</div>
+        )}
+
+        {/* คำต้องห้ามเหลือ — ถ้า drawer ของบทความนี้เปิดอยู่จะโชว์ใน drawer แทน กันซ้ำ */}
+        {drawerIdx !== idx && !isWriting && (
+          <RestrictionWarningBox className="mx-4 mb-3" warnings={restrictionWarns[idx] ?? []} onDismiss={() => clearRestrictionWarn(idx)} />
         )}
       </div>
     )
@@ -4076,6 +4092,10 @@ function ArticlesTab({
 
             {/* Content area */}
             <div className="flex-1 overflow-y-auto p-5">
+              {/* คำต้องห้ามเหลือ — ค้างถาวรจนเขียนใหม่/กด ✕ */}
+              {!isDrawerWriting && (
+                <RestrictionWarningBox className="mb-3" warnings={restrictionWarns[drawerIdx] ?? []} onDismiss={() => clearRestrictionWarn(drawerIdx)} />
+              )}
               {/* While writing: show live stream (takes full priority) */}
               {isDrawerWriting && (
                 <>
@@ -5183,6 +5203,8 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
   const [midMimeTypeLab, setMidMimeTypeLab] = useState('image/webp')
   const [streamText, setStreamText] = useState('')
   const [stepMsg, setStepMsg] = useState('')
+  // คำต้องห้ามที่ server แก้ไม่หมด — แยกจาก stepMsg กันถูกข้อความสถานะทับ
+  const [restrictionWarns, setRestrictionWarns] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState<'code' | 'preview' | 'cover'>('preview')
 
@@ -5231,6 +5253,7 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
     setLoading(true)
     setStreamText('')
     setStepMsg('')
+    setRestrictionWarns([])
     setHtml('')
     setCoverImageLab('')
     setMidImageLab('')
@@ -5287,6 +5310,7 @@ function LabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; 
               setStepMsg('')
               if (evt.coverImage) { setCoverImageLab(evt.coverImage); setCoverMimeTypeLab(evt.coverMimeType ?? 'image/webp'); setViewMode('cover') }
               if (evt.midImage) { setMidImageLab(evt.midImage); setMidMimeTypeLab(evt.midMimeType ?? 'image/webp') }
+              if (Array.isArray(evt.restrictionWarnings)) setRestrictionWarns(evt.restrictionWarnings.map(String))
             }
             else if (evt.type === 'error') throw new Error(evt.error)
           } catch { /* skip */ }
@@ -5758,6 +5782,10 @@ ${cover}${html}
                 {streamText && <><span className="text-gray-400">{streamText.slice(-900)}</span><span className="animate-pulse">▋</span></>}
                 {!streamText && !stepMsg && <p className="text-gray-500 animate-pulse">กำลังเริ่มต้น...</p>}
               </div>
+            )}
+
+            {!loading && (
+              <RestrictionWarningBox warnings={restrictionWarns} onDismiss={() => setRestrictionWarns([])} />
             )}
 
             {html && !loading && (

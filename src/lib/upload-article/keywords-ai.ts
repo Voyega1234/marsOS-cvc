@@ -88,13 +88,15 @@ export async function generateKeywordPlan(params: {
   language: 'th' | 'en' | 'both'
   /** Business Skill ของลูกค้าจาก Content Engine (ถ้าตั้งไว้) — ให้รู้ว่าธุรกิจขายอะไร ตั้งชื่อได้ตรงบริบท */
   businessSkill?: string
+  /** ข้อจำกัดคำต้องห้ามแบบสั้นจาก Content Engine (titleRestrictionsFrom) — ต่อท้าย prompt ตั้ง title/slug */
+  restrictionsBlock?: string
 }): Promise<KeywordAiResult> {
   const batches: KeywordAiInput[][] = []
   for (let i = 0; i < params.items.length; i += KEYWORD_AI_BATCH_SIZE) {
     batches.push(params.items.slice(i, i + KEYWORD_AI_BATCH_SIZE))
   }
 
-  const results = await Promise.all(batches.map((batch) => runBatch(batch, params.clientName, params.website, params.language, params.businessSkill)))
+  const results = await Promise.all(batches.map((batch) => runBatch(batch, params.clientName, params.website, params.language, params.businessSkill, params.restrictionsBlock)))
 
   const items: KeywordAiItem[] = []
   const errors: string[] = []
@@ -114,8 +116,9 @@ async function runBatch(
   website: string,
   language: 'th' | 'en' | 'both',
   businessSkill?: string,
+  restrictionsBlock?: string,
 ): Promise<KeywordAiResult> {
-  const first = await runBatchOnce(batch, clientName, website, language, businessSkill)
+  const first = await runBatchOnce(batch, clientName, website, language, businessSkill, restrictionsBlock)
   const byId = new Map(batch.map((b) => [b.id, b]))
   const redo = first.items
     .filter((it) => !byId.get(it.id)?.fixedTitle)
@@ -123,7 +126,7 @@ async function runBatch(
     .filter((r): r is { it: KeywordAiItem; reason: string } => Boolean(r.reason))
   if (redo.length === 0) return first
   const retryInput = redo.map(({ it, reason }) => ({ ...byId.get(it.id)!, rejectedTitle: it.title, rejectReason: reason }))
-  const second = await runBatchOnce(retryInput, clientName, website, language, businessSkill)
+  const second = await runBatchOnce(retryInput, clientName, website, language, businessSkill, restrictionsBlock)
   const fixed = new Map(
     second.items
       .filter((it) => it.title && !titleNeedsRewrite(it.title, byId.get(it.id)?.keyword || ''))
@@ -150,6 +153,7 @@ async function runBatchOnce(
   website: string,
   language: 'th' | 'en' | 'both',
   businessSkill?: string,
+  restrictionsBlock?: string,
 ): Promise<KeywordAiResult> {
   const system = `คุณคือนักวางแผนคอนเทนต์ SEO มืออาชีพ ตอบเป็น JSON เท่านั้น ไม่มีคำอธิบายอื่น
 รูปแบบ: {"items": [{"id": string, "title": string, "slug": string, "intent": string, "articleType": string}]}
@@ -163,7 +167,7 @@ async function runBatchOnce(
 
 ${titleSkillBlock({ language })}${businessSkill?.trim() ? `\n\nข้อมูลธุรกิจของลูกค้า (Business Skill จาก Content Engine — ใช้เข้าใจบริบท ห้ามยัดชื่อแบรนด์ลง title ถ้า keyword ไม่มี):\n${businessSkill.trim().slice(0, 4000)}` : ''}
 ถ้ารายการไหนมี fixedTitle = ทีมตั้ง title ไว้แล้ว ให้ตอบ title เป็น fixedTitle ตรงตัวอักษร ห้ามแก้ แล้วตั้ง slug/intent/articleType ให้เข้ากับ title นั้น
-ต้องตอบครบทุก id ที่ส่งมา ตามลำดับเดิม ห้ามเว้น ห้ามเพิ่ม id ใหม่`
+ต้องตอบครบทุก id ที่ส่งมา ตามลำดับเดิม ห้ามเว้น ห้ามเพิ่ม id ใหม่${restrictionsBlock?.trim() ? `\n\n${restrictionsBlock.trim()}` : ''}`
 
   const user = JSON.stringify({ keywords: batch.map((b) => ({
       id: b.id,

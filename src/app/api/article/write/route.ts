@@ -5,7 +5,10 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
-import { buildRestrictionsBlock, hasRestrictions, restrictionsValidatorNote, type RestrictionsContext } from '@/lib/ce-restrictions'
+import {
+  buildRestrictionsBlock, cleanPlainText, cleanSeoMetaBlock, cleanSlug, findBannedInText, hasRestrictions, hitWarnings,
+  keywordWarnings, parseBannedTerms, restrictionsValidatorNote, type RestrictionsContext,
+} from '@/lib/ce-restrictions'
 import { enforceRestrictions, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, normalizeCtaItems, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem } from '@/lib/articleComponents'
@@ -1009,6 +1012,15 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
+  // คำต้องห้ามในช่อง title / keyword — title จริง (ใช้เป็นคีย์ DB + ส่งกลับ UI) ไม่แก้, แต่ prompt/schema/ภาพใช้ safeTitle ที่แทนคำแล้ว
+  // keyword หลักห้ามแก้ — มีคำต้องห้ามแค่เตือน (warning ไปช่อง restrictionWarnings เดียวกับ body)
+  const bannedTerms = restrictions ? parseBannedTerms(restrictions.data.bannedTerms) : []
+  const safeTitle: string = typeof title === 'string' ? cleanPlainText(title, bannedTerms).text : title
+  const fieldWarnings = [
+    ...keywordWarnings(String(keyword), bannedTerms),
+    ...hitWarnings('title', findBannedInText(String(title), bannedTerms)),
+  ]
+
   // language ที่ส่งเข้ามาคือ project.language (th/en/both) — language_mode ที่ตั้งไว้ทับได้
   // โหมด both: อิงจาก title ก่อน (อังกฤษล้วน = เขียนอังกฤษ) ไม่มี title ค่อยดู keyword (ดู src/lib/keyword-language.ts)
   const effectiveLanguage = resolveArticleLanguage({ projectLanguage: language, mode: language_mode, keyword, title })
@@ -1058,7 +1070,7 @@ export async function POST(req: NextRequest) {
   const ctaResult = buildCtaBlock(cta)
 
   let articlePrompt = buildArticlePrompt({
-    keyword, title, language: effectiveLanguage, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,
+    keyword, title: safeTitle, language: effectiveLanguage, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,
     colorTheme: resolvedColorTheme, colorText: resolvedColorText, colorBorder: resolvedColorBorder,
     colorAccent: resolvedColorAccent, colorBackground: resolvedColorBackground,
     elementStyles: resolvedElementStyles, typography,
@@ -1137,7 +1149,7 @@ export async function POST(req: NextRequest) {
       .filter(c => { const k = `${c.type}|${c.value}`; if (ctaChannelSeen.has(k)) return false; ctaChannelSeen.add(k); return true })
     const schema = buildArticleSchema({
       html: body,
-      title,
+      title: safeTitle,
       metaDescription: metaOf('meta_description') || undefined,
       slug: metaOf('en_slug') || undefined,
       siteUrl: resolvedWebsiteUrl || undefined,
@@ -1166,7 +1178,9 @@ export async function POST(req: NextRequest) {
         timeoutMs: 45_000,
       }),
     )
-    return { html: r.html, warnings: r.remaining.map((h) => `${h.term} (${h.count})`) }
+    // บล็อก META (meta_title / meta_description / en_slug) เป็น comment — enforce ของ body ไม่แตะ แต่ถูกอ่านไป push เป็น SEO title/description/URL จริง
+    const meta = cleanSeoMetaBlock(r.html, bannedTerms)
+    return { html: meta.html, warnings: [...r.remaining.map((h) => `${h.term} (${h.count})`), ...meta.warnings, ...fieldWarnings] }
   }
 
   if (!doStream) {
@@ -1193,10 +1207,10 @@ export async function POST(req: NextRequest) {
     const coverExtras = extractCoverExtras(html)
     const [coverResult, ...midResults] = await Promise.all([
       imageSettings.cover
-        ? generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
+        ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
         : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
       ...Array.from({ length: midCount }, () =>
-        generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
+        generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
     ])
     const midResult = midResults[0]
 
@@ -1226,7 +1240,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Inject mid images — กระจายตามหัวข้อ (1 รูป = ตำแหน่งกลางแบบเดิม)
-    html = injectMidImages(html, midResults, title || keyword)
+    html = injectMidImages(html, midResults, safeTitle || keyword)
 
     // แทรกแบนเนอร์ CTA (โหมด banner) แทน marker ที่โมเดลวางไว้ — ต้องมาก่อน author box
     html = injectCtaBanner(html, ctaResult.spots)
@@ -1266,7 +1280,7 @@ export async function POST(req: NextRequest) {
         prisma.article.create({
           data: {
             projectId, title,
-            slug: keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60),
+            slug: cleanSlug(keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60), bannedTerms).text,
             htmlContent: '', status: 'WRITING', createdById: userId,
             ...(keywordId ? { keywordId } : {}),
           },
@@ -1277,6 +1291,7 @@ export async function POST(req: NextRequest) {
 
   ;(async () => {
     let fullHtml = ''
+    let restrictionWarnings: string[] = [] // ส่งใน event 'done' ให้ UI ค้างเตือนถาวร
     try {
       // Step 1: Write article (streaming)
       const ceInfo = [
@@ -1306,6 +1321,7 @@ export async function POST(req: NextRequest) {
         const banned = await enforceBanned(fullHtml)
         fullHtml = banned.html
         if (banned.warnings.length) {
+          restrictionWarnings = banned.warnings
           send({ type: 'status', step: 'writing', message: `⚠️ ยังมีคำต้องห้ามที่แก้ไม่หมด: ${banned.warnings.join(', ')} — แก้เองก่อนเผยแพร่` })
         }
       }
@@ -1338,10 +1354,10 @@ export async function POST(req: NextRequest) {
       send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw && imageSettings.inlineCount === null ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
       const [coverResult, ...midResults] = await Promise.all([
         imageSettings.cover
-          ? generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
+          ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
           : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
         ...Array.from({ length: midCount }, () =>
-          generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
+          generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
       ])
       const midResult = midResults[0]
       const midOk = midResults.filter(r => r.imageBase64).length
@@ -1374,7 +1390,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Inject mid images — กระจายตามหัวข้อ (1 รูป = ตำแหน่งกลางแบบเดิม)
-      fullHtml = injectMidImages(fullHtml, midResults, title || keyword)
+      fullHtml = injectMidImages(fullHtml, midResults, safeTitle || keyword)
 
       // แทรกแบนเนอร์ CTA (โหมด banner) แทน marker ที่โมเดลวางไว้ — ต้องมาก่อน author box
       fullHtml = injectCtaBanner(fullHtml, ctaResult.spots)
@@ -1393,6 +1409,7 @@ export async function POST(req: NextRequest) {
         type: 'done', html: fullHtml, keyword, title,
         coverImage: coverResult.imageBase64, coverMimeType: coverResult.mimeType,
         midImage: midResult?.imageBase64 ?? '', midMimeType: midResult?.mimeType ?? '',
+        ...(restrictionWarnings.length ? { restrictionWarnings } : {}),
       })
 
     } catch (e: unknown) {

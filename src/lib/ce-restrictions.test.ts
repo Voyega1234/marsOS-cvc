@@ -7,13 +7,22 @@ import {
   bannedTermsFromTable,
   buildRestrictionsBlock,
   chunkText,
+  cleanGeneratedFields,
+  cleanPlainText,
+  cleanSeoMetaBlock,
+  cleanSlug,
   collectBannedSegments,
+  findBannedInText,
   findBannedTerms,
+  hitWarnings,
+  keywordWarnings,
   matchProductRules,
   parseBannedTerms,
   parseRestrictions,
   pickRelevantChunks,
   replaceSegments,
+  tallyWarning,
+  titleRestrictionsFrom,
   type ProductRule,
   type RestrictionsContext,
 } from './ce-restrictions';
@@ -99,5 +108,48 @@ assert(fixed.includes('href="/รักษาหาย"') && fixed.includes('con
 assert(findBannedTerms(fixed, segTerms).length === 0, 'replace: no visible banned terms left');
 assert(replaceSegments(segHtml, new Map([[segs[0].id, '   ']])) === segHtml, 'replace: blank rewrite keeps original');
 assert(collectBannedSegments(segHtml, segTerms, 1).length === 1, 'segments: max cap');
+
+// ── title / meta / slug / keyword (ข้อความล้วน ไม่ใช่ HTML) ─────────────────────
+console.log('\nplain text / slug / meta block');
+const pt = parseBannedTerms('ราคาถูก => ราคาประหยัด\ncheap => budget\nสูตรลับ');
+const plain = cleanPlainText('โรงแรมราคาถูก <b> & cheap hotel สูตรลับ', pt);
+assert(plain.text.includes('ราคาประหยัด') && plain.text.includes('budget hotel'), 'plain: replaces Thai + latin terms');
+assert(plain.text.includes('<b> &'), 'plain: no HTML escaping');
+assert(plain.remaining.length === 1 && plain.remaining[0].term === 'สูตรลับ', 'plain: term without replacement stays and is reported');
+assert(cleanPlainText('cheapest deal', pt).text === 'cheapest deal', 'plain: latin term needs whole word');
+assert(cleanPlainText('ไม่มีคำต้องห้าม', pt).replaced === 0, 'plain: clean text untouched');
+assert(findBannedInText('ขอสูตรลับ ราคาถูก', pt).length === 2, 'findBannedInText: counts per term');
+assert(cleanPlainText('x cheap', []).text === 'x cheap', 'plain: no terms = identity');
+
+assert(cleanSlug('cheap-hotel-bangkok', pt).text === 'budget-hotel-bangkok', 'slug: latin term replaced');
+const slugNoRep = cleanSlug('hotel-cheapest', pt);
+assert(slugNoRep.text === 'hotel-cheapest' && slugNoRep.remaining.length === 0, 'slug: whole word only');
+const slugKeep = cleanSlug('secret-hotel', parseBannedTerms('secret'));
+assert(slugKeep.text === 'secret-hotel' && slugKeep.remaining.length === 1, 'slug: no replacement = unchanged + remaining');
+assert(cleanSlug('hotel', pt).text === 'hotel', 'slug: no hit = identity');
+
+assert(hitWarnings('title', [{ term: 'cheap', replacement: null, count: 2 }])[0] === 'title: cheap (2)', 'hitWarnings: label + count');
+assert(keywordWarnings('cheap hotel', pt)[0] === 'keyword มีคำต้องห้าม: cheap', 'keywordWarnings: names the term');
+assert(keywordWarnings('hotel', pt).length === 0, 'keywordWarnings: none when clean');
+
+const metaHtml = '<!-- CONVERT_CAKE_SEO_META\nmeta_title: โรงแรมราคาถูก\nmeta_description: cheap stay สูตรลับ\nen_slug: cheap-hotel\nfocus_keyword: cheap hotel\n-->\n<h1>x</h1>';
+const metaOut = cleanSeoMetaBlock(metaHtml, pt);
+assert(metaOut.html.includes('meta_title: โรงแรมราคาประหยัด'), 'meta block: meta_title replaced');
+assert(metaOut.html.includes('meta_description: budget stay สูตรลับ'), 'meta block: meta_description replaced');
+assert(metaOut.html.includes('en_slug: budget-hotel'), 'meta block: en_slug replaced');
+assert(metaOut.html.includes('focus_keyword: cheap hotel'), 'meta block: focus_keyword never changed');
+assert(metaOut.warnings.some((w) => w.startsWith('meta description') && w.includes('สูตรลับ')), 'meta block: leftover term warned with label');
+assert(cleanSeoMetaBlock('<h1>no block</h1>', pt).html === '<h1>no block</h1>', 'meta block: missing block = identity');
+assert(cleanSeoMetaBlock(metaHtml, []).html === metaHtml, 'meta block: no terms = identity');
+
+const tr = titleRestrictionsFrom({ rowId: 'r', files: [], data: { status: 'Active', bannedTerms: 'cheap => budget\nสูตรลับ', rules: 'ห้ามพูดเกินจริง', productRules: [] } });
+assert(tr.terms.length === 2 && tr.block.includes('cheap') && tr.block.includes('budget') && tr.block.includes('ห้ามพูดเกินจริง'), 'titleRestrictionsFrom: block lists terms + rules');
+assert(titleRestrictionsFrom(null).block === '' && titleRestrictionsFrom(null).terms.length === 0, 'titleRestrictionsFrom: null = none');
+
+const tally = new Map<string, number>();
+const gen = cleanGeneratedFields(tr, { title: 'cheap สูตรลับ', metaDescription: 'cheap', slug: 'cheap-x' }, tally);
+assert(gen.title === 'budget สูตรลับ' && gen.metaDescription === 'budget' && gen.slug === 'budget-x', 'cleanGeneratedFields: cleans each field');
+assert(tally.get('สูตรลับ') === 1 && tally.size === 1, 'cleanGeneratedFields: tally holds leftovers only');
+assert(tallyWarning('t', tally) === 't: สูตรลับ (1)' && tallyWarning('t', new Map()) === null, 'tallyWarning: formats / null when empty');
 
 console.log(`\n${passed} passed`);

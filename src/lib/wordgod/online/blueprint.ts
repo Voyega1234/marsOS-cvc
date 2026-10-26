@@ -265,7 +265,9 @@ export interface TitleBatchRow {
 export async function generateTitlesBatch(
   rows: TitleBatchRow[],
   input: OnlineResearchInput,
-  slugConvention: 'latin' | 'thai' | 'mixed' | 'unknown'
+  slugConvention: 'latin' | 'thai' | 'mixed' | 'unknown',
+  /** ข้อจำกัดคำต้องห้ามจาก Content Engine (titleRestrictionsFrom().block) — ต่อท้าย prompt */
+  restrictionsBlock?: string
 ): Promise<Map<string, TitleResult>> {
   const slugRule =
     slugConvention === 'thai'
@@ -290,7 +292,7 @@ ${rows.map((r, i) => `${i + 1}. "${r.keyword}" | stage=${r.journeyStage} | page=
 
 ตอบ: {"items":[{"i":เลขข้อ,"title":"...","slug":"...","why":"เหตุผล 1-2 ประโยคว่าทำไมคำนี้คุ้มทำ อิง facts เท่านั้น"}]}
 
-${humanTitleSkillBlock('th')}`;
+${humanTitleSkillBlock('th')}${restrictionsBlock?.trim() ? `\n\n${restrictionsBlock.trim()}` : ''}`;
   // Mars Human Voice Skill — ให้ title อ่านเป็นภาษาคน (เจ้าของสั่ง 2026-09-28)
 
   const raw = (await callGemini(prompt, { functionLabel: 'generate_titles' })) as { items?: any[] };

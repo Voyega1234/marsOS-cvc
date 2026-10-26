@@ -34,6 +34,8 @@ import { scoreCompetitorGap } from '@/lib/skills/competitorGapSkill'
 import { detectTrendSignal } from '@/lib/skills/trendSkill'
 import { extractCompetitorKeywords } from '@/lib/skills/competitorUrlSkill'
 import { generateVertexContent, isVertexOidcConfigured } from '@/lib/vertex'
+import { NO_TITLE_RESTRICTIONS, cleanGeneratedFields, keywordWarnings, tallyWarning } from '@/lib/ce-restrictions'
+import { loadTitleRestrictions } from '@/lib/ce-restrictions-server'
 import {
   classifyJourneyStage,
   classifyAISearchRisk,
@@ -543,6 +545,8 @@ async function generateTitles(
   businessName: string,
   category: string,
   counters: UsageCounters,
+  /** ข้อจำกัดคำต้องห้ามจาก Content Engine (titleRestrictionsFrom().block) — ต่อท้าย prompt */
+  restrictionsBlock?: string,
 ): Promise<Map<string, TitleResult>> {
   const result = new Map<string, TitleResult>()
   const BATCH = 25
@@ -561,7 +565,7 @@ async function generateTitles(
       business_context: businessName || category,
       category,
     }))
-    const prompt = buildSeoTitleAiPrompt(requests, 'th')
+    const prompt = buildSeoTitleAiPrompt(requests, 'th') + (restrictionsBlock?.trim() ? `\n\n${restrictionsBlock.trim()}` : '')
     let lastErr: unknown
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -1194,8 +1198,11 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
         const titleBatches = Math.ceil(needsTitles.length / 25)
         log(`✍️ สร้าง SEO Titles: ${needsTitles.length} keywords · ${titleBatches} batches ...`)
       }
+      // ข้อจำกัดคำต้องห้ามของ Content Engine โปรเจกต์นี้ (ไม่มี project_id = ไม่มี scope → ไม่ใช้ ไม่ fallback ไป scope อื่น)
+      const titleRestrictions = project_id ? await loadTitleRestrictions(orgId, { projectId: project_id }) : NO_TITLE_RESTRICTIONS
+      const restrictionTally = new Map<string, number>()
       const titleMap = hasGemini && needsTitles.length > 0
-        ? await generateTitles(needsTitles, business_name, category, counters)
+        ? await generateTitles(needsTitles, business_name, category, counters, titleRestrictions.block)
         : new Map<string, TitleResult>()
       if (needsTitles.length > 0) log(`✓ Titles สำเร็จ: ${titleMap.size} titles`)
 
@@ -1215,10 +1222,11 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
 
         const existingTitle = src?.title ?? ''
         const titleData     = titleMap.get(normFn(kw.keyword))
-        const title         = existingTitle || titleData?.title || fallbackTitle(kw.keyword, kw.intent)
+        // title/slug จาก AI หรือ template ผ่านการแทนคำต้องห้าม (ที่มาจากไฟล์ CSV ของทีมไม่แตะ)
+        const title         = existingTitle || (cleanGeneratedFields(titleRestrictions, { title: titleData?.title || fallbackTitle(kw.keyword, kw.intent) }, restrictionTally).title ?? '')
         const contentType   = resolveContentType(intent)
         const pageType      = src?.page_type ?? resolvePageType(intent, contentType)
-        const autoSlug      = src?.slug ?? generateSlug(kw.keyword)
+        const autoSlug      = src?.slug ?? (cleanGeneratedFields(titleRestrictions, { slug: generateSlug(kw.keyword) }, restrictionTally).slug ?? '')
         const framework     = resolveFramework(intent, kwType, realVolume, {
           convPotential: src?.conversion_potential, trafficPotential: src?.traffic_potential,
         })
@@ -1329,6 +1337,11 @@ Return JSON only — ต้องมีครบ ${batch.length} items:
           ...(src?.relevance_score != null && { relevance_score: src.relevance_score }),
         }
       })
+      // คำต้องห้ามที่แทนไม่ได้ใน title/slug + keyword ที่มีคำต้องห้าม (keyword ไม่แก้ แค่เตือนทีม)
+      const titleNote = tallyWarning('title/slug ยังมีคำต้องห้ามที่แทนไม่ได้', restrictionTally)
+      if (titleNote) log(`⚠️ ${titleNote}`)
+      const kwNotes = Array.from(new Set(rows.flatMap(r => keywordWarnings(r.keyword, titleRestrictions.terms))))
+      if (kwNotes.length) log(`⚠️ ${kwNotes.join(' · ')}`)
 
       // ── Step 3b: Boost real-volume keywords + Intent-bucket allocation ────────
       // Boost keywords with verified real volume (more reliable than estimates)

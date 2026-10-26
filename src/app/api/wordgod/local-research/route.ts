@@ -94,6 +94,8 @@ import {
 import { callGemini, callGeminiWithGrounding, getSessionUsage } from '@/lib/wordgod/gemini';
 import { humanTitleSkillBlock } from '@/lib/article-human-voice-skill';
 import { clientSlugForProject, withOrClient } from '@/lib/orClient';
+import { NO_TITLE_RESTRICTIONS, cleanGeneratedFields, tallyWarning } from '@/lib/ce-restrictions';
+import { loadTitleRestrictions } from '@/lib/ce-restrictions-server';
 import { standaloneProjectId, isStandaloneProjectId, STANDALONE_CLIENT_SLUG } from '@/lib/wordgod/intent-skill/standalone';
 import { runIntentSkill } from '@/lib/wordgod/intent-skill/run';
 import { fromLocalRow, parseBusinessProfile } from '@/lib/wordgod/intent-skill/adapters';
@@ -1667,6 +1669,10 @@ ${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
       // ── เขียน SEO title + slug (AI ทำหลังข้อมูลจบแล้วเสมอ — batch ละ 100 คำ) ──
       progress(`เขียน SEO title + slug ให้ ${results.length} คำ …`);
       try {
+        // ข้อจำกัดคำต้องห้ามของ Content Engine โปรเจกต์นี้ (standalone / ไม่มีโปรเจกต์ = ไม่มี scope → ไม่ใช้ ไม่ fallback ไป scope อื่น)
+        const titleRestrictions = flags.projectId && !isStandaloneProjectId(flags.projectId)
+          ? await loadTitleRestrictions(orgId, { projectId: flags.projectId })
+          : NO_TITLE_RESTRICTIONS;
         const titleBatches: string[][] = [];
         for (let i = 0; i < results.length; i += 100) {
           titleBatches.push(results.slice(i, i + 100).map(r => r.keyword));
@@ -1679,7 +1685,7 @@ ${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
   Keywords:
   ${kwList.map(k => `- ${k}`).join('\n')}
 
-  ${humanTitleSkillBlock('th')}`;
+  ${humanTitleSkillBlock('th')}${titleRestrictions.block ? `\n\n${titleRestrictions.block}` : ''}`;
         const titleStart = cursor('titles', 'titleCursor', 0);
         for (let i = titleStart; i < titleBatches.length; i += 3) {
           const wave = titleBatches.slice(i, i + 3);
@@ -1699,11 +1705,19 @@ ${chunk.map(r => `- ${r.keyword}`).join('\n')}`;
           progress(`เขียน title แล้ว ${Math.min((i + 3) * 100, results.length)}/${results.length} คำ`);
           await checkpoint('titles', { titleCursor: i + 3 });
         }
+        // แทนคำต้องห้ามใน title/slug ที่ AI ตั้ง — keyword ไม่แก้, คำที่แทนไม่ได้รวมเป็นคำเตือนเดียว
+        const restrictionTally = new Map<string, number>();
         for (const r of results) {
           const hit = titleByKey.get(dedupeKey(r.keyword));
-          if (hit?.title) r.suggestedTitle = String(hit.title).slice(0, 120);
-          if (hit?.slug) r.slug = String(hit.slug).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+          const cleaned = cleanGeneratedFields(titleRestrictions, {
+            title: hit?.title ? String(hit.title) : undefined,
+            slug: hit?.slug ? String(hit.slug).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60) : undefined,
+          }, restrictionTally);
+          if (cleaned.title) r.suggestedTitle = cleaned.title.slice(0, 120);
+          if (cleaned.slug) r.slug = cleaned.slug;
         }
+        const restrictionNote = tallyWarning('title/slug ยังมีคำต้องห้ามที่แทนไม่ได้', restrictionTally);
+        if (restrictionNote) warnings.push(restrictionNote);
         // slug ต้องไม่ซ้ำกันทั้งชุด — AI เขียนเป็น batch ละ 100 มองไม่เห็นกัน (QA 500 คำ: ชนกัน 32 กลุ่ม)
         // แถวลำดับต้น (priority สูงกว่า) ได้ slug สะอาด แถวหลังเติม -2, -3 …
         const usedSlugs = new Set<string>();

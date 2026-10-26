@@ -9,6 +9,8 @@ import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import type { UploadKeyword } from '@/lib/upload-article/types'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
+import { cleanGeneratedFields, keywordWarnings, tallyWarning } from '@/lib/ce-restrictions'
+import { loadTitleRestrictions } from '@/lib/ce-restrictions-server'
 
 export const maxDuration = 300
 
@@ -50,9 +52,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Business Skill ของลูกค้านี้ (ถ้าตั้งไว้) ให้ตั้งชื่อตรงกับธุรกิจ — ไม่มีก็ไม่ส่ง ห้ามเดา
   const ce = await resolveContentEngine(orgId, { projectId: client.id })
   const businessSkill = ce.businessSkill?.text?.trim() || undefined
+  // ข้อจำกัดคำต้องห้ามของ CE scope เดียวกัน — ใส่ใน prompt แล้วแทนคำซ้ำหลัง AI ตอบ (ไม่ fallback ไป scope อื่น)
+  const tr = await loadTitleRestrictions(orgId, { projectId: client.id })
   const clientSlug = `upload-${slugifyClient(client.name)}`
   const aiResult = await withOrClient(clientSlug, () =>
-    generateKeywordPlan({ items: inputs, clientName: client.name, website: client.website, language, businessSkill }),
+    generateKeywordPlan({ items: inputs, clientName: client.name, website: client.website, language, businessSkill, restrictionsBlock: tr.block || undefined }),
   )
 
   logAIJob({
@@ -69,7 +73,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     createdById: session.user.id,
   }).catch(() => {})
 
-  const aiById = new Map(aiResult.items.map((it) => [it.id, it]))
+  // แทนคำต้องห้ามใน title / slug ที่ AI ตั้งและจะถูกใช้จริง (ช่องที่ fill ไม่ทับไม่ต้องตรวจ) — keyword ห้ามแก้ มีคำต้องห้ามแค่เตือน
+  const tally = new Map<string, number>()
+  const planById = new Map(plan.map((k) => [k.id, k]))
+  const aiById = new Map(aiResult.items.map((it) => {
+    const k = planById.get(it.id)
+    const c = cleanGeneratedFields(tr, { title: fill && k?.title ? undefined : it.title, slug: fill && k?.slug ? undefined : it.slug }, tally)
+    return [it.id, { ...it, title: c.title ?? it.title, slug: c.slug ?? it.slug }]
+  }))
+  const restrictionWarnings = [
+    ...Array.from(new Set(inputs.flatMap((i) => keywordWarnings(i.keyword, tr.terms)))),
+    ...[tallyWarning('title/slug', tally)].filter((w): w is string => Boolean(w)),
+  ]
 
   const result = await updatePrefs(client.id, orgId, (current) => {
     const currentPlan = readPlan(current)
@@ -94,7 +109,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   if (!result) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
-  return NextResponse.json(result.result)
+  return NextResponse.json(restrictionWarnings.length ? { ...result.result, restrictionWarnings } : result.result)
 }
 
 export const dynamic = 'force-dynamic'

@@ -72,6 +72,8 @@ import {
 import { scanWebsiteContext } from '@/lib/wordgod/online/siteScan';
 import { callGemini, getSessionUsage } from '@/lib/wordgod/gemini';
 import { clientSlugForProject, withOrClient } from '@/lib/orClient';
+import { NO_TITLE_RESTRICTIONS, cleanGeneratedFields, tallyWarning } from '@/lib/ce-restrictions';
+import { loadTitleRestrictions } from '@/lib/ce-restrictions-server';
 import { standaloneProjectId, isStandaloneProjectId, STANDALONE_CLIENT_SLUG } from '@/lib/wordgod/intent-skill/standalone';
 import { runIntentSkill } from '@/lib/wordgod/intent-skill/run';
 import { fromOnlineRow, parseBusinessProfile } from '@/lib/wordgod/intent-skill/adapters';
@@ -2074,6 +2076,11 @@ export async function POST(req: NextRequest) {
     // ── titles: AI เขียน title/slug/why (ทีหลังข้อมูลจริงเสมอ) ──────────────
     if (needs('titles')) {
       const slugConvention = siteContext?.slugConvention ?? 'latin';
+      // ข้อจำกัดคำต้องห้ามของ Content Engine โปรเจกต์นี้ (standalone / ไม่มีโปรเจกต์ = ไม่มี scope → ไม่ใช้ ไม่ fallback ไป scope อื่น)
+      const titleRestrictions = flags.projectId && !isStandaloneProjectId(flags.projectId)
+        ? await loadTitleRestrictions(orgId, { projectId: flags.projectId })
+        : NO_TITLE_RESTRICTIONS;
+      const restrictionTally = new Map<string, number>();
       const pending = selected.filter(r => !r.title);
       const batches: SelectedRow[][] = [];
       for (let i = 0; i < pending.length; i += TITLE_BATCH_SIZE) batches.push(pending.slice(i, i + TITLE_BATCH_SIZE));
@@ -2101,7 +2108,7 @@ export async function POST(req: NextRequest) {
                 `objective: ${r.objective}`,
               ].filter(Boolean).join(', '),
             }));
-            return generateTitlesBatch(rows, input, slugConvention);
+            return generateTitlesBatch(rows, input, slugConvention, titleRestrictions.block);
           })
         );
         for (let i = 0; i < settled.length; i++) {
@@ -2113,12 +2120,16 @@ export async function POST(req: NextRequest) {
           for (const row of wave[i]) {
             const hit = res.value.get(row.keyword);
             if (!hit) { titleFailures++; continue; }
-            row.title = hit.title;
-            row.slug = hit.slug || undefined;
+            const cleaned = cleanGeneratedFields(titleRestrictions, { title: hit.title, slug: hit.slug }, restrictionTally);
+            row.title = cleaned.title ?? hit.title;
+            row.slug = (cleaned.slug ?? hit.slug) || undefined;
             row.why = hit.why || undefined;
             written++;
           }
         }
+        // คำต้องห้ามที่แทนไม่ได้ (ไม่มีคำแทน) — เตือนทีมต่อรอบ (ไม่ทำให้งานล้ม; keyword ไม่แก้)
+        const restrictionNote = tallyWarning('title/slug ยังมีคำต้องห้ามที่แทนไม่ได้', restrictionTally);
+        if (restrictionNote) { warnings.push(restrictionNote); restrictionTally.clear(); }
         titleIdx += wave.length;
         progress(`เขียน title แล้ว ${written}/${selected.length} คำ`, { ...stepOf('titles'), count: written });
         await checkpoint('titles', { titleIdx });
@@ -2156,7 +2167,7 @@ export async function POST(req: NextRequest) {
           const losers = rows.slice(1);
           if (verdict?.verdict === 'DISTINCT') {
             losers.forEach((loser, j) => {
-              const newSlug = verdict.newSlugs[j];
+              const newSlug = cleanGeneratedFields(titleRestrictions, { slug: verdict.newSlugs[j] }).slug;
               if (newSlug && newSlug !== slug && !usedSlugs.has(newSlug)) {
                 loser.slug = newSlug;
                 usedSlugs.add(newSlug);

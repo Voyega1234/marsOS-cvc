@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import ScopedEditable from "@/components/shared/ScopedEditable";
+import RestrictionWarningBox from "@/components/shared/RestrictionWarningBox";
 import StudioArticleSettings from "@/components/content-studio/StudioArticleSettings";
 import { defaultUploadCtaItem, UPLOAD_CTA_CHANNEL_TYPES, type UploadCtaChannelType, type UploadCtaSettings } from "@/lib/upload-article/cta";
 
@@ -285,6 +286,8 @@ export function ContentStudioClient() {
     }).catch(() => {});
   };
   const [generating, setGenerating] = useState(false);
+  // คำต้องห้ามที่ server แก้ไม่หมด — ค้างจนเขียนรอบใหม่หรือกด ✕
+  const [restrictionWarns, setRestrictionWarns] = useState<string[]>([]);
   const [articleHtml, setArticleHtml] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("content_studio_draft_html") ?? "";
@@ -434,6 +437,7 @@ export function ContentStudioClient() {
     if (!settings.keyword.trim()) { toast.error("กรุณาใส่ keyword ก่อน"); return; }
     setGenerating(true);
     setAndPersistHtml("");
+    setRestrictionWarns([]);
     try {
       const res = await fetch("/api/article/write", {
         method: "POST",
@@ -454,6 +458,7 @@ export function ContentStudioClient() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setAndPersistHtml(data.html ?? data.content ?? "");
+      if (Array.isArray(data.restrictionWarnings)) setRestrictionWarns(data.restrictionWarnings.map(String));
       setViewMode("preview");
     } catch (e: unknown) {
       toast.error(`เกิดข้อผิดพลาด: ${e instanceof Error ? e.message : String(e)}`);
@@ -1054,6 +1059,7 @@ export function ContentStudioClient() {
 
               {!generating && articleHtml && (
                 <div className="max-w-4xl mx-auto">
+                  <RestrictionWarningBox className="mb-3" warnings={restrictionWarns} onDismiss={() => setRestrictionWarns([])} />
                   <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
                     <span className="text-xs text-slate-400">
                       {countWords(stripHtml(articleHtml)).toLocaleString()} คำ

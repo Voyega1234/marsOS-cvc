@@ -19,6 +19,9 @@ import {
   type BannedTerm,
   type RestrictionFile,
   type RestrictionsContext,
+  type TitleRestrictions,
+  NO_TITLE_RESTRICTIONS,
+  titleRestrictionsFrom,
 } from "@/lib/ce-restrictions";
 
 /** เพดานไฟล์ข้อจำกัด (ต่อแถว + รวมทั้ง scope) — ผ่าน = null, เกิน = ข้อความแจ้งทีม */
@@ -93,7 +96,11 @@ async function loadRestrictionFiles(orgId: string, projectId: string | null): Pr
  * ข้อจำกัดของ scope นี้ (แถว Active ของ CE_RESTRICTIONS + ไฟล์ทุกไฟล์ใน scope เดียวกัน)
  * ไม่มีแถวหรือสถานะ Draft = ไม่มีข้อจำกัด (layer นี้ไม่บังคับ)
  */
-export async function loadRestrictions(orgId: string, scope: CEScope): Promise<RestrictionsContext | null> {
+export async function loadRestrictions(
+  orgId: string,
+  scope: CEScope,
+  opts: { files?: boolean } = {},
+): Promise<RestrictionsContext | null> {
   const projectId = scope === "studio" ? null : scope.projectId;
   const row = await prisma.promptTemplate.findFirst({
     where: { organizationId: orgId, projectId, type: CE_RESTRICTIONS, isActive: true },
@@ -103,8 +110,22 @@ export async function loadRestrictions(orgId: string, scope: CEScope): Promise<R
   if (!row) return null;
   const data = parseRestrictions(row.promptText);
   if (data.status === "Draft") return null;
-  const files = await loadRestrictionFiles(orgId, projectId);
+  // files:false = ตัวตั้ง title/meta ต้องการแค่คำต้องห้ามกับกฎ ไม่ต้องดึงไฟล์ข้อความใหญ่
+  const files = opts.files === false ? [] : await loadRestrictionFiles(orgId, projectId);
   return { rowId: row.id, data, files };
+}
+
+/**
+ * ข้อจำกัดกะทัดรัดสำหรับ generator ของ title/meta/slug — ไม่ทำให้งานล้ม (โหลดพัง/ไม่มี = ไม่มีข้อจำกัด)
+ * scope ต้องเป็นตัวเดียวกับที่ route ใช้ resolveContentEngine — ห้าม fallback ข้าม scope
+ */
+export async function loadTitleRestrictions(orgId: string, scope: CEScope): Promise<TitleRestrictions> {
+  try {
+    return titleRestrictionsFrom(await loadRestrictions(orgId, scope, { files: false }));
+  } catch (e) {
+    console.warn("[restrictions] loadTitleRestrictions failed", e instanceof Error ? e.message : e);
+    return NO_TITLE_RESTRICTIONS;
+  }
 }
 
 // ── บังคับคำต้องห้ามหลังเขียนเสร็จ ───────────────────────────────────────────

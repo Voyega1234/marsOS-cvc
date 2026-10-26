@@ -554,3 +554,197 @@ export function restrictionsValidatorNote(ctx: RestrictionsContext | null | unde
     "  ทำตามกฎทุกข้อ, ข้อมูลสินค้าตรงกับข้อมูลที่ให้ไว้ ไม่แต่งเพิ่ม (ดูหัวข้อ \"ข้อจำกัด (Restrictions)\")",
   ].join("\n");
 }
+
+// ── title / H1 / meta / slug / keyword: ข้อความล้วน (ไม่ใช่ HTML) ────────────
+//  คำสั่งเจ้าของ 2026-10-26: คำต้องห้ามห้ามหลุดไปที่ title, SEO title, meta description, slug แม้ body สะอาดแล้ว
+//  keyword หลักห้ามแก้ — มีคำต้องห้ามได้แค่เตือน
+
+export interface PlainCleanResult {
+  text: string;
+  /** จำนวนคำที่แทนด้วยคำแทนที่ตั้งไว้ */
+  replaced: number;
+  /** คำต้องห้ามที่ยังเหลือ (ไม่มีคำแทน หรือแทนไม่ได้) */
+  remaining: BannedHit[];
+}
+
+/** คำต้องห้ามในข้อความล้วน — ไม่ตัด tag (title/meta ไม่ใช่ HTML) */
+export function findBannedInText(text: string, terms: BannedTerm[]): BannedHit[] {
+  if (!terms.length || !text) return [];
+  const plain = text.replace(/&nbsp;|&#160;/g, " ");
+  const hits: BannedHit[] = [];
+  for (const t of terms) {
+    const n = (plain.match(termRegex(t.term)) || []).length;
+    if (n) hits.push({ term: t.term, replacement: t.replacement, count: n });
+  }
+  return hits;
+}
+
+/** แทนคำต้องห้ามที่มีคำแทนในข้อความล้วน (ไม่ escape HTML) แล้วตรวจที่เหลือ */
+export function cleanPlainText(text: string, terms: BannedTerm[]): PlainCleanResult {
+  if (!text || !terms.length) return { text, replaced: 0, remaining: [] };
+  let t = text;
+  let replaced = 0;
+  for (const r of terms) {
+    if (!r.replacement) continue;
+    t = t.replace(termRegex(r.term), () => {
+      replaced++;
+      return r.replacement as string;
+    });
+  }
+  return { text: t, replaced, remaining: findBannedInText(t, terms) };
+}
+
+const ASCII_RE = /^[\x20-\x7e]+$/;
+
+/** คำ/วลี → รูป slug (ตัวเล็ก คั่นด้วย -) */
+function slugWords(s: string): string {
+  return s.toLowerCase().split(NON_WORD_RE).filter(Boolean).join("-");
+}
+
+function slugTermRegex(term: string, words: string): RegExp {
+  const body = escapeRegExp(words);
+  return ASCII_RE.test(term) ? new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, "giu") : new RegExp(body, "giu");
+}
+
+/**
+ * slug: คำต้องห้ามที่มีคำแทนเป็นคำ (ในรูป slug) → แทนที่ · ไม่มีคำแทน/แทนด้วยอักษรไทยใน slug อังกฤษไม่ได้ → ปล่อยไว้แล้วคืนใน remaining
+ * คำต้องห้ามภาษาไทยไม่ปรากฏใน slug อังกฤษอยู่แล้ว (ข้าม) — ไม่แตะ slug ที่ไม่เจอคำเลย
+ */
+export function cleanSlug(slug: string, terms: BannedTerm[]): PlainCleanResult {
+  if (!slug || !terms.length) return { text: slug, replaced: 0, remaining: [] };
+  const asciiSlug = ASCII_RE.test(slug);
+  let s = slug;
+  let replaced = 0;
+  const remaining: BannedHit[] = [];
+  for (const t of terms) {
+    const words = slugWords(t.term);
+    if (!words) continue;
+    const re = slugTermRegex(t.term, words);
+    const repWords = t.replacement ? slugWords(t.replacement) : "";
+    if (repWords && (!asciiSlug || ASCII_RE.test(repWords))) {
+      s = s.replace(re, () => {
+        replaced++;
+        return repWords;
+      });
+    }
+  }
+  if (replaced) s = s.replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
+  for (const t of terms) {
+    const words = slugWords(t.term);
+    if (!words) continue;
+    const n = (s.match(slugTermRegex(t.term, words)) || []).length;
+    if (n) remaining.push({ term: t.term, replacement: t.replacement, count: n });
+  }
+  return { text: s, replaced, remaining };
+}
+
+/** คำเตือนที่ขึ้นหน้า UI: "<label>: คำ (จำนวน)" — ใช้ช่อง restrictionWarnings เดิมของแต่ละ route */
+export function hitWarnings(label: string, hits: BannedHit[]): string[] {
+  return hits.map((h) => `${label}: ${h.term} (${h.count})`);
+}
+
+/** keyword หลักห้ามแก้ — มีคำต้องห้ามแค่เตือน */
+export function keywordWarnings(keyword: string, terms: BannedTerm[]): string[] {
+  return findBannedInText(keyword, terms).map((h) => `keyword มีคำต้องห้าม: ${h.term}`);
+}
+
+export interface SeoMetaCleanResult {
+  html: string;
+  replaced: number;
+  warnings: string[];
+}
+
+const SEO_META_FIELDS: Array<{ key: string; label: string; slug?: boolean }> = [
+  { key: "meta_title", label: "meta title" },
+  { key: "meta_description", label: "meta description" },
+  { key: "en_slug", label: "slug", slug: true },
+  { key: "cover_image_alt", label: "cover alt" },
+];
+
+/**
+ * บล็อก <!-- CONVERT_CAKE_SEO_META --> ของตัวเขียน SEO/SME เป็น comment (ตัว enforce ของ body ไม่แตะ)
+ * แต่ meta_title / meta_description / en_slug ถูกอ่านไป push เป็น SEO title, description, URL จริง — แทนคำต้องห้ามในบรรทัดเหล่านี้
+ */
+export function cleanSeoMetaBlock(html: string, terms: BannedTerm[]): SeoMetaCleanResult {
+  const none = { html, replaced: 0, warnings: [] as string[] };
+  if (!terms.length || !html) return none;
+  const m = /(<!--\s*CONVERT_CAKE_SEO_META)([\s\S]*?)(-->)/i.exec(html);
+  if (!m) return none;
+  let block = m[2];
+  let replaced = 0;
+  const warnings: string[] = [];
+  for (const f of SEO_META_FIELDS) {
+    block = block.replace(new RegExp(`^([ \\t]*${f.key}[ \\t]*[:=][ \\t]*)(.*)$`, "gim"), (_all, head: string, value: string) => {
+      const r = f.slug ? cleanSlug(value, terms) : cleanPlainText(value, terms);
+      replaced += r.replaced;
+      warnings.push(...hitWarnings(f.label, r.remaining));
+      return head + r.text;
+    });
+  }
+  if (block === m[2]) return { html, replaced: 0, warnings };
+  return { html: html.slice(0, m.index) + m[1] + block + m[3] + html.slice(m.index + m[0].length), replaced, warnings };
+}
+
+// ── generator ของ title/meta/slug: ใส่ข้อจำกัดใน prompt + แทนคำหลังได้ผล ───────
+
+export interface TitleRestrictions {
+  terms: BannedTerm[];
+  /** ข้อความกะทัดรัดต่อท้าย prompt ('' = ไม่มีข้อจำกัด) */
+  block: string;
+}
+
+export const NO_TITLE_RESTRICTIONS: TitleRestrictions = { terms: [], block: "" };
+
+const TITLE_BUDGET = { bannedTerms: 3_000, rules: 1_500 };
+
+/** ข้อจำกัดแบบสั้นสำหรับ prompt ตั้ง title/meta/slug — เฉพาะคำต้องห้าม + กฎ (ไม่ส่งข้อมูลสินค้า/ไฟล์ เพราะ prompt เป็น batch) */
+export function titleRestrictionsFrom(ctx: RestrictionsContext | null | undefined): TitleRestrictions {
+  if (!ctx) return NO_TITLE_RESTRICTIONS;
+  const terms = parseBannedTerms(ctx.data.bannedTerms);
+  const rules = ctx.data.rules.trim();
+  if (!terms.length && !rules) return NO_TITLE_RESTRICTIONS;
+  const parts = ["## ข้อจำกัดของลูกค้า (บังคับ — ใช้กับ title / H1 / meta title / meta description / slug ทุกช่อง)"];
+  if (terms.length) {
+    const lines = terms.map((t) => (t.replacement ? `- "${t.term}" → ใช้ "${t.replacement}" แทน` : `- "${t.term}"`));
+    parts.push(
+      `ห้ามใช้คำ/ข้อความเหล่านี้ทุกรูปแบบ (รวมสะกดต่าง เว้นวรรค และคำแปลอังกฤษใน slug):\n${clip(lines.join("\n"), TITLE_BUDGET.bannedTerms)}`,
+    );
+  }
+  if (rules) parts.push(`กฎที่ต้องทำตาม (title/meta/slug ห้ามขัด):\n${clip(rules, TITLE_BUDGET.rules)}`);
+  return { terms, block: parts.join("\n") };
+}
+
+/** ผลจาก generator ทีละแถว → แทนคำใน title (และ meta/slug ถ้ามี) แล้วสะสมคำที่เหลือลง tally */
+export function cleanGeneratedFields(
+  tr: TitleRestrictions,
+  f: { title?: string; metaDescription?: string; slug?: string },
+  tally?: Map<string, number>,
+): { title?: string; metaDescription?: string; slug?: string } {
+  if (!tr.terms.length) return f;
+  const out = { ...f };
+  const add = (hits: BannedHit[]) => {
+    if (tally) for (const h of hits) tally.set(h.term, (tally.get(h.term) ?? 0) + h.count);
+  };
+  if (f.title) {
+    const r = cleanPlainText(f.title, tr.terms);
+    out.title = r.text;
+    add(r.remaining);
+  }
+  if (f.metaDescription) {
+    const r = cleanPlainText(f.metaDescription, tr.terms);
+    out.metaDescription = r.text;
+    add(r.remaining);
+  }
+  if (f.slug) {
+    const r = cleanSlug(f.slug, tr.terms);
+    out.slug = r.text;
+    add(r.remaining);
+  }
+  return out;
+}
+
+/** สรุป tally เป็นคำเตือนบรรทัดเดียว (null = ไม่มีคำเหลือ) */
+export function tallyWarning(label: string, tally: Map<string, number>): string | null {
+  if (!tally.size) return null;
+  return `${label}: ${Array.from(tally.entries()).map(([term, n]) => `${term} (${n})`).join(", ")}`;
+}

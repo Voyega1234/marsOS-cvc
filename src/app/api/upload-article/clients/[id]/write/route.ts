@@ -26,7 +26,10 @@ import { readUploadAuthor, pickAuthorForArticle } from '@/lib/upload-article/aut
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { orChatStream, OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
-import { buildRestrictionsBlock, hasRestrictions, restrictionsValidatorNote } from '@/lib/ce-restrictions'
+import {
+  buildRestrictionsBlock, cleanPlainText, cleanSlug, hasRestrictions, hitWarnings, keywordWarnings, parseBannedTerms,
+  restrictionsValidatorNote,
+} from '@/lib/ce-restrictions'
 import { enforceRestrictions, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
@@ -185,8 +188,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const links = readLinks(prefs)
   const linkPairs = pickLinksForKeyword(links, { keyword: keyword.keyword, title: keyword.title, slug: keyword.slug, extra: extraLinks })
 
-  const title = keyword.title || keyword.keyword
+  // คำต้องห้าม (Content Engine > ข้อจำกัด) ในช่อง title / SEO title / slug ที่มาจากแผน keyword — แทนคำที่มีคำแทนไว้, ที่เหลือเตือน
+  // keyword หลักห้ามแก้ — มีคำต้องห้ามแค่เตือน
+  const bannedTerms = restrictions ? parseBannedTerms(restrictions.data.bannedTerms) : []
+  const titleClean = cleanPlainText(keyword.title || keyword.keyword, bannedTerms)
+  const slugClean = cleanSlug(keyword.slug || '', bannedTerms)
+  const title = titleClean.text
   const seoTitle = title.slice(0, 70)
+  const articleSlug = slugClean.text
+  const fieldWarnings = [
+    ...keywordWarnings(keyword.keyword, bannedTerms),
+    ...hitWarnings('title', titleClean.remaining),
+    ...hitWarnings('slug', slugClean.remaining),
+  ]
 
   const article = await prisma.uploadArticle.create({
     data: {
@@ -197,7 +211,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       sourceName,
       sourceHtml: '',
       seoTitle,
-      slug: keyword.slug || '',
+      slug: articleSlug,
       status: 'WRITING',
       createdById: userId,
     },
@@ -238,7 +252,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // ภาษาของบทความนี้ตามโหมดภาษาของลูกค้า (ไทย / อังกฤษ / ไทย+อังกฤษ = ดูจาก title ก่อน)
   const language = uploadArticleLanguage(writeClient.language, title, keyword.keyword)
   const user = buildWriterUserPrompt({
-    keyword,
+    keyword: { ...keyword, title: keyword.title ? title : keyword.title, slug: keyword.slug ? articleSlug : keyword.slug },
     links: linkPairs,
     language,
     brandNames: [client.name],
@@ -347,7 +361,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
         // คำต้องห้ามของลูกค้า (Content Engine > ข้อจำกัด) — แทนคำ/เขียนท่อนใหม่ก่อนแทรก CTA (CTA เป็นข้อความของทีม ไม่แตะ)
         let metaDescription = parsed.metaDescription
-        let restrictionWarnings: string[] | undefined
+        let restrictionWarnings: string[] | undefined = fieldWarnings.length ? [...fieldWarnings] : undefined
         if (hasRestrictions(restrictions)) {
           const enforced = await withOrClient(clientSlug, () =>
             enforceRestrictions({
@@ -361,7 +375,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           )
           cleaned = enforced.html
           metaDescription = enforced.metaDescription
-          if (enforced.remaining.length) restrictionWarnings = enforced.remaining.map((h) => `${h.term} (${h.count})`)
+          if (enforced.remaining.length) restrictionWarnings = [...enforced.remaining.map((h) => `${h.term} (${h.count})`), ...fieldWarnings]
         }
 
         // แทรกกล่อง CTA ลง sourceHtml เลย — Generate ใหม่กี่รอบก็ยังอยู่ (ข้อความ CTA มาจากที่ทีมตั้ง ไม่ใช่ AI)
@@ -372,7 +386,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           mode: 'html',
           theme,
           site: { name: client.name, url: writeClient.website, language },
-          meta: { title, seoTitle, metaDescription: metaDescription || undefined, slug: keyword.slug || undefined },
+          meta: { title, seoTitle, metaDescription: metaDescription || undefined, slug: articleSlug || undefined },
           cover: null,
           breadcrumb: true,
           cta: ctaDesign,

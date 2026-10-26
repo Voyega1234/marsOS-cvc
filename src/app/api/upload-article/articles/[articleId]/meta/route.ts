@@ -12,6 +12,8 @@ import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/b
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
+import { cleanGeneratedFields, cleanSlug, tallyWarning } from '@/lib/ce-restrictions'
+import { loadTitleRestrictions } from '@/lib/ce-restrictions-server'
 
 function sanitizeSlug(raw: string): string {
   return raw
@@ -49,23 +51,44 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
   const clientRow = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
   if (!clientRow) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
   // PBN Backlinks: สไตล์ตามเว็บปลายทาง + เว็บหลัก/ภาษาตาม set ที่เลือกตอนเขียน (Upload Article = ค่าเดิม)
-  const client = pbnArticleEffective(clientRow, article.id).client
+  const effective = pbnArticleEffective(clientRow, article.id)
+  const client = effective.client
+  // ข้อจำกัดคำต้องห้ามของ CE scope เดียวกับตอนเขียนบทความ (ไม่ fallback ไป scope อื่น) — ใช้ทั้งใน prompt และแทนคำหลัง AI ตอบ
+  const tr = await loadTitleRestrictions(orgId, { projectId: effective.ceScopeId })
 
   // ค่าจากตาราง brief ของผู้เขียนในต้นฉบับชนะเสมอ — AI เติมเฉพาะช่องที่ brief ไม่มี
   const brief = extractBriefMeta(article.sourceHtml)
   // บทความที่ push ขึ้นเว็บแล้ว ห้ามเปลี่ยน slug — URL จริงจะเปลี่ยนตามไปด้วย
   const alreadyPushed = Boolean(article.pushedAt || article.wordpressPostId)
 
+  // แทนคำต้องห้ามใน seoTitle / metaDescription / slug ที่กำลังจะบันทึก — slug ที่ push แล้วไม่แก้ (URL จริงจะเปลี่ยน) แค่เตือน
+  const cleanMeta = (f: { seoTitle: string; metaDescription: string; slug: string }) => {
+    const tally = new Map<string, number>()
+    const c = cleanGeneratedFields(tr, { title: f.seoTitle, metaDescription: f.metaDescription, slug: alreadyPushed ? undefined : f.slug }, tally)
+    if (alreadyPushed && f.slug && tr.terms.length) {
+      for (const h of cleanSlug(f.slug, tr.terms).remaining) tally.set(h.term, (tally.get(h.term) ?? 0) + h.count)
+    }
+    const warning = tallyWarning('meta', tally)
+    return {
+      seoTitle: c.title ?? f.seoTitle,
+      metaDescription: c.metaDescription ?? f.metaDescription,
+      slug: alreadyPushed ? f.slug : (c.slug ?? f.slug),
+      restrictionWarnings: warning ? { restrictionWarnings: [warning] } : {},
+    }
+  }
+
   if (brief.seoTitle && brief.metaDescription && brief.slug) {
     // brief มีครบทั้ง 3 ช่อง — ไม่ต้องเรียก AI เลย
-    const seoTitle = brief.seoTitle
-    const metaDescription = brief.metaDescription
-    const slug = alreadyPushed ? article.slug : brief.slug
+    const { seoTitle, metaDescription, slug, restrictionWarnings } = cleanMeta({
+      seoTitle: brief.seoTitle,
+      metaDescription: brief.metaDescription,
+      slug: alreadyPushed ? article.slug : brief.slug,
+    })
     const htmlContent = article.htmlContent
       ? refreshUploadSchema(article.htmlContent, uploadSchemaOptions({ ...article, seoTitle, metaDescription, slug }, client))
       : article.htmlContent
     await prisma.uploadArticle.update({ where: { id: article.id }, data: { seoTitle, metaDescription, slug, htmlContent } })
-    return NextResponse.json({ seoTitle, metaDescription, slug, htmlContent, costUsd: 0 })
+    return NextResponse.json({ seoTitle, metaDescription, slug, htmlContent, costUsd: 0, ...restrictionWarnings })
   }
 
   const html = article.htmlContent || article.sourceHtml
@@ -84,7 +107,7 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
 - metaDescription: ความยาว 120-155 ตัวอักษร สรุปสิ่งที่ผู้อ่านจะได้รับ ใช้ภาษาเดียวกับบทความ ห้ามเสกข้อมูล/ตัวเลขที่ไม่มีในบทความ เขียนให้เหมือนคนเขียน ไม่ใช่ AI:
 ${humanBodyRulesBlock()}
 - slug: คำภาษาอังกฤษล้วนจากความหมายของ H1 ตัวพิมพ์เล็ก คั่นด้วย - ความยาวไม่เกิน 60 ตัวอักษร ใช้ได้เฉพาะ a-z0-9-
-ภาษาของบทความ: ${language === 'en' ? 'English' : 'ไทย'}`
+ภาษาของบทความ: ${language === 'en' ? 'English' : 'ไทย'}${tr.block ? `\n\n${tr.block}` : ''}`
 
   const user = `H1: ${h1}\nหัวข้อย่อย (H2): ${h2List.join(' | ') || '(ไม่มี)'}\n\nเนื้อหาบางส่วน:\n${bodyText}`
 
@@ -116,20 +139,23 @@ ${humanBodyRulesBlock()}
   if (result.error || !result.data) {
     // AI ล้มเหลว — fallback ตามสเปก ยังตอบ 200 พร้อม warning
     // ไม่ทับค่าที่ผู้ใช้มีอยู่แล้ว — เติมแค่ title จาก H1 เมื่อยังว่าง (brief ชนะถ้ามี)
-    const seoTitle = article.seoTitle || brief.seoTitle || fallbackTitle
+    // seoTitle ใหม่ (ยังไม่มีค่าเดิม) ผ่านการแทนคำต้องห้ามก่อนบันทึก
+    const seoTitle = article.seoTitle || cleanMeta({ seoTitle: brief.seoTitle || fallbackTitle, metaDescription: '', slug: '' }).seoTitle
     if (!article.seoTitle) await prisma.uploadArticle.update({ where: { id: article.id }, data: { seoTitle } })
     return NextResponse.json({ seoTitle, metaDescription: article.metaDescription || brief.metaDescription || '', slug: article.slug || (alreadyPushed ? article.slug : brief.slug) || '', costUsd: result.usage.costUsd, warning: result.error || 'Mars ไม่ตอบกลับ' })
   }
 
   // meta title ดึงจาก brief ก่อน ถ้าไม่มีค่อยใช้ H1 ตรง ๆ — ใช้ข้อความที่ AI ย่อเฉพาะเมื่อ H1 ยาวเกิน 60 ตัวอักษร
-  const seoTitle = brief.seoTitle || (h1.length <= 60 ? h1 : result.data.metaTitle || fallbackTitle).trim().slice(0, 60)
-  const metaDescription = brief.metaDescription || (result.data.metaDescription || '').trim().slice(0, 155)
-  const slug = alreadyPushed ? article.slug : (brief.slug || sanitizeSlug(result.data.slug || ''))
+  const { seoTitle, metaDescription, slug, restrictionWarnings } = cleanMeta({
+    seoTitle: brief.seoTitle || (h1.length <= 60 ? h1 : result.data.metaTitle || fallbackTitle).trim().slice(0, 60),
+    metaDescription: brief.metaDescription || (result.data.metaDescription || '').trim().slice(0, 155),
+    slug: alreadyPushed ? article.slug : (brief.slug || sanitizeSlug(result.data.slug || '')),
+  })
 
   const htmlContent = article.htmlContent
     ? refreshUploadSchema(article.htmlContent, uploadSchemaOptions({ ...article, seoTitle, metaDescription, slug }, client))
     : article.htmlContent
   await prisma.uploadArticle.update({ where: { id: article.id }, data: { seoTitle, metaDescription, slug, htmlContent } })
 
-  return NextResponse.json({ seoTitle, metaDescription, slug, htmlContent, costUsd: result.usage.costUsd })
+  return NextResponse.json({ seoTitle, metaDescription, slug, htmlContent, costUsd: result.usage.costUsd, ...restrictionWarnings })
 }
