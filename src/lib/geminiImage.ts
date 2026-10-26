@@ -4,6 +4,7 @@
  * Avoids internal HTTP fetches that would be blocked by auth middleware.
  */
 import sharp from 'sharp'
+import { createHash } from 'crypto'
 import { orChat, orImage, orImageWithRefs, OR_MODELS } from '@/lib/openrouter'
 import { composeCoverOverlay } from '@/lib/coverOverlay'
 
@@ -68,6 +69,66 @@ async function compileImagePrompt(brief: string, client?: string, images: string
     throw new Error('Art Director คืน prompt สั้นผิดปกติ — ตรวจ Image Prompt ใน Content Engine')
   }
   return { text, totalTokens: result.usage.totalTokens, costUsd: result.usage.costUsd }
+}
+
+// ── ข้อความประจำแบรนด์จากภาพอ้างอิง (ปกโหมดยึดภาพอ้างอิง) ─────────────────────
+// แถบท้าย/ตรา/แผงติดต่อของแบรนด์เหมือนกันทุกโพสต์ แต่ถ้าปล่อยให้โมเดลภาพเลือกเอง มันใส่บ้างไม่ใส่บ้าง
+// (คำสั่งเจ้าของ 2026-10-26: ปก mfactors ขาดแผง "ปรึกษาฟรี 02-033-6500" และตรา Sentricon เป็นบางรูป)
+// จึงให้โมเดลข้อความอ่านสตริงเหล่านี้ตรงตัวก่อน แล้วบังคับใส่ทุกปก — โมเดลภาพลอกตัวเลขจากภาพเองเสี่ยงเพี้ยน
+
+const REF_BRAND_TEXT_SYSTEM = `You transcribe the fixed brand template of a brand's social posts.
+You receive one or more published posts by the same brand. Find the text that belongs to the brand's fixed template — footer strip, slogan badge, certification or partner badge, contact panel — meaning text printed with the same wording in most of the posts (with a single post: only text inside its footer strip, badges and contact panel).
+Ignore each post's own headline, body copy, speech bubbles and captions, all text that is part of a logo or wordmark, and anything you cannot read with certainty.
+Copy every string character-for-character exactly as printed — Thai tone marks and vowels, digits, dashes and dots included. Never translate, correct, complete or merge text. One printed line = one string.
+Return JSON only: {"contact": ["..."], "texts": ["..."]}. "contact" = the lines of the contact panel (call-to-action words, phone numbers, LINE ids, emails, URLs) in reading order. "texts" = every other recurring template line in reading order. Use empty arrays when there is none.`
+
+export interface RefBrandText { contact: string[]; texts: string[] }
+
+const refBrandTextCache = new Map<string, RefBrandText>()
+
+function cleanLines(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  const out: string[] = []
+  for (const s of v) {
+    const t = typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : ''
+    if (t && t.length <= 80 && !out.includes(t)) out.push(t)
+  }
+  return out.slice(0, 8)
+}
+
+/** อ่านข้อความประจำแบรนด์จากภาพอ้างอิง — ล้มเหลว = คืนว่าง (ปกยังสร้างจากภาพอ้างอิงได้ตามเดิม) */
+export async function readReferenceBrandText(images: string[], client?: string): Promise<RefBrandText & { totalTokens: number; costUsd: number }> {
+  const key = createHash('sha1').update(images.join('\n')).digest('hex')
+  const hit = refBrandTextCache.get(key)
+  if (hit) return { ...hit, totalTokens: 0, costUsd: 0 }
+  try {
+    const result = await orChat({
+      trace: 'image_ref_brand_text',
+      client,
+      model: OR_MODELS.default(),
+      maxTokens: 1200,
+      temperature: 0,
+      jsonMode: true,
+      messages: [
+        { role: 'system', content: REF_BRAND_TEXT_SYSTEM },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: `Posts attached: ${images.length}.` },
+            ...images.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
+          ],
+        },
+      ],
+    })
+    const raw = result.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')
+    const parsed = JSON.parse(raw) as { contact?: unknown; texts?: unknown }
+    const brand = { contact: cleanLines(parsed.contact), texts: cleanLines(parsed.texts) }
+    refBrandTextCache.set(key, brand)
+    return { ...brand, totalTokens: result.usage.totalTokens, costUsd: result.usage.costUsd }
+  } catch (err) {
+    console.warn('[image] read reference brand text failed:', err instanceof Error ? err.message : err)
+    return { contact: [], texts: [], totalTokens: 0, costUsd: 0 }
+  }
 }
 
 // ── WebP compression ──────────────────────────────────────────────────────────
@@ -315,18 +376,33 @@ export async function callGeminiImage(params: {
   ].filter(Boolean).join('\n')
 
   // ข้อความบนปกโหมดยึดภาพอ้างอิง — หัวเรื่องยังแตกบรรทัดในโค้ด (กันสะกดเพี้ยน) แต่ไม่มีตรา/ป้าย/การ์ดของแม่แบบระบบ
-  // เบอร์โทร/URL ต้องมาจากช่องข้อมูลติดต่อเท่านั้น — ให้โมเดลอ่านตัวเลขจากภาพอ้างอิงเองเสี่ยงได้เบอร์ผิด
+  // เบอร์โทร/URL ต้องเป็นสตริงที่ให้ไว้เท่านั้น: ช่องข้อมูลติดต่อของ CE ก่อน ไม่มีค่อยใช้แผงติดต่อที่อ่านจากภาพอ้างอิง
+  // แถบท้าย/ตรา/แผงติดต่อของแบรนด์เป็นของบังคับทุกปก — เดิมปล่อยเป็น "ใส่ได้" + "เล็กกว่า 4% ให้ตัดทิ้ง" โมเดลจึงตัดออกบ่อย
+  const refBrand = refLed
+    ? await readReferenceBrandText(imageAssets!.referenceImages, client)
+    : { contact: [] as string[], texts: [] as string[], totalTokens: 0, costUsd: 0 }
+  const refContact = contactLine ? [] : refBrand.contact
+  const brandStrings = [...refBrand.texts, ...refContact]
+  const quoted = (lines: string[]) => lines.map((l) => `"${l}"`).join(' / ')
+  // แผงติดต่อ: ระบุจำนวนบรรทัด + เลขลำดับ — แบบ "a / b / c" โมเดลตัดบรรทัดสุดท้าย (URL) ทิ้งทุกครั้ง
+  const numbered = (lines: string[]) => `${lines.length} lines — ${lines.map((l, i) => `(${i + 1}) "${l}"`).join(' ')}`
   const refTextInventory = [
     `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ข้อความบนภาพต้องเป็นสตริงต่อไปนี้เท่านั้น คัดลอกทีละตัวอักษร`,
     `- หัวเรื่องหลัก (เด่นที่สุด ต้องแสดงครบทุกคำ) แตกเป็น ${headlineLines.length} บรรทัด ตามลำดับนี้เป๊ะ ๆ ห้ามรวมบรรทัด ห้ามย้ายคำข้ามบรรทัด: ${headlineLines.map((l) => `"${l}"`).join(' / ')} — จัดวาง ขนาด และสีแบบเดียวกับหัวเรื่องในภาพอ้างอิง`,
     brandName ? `- ชื่อแบรนด์: "${brandName}"` : '',
     contactLine
       ? `- ข้อมูลติดต่อ: "${contactLine}" — เบอร์โทร LINE id อีเมล และ URL ในภาพต้องมาจากสตริงนี้เท่านั้น`
+      : refContact.length
+      ? `- แผงข้อมูลติดต่อ (ต้องมีทุกปก หน้าตา สี และตำแหน่งเดียวกับแผงติดต่อในภาพอ้างอิง) ครบทุกบรรทัดตามลำดับ รวมบรรทัดสุดท้ายด้วย: ${numbered(refContact)} — เบอร์โทร LINE id อีเมล และ URL ในภาพต้องมาจากสตริงเหล่านี้เท่านั้น`
       : `- ไม่มีข้อมูลติดต่อ: ห้ามใส่เบอร์โทร LINE id อีเมล หรือ URL ใดๆ แม้ภาพอ้างอิงจะมี`,
-    `- ข้อความประจำแบรนด์ที่ซ้ำกันในภาพอ้างอิง (เช่น สโลแกนในตรา ข้อความในแถบท้าย) ใส่ได้เฉพาะเมื่อคัดลอกตรงตัวทุกตัวอักษร`,
+    refBrand.texts.length
+      ? `- ข้อความประจำแบรนด์ (ต้องมีครบทุกปก วางในองค์ประกอบเดียวกับภาพอ้างอิง เช่น แถบท้าย ตรา ป้ายรับรอง พร้อมโลโก้พันธมิตร/ภาพสินค้าที่อยู่ข้างข้อความนั้นในภาพอ้างอิง): ${quoted(refBrand.texts)}`
+      : `- ข้อความประจำแบรนด์ที่ซ้ำกันในภาพอ้างอิง (เช่น สโลแกนในตรา ข้อความในแถบท้าย) ใส่ได้เฉพาะเมื่อคัดลอกตรงตัวทุกตัวอักษร`,
     `- ห้ามแต่งข้อความอื่นนอกจากนี้: ไม่มีตราอัปเดตปี ไม่มีป้ายคีย์เวิร์ด ไม่มีการ์ดข้อความ ไม่มีคำโปรย ราคา หรือคำการันตี`,
     isEnglishCover ? `ข้อความทุกชิ้นบนภาพต้องเป็นภาษาอังกฤษล้วน ห้ามมีตัวอักษรไทยแม้แต่ตัวเดียวบนภาพ` : '',
-    `ตัวอักษรทุกตัวในภาพต้องสูงอย่างน้อย 4% ของความสูงภาพ ข้อความไหนจะเล็กกว่านั้นให้ตัดทิ้งเหลือแต่แผง/รูปทรง ห้ามตัดคำใดออกจากหัวเรื่อง ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`,
+    brandStrings.length
+      ? `ตัวอักษรของหัวเรื่องต้องสูงอย่างน้อย 4% ของความสูงภาพ ข้อความประจำแบรนด์และแผงติดต่อข้างต้นห้ามตัดทิ้ง ให้ขยายแถบท้าย/ตราให้ใหญ่พอจนตัวอักษรสูงอย่างน้อย 3% ของความสูงภาพ ห้ามตัดคำใดออกจากหัวเรื่อง ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`
+      : `ตัวอักษรทุกตัวในภาพต้องสูงอย่างน้อย 4% ของความสูงภาพ ข้อความไหนจะเล็กกว่านั้นให้ตัดทิ้งเหลือแต่แผง/รูปทรง ห้ามตัดคำใดออกจากหัวเรื่อง ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`,
   ].filter(Boolean).join('\n')
 
   // ข้อเท็จจริงประกอบบรีฟ (ไม่ใช่ทิศทางงานภาพ — ทิศทางมาจาก Content Engine เท่านั้น)
@@ -391,10 +467,11 @@ export async function callGeminiImage(params: {
     ? `\n\nREFERENCE-LED BRAND COVER (CRITICAL): The first ${refImageCount} attached image${refImageCount > 1 ? 's are' : ' is'} the brand's own published post${refImageCount > 1 ? 's' : ''}${imageAssets?.logoImage ? ' and the last attached image is the brand logo' : ''}. They are the MASTER TEMPLATE for this cover — it must look like the next post in that same series: the same headline treatment (position, weight, size, colours, outline or plate style), the same palette, the same recurring brand devices (badges, speech bubbles, footer strip, frames, patterns), the same photographic style and the same kind of people (role, uniform, energy). Change only the scene, the subject and the people so it fits this article's topic. Do NOT fall back to a generic banner template: no stacked headline plates unless the references use them, no feature-card row, no "updated" badge
 - CANVAS: this is a WIDE ${width}×${height} landscape cover. If the references are square or portrait, re-flow their design system across the whole landscape frame edge to edge — never a portrait poster centred with empty sides, never letterboxing
 - TEXT INVENTORY (hard limit — the ONLY strings allowed, copy them character-for-character):
-  · headline split into ${headlineLines.length} line${headlineLines.length > 1 ? 's' : ''} in exactly this order, never merged and never re-wrapped: ${headlineLines.map((l) => `"${l}"`).join(' / ')}${brandName ? `\n  · brand name: "${brandName}"` : ''}${contactLine ? `\n  · contact line (the only phone numbers, LINE ids, emails or URLs allowed): "${contactLine}"` : `\n  · no contact details at all — draw no phone number, LINE id, email or URL even if the references show one`}
-  · recurring brand text that appears in the references (e.g. a slogan inside a badge or footer) only when copied exactly
+  · headline split into ${headlineLines.length} line${headlineLines.length > 1 ? 's' : ''} in exactly this order, never merged and never re-wrapped: ${headlineLines.map((l) => `"${l}"`).join(' / ')}${brandName ? `\n  · brand name: "${brandName}"` : ''}${contactLine ? `\n  · contact line (the only phone numbers, LINE ids, emails or URLs allowed): "${contactLine}"` : refContact.length ? `\n  · contact panel (REQUIRED on every cover, same look, colours and position as the contact panel in the references), exactly ${numbered(refContact)}; all ${refContact.length} lines must be visible, the last one included — the only phone numbers, LINE ids, emails or URLs allowed` : `\n  · no contact details at all — draw no phone number, LINE id, email or URL even if the references show one`}${refBrand.texts.length ? `\n  · brand template text (REQUIRED on every cover, inside the same footer strip / badge as in the references): ${quoted(refBrand.texts)}` : '\n  · recurring brand text that appears in the references (e.g. a slogan inside a badge or footer) only when copied exactly'}
   · nothing else — no invented slogans, prices, guarantees, keyword pills or year badges
-${imageAssets?.logoImage ? '- LOGO: place the attached logo where the references place it, reproduced exactly (shape, colours, lettering), complete and never redrawn or distorted\n' : ''}- MINIMUM TEXT SIZE (hard limit): every glyph must be at least 4% of the image height. Small text renders as broken glyphs, so drop any text that would be smaller than that
+${brandStrings.length ? `- BRAND TEMPLATE (hard requirement): the references share a fixed brand template (footer strip, badges, partner or certification logos, product shots, contact panel, outline icons over the photo). Reproduce it on this cover every time — the same elements, in the same order, the same colours and the same position (a footer strip runs the full width of the bottom edge) — with the strings above copied exactly. Never omit any part of it: every small partner logo beside the badge text and every line of the contact panel, the last line (e.g. the website) included — make the panel taller rather than drop a line\n` : ''}${imageAssets?.logoImage ? '- LOGO: place the attached logo where the references place it, reproduced exactly (shape, colours, lettering), complete and never redrawn or distorted\n' : ''}${brandStrings.length
+  ? '- MINIMUM TEXT SIZE (hard limit): headline glyphs at least 4% of the image height. The brand template text and contact panel are never dropped — make the footer strip and badges tall enough that their glyphs are at least 3% of the image height'
+  : '- MINIMUM TEXT SIZE (hard limit): every glyph must be at least 4% of the image height. Small text renders as broken glyphs, so drop any text that would be smaller than that'}
 - THAI TYPOGRAPHY (when any Thai character appears): heavy, clean letterforms in the references' style; line height at least 1.6 so tone marks (วรรณยุกต์) and upper/lower vowels (สระบน/สระล่าง) are never cut, merged or collided; keep each Thai phrase on one unbroken line; keep every tone mark and vowel on its own base letter and never swap look-alike consonants (ด/ต, ป/บ, ภ/ท)${isEnglishCover ? '\n- LANGUAGE: every string in the image is English only — no Thai characters anywhere' : ''}
 - PHOTOGRAPHIC LAYER: true-to-life colour — skin, sky, wood, materials keep their real colours; the brand palette lives in the type and graphic devices, never as a wash over the photograph
 - SAFE MARGIN: the logo, the headline and every glyph sit at least 6% from all four edges; only the background photograph and a full-width brand strip (if the references use one) may bleed to the edge
@@ -436,8 +513,8 @@ ${imageAssets?.logoImage ? '- LOGO: place the attached logo where the references
   const promptTokens = result.usage.inputTokens
   // รวม token/cost ของ Art Director call (compileImagePrompt) เข้ากับของโมเดลวาดภาพ —
   // ไม่งั้นทุกแถว IMAGE_COVER / IMAGE_MID จะขาดต้นทุนของขั้นตอนคอมไพล์บรีฟไป
-  const totalTokens = result.usage.totalTokens + artDirector.totalTokens
-  const costUsd = Number((result.usage.costUsd + artDirector.costUsd).toFixed(6))
+  const totalTokens = result.usage.totalTokens + artDirector.totalTokens + refBrand.totalTokens
+  const costUsd = Number((result.usage.costUsd + artDirector.costUsd + refBrand.costUsd).toFixed(6))
 
   // วางตัวหนังสือปกด้วยฟอนต์จริงทับภาพถ่าย ก่อนบีบอัด — โมเดลภาพสะกดไทยผิดเป็นประจำ
   // (ป→บ, ภ→ท, วรรณยุกต์หลุด) ส่วนฟอนต์จริงสะกดถูก 100% เสมอ
