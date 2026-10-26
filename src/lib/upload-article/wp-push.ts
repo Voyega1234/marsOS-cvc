@@ -45,20 +45,216 @@ export function normalizeWpUrl(raw: string): string {
 /** id แบบที่ Elementor ใช้ (hex 7 ตัว) */
 const elementorId = () => Math.random().toString(16).slice(2, 9).padEnd(7, '0')
 
+type HtmlNode =
+  | { kind: 'el'; tag: string; attrs: string; html: string; inner: string }
+  | { kind: 'text' | 'comment'; html: string }
+
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'])
+const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title'])
+
+/** ตำแหน่ง '>' ที่ปิด tag (ข้าม '>' ในค่า attribute ที่มีเครื่องหมายคำพูด) | -1 = ไม่ปิด */
+function tagEnd(s: string, from: number): number {
+  let quote = ''
+  for (let j = from; j < s.length; j++) {
+    const c = s[j]
+    if (quote) { if (c === quote) quote = '' } else if (c === '"' || c === "'") quote = c
+    else if (c === '>') return j
+  }
+  return -1
+}
+
 /**
- * เอกสาร Elementor = 1 section → 1 column → HTML widget ที่ถือ HTML ชุดเดียวกับ post_content ทั้งก้อน
- * ไม่แยกเป็น Text Editor ราย H2 — TinyMCE ตัด <summary> (FAQ) + ใส่ <br> ใน <style>
- * และ CSS บทความผูกกับ .content-article ตัวเดียว แยก widget แล้วหน้าตาเพี้ยน
+ * แยก HTML เป็นโหนดชั้นบนสุด (ไม่ลงลึก) — null = โครงสร้างไม่ชัด (tag ไม่ปิด / tag ปิดลอย ๆ) ให้ผู้เรียกถอยไปแบบเดิม
+ * ข้ามเนื้อหาใน script/style/comment ไม่นับ tag ข้างใน
+ */
+function topLevelNodes(s: string): HtmlNode[] | null {
+  const nodes: HtmlNode[] = []
+  let i = 0
+  while (i < s.length) {
+    if (s.startsWith('<!--', i)) {
+      const end = s.indexOf('-->', i + 4)
+      if (end < 0) return null
+      nodes.push({ kind: 'comment', html: s.slice(i, end + 3) })
+      i = end + 3
+      continue
+    }
+    const open = /^<([a-zA-Z][a-zA-Z0-9-]*)/.exec(s.slice(i, i + 64))
+    if (!open) {
+      if (s[i] === '<' && s[i + 1] === '/') return null
+      const next = s.indexOf('<', i + 1)
+      const end = next < 0 ? s.length : next
+      nodes.push({ kind: 'text', html: s.slice(i, end) })
+      i = end
+      continue
+    }
+    const tag = open[1].toLowerCase()
+    const startEnd = tagEnd(s, i)
+    if (startEnd < 0) return null
+    const attrs = s.slice(i + 1 + open[1].length, startEnd).replace(/\/\s*$/, '')
+    if (VOID_TAGS.has(tag) || s[startEnd - 1] === '/') {
+      nodes.push({ kind: 'el', tag, attrs, html: s.slice(i, startEnd + 1), inner: '' })
+      i = startEnd + 1
+      continue
+    }
+    // เดินหา tag ปิดคู่กัน — นับซ้อนทุก tag, tag ปิดที่ข้ามชั้น (ลืมปิด <p>/<li>) ปิดตัวในให้ไปด้วย
+    const stack = [tag]
+    let j = startEnd + 1
+    let closeStart = -1
+    while (j < s.length && stack.length) {
+      const lt = s.indexOf('<', j)
+      if (lt < 0) return null
+      if (s.startsWith('<!--', lt)) {
+        const end = s.indexOf('-->', lt + 4)
+        if (end < 0) return null
+        j = end + 3
+        continue
+      }
+      const close = /^<\/([a-zA-Z][a-zA-Z0-9-]*)\s*>/.exec(s.slice(lt, lt + 64))
+      if (close) {
+        const name = close[1].toLowerCase()
+        const at = stack.lastIndexOf(name)
+        if (at >= 0) {
+          stack.length = at
+          if (!stack.length) closeStart = lt
+        }
+        j = lt + close[0].length
+        continue
+      }
+      const inner = /^<([a-zA-Z][a-zA-Z0-9-]*)/.exec(s.slice(lt, lt + 64))
+      if (!inner) { j = lt + 1; continue }
+      const name = inner[1].toLowerCase()
+      const end = tagEnd(s, lt)
+      if (end < 0) return null
+      j = end + 1
+      if (VOID_TAGS.has(name) || s[end - 1] === '/') continue
+      if (RAW_TEXT_TAGS.has(name)) {
+        const rawClose = s.toLowerCase().indexOf(`</${name}`, j)
+        if (rawClose < 0) return null
+        j = rawClose
+        continue
+      }
+      stack.push(name)
+    }
+    if (closeStart < 0) return null
+    const closeEnd = s.indexOf('>', closeStart) + 1
+    nodes.push({ kind: 'el', tag, attrs, html: s.slice(i, closeEnd), inner: s.slice(startEnd + 1, closeStart) })
+    i = closeEnd
+  }
+  return nodes
+}
+
+const classOf = (attrs: string): string[] => {
+  const m = /(?:^|\s)class\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(attrs)
+  return (m ? (m[1] ?? m[2] ?? m[3] ?? '') : '').split(/\s+/).filter(Boolean)
+}
+
+// tag ที่ Text Editor (TinyMCE) แก้แล้วเพี้ยน/ถูกตัด — มีอยู่ข้างในเมื่อไหร่ต้องเป็น HTML widget
+const NOT_TEXT_SAFE = /<(details|summary|script|style|iframe|form|input|button|svg|video|audio|noscript|object|embed|select|textarea|canvas|pre|template|math|nav|aside|section)\b|\son[a-z]+\s*=/i
+const TEXT_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'blockquote', 'figure', 'table', 'hr'])
+const TEXT_DIV_CLASSES = ['content-takeaways', 'content-table-wrap', 'content-highlight', 'content-notice', 'content-quote', 'content-figure']
+
+/** บล็อกนี้แก้เป็นข้อความใน Text Editor ได้โดยไม่เพี้ยน */
+function isTextSafe(node: HtmlNode): boolean {
+  if (node.kind !== 'el') return false
+  if (NOT_TEXT_SAFE.test(node.html)) return false
+  if (TEXT_TAGS.has(node.tag)) return true
+  return node.tag === 'div' && classOf(node.attrs).some((c) => TEXT_DIV_CLASSES.includes(c))
+}
+
+/**
+ * CSS ที่ทำให้ widget ของ Elementor ไม่ไปเปลี่ยนหน้าตาบทความ — ผูกกับ .mars-article ของ section นี้เท่านั้น
+ * - widget-wrap ของ Elementor เป็น flex → margin ระหว่างบล็อกไม่ยุบรวมกัน ช่องไฟจะห่างกว่าปกติ → block
+ * - ช่องไฟระหว่าง widget (20px) → 0
+ * - สี/ฟอนต์ global ของ Text Editor → สืบทอดจาก .content-article เหมือน post_content
+ *   ไม่ใส่ !important — ทีมยังตั้งสี/ฟอนต์ราย widget ในแท็บ Style ได้
+ */
+const ELEMENTOR_RESET_CSS =
+  '.mars-article{--kit-widget-spacing:0px;--widgets-spacing:0px;--widgets-spacing-row:0px;--widgets-spacing-column:0px}' +
+  '.mars-article .elementor-widget-wrap{display:block!important}' +
+  '.mars-article .elementor-widget,.mars-article .elementor-widget:not(:last-child){margin-bottom:0!important;margin-block-end:0!important}' +
+  '.mars-article .elementor-widget-container{margin:0;padding:0}' +
+  '.mars-article .elementor-widget-text-editor,.mars-article .elementor-widget-html{color:inherit;font-family:inherit;font-size:inherit;font-weight:inherit;line-height:inherit;letter-spacing:inherit}'
+
+type ElementorWidget = { id: string; elType: 'widget'; widgetType: 'html' | 'text-editor'; settings: Record<string, string>; elements: [] }
+
+/**
+ * แยกบทความเป็น widget ให้ทีมแก้ใน Elementor ได้ทั้งแบบข้อความ (Text Editor) และ HTML
+ * โครงที่รับ: script/style ชั้นบน + <div class="..."> ครอบเนื้อหา 1 ตัว (class เท่านั้น ไม่มี attribute อื่น)
+ * - widget แรก (markerId) = HTML widget ถือ script (schema) + style บทความ + CSS กันหน้าตาเพี้ยน — ใช้ id นี้ตรวจหน้าเว็บ
+ * - บล็อกข้อความ (p/h2/h3/ul/ol/table/figure/กล่องสรุป) → Text Editor ตัดใหม่ทุก <h2>
+ * - บล็อกซับซ้อน (FAQ details/summary, CTA, ผู้เขียน, สารบัญ) ที่ติดกัน → HTML widget เดียว
+ * - class ของตัวครอบย้ายไปที่ section → CSS แบบ .content-article p ยังจับได้เหมือนเดิม
+ * null = โครงไม่ตรง → ใช้ HTML widget ก้อนเดียวแบบเดิม
+ */
+function splitArticleWidgets(html: string, markerId: string): { sectionClasses: string; widgets: ElementorWidget[] } | null {
+  const top = topLevelNodes(html)
+  if (!top) return null
+  const blank = (n: HtmlNode) => n.kind === 'text' && !n.html.trim()
+  const wrapperIdx = top.findIndex((n) => n.kind === 'el' && n.tag === 'div')
+  if (wrapperIdx < 0) return null
+  const wrapper = top[wrapperIdx] as Extract<HtmlNode, { kind: 'el' }>
+  const isHead = (n: HtmlNode) => blank(n) || n.kind === 'comment' || (n.kind === 'el' && (n.tag === 'script' || n.tag === 'style' || n.tag === 'link'))
+  const before = top.slice(0, wrapperIdx)
+  const after = top.slice(wrapperIdx + 1)
+  if (!before.every(isHead) || !after.every(isHead)) return null
+  const classes = classOf(wrapper.attrs)
+  if (!classes.length) return null
+  // attribute อื่นของตัวครอบ (id/style/data-*) ย้ายไป section ไม่ได้ — ถอยไปแบบเดิม
+  if (wrapper.attrs.replace(/(?:^|\s)class\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)/i, '').trim()) return null
+  const children = topLevelNodes(wrapper.inner)
+  if (!children) return null
+
+  const widgets: ElementorWidget[] = []
+  const headHtml = before.filter((n) => !blank(n)).map((n) => n.html).join('\n')
+  widgets.push({ id: markerId, elType: 'widget', widgetType: 'html', settings: { html: `${headHtml}${headHtml ? '\n' : ''}<style>${ELEMENTOR_RESET_CSS}</style>` }, elements: [] })
+
+  let group: { type: 'text' | 'html'; parts: string[] } | null = null
+  const flush = () => {
+    if (!group?.parts.length) { group = null; return }
+    const joined = group.parts.join(group.type === 'text' ? '' : '\n')
+    widgets.push(group.type === 'text'
+      // Text Editor เปิดแก้แล้ว wpautop แปลงขึ้นบรรทัดเป็น <br>/<p> — บีบเหลือเว้นวรรค (หน้าเว็บแสดงเหมือนกัน)
+      ? { id: elementorId(), elType: 'widget', widgetType: 'text-editor', settings: { editor: joined.replace(/\s*\n\s*/g, ' ') }, elements: [] }
+      : { id: elementorId(), elType: 'widget', widgetType: 'html', settings: { html: joined }, elements: [] })
+    group = null
+  }
+  for (const node of children) {
+    if (blank(node)) continue
+    const type = isTextSafe(node) ? 'text' : 'html'
+    const startsSection = node.kind === 'el' && node.tag === 'h2'
+    if (!group || group.type !== type || (type === 'text' && startsSection)) {
+      flush()
+      group = { type, parts: [] }
+    }
+    group.parts.push(node.html)
+  }
+  flush()
+  const tail = after.filter((n) => !blank(n)).map((n) => n.html).join('\n')
+  if (tail) widgets.push({ id: elementorId(), elType: 'widget', widgetType: 'html', settings: { html: tail }, elements: [] })
+  // ไม่มีบล็อกเนื้อหาเลย = ไม่มีอะไรให้แก้แยก
+  if (widgets.length < 2) return null
+  return { sectionClasses: [...classes, 'mars-article'].join(' '), widgets }
+}
+
+/**
+ * เอกสาร Elementor = 1 section → 1 column → widget ชุดเดียวกับ post_content
+ * แยกเป็น Text Editor + HTML widget ตาม splitArticleWidgets (ทีมกดแก้แบบข้อความได้)
+ * โครงไม่ตรง = HTML widget ก้อนเดียวถือ HTML ทั้งหมด
  * section เต็มความกว้าง + คอลัมน์ไม่มีช่องไฟ (gap no) → หน้าเว็บออกมาเหมือนตอนไม่ใช้ Elementor
+ * widgetId = id ของ widget แรก ใช้ตรวจว่าหน้าเว็บแสดงเอกสารชุดนี้จริง
  */
 export function buildElementorData(html: string, widgetId: string = elementorId()): string {
+  const split = splitArticleWidgets(html, widgetId)
   const data = [{
     id: elementorId(), elType: 'section',
-    settings: { layout: 'full_width', gap: 'no', content_width: { unit: '%', size: 100 } },
+    settings: {
+      layout: 'full_width', gap: 'no', content_width: { unit: '%', size: 100 },
+      ...(split ? { css_classes: split.sectionClasses } : {}),
+    },
     elements: [{
       id: elementorId(), elType: 'column',
       settings: { _column_size: 100, _inline_size: null },
-      elements: [{
+      elements: split?.widgets ?? [{
         id: widgetId, elType: 'widget', widgetType: 'html',
         settings: { html },
         elements: [],

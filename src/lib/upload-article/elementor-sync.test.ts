@@ -111,7 +111,51 @@ async function main() {
     const data = JSON.parse(buildElementorData('<p>x</p>', 'abc1234'));
     assert(data[0].settings.layout === 'full_width' && data[0].settings.gap === 'no', 'section เต็มความกว้าง ไม่มีช่องไฟ — หน้าตาเท่าตอนไม่ใช้ Elementor');
     assert(data[0].elements[0].elements[0].id === 'abc1234', 'id ของ widget ใช้เป็นตัวตรวจหน้าเว็บ');
-    assert(data[0].elements[0].elements[0].widgetType === 'html', 'HTML widget ไม่ใช่ Text Editor');
+    assert(data[0].elements[0].elements[0].widgetType === 'html', 'ไม่มีตัวครอบ .content-article = HTML widget ก้อนเดียวแบบเดิม');
+    assert(data[0].elements[0].elements.length === 1 && !data[0].settings.css_classes, 'โครงไม่ตรง = ไม่แยก ไม่ใส่ class ให้ section');
+  }
+
+  console.log('buildElementorData — แยก Text Editor / HTML widget');
+  {
+    const article = [
+      '<script type="application/ld+json">{"@type":"Article"}</script>',
+      '<style>.content-article p{margin:0 0 1.2em}</style>',
+      '<div class="content-article">',
+      '<p>บทนำ\nสองบรรทัด</p>',
+      '<div class="content-takeaways"><p class="content-takeaways__title">สรุป</p><ul><li>ก</li></ul></div>',
+      '<h2 id="section-1">หัวข้อแรก</h2>',
+      '<figure class="content-figure"><img src="https://example.com/a.jpg" alt="a"></figure>',
+      '<p>เนื้อหา</p>',
+      '<h2 id="section-2">คำถามที่พบบ่อย</h2>',
+      '<details class="content-faq"><summary><span class="content-faq__q">ถาม?</span></summary><p>ตอบ</p></details>',
+      '<details class="content-faq"><summary><span class="content-faq__q">ถาม 2?</span></summary><p>ตอบ 2</p></details>',
+      '<div class="content-cta"><a href="https://example.com">ติดต่อ</a></div>',
+      '<h2>สรุป</h2>',
+      '<p>จบ</p>',
+      '</div>',
+    ].join('\n');
+    const data = JSON.parse(buildElementorData(article, 'mark123'));
+    const section = data[0];
+    const ws = section.elements[0].elements as { id: string; widgetType: string; settings: Record<string, string> }[];
+    assert(section.settings.css_classes === 'content-article mars-article', 'class ของตัวครอบย้ายไป section — CSS .content-article p ยังจับได้');
+    assert(ws[0].id === 'mark123' && ws[0].widgetType === 'html', 'widget แรก = HTML widget id ที่ใช้ตรวจหน้าเว็บ');
+    assert(ws[0].settings.html.includes('application/ld+json') && ws[0].settings.html.includes('.content-article p{') && ws[0].settings.html.includes('.mars-article .elementor-widget-wrap{display:block!important}'), 'widget แรกถือ schema + CSS บทความ + CSS กันช่องไฟ Elementor');
+    assert(ws.map((w) => w.widgetType).join(',') === 'html,text-editor,text-editor,text-editor,html,text-editor', 'Text Editor ตัดใหม่ทุก H2 + FAQ/CTA ติดกันเป็น HTML widget เดียว');
+    assert(ws[1].settings.editor.startsWith('<p>บทนำ สองบรรทัด</p><div class="content-takeaways">'), 'บทนำ + กล่องสรุปอยู่ Text Editor เดียวกัน');
+    assert(ws.filter((w) => w.widgetType === 'text-editor').every((w) => !w.settings.editor.includes('\n')), 'Text Editor ไม่มีขึ้นบรรทัด (wpautop จะแปลงเป็น <br>)');
+    assert(ws[3].settings.editor === '<h2 id="section-2">คำถามที่พบบ่อย</h2>', 'หัวข้อ FAQ เป็นข้อความ แก้ได้');
+    assert(ws[4].settings.html.includes('<summary>') && ws[4].settings.html.includes('content-cta'), 'details/summary + CTA อยู่ HTML widget — TinyMCE ไม่ตัด <summary>');
+    const all = ws.map((w) => w.settings.html ?? w.settings.editor).join('');
+    for (const piece of ['หัวข้อแรก', 'a.jpg', 'ถาม 2?', 'ติดต่อ', 'จบ']) assert(all.includes(piece), `เนื้อหาครบ: ${piece}`);
+
+    const withId = JSON.parse(buildElementorData('<div class="content-article" id="x"><p>a</p></div>', 'abc1234'));
+    assert(withId[0].elements[0].elements.length === 1 && withId[0].elements[0].elements[0].widgetType === 'html', 'ตัวครอบมี attribute อื่น = HTML widget ก้อนเดียว');
+    const unclosed = JSON.parse(buildElementorData('<div class="content-article"><p>a<p>b</div><p>หลุด', 'abc1234'));
+    assert(unclosed[0].elements[0].elements.length === 1, 'HTML ไม่ปิด tag = HTML widget ก้อนเดียว');
+    const svg = JSON.parse(buildElementorData('<div class="content-article"><div class="content-highlight"><svg></svg><p>x</p></div></div>', 'abc1234'));
+    assert(svg[0].elements[0].elements[1].widgetType === 'html', 'กล่องที่มี svg = HTML widget');
+    const styleGt = JSON.parse(buildElementorData('<style>a[title="x>y"]{}</style><div class="content-article"><p>a</p></div>', 'abc1234'));
+    assert(styleGt[0].elements[0].elements[1]?.settings.editor === '<p>a</p>', '> ใน <style> ไม่ทำให้แยกผิด');
   }
 
   console.log('ไม่ใช้ Elementor + โพสต์ถูกเปิดใน Elementor');
