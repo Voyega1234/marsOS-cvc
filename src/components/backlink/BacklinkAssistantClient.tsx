@@ -358,7 +358,7 @@ function CSVImportModal({ projects, onImported, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
           <p className="font-bold text-brand-navy text-sm flex items-center gap-2"><Upload size={14} /> Import CSV</p>
@@ -459,7 +459,7 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
   const total = Math.min(entries.length, 50);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
           <p className="font-bold text-brand-navy text-sm flex items-center gap-2"><ScanLine size={14} /> Self Link Checker</p>
@@ -475,7 +475,7 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
           <p className="text-blue-500 mt-1">จำกัด 50 links ต่อครั้ง — ใช้เวลาประมาณ {Math.ceil(total / 5) * 3}–{Math.ceil(total / 5) * 8} วินาที</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-xs text-center">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-center">
           <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
             <p className="text-2xl font-black text-brand-navy">{entries.length}</p>
             <p className="text-gray-500">Total backlinks</p>
@@ -489,7 +489,7 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
         {summary && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs space-y-1.5">
             <p className="font-bold text-emerald-800">ผลลัพธ์:</p>
-            <div className="grid grid-cols-3 gap-1 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 text-center">
               {Object.entries(summary).map(([k, v]) => (
                 <div key={k} className="bg-white rounded-lg px-2 py-1.5 border border-emerald-100">
                   <p className="font-bold text-brand-navy">{v as number}</p>

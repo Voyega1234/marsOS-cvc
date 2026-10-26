@@ -355,7 +355,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
         </div>
         <div className="space-y-2">
           {exampleRows.map((row, i) => (
-            <div key={i} className="flex items-start gap-2">
+            <div key={i} className="flex flex-wrap items-start gap-2">
               <div className="flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
                 <button type="button" onClick={() => updateExampleRow(i, { mode: "url" })}
                   className={`px-2 py-1.5 text-[11px] font-semibold ${row.mode === "url" ? "bg-brand-mist text-brand-blue" : "bg-white text-gray-400"}`}>URL</button>

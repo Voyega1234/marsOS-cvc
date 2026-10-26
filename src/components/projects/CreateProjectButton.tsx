@@ -54,12 +54,12 @@ export function CreateProjectButton({ orgId, userId }: Props) {
             <DialogTitle>สร้างโปรเจ็กต์ใหม่</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
                 <Label htmlFor="name">ชื่อโปรเจ็กต์</Label>
                 <Input id="name" placeholder="เช่น Convert Cake" value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} required className="mt-1 placeholder:text-gray-300" />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Label htmlFor="website">เว็บไซต์</Label>
                 <Input id="website" placeholder="เช่น convertcake.com" value={form.website} onChange={e => setForm(f => ({...f, website: e.target.value}))} required className="mt-1 placeholder:text-gray-300" />
               </div>
@@ -79,7 +79,7 @@ export function CreateProjectButton({ orgId, userId }: Props) {
                 <Label htmlFor="businessType">ประเภทธุรกิจ</Label>
                 <Input id="businessType" placeholder="เช่น Performance Marketing Agency" value={form.businessType} onChange={e => setForm(f => ({...f, businessType: e.target.value}))} required className="mt-1 placeholder:text-gray-300" />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Label htmlFor="targetAudience">กลุ่มเป้าหมาย</Label>
                 <Textarea id="targetAudience" placeholder="เช่น ธุรกิจที่ต้องการทำโฆษณา SEO Performance Marketing" value={form.targetAudience} onChange={e => setForm(f => ({...f, targetAudience: e.target.value}))} required className="mt-1 placeholder:text-gray-300" rows={2} />
               </div>

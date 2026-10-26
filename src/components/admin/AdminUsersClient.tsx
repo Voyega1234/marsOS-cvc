@@ -231,7 +231,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                 autoFocus
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">รหัสผ่าน</label>
                 <div className="relative">
@@ -273,7 +273,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                 <label className="block text-xs font-medium text-gray-600 mb-2">
                   เลือก Projects ที่ Client นี้ดูได้
                 </label>
-                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
                   {projects.map((p) => (
                     <button
                       key={p.id}
@@ -363,8 +363,8 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       )}
 
       {/* Users table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
               <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">ชื่อ / Username</th>

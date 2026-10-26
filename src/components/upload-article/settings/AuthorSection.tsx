@@ -55,7 +55,7 @@ function AuthorProfileEditor({ author, onChange, isOpen, onToggle, onRemove, can
 
       {isOpen && (
         <div className="border-t border-gray-100 p-4 space-y-3">
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <div className="shrink-0">
               {author.image ? (
                 <div className="relative">
@@ -227,7 +227,7 @@ export function AuthorSettingsEditor({ loadKey, load, save: persist, description
           <div className="mt-3 space-y-3">
             <div>
               <p className="text-xs font-medium text-gray-600 mb-1.5">สไตล์การ์ด</p>
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
                 {AUTHOR_CARD_STYLES.map((s) => (
                   <button key={s.key} onClick={() => setDraft((p) => ({ ...p, style: s.key }))}
                     title={s.description}
@@ -244,7 +244,7 @@ export function AuthorSettingsEditor({ loadKey, load, save: persist, description
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs font-medium text-gray-600">เลือกผู้เขียนต่อบทความ</label>
               <select
                 value={draft.pick}

@@ -420,7 +420,7 @@ export default function ReviewTab({
           <>
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <p className="text-sm font-semibold text-brand-navy truncate">{detail.title}</p>
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button onClick={() => setViewMode("preview")}
                   className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${viewMode === "preview" ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-500 border-gray-200"}`}>
                   Preview

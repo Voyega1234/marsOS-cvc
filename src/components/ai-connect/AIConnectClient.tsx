@@ -308,7 +308,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
         <div className="px-4 py-3 border-b border-gray-100">
           <p className="text-xs font-semibold text-gray-700">ประมาณการค่าใช้จ่าย Claude Sonnet</p>
         </div>
-        <div className="grid grid-cols-4 divide-x divide-gray-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 sm:divide-x divide-gray-100">
           {[
             { label: "Outline",    cost: "$0.01" },
             { label: "บทความ",    cost: "$0.04" },

@@ -527,13 +527,13 @@ export function SEOReportClient() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Day range selector */}
-            <div className="flex rounded-lg overflow-hidden border border-gray-200 bg-white text-sm">
+            <div className="flex max-w-full rounded-lg overflow-x-auto border border-gray-200 bg-white text-sm">
               {([7, 28, 90] as const).map((d) => (
                 <button
                   key={d}
                   onClick={() => setDays(d)}
                   className={cn(
-                    "px-3 py-1.5 font-medium transition-colors",
+                    "px-3 py-1.5 font-medium transition-colors whitespace-nowrap shrink-0",
                     days === d ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-50"
                   )}
                 >
@@ -923,7 +923,7 @@ function ProjectReport({
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-brand-blue font-medium">Beta</span>
                     </div>
                     <p className="text-[11px] text-blue-500 mb-3">Google-generated summaries at the top of search results</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <p className="text-xs text-gray-500 mb-0.5">Impressions</p>
                         <p className="text-xl font-bold text-slate-900">{gscAiData.aiOverviews.impressions.toLocaleString()}</p>
@@ -957,7 +957,7 @@ function ProjectReport({
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 font-medium">Beta</span>
                     </div>
                     <p className="text-[11px] text-violet-500 mb-3">Conversational AI experience in Search</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <p className="text-xs text-gray-500 mb-0.5">Impressions</p>
                         <p className="text-xl font-bold text-slate-900">{gscAiData.aiMode.impressions.toLocaleString()}</p>
@@ -1072,7 +1072,7 @@ function PsiPanel({ strategy, data }: { strategy: string; data: PsiStrategy }) {
         <PsiScoreCircle score={data.scores.seo} label="SEO" />
       </div>
       {data.vitals && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {data.vitals.lcp && (
             <VitalRow label="LCP" display={data.vitals.lcp.display} value={data.vitals.lcp.value} good={2500} bad={4000} unit="ms" />
           )}

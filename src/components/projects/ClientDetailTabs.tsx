@@ -529,10 +529,10 @@ const INTENT_LABELS: Record<string, string> = {
 function IntentSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-500 w-48 shrink-0">{label}</span>
+      <span className="text-xs text-gray-500 w-28 sm:w-48 shrink-0">{label}</span>
       <input type="range" min={0} max={100} value={value}
         onChange={e => onChange(Number(e.target.value))}
-        className="flex-1 h-1.5 accent-gray-800 cursor-pointer" />
+        className="flex-1 min-w-0 h-1.5 accent-gray-800 cursor-pointer" />
       <span className="text-xs font-semibold text-gray-700 w-8 text-right tabular-nums">{value}%</span>
     </div>
   )
@@ -902,10 +902,10 @@ function KeywordResearchTab({
 
   return (
     <div className="w-full">
-      <div className="flex gap-6 items-start">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-start">
 
         {/* ── LEFT: vertical step rail ── */}
-        <div className="w-[210px] shrink-0 space-y-4">
+        <div className="w-full md:w-[210px] md:shrink-0 space-y-4">
           <button onClick={resetAll}
             className="text-[11px] text-gray-400 hover:text-gray-700 transition-colors font-medium">
             ล้างค่า
@@ -1013,10 +1013,10 @@ function KeywordResearchTab({
                 <div className="space-y-1.5 pt-0.5">
                   {Object.entries(intentMix).map(([key, val]) => (
                     <div key={key} className="flex items-center gap-2.5">
-                      <span className="text-[10px] text-gray-500 w-44 shrink-0">{INTENT_LABELS[key] ?? key}</span>
+                      <span className="text-[10px] text-gray-500 w-28 sm:w-44 shrink-0">{INTENT_LABELS[key] ?? key}</span>
                       <input type="range" min={0} max={100} step={1} value={val}
                         onChange={e => updateIntent(key, Number(e.target.value))}
-                        className="flex-1 h-px accent-brand-blue cursor-pointer" />
+                        className="flex-1 min-w-0 h-px accent-brand-blue cursor-pointer" />
                       <span className="text-[10px] font-mono text-gray-600 w-7 text-right">{val}%</span>
                     </div>
                   ))}
@@ -1844,13 +1844,13 @@ function KeywordResultsTable({ keywords, onDone, doneLabel, doneBusy, downloadCs
           )}
         </div>
 
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+        <div className="flex flex-wrap gap-2 items-center justify-between px-5 py-3 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <span className="text-sm font-semibold text-brand-navy">
               {filtered.length !== keywords.length ? `${filtered.length} / ` : ''}{keywords.length} Keywords
             </span>
             {/* Funnel filter pills */}
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {funnels.map(f => (
                 <button key={f} onClick={() => setFilterFunnel(f)}
                   className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors ${filterFunnel === f ? (FUNNEL_COLOR[f] ?? 'bg-gray-200 text-gray-700') : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>
@@ -1859,7 +1859,7 @@ function KeywordResultsTable({ keywords, onDone, doneLabel, doneBusy, downloadCs
               ))}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {(filterFunnel !== 'All' || filterType !== 'All') && (
               <button onClick={() => { setFilterFunnel('All'); setFilterType('All') }}
                 className="text-[10px] text-gray-400 hover:text-gray-600 px-2 py-1 border border-gray-200 rounded-lg">
@@ -1974,7 +1974,7 @@ function KeywordResultsTable({ keywords, onDone, doneLabel, doneBusy, downloadCs
                   {expanded === kw.no && (
                     <tr key={`${kw.no}-expand`} className="bg-gray-50/60">
                       <td colSpan={13} className="px-4 py-4">
-                        <div className="grid grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {/* Left: Score breakdown */}
                           <div>
                             <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">Score Breakdown</p>
@@ -2686,14 +2686,14 @@ function ContentMapTab({
                 const isLocked = lockedObjectives.has(obj)
                 return (
                   <div key={obj} className="flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 w-44 shrink-0">
+                    <div className="flex items-center gap-1.5 w-28 sm:w-44 shrink-0">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: OBJ_COLORS[obj] }} />
                       <span className="text-[10px] text-gray-600 truncate">{obj.replace(' Content','')}</span>
                     </div>
                     <input type="range" min={0} max={60} value={val}
                       onChange={e => handleSlider(obj, Number(e.target.value))}
                       disabled={isLocked}
-                      className="flex-1 h-1.5 rounded-full accent-gray-800 disabled:opacity-50"
+                      className="flex-1 min-w-0 h-1.5 rounded-full accent-gray-800 disabled:opacity-50"
                       style={{ accentColor: OBJ_COLORS[obj] }}
                     />
                     <span className="text-[10px] font-bold text-gray-700 w-8 text-right">{val}%</span>
@@ -2763,7 +2763,7 @@ function ContentMapTab({
           {/* Ratio in use */}
           <div className="bg-gray-50 rounded-xl p-3">
             <div className="text-[10px] font-bold text-gray-500 uppercase mb-2">Ratio {useCustomRatio ? '(Custom)' : '(Recommended)'}</div>
-            <div className="grid grid-cols-3 md:grid-cols-5 gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
               {ARTICLE_OBJECTIVES.map(obj => (
                 <div key={obj} className="text-center">
                   <div className="text-[9px] text-gray-400 truncate">{obj.replace(' Content','')}</div>
@@ -2862,7 +2862,7 @@ function ContentMapTab({
                     return (
                       <div key={i}>
                         <div className="px-5 py-3 flex items-center gap-4">
-                          <div className="text-[11px] text-gray-400 shrink-0 w-[108px]">
+                          <div className="text-[11px] text-gray-400 shrink-0 w-20 sm:w-[108px]">
                             <div className="font-medium text-gray-600 flex items-center gap-1">
                               {e.thaiDate}
                               {e.isManualDateOverride && (
@@ -2980,8 +2980,8 @@ function ContentMapTab({
               )}
             </>
           ) : (
-            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-              <table className="w-full text-xs">
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-x-auto">
+              <table className="w-full min-w-[900px] text-xs">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
                     {['#','วันที่','Title','Vol.','Page Type','Objective','Batch','Score','Status','เหตุผล'].map(h => (
@@ -3716,7 +3716,7 @@ function ArticlesTab({
         />
 
         {/* Summary bar */}
-        <div className="flex items-center justify-between bg-white border border-gray-200 rounded-2xl px-5 py-3">
+        <div className="flex flex-wrap gap-2 items-center justify-between bg-white border border-gray-200 rounded-2xl px-5 py-3">
           <div className="flex items-center gap-6 text-sm">
             <span className="text-gray-500">ทั้งหมด <strong className="text-brand-navy">{timeline.length}</strong> บทความ</span>
             <span className="text-emerald-600">เสร็จแล้ว <strong>{done}</strong></span>
@@ -4119,7 +4119,7 @@ function ArticlesTab({
                   html={drawerHtml}
                   editorRef={drawerEditorRef}
                   onInput={() => { if (drawerEditorRef.current) setDrawerHtml(drawerEditorRef.current.innerHTML) }}
-                  className="bg-white border-2 border-orange-200 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[400px]"
+                  className="bg-white border-2 border-orange-200 rounded-xl p-4 sm:p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[280px] sm:min-h-[400px]"
                 />
               )}
               {drawerViewMode === 'html' && !isDrawerWriting && (
@@ -4161,7 +4161,7 @@ function ArticlesTab({
                   <textarea
                     value={drawerPlainText}
                     onChange={e => setDrawerPlainText(e.target.value)}
-                    className="flex-1 w-full bg-gray-50 border border-gray-200 rounded-xl p-5 text-slate-700 text-sm leading-relaxed font-mono resize-none outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 min-h-[500px]"
+                    className="flex-1 w-full bg-gray-50 border border-gray-200 rounded-xl p-5 text-slate-700 text-sm leading-relaxed font-mono resize-none outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 min-h-[320px] sm:min-h-[500px]"
                     spellCheck={false}
                   />
                 </div>
@@ -4862,7 +4862,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                       <div className="text-xs font-semibold text-gray-500">📄 บทความ</div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         {(isClient
                           ? ([['preview', '👁 Preview'], ['text', '📃 Text']] as const)
                           : ([['preview', '👁 Preview'], ['text', '📃 Text'], ['edit', '✏️ แก้ไข']] as const)
@@ -5606,7 +5606,7 @@ ${cover}${html}
         onChange={onLangChange}
       />
       {/* ── Sub-tab bar ─────────────────────────────── */}
-      <div className="flex items-center gap-1 mb-5 bg-gray-100 rounded-2xl p-1 w-fit">
+      <div className="flex items-center gap-1 mb-5 bg-gray-100 rounded-2xl p-1 w-fit max-w-full overflow-x-auto">
         {LAB_SUBTABS.map(t => (
           <button key={t.id} onClick={() => {
             setLabSubTab(t.id)
@@ -5616,7 +5616,7 @@ ${cover}${html}
               ilFetchKeywords()
             }
           }}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+            className={`flex items-center gap-1.5 whitespace-nowrap shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               labSubTab === t.id ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500 hover:text-gray-700'
             }`}>
             <span>{t.icon}</span>{t.label}
@@ -5642,9 +5642,9 @@ ${cover}${html}
           onSaved={(tc) => { setThemeColorsRaw(tc); onSaved({ themeColors: tc }) }}
           onApplyContext={applyScanContext}
         />
-        <div className="flex gap-6 items-start">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start">
           {/* Left settings */}
-          <div className="w-72 shrink-0 space-y-4">
+          <div className="w-full lg:w-72 lg:shrink-0 space-y-4">
             {/* อ่านไฟล์ธุรกิจลูกค้า (CSV/PDF) — เติม Project Context + เขียนลง Business Skill ให้อัตโนมัติ */}
             <LabContextFilesCard
               projectId={project.id}
@@ -5723,7 +5723,7 @@ ${cover}${html}
                 ใช้ <b>prompt ชุดเดียวกับตอนรันจริงทุกชั้น</b> (Business Skill → Master Prompt → Article Brief → Validator → Image Prompt) ของ client นี้
                 — กด Generate แล้วระบบจะบันทึกค่า Article Lab ลง DB ให้ก่อน ผลลัพธ์จึงตรงกับหน้าบทความจริงเป๊ะ ๆ แล้ว Export HTML ส่งให้ลูกค้าตรวจได้เลย
               </p>
-              <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                 <div>
                   <label className="block text-[11px] font-medium text-gray-500 mb-1">Keyword หลัก</label>
                   <input value={keyword} onChange={e => setKeyword(e.target.value)}
@@ -5762,7 +5762,7 @@ ${cover}${html}
 
             {html && !loading && (
               <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+                <div className="flex flex-wrap gap-2 items-center justify-between px-5 py-3 border-b border-gray-100">
                   <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                     <button onClick={() => setViewMode('preview')}
                       className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${viewMode === 'preview' ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500'}`}>
@@ -5779,7 +5779,7 @@ ${cover}${html}
                       </button>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button onClick={generate} disabled={loading}
                       className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-semibold rounded-xl hover:bg-gray-50">
                       <RefreshCw size={11} /> Regenerate
@@ -5798,14 +5798,14 @@ ${cover}${html}
                 </div>
                 {viewMode === 'code' && (
                   <textarea value={html} onChange={e => setHtml(e.target.value)}
-                    className="w-full font-mono text-[11px] text-gray-200 bg-gray-950 p-5 min-h-[500px] resize-y focus:outline-none"
+                    className="w-full font-mono text-[11px] text-gray-200 bg-gray-950 p-5 min-h-[320px] sm:min-h-[500px] resize-y focus:outline-none"
                     spellCheck={false} />
                 )}
                 {viewMode === 'preview' && (
                   <div className="p-6 min-h-96 overflow-auto"
                     // บทความพื้นโปร่งใส — วางบนสีพื้นหน้าเว็บจริงจากการสแกน ไม่งั้นเว็บพื้นเข้มจะอ่านไม่ออก
                     style={articleColors.background === '' && /^#[0-9a-f]{3,8}$/i.test(articleColors.pageBackground ?? '') ? { backgroundColor: articleColors.pageBackground } : undefined}>
-                    <iframe srcDoc={html} className="w-full border-0 min-h-[600px]" sandbox="allow-same-origin" title="Article Preview" />
+                    <iframe srcDoc={html} className="w-full border-0 min-h-[400px] sm:min-h-[600px]" sandbox="allow-same-origin" title="Article Preview" />
                   </div>
                 )}
                 {viewMode === 'cover' && coverImageLab && (
@@ -5970,7 +5970,7 @@ ${cover}${html}
                             className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${excluded ? 'border-gray-300 bg-white' : 'border-emerald-500 bg-emerald-500'}`}>
                             {!excluded && <span className="text-white text-[10px] leading-none">✓</span>}
                           </button>
-                          <span className="text-xs text-gray-700 w-40 shrink-0 truncate">{link.keyword}</span>
+                          <span className="text-xs text-gray-700 w-28 sm:w-40 shrink-0 truncate">{link.keyword}</span>
                           <span className="text-xs text-blue-500 font-mono truncate flex-1">{link.url}</span>
                         </div>
                       )
@@ -5998,7 +5998,7 @@ ${cover}${html}
                             className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${excluded ? 'border-gray-300 bg-white' : 'border-blue-500 bg-blue-500'}`}>
                             {!excluded && <span className="text-white text-[10px] leading-none">✓</span>}
                           </button>
-                          <span className="text-xs text-gray-700 w-40 shrink-0 truncate">{link.keyword}</span>
+                          <span className="text-xs text-gray-700 w-28 sm:w-40 shrink-0 truncate">{link.keyword}</span>
                           <span className="text-xs text-blue-500 font-mono truncate flex-1">{link.url}</span>
                         </div>
                       )
@@ -6193,8 +6193,8 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
           <p className="text-gray-300 text-xs">Push บทความจาก tab Push แล้วกลับมาดูที่นี่</p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">#</th>
@@ -6939,39 +6939,39 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
           <div className="fixed inset-0 bg-black/20 z-40" onClick={() => setSettingsDrawerOpen(false)} />
           <div className="fixed inset-y-0 right-0 z-50 w-full lg:w-[94vw] lg:max-w-[1560px] bg-white shadow-2xl flex flex-col">
             {/* Header */}
-            <div className="flex items-center gap-3 px-5 py-3.5 border-b border-gray-100 shrink-0">
+            <div className="flex flex-wrap items-center gap-3 px-5 py-3.5 border-b border-gray-100 shrink-0">
               <SettingsIcon size={16} className="text-gray-400" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-brand-navy">Project Settings</p>
                 <p className="text-xs text-gray-400 truncate">{project.clientName ?? project.name}</p>
               </div>
-              <nav className="flex gap-1">
+              <nav className="flex gap-1 order-last w-full md:order-none md:w-auto overflow-x-auto">
                 <button onClick={() => setSettingsDrawerTab('checklist')}
-                  className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
+                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
                     settingsDrawerTab === 'checklist' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
                   }`}>
                   ✓ Checklist
                 </button>
                 <button onClick={() => setSettingsDrawerTab('lab')}
-                  className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
+                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
                     settingsDrawerTab === 'lab' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
                   }`}>
                   Article Lab
                 </button>
                 <button onClick={() => setSettingsDrawerTab('ce')}
-                  className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
+                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
                     settingsDrawerTab === 'ce' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
                   }`}>
                   Content Engine
                 </button>
                 <button onClick={() => setSettingsDrawerTab('google')}
-                  className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
+                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
                     settingsDrawerTab === 'google' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
                   }`}>
                   GSC · GA4
                 </button>
                 <button onClick={() => setSettingsDrawerTab('website')}
-                  className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
+                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
                     settingsDrawerTab === 'website' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
                   }`}>
                   Website

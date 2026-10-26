@@ -163,9 +163,9 @@ export function ReviewChecklist({ articleId, articleStatus, reviews }: Props) {
                     Risk: {review.riskLevel ?? "LOW"}
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {[
-                    { l: "SEO",        v: review.seoScore,        c: "blue" },
+                    { l: "SEO",       v: review.seoScore,        c: "blue" },
                     { l: "E-E-A-T",    v: review.aeoScore,        c: "purple" },
                     { l: "Conversion", v: review.conversionScore, c: "green" },
                   ].map((s) => (

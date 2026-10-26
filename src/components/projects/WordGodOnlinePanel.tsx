@@ -1328,7 +1328,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
               <textarea rows={2} className={fieldClass} value={problemsText} onChange={e => setProblemsText(e.target.value)} placeholder={'เช่น\nเว็บไม่ติดหน้าแรก\nยิงแอดแพงขึ้นเรื่อย ๆ'} />
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>ประเทศ</label>
                 <input className={fieldClass} value={country} onChange={e => setCountry(e.target.value)} />
@@ -1494,7 +1494,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
               </div>
             </div>
           ) : !data ? (
-            <div className={`${cardClass} flex min-h-[420px] flex-col items-center justify-center p-10 text-center`}>
+            <div className={`${cardClass} flex min-h-[300px] flex-col items-center justify-center p-6 text-center sm:min-h-[420px] sm:p-10`}>
               <p className="text-lg font-bold text-[#17233a]">Business-Centric Keyword Intelligence</p>
               <p className="mt-2 max-w-md text-xs leading-6 text-[#71809c]">
                 กรอกข้อมูลธุรกิจด้านซ้ายแล้วกด "เริ่มวิเคราะห์" — ระบบจะสร้าง Business Blueprint,
@@ -1575,7 +1575,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                       {label}
                     </button>
                   ))}
-                  <div className="ml-auto flex items-center gap-2 pb-2">
+                  <div className="ml-auto flex flex-wrap items-center gap-2 pb-2">
                     <button
                       onClick={exportExcel}
                       disabled={exporting}
@@ -1746,7 +1746,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
               <p className="mt-1.5 text-xs leading-6 text-[#374763]">{drawerRow.whyThisKeyword ?? 'ยังไม่มีคำอธิบาย (title generation ไม่สำเร็จสำหรับคำนี้ — สถานะ REVIEW)'}</p>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2.5 text-xs">
+            <div className="mt-4 grid grid-cols-1 gap-2.5 text-xs sm:grid-cols-2">
               <div className="rounded-xl border border-[#e3e8f1] p-3">
                 <p className="text-[10px] font-semibold text-[#91a0b8]">Google Keyword Planner</p>
                 <p className="mt-1 font-bold tabular-nums">{metricStatusText(drawerRow.google.status, drawerRow.google.avgMonthlySearches)}</p>
@@ -1782,7 +1782,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
               </ul>
             </div>
 
-            <div className="mt-4 grid grid-cols-5 gap-2 text-center text-xs">
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs sm:grid-cols-5">
               {([['Biz', drawerRow.scores.businessScore], ['SEO', drawerRow.scores.seoOpportunity], ['AEO', drawerRow.scores.aeoOpportunity], ['GEO', drawerRow.scores.geoOpportunity], ['Final', drawerRow.scores.finalScore]] as Array<[string, number]>).map(([label, val]) => (
                 <div key={label} className={`rounded-xl border p-2.5 ${label === 'Final' ? 'border-[#17233a] bg-[#17233a] text-white' : 'border-[#e3e8f1]'}`}>
                   <p className={`text-[10px] font-semibold ${label === 'Final' ? 'text-white/70' : 'text-[#91a0b8]'}`}>{label}</p>
@@ -1813,8 +1813,8 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
 
       {/* ── Sticky bulk bar ── */}
       {selectedKeys.size > 0 && status !== 'running' ? (
-        <div className="fixed bottom-4 left-1/2 z-30 -translate-x-1/2">
-          <div className="flex items-center gap-3 rounded-2xl border border-[#17233a]/10 bg-[#17233a] px-5 py-3 text-white shadow-2xl">
+        <div className="fixed bottom-4 left-1/2 z-30 w-max max-w-[calc(100vw-1.5rem)] -translate-x-1/2">
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#17233a]/10 bg-[#17233a] px-5 py-3 text-white shadow-2xl">
             <span className="text-xs">
               เลือกแล้ว <span className="font-bold tabular-nums">{selectedKeys.size.toLocaleString('th-TH')}</span> คำ
               {reviewRows.length > 0 ? <span className="ml-1.5 text-amber-300">({reviewRows.length} คำ Needs Review)</span> : null}

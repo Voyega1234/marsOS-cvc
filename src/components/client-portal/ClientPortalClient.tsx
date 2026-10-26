@@ -70,7 +70,7 @@ export function ClientPortalClient({ projects, userName }: { projects: Project[]
 
       <div className="px-8 py-6 space-y-6 max-w-6xl">
         {/* Summary cards */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: "บทความทั้งหมด",  value: totalArticles,  color: "bg-brand-blue text-white" },
             { label: "เผยแพร่แล้ว",    value: totalPublished, color: "bg-emerald-600 text-white" },

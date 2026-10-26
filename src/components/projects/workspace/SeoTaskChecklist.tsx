@@ -358,9 +358,9 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
   }
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col md:flex-row gap-4">
       {/* Left vertical rail */}
-      <div className="w-[210px] shrink-0 space-y-1">
+      <div className="w-full md:w-[210px] md:shrink-0 space-y-1">
         <RailItem
           label="ภาพรวม"
           active={section === "overview"}
@@ -1086,7 +1086,7 @@ function TaskDrawer({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-500">สถานะ</label>
               <select
@@ -1249,8 +1249,8 @@ function ConfirmDeleteModal({ onCancel, onConfirm }: { onCancel: () => void; onC
 
 function ChecklistSkeleton() {
   return (
-    <div className="flex gap-4">
-      <div className="w-[210px] shrink-0 space-y-2">
+    <div className="flex flex-col md:flex-row gap-4">
+      <div className="w-full md:w-[210px] md:shrink-0 space-y-2">
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="h-8 animate-pulse rounded-lg bg-gray-100" />
         ))}

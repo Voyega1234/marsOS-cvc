@@ -103,8 +103,8 @@ function AddForm({ projects, onAdd, defaultProjectId = "" }: { projects: { id: s
         <h3 className="font-semibold text-brand-navy text-sm">เพิ่มหน้าที่ต้อง Refresh</h3>
         <button type="button" onClick={reset} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">URL *</label>
           <input type="url" value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} required
             placeholder="https://yoursite.com/page" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
@@ -141,20 +141,20 @@ function AddForm({ projects, onAdd, defaultProjectId = "" }: { projects: { id: s
           <input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">เหตุผล (คั่นด้วย comma)</label>
           <input value={form.reasons} onChange={e => setForm(f => ({ ...f, reasons: e.target.value }))}
             placeholder="ข้อมูลเก่า, traffic ลด, competitor ใหม่"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">คำแนะนำ</label>
           <input value={form.recommendation} onChange={e => setForm(f => ({ ...f, recommendation: e.target.value }))}
             placeholder="ปรับปรุงข้อมูลให้ทันสมัย, เพิ่ม FAQ"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
       </div>
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <button type="button" onClick={reset} className="px-4 py-2 text-sm text-gray-500 hover:text-brand-navy">ยกเลิก</button>
         <button type="submit" disabled={saving}
           className="px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-50 transition-colors">
@@ -293,7 +293,7 @@ function GSCScanModal({ projects, onDone, defaultProjectId = "", defaultSiteUrl 
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-brand-navy">Scan จาก Google Search Console</h3>
@@ -333,7 +333,7 @@ function GSCScanModal({ projects, onDone, defaultProjectId = "", defaultSiteUrl 
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button onClick={() => { setOpen(false); setResult(null); }} className="px-4 py-2 text-sm text-gray-500 hover:text-brand-navy">ปิด</button>
           <button onClick={scan} disabled={scanning || !siteUrl}
             className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-blue-500 disabled:opacity-50 transition-colors">
@@ -379,7 +379,7 @@ export function ContentRefreshClient({ initialItems, projects, defaultProjectId,
           <h1 className="text-xl font-bold text-brand-navy">Content Refresh</h1>
           <p className="text-sm text-gray-500 mt-0.5">ติดตามหน้าที่ต้องปรับปรุงเนื้อหา</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <GSCScanModal projects={projects} onDone={handleGSCDone} defaultProjectId={defaultProjectId} defaultSiteUrl={defaultSiteUrl} />
           <AddForm projects={projects} onAdd={item => setItems(prev => [item, ...prev])} defaultProjectId={defaultProjectId} />
         </div>

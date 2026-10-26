@@ -215,7 +215,7 @@ function AddTodoModal({ onClose, onAdd }: {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Priority</label>
               <select value={priority} onChange={e => setPriority(e.target.value)}
@@ -325,7 +325,8 @@ function CalendarView({ tasks }: { tasks: MarsTask[] }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-2">
+      <div className="overflow-x-auto">
+      <div className="grid grid-cols-7 gap-2 min-w-[640px]">
         {days.map(date => {
           const d = new Date(date)
           const dow = d.getDay()
@@ -363,6 +364,7 @@ function CalendarView({ tasks }: { tasks: MarsTask[] }) {
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

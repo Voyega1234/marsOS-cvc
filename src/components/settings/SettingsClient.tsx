@@ -347,7 +347,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
       </div>
 
       <Tabs defaultValue={defaultTab}>
-        <TabsList className="w-full justify-start">
+        <TabsList className="w-full justify-start h-auto flex-wrap">
           <TabsTrigger value="interface" className="gap-2"><Monitor className="h-4 w-4" />Interface Mode</TabsTrigger>
           {isAdmin && <TabsTrigger value="users" className="gap-2"><Users className="h-4 w-4" />Users</TabsTrigger>}
           {isAdmin && <TabsTrigger value="wordpress" className="gap-2"><Globe className="h-4 w-4" />WordPress</TabsTrigger>}

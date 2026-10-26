@@ -46,6 +46,10 @@ export default async function ArticleExportPage({ params }: { params: { id: stri
           .content th, .content td { border: 1px solid #e2e8f0; padding: 8px 12px; text-align: left; font-size: 0.875rem; }
           .content th { background: #f8fafc; font-weight: 700; }
           .watermark { text-align: center; margin-top: 48px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 0.75rem; color: #94a3b8; }
+          @media (max-width: 640px) {
+            .brief { padding: 24px 16px; }
+            .content table { display: block; overflow-x: auto; }
+          }
           @media print {
             .no-print { display: none !important; }
             body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
@@ -55,7 +59,7 @@ export default async function ArticleExportPage({ params }: { params: { id: stri
       <body>
         <div className="brief">
           {/* Print / Download toolbar */}
-          <div className="no-print" style={{ marginBottom: "20px", display: "flex", gap: "10px" }}>
+          <div className="no-print" style={{ marginBottom: "20px", display: "flex", flexWrap: "wrap", gap: "10px" }}>
             <button
               onClick={() => window.print()}
               style={{ padding: "8px 18px", background: "#16a34a", color: "#fff", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer", fontSize: "0.875rem" }}

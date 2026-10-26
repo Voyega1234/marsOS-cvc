@@ -200,7 +200,7 @@ export default function UploadClientsBoard() {
                     </Button>
                   </div>
 
-                  <div className="grid grid-cols-4 gap-1.5 text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-center">
                     {[
                       ["นำเข้า", c.counts.imported],
                       ["Generate", c.counts.generated],

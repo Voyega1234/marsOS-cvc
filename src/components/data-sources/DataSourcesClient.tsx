@@ -154,14 +154,14 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit max-w-full overflow-x-auto">
         {[
           { key: "analytics", label: "Analytics & SEO Tools", count: dataSources.length },
           { key: "databrain", label: "Data Brain Files",      count: dataBrainFiles.length },
           { key: "ai",        label: "AI Configuration",      count: null },
         ].map((t) => (
           <button key={t.key} onClick={() => setActiveTab(t.key as typeof activeTab)}
-            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0",
               activeTab === t.key ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-700")}>
             {t.label}
             {t.count !== null && <span className="text-xs bg-gray-200 text-gray-600 rounded-full px-1.5">{t.count}</span>}

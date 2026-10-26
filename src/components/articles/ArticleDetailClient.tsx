@@ -157,7 +157,7 @@ function VersionDiff({ versions }: {
               {diff.delta > 0 ? `+${diff.delta}` : diff.delta} คำ ({diff.wcA} → {diff.wcB})
             </span>
           </div>
-          <div className="grid grid-cols-2 divide-x divide-gray-200">
+          <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-200">
             <div className="p-4">
               <p className="text-[10px] font-bold text-red-500 uppercase mb-2">ลบออก ({diff.removed.length} คำ)</p>
               <div className="flex flex-wrap gap-1">
@@ -317,7 +317,7 @@ function BriefEditor({ article }: { article: { id: string; brief?: string | null
       {/* Target word count */}
       <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-100 rounded-xl">
         <span className="text-xs font-semibold text-blue-700 shrink-0">เป้าหมายจำนวนคำ</span>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {["800", "1200", "1500", "2000", "2500", "3000"].map((n) => (
             <button
               key={n}
@@ -524,17 +524,17 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
           <span>/</span>
           <span className="text-brand-navy truncate max-w-xs">{article.title}</span>
         </div>
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-brand-navy leading-tight">{article.title}</h1>
-            <div className="flex items-center gap-3 mt-2">
+            <div className="flex flex-wrap items-center gap-3 mt-2">
               <StatusBadge status={article.status} />
               <FunnelBadge stage={article.funnelStage as never} />
               <span className="text-xs text-gray-400">{article.searchIntent}</span>
               <span className="text-xs text-gray-400">อัปเดต {formatDate(article.updatedAt)}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
             {/* Export / Share */}
             <Link
               href={`/articles/${article.id}/export`}
@@ -610,8 +610,8 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
 
       {/* AI Action Buttons */}
       <div className="bg-white rounded-xl border p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Actions</p>
             {/* Auto Run — runs full pipeline in one click */}
             <button
@@ -626,7 +626,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
             </button>
           </div>
           {/* Output format toggle — shown near article generation context */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-gray-400 mr-1">รูปแบบผลลัพธ์:</span>
             <button
               onClick={() => setOutputFormat("html")}
@@ -684,8 +684,8 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
       {/* Tabs */}
       <div className="bg-white rounded-xl border">
         <Tabs defaultValue="brief">
-          <div className="px-5 border-b border-gray-100">
-            <TabsList className="h-auto bg-transparent p-0 gap-0">
+          <div className="px-5 border-b border-gray-100 overflow-x-auto">
+            <TabsList className="h-auto bg-transparent p-0 gap-0 w-max">
               {[
                 { value: "brief",   label: "Brief",     icon: BookOpen },
                 { value: "outline", label: "Outline",   icon: LayoutList },
@@ -775,8 +775,8 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
 
           {/* Article HTML — Rich Editor + Preview */}
           <TabsContent value="article" className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div className="flex flex-wrap items-center gap-3">
                 <h3 className="font-semibold text-brand-navy">
                   บทความ
                   {editedHtml && (
@@ -953,7 +953,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               {/* Schema Generator */}
               <SchemaGenerator article={article} />
               {latestReview && (
-                <div className="grid grid-cols-3 gap-4 mt-4">
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 mt-4">
                   {[
                     { label: "SEO Score", value: latestReview.seoScore, color: "text-brand-blue" },
                     { label: "AEO Score", value: latestReview.aeoScore, color: "text-purple-600" },
@@ -1123,7 +1123,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
             })()}
 
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 border rounded-xl">
                   <p className="text-xs text-gray-500 mb-1">Status</p>
                   <StatusBadge status={article.status} />

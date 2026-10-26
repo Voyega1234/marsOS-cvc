@@ -425,7 +425,7 @@ export function SEOPerformanceReport({
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-brand-blue font-semibold">Beta</span>
                   </div>
                   <p className="text-[10px] text-blue-400 mb-3">Google-generated summaries at the top of search results</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="bg-white/70 rounded-lg p-2.5">
                       <p className="text-[10px] text-gray-500 mb-0.5">Impressions</p>
                       <p className="text-xl font-black text-slate-900">{gscAi.aiOverviews.impressions.toLocaleString()}</p>
@@ -465,7 +465,7 @@ export function SEOPerformanceReport({
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600 font-semibold">Beta</span>
                   </div>
                   <p className="text-[10px] text-violet-400 mb-3">Conversational AI experience in Search</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="bg-white/70 rounded-lg p-2.5">
                       <p className="text-[10px] text-gray-500 mb-0.5">Impressions</p>
                       <p className="text-xl font-black text-slate-900">{gscAi.aiMode.impressions.toLocaleString()}</p>

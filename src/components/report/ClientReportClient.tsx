@@ -223,7 +223,7 @@ function GscInsightCard({ item }: { item: GscInsightItem }) {
       {open && (
         <div className="border-t border-gray-100 px-3 py-2.5 bg-gray-50 space-y-2">
           {/* 4 metric pills */}
-          <div className="grid grid-cols-4 gap-2 text-[10px]">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
             {[
               { label: "Clicks", val: item.currClicks.toLocaleString(), delta: item.clicksDelta },
               { label: "Impr.", val: item.currImpressions.toLocaleString(), delta: item.impressionsDelta },
@@ -1107,7 +1107,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   const newPct = users ? Math.round((newUsers / users) * 100) : 0;
 
   return (
-    <div className="bg-brand-mist -mx-6 -mt-4 px-4 pt-5 pb-10 min-h-screen space-y-3 w-[calc(100%+3rem)]">
+    <div className="bg-brand-mist -mx-3 sm:-mx-4 md:-mx-6 -mt-4 px-4 pt-5 pb-10 min-h-screen space-y-3 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]">
       {loading && (
         <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-white rounded-lg px-3 py-1.5 w-fit shadow-sm">
           <RefreshCw size={11} className="animate-spin" /> กำลังโหลดข้อมูล...
@@ -1205,10 +1205,10 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         {/* Performance overview (PageSpeed) */}
         <CCard title="Performance overview"
           right={
-            <div className="flex rounded-full bg-[#f4f7fb] p-0.5">
+            <div className="flex rounded-full bg-[#f4f7fb] p-0.5 overflow-x-auto max-w-full">
               {(["mobile", "desktop"] as const).map(m => (
                 <button key={m} onClick={() => setPsiMode(m)}
-                  className={`px-2.5 h-6 flex items-center text-[11px] font-medium rounded-full transition-colors ${psiMode === m ? "bg-brand-blue text-white" : "text-gray-500 hover:text-brand-navy"}`}>
+                  className={`px-2.5 h-6 flex items-center whitespace-nowrap shrink-0 text-[11px] font-medium rounded-full transition-colors ${psiMode === m ? "bg-brand-blue text-white" : "text-gray-500 hover:text-brand-navy"}`}>
                   {m === "mobile" ? "Mobile" : "Desktop"}
                 </button>
               ))}
@@ -1278,7 +1278,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         {/* Devices / Locations donut */}
         <CCard
           title={
-            <span className="flex gap-4">
+            <span className="flex flex-wrap gap-2 sm:gap-4">
               {(["devices", "locations"] as const).map(t => (
                 <button key={t} onClick={() => setDonutTab(t)}
                   className={`pb-0.5 border-b-2 transition-colors ${donutTab === t ? "border-brand-blue text-brand-navy" : "border-transparent text-gray-400 hover:text-brand-navy"}`}>
@@ -1508,7 +1508,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       {/* ══ ROW 5 — GSC table: Queries / Pages / Devices ══ */}
       <CCard pad={false}
         title={
-          <span className="flex gap-5">
+          <span className="flex flex-wrap gap-2 sm:gap-5">
             {(["queries", "pages", "devices"] as const).map(t => (
               <button key={t} onClick={() => setGscTable(t)}
                 className={`pb-0.5 border-b-2 uppercase tracking-wide text-[11.5px] transition-colors ${gscTable === t ? "border-brand-blue text-brand-navy font-semibold" : "border-transparent text-gray-400 hover:text-brand-navy"}`}>
@@ -1745,7 +1745,7 @@ export function ClientReportClient({
             </a>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {[7, 28, 90].map(d => (
             <button key={d} onClick={() => { setCustomRange(null); setShowCustom(false); setDays(d); }}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${!customRange && days === d ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
@@ -1757,7 +1757,7 @@ export function ClientReportClient({
             {customRange ? `${customRange.start} → ${customRange.end}` : "กำหนดเอง"}
           </button>
           {showCustom && (
-            <span className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-2.5 py-1">
+            <span className="flex flex-wrap items-center gap-1.5 bg-white border border-gray-200 rounded-full px-2.5 py-1">
               <input type="date" value={draftStart} max={draftEnd || undefined} onChange={e => setDraftStart(e.target.value)}
                 className="text-[11px] text-gray-600 outline-none bg-transparent" />
               <span className="text-[11px] text-gray-400">→</span>
@@ -1795,7 +1795,7 @@ export function ClientReportClient({
 
       {/* Report type selector — hidden for clients (always simple) */}
       {!isClient && (
-        <div className="flex gap-2 border-b border-gray-100 pb-3">
+        <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-3">
           <button onClick={() => setReportMode("simple")}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "simple" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
             <FileText size={12} /> Simple Report

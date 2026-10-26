@@ -372,7 +372,7 @@ export default function PbnSitesSection({ client, setClient }: { client: UploadC
                       Report: {[s.gscSiteUrl && "GSC", s.ga4PropertyId && "GA4"].filter(Boolean).join(" + ")}
                     </span>
                   )}
-                  <div className="ml-auto flex items-center gap-1">
+                  <div className="ml-auto flex flex-wrap items-center gap-1">
                     <Button size="sm" variant="outline" disabled={testing === s.id} onClick={() => test(s)}>
                       {testing === s.id ? <Loader2 size={12} className="animate-spin" /> : <Plug size={12} />}
                     </Button>

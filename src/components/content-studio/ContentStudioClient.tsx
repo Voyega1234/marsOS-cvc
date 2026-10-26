@@ -538,10 +538,10 @@ export function ContentStudioClient() {
   const addedLinksCount = links.filter(l => l.added).length;
 
   return (
-    <div className="flex flex-col bg-white -m-6 min-h-[calc(100vh-4rem)] border-t border-gray-100">
+    <div className="flex flex-col bg-white -m-3 sm:-m-4 md:-m-6 min-h-[calc(100dvh-4rem)] border-t border-gray-100">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-6 py-3.5">
-        <div className="flex items-center justify-between">
+      <div className="border-b border-gray-100 bg-white px-3 sm:px-6 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center shadow-sm">
               <PenLine className="h-4 w-4 text-white" />
@@ -551,7 +551,7 @@ export function ContentStudioClient() {
               <p className="text-xs text-slate-400">เขียนและรีวิวด้วย MarsOS AI</p>
             </div>
           </div>
-          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto max-w-full">
             {([
               ["write", "Write", PenLine, "text-orange-500"],
               ["review", "Review & Analyze", Search, "text-blue-500"],
@@ -561,7 +561,7 @@ export function ContentStudioClient() {
                 key={tab}
                 onClick={() => setMainTab(tab)}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all",
+                  "flex items-center gap-2 px-2 sm:px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap shrink-0",
                   mainTab === tab ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
                 )}
               >
@@ -575,9 +575,9 @@ export function ContentStudioClient() {
 
       {/* ────────────── WRITE TAB ────────────── */}
       {mainTab === "write" && (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col md:flex-row flex-1 md:overflow-hidden">
           {/* Settings panel */}
-          <div className="w-72 flex-shrink-0 border-r border-gray-100 bg-gray-50 flex flex-col">
+          <div className="w-full md:w-72 md:flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-100 bg-gray-50 flex flex-col">
             <div className="px-4 py-3 border-b border-gray-100">
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Article Settings</span>
             </div>
@@ -623,7 +623,7 @@ export function ContentStudioClient() {
               {/* Language */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-600">ภาษา</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[["th", "ไทย"], ["en", "English"]].map(([val, label]) => (
                     <button
                       key={val}
@@ -882,7 +882,7 @@ export function ContentStudioClient() {
           {/* Output area */}
           <div className="flex-1 flex flex-col overflow-hidden bg-white">
             {/* Top toolbar */}
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
               {(articleHtml || settings.keyword) && (
                 <button
                   onClick={() => {
@@ -898,7 +898,7 @@ export function ContentStudioClient() {
                 </button>
               )}
               {articleHtml && (
-                <div className="ml-auto flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+                <div className="ml-auto flex flex-wrap items-center gap-1 bg-slate-100 rounded-lg p-1">
                   {([
                     ["preview", Eye, "Preview"],
                     ["edit",    Edit3, "Edit"],
@@ -930,7 +930,7 @@ export function ContentStudioClient() {
 
             {/* Formatting toolbar — only in edit mode */}
             {viewMode === "edit" && articleHtml && (
-              <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-orange-100 bg-orange-50">
+              <div className="flex flex-wrap items-center gap-0.5 px-3 py-1.5 border-b border-orange-100 bg-orange-50">
                 {[
                   { icon: Bold,      title: "Bold",        cmd: "bold" },
                   { icon: Italic,    title: "Italic",      cmd: "italic" },
@@ -1112,7 +1112,7 @@ export function ContentStudioClient() {
                       html={articleHtml}
                       editorRef={editorRef}
                       onInput={() => { if (editorRef.current) setAndPersistHtml(editorRef.current.innerHTML); }}
-                      className="bg-white border-2 border-orange-200 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
+                      className="bg-white border-2 border-orange-200 rounded-xl p-4 sm:p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
                     />
                   )}
                   {viewMode === "text" && (
@@ -1129,9 +1129,9 @@ export function ContentStudioClient() {
 
       {/* ────────────── REVIEW TAB ────────────── */}
       {mainTab === "review" && (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden">
           {/* Input panel */}
-          <div className="w-80 flex-shrink-0 border-r border-gray-100 bg-gray-50 flex flex-col">
+          <div className="w-full lg:w-80 lg:flex-shrink-0 border-b lg:border-b-0 lg:border-r border-gray-100 bg-gray-50 flex flex-col">
             <div className="px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
                 <Brain className="h-4 w-4 text-blue-500" />
@@ -1178,10 +1178,10 @@ export function ContentStudioClient() {
           </div>
 
           {/* Results panel */}
-          <div className="flex-1 flex overflow-hidden bg-white">
+          <div className="flex-1 flex flex-col lg:flex-row lg:overflow-hidden bg-white">
 
             {/* Feedback column */}
-            <div className="w-80 flex-shrink-0 border-r border-gray-100 flex flex-col overflow-hidden">
+            <div className="w-full lg:w-80 lg:flex-shrink-0 border-b lg:border-b-0 lg:border-r border-gray-100 flex flex-col lg:overflow-hidden">
             {reviewing && (
               <div className="flex flex-col items-center justify-center flex-1 gap-4">
                 <div className="w-full max-w-xs h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -1203,7 +1203,7 @@ export function ContentStudioClient() {
             {!reviewing && reviewDone && (
               <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Sub-tabs */}
-                <div className="flex gap-0.5 px-4 pt-2 border-b border-gray-100 bg-white">
+                <div className="flex gap-0.5 px-4 pt-2 border-b border-gray-100 bg-white overflow-x-auto">
                   {([
                     ["suggestions", "Suggestions", Lightbulb, appliedCount > 0 ? `${appliedCount}/${suggestions.length}` : `${suggestions.length}`],
                     ["links", "Internal Links", Link2, addedLinksCount > 0 ? `${addedLinksCount}/${links.length}` : `${links.length}`],
@@ -1214,7 +1214,7 @@ export function ContentStudioClient() {
                       key={tab}
                       onClick={() => setReviewTab(tab)}
                       className={cn(
-                        "flex items-center gap-1.5 px-3 pb-2.5 pt-1 text-sm font-medium border-b-2 transition-colors",
+                        "flex items-center gap-1.5 px-3 pb-2.5 pt-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0",
                         reviewTab === tab
                           ? "border-blue-500 text-brand-blue"
                           : "border-transparent text-slate-500 hover:text-slate-700"
@@ -1389,10 +1389,10 @@ export function ContentStudioClient() {
             {/* Article editor column — right side of Review */}
             <div className="flex-1 flex flex-col overflow-hidden bg-white">
               {/* Toolbar */}
-              <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
+              <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
                 <span className="text-xs font-semibold text-slate-500">บทความ</span>
                 {reviewHtml && (
-                  <div className="ml-auto flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+                  <div className="ml-auto flex flex-wrap items-center gap-1 bg-slate-100 rounded-lg p-1">
                     {([
                       ["preview", Eye, "Preview"],
                       ["edit",    Edit3, "Edit"],
@@ -1429,7 +1429,7 @@ export function ContentStudioClient() {
 
               {/* Formatting toolbar */}
               {reviewViewMode === "edit" && reviewHtml && (
-                <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-orange-100 bg-orange-50">
+                <div className="flex flex-wrap items-center gap-0.5 px-3 py-1.5 border-b border-orange-100 bg-orange-50">
                   {[
                     { icon: Bold,   title: "Bold",   cmd: "bold" },
                     { icon: Italic, title: "Italic", cmd: "italic" },
@@ -1484,7 +1484,7 @@ export function ContentStudioClient() {
                     html={reviewHtml}
                     editorRef={reviewEditorRef}
                     onInput={() => { if (reviewEditorRef.current) setAndPersistReviewHtml(reviewEditorRef.current.innerHTML); }}
-                    className="bg-white border-2 border-orange-200 rounded-xl p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
+                    className="bg-white border-2 border-orange-200 rounded-xl p-4 sm:p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
                   />
                 )}
                 {reviewHtml && reviewViewMode === "text" && (
@@ -1501,7 +1501,7 @@ export function ContentStudioClient() {
 
       {/* ────────────── SETTINGS TAB — รูปภาพ / CTA / Author Box ────────────── */}
       {mainTab === "settings" && (
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           <StudioArticleSettings accentColor={settings.colorTheme} border={settings.colorBorder} />
         </div>
       )}

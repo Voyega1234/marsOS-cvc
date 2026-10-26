@@ -102,7 +102,7 @@ function Composer({ onSubmit, disabled }: { onSubmit: (v: string) => void; disab
         rows={1}
         className="w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] text-gray-800 placeholder-gray-400 outline-none min-h-[52px] max-h-48 overflow-y-auto leading-relaxed"
       />
-      <div className="flex items-center justify-between px-3 pb-3 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-3 pt-1">
         <div className="flex items-center gap-1">
           <button className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
             <Paperclip className="h-4 w-4" />
@@ -212,7 +212,7 @@ export function MarsChatArea() {
             </div>
           </div>
         ) : (
-          <div className="max-w-2xl mx-auto w-full px-4 py-6 space-y-5">
+          <div className="max-w-2xl mx-auto w-full px-4 pt-12 pb-6 md:py-6 space-y-5">
             {messages.map((msg) => (
               <div key={msg.id} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
                 {msg.role === "user" ? (

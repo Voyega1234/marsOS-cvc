@@ -135,7 +135,7 @@ export function TemplatesClient({ templates: initial, orgId }: Props) {
           <DialogHeader>
             <DialogTitle>{editingId ? "แก้ไข Template" : "สร้าง Template ใหม่"}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>ชื่อ Template</Label>
               <Input className="mt-1" value={form.name} onChange={(e) => setForm((f) => ({...f, name: e.target.value}))} />
@@ -152,27 +152,27 @@ export function TemplatesClient({ templates: initial, orgId }: Props) {
               <Label>Color Theme</Label>
               <Input className="mt-1" value={form.colorTheme ?? ""} onChange={(e) => setForm((f) => ({...f, colorTheme: e.target.value}))} placeholder="green-cream" />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Label>Brand Voice</Label>
               <Textarea className="mt-1" rows={2} value={form.brandVoice ?? ""} onChange={(e) => setForm((f) => ({...f, brandVoice: e.target.value}))} placeholder="ภาษาทางการ น่าเชื่อถือ..." />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Label>CTA Text</Label>
               <Textarea className="mt-1" rows={2} value={form.ctaText ?? ""} onChange={(e) => setForm((f) => ({...f, ctaText: e.target.value}))} />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Label>Reference Rules</Label>
               <Textarea className="mt-1" rows={2} value={form.referenceRules ?? ""} onChange={(e) => setForm((f) => ({...f, referenceRules: e.target.value}))} />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Label>Forbidden Claims (ข้อห้าม)</Label>
               <Textarea className="mt-1" rows={2} value={form.forbiddenClaims ?? ""} onChange={(e) => setForm((f) => ({...f, forbiddenClaims: e.target.value}))} />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Label>Image Style</Label>
               <Input className="mt-1" value={form.imageStyle ?? ""} onChange={(e) => setForm((f) => ({...f, imageStyle: e.target.value}))} />
             </div>
-            <div className="col-span-2 flex items-center gap-3">
+            <div className="sm:col-span-2 flex items-center gap-3">
               <Switch checked={form.isDefault} onCheckedChange={(v) => setForm((f) => ({...f, isDefault: v}))} />
               <Label>ตั้งเป็น Default Template</Label>
             </div>

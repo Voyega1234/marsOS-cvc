@@ -187,7 +187,7 @@ export default async function ProjectsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-xl font-bold text-brand-navy">Clients</h1>
           <p className="text-gray-500 text-sm mt-0.5">{projects.length} clients · คลิกเพื่อดู pipeline</p>

@@ -168,9 +168,9 @@ export function ImageStudioClient() {
   };
 
   return (
-    <div className="flex flex-col bg-white -m-6 min-h-[calc(100vh-4rem)] border-t border-gray-100">
+    <div className="flex flex-col bg-white -m-3 sm:-m-4 md:-m-6 min-h-[calc(100dvh-4rem)] border-t border-gray-100">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-6 py-3.5 flex items-center justify-between">
+      <div className="border-b border-gray-100 bg-white px-3 sm:px-6 py-3.5 flex flex-wrap gap-2 items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-orange-500 flex items-center justify-center shadow-sm">
             <Image className="h-4 w-4 text-white" />
@@ -182,9 +182,9 @@ export function ImageStudioClient() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 md:overflow-hidden">
         {/* ── LEFT PANEL — Settings ── */}
-        <div className="w-72 flex-shrink-0 border-r border-gray-100 bg-gray-50 flex flex-col overflow-y-auto">
+        <div className="w-full md:w-72 md:flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-100 bg-gray-50 flex flex-col overflow-y-auto">
           <div className="px-4 py-3 border-b border-gray-100">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Image Settings</span>
           </div>
@@ -411,7 +411,7 @@ export function ImageStudioClient() {
         <div className="flex-1 flex flex-col overflow-hidden">
 
           {/* Preview area */}
-          <div className="flex-1 overflow-y-auto bg-[#f8f9fb] p-6">
+          <div className="flex-1 overflow-y-auto bg-[#f8f9fb] p-3 sm:p-6">
             {generating && (
               <div className="flex flex-col items-center justify-center h-64 gap-4">
                 <div className="w-full max-w-sm h-1.5 bg-white rounded-full overflow-hidden shadow-inner">

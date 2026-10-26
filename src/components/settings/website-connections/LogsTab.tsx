@@ -109,7 +109,7 @@ export function LogsTab({ rows }: Props) {
         {detail && (
           <div className="space-y-4">
             <MockBadge />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Timestamp" value={detail.timestamp} />
               <Field label="Actor" value={detail.actor} />
               <Field label="Connection" value={detail.connection} />

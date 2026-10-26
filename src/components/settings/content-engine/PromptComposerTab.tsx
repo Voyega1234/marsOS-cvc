@@ -226,7 +226,7 @@ export function PromptComposerTab({ businessSkills, masterPrompts, briefTemplate
           <Input value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)} className="h-9 text-sm" />
         </SectionCard>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <Button size="sm" className="gap-1.5" onClick={compile}>
             <FlaskConical className="size-3.5" /> Compile
           </Button>

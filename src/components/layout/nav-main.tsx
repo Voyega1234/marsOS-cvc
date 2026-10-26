@@ -31,8 +31,8 @@ interface Props {
 
 function NavItem({ route }: { route: Route }) {
   const pathname = usePathname();
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+  const { state, isMobile } = useSidebar();
+  const isCollapsed = state === "collapsed" && !isMobile;
   const hasSubs = !!route.subs?.length;
 
   const isActive =

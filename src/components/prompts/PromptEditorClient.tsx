@@ -410,14 +410,14 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-0 mt-4 border-b border-gray-100 -mb-4">
+        <div className="flex gap-0 mt-4 border-b border-gray-100 -mb-4 overflow-x-auto">
           {(["edit", "preview", "versions", "activity"] as const).map((t) => {
             const labels = { edit: "✏️ Edit", preview: "👁️ Preview", versions: `📜 Versions (${versions.length})`, activity: `📋 Activity (${activity.length})` };
             return (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-4 py-2.5 text-sm font-medium border-b border-gray-100-2 transition-colors ${tab === t
+                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap shrink-0 border-b border-gray-100-2 transition-colors ${tab === t
                   ? "border-green-600 text-green-700"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   }`}
@@ -564,7 +564,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
                   value={form.promptText}
                   onChange={(e) => setForm((f) => ({ ...f, promptText: e.target.value }))}
                   placeholder={`Write your prompt here. Use {{variable}} syntax for dynamic values.\n\nExample:\nYou are an SEO expert for {{project_name}}.\nResearch keywords for: {{seed_keyword}}\nTarget audience: {{target_audience}}`}
-                  className="font-mono text-sm min-h-[360px] resize-none rounded-lg leading-relaxed"
+                  className="font-mono text-sm min-h-[240px] sm:min-h-[360px] resize-none rounded-lg leading-relaxed"
                   disabled={!isAdmin}
                 />
 
@@ -680,7 +680,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
                   <FlaskConical className="h-3.5 w-3.5" /> Test with custom values →
                 </Link>
               </div>
-              <div className="p-5 bg-blue-50/30 min-h-48 overflow-auto max-h-[600px]">
+              <div className="p-5 bg-blue-50/30 min-h-48 overflow-auto max-h-[60vh] sm:max-h-[600px]">
                 <HighlightedPromptPreview promptText={form.promptText} variables={SAMPLE_VARS} />
               </div>
             </div>

@@ -175,8 +175,8 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
             {[...costByProject].sort((a, b) => b.cost - a.cost).map(p => {
               const maxCost = Math.max(...costByProject.map(x => x.cost), 0.0001);
               return (
-                <div key={p.projectId} className="flex items-center gap-3">
-                  <div className="w-40 shrink-0 min-w-0">
+                <div key={p.projectId} className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-24 sm:w-40 shrink-0 min-w-0">
                     <div className="text-xs text-gray-600 truncate" title={p.projectName}>{p.projectName}</div>
                     {p.page && (
                       <span className={`inline-flex items-center px-1.5 rounded-full text-[9px] font-semibold mt-0.5 ${PAGE_BADGE[p.page] ?? PAGE_BADGE.Studio}`}>{p.page}</span>
@@ -185,11 +185,11 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
                   <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div className="h-full bg-amber-400 rounded-full" style={{ width: `${(p.cost / maxCost) * 100}%` }} />
                   </div>
-                  <div className="text-right shrink-0 w-28">
+                  <div className="text-right shrink-0 w-20 sm:w-28">
                     <div className="text-xs font-mono text-amber-600">{fmt(p.cost)}</div>
                     <div className="text-[10px] font-semibold text-red-500">{fmtTHB(p.cost)}</div>
                   </div>
-                  <span className="text-[10px] text-gray-400 w-14 text-right shrink-0">{p.jobs} jobs</span>
+                  <span className="text-[10px] text-gray-400 w-12 sm:w-14 text-right shrink-0">{p.jobs} jobs</span>
                 </div>
               );
             })}
@@ -203,7 +203,7 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
           <h3 className="text-sm font-semibold text-gray-700 mb-3">ค่าใช้จ่ายตามประเภท</h3>
           <div className="flex flex-wrap gap-2">
             {[...jobCountByType].sort((a, b) => b.cost - a.cost).map(t => (
-              <div key={t.jobType} className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-xl border border-gray-100">
+              <div key={t.jobType} className="flex flex-wrap max-w-full items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-xl border border-gray-100">
                 <span className="text-xs text-gray-600">{JOB_TYPE_LABEL[t.jobType] ?? t.jobType}</span>
                 <span className="text-xs font-semibold text-amber-600">{fmt(t.cost)}</span>
                 <span className="text-[10px] font-semibold text-red-500">{fmtTHB(t.cost)}</span>

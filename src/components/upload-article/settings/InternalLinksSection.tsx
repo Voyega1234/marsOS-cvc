@@ -212,10 +212,10 @@ export default function InternalLinksSection({ clientId, hideArticles = false }:
             {filteredGsc.map((l, i) => {
               const excluded = data.excluded.includes(l.url);
               return (
-                <label key={`${l.url}-${i}`} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer ${excluded ? "opacity-40" : "hover:bg-gray-50"}`}>
+                <label key={`${l.url}-${i}`} className={`flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer ${excluded ? "opacity-40" : "hover:bg-gray-50"}`}>
                   <input type="checkbox" checked={!excluded} onChange={() => toggleExclude(l.url)} />
-                  <span className="w-40 shrink-0 truncate">{l.keyword}</span>
-                  <span className="flex-1 truncate text-brand-blue font-mono">{l.url}</span>
+                  <span className="flex-1 min-w-0 sm:flex-none sm:w-40 truncate">{l.keyword}</span>
+                  <span className="flex-1 basis-full order-last pl-5 sm:basis-0 sm:order-none sm:pl-0 truncate text-brand-blue font-mono">{l.url}</span>
                   {typeof l.clicks === "number" && <span className="text-gray-400 shrink-0">{l.clicks} clicks</span>}
                 </label>
               );
@@ -240,19 +240,19 @@ export default function InternalLinksSection({ clientId, hideArticles = false }:
               {articles.map(a => {
                 if (!a.url) {
                   return (
-                    <div key={a.articleId} className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs opacity-40">
-                      <span className="w-40 shrink-0 truncate">{a.keyword}</span>
-                      <span className="flex-1 truncate text-gray-400">รอเผยแพร่ — จะใช้เป็นลิงก์หลัง push แบบ Publish</span>
+                    <div key={a.articleId} className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-lg text-xs opacity-40">
+                      <span className="flex-1 min-w-0 sm:flex-none sm:w-40 truncate">{a.keyword}</span>
+                      <span className="flex-1 basis-full order-last sm:basis-0 sm:order-none truncate text-gray-400">รอเผยแพร่ — จะใช้เป็นลิงก์หลัง push แบบ Publish</span>
                     </div>
                   );
                 }
                 const url = a.url;
                 const excluded = data.excluded.includes(url);
                 return (
-                  <label key={a.articleId} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer ${excluded ? "opacity-40" : "hover:bg-gray-50"}`}>
+                  <label key={a.articleId} className={`flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer ${excluded ? "opacity-40" : "hover:bg-gray-50"}`}>
                     <input type="checkbox" checked={!excluded} onChange={() => toggleExclude(url)} />
-                    <span className="w-40 shrink-0 truncate">{a.keyword}</span>
-                    <span className="flex-1 truncate text-brand-blue font-mono">{url}</span>
+                    <span className="flex-1 min-w-0 sm:flex-none sm:w-40 truncate">{a.keyword}</span>
+                    <span className="flex-1 basis-full order-last pl-5 sm:basis-0 sm:order-none sm:pl-0 truncate text-brand-blue font-mono">{url}</span>
                   </label>
                 );
               })}
@@ -265,13 +265,13 @@ export default function InternalLinksSection({ clientId, hideArticles = false }:
         <p className="text-sm font-semibold text-brand-navy">เพิ่มเอง ({data.manual.filter(l => l.url.trim()).length})</p>
         <div className="space-y-1 max-h-60 overflow-y-auto">
           {data.manual.map((l, i) => (
-            <div key={i} className="grid grid-cols-[1fr_2fr_2rem] items-center gap-2 group">
+            <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_2rem] items-center gap-2 group">
               <input value={l.keyword} onChange={e => manualUpdate(i, "keyword", e.target.value)} placeholder="anchor text"
                 className="text-xs border border-gray-100 focus:border-gray-300 rounded-lg px-2 py-1.5 w-full focus:outline-none" />
               <input value={l.url} onChange={e => manualUpdate(i, "url", e.target.value)} placeholder="https://example.com/slug"
                 className="text-xs text-brand-blue font-mono border border-gray-100 focus:border-gray-300 rounded-lg px-2 py-1.5 w-full focus:outline-none" />
               <button onClick={() => manualRemove(i)}
-                className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                className="text-gray-300 hover:text-red-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                 <Trash2 size={13} />
               </button>
             </div>

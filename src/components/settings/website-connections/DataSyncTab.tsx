@@ -121,7 +121,7 @@ export function DataSyncTab({ rows }: Props) {
         {detailRun && (
           <div className="space-y-4">
             <MockBadge />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Connection" value={detailRun.connection} />
               <Field label="Mode" value={detailRun.mode} />
               <Field label="Started" value={detailRun.startedAt} />

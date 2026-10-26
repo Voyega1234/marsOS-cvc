@@ -27,7 +27,7 @@ export function EnvironmentsTab() {
               <h3 className="text-sm font-bold text-brand-navy">{env.name}</h3>
               <MockBadge />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="URL" value={<span className="font-mono text-xs">{env.url}</span>} />
               <Field label="Connection" value={env.connection} />
               <Field label="Credential Reference" value={<span className="font-mono text-xs">{env.credentialRef}</span>} />

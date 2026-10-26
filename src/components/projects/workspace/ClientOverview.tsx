@@ -291,15 +291,15 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
 
       {/* 1. Client Hero */}
       <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-          <div className="flex items-start gap-4">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
             <div
               className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-xl font-bold text-white"
               style={{ backgroundColor: data.project.accentColor || project.accentColor || "#4f46e5" }}
             >
               {initial}
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-bold text-brand-navy">{displayName}</h1>
                 <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusBadge.classes}`}>
@@ -310,9 +310,9 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
                 href={data.project.website}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-1 inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline"
+                className="mt-1 inline-flex max-w-full items-center gap-1 break-all text-sm text-indigo-600 hover:underline"
               >
-                <Globe className="h-3.5 w-3.5" />
+                <Globe className="h-3.5 w-3.5 shrink-0" />
                 {data.project.website}
               </a>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
@@ -327,7 +327,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
               </div>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2 md:flex-col">
+          <div className="flex shrink-0 flex-wrap gap-2 lg:flex-col">
             <button
               type="button"
               onClick={() => handleNavigate("timeline-view")}

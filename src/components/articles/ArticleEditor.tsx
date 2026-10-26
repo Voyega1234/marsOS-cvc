@@ -123,7 +123,7 @@ export function ArticleEditor({ value, onChange, readOnly = false, placeholder =
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
     editorProps: {
       attributes: {
-        class: "prose prose-sm max-w-none focus:outline-none min-h-[400px] px-5 py-4 leading-relaxed",
+        class: "prose prose-sm max-w-none focus:outline-none min-h-[280px] sm:min-h-[400px] px-5 py-4 leading-relaxed",
       },
     },
   });
@@ -307,7 +307,7 @@ export function ArticleEditor({ value, onChange, readOnly = false, placeholder =
               <ChevronDown className="h-3 w-3" />
             </button>
             {showEmoji && (
-              <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-gray-100 rounded-xl shadow-lg p-3 w-72">
+              <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-gray-100 rounded-xl shadow-lg p-3 w-72 max-w-[calc(100vw-2rem)]">
                 {EMOJI_GROUPS.map((group) => (
                   <div key={group.label} className="mb-2">
                     <p className="text-xs text-gray-400 font-medium mb-1">{group.label}</p>

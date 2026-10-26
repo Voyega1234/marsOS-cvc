@@ -161,8 +161,8 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
       </div>
 
       {/* Users Table */}
-      <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white border border-gray-100 rounded-xl overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-100">
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
@@ -328,8 +328,8 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
             <DialogDescription>Create a new team member account</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleInvite} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
                 <Label htmlFor="name" className="text-sm font-medium">Full Name</Label>
                 <Input
                   id="name"
@@ -340,7 +340,7 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
                   className="mt-1 rounded-xl"
                 />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Label htmlFor="email" className="text-sm font-medium">Email</Label>
                 <Input
                   id="email"
@@ -352,7 +352,7 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
                   className="mt-1 rounded-xl"
                 />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Label htmlFor="password" className="text-sm font-medium">Initial Password</Label>
                 <Input
                   id="password"
@@ -365,7 +365,7 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
                   className="mt-1 rounded-xl"
                 />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Label htmlFor="role" className="text-sm font-medium">Role</Label>
                 <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
                   <SelectTrigger className="mt-1 rounded-xl">

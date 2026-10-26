@@ -342,7 +342,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
           )}
 
           {step === 3 && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {ENVIRONMENTS.map((env) => (
                 <button
                   key={env}
@@ -471,7 +471,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
 
           {step === 8 && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   onClick={() => setSyncMode("full")}
                   className={`rounded-xl border px-4 py-3 text-sm font-medium text-left ${syncMode === "full" ? "border-indigo-300 bg-indigo-50/50 text-indigo-700" : "border-gray-200 text-gray-700"}`}
@@ -511,7 +511,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-gray-200">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-500 hover:text-gray-700 text-sm">
             ยกเลิก
           </button>

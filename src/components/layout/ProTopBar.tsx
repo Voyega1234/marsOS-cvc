@@ -33,7 +33,8 @@ const PAGE_LABELS: Record<string, string> = {
   "/notifications":        "การแจ้งเตือน",
 };
 
-export function ProTopBar() {
+// leading = ปุ่มเปิดเมนูซ้ายบนมือถือ (ส่งมาจาก AppLayout เพราะ CLIENT ไม่มี SidebarProvider)
+export function ProTopBar({ leading }: { leading?: React.ReactNode } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { enterFront } = useMars();
@@ -104,16 +105,17 @@ export function ProTopBar() {
 
       {/* แบนเนอร์เตือนเมื่อ AI ยังไม่ได้เชื่อมต่อจริงเท่านั้น (เช็คจาก /api/ai/status) */}
       {!demoDismissed && !isClient && aiConnected === false && (
-        <div className="bg-amber-50 border-b border-amber-100 px-5 py-1.5 flex items-center gap-2 text-xs text-amber-700">
+        <div className="bg-amber-50 border-b border-amber-100 px-3 md:px-5 py-1.5 flex items-center gap-2 text-xs text-amber-700">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
           <span className="font-medium">AI ยังไม่ได้เชื่อมต่อ</span>
-          <span className="text-amber-500">— local: รัน ./scripts/gcloud-adc.sh · หรือใส่ key ที่</span>
+          <span className="hidden md:inline text-amber-500">— local: รัน ./scripts/gcloud-adc.sh · หรือใส่ key ที่</span>
           <Link href="/ai-connect" className="underline underline-offset-2 font-medium hover:text-amber-800">เชื่อมต่อ AI</Link>
           <button onClick={dismissDemo} className="ml-auto text-amber-400 hover:text-amber-700 transition-colors p-0.5 rounded" aria-label="ปิด">✕</button>
         </div>
       )}
 
-      <div className="sticky top-0 z-30 bg-white border-b border-gray-100 px-5 py-2.5 flex items-center gap-3">
+      <div className="sticky top-0 z-30 bg-white border-b border-gray-100 px-3 md:px-5 py-2.5 flex items-center gap-2 md:gap-3">
+        {leading}
         {/* Mars back button */}
         <button
           onClick={enterFront}
@@ -122,26 +124,26 @@ export function ProTopBar() {
           <IconBolt className="h-3.5 w-3.5" />
           MarsOS
         </button>
-        <span className="text-gray-200 shrink-0">/</span>
+        <span className="hidden md:inline text-gray-200 shrink-0">/</span>
 
-        {/* Page Label */}
-        <div className="flex-shrink-0">
+        {/* Page Label — มือถือซ่อน (หัวหน้าเพจมีชื่ออยู่แล้ว) */}
+        <div className="hidden md:block flex-shrink-0">
           <h1 className="text-sm font-semibold text-brand-navy">{pageLabel}</h1>
         </div>
 
         {/* Project Switcher — hidden for CLIENT */}
         {!isClient && projects.length > 0 && (
-          <div className="relative flex-shrink-0">
+          <div className="relative min-w-0 md:flex-shrink-0">
             <button
               onClick={() => setShowProjectPicker(!showProjectPicker)}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors"
+              className="flex max-w-full items-center gap-2 px-2.5 md:px-3 py-1.5 text-xs font-medium bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors"
             >
-              <span className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="max-w-32 truncate text-gray-700">{selectedProjectName}</span>
+              <span className="w-2 h-2 shrink-0 rounded-full bg-green-500" />
+              <span className="min-w-0 max-w-32 truncate text-gray-700">{selectedProjectName}</span>
               <ChevronDown className="h-3 w-3 text-gray-400" />
             </button>
             {showProjectPicker && (
-              <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-100 rounded-xl shadow-lg z-50 overflow-hidden">
+              <div className="absolute top-full left-0 mt-1 w-56 max-w-[calc(100vw-1.5rem)] max-h-[70vh] overflow-y-auto bg-white border border-gray-100 rounded-xl shadow-lg z-50">
                 <button
                   onClick={() => goToProject("ALL")}
                   className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors ${selectedProject === "ALL" ? "text-green-700 font-medium bg-green-50" : "text-gray-700"}`}
@@ -170,17 +172,18 @@ export function ProTopBar() {
         {!isClient && (
           <button
             onClick={() => setCmdOpen(true)}
-            className="flex-1 max-w-md flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 text-left"
+            aria-label="ค้นหา"
+            className="ml-auto md:ml-0 shrink-0 md:shrink md:flex-1 md:max-w-md flex items-center gap-2 p-2 md:px-3 md:py-1.5 text-sm bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 text-left"
           >
             <Search className="h-3.5 w-3.5 flex-shrink-0" />
-            <span className="flex-1">ค้นหา หรือสั่งงาน...</span>
-            <KbdGroup className="flex items-center gap-0.5">
+            <span className="hidden md:inline flex-1">ค้นหา หรือสั่งงาน...</span>
+            <KbdGroup className="hidden md:flex items-center gap-0.5">
               <Kbd>⌘</Kbd><Kbd>K</Kbd>
             </KbdGroup>
           </button>
         )}
 
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex shrink-0 items-center gap-2 md:ml-auto">
           {!isClient && <NotificationBell />}
         </div>
       </div>

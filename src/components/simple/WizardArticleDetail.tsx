@@ -625,9 +625,9 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                   {latestReview && (
                     <div>
                       <SectionLabel>คะแนน SEO</SectionLabel>
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         {[
-                          { label: "SEO",         value: latestReview.seoScore,        color: "text-brand-blue",   bg: "bg-blue-50",   border: "border-b border-gray-100lue-100" },
+                          { label: "SEO",        value: latestReview.seoScore,        color: "text-brand-blue",   bg: "bg-blue-50",   border: "border-b border-gray-100lue-100" },
                           { label: "AEO",         value: latestReview.aeoScore,        color: "text-violet-600", bg: "bg-violet-50", border: "border-violet-100" },
                           { label: "Conversion",  value: latestReview.conversionScore, color: "text-green-600",  bg: "bg-green-50",  border: "border-green-100" },
                         ].map((s) => (
@@ -751,7 +751,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                           </span>
                         )}
                       </div>
-                      <div className="grid grid-cols-3 gap-3 mb-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
                         {[
                           { l: "SEO",        v: review.seoScore,        bg: "bg-blue-50",   text: "text-brand-blue" },
                           { l: "AEO",        v: review.aeoScore,        bg: "bg-violet-50", text: "text-violet-600" },
@@ -799,7 +799,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
           {/* ── Step 8: Publish ── */}
           {activeStep === 8 && (
             <div className="space-y-5">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                   <p className="text-xs text-gray-400 font-medium mb-2">สถานะบทความ</p>
                   {statusCfg && (

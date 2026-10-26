@@ -183,7 +183,7 @@ export function CalendarClient({
           <h1 className="text-xl font-bold text-brand-navy">Content Calendar</h1>
           <p className="text-sm text-gray-500 mt-0.5">วางแผนการเผยแพร่บทความ</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Project Filter */}
           <select
             value={filterProject}
@@ -229,9 +229,9 @@ export function CalendarClient({
             </div>
 
             {view === "month" ? (
-              <>
+              <div className="overflow-x-auto">
                 {/* Day headers */}
-                <div className="grid grid-cols-7 border-b border-gray-100">
+                <div className="grid grid-cols-7 min-w-[640px] border-b border-gray-100">
                   {DAY_TH.map((d) => (
                     <div key={d} className="px-2 py-2 text-center text-xs font-bold text-gray-400 uppercase tracking-wide">
                       {d}
@@ -239,7 +239,7 @@ export function CalendarClient({
                   ))}
                 </div>
                 {/* Cells */}
-                <div className="grid grid-cols-7 auto-rows-[minmax(80px,auto)]">
+                <div className="grid grid-cols-7 min-w-[640px] auto-rows-[minmax(80px,auto)]">
                   {/* Empty cells before day 1 */}
                   {Array.from({ length: firstDow }).map((_, i) => (
                     <div key={`empty-${i}`} className="border-r border-b border-gray-50 bg-gray-50/30" />
@@ -288,7 +288,7 @@ export function CalendarClient({
                     );
                   })}
                 </div>
-              </>
+              </div>
             ) : (
               /* List view */
               <div className="divide-y divide-gray-50">
@@ -336,7 +336,7 @@ export function CalendarClient({
             <span className="text-sm font-semibold text-gray-700">ยังไม่กำหนดวัน</span>
             <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{unscheduled.length}</span>
           </div>
-          <div className="flex-1 overflow-y-auto max-h-[500px]">
+          <div className="flex-1 overflow-y-auto max-h-[60vh] sm:max-h-[500px]">
             {unscheduled.length === 0 && (
               <div className="py-8 text-center">
                 <CheckCircle2 className="h-8 w-8 text-green-300 mx-auto mb-2" />

@@ -42,6 +42,7 @@ import { NotificationsPopover } from "./nav-notifications";
 import { TeamSwitcher } from "./team-switcher";
 import { CommandMenu } from "./CommandMenu";
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 
 type UserRole = "ADMIN" | "USER" | "CLIENT" | string;
@@ -143,8 +144,15 @@ const teams = [
 ];
 
 function SidebarInner() {
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+  const { state, isMobile, setOpen, setOpenMobile } = useSidebar();
+  // มือถือเป็นลิ้นชักเต็มเสมอ — สถานะพับของเดสก์ท็อปห้ามทำให้ชื่อเมนูหาย
+  const isCollapsed = state === "collapsed" && !isMobile;
+  const pathname = usePathname();
+  // เปลี่ยนหน้าแล้วปิดลิ้นชักบนมือถือ
+  useEffect(() => { setOpenMobile(false); }, [pathname, setOpenMobile]);
+  // แท็บเล็ต (768–1023px): เริ่มแบบพับเหลือไอคอน ให้เนื้อหามีที่พอ — กดเปิดเองได้
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (window.innerWidth >= 768 && window.innerWidth < 1024) setOpen(false); }, []);
   const { data: session } = useSession();
   const [cmdOpen, setCmdOpen] = useState(false);
 
@@ -240,7 +248,7 @@ function SidebarInner() {
                   try { await createSupabaseBrowser().auth.signOut(); } catch { /* env ไม่ครบ (dev) */ }
                   window.location.href = "/login";
                 }}
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                className="md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
               >
                 <LogOut size={13} />
               </button>

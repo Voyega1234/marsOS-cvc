@@ -70,7 +70,7 @@ export default function FaqStyleEditor({ theme, onChange }: { theme: UploadTheme
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
       <div className="space-y-3">
         {detail.source && <p className="text-[10px] text-gray-400">ค่าจากการสแกน: {detail.source}</p>}
-        <div className="grid grid-cols-3 gap-2 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
           <label className="space-y-0.5">
             <span className="block text-[10px] font-semibold text-gray-500">รูปแบบกล่อง</span>
             <select value={faq.layout || ""} onChange={e => setFaq("layout", (e.target.value || undefined) as UploadFaqStyle["layout"])} className="w-full h-7 border border-gray-200 rounded px-1 text-[11px]">
@@ -101,7 +101,7 @@ export default function FaqStyleEditor({ theme, onChange }: { theme: UploadTheme
           </label>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {FAQ_COLORS.map(([k, label]) => <ColorField key={k} label={label} value={faq[k]} onChange={v => setFaq(k, v)} />)}
         </div>
 

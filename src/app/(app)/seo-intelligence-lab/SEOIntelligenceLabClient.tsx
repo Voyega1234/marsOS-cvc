@@ -196,7 +196,7 @@ function CostPanel({ data }: { data: CostSummary | null }) {
         <DollarSign size={13} className="text-gray-400" />
         <p className="text-xs font-bold text-gray-700">DataForSEO Cost Tracker</p>
       </div>
-      <div className="grid grid-cols-3 gap-3 text-center">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
         <div><p className="text-lg font-bold text-brand-navy">${data.totalCost.toFixed(4)}</p><p className="text-[10px] text-gray-400">Total spent</p></div>
         <div><p className="text-lg font-bold text-brand-navy">${data.todayCost.toFixed(4)}</p><p className="text-[10px] text-gray-400">Today</p></div>
         <div><p className="text-lg font-bold text-brand-navy">{data.totalCalls}</p><p className="text-[10px] text-gray-400">API calls</p></div>

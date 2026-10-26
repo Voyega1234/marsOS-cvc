@@ -97,14 +97,14 @@ export default async function MyTasksPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-brand-navy">งานของฉัน</h1>
           <p className="text-gray-500 text-sm mt-1">
             {totalCount === 0 ? "ไม่มีงานค้างอยู่ 🎉" : `${totalCount} งานที่รอดำเนินการ`}
           </p>
         </div>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-[#4A154B]" />Slack
           </div>

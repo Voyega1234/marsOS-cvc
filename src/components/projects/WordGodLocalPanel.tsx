@@ -1086,7 +1086,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
           <span>
             แสดง {((page - 1) * pageSize + 1).toLocaleString('th-TH')}–{Math.min(page * pageSize, filtered.length).toLocaleString('th-TH')} จาก {filtered.length.toLocaleString('th-TH')} คำ
           </span>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
             <select className="rounded-lg border border-[#dbe1ee] bg-white px-1.5 py-1" value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
               {[25, 50, 100].map(n => <option key={n} value={n}>{n}/หน้า</option>)}
             </select>
@@ -1230,7 +1230,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>รัศมีบริการ (Service Radius)</label>
                 <select className={fieldClass} value={radius ?? ''} onChange={event => setRadius(event.target.value ? Number(event.target.value) : null)}>
@@ -1281,7 +1281,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className={labelClass}>ประเภทพื้นที่หลัก</label>
                     <select className={fieldClass} value={primaryType} onChange={event => setPrimaryType(event.target.value as LocalAreaType)}>
@@ -1820,7 +1820,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
 
                   <div>
                     <h4 className="mb-2 text-sm font-bold text-[#17233a]">Volume แยกตามแหล่ง (ไม่เฉลี่ยรวม)</h4>
-                    <div className="overflow-hidden rounded-xl border border-[#eef1f7]">
+                    <div className="overflow-x-auto rounded-xl border border-[#eef1f7]">
                       <table className="w-full text-[11px]">
                         <tbody>
                           <tr className="border-b border-[#eef1f7] bg-[#f8fafd]">
@@ -1847,7 +1847,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-[#eef1f7] px-3 py-2.5">
                       <p className="text-[10px] font-semibold text-[#71809c]">CPC (฿)</p>
                       <p className="font-bold tabular-nums">{formatBaht(drawerRow.intel.dfs.cpc ?? drawerRow.intel.google.bidHighMicros)}</p>

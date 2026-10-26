@@ -47,7 +47,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
 
   return (
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
         <button onClick={onToggle} className="text-gray-400 hover:text-gray-600 shrink-0">
           {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
@@ -77,7 +77,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
           {/* Mode selector — ปุ่มมาตรฐาน / ออกแบบเอง / แบนเนอร์รูป */}
           <div>
             <p className="text-xs font-medium text-gray-600 mb-1.5">รูปแบบ CTA</p>
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {([["buttons", "ปุ่มมาตรฐาน"], ["custom", "ออกแบบเอง"], ["banner", "แบนเนอร์รูป"]] as [CtaMode, string][]).map(([v, lbl]) => (
                 <button key={v}
                   onClick={() => onChange({
@@ -92,7 +92,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
           </div>
 
           {item.mode !== "banner" && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Headline</label>
                 <input value={item.headline} onChange={(e) => onChange({ headline: e.target.value })}
@@ -108,10 +108,10 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
 
           {/* Layout controls */}
           {item.mode !== "banner" && (
-            <div className="flex items-center gap-6">
+            <div className="flex flex-wrap items-center gap-6 gap-y-3">
               <div>
                 <p className="text-xs font-medium text-gray-600 mb-1.5">การจัดวาง</p>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                   {([["left", "◀ ซ้าย"], ["center", "■ กลาง"], ["right", "ขวา ▶"]] as [UploadCtaItem["alignment"], string][]).map(([v, lbl]) => (
                     <button key={v} onClick={() => onChange({ alignment: v })}
                       className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${item.alignment === v ? "border-gray-800 bg-gray-800 text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
@@ -122,7 +122,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
               </div>
               <div>
                 <p className="text-xs font-medium text-gray-600 mb-1.5">ปุ่มเรียงแนว</p>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                   {([["row", "แนวนอน ▷▷"], ["column", "แนวตั้ง ↓"]] as [UploadCtaItem["buttonLayout"], string][]).map(([v, lbl]) => (
                     <button key={v} onClick={() => onChange({ buttonLayout: v })}
                       className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${item.buttonLayout === v ? "border-gray-800 bg-gray-800 text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
@@ -154,7 +154,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                     onClick={() => updateCustom(defaultUploadCtaCustom(accentColor, border))}
                     className="text-[10px] text-gray-400 hover:text-brand-blue">รีเซ็ตเป็นสีธีม</button>
                 </div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                   {colorRows.map(({ key, label }) => {
                     const val = (custom[key] as string) || "#ffffff";
                     return (
@@ -173,7 +173,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                     );
                   })}
                 </div>
-                <div className="grid grid-cols-3 gap-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                   {([
                     ["boxBorderWidth", "กรอบกล่อง (px)", 0, 6],
                     ["boxRadius", "มุมกล่อง (px)", 0, 32],
@@ -257,7 +257,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                 )}
                 <div className="space-y-3">
                   {banners.map((b) => (
-                    <div key={b.id} className="bg-white rounded-xl border border-gray-200 p-3 flex gap-3">
+                    <div key={b.id} className="bg-white rounded-xl border border-gray-200 p-3 flex flex-wrap gap-2 sm:gap-3">
                       <div className="shrink-0">
                         {b.imageUrl ? (
                           <img src={b.imageUrl} alt="" className="max-h-32 rounded-lg border border-gray-100 object-contain" />
@@ -280,7 +280,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                             className="mt-1 text-[10px] text-gray-400 hover:text-red-500">เปลี่ยนรูป</button>
                         )}
                       </div>
-                      <div className="flex-1 space-y-1.5 min-w-0">
+                      <div className="flex-1 space-y-1.5 min-w-[10rem] sm:min-w-0">
                         <input value={b.href} onChange={(e) => updateBanner(b.id, { href: e.target.value })}
                           placeholder="ลิงก์เมื่อกด เช่น https://line.me/... / tel:02xxxxxxx"
                           className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none" />
@@ -341,12 +341,12 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                         />
                         <button
                           onClick={() => onChange({ channels: item.channels.filter((c) => c.type !== ch.type) })}
-                          className="text-gray-300 hover:text-red-400 text-sm opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          className="text-gray-300 hover:text-red-400 text-sm md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
                           ✕
                         </button>
                       </div>
                       {/* Row 2: image upload + button style */}
-                      <div className="flex items-center gap-3 mt-2 pl-7">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-2 pl-7">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-[10px] text-gray-400 shrink-0">รูป/โลโก้:</span>
                           {ch.imageUrl ? (
@@ -380,7 +380,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                             <span className="text-[10px] text-gray-300">{currentIcon}</span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1 ml-auto shrink-0">
+                        <div className="flex flex-wrap items-center gap-1 ml-auto shrink-0">
                           <span className="text-[10px] text-gray-400">สไตล์:</span>
                           {(["filled", "outline", "ghost"] as UploadCtaButtonStyle[]).map((s) => (
                             <button key={s} onClick={() => onChange({ channels: item.channels.map((c) => (c.type === ch.type ? { ...c, buttonStyle: s } : c)) })}
