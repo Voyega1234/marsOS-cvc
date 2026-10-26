@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FunnelBadge } from "@/components/shared/FunnelBadge";
 import { LoadingSpinner } from "@/components/shared/LoadingState";
 import { safeJson, formatDate, formatDateTime } from "@/lib/utils";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 import {
   FileText, PenLine, Search, Image, Globe, CheckCircle, History,
   Sparkles, RefreshCw, AlertTriangle, BookOpen, LayoutList, Save,
@@ -450,6 +451,8 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
   const latestReview = article.reviews[0];
 
   async function runAIAction(key: string, endpoint: string) {
+    // writer เก่าปิดอยู่ — กันทุกทางที่จะเรียก /api/ai/article
+    if (key === "article" && !LEGACY_AI_WRITER_ENABLED) return;
     const hasContent =
       (key === "article" && article.htmlContent) ||
       (key === "outline" && article.outline);
@@ -580,10 +583,10 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
       {(() => {
         const s = article.status;
         const map: Record<string, { emoji: string; title: string; desc: string; action?: string; actionLabel?: string; actionEndpoint?: string; isApprove?: boolean }> = {
-          NEW:               { emoji: "✦", title: "เริ่มสร้าง Outline", desc: "กด Auto Run ด้านล่างให้ AI เขียนโครงร่างให้เลย หรือกด Generate Outline เพื่อเริ่มทีละขั้น" },
+          NEW:               { emoji: "✦", title: "เริ่มสร้าง Outline", desc: LEGACY_AI_WRITER_ENABLED ? "กด Auto Run ด้านล่างให้ AI เขียนโครงร่างให้เลย หรือกด Generate Outline เพื่อเริ่มทีละขั้น" : "กด สร้าง Outline ด้านล่างให้ AI เขียนโครงร่างให้" },
           KEYWORD_DONE:      { emoji: "✦", title: "พร้อมสร้าง Outline", desc: "Keyword พร้อมแล้ว กด Generate Outline เพื่อให้ AI วางโครงร่างบทความ", action: "outline", actionLabel: "Generate Outline", actionEndpoint: "/api/ai/outline" },
           OUTLINE_GENERATING:{ emoji: "⟳", title: "AI กำลังสร้างโครงร่าง...", desc: "รอสักครู่ ระบบกำลังทำงานอยู่" },
-          OUTLINE_DONE:      { emoji: "👀", title: "รอคุณ Approve โครงร่าง", desc: "ดูโครงร่างในแท็บ Outline แล้วกดปุ่ม Approve ด้านบน ถ้าโอเคก็กด AI จะเขียนบทความต่อ", isApprove: true },
+          OUTLINE_DONE:      { emoji: "👀", title: "รอคุณ Approve โครงร่าง", desc: LEGACY_AI_WRITER_ENABLED ? "ดูโครงร่างในแท็บ Outline แล้วกดปุ่ม Approve ด้านบน ถ้าโอเคก็กด AI จะเขียนบทความต่อ" : "ดูโครงร่างในแท็บ Outline แล้วกดปุ่ม Approve ด้านบน", isApprove: true },
           OUTLINE_APPROVED:  { emoji: "✦", title: "เริ่มเขียนบทความได้เลย", desc: "Outline อนุมัติแล้ว กด Generate Article ให้ AI เขียนบทความเต็มๆ", action: "article", actionLabel: "Generate Article", actionEndpoint: "/api/ai/article" },
           ARTICLE_GENERATING:{ emoji: "⟳", title: "AI กำลังเขียนบทความ...", desc: "รอสักครู่ อาจใช้เวลา 1–2 นาที" },
           ARTICLE_DONE:      { emoji: "✦", title: "เขียนเสร็จแล้ว — รัน SEO Check", desc: "ดูบทความในแท็บ Article แล้วกด SEO Check ให้ AI ตรวจคุณภาพ", action: "seo", actionLabel: "SEO Check", actionEndpoint: "/api/ai/seo-check" },
@@ -592,9 +595,10 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
           APPROVED:          { emoji: "🚀", title: "พร้อม Publish!", desc: "บทความผ่านแล้ว ไปแท็บ Publish เพื่อส่งขึ้น WordPress" },
           WORDPRESS_DRAFTED: { emoji: "✓",  title: "Draft ใน WordPress แล้ว", desc: "เข้าไปตรวจและ Publish ใน WordPress admin ได้เลย" },
           POSTED:            { emoji: "✓",  title: "เผยแพร่แล้ว!", desc: "บทความอยู่บนเว็บไซต์แล้ว" },
-          ERROR:             { emoji: "⚠", title: "เกิดข้อผิดพลาด", desc: "ลอง Auto Run ใหม่ หรือกดปุ่ม Generate ทีละขั้นตอน" },
+          ERROR:             { emoji: "⚠", title: "เกิดข้อผิดพลาด", desc: LEGACY_AI_WRITER_ENABLED ? "ลอง Auto Run ใหม่ หรือกดปุ่ม Generate ทีละขั้นตอน" : "กดปุ่ม Generate ทีละขั้นตอนใหม่อีกครั้ง" },
         };
-        const step = map[s];
+        // OUTLINE_APPROVED = การ์ด Generate Article (writer เก่า) → ไม่แสดงเมื่อปิดอยู่
+        const step = s === "OUTLINE_APPROVED" && !LEGACY_AI_WRITER_ENABLED ? undefined : map[s];
         if (!step || s === "POSTED") return null;
         const isDone = s === "WORDPRESS_DRAFTED";
         return (
@@ -613,19 +617,22 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Actions</p>
-            {/* Auto Run — runs full pipeline in one click */}
-            <button
-              onClick={runAutoFull}
-              disabled={loadingAction !== null}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
-            >
-              {loadingAction === "auto-full"
-                ? <LoadingSpinner className="border-white" />
-                : <Zap className="h-3.5 w-3.5" />}
-              Auto Run ทั้งหมด
-            </button>
+            {/* Auto Run — runs full pipeline in one click (writer เก่า) */}
+            {LEGACY_AI_WRITER_ENABLED && (
+              <button
+                onClick={runAutoFull}
+                disabled={loadingAction !== null}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                {loadingAction === "auto-full"
+                  ? <LoadingSpinner className="border-white" />
+                  : <Zap className="h-3.5 w-3.5" />}
+                Auto Run ทั้งหมด
+              </button>
+            )}
           </div>
-          {/* Output format toggle — shown near article generation context */}
+          {/* Output format toggle — ใช้กับปุ่มเขียนบทความเท่านั้น (writer เก่า) */}
+          {LEGACY_AI_WRITER_ENABLED && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-gray-400 mr-1">รูปแบบผลลัพธ์:</span>
             <button
@@ -641,9 +648,10 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               <AlignLeft className="h-3.5 w-3.5" />Plain Text
             </button>
           </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
-          {AI_ACTIONS.map((action) => {
+          {AI_ACTIONS.filter((a) => LEGACY_AI_WRITER_ENABLED || a.key !== "article").map((action) => {
             const isLocked = action.requiredStatus.length > 0 && !action.requiredStatus.includes(article.status);
             return (
               <div key={action.key} className="relative group/btn">

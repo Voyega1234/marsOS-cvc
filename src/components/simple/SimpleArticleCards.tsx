@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 import { STATUS_CONFIG, FUNNEL_CONFIG } from "@/types";
 import type { ArticleStatus, FunnelStage } from "@/types";
 import {
@@ -142,11 +143,14 @@ function getNextAction(status: string): NextAction {
       hint: "เกิดข้อผิดพลาด กรุณาตรวจสอบ",
     },
   };
-  return map[status] ?? {
+  const fallback: NextAction = {
     label: "เปิดบทความ", emoji: "📄", type: "view",
     color: "bg-gray-100 hover:bg-gray-200", textColor: "text-gray-700",
     hint: "",
   };
+  // writer เก่าปิดอยู่ — ไม่ให้การ์ดสั่งเขียนบทความ (/api/ai/article) ให้เปิดบทความแทน
+  if (status === "OUTLINE_APPROVED" && !LEGACY_AI_WRITER_ENABLED) return fallback;
+  return map[status] ?? fallback;
 }
 
 const STATUS_GROUPS = [

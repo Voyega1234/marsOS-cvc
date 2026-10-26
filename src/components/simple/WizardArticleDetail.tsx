@@ -10,6 +10,7 @@ import {
   DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { safeJson, formatDate, formatDateTime } from "@/lib/utils";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 import { STATUS_CONFIG, FUNNEL_CONFIG } from "@/types";
 import type { ArticleStatus, FunnelStage } from "@/types";
 import {
@@ -134,6 +135,8 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
   const progress = Math.round(((getActiveStep(article.status) - 1) / 7) * 100);
 
   async function runAIAction(key: string, endpoint: string) {
+    // writer เก่าปิดอยู่ — กันทุกทางที่จะเรียก /api/ai/article
+    if (key === "article" && !LEGACY_AI_WRITER_ENABLED) return;
     const hasContent =
       (key === "article" && !!article.htmlContent) ||
       (key === "outline" && !!article.outline);
@@ -224,7 +227,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
       </div>
 
       {/* ── Auto-run Banner ──────────────────────────────────────────── */}
-      {automationMode !== "MANUAL" && !["WORDPRESS_DRAFTED", "POSTED"].includes(article.status) && (
+      {LEGACY_AI_WRITER_ENABLED && automationMode !== "MANUAL" && !["WORDPRESS_DRAFTED", "POSTED"].includes(article.status) && (
         <div className="rounded-2xl border-2 border-violet-200 bg-violet-50 p-5 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/70 flex items-center justify-center shadow-sm">
@@ -516,11 +519,11 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                   title="ยังไม่มีบทความ"
                   description={
                     article.status === "OUTLINE_APPROVED"
-                      ? "โครงร่างอนุมัติแล้ว! กด 'เขียนบทความ' เพื่อให้ AI เขียนเนื้อหาเต็มรูปแบบ"
+                      ? (LEGACY_AI_WRITER_ENABLED ? "โครงร่างอนุมัติแล้ว! กด 'เขียนบทความ' เพื่อให้ AI เขียนเนื้อหาเต็มรูปแบบ" : "โครงร่างอนุมัติแล้ว")
                       : "อนุมัติโครงร่างก่อน แล้วจึงเขียนบทความได้"
                   }
                 >
-                  {article.status === "OUTLINE_APPROVED" && (
+                  {LEGACY_AI_WRITER_ENABLED && article.status === "OUTLINE_APPROVED" && (
                     <AIActionButton
                       label="✍️ ให้ AI เขียนบทความ"
                       loading={loadingAction === "article"}
@@ -551,16 +554,18 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                       </details>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <button
-                      onClick={() => runAIAction("article", "/api/ai/article")}
-                      disabled={!!loadingAction}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-100 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      {loadingAction === "article" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                      เขียนใหม่
-                    </button>
-                  </div>
+                  {LEGACY_AI_WRITER_ENABLED && (
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={() => runAIAction("article", "/api/ai/article")}
+                        disabled={!!loadingAction}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-100 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        {loadingAction === "article" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        เขียนใหม่
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               <StepNav
@@ -1056,6 +1061,8 @@ function resolveBannerAction(status: string): {
         action: { type: "patch", newStatus: "OUTLINE_APPROVED", successMsg: "โครงร่างได้รับการอนุมัติแล้ว! ✅", label: "✅ อนุมัติ Outline", color: "bg-amber-500 hover:bg-amber-600" },
       };
     case "OUTLINE_APPROVED":
+      // การ์ดนี้มีแค่ปุ่มเขียนบทความ (writer เก่า) → ไม่แสดงเมื่อปิดอยู่
+      if (!LEGACY_AI_WRITER_ENABLED) return null;
       return {
         bannerStyle: "bg-green-50 border-green-200",
         icon: <PenLine className="h-5 w-5 text-green-600" />,

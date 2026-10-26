@@ -7,6 +7,7 @@ import { Sparkles, Zap, CheckCircle2, AlertCircle, Info, TrendingUp } from "luci
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/shared/LoadingState";
 import { safeJson } from "@/lib/utils";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 
 interface AuditBreakdown {
   seo: number;
@@ -148,7 +149,7 @@ export function ArticleAuditPanel({ articleId, auditScore, auditResultsJson, has
             {running === "audit" ? <LoadingSpinner className="border-white" /> : <Sparkles className="h-3.5 w-3.5" />}
             {audit ? "Re-Audit" : "Run Audit"}
           </Button>
-          {audit && !audit.fixApplied && (
+          {LEGACY_AI_WRITER_ENABLED && audit && !audit.fixApplied && (
             <Button
               onClick={runFix}
               disabled={running !== null}

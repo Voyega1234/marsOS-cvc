@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 import {
   Sparkles, Zap, PenLine, ArrowRight, ChevronDown,
   BookOpen, Search, Wand2, Check, Loader2, Info,
@@ -81,7 +82,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
   const [intent, setIntent] = useState("INFORMATIONAL");
   const [funnel, setFunnel] = useState("TOFU");
   const [brief, setBrief] = useState("");
-  const [mode, setMode] = useState<Mode>("auto");
+  const [mode, setMode] = useState<Mode>(LEGACY_AI_WRITER_ENABLED ? "auto" : "manual");
   const [step, setStep] = useState<"creating" | "running" | "done" | null>(null);
   const [stepsRun, setStepsRun] = useState<string[]>([]);
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -120,7 +121,8 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
     const article = await res.json();
     setCreatedId(article.id);
 
-    if (mode === "manual") {
+    // writer เก่าปิดอยู่ → ข้าม auto-run สร้างบทความเปล่าแล้วไปหน้า Article เหมือนโหมด manual
+    if (mode === "manual" || !LEGACY_AI_WRITER_ENABLED) {
       toast.success("สร้างบทความแล้ว — ไปหน้า Article");
       router.push(`/articles/${article.id}`);
       return;
@@ -168,12 +170,15 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-xl font-semibold text-brand-navy">สร้างบทความใหม่</h1>
-          <p className="text-sm text-gray-500 mt-0.5">ใส่ title → เลือก Full Auto → กด Enter</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {LEGACY_AI_WRITER_ENABLED ? "ใส่ title → เลือก Full Auto → กด Enter" : "ใส่ title → กด Enter เพื่อสร้างบทความเปล่า"}
+          </p>
         </div>
         <span className="text-xs text-gray-400 pb-0.5">กด <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600 font-mono text-[10px]">Enter</kbd> เพื่อสร้าง</span>
       </div>
 
-      {/* Mode selector */}
+      {/* Mode selector (ซ่อนเมื่อปิด writer เก่า — เหลือแค่ Manual) */}
+      {LEGACY_AI_WRITER_ENABLED && (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {MODES.map((m) => (
           <button
@@ -202,6 +207,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
           </button>
         ))}
       </div>
+      )}
 
       {/* Form */}
       <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">

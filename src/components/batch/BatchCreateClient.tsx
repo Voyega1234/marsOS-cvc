@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Upload, Zap, Plus, X, ChevronDown, Loader2, CheckCircle2, AlertCircle, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/utils";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 
 interface Project { id: string; name: string; automationMode: string; language: string }
 interface BatchJob {
@@ -30,6 +31,13 @@ const INTENT_OPTIONS = [
   { value: "TRANSACTIONAL", label: "Transactional" },
 ];
 
+// Automation ที่เหลือเมื่อปิด writer เก่า: สร้างบทความเปล่าเท่านั้น (ไม่เรียก auto-run)
+const AUTOMATION_OPTIONS = [
+  { v: "FULL_AUTO", l: "Full Auto", d: "AI เขียนจนจบ" },
+  { v: "SEMI_AUTO", l: "Semi Auto", d: "หยุดรอ Approve" },
+  { v: "MANUAL",    l: "สร้างเปล่า", d: "กดเองทีละขั้น" },
+].filter((m) => LEGACY_AI_WRITER_ENABLED || m.v === "MANUAL");
+
 const STATUS_STYLE: Record<string, string> = {
   DONE:    "bg-green-100 text-green-700",
   RUNNING: "bg-blue-100 text-blue-700",
@@ -46,7 +54,7 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
   const [rawText, setRawText]       = useState("");
   const [funnel, setFunnel]         = useState("TOFU");
   const [intent, setIntent]         = useState("INFORMATIONAL");
-  const [mode, setMode]             = useState("FULL_AUTO");
+  const [mode, setMode]             = useState(LEGACY_AI_WRITER_ENABLED ? "FULL_AUTO" : "MANUAL");
   const [competitors, setCompetitors] = useState("");
   const [loading, setLoading]       = useState(false);
   const [result, setResult]         = useState<{ created: number; failed: number; batchJobId: string } | null>(null);
@@ -86,14 +94,14 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
           keywords,
           funnelStage: funnel,
           searchIntent: intent,
-          automationMode: mode,
+          automationMode: LEGACY_AI_WRITER_ENABLED ? mode : "MANUAL",
           competitorUrls: competitors.split("\n").map((u) => u.trim()).filter(Boolean),
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "เกิดข้อผิดพลาด"); return; }
       setResult(data);
-      toast.success(`สร้าง ${data.created} บทความแล้ว — AI กำลัง run`);
+      toast.success(LEGACY_AI_WRITER_ENABLED ? `สร้าง ${data.created} บทความแล้ว — AI กำลัง run` : `สร้าง ${data.created} บทความแล้ว`);
       router.refresh();
     } finally {
       setLoading(false);
@@ -107,7 +115,9 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
       <div>
         <h1 className="text-xl font-bold text-brand-navy">Batch Content Creation</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          วาง keyword list → ระบบสร้างบทความพร้อม Auto Run ทั้งหมดในครั้งเดียว
+          {LEGACY_AI_WRITER_ENABLED
+            ? "วาง keyword list → ระบบสร้างบทความพร้อม Auto Run ทั้งหมดในครั้งเดียว"
+            : "วาง keyword list → ระบบสร้างบทความเปล่าทั้งหมดในครั้งเดียว"}
         </p>
       </div>
 
@@ -117,7 +127,9 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
           <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
           <div>
             <p className="text-sm font-semibold text-green-800">เริ่ม Batch Job แล้ว!</p>
-            <p className="text-xs text-green-600">สร้าง {result.created} บทความ · AI กำลังทำงานใน background</p>
+            <p className="text-xs text-green-600">
+              สร้าง {result.created} บทความ{LEGACY_AI_WRITER_ENABLED && " · AI กำลังทำงานใน background"}
+            </p>
           </div>
           <button onClick={() => router.push("/articles")} className="ml-auto text-xs font-semibold text-green-700 underline">
             ดูบทความทั้งหมด →
@@ -231,11 +243,7 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
             {/* Mode */}
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">Automation</label>
-              {[
-                { v: "FULL_AUTO", l: "Full Auto", d: "AI เขียนจนจบ" },
-                { v: "SEMI_AUTO", l: "Semi Auto", d: "หยุดรอ Approve" },
-                { v: "MANUAL",    l: "สร้างเปล่า", d: "กดเองทีละขั้น" },
-              ].map((m) => (
+              {AUTOMATION_OPTIONS.map((m) => (
                 <label key={m.v} className={cn("flex items-start gap-2.5 p-2.5 rounded-lg cursor-pointer mb-1.5 border transition-colors", mode === m.v ? "border-blue-300 bg-blue-50" : "border-gray-100 hover:bg-gray-50")}>
                   <input type="radio" name="mode" value={m.v} checked={mode === m.v} onChange={() => setMode(m.v)} className="mt-0.5 accent-blue-600" />
                   <div>
@@ -247,7 +255,7 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
             </div>
 
             {/* Cost estimate */}
-            {keywords.length > 0 && (
+            {LEGACY_AI_WRITER_ENABLED && keywords.length > 0 && (
               <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 text-xs text-amber-700">
                 <p className="font-semibold">ประมาณการ (จริง)</p>
                 <p>~${(keywords.length * 0.06).toFixed(2)} เมื่อต่อ AI จริง</p>

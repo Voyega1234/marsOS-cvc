@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FunnelBadge } from "@/components/shared/FunnelBadge";
 import { formatDate } from "@/lib/utils";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 import { CheckCircle, Zap, ExternalLink, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import type { ArticleStatus } from "@/types";
 
@@ -73,7 +74,8 @@ export function MyTasksClient({ groups, urgencyMeta, userId }: Props) {
       {groups.map(([status, articles]) => {
         const meta = urgencyMeta[status];
         if (!meta) return null;
-        const action = STATUS_ACTIONS[status] ?? null;
+        // OUTLINE_APPROVED มีแค่ปุ่ม Auto Run (writer เก่า) → ไม่แสดงเมื่อปิดอยู่
+        const action = status === "OUTLINE_APPROVED" && !LEGACY_AI_WRITER_ENABLED ? null : STATUS_ACTIONS[status] ?? null;
         return (
           <div key={status}>
             <div className="flex items-center gap-3 mb-3">

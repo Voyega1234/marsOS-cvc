@@ -8,6 +8,7 @@ import { FunnelBadge } from "@/components/ui/FunnelBadge";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatDistanceToNow } from "date-fns";
+import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 
 type ArticleKeyword = {
   id: string;
@@ -214,13 +215,15 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
                         >
                           {generatingOutline === article.id ? "..." : "Outline"}
                         </button>
-                        <button
-                          onClick={() => generateArticle(article.id)}
-                          disabled={generatingArticle === article.id}
-                          className="text-xs text-purple-600 hover:text-purple-700 font-medium disabled:opacity-50"
-                        >
-                          {generatingArticle === article.id ? "..." : "Article"}
-                        </button>
+                        {LEGACY_AI_WRITER_ENABLED && (
+                          <button
+                            onClick={() => generateArticle(article.id)}
+                            disabled={generatingArticle === article.id}
+                            className="text-xs text-purple-600 hover:text-purple-700 font-medium disabled:opacity-50"
+                          >
+                            {generatingArticle === article.id ? "..." : "Article"}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
