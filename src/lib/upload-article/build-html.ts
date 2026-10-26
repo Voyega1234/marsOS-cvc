@@ -346,14 +346,14 @@ function normalizeFaqStructure(blocks: HTMLElement[]): void {
   }
 }
 
-/** หัวข้อ Key Takeaways + รายการถัดไป → กล่อง content-takeaways (ไม่ใช่ H2 แล้ว จึงไม่เข้าสารบัญ) */
-function boxTakeawayBlocks(blocks: HTMLElement[]): void {
+/** หัวข้อสรุปประเด็นสำคัญ/Key Takeaways + รายการถัดไป → กล่อง content-takeaways (ไม่ใช่ H2 แล้ว จึงไม่เข้าสารบัญ) — เว็บไทยหัวกล่อง = "สรุปประเด็นสำคัญ" */
+function boxTakeawayBlocks(blocks: HTMLElement[], language: 'th' | 'en'): void {
   for (let i = 0; i < blocks.length - 1; i++) {
     const tag = blocks[i].tagName.toLowerCase()
     const next = blocks[i + 1].tagName.toLowerCase()
     if (!/^(h[2-6]|p)$/.test(tag) || (next !== 'ul' && next !== 'ol')) continue
     if (!TAKEAWAYS_HEADING_RE.test(blocks[i].text.replace(/\s+/g, ' ').trim())) continue
-    const boxed = boxKeyTakeaways(`${blocks[i].outerHTML}${blocks[i + 1].outerHTML}`)
+    const boxed = boxKeyTakeaways(`${blocks[i].outerHTML}${blocks[i + 1].outerHTML}`, language)
     if (!boxed.includes('content-takeaways')) continue
     blocks.splice(i, 2, parseTopLevelBlocks(boxed)[0])
   }
@@ -590,7 +590,7 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
   let h1Index = normalizeH1(blocks, o.meta.title)
   if (htmlMode) {
     normalizeFaqStructure(blocks)
-    boxTakeawayBlocks(blocks)
+    boxTakeawayBlocks(blocks, o.site.language)
   }
   const h2Count = assignH2Ids(blocks)
 

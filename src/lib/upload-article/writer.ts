@@ -151,7 +151,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   // Mars Human Voice Skill — skill หลักแนบทุกครั้งที่เขียน (เจ้าของสั่ง 2026-09-28): อ่านรู้เรื่อง ได้ใจความ รวม H1/meta
   lines.push('')
   lines.push(humanVoiceSkillBlock(task.language ?? 'th'))
-  // Mars Article Structure — กล่อง Key Takeaways + FAQ (หัว H2 / คำถาม H3) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
+  // Mars Article Structure — กล่องสรุปประเด็นสำคัญ + FAQ (หัว H2 / คำถาม H3) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
   lines.push('')
   lines.push(articleStructureSkillBlock(task.language === 'en' ? 'en' : 'th'))
   lines.push('')
@@ -178,7 +178,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push('ตามด้วย semantic HTML ล้วน ๆ เท่านั้น (ห้ามมี markdown code fence เช่น ``` ห้ามมีคำอธิบายอื่นปน):')
   lines.push(`- มี <h1> เดียวเท่านั้น (${keyword.title ? `ใช้ข้อความ "${keyword.title}" เป๊ะ ๆ` : 'ตั้งตามหัวข้อบทความที่เหมาะกับ keyword'})`)
   lines.push('- โครงสร้างใช้ <h2>/<h3>, <p>, <ul>/<ol>/<li>, <table>, <strong>/<em>, <a href="...">')
-  lines.push(`- Key Takeaways ต่อจากย่อหน้าเปิดเรื่อง: <h2>${task.language === 'en' ? 'Key Takeaways' : 'สรุปประเด็นสำคัญ'}</h2> ตามด้วย <ul> 3-5 ข้อ (ระบบแปลงเป็นกล่องเอง)`)
+  lines.push(`- กล่องสรุปประเด็นสำคัญ ต่อจากย่อหน้าเปิดเรื่อง: <h2>${task.language === 'en' ? 'Key Takeaways' : 'สรุปประเด็นสำคัญ'}</h2> ตามด้วย <ul> 3-5 ข้อ (ระบบแปลงเป็นกล่องเอง)`)
   lines.push('- ส่วน FAQ ให้ทำเป็น <h2> ที่มีคำว่า "FAQ" หรือ "คำถามที่พบบ่อย" ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>')
   lines.push('- ห้ามมี <style>, inline style (style="..."), class="...", <html>, <body>, รูปภาพ (<img>) เด็ดขาด')
 

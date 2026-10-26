@@ -180,6 +180,21 @@ console.log('H — มาตรฐานโครง: คำถาม FAQ = span
   const out = normalizeFaqAndTakeaways(seo);
   assert(out.startsWith('<h1>T</h1><div class="content-takeaways"><p class="content-takeaways__title">Key Takeaways</p>') && (out.match(/content-highlight/g) || []).length === 1, 'SEO เก่า: Key Takeaways ใน content-highlight ไม่เป็นกล่องซ้อน');
 }
+console.log('H2 — บทความไทย: หัวกล่องเป็น "สรุปประเด็นสำคัญ" เสมอ ไม่ใช่ Key Takeaways (2026-10-26)');
+{
+  const r = build('<h2>Key Takeaways</h2><ul><li>ข้อ 1</li><li>ข้อ 2</li></ul><h2>เนื้อหา</h2><p>x</p>');
+  assert(r.html.includes('<p class="content-takeaways__title">สรุปประเด็นสำคัญ</p>') && !/key\s*takeaways/i.test(r.html), 'Upload เว็บไทย: Key Takeaways → สรุปประเด็นสำคัญ');
+  const thai = '<h1>หัวเรื่องภาษาไทย</h1><p>บทนำภาษาไทยสำหรับผู้อ่าน</p><h2>Key Takeaways</h2><ul><li>ประเด็นแรกของบทความ</li></ul><h2>เนื้อหา</h2><p>รายละเอียด</p>';
+  const out = normalizeFaqAndTakeaways(thai);
+  assert(out.includes('<p class="content-takeaways__title">สรุปประเด็นสำคัญ</p>'), 'SEO ไม่ส่งภาษา: เดาจากเนื้อหาไทย → สรุปประเด็นสำคัญ');
+  assert(normalizeFaqAndTakeaways(out) === out, 'แปลงซ้ำไม่เปลี่ยน');
+  const boxed = '<p>บทนำภาษาไทย</p><div class="content-takeaways"><p class="content-takeaways__title">Key Takeaways</p><ul><li>ประเด็นภาษาไทย</li></ul></div>';
+  assert(normalizeFaqAndTakeaways(boxed).includes('<p class="content-takeaways__title">สรุปประเด็นสำคัญ</p>'), 'กล่องเดิมที่เขียน Key Takeaways → เปลี่ยนหัวกล่อง');
+  const custom = '<p>บทนำภาษาไทย</p><div class="content-takeaways"><p class="content-takeaways__title">ข้อดีของบริการ</p><ul><li>ประเด็นภาษาไทย</li></ul></div>';
+  assert(normalizeFaqAndTakeaways(custom) === custom, 'หัวกล่องที่ไม่ใช่หัวสรุป ไม่แตะ');
+  assert(normalizeFaqAndTakeaways('<h2>Key Takeaways</h2><ul><li>ข้อ</li></ul>', 'en').includes('<p class="content-takeaways__title">Key Takeaways</p>'), 'บทความอังกฤษคง Key Takeaways');
+  assert(normalizeFaqAndTakeaways('<h2>Key Takeaways</h2><ul><li>k</li></ul>', 'th').includes('<p class="content-takeaways__title">สรุปประเด็นสำคัญ</p>'), 'ส่งภาษาไทยมา: ชนะการเดาจากเนื้อหา');
+}
 {
   const html = '<div class="content-article"><h1>T</h1><nav class="content-toc" aria-label="สารบัญ"><p class="content-toc__title">สารบัญ</p><ol><li><a href="#a">A</a></li></ol></nav><p>intro</p><p><strong>สารบัญ</strong></p><ul><li><a href="#a">A</a></li><li><a href="#b">B</a></li></ul><h2 id="a">A</h2><p>x</p></div>';
   const p = parseUploadCards(html);

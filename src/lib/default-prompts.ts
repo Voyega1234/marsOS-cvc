@@ -99,7 +99,7 @@ export const MEGA_ARTICLE_WRITER_PROMPT = [
   "- เตรียมพร้อมสำหรับ FAQ Schema",
   "",
   "### ขั้นที่ 13: Conclusion ที่แข็งแกร่ง",
-  "- สรุป key takeaways",
+  "- สรุปประเด็นสำคัญ",
   "- ย้ำ main keyword อย่างเป็นธรรมชาติ",
   "- มี CTA ชัดเจน",
   "- เปิดให้ comment/share/ถามเพิ่มเติม",

@@ -1062,7 +1062,7 @@ export async function POST(req: NextRequest) {
   })
   // Mars Human Voice Skill — skill หลักแนบทุกครั้งที่เขียน (เจ้าของสั่ง 2026-09-28)
   const humanVoiceBlock = humanVoiceSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
-    // Mars Article Structure — กล่อง Key Takeaways + FAQ (หัว H2 / คำถามเป็น <span> ใน <summary>) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
+    // Mars Article Structure — กล่องสรุปประเด็นสำคัญ + FAQ (หัว H2 / คำถามเป็น <span> ใน <summary>) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
     + '\n\n' + articleStructureSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
 
   // ── CTA (หลายชุด — เลือกจำนวนต่อบทความได้) — สุ่ม spots ครั้งเดียวต่อ request แล้วใช้ต่อ
@@ -1136,8 +1136,8 @@ export async function POST(req: NextRequest) {
    *  จากข้อมูลจริง — โครงสุดท้าย: <script ld+json> → <style> → <div class="content-article">
    *  (schema ของ AI/รอบก่อนถูกถอดทิ้งเสมอ กัน URL มั่วและกัน FAQPage ไม่ตรงเนื้อหา) */
   const finalizeArticleHtml = (raw: string): string => {
-    // FAQ คำถามเป็น <span> ใน <summary> + Key Takeaways เป็นกล่อง เสมอ แม้ Master Prompt/AI จะเขียนมาแบบอื่น
-    const body = wrapArticleHtml(normalizeFaqAndTakeaways(stripSchemaScripts(sanitizeArticleHtml(raw))), resolvedStyleMode === 'embed' ? articleCss : null)
+    // FAQ คำถามเป็น <span> ใน <summary> + สรุปประเด็นสำคัญเป็นกล่อง (บทความไทยหัวกล่อง = "สรุปประเด็นสำคัญ") เสมอ แม้ Master Prompt/AI จะเขียนมาแบบอื่น
+    const body = wrapArticleHtml(normalizeFaqAndTakeaways(stripSchemaScripts(sanitizeArticleHtml(raw)), effectiveLanguage === 'en' ? 'en' : 'th'), resolvedStyleMode === 'embed' ? articleCss : null)
     const metaBlock = body.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
     const metaOf = (k: string) => metaBlock.match(new RegExp(`${k}\\s*:\\s*(.+)`, 'i'))?.[1]?.trim() ?? ''
     type CtaChan = { type?: string; label?: string; value?: string }

@@ -68,7 +68,7 @@ interface ParaOpts {
   indentLeft?: number
   alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]
   keepNext?: boolean
-  box?: boolean        // เส้นซ้าย + พื้นอ่อน (กล่อง Key Takeaways)
+  box?: boolean        // เส้นซ้าย + พื้นอ่อน (กล่องสรุปประเด็นสำคัญ)
   quote?: boolean
 }
 
@@ -446,7 +446,7 @@ async function walk(node: Node, st: St, cx: Ctx): Promise<void> {
       break
   }
 
-  // กล่อง Key Takeaways: ชื่อกล่องตัวหนา ทั้งกล่องมีเส้นซ้าย + พื้นอ่อน
+  // กล่องสรุปประเด็นสำคัญ: ชื่อกล่องตัวหนา ทั้งกล่องมีเส้นซ้าย + พื้นอ่อน
   if (tag === 'div' && el.classList.contains('content-takeaways')) {
     flush(st)
     const sub = newSt(st, { opts: { box: true } })

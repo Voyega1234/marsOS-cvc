@@ -35,7 +35,7 @@ const READABILITY_CHECKLIST = [
   { id: "bullet_points",  label: "ใช้ bullet/numbered list เพื่อให้ scan ได้" },
   { id: "no_jargon",      label: "ภาษาเข้าใจง่าย ไม่ใช้ศัพท์เฉพาะโดยไม่อธิบาย" },
   { id: "intro_hook",     label: "Intro ดึงดูด ตอบคำถาม 'Why should I read this?'" },
-  { id: "conclusion",     label: "บทสรุป/Conclusion ชัดเจน สรุป key takeaways" },
+  { id: "conclusion",     label: "บทสรุป/Conclusion ชัดเจน สรุปประเด็นสำคัญ" },
 ];
 
 type ReviewRow = {
