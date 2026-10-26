@@ -340,6 +340,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       postUrl = result.postUrl
       postId = result.postId ? String(result.postId) : undefined
       error = result.error
+      warning = result.warning
       // ยึดสถานะที่ WordPress ตอบกลับจริง (future/draft/pending = ยังไม่ขึ้นเว็บ)
       livePublished = result.ok && effectiveMode === 'publish' && (result.status ?? 'publish') === 'publish'
     }

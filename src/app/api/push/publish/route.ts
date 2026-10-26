@@ -17,6 +17,7 @@ import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/l
 import { buildArticleSchema } from '@/lib/articleSchema'
 import { isIndexableUrl, requestIndexIfLive } from '@/lib/upload-article/request-index'
 import { parsePushPrefs, saveProjectIndexRequest } from '@/lib/project-index-requests'
+import { syncElementorDocument } from '@/lib/upload-article/wp-push'
 
 function extractSeoMeta(html: string, fallbackTitle: string, fallbackKeyword: string) {
   // Parse <!-- CONVERT_CAKE_SEO_META ... --> block (line-based key: value format)
@@ -412,6 +413,7 @@ export async function POST(req: NextRequest) {
     if (meta.focusKeyword) yoastMeta['_yoast_wpseo_focuskw']  = meta.focusKeyword
 
     console.log('[push/publish] postId:', postId, 'wpPostType:', wpPostType, 'yoastMeta keys:', Object.keys(yoastMeta))
+    let warning: string | undefined
     if (postId) {
       const elementorData = buildElementorData(htmlWithAlt)
       const ccRes = await fetch(ccEndpoint, {
@@ -438,6 +440,11 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({ content: htmlWithAlt }),
           signal: AbortSignal.timeout(20000),
         }).catch(() => {})
+        // ไม่มีปลั๊กอิน — โพสต์ที่ถูกเปิดแก้ใน Elementor จะยังแสดงเวอร์ชันเก่า ต้องจัดโหมด Elementor ผ่าน REST เอง
+        const sync = await syncElementorDocument({
+          wpUrl, creds, postId, isPage, useElementor: !!useElementor, html: htmlWithAlt, fetcher: fetch,
+        })
+        warning = sync.warning
       }
 
       // For pages: set Yoast meta via XML-RPC (WP REST doesn't expose Yoast fields for pages)
@@ -530,7 +537,7 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* non-fatal */ }
 
-    return NextResponse.json({ ok: true, postId, postUrl, status: data.status, slug: data.slug ?? finalSlug, ...(indexRequest ? { indexRequest } : {}) })
+    return NextResponse.json({ ok: true, postId, postUrl, status: data.status, slug: data.slug ?? finalSlug, ...(warning ? { warning } : {}), ...(indexRequest ? { indexRequest } : {}) })
 
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

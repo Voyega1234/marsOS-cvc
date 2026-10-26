@@ -34,6 +34,8 @@ export interface WpPushResult {
   slug?: string
   status?: string
   error?: string
+  /** push สำเร็จ แต่ตรวจซ้ำแล้วหน้าเว็บอาจยังไม่แสดงเวอร์ชันนี้ */
+  warning?: string
 }
 
 export function normalizeWpUrl(raw: string): string {
@@ -56,6 +58,85 @@ function buildElementorData(html: string): string {
     }],
   }]
   return JSON.stringify(data)
+}
+
+type WpFetcher = (url: string, init: RequestInit) => Promise<Response>
+
+export const ELEMENTOR_STUCK_WARNING =
+  'โพสต์นี้ถูกเปิดแก้ด้วย Elementor — หน้าเว็บยังแสดงเวอร์ชันเก่าจาก Elementor และระบบสลับกลับให้ไม่ได้ ' +
+  'ให้กด "กลับไปใช้ตัวแก้ไข WordPress" ในหน้าแก้โพสต์ แล้ว push ใหม่'
+export const ELEMENTOR_WRITE_WARNING =
+  'เขียนข้อมูล Elementor ไม่สำเร็จ — หน้าเว็บอาจยังแสดงเวอร์ชันเก่า ปิดตัวเลือก Elementor แล้ว push ใหม่'
+
+/**
+ * ให้หน้าเว็บแสดงเนื้อหาที่เพิ่ง push จริง เมื่อโพสต์เป็นเอกสาร Elementor
+ * Elementor แสดง _elementor_data แทน post_content — คนเปิด "Edit with Elementor" ครั้งเดียว
+ * Re-push ที่เขียนแค่ content จะไม่เห็นผลบนเว็บอีกเลย (mfactors 2026-10-26)
+ * Elementor รุ่นใหม่เปิด meta พวกนี้ให้เขียนผ่าน REST (context=edit) ได้เอง ไม่ต้องมีปลั๊กอิน convert-cake
+ * - ไม่ใช้ Elementor: ออกจากโหมด builder (= ปุ่ม "กลับไปใช้ตัวแก้ไข WordPress") + ล้างข้อมูลเก่าที่ค้าง
+ * - ใช้ Elementor: เขียน _elementor_data เป็น HTML widget ชุดใหม่ (ไม่ใช่ Text Editor ที่ TinyMCE ทำ HTML พัง)
+ * supported = false → เว็บไม่เปิด meta ของ Elementor ผ่าน REST (ไม่มี Elementor / รุ่นเก่า / อ่านไม่ได้)
+ */
+export async function syncElementorDocument(opts: {
+  wpUrl: string
+  creds: string
+  postId: number
+  isPage: boolean
+  useElementor: boolean
+  html: string
+  fetcher: WpFetcher
+}): Promise<{ supported: boolean; warning?: string }> {
+  const { creds, postId, isPage, useElementor, html, fetcher } = opts
+  const postEndpoint = `${opts.wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`
+  const auth = { Authorization: `Basic ${creds}` }
+
+  const readMeta = async (): Promise<Record<string, unknown> | null> => {
+    const res = await fetcher(`${postEndpoint}?context=edit&_fields=meta`, {
+      headers: auth,
+      signal: AbortSignal.timeout(15000),
+    }).catch(() => null)
+    if (!res?.ok) return null
+    const data = await res.json().catch(() => null)
+    return data?.meta && typeof data.meta === 'object' && !Array.isArray(data.meta) ? data.meta : null
+  }
+  const update = async (body: Record<string, unknown>): Promise<boolean> => {
+    const res = await fetcher(postEndpoint, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
+    }).catch(() => null)
+    return !!res?.ok
+  }
+
+  const before = await readMeta()
+  if (!before || !('_elementor_edit_mode' in before)) return { supported: false }
+
+  if (!useElementor) {
+    if (before._elementor_edit_mode !== 'builder') return { supported: true }
+    await update({ meta: { _elementor_edit_mode: '' } })
+    // ข้อมูลเก่าค้างไว้ = เปิด Elementor อีกครั้งจะโหลดเวอร์ชันเก่ากลับมาทับ — แยกคำขอ ล้มก็ไม่กระทบข้างบน
+    await update({ meta: { _elementor_data: '' } })
+    // meta ถูกเขียนหลัง save_post — แตะโพสต์อีกรอบให้ปลั๊กอิน cache (WP Rocket) ล้างหน้าเว็บตามสถานะใหม่
+    await update({})
+    const after = await readMeta()
+    return after?._elementor_edit_mode === 'builder' ? { supported: true, warning: ELEMENTOR_STUCK_WARNING } : { supported: true }
+  }
+
+  const elementorData = buildElementorData(html)
+  await update({
+    meta: {
+      _elementor_edit_mode: 'builder',
+      _elementor_template_type: isPage ? 'wp-page' : 'wp-post',
+      _elementor_data: elementorData,
+    },
+  })
+  await update({})
+  const after = await readMeta()
+  // ตรวจด้วย id ของ widget ชุดนี้ — Elementor อาจคืน _elementor_data เป็น string หรือ object ที่ถอดแล้ว
+  const widgetId = String(JSON.parse(elementorData)[0].elements[0].elements[0].id)
+  const written = after?._elementor_edit_mode === 'builder' && JSON.stringify(after?._elementor_data ?? '').includes(widgetId)
+  return written ? { supported: true } : { supported: true, warning: ELEMENTOR_WRITE_WARNING }
 }
 
 /** เรียก fn กับ items พร้อมกันไม่เกิน limit ตัว — คงลำดับผลลัพธ์ตาม items เดิม */
@@ -187,7 +268,8 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
   }
   const htmlLinked = await replaceInlineImages(wpUrl, creds, htmlWithAlt, finalMetaTitle, uploaded)
 
-  const content = input.useElementor ? '' : htmlLinked
+  // ใส่เนื้อหาเสมอแม้ใช้ Elementor — เขียน Elementor ไม่สำเร็จ หน้าเว็บก็ยังแสดงเนื้อหาจริง ไม่ใช่หน้าว่าง
+  const content = htmlLinked
   const publishDate = input.publishAt ? new Date(input.publishAt) : null
   const dateGmt = publishDate && !Number.isNaN(publishDate.getTime()) ? publishDate.toISOString().slice(0, 19) : ''
   // ตั้งวันเผยแพร่ไว้ = วาง Draft พร้อมวันที่นั้น ไม่ publish/ตั้งเวลาเอง (เจ้าของสั่ง 2026-09-28)
@@ -208,10 +290,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
   if (input.focusKeyword) wpMeta['_yoast_wpseo_focuskw'] = input.focusKeyword
 
   const wpEndpoint = isPage ? `${wpUrl}/wp-json/wp/v2/pages` : `${wpUrl}/wp-json/wp/v2/posts`
-  if (input.useElementor) {
-    wpMeta['_elementor_edit_mode'] = 'builder'
-    wpMeta['_elementor_template_type'] = isPage ? 'wp-page' : 'wp-post'
-  }
+  // โหมด Elementor ตั้งใน syncElementorDocument หลังสร้างโพสต์ — ไม่ปนในคำขอแรก (ล้ม = retry ทิ้ง Yoast meta ไปด้วย)
   if (Object.keys(wpMeta).length > 0) payload.meta = wpMeta
 
   // หา post ที่มีอยู่แล้ว: re-push ใช้ existingPostId ตรง ๆ ก่อน ถ้าไม่มีค่อยตรวจ slug ชนกัน
@@ -278,9 +357,17 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
     const postId: number = data.id
     const postUrl: string = data.link ?? ''
 
-    // Yoast meta + Elementor data ผ่าน convert-cake plugin (มี fallback ถ้าไม่มี plugin) — เฉพาะตอนใช้ Elementor เท่านั้น
+    // Elementor: เขียน/ออกจากโหมด builder ผ่าน REST ก่อน — เว็บที่ไม่เปิด meta นี้ค่อยใช้ convert-cake plugin
+    let warning: string | undefined
     if (postId) {
-      if (input.useElementor) {
+      const sync = await syncElementorDocument({
+        wpUrl, creds, postId, isPage,
+        useElementor: !!input.useElementor,
+        html: htmlLinked,
+        fetcher: (url, init) => safeFetch(url, init, { requireHttps: true, sameHostOnly: true }),
+      })
+      warning = sync.warning
+      if (input.useElementor && (!sync.supported || sync.warning)) {
         const ccEndpoint = `${wpUrl}/wp-json/convert-cake/v1/elementor-meta`
         const elementorData = buildElementorData(htmlLinked)
         const ccRes = await safeFetch(ccEndpoint, {
@@ -295,17 +382,11 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
           }),
           signal: AbortSignal.timeout(30000),
         }, { requireHttps: true, sameHostOnly: true }).catch(() => null)
-
-        if (!ccRes?.ok) {
-          const fallbackEndpoint = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`
-          await safeFetch(fallbackEndpoint, {
-            method: 'POST',
-            headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: htmlLinked }),
-            signal: AbortSignal.timeout(20000),
-          }, { requireHttps: true, sameHostOnly: true }).catch(() => {})
-        }
-      } else if (Object.keys(wpMeta).length > 0) {
+        if (ccRes?.ok) warning = undefined
+        // ไม่มีทั้ง REST meta และปลั๊กอิน = ใช้ Elementor ไม่ได้ แต่เนื้อหาปกติขึ้นแล้ว (content ส่งไปในคำขอแรก)
+        else if (!sync.supported) warning = undefined
+      }
+      if (!input.useElementor && Object.keys(wpMeta).length > 0) {
         // ไม่ใช้ Elementor — ส่ง Yoast meta ผ่านการอัพเดตโพสต์ปกติ ไม่ตั้ง Elementor builder mode
         const normalEndpoint = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`
         await safeFetch(normalEndpoint, {
@@ -341,7 +422,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
       }
     }
 
-    return { ok: true, postId, postUrl, status: data.status, slug: data.slug ?? finalSlug }
+    return { ok: true, postId, postUrl, status: data.status, slug: data.slug ?? finalSlug, ...(warning && { warning }) }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     return { ok: false, error: `Push ล้มเหลว: ${msg}` }

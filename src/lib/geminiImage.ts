@@ -109,6 +109,24 @@ export interface GeminiImageResult {
   logoAttached: boolean
 }
 
+/**
+ * ตัดข้อความให้ไม่เกิน max ตัวอักษรที่ขอบคำ — ภาษาไทยไม่มีช่องว่างระหว่างคำ
+ * ตัดตามช่องว่างอย่างเดียวจะขาดกลางคำ ("ต้องเตรียมอะไรก่อนจั") ต้องใช้ Intl.Segmenter แบ่งคำไทย
+ */
+export function clipAtWord(text: string, max: number): string {
+  if (text.length <= max) return text
+  let out = ''
+  try {
+    for (const { segment } of Array.from(new Intl.Segmenter('th', { granularity: 'word' }).segment(text))) {
+      if (out.length + segment.length > max) break
+      out += segment
+    }
+  } catch {
+    out = text.slice(0, max).replace(/\s+\S*$/, '')
+  }
+  return out.trim() || text.slice(0, max)
+}
+
 // ── Content Engine image prompt template — placeholder substitution ───────────
 // {{keyword}} {{title}} {{site_name}} {{brand_tone}} {{accent_color}} {{theme_color}} {{background_color}} {{text_color}}
 function renderImagePromptTemplate(
@@ -206,7 +224,7 @@ export async function callGeminiImage(params: {
   const bannerCards = coverBullets
     .map((b) => b.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
-    .map((b) => (b.length <= CARD_MAX_CHARS ? b : b.slice(0, CARD_MAX_CHARS).replace(/\s+\S*$/, '') || b.slice(0, CARD_MAX_CHARS)))
+    .map((b) => clipAtWord(b, CARD_MAX_CHARS))
     .slice(0, 3)
 
   // แตกหัวเรื่องเป็นบรรทัดสั้นให้เสร็จในโค้ด แล้วส่งเป็นสตริงต่อบรรทัด —

@@ -279,6 +279,7 @@ export default function SmePushTab({
         ? { ...p, status: 'done', postId: data.postId, postUrl: data.postUrl, pushedAt: new Date().toISOString() } : p))
       setPushedMode(prev => ({ ...prev, [entryIdx]: publishMode }))
       toast.success('Push สำเร็จ')
+      if (typeof data.warning === 'string' && data.warning) toast.warning(data.warning)
       if (data.indexRequest) {
         if (data.indexRequest.ok) toast.success('ส่ง Request Index ให้ Google แล้ว')
         else toast.warning(`Push สำเร็จ แต่ Request Index ไม่สำเร็จ: ${data.indexRequest.error ?? 'ไม่ทราบสาเหตุ'}`)
