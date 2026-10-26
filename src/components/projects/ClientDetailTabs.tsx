@@ -4353,6 +4353,49 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
   const [viewMode, setViewMode] = useState<'preview' | 'text' | 'edit'>('preview')
   const [editSaving, setEditSaving] = useState(false)
   const reviewEditorRef = useRef<HTMLDivElement>(null)
+  // ดาวน์โหลดบทความไปส่งลูกค้าตรวจ (Word / HTML) — เก็บ entryIdx ที่กำลังสร้างไฟล์ Word
+  const [wordBusy, setWordBusy] = useState<number | null>(null)
+  function exportSource(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
+    // โหมดแก้ไข: ใช้เนื้อหาที่ยังไม่ได้บันทึกด้วย
+    const src = viewMode === 'edit' && reviewEditorRef.current ? reviewEditorRef.current.innerHTML : html
+    const coverSrc = job?.coverImage
+      ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}`
+      : coverUrl[entryIdx]
+    return {
+      html: src,
+      title: entry.title,
+      coverSrc: coverSrc || undefined,
+      coverAlt: entry.title,
+    }
+  }
+  async function downloadArticleHtml(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
+    try {
+      const m = await import('@/lib/article-export')
+      const o = exportSource(entryIdx, entry, job, html)
+      const fileBase = m.articleFileName(entry.slug || entry.title)
+      const doc = m.buildStandaloneArticleHtml({
+        html: o.html, title: o.title, lang: project.language === 'en' ? 'en' : 'th',
+        coverSrc: o.coverSrc, coverAlt: o.coverAlt,
+      })
+      m.downloadBlob(new Blob([doc], { type: 'text/html;charset=utf-8' }), `${fileBase}.html`)
+    } catch (e) {
+      toast.error('สร้างไฟล์ HTML ไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+  async function downloadArticleWord(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
+    setWordBusy(entryIdx)
+    try {
+      const m = await import('@/lib/article-export')
+      const o = exportSource(entryIdx, entry, job, html)
+      const fileBase = m.articleFileName(entry.slug || entry.title)
+      const blob = await m.buildArticleDocx({ html: o.html, title: o.title, coverSrc: o.coverSrc, coverAlt: o.coverAlt })
+      m.downloadBlob(blob, `${fileBase}.docx`)
+    } catch (e) {
+      toast.error('สร้างไฟล์ Word ไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setWordBusy(null)
+    }
+  }
   // ── แผง Search appearance (ขวา): meta title / slug / meta description + ภาพปก ──
   const [seoDraft, setSeoDraft] = useState<Record<number, { seoTitle: string; metaDescription: string; slug: string }>>({})
   const [seoSaving, setSeoSaving] = useState<number | null>(null)
@@ -4831,6 +4874,16 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                             {label}
                           </button>
                         ))}
+                        <button disabled={wordBusy !== null} onClick={() => downloadArticleWord(entryIdx, entry, job, html)}
+                          title="ดาวน์โหลดเป็นไฟล์ Word ส่งให้ลูกค้าตรวจ"
+                          className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                          {wordBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />} Word
+                        </button>
+                        <button onClick={() => downloadArticleHtml(entryIdx, entry, job, html)}
+                          title="ดาวน์โหลดเป็นไฟล์ HTML หน้าตาเหมือน Preview เปิดได้ทุกเบราว์เซอร์"
+                          className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
+                          <Download size={11} /> HTML
+                        </button>
                         {viewMode === 'edit' && (
                           <button disabled={editSaving} onClick={() => saveEditedHtml(entryIdx, entry)}
                             className="flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors">
