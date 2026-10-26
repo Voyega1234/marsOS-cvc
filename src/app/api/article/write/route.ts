@@ -374,6 +374,8 @@ const IMAGE_TIMEOUT_MS = 75_000
 
 async function generateGeminiImage(params: {
   keyword: string; title: string; type: 'cover' | 'mid'
+  /** รูปประกอบแบบมีตัวหนังสือส่ง type 'cover' เหมือนปก — slot บอกว่าเป็นรูปประกอบ (โหมดยึดภาพอ้างอิงใช้กับปกเท่านั้น) */
+  slot?: 'cover' | 'inline'
   client?: string
   siteName?: string; brandTone?: string; accentColor?: string
   themeColor?: string; backgroundColor?: string; textColor?: string
@@ -391,6 +393,7 @@ async function generateGeminiImage(params: {
       const result = await withTimeout(callGeminiImage({
         client: params.client,
         keyword: params.keyword, title: params.title, type: params.type,
+        slot: params.slot ?? 'cover',
         siteName: params.siteName ?? '', brandTone: params.brandTone ?? '',
         accentColor: params.accentColor ?? '',
         themeColor: params.themeColor ?? '', backgroundColor: params.backgroundColor ?? '', textColor: params.textColor ?? '',
@@ -1150,7 +1153,7 @@ export async function POST(req: NextRequest) {
         ? generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
         : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
       ...Array.from({ length: midCount }, () =>
-        generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.inlineWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
+        generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
     ])
     const midResult = midResults[0]
 
@@ -1286,11 +1289,11 @@ export async function POST(req: NextRequest) {
           ? generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })
           : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
         ...Array.from({ length: midCount }, () =>
-          generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.inlineWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
+          generateGeminiImage({ client: orClient, keyword, title, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th' })),
       ])
       const midResult = midResults[0]
       const midOk = midResults.filter(r => r.imageBase64).length
-      if (imageSettings.cover && !coverResult.imageBase64) send({ type: 'status', step: 'cover', message: '⚠️ สร้างรูปปกไม่สำเร็จ (Gemini quota หรือ key หมด) — บทความยังใช้ได้' })
+      if (imageSettings.cover && !coverResult.imageBase64) send({ type: 'status', step: 'cover', message: '⚠️ สร้างรูปปกไม่สำเร็จ (โมเดลสร้างภาพ GPT Image ไม่ตอบหรือเครดิต OpenRouter หมด) — บทความยังใช้ได้' })
       if (midOk < midCount) send({ type: 'status', step: 'cover', message: `⚠️ รูปประกอบสำเร็จ ${midOk}/${midCount} รูป — ดำเนินการต่อ` })
 
       // Log image generation costs (streaming path)

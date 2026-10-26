@@ -45,15 +45,22 @@ Never translate the brief itself, never explain your choices, never offer multip
 /** เรียก Claude แปลงบรีฟ (CE) เป็น prompt ภาษาอังกฤษ — ล้มเหลว = โยน error ไม่มี fallback
  *  คืน usage (tokens/costUsd) มาด้วย — เดิมทิ้งไปเฉย ๆ ทำให้ค่าใช้จ่ายของ Art Director call
  *  หายไปจากยอดรวมของ IMAGE_COVER / IMAGE_MID */
-async function compileImagePrompt(brief: string, client?: string): Promise<{ text: string; totalTokens: number; costUsd: number }> {
+async function compileImagePrompt(brief: string, client?: string, images: string[] = []): Promise<{ text: string; totalTokens: number; costUsd: number }> {
+  // มีภาพอ้างอิง → แนบให้ Art Director ดูจริง — ถ้าเห็นแค่ข้อความ "มีภาพอ้างอิง" มันจะเขียน prompt
+  // ตามโครง layout ในบรีฟแทน แล้วโมเดลภาพก็ทำตาม prompt นั้นมากกว่าภาพที่แนบ
   const result = await orChat({
     trace: 'image_prompt_compile',
     client,
     model: OR_MODELS.default(),
-    maxTokens: 1500,
+    maxTokens: images.length ? 2500 : 1500,
     messages: [
       { role: 'system', content: ART_DIRECTOR_SYSTEM },
-      { role: 'user', content: brief },
+      {
+        role: 'user',
+        content: images.length
+          ? [{ type: 'text', text: brief }, ...images.map((url) => ({ type: 'image_url' as const, image_url: { url } }))]
+          : brief,
+      },
     ],
   })
   const text = result.text.trim()
@@ -174,6 +181,9 @@ export async function callGeminiImage(params: {
     contactInfo: string
     swapPeople: boolean
   }
+  /** ตำแหน่งภาพ — รูปประกอบแบบมีตัวหนังสือก็ส่ง type 'cover' มา จึงต้องบอกแยกว่าเป็นรูปประกอบ
+   *  (โหมดยึดภาพอ้างอิงใช้กับปกเท่านั้น) ค่าเริ่มต้น 'cover' */
+  slot?: 'cover' | 'inline'
   /** SOP §3: ลูกค้าเจ้าของงาน — ใช้ประกอบ generation_name mars_<client>_<action> */
   client?: string
   /** ภาษาของข้อความบนภาพ — โปรเจกต์อังกฤษต้องได้ปกอังกฤษล้วน (ค่าเริ่มต้น th = พฤติกรรมเดิม) */
@@ -191,12 +201,31 @@ export async function callGeminiImage(params: {
     coverSubtitle = '',
     coverBullets = [],
     imageAssets,
+    slot = 'cover',
     client,
     language = 'th',
   } = params
   const isEnglishCover = language === 'en'
   /** ตรามุมขวาบนของปก — ต้องเป็นภาษาเดียวกับบทความ */
   const updatedBadge = isEnglishCover ? `Updated ${CURRENT_YEAR}` : `อัปเดต ${CURRENT_YEAR}`
+
+  // โหมดยึดภาพอ้างอิง (คำสั่งเจ้าของ 2026-10-26): Content Engine มีภาพอ้างอิง = ปกต้องออกมาเป็น
+  // ระบบดีไซน์ของแบรนด์ในภาพอ้างอิง ไม่ใช่แบนเนอร์แม่แบบของระบบ — เดิมโครงแบนเนอร์ตายตัว
+  // (แผงหัวเรื่องซ้าย/คนขวา/การ์ดล่าง/ตรามุมขวาบน + ห้ามชื่อบริษัท) ทับภาพอ้างอิงจนไม่เหลือเค้า
+  // โหมดนี้จึงไม่ใช้ทั้งโครงแบนเนอร์และ coverOverlay (ตัวหนังสือต้องเป็นสไตล์ของแบรนด์)
+  // ไม่มีภาพอ้างอิง = ใช้ Image Prompt ของ CE ตามเดิม; รูปประกอบ (slot inline) = เดิมทุกอย่าง
+  const refImageCount = imageAssets?.referenceImages.length ?? 0
+  const refLed = type === 'cover' && slot === 'cover' && refImageCount > 0
+  const overlayCover = type === 'cover' && COVER_TEXT_OVERLAY && !refLed
+  // ภาพอ้างอิง + โลโก้ (โลโก้อยู่ท้ายสุดเสมอ) — แนบทั้งให้ Art Director ดูและเป็น input_references ของโมเดลภาพ
+  const refImages = refImageCount
+    ? [...imageAssets!.referenceImages, ...(imageAssets!.logoImage ? [imageAssets!.logoImage] : [])]
+    : []
+  const brandName = imageAssets?.brandName.trim() ?? ''
+  const contactLine = (imageAssets?.contactInfo ?? '').trim().replace(/\n+/g, ' / ')
+  const swapPeopleLine = imageAssets?.swapPeople
+    ? `[คนในภาพต้องเป็นคนใหม่ทุกครั้ง — หน้าตาไม่ซ้ำคนในภาพอ้างอิง แต่บทบาท เครื่องแบบ และบุคลิกแบบเดียวกับคนในภาพอ้างอิง]`
+    : ''
 
   if (!promptTemplate?.trim()) {
     throw new Error('CONTENT_ENGINE_NOT_CONFIGURED: ต้องมี Image Prompt จาก Content Engine — ไม่มี fallback')
@@ -285,33 +314,58 @@ export async function callGeminiImage(params: {
     `ตัวอักษรทุกตัวในภาพต้องสูงอย่างน้อย 4% ของความสูงภาพ ถ้าข้อความไหนจะเล็กกว่านั้นให้ตัดข้อความนั้นทิ้งเหลือแต่ไอคอน ห้ามเติมคำอธิบายบรรทัดที่สองในการ์ด ห้ามตัดคำใดออกจากสตริงที่ให้ไว้ ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`,
   ].filter(Boolean).join('\n')
 
+  // ข้อความบนปกโหมดยึดภาพอ้างอิง — หัวเรื่องยังแตกบรรทัดในโค้ด (กันสะกดเพี้ยน) แต่ไม่มีตรา/ป้าย/การ์ดของแม่แบบระบบ
+  // เบอร์โทร/URL ต้องมาจากช่องข้อมูลติดต่อเท่านั้น — ให้โมเดลอ่านตัวเลขจากภาพอ้างอิงเองเสี่ยงได้เบอร์ผิด
+  const refTextInventory = [
+    `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ข้อความบนภาพต้องเป็นสตริงต่อไปนี้เท่านั้น คัดลอกทีละตัวอักษร`,
+    `- หัวเรื่องหลัก (เด่นที่สุด ต้องแสดงครบทุกคำ) แตกเป็น ${headlineLines.length} บรรทัด ตามลำดับนี้เป๊ะ ๆ ห้ามรวมบรรทัด ห้ามย้ายคำข้ามบรรทัด: ${headlineLines.map((l) => `"${l}"`).join(' / ')} — จัดวาง ขนาด และสีแบบเดียวกับหัวเรื่องในภาพอ้างอิง`,
+    brandName ? `- ชื่อแบรนด์: "${brandName}"` : '',
+    contactLine
+      ? `- ข้อมูลติดต่อ: "${contactLine}" — เบอร์โทร LINE id อีเมล และ URL ในภาพต้องมาจากสตริงนี้เท่านั้น`
+      : `- ไม่มีข้อมูลติดต่อ: ห้ามใส่เบอร์โทร LINE id อีเมล หรือ URL ใดๆ แม้ภาพอ้างอิงจะมี`,
+    `- ข้อความประจำแบรนด์ที่ซ้ำกันในภาพอ้างอิง (เช่น สโลแกนในตรา ข้อความในแถบท้าย) ใส่ได้เฉพาะเมื่อคัดลอกตรงตัวทุกตัวอักษร`,
+    `- ห้ามแต่งข้อความอื่นนอกจากนี้: ไม่มีตราอัปเดตปี ไม่มีป้ายคีย์เวิร์ด ไม่มีการ์ดข้อความ ไม่มีคำโปรย ราคา หรือคำการันตี`,
+    isEnglishCover ? `ข้อความทุกชิ้นบนภาพต้องเป็นภาษาอังกฤษล้วน ห้ามมีตัวอักษรไทยแม้แต่ตัวเดียวบนภาพ` : '',
+    `ตัวอักษรทุกตัวในภาพต้องสูงอย่างน้อย 4% ของความสูงภาพ ข้อความไหนจะเล็กกว่านั้นให้ตัดทิ้งเหลือแต่แผง/รูปทรง ห้ามตัดคำใดออกจากหัวเรื่อง ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`,
+  ].filter(Boolean).join('\n')
+
   // ข้อเท็จจริงประกอบบรีฟ (ไม่ใช่ทิศทางงานภาพ — ทิศทางมาจาก Content Engine เท่านั้น)
   const briefFacts = [
     `[ประเภทภาพ: ${type === 'cover' ? 'ภาพหน้าปกบทความ (cover)' : 'ภาพประกอบกลางบทความ (in-article)'}]`,
     `[สัดส่วน: ${width}×${height}]`,
     `[ปีปัจจุบัน: ${CURRENT_YEAR}]`,
-    ...(type === 'cover' ? [COVER_TEXT_OVERLAY
+    ...(type === 'cover' ? [refLed ? refTextInventory : overlayCover
       ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพนี้คือ "ภาพถ่ายพื้นหลังของปก" เท่านั้น ระบบจะวางหัวเรื่องและป้ายคีย์เวิร์ดทับด้วยฟอนต์จริงในขั้นตอนถัดไป จึงห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ, บล็อกข้อความ, แถบสีสำหรับใส่ข้อความ หรือข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline บล็อกข้อความ หรือป้ายคำ ให้ตัดออกทั้งหมด; องค์ประกอบภาพ: เป็นภาพถ่ายจริงเต็มเฟรม วางตัวแบบหลักไว้ครึ่งบนของเฟรม และเว้นครึ่งล่างให้เป็นพื้นที่เรียบสงบ (พื้น ผนัง ท้องฟ้า ระยะเบลอ) ไม่มีรายละเอียดสำคัญ เพราะจะถูกแผงสีทับ]`
       : coverTextInventory] : []),
     ...(type === 'mid' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: นี่คือภาพประกอบกลางบทความ ไม่ใช่ภาพปก ต้องเป็นภาพถ่ายจริง (photorealistic photography) เต็มเฟรม ไม่มีบล็อกข้อความ ไม่มีแถบสี และห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ หรือ ข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline หรือป้ายคำ ให้ตัดออกทั้งหมดแล้วเล่าด้วยภาพล้วน โดยคงสไตล์และชุดสีตามบรีฟไว้]`] : []),
-    ...(palette ? [(type === 'cover' && COVER_TEXT_OVERLAY)
+    ...(palette ? [refLed
+      ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: สีของตัวอักษรและกราฟิกเอาตามภาพอ้างอิงเป็นหลัก — ชุดสีธีมเว็บ (${palette}) ใช้เสริมได้เฉพาะจุดที่ไม่ขัดกับภาพอ้างอิง; ส่วนที่เป็นภาพถ่ายคงสีธรรมชาติสมจริงเสมอ ห้ามย้อม ห้ามเกรด ห้าม wash ทั้งภาพ]`
+      : overlayCover
       ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพถ่ายต้องคุมสีแบบธรรมชาติสมจริง (natural true-to-life colours) — คน อาคาร ท้องฟ้า วัตถุ วัสดุ ให้เป็นสีจริงตามธรรมชาติทั้งหมด ห้ามย้อม ห้ามเกรด ห้าม wash ทั้งภาพให้เป็นสีธีม/สีแบรนด์ใด ๆ เด็ดขาด ถ้าบรีฟสั่งให้ใช้ชุดสีธีม (${palette}) กับภาพถ่าย ให้ตีความว่าใช้ได้แค่กับพร็อพชิ้นเล็กหรือเสื้อผ้าอย่างพอดีตามธรรมชาติเท่านั้น — สีธีมของแบรนด์จะถูกระบบใส่เองในแผงกราฟิกและตัวหนังสือขั้นตอนถัดไป]`
       : `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ชุดสีนี้ใช้กับ "ชั้นกราฟิก" เท่านั้น (แผงข้อความ การ์ด ไอคอน ตรา เส้นคั่น ไล่เฉดฝั่งซ้าย): ${palette} — สีธีมเป็นสีนำของแผงและแถบ, สี accent ใช้เน้นและใช้กับไอคอน, ขาวใช้เป็นพื้นการ์ดและตัวอักษรบนพื้นเข้ม, ห้ามใช้สีอื่นนอกชุดนี้เป็นสีหลักของกราฟิก; ส่วนที่เป็น "ภาพถ่าย" ต้องคงสีธรรมชาติสมจริงเสมอ ท้องฟ้าเป็นสีฟ้าหรือสีทองตอนเย็นตามจริง ผิวคนเป็นสีผิวจริง อาคารและวัสดุเป็นสีจริง ห้ามย้อม ห้ามเกรด ห้าม wash ภาพถ่ายให้เป็นสีธีมเด็ดขาด]`] : []),
     ...(imageStyleGuide.trim() ? [`[Image Style Guide ของโปรเจกต์: ${imageStyleGuide.trim()}]`] : []),
     // ── Reference & Brand assets (คำสั่งเจ้าของ — Image Prompt item 4) ──────────
-    // ภาพอ้างอิงแนบเป็น input_references จริงตอนยิง orImageWithRefs (ดูด้านล่าง) —
-    // ส่วนนี้บอกโมเดลแค่ "วิธีตีความ" ภาพที่แนบมา ไม่ใช่ทิศทางสไตล์ใหม่จาก CE
-    ...(imageAssets && imageAssets.referenceImages.length ? [
+    // ภาพอ้างอิงแนบให้ Art Director ดูจริง และแนบเป็น input_references ตอนยิง orImageWithRefs —
+    // ปก: ภาพอ้างอิงเป็นแม่แบบหลัก ชนะโครง layout/สี/ข้อห้ามโลโก้ในบรีฟ (คำสั่งเจ้าของ 2026-10-26)
+    // ภาพประกอบกลางบทความ: คงคำสั่งเดิมทุกตัวอักษร (เจ้าของสั่ง 2026-10-26 ให้แก้เฉพาะปก)
+    ...(refLed ? [
+      `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพ ${refImageCount} ภาพแรกที่แนบมากับบรีฟนี้คืองานโพสต์/แบนเนอร์จริงของแบรนด์ และเป็นแม่แบบหลักของปกนี้ — ชนะบรีฟทุกบรรทัดเรื่องโครง layout ตำแหน่งและวิธีจัดหัวเรื่อง ฟอนต์ ชุดสี องค์ประกอบกราฟิกประจำแบรนด์ การวางโลโก้/ชื่อแบรนด์ และลักษณะคนในภาพ บรรทัดในบรีฟที่สั่งโครงตายตัว (เช่น แผงหัวเรื่องฝั่งซ้าย คนฝั่งขวา แถวการ์ดล่าง ตรามุมขวาบน) หรือห้ามใส่โลโก้/ชื่อบริษัท ให้ตัดทิ้งทั้งหมด ใช้บรีฟเฉพาะเรื่องหัวข้อ ฉาก และข้อห้ามด้านเนื้อหา]`,
+      `[วิธีเขียน prompt ในโหมดนี้: ดูภาพอ้างอิงแล้วบรรยายระบบดีไซน์ที่ใช้ซ้ำในภาพเหล่านั้นให้เป็นรูปธรรม — หัวเรื่องวางตรงไหน ใหญ่และหนาแค่ไหน ใช้สีอะไร (ระบุ hex ที่เห็น) วางบนภาพถ่ายตรงๆ หรือบนแผง, องค์ประกอบที่ซ้ำทุกภาพ (ตรา กล่องคำพูด แถบท้ายแบรนด์ กรอบ ลวดลาย) อยู่ตรงไหนหน้าตาอย่างไร, สไตล์ภาพถ่าย, คนในภาพแต่งกายและโพสต์ท่าอย่างไร — แล้วสั่งให้สร้างปกใหม่ของหัวข้อบทความนี้ด้วยระบบนั้น ฉากใหม่ทั้งหมด ห้ามลอกฉาก ข้อความ หรือหน้าคนจากภาพอ้างอิง]`,
+      `[ภาพอ้างอิงอาจเป็นสัดส่วนอื่น (เช่น โพสต์แนวตั้ง) — จัดระบบดีไซน์เดิมใหม่ให้เต็มเฟรม ${width}×${height} ห้ามวางโปสเตอร์แนวตั้งไว้กลางเฟรม ห้ามมีขอบว่างหรือแถบดำ]`,
+      swapPeopleLine,
+      imageAssets?.logoImage ? `[ภาพแนบลำดับสุดท้ายคือโลโก้จริงของแบรนด์ — วางในตำแหน่งและลักษณะเดียวกับที่ภาพอ้างอิงวาง ทำซ้ำรูปทรง สี และตัวอักษรของโลโก้ให้ตรงต้นฉบับ ห้ามวาดใหม่หรือดัดแปลง ต้องอยู่ในภาพครบทั้งชิ้น ห่างจากขอบภาพอย่างน้อย 6%]` : '',
+    ].filter(Boolean) : imageAssets && refImageCount ? [
       `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพอ้างอิงที่แนบมาคือระบบภาพลักษณ์ (CI) ของแบรนด์ — ให้จับรูปแบบ layout, จานสี, ความรู้สึกของตัวอักษร และลวดลายกราฟิกจากภาพอ้างอิงมาใช้ แต่ต้องสร้างองค์ประกอบใหม่ทั้งหมด ห้ามลอกภาพอ้างอิงซ้ำเด็ดขาด ไม่ว่าจะทั้งภาพหรือบางส่วน]`,
       imageAssets.swapPeople
         ? `[ถ้าภาพอ้างอิงมีคนอยู่ในภาพ ให้เปลี่ยนเป็นคนใหม่ทุกครั้ง — สุ่มหน้าตา ท่าทาง และเครื่องแต่งกายให้ต่างจากภาพอ้างอิงเดิม ห้ามวาดหน้าเดิมซ้ำ]`
         : '',
       imageAssets.logoImage ? `[ภาพอ้างอิงลำดับสุดท้ายที่แนบมาคือโลโก้แบรนด์ — วางโลโก้นี้ลงในภาพอย่างเป็นธรรมชาติ ขนาดเหมาะสม ไม่บดบังองค์ประกอบหลัก และต้องอยู่ในภาพครบทั้งชิ้น ห่างจากขอบภาพอย่างน้อย 6% ห้ามให้ขอบภาพตัดโลโก้]` : '',
-      imageAssets.brandName.trim() ? `[ชื่อแบรนด์: "${imageAssets.brandName.trim()}" — แสดงในภาพในตำแหน่งที่เหมาะสม เช่น มุมภาพหรือแถบโลโก้]` : '',
-      imageAssets.contactInfo.trim() ? `[ข้อมูลติดต่อ: "${imageAssets.contactInfo.trim().replace(/\n+/g, ' / ')}" — แสดงในภาพในตำแหน่งที่เหมาะสม เช่น แถบล่างหรือมุมภาพ]` : '',
+      brandName ? `[ชื่อแบรนด์: "${brandName}" — แสดงในภาพในตำแหน่งที่เหมาะสม เช่น มุมภาพหรือแถบโลโก้]` : '',
+      imageAssets.contactInfo.trim() ? `[ข้อมูลติดต่อ: "${contactLine}" — แสดงในภาพในตำแหน่งที่เหมาะสม เช่น แถบล่างหรือมุมภาพ]` : '',
     ].filter(Boolean) : []),
   ].join('\n')
-  const artDirector = await compileImagePrompt(`${rendered}\n\n${briefFacts}`, client)
+  // Art Director ดูภาพอ้างอิงจริงเฉพาะปก — ภาพประกอบคงขั้นตอนเดิม (บรีฟข้อความล้วน)
+  const artDirector = await compileImagePrompt(`${rendered}\n\n${briefFacts}`, client, refLed ? refImages : [])
   const compiled = artDirector.text
 
   // รูปปกต้องมีตัวหนังสือประกอบเสมอ (คำสั่งเจ้าของระบบ 2026-08-19, ปรับ 2026-08-21:
@@ -324,7 +378,7 @@ export async function callGeminiImage(params: {
   // สะกดไทยถูกทั้งประโยค แต่ป้ายเล็กใต้ไอคอน/แถบล่างออกมาเป็นตัวมั่วแทบทุกครั้ง
   // ("ตรวจสุขภาพ" → "ตรวอ ลุอกาพ") จึงบังคับว่าอะไรที่เล็กกว่า 4% ของความสูงภาพ
   // ให้ตัดข้อความทิ้งเหลือแต่ไอคอน — กฎนี้ทับบรีฟจาก CE ที่สั่งให้มีป้ายใต้ไอคอน
-  const coverTextLine = (type === 'cover' && COVER_TEXT_OVERLAY)
+  const coverTextLine = overlayCover
     ? `\n\nBACKGROUND PLATE FOR A COVER — NO TEXT (CRITICAL): The headline and keyword label are rendered afterwards by the system using a real font, directly on top of this image. Your job is ONLY the photograph underneath:
 - Render ZERO text: no headline, no article title, no labels, captions, chips, tags, numbers, units, logos, watermarks, signatures, no text panels or coloured text bars, and no text on screens, signs, packaging or documents inside the scene. Any letterform you draw will be covered or will clash with the real typography
 - Photorealistic photography, full frame, single clear subject — editorial/commercial quality, natural depth of field
@@ -333,6 +387,18 @@ export async function callGeminiImage(params: {
 - NATURAL COLOUR (hard requirement): true-to-life photographic colour grading. Do NOT tint, wash, duotone, or colour-grade the frame toward any brand or theme colour — skies stay sky-coloured, skin stays natural, buildings and objects keep their real material colours. A brand colour may appear only on a small prop or garment where it would occur naturally, never as an overall cast
 - COMPOSITION (hard requirement): keep the subject and every important detail in the UPPER TWO THIRDS of the frame. The BOTTOM HALF must be calm, simple, uncluttered negative space (floor, wall, sky, water, blurred background, plain gradient) because a solid colour panel is composited over it. Nothing important may sit in the bottom half
 - Leave the frame edges clean: no borders, frames, vignette text, collage panels or split-screen layouts`
+    : refLed
+    ? `\n\nREFERENCE-LED BRAND COVER (CRITICAL): The first ${refImageCount} attached image${refImageCount > 1 ? 's are' : ' is'} the brand's own published post${refImageCount > 1 ? 's' : ''}${imageAssets?.logoImage ? ' and the last attached image is the brand logo' : ''}. They are the MASTER TEMPLATE for this cover — it must look like the next post in that same series: the same headline treatment (position, weight, size, colours, outline or plate style), the same palette, the same recurring brand devices (badges, speech bubbles, footer strip, frames, patterns), the same photographic style and the same kind of people (role, uniform, energy). Change only the scene, the subject and the people so it fits this article's topic. Do NOT fall back to a generic banner template: no stacked headline plates unless the references use them, no feature-card row, no "updated" badge
+- CANVAS: this is a WIDE ${width}×${height} landscape cover. If the references are square or portrait, re-flow their design system across the whole landscape frame edge to edge — never a portrait poster centred with empty sides, never letterboxing
+- TEXT INVENTORY (hard limit — the ONLY strings allowed, copy them character-for-character):
+  · headline split into ${headlineLines.length} line${headlineLines.length > 1 ? 's' : ''} in exactly this order, never merged and never re-wrapped: ${headlineLines.map((l) => `"${l}"`).join(' / ')}${brandName ? `\n  · brand name: "${brandName}"` : ''}${contactLine ? `\n  · contact line (the only phone numbers, LINE ids, emails or URLs allowed): "${contactLine}"` : `\n  · no contact details at all — draw no phone number, LINE id, email or URL even if the references show one`}
+  · recurring brand text that appears in the references (e.g. a slogan inside a badge or footer) only when copied exactly
+  · nothing else — no invented slogans, prices, guarantees, keyword pills or year badges
+${imageAssets?.logoImage ? '- LOGO: place the attached logo where the references place it, reproduced exactly (shape, colours, lettering), complete and never redrawn or distorted\n' : ''}- MINIMUM TEXT SIZE (hard limit): every glyph must be at least 4% of the image height. Small text renders as broken glyphs, so drop any text that would be smaller than that
+- THAI TYPOGRAPHY (when any Thai character appears): heavy, clean letterforms in the references' style; line height at least 1.6 so tone marks (วรรณยุกต์) and upper/lower vowels (สระบน/สระล่าง) are never cut, merged or collided; keep each Thai phrase on one unbroken line; keep every tone mark and vowel on its own base letter and never swap look-alike consonants (ด/ต, ป/บ, ภ/ท)${isEnglishCover ? '\n- LANGUAGE: every string in the image is English only — no Thai characters anywhere' : ''}
+- PHOTOGRAPHIC LAYER: true-to-life colour — skin, sky, wood, materials keep their real colours; the brand palette lives in the type and graphic devices, never as a wash over the photograph
+- SAFE MARGIN: the logo, the headline and every glyph sit at least 6% from all four edges; only the background photograph and a full-width brand strip (if the references use one) may bleed to the edge
+- Spell every word EXACTLY as provided — do not invent, translate, or misspell any text`
     : type === 'cover'
     ? `\n\nDESIGNED BANNER COVER (CRITICAL): This is a WIDE 3:2 LANDSCAPE article cover designed like an agency service banner — a real full-bleed PHOTOGRAPH with flat graphic panels, cards and typography composited on top. It MUST include readable text rendered inside the image:
 - TEXT INVENTORY (hard limit — these are the ONLY strings allowed anywhere in the image, copy them character-for-character):
@@ -363,9 +429,6 @@ export async function callGeminiImage(params: {
   const trace = type === 'cover' ? 'image_cover' : 'image_inline'
   // มีภาพอ้างอิงจาก Content Engine → ยิงผ่าน orImageWithRefs (แนบภาพอ้างอิง + โลโก้เป็น input_references)
   // ไม่มี → พฤติกรรมเดิมทุกประการผ่าน orImage
-  const refImages = imageAssets && imageAssets.referenceImages.length
-    ? [...imageAssets.referenceImages, ...(imageAssets.logoImage ? [imageAssets.logoImage] : [])]
-    : []
   const result = refImages.length
     ? await orImageWithRefs({ trace, client, prompt, images: refImages, aspectRatio })
     : await orImage({ trace, client, prompt, aspectRatio })
@@ -380,7 +443,7 @@ export async function callGeminiImage(params: {
   // (ป→บ, ภ→ท, วรรณยุกต์หลุด) ส่วนฟอนต์จริงสะกดถูก 100% เสมอ
   let plateBase64 = result.base64
   let plateMime = result.mimeType
-  if (type === 'cover' && COVER_TEXT_OVERLAY) {
+  if (overlayCover) {
     try {
       const composed = await composeCoverOverlay({
         image: Buffer.from(result.base64, 'base64'),

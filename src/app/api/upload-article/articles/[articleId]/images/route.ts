@@ -125,6 +125,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       ...base,
       title,
       type: withText ? 'cover' : 'mid',
+      slot: kind === 'inline' ? 'inline' : 'cover',
       width: WIDE_W,
       height: WIDE_H,
       coverSubtitle: withText ? subtitle : '',
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       }
       log('SUCCESS', r.costUsd ?? 0, r.totalTokens ?? 0)
       const src = `data:${r.mimeType};base64,${r.imageBase64}`
-      // HTML ที่ Generate แล้วมีกล่องปกอยู่ → เปลี่ยนรูปในนั้นเลย (ไม่มีกล่องปก = ต้องกด Generate ใหม่ให้ใส่ปก)
+      // HTML ที่ Generate แล้ว → เปลี่ยนรูปในกล่องปก หรือใส่กล่องปกต่อจาก H1 ถ้ายังไม่มี (preview ต้องเห็นปกใหม่ในบทความ)
       const updated = await prisma.$transaction(async tx => {
         const rows = await tx.$queryRaw<Array<{ htmlContent: string | null }>>`
           SELECT "htmlContent" FROM "plans_seo_pipeline"."UploadArticle"

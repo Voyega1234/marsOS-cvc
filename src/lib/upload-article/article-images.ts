@@ -116,10 +116,15 @@ export function removeCoverFromHtml(html: string): string {
   return html.replace(/<figure\b[^>]*\bcontent-cover\b[^>]*>[\s\S]*?<\/figure>\s*/gi, '')
 }
 
-/** เปลี่ยนรูปในกล่องปก (figure.content-cover) ของ htmlContent ที่ Generate แล้ว — ไม่มีกล่องปก = คืนค่าเดิม */
+/**
+ * ใส่รูปปกในกล่องปก (figure.content-cover) ของ htmlContent ที่ Generate แล้ว ให้ preview เห็นปกใหม่ในบทความ
+ * มีกล่องปก = เปลี่ยนรูป · ไม่มี (บทความที่ Generate ก่อนมีปก) = ใส่ต่อจาก H1 ตำแหน่งเดียวกับ buildUploadArticleHtml
+ * ตอน push กล่องปกถูกตัดออกอยู่แล้วถ้าไม่ได้เปิด "ใส่ปกในเนื้อหาด้วย" (bodyCover) — ไม่เกิดปกซ้อน
+ * ไม่มีทั้งกล่องปกและ H1 = คืนค่าเดิม
+ */
 export function replaceCoverInHtml(html: string, src: string, alt: string): string {
-  return html.replace(
-    /<figure\b[^>]*\bcontent-cover\b[^>]*>[\s\S]*?<\/figure>/i,
-    `<figure class="content-figure content-cover"><img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}"></figure>`,
-  )
+  const fig = `<figure class="content-figure content-cover"><img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}"></figure>`
+  const box = /<figure\b[^>]*\bcontent-cover\b[^>]*>[\s\S]*?<\/figure>/i
+  if (box.test(html)) return html.replace(box, () => fig)
+  return html.replace(/<\/h1>/i, (end) => `${end}\n${fig}`)
 }
