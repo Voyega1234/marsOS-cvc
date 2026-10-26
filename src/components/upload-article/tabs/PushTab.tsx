@@ -74,6 +74,7 @@ export default function PushTab({
   const [wpPostType, setWpPostType] = useState<"post" | "page">(client.pushPrefs.wpPostType ?? "post");
   const [useElementor, setUseElementor] = useState(!!client.pushPrefs.useElementor);
   const [stripH1, setStripH1] = useState(client.pushPrefs.stripH1 !== false);
+  const [bodyCover, setBodyCover] = useState(client.pushPrefs.bodyCover === true);
   const [autoRequestIndex, setAutoRequestIndex] = useState(client.pushPrefs.autoRequestIndex !== false);
   const [indexBusy, setIndexBusy] = useState<Record<string, boolean>>({});
 
@@ -286,7 +287,7 @@ export default function PushTab({
       const r = await fetch(`/api/upload-article/articles/${articleId}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, autoRequestIndex, ...(siteId ? { siteId } : {}) }),
+        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, bodyCover, autoRequestIndex, ...(siteId ? { siteId } : {}) }),
       });
       const d = await r.json().catch(() => ({}));
       // PBN GitHub: push สำเร็จแต่ Deploy Hook พัง = ok + error → นับเป็นสำเร็จแล้วเตือน
@@ -445,6 +446,9 @@ export default function PushTab({
           <span className="text-gray-300">|</span>
           <label className="flex items-center gap-1.5">
             <input type="checkbox" checked={stripH1} onChange={e => setStripH1(e.target.checked)} /> ตัด H1
+          </label>
+          <label className="flex items-center gap-1.5" title="ปกถูกส่งเป็น Featured Image อยู่แล้ว ธีมส่วนใหญ่แสดงเอง — ติ๊กเฉพาะเว็บที่ธีมไม่แสดง Featured Image (ไม่งั้นปกจะซ้อน 2 รูป)">
+            <input type="checkbox" checked={bodyCover} onChange={e => setBodyCover(e.target.checked)} /> ใส่ปกในเนื้อหาด้วย
           </label>
           <label className="flex items-center gap-1.5" title={pbn
             ? "หลัง Push แบบ Publish สำเร็จ ส่ง URL ให้ Google Indexing API อัตโนมัติ (เว็บ GitHub ต้องรอ build — ถ้าหน้ายังไม่ขึ้นจะบันทึกว่าไม่สำเร็จ ให้กด Index ที่ชื่อเว็บอีกครั้งในไม่กี่นาที)"

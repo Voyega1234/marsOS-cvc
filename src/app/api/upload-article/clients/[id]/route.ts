@@ -154,6 +154,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (p.wpPostType === 'post' || p.wpPostType === 'page') next.wpPostType = p.wpPostType
       if (typeof p.useElementor === 'boolean') next.useElementor = p.useElementor
       if (typeof p.stripH1 === 'boolean') next.stripH1 = p.stripH1
+      if (typeof p.bodyCover === 'boolean') next.bodyCover = p.bodyCover
       if (p.excludeCards && typeof p.excludeCards === 'object') {
         const ec = p.excludeCards as Record<string, unknown>
         const nextEc: { toc?: boolean; cta?: boolean; faq?: boolean } = { ...(cur.excludeCards ?? {}) }

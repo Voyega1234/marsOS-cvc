@@ -11,7 +11,7 @@ import { readPrefs } from '@/lib/upload-article/prefs-store'
 import sharp from 'sharp'
 import {
   coverBulletsFromHtml, countGeneratedFigures, generatedFigureHtml, insertFiguresAfterH2, insertFiguresAfterH2Text, pickInlineSlots,
-  removeGeneratedFigures, replaceCoverInHtml,
+  removeCoverFromHtml, removeGeneratedFigures, replaceCoverInHtml,
 } from '@/lib/upload-article/article-images'
 import { DEFAULT_UPLOAD_THEME, UPLOAD_MAX_INLINE_IMAGES, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
@@ -240,14 +240,19 @@ export async function DELETE(req: NextRequest, { params }: { params: { articleId
   const kind = req.nextUrl.searchParams.get('kind')
   if (kind !== 'cover' && kind !== 'inline') return NextResponse.json({ error: 'kind ต้องเป็น cover หรือ inline' }, { status: 400 })
 
-  const updated = kind === 'cover'
-    ? await prisma.uploadArticle.update({ where: { id: ctx.article.id }, data: { coverImageUrl: null, coverAlt: '' } })
-    : await prisma.$transaction(async tx => {
+  const updated = await prisma.$transaction(async tx => {
       const rows = await tx.$queryRaw<Array<{ sourceHtml: string; htmlContent: string | null }>>`
         SELECT "sourceHtml", "htmlContent" FROM "plans_seo_pipeline"."UploadArticle"
         WHERE "id" = ${ctx.article.id} AND "organizationId" = ${orgId}
         FOR UPDATE`
       if (rows.length === 0) return null
+      // ลบปก = เอากล่องปกออกจากเนื้อหาที่ Generate แล้วด้วย ไม่ให้ค้างจนต้องไปลบเองใน editor
+      if (kind === 'cover') {
+        return tx.uploadArticle.update({
+          where: { id: ctx.article.id },
+          data: { coverImageUrl: null, coverAlt: '', ...(rows[0].htmlContent && { htmlContent: removeCoverFromHtml(rows[0].htmlContent) }) },
+        })
+      }
       return tx.uploadArticle.update({
         where: { id: ctx.article.id },
         data: {

@@ -114,6 +114,8 @@ export const UPLOAD_FONT_INHERIT = 'inherit'
 
 export interface UploadPushPrefs {
   stripH1?: boolean
+  /** ใส่ปกในเนื้อหาด้วยตอน push (default ปิด — ปกไปเป็น featured image แล้ว ธีมส่วนใหญ่แสดงเอง ส่งทั้งคู่ = ปกซ้อน 2 รูป) */
+  bodyCover?: boolean
   useElementor?: boolean
   wpPostType?: 'post' | 'page'
   publishMode?: 'draft' | 'publish'

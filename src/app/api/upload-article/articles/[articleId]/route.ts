@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { stripGoogleDocsCommentsHtml, sanitizeHref } from '@/lib/upload-article/clean-html'
+import { removeCoverFromHtml } from '@/lib/upload-article/article-images'
 import { setImageAltAt, setImageAltBySrc, setImageLinkAt, setImageLinkBySrc } from '@/lib/upload-article/image-alt'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
@@ -100,6 +101,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   }
   if (body.coverImageUrl === null) {
     data.coverImageUrl = null
+    // ลบภาพปก = เอากล่องปกออกจากเนื้อหาด้วย (เดิมค้างใน htmlContent จนกว่าจะ Generate ใหม่ — คนเลยไปลบเองในเนื้อหา)
+    if (typeof body.htmlContent !== 'string' && existing.htmlContent) data.htmlContent = removeCoverFromHtml(existing.htmlContent)
   } else if (typeof body.coverImageUrl === 'string') {
     if (body.coverImageUrl && !/^data:image\//i.test(body.coverImageUrl) && !/^https:\/\//i.test(body.coverImageUrl)) {
       return NextResponse.json({ error: 'coverImageUrl ต้องเป็น data:image/... หรือ https://' }, { status: 400 })

@@ -111,6 +111,11 @@ export function insertFiguresAfterH2Text(html: string, figures: { text: string; 
   })
 }
 
+/** ตัดกล่องปก (figure.content-cover) ออกจาก HTML — ไม่มีกล่องปก = คืนค่าเดิม */
+export function removeCoverFromHtml(html: string): string {
+  return html.replace(/<figure\b[^>]*\bcontent-cover\b[^>]*>[\s\S]*?<\/figure>\s*/gi, '')
+}
+
 /** เปลี่ยนรูปในกล่องปก (figure.content-cover) ของ htmlContent ที่ Generate แล้ว — ไม่มีกล่องปก = คืนค่าเดิม */
 export function replaceCoverInHtml(html: string, src: string, alt: string): string {
   return html.replace(

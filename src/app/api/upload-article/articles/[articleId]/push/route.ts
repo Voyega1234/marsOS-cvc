@@ -16,6 +16,7 @@ import { publishToGithub } from '@/lib/upload-article/github-push'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
 import { faqQuestionsToSpan } from '@/lib/article-structure'
+import { removeCoverFromHtml } from '@/lib/upload-article/article-images'
 import { pushArticleToWebflow, type WebflowUploadConfig } from '@/lib/upload-article/webflow-push'
 import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
 import type { UploadIndexRequest } from '@/lib/upload-article/types'
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     body.wpPostType === 'page' ? 'page' : body.wpPostType === 'post' ? 'post' : (prevPrefs.wpPostType ?? 'post')
   const useElementor = boolPref(body.useElementor, Boolean(prevPrefs.useElementor))
   const stripH1 = boolPref(body.stripH1, prevPrefs.stripH1 ?? true)
+  const bodyCover = boolPref(body.bodyCover, prevPrefs.bodyCover ?? false)
   const autoRequestIndex = boolPref(body.autoRequestIndex, prevPrefs.autoRequestIndex ?? true)
 
   // วัน-เวลาเผยแพร่ที่ตั้งไว้ในหน้า Review (pushPrefs.publishAt) — ส่งเฉพาะ WordPress
@@ -124,7 +126,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // เก็บ preference ที่ใช้รอบนี้ไว้ใน client.pushPrefs (ไม่รอ push สำเร็จก่อน — ผู้ใช้ตั้งใจเลือกแล้ว)
   // เขียนผ่าน updatePrefs (ล็อกแถว อ่านค่าล่าสุดก่อนแก้) กัน prefs ที่เพิ่งถูกแก้จากที่อื่นระหว่างที่ request นี้กำลังทำงานหาย (lost update)
   const prefsResult = await updatePrefs(client.id, orgId, (current) => {
-    const next: UploadPushPrefs = { ...(current as UploadPushPrefs), useElementor, wpPostType, publishMode, stripH1, autoRequestIndex }
+    const next: UploadPushPrefs = { ...(current as UploadPushPrefs), useElementor, wpPostType, publishMode, stripH1, bodyCover, autoRequestIndex }
     return { prefs: next as PrefsObject, result: next }
   })
   const updatedClientRow = prefsResult ? { ...client, pushPrefs: JSON.stringify(prefsResult.result) } : client
@@ -228,6 +230,14 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   let warning: string | undefined
   /** บทความเผยแพร่จริงบนเว็บแล้วหรือยัง (WordPress ตั้งเวลา/ปลั๊กอินบังคับ draft = ยัง) — ใช้ตัดสิน Request Index */
   let livePublished = false
+
+  // ปกในเนื้อหาเป็นรูปเดียวกับ featured image (WordPress) / ช่องรูปของ Webflow — ธีมแสดงรูปนั้นเองอยู่แล้ว
+  // ส่งทั้งสองที่ = ปกซ้อน 2 รูป (ทีมแจ้ง 2026-10-26) จึงตัดปกในเนื้อหาออก เว้นแต่ติ๊ก "ใส่ปกในเนื้อหาด้วย"
+  const coverAsFeatured = !!article.coverImageUrl && (
+    platform === 'wordpress' ||
+    (platform === 'webflow' && !pbnSite && !!((conn.webflow ?? {}) as WebflowUploadConfig).imageField)
+  )
+  if (coverAsFeatured && !bodyCover) processedHtml = removeCoverFromHtml(processedHtml)
 
   try {
     const { base64, mime } = coverToBase64(article.coverImageUrl)
