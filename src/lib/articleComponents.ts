@@ -356,6 +356,21 @@ export function stripStyleTags(html: string): string {
   return html.replace(/<style\b[\s\S]*?<\/style>\s*/gi, '')
 }
 
+/**
+ * Collapse newlines inside <style> and JSON-LD <script> blocks before sending HTML to WordPress.
+ * WordPress (wpautop / Elementor text editor / TinyMCE) turns every newline into `<br />`,
+ * even inside <style> — `<br />.content-article .x{…}` is an invalid selector, so the browser
+ * drops every CSS rule (FAQ cards etc. render unstyled) and JSON-LD stops being valid JSON.
+ * Newlines in CSS/JSON are plain whitespace, so a single space is equivalent.
+ */
+export function flattenEmbeddedNewlines(html: string): string {
+  const flat = (inner: string) => inner.replace(/\s*[\r\n]+\s*/g, ' ').trim()
+  return html
+    .replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (_m, open: string, inner: string, close: string) => open + flat(inner) + close)
+    // JSON-LD only — real JS may rely on newlines (// comments, ASI)
+    .replace(/(<script\b[^>]*type=["']application\/ld\+json["'][^>]*>)([\s\S]*?)(<\/script>)/gi, (_m, open: string, inner: string, close: string) => open + flat(inner) + close)
+}
+
 /** ตัด <h1> ตัวแรก — สำหรับเว็บที่แสดง H1 จาก post title อยู่แล้ว */
 export function stripLeadingH1(html: string): string {
   return html.replace(/<h1\b[^>]*>[\s\S]*?<\/h1>\s*/i, '')

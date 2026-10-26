@@ -11,7 +11,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { faqQuestionsToSpan } from '@/lib/article-structure'
-import { stripStyleTags, stripLeadingH1, normalizeCtaItems } from '@/lib/articleComponents'
+import { stripStyleTags, stripLeadingH1, normalizeCtaItems, flattenEmbeddedNewlines } from '@/lib/articleComponents'
 import { buildProjectArticleCss } from '@/lib/project-theme'
 import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 import { buildArticleSchema } from '@/lib/articleSchema'
@@ -310,7 +310,8 @@ export async function POST(req: NextRequest) {
 
 
   // 1c. Add alt text to inline <img> tags missing it (use article title as fallback)
-  const htmlWithAlt = htmlForContent.replace(
+  // WordPress แปลงขึ้นบรรทัดใหม่เป็น <br /> แม้ใน <style> — ยุบ CSS/JSON-LD เป็นบรรทัดเดียวก่อนส่ง
+  const htmlWithAlt = flattenEmbeddedNewlines(htmlForContent).replace(
     /<img(?![^>]*\balt=)([^>]*?)(\s*\/?>)/gi,
     `<img alt="${(dbSeoTitle || title).replace(/"/g, '&quot;')}"$1$2`
   )

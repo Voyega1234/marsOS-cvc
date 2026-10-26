@@ -3,6 +3,7 @@
 // เป็น pure function ล้วน — ไม่แตะ prisma/session, รับ credentials ตรงจากผู้เรียก
 
 import { safeFetch } from './safe-fetch'
+import { flattenEmbeddedNewlines } from '@/lib/articleComponents'
 
 export interface WpPushInput {
   wpUrl: string
@@ -169,7 +170,8 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
   const finalSlug = input.slug?.trim() || ''
   const coverAltText = input.coverAlt || finalMetaTitle
 
-  const htmlWithAlt = input.html.replace(
+  // WordPress แปลงขึ้นบรรทัดใหม่เป็น <br /> แม้ใน <style> — CSS ทั้งก้อนพัง (FAQ ไม่มีการ์ด) ต้องยุบเป็นบรรทัดเดียว
+  const htmlWithAlt = flattenEmbeddedNewlines(input.html).replace(
     /<img(?![^>]*\balt=)([^>]*?)(\s*\/?>)/gi,
     `<img alt="${finalMetaTitle.replace(/"/g, '&quot;')}"$1$2`,
   )
