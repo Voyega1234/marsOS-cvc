@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Sparkles, ImageIcon, Trash2, RefreshCw, Loader2 } from "lucide-react";
+import { CheckCircle2, Sparkles, ImageIcon, Trash2, RefreshCw, Loader2, Download, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -78,6 +78,7 @@ export default function ReviewTab({
   const [inserting, setInserting] = useState(false);
 
   const [approving, setApproving] = useState(false);
+  const [wordBusy, setWordBusy] = useState(false);
 
   useEffect(() => { if (selectedId) void loadArticleDetail(selectedId); }, [selectedId, loadArticleDetail]);
 
@@ -294,6 +295,65 @@ export default function ReviewTab({
     }
   }
 
+  // ── Export ให้ลูกค้าตรวจ: HTML (เปิดดูในเบราว์เซอร์ได้เลย) + Word — ใช้ตัวเดียวกับ SME Review ──
+  // โหมดแก้ไขที่ยังไม่บันทึก ก็ export ตามที่เห็นบนจอ
+  function exportSource() {
+    if (!detail) return null;
+    const src = viewMode === "edit" && editorRef.current ? editorRef.current.innerHTML : html;
+    return {
+      html: src,
+      title: detail.title,
+      coverSrc: detail.coverImageUrl || undefined,
+      coverAlt: detail.coverAlt || detail.title,
+      fileBase: detail.slug || detail.title,
+    };
+  }
+  async function buildHtmlBlob() {
+    const o = exportSource();
+    if (!o) return null;
+    const m = await import("@/lib/article-export");
+    const doc = m.buildStandaloneArticleHtml({
+      html: o.html, title: o.title, lang: client.language === "en" ? "en" : "th",
+      coverSrc: o.coverSrc, coverAlt: o.coverAlt, pageBackground: client.theme.pageBackground,
+    });
+    return { m, blob: new Blob([doc], { type: "text/html;charset=utf-8" }), name: `${m.articleFileName(o.fileBase)}.html` };
+  }
+  async function openHtmlPreview() {
+    const tab = window.open("", "_blank"); // เปิดตอนคลิก ก่อน await — ไม่งั้นเบราว์เซอร์บล็อก popup
+    try {
+      const r = await buildHtmlBlob();
+      if (!r) { tab?.close(); return; }
+      if (!r.m.showBlobInTab(tab, r.blob)) {
+        r.m.downloadBlob(r.blob, r.name);
+        toast.info("เบราว์เซอร์บล็อกแท็บใหม่ — ดาวน์โหลดไฟล์ HTML ให้แทน");
+      }
+    } catch (e) {
+      tab?.close();
+      toast.error("สร้างไฟล์ HTML ไม่สำเร็จ: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+  async function downloadHtml() {
+    try {
+      const r = await buildHtmlBlob();
+      if (r) r.m.downloadBlob(r.blob, r.name);
+    } catch (e) {
+      toast.error("สร้างไฟล์ HTML ไม่สำเร็จ: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+  async function downloadWord() {
+    const o = exportSource();
+    if (!o) return;
+    setWordBusy(true);
+    try {
+      const m = await import("@/lib/article-export");
+      const blob = await m.buildArticleDocx({ html: o.html, title: o.title, coverSrc: o.coverSrc, coverAlt: o.coverAlt });
+      m.downloadBlob(blob, `${m.articleFileName(o.fileBase)}.docx`);
+    } catch (e) {
+      toast.error("สร้างไฟล์ Word ไม่สำเร็จ: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setWordBusy(false);
+    }
+  }
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_340px] gap-4 items-start">
       {/* รายการบทความ */}
@@ -346,6 +406,21 @@ export default function ReviewTab({
                   title="Generate ใหม่จากต้นฉบับ (ตัวเลือก Internal Link เดิม) — ที่แก้มือจะหาย"
                   className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
                   <RefreshCw size={11} className={regenBusy ? "animate-spin" : ""} /> {regenBusy ? "กำลัง Generate..." : "Re-generate"}
+                </button>
+                <span className="w-px h-4 bg-gray-200 mx-0.5" aria-hidden />
+                <button onClick={openHtmlPreview}
+                  title="เปิดบทความเป็นหน้า HTML ในแท็บใหม่ — ดูได้ทันที ส่งลิงก์/ไฟล์ให้ลูกค้าตรวจได้"
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue flex items-center gap-1">
+                  <ExternalLink size={11} /> HTML
+                </button>
+                <button onClick={downloadHtml} title="ดาวน์โหลดไฟล์ .html (เปิดได้ทุกเบราว์เซอร์)"
+                  className="px-1.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue flex items-center"
+                  aria-label="ดาวน์โหลด HTML">
+                  <Download size={11} />
+                </button>
+                <button onClick={downloadWord} disabled={wordBusy} title="ดาวน์โหลดไฟล์ Word (.docx)"
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
+                  {wordBusy ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Word
                 </button>
                 {viewMode === "edit" && (
                   <button onClick={() => setEditTone(t => (t === "site" ? "readable" : "site"))}

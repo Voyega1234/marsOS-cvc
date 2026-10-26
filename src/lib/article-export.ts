@@ -16,9 +16,12 @@ const escHtml = (s: string) =>
 
 // ───────────────────────── HTML เดี่ยว ─────────────────────────
 
+const PAGE_BG_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i
+
 /**
  * ห่อบทความเป็นเอกสาร HTML ที่เปิดได้ทุกเบราว์เซอร์ — สไตล์พื้นฐานเดียวกับ ArticleFrame (Preview ในระบบ)
  * `<style>` และ JSON-LD ของบทความอยู่ครบ ไม่แตะ
+ * CSP script-src 'none' — แท็บ preview เป็น blob: ของโดเมนระบบ สคริปต์ที่ติดมากับบทความต้องรันไม่ได้ (JSON-LD ไม่ใช่สคริปต์ที่รัน ไม่โดน)
  */
 export function buildStandaloneArticleHtml(o: {
   html: string
@@ -26,8 +29,11 @@ export function buildStandaloneArticleHtml(o: {
   lang: 'th' | 'en'
   coverSrc?: string
   coverAlt?: string
+  /** สีพื้นหน้าเว็บปลายทาง (เหมือน ArticleFrame) — รับเฉพาะ hex/rgb, ไม่ตรงรูปแบบ = ขาว */
+  pageBackground?: string
 }): string {
   const html = o.html || ''
+  const bg = o.pageBackground && PAGE_BG_RE.test(o.pageBackground.trim()) ? o.pageBackground.trim() : '#fff'
   const cover = o.coverSrc && !html.includes('content-cover')
     ? `<img src="${escHtml(o.coverSrc)}" alt="${escHtml(o.coverAlt ?? o.title)}" style="width:100%;height:auto;display:block;margin:0 0 24px;border-radius:12px" />\n`
     : ''
@@ -36,8 +42,9 @@ export function buildStandaloneArticleHtml(o: {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'">
 <title>${escHtml(o.title)}</title>
-<style>html,body{margin:0;padding:24px;box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:#fff;line-height:1.7;word-break:break-word;overflow-wrap:break-word;}img{max-width:100%;height:auto;}table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;}.article-export-wrap{max-width:840px;margin:0 auto;}</style>
+<style>html,body{margin:0;padding:24px;box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:${bg};line-height:1.7;word-break:break-word;overflow-wrap:break-word;}img{max-width:100%;height:auto;}table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;}.article-export-wrap{max-width:840px;margin:0 auto;}</style>
 </head>
 <body>
 <div class="article-export-wrap">
@@ -550,6 +557,15 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.click()
   document.body.removeChild(a)
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+/** เปิดไฟล์ในแท็บใหม่ — ต้องเรียก window.open ตอนคลิก (ก่อน await) ไม่งั้นโดนบล็อก popup แล้วค่อยส่งแท็บเข้ามา */
+export function showBlobInTab(tab: Window | null, blob: Blob): boolean {
+  if (!tab || tab.closed) return false
+  const url = URL.createObjectURL(blob)
+  tab.location.href = url
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  return true
 }
 
 export function articleFileName(s: string): string {
