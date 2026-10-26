@@ -386,8 +386,8 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
         // ไม่มีทั้ง REST meta และปลั๊กอิน = ใช้ Elementor ไม่ได้ แต่เนื้อหาปกติขึ้นแล้ว (content ส่งไปในคำขอแรก)
         else if (!sync.supported) warning = undefined
       }
-      if (!input.useElementor && Object.keys(wpMeta).length > 0) {
-        // ไม่ใช้ Elementor — ส่ง Yoast meta ผ่านการอัพเดตโพสต์ปกติ ไม่ตั้ง Elementor builder mode
+      if (Object.keys(wpMeta).length > 0) {
+        // ส่ง Yoast meta ซ้ำทุกโหมด (รวม Elementor) — คำขอแรกอาจ retry แบบตัด meta ทิ้งไปแล้ว
         const normalEndpoint = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${postId}`
         await safeFetch(normalEndpoint, {
           method: 'POST',
