@@ -4,13 +4,15 @@
  * (การสแกนเว็บปลายทางย้ายไปอยู่ที่ Project Setting > สแกนเว็บปลายทาง แล้ว) */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Settings, CalendarClock, SearchCheck, Loader2, RotateCcw } from "lucide-react";
+import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Settings, CalendarClock, SearchCheck, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/upload-article/cards";
+import { canDeleteArticle, duplicateMap } from "@/lib/upload-article/duplicates";
 import { AiHelpInline } from "@/components/upload-article/shared/AiHelpPanel";
 import UploadStatusBadge, { UPLOAD_STATUS_OPTIONS } from "@/components/upload-article/shared/StatusBadge";
 import { formatPublishAt } from "@/components/upload-article/shared/PublishDatePanel";
+import DeleteArticleDialog from "@/components/upload-article/shared/DeleteArticleDialog";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { parseWriterSourceName } from "@/lib/upload-article/pbn";
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
@@ -35,11 +37,14 @@ const TYPE_CHIP: Record<string, { label: string; cls: string }> = {
 };
 
 export default function PushTab({
-  client, setClient, articles, loadArticleDetail, articleDetails, applyArticleUpdate, selectedId, setSelectedId, onOpenSettings, pbn = false,
+  client, setClient, articles, allArticles, loadArticleDetail, articleDetails, applyArticleUpdate, selectedId, setSelectedId, onOpenSettings, pbn = false,
+  removeArticle, refreshClient,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
   articles: UploadArticleDTO[];
+  /** ทุกแถวของลูกค้านี้ (รวมที่กำลังเขียน) — ใช้หาบทความซ้ำ */
+  allArticles: UploadArticleDTO[];
   loadArticleDetail: (id: string, force?: boolean) => Promise<UploadArticleDTO | null>;
   articleDetails: Record<string, UploadArticleDTO>;
   applyArticleUpdate: (a: UploadArticleDTO) => void;
@@ -48,7 +53,11 @@ export default function PushTab({
   onOpenSettings: (section: SettingsSection) => void;
   /** PBN Backlinks: เลือกเว็บ PBN ปลายทางต่อบทความ + โชว์ว่าบทความขึ้นเว็บไหนไปแล้ว */
   pbn?: boolean;
+  removeArticle: (id: string) => void;
+  refreshClient: () => Promise<void>;
 }) {
+  const [deleteTarget, setDeleteTarget] = useState<UploadArticleDTO | null>(null);
+  const dupMap = useMemo(() => duplicateMap(allArticles), [allArticles]);
   const pbnData = usePbnSites(pbn);
   const pbnSites = pbnData.sites;
   const pbnPushes = pbnData.pushes;
@@ -497,6 +506,12 @@ export default function PushTab({
                     <p className="text-sm font-semibold text-brand-navy truncate">{a.title}</p>
                     <div className="mt-1 flex items-center gap-2 flex-wrap">
                       <UploadStatusBadge status={a.status} />
+                      {(dupMap.get(a.id)?.length ?? 0) > 0 && (
+                        <span title={`มีบทความชื่อ/slug/โพสต์เดียวกันอีก ${dupMap.get(a.id)!.length} แถว`}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
+                          ซ้ำ
+                        </span>
+                      )}
                       {pbn && variantInfo.get(a.id) && (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-mist text-brand-blue">v{variantInfo.get(a.id)!.variant}</span>
                       )}
@@ -552,6 +567,12 @@ export default function PushTab({
                     title={!pbn && a.wordpressPostId ? `อัปเดตทับโพสต์เดิมบนเว็บ (ID ${a.wordpressPostId}) ไม่สร้างโพสต์ใหม่` : undefined}>
                     {busy ? "กำลัง Push..." : pbn ? (pbnPushes[a.id]?.[targetSite[a.id] ?? ""] ? "Push อัปเดต" : "Push") : a.wordpressPostId ? <><RotateCcw size={12} className="mr-1" /> Re-push (ทับของเดิม)</> : "Push"}
                   </Button>
+                  {canDeleteArticle(a, allArticles) && (
+                    <button type="button" title="ลบบทความ" disabled={busy || batchBusy} onClick={() => setDeleteTarget(a)}
+                      className="p-1.5 rounded-lg text-gray-300 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-40 disabled:pointer-events-none">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
               {pbn && lockedSite(a.id) && (
@@ -654,6 +675,18 @@ export default function PushTab({
           );
         })}
       </div>
+
+      <DeleteArticleDialog
+        article={deleteTarget}
+        allArticles={allArticles}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={id => {
+          // เอาออกจากรายการที่ติ๊กไว้ — กัน Push ที่เลือกวิ่งไปหาแถวที่ลบแล้ว
+          setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+          removeArticle(id);
+          void refreshClient();
+        }}
+      />
     </div>
   );
 }

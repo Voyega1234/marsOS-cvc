@@ -153,6 +153,8 @@ export default function UploadClientWorkspace({
 
   // บทความที่กำลังเขียนอยู่ (WRITING) ยังไม่พร้อมให้แท็บอื่นเห็น — กันคนกดใช้งานบทความที่ยังไม่เสร็จ
   const visibleArticles = useMemo(() => articles.filter(a => a.status !== "WRITING"), [articles]);
+  // ชุดที่ใช้หาแถวซ้ำ (ปุ่มลบ + ชิป "ซ้ำ") — PBN ส่งว่าง: variant ชื่อซ้ำกันโดยตั้งใจ แถวที่ push แล้วจึงลบไม่ได้ตามเดิม (server กันซ้ำอีกชั้น)
+  const dupPool = useMemo(() => (isPbn ? [] : articles), [isPbn, articles]);
 
   if (notFoundFlag) {
     return (
@@ -267,6 +269,7 @@ export default function UploadClientWorkspace({
           <ImportTab
             client={client}
             articles={visibleArticles}
+            allArticles={dupPool}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
             refreshArticles={refreshArticles}
@@ -297,11 +300,14 @@ export default function UploadClientWorkspace({
             client={client}
             setClient={setClient}
             articles={visibleArticles}
+            allArticles={dupPool}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
             loadArticleDetail={loadArticleDetail}
             articleDetails={articleDetails}
             applyArticleUpdate={applyArticleUpdate}
+            removeArticle={removeArticle}
+            refreshClient={refreshClient}
           />
         </TabsContent>
 
@@ -310,6 +316,7 @@ export default function UploadClientWorkspace({
             client={client}
             setClient={setClient}
             articles={visibleArticles}
+            allArticles={dupPool}
             loadArticleDetail={loadArticleDetail}
             articleDetails={articleDetails}
             applyArticleUpdate={applyArticleUpdate}
@@ -317,6 +324,8 @@ export default function UploadClientWorkspace({
             setSelectedId={setSelectedId}
             onOpenSettings={openSettings}
             pbn={isPbn}
+            removeArticle={removeArticle}
+            refreshClient={refreshClient}
           />
         </TabsContent>
 

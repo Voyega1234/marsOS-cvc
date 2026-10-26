@@ -4,14 +4,15 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Trash2, CheckCircle2, Loader2, Lock } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
+import { canDeleteArticle } from "@/lib/upload-article/duplicates";
 import DropZone from "@/components/upload-article/shared/DropZone";
 import PasteDialog from "@/components/upload-article/shared/PasteDialog";
 import GoogleDocDialog from "@/components/upload-article/shared/GoogleDocDialog";
 import DriveFolderDialog from "@/components/upload-article/shared/DriveFolderDialog";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
+import DeleteArticleDialog from "@/components/upload-article/shared/DeleteArticleDialog";
 import ArticleOwnerSelect, { type OwnerControls } from "@/components/upload-article/ArticleOwnerSelect";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -32,10 +33,12 @@ async function readErrorMessage(r: Response, fallback: string): Promise<string> 
 }
 
 export default function ImportTab({
-  client, articles, selectedId, setSelectedId, refreshArticles, refreshClient, removeArticle, owners,
+  client, articles, allArticles, selectedId, setSelectedId, refreshArticles, refreshClient, removeArticle, owners,
 }: {
   client: UploadClientDTO;
   articles: UploadArticleDTO[];
+  /** ทุกแถวของลูกค้านี้ (รวมที่กำลังเขียน) — ใช้หาบทความซ้ำก่อนลบ */
+  allArticles: UploadArticleDTO[];
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
   refreshArticles: () => Promise<void>;
@@ -49,7 +52,6 @@ export default function ImportTab({
   const [gdocOpen, setGdocOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<UploadArticleDTO | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   /** อัปโหลดทีละไฟล์ (request ละ 1 ไฟล์) กัน Vercel ตัด body ที่ 4.5MB เมื่อลากมาหลายไฟล์พร้อมกัน */
   async function uploadFiles(files: File[]) {
@@ -107,25 +109,6 @@ export default function ImportTab({
       toast.error(`นำเข้าไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const r = await fetch(`/api/upload-article/articles/${deleteTarget.id}`, { method: "DELETE" });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        toast.error(d?.error || "ลบไม่สำเร็จ");
-        return;
-      }
-      removeArticle(deleteTarget.id);
-      toast.success("ลบบทความแล้ว");
-      await refreshClient();
-    } finally {
-      setDeleting(false);
-      setDeleteTarget(null);
     }
   }
 
@@ -195,8 +178,8 @@ export default function ImportTab({
                     {new Date(a.updatedAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {a.wordpressPostId || a.pushedAt ? (
-                      <span title="ขึ้นเว็บไซต์แล้ว — ลบไม่ได้" className="inline-flex p-1.5 text-gray-300">
+                    {!canDeleteArticle(a, allArticles) ? (
+                      <span title="ขึ้นเว็บไซต์แล้วและไม่มีแถวซ้ำ — ลบไม่ได้" className="inline-flex p-1.5 text-gray-300">
                         <Lock size={13} />
                       </span>
                     ) : (
@@ -223,18 +206,12 @@ export default function ImportTab({
       <DriveFolderDialog open={driveOpen} onOpenChange={setDriveOpen} clientId={client.id}
         onImported={async () => { await refreshArticles(); await refreshClient(); }} />
 
-      <Dialog open={!!deleteTarget} onOpenChange={v => !v && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>ลบบทความนี้?</DialogTitle></DialogHeader>
-          <p className="text-sm text-gray-600">"{deleteTarget?.title}" จะถูกลบถาวร — ยืนยันหรือไม่?</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>ยกเลิก</Button>
-            <Button variant="destructive" disabled={deleting} onClick={confirmDelete}>
-              {deleting ? "กำลังลบ..." : "ลบบทความ"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteArticleDialog
+        article={deleteTarget}
+        allArticles={allArticles}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={id => { removeArticle(id); void refreshClient(); }}
+      />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 /**
  * แท็บ Review — แก้ไขบทความ, ตั้ง Meta/Slug (ให้ AI เขียนได้), วันที่เผยแพร่, สร้าง/จัดการภาพ, แล้วผ่าน Review
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Sparkles, ImageIcon, Trash2, RefreshCw, Loader2, Download, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import ArticleFrame from "@/components/shared/ArticleFrame";
 import ScopedEditable from "@/components/shared/ScopedEditable";
 import { fileToDownscaledDataUrl } from "@/lib/imageDownscale";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
+import { canDeleteArticle, duplicateMap } from "@/lib/upload-article/duplicates";
 import SerpPreview from "@/components/upload-article/shared/SerpPreview";
 import UploadStatusBadge, { UPLOAD_STATUS_OPTIONS } from "@/components/upload-article/shared/StatusBadge";
 import { listH2Sections, insertFigureAfterH2 } from "@/components/upload-article/shared/htmlSections";
@@ -20,6 +21,7 @@ import DriveImagesPanel from "@/components/upload-article/shared/DriveImagesPane
 import AiImagesPanel from "@/components/upload-article/shared/AiImagesPanel";
 import PublishDatePanel from "@/components/upload-article/shared/PublishDatePanel";
 import ArticleImagesPanel from "@/components/upload-article/shared/ArticleImagesPanel";
+import DeleteArticleDialog from "@/components/upload-article/shared/DeleteArticleDialog";
 
 const PAGE_BG_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i;
 
@@ -46,17 +48,24 @@ const EDIT_READABLE_CSS = `
 const MAX_PATCH_BYTES = 4_000_000;
 
 export default function ReviewTab({
-  client, setClient, articles, selectedId, setSelectedId, loadArticleDetail, articleDetails, applyArticleUpdate,
+  client, setClient, articles, allArticles, selectedId, setSelectedId, loadArticleDetail, articleDetails, applyArticleUpdate,
+  removeArticle, refreshClient,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
   articles: UploadArticleDTO[];
+  /** ทุกแถวของลูกค้านี้ (รวมที่กำลังเขียน) — ใช้หาบทความซ้ำ */
+  allArticles: UploadArticleDTO[];
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
   loadArticleDetail: (id: string, force?: boolean) => Promise<UploadArticleDTO | null>;
   articleDetails: Record<string, UploadArticleDTO>;
   applyArticleUpdate: (a: UploadArticleDTO) => void;
+  removeArticle: (id: string) => void;
+  refreshClient: () => Promise<void>;
 }) {
+  const [deleteTarget, setDeleteTarget] = useState<UploadArticleDTO | null>(null);
+  const dupMap = useMemo(() => duplicateMap(allArticles), [allArticles]);
   const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
   const [statusFilter, setStatusFilter] = useState<string>("");
   // สีตอนแก้ไขเท่านั้น — ใส่ที่กรอบนอก editorRef จึงไม่ติดไปกับ innerHTML ที่บันทึก/push
@@ -371,13 +380,31 @@ export default function ReviewTab({
           </select>
         </div>
         <div className="max-h-[70vh] overflow-y-auto divide-y divide-gray-50">
-          {visibleArticles.map(a => (
-            <button key={a.id} onClick={() => setSelectedId(a.id)}
-              className={`w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors ${selectedId === a.id ? "bg-brand-mist/40" : ""}`}>
-              <p className="text-xs font-medium text-brand-navy truncate">{a.title}</p>
-              <div className="mt-1"><UploadStatusBadge status={a.status} /></div>
-            </button>
-          ))}
+          {visibleArticles.map(a => {
+            const dupCount = dupMap.get(a.id)?.length ?? 0;
+            return (
+              <div key={a.id} className={`flex items-center hover:bg-gray-50 transition-colors ${selectedId === a.id ? "bg-brand-mist/40" : ""}`}>
+                <button onClick={() => setSelectedId(a.id)} className="flex-1 min-w-0 text-left px-3 py-2.5">
+                  <p className="text-xs font-medium text-brand-navy truncate">{a.title}</p>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <UploadStatusBadge status={a.status} />
+                    {dupCount > 0 && (
+                      <span title={`มีบทความชื่อ/slug/โพสต์เดียวกันอีก ${dupCount} แถว`}
+                        className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
+                        ซ้ำ
+                      </span>
+                    )}
+                  </div>
+                </button>
+                {canDeleteArticle(a, allArticles) && (
+                  <button title="ลบบทความ" onClick={() => setDeleteTarget(a)}
+                    className="mr-2 p-1.5 shrink-0 rounded-lg text-gray-300 hover:text-rose-600 hover:bg-rose-50 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
           {articles.length === 0 && <p className="text-xs text-gray-400 text-center py-8">ยังไม่มีบทความ</p>}
           {articles.length > 0 && visibleArticles.length === 0 && <p className="text-xs text-gray-400 text-center py-8">ไม่มีบทความในสถานะนี้</p>}
         </div>
@@ -570,6 +597,13 @@ export default function ReviewTab({
           )}
         </div>
       )}
+
+      <DeleteArticleDialog
+        article={deleteTarget}
+        allArticles={allArticles}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={id => { removeArticle(id); void refreshClient(); }}
+      />
     </div>
   );
 }

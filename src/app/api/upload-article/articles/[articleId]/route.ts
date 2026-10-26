@@ -9,6 +9,8 @@ import { setImageAltAt, setImageAltBySrc, setImageLinkAt, setImageLinkBySrc } fr
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
+import { duplicatesOf } from '@/lib/upload-article/duplicates'
+import { isPbnPrefsRaw } from '@/lib/upload-article/pbn'
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024
 const VALID_STATUS = new Set(['IMPORTED', 'GENERATED', 'REVIEWED', 'PUSHED', 'FAILED'])
@@ -133,7 +135,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   return NextResponse.json(dto)
 }
 
-/** DELETE /api/upload-article/articles/[articleId] — บทความที่ขึ้นเว็บแล้ว (Draft/Publish) ลบไม่ได้ */
+/**
+ * DELETE /api/upload-article/articles/[articleId] — ลบแถวในระบบเท่านั้น (ไม่ลบโพสต์บนเว็บไซต์)
+ * บทความที่ขึ้นเว็บแล้ว (Draft/Publish) ลบได้เมื่อมีแถวซ้ำ (โพสต์/slug/ชื่อเดียวกัน) เหลืออยู่ให้เก็บไว้ ไม่งั้น 409
+ */
 export async function DELETE(_req: NextRequest, { params }: { params: { articleId: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -143,18 +148,34 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
   if (!existing) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
 
   if (existing.wordpressPostId || existing.pushedAt) {
-    return NextResponse.json({ error: 'บทความนี้ขึ้นเว็บไซต์แล้ว — ลบไม่ได้ ระบบเก็บไว้ไม่ให้หาย' }, { status: 409 })
+    // push แล้ว: ลบได้เฉพาะเมื่อมีแถวซ้ำของลูกค้าเดียวกันเหลืออยู่ (กันบทความที่ขึ้นเว็บหายจากระบบ)
+    // PBN ไม่เข้ากติกานี้: variant ของคีย์เวิร์ดเดียวกันชื่อซ้ำกันโดยตั้งใจ และแต่ละแถวผูกประวัติ push ของเว็บตัวเอง
+    const owner = await prisma.uploadClient.findFirst({
+      where: { id: existing.clientId, organizationId: session.user.organizationId },
+      select: { pushPrefs: true },
+    })
+    if (isPbnPrefsRaw(owner?.pushPrefs)) {
+      return NextResponse.json({ error: 'บทความนี้ขึ้นเว็บไซต์แล้ว — ลบไม่ได้ ระบบเก็บไว้ไม่ให้หาย' }, { status: 409 })
+    }
+    const siblings = await prisma.uploadArticle.findMany({
+      where: { organizationId: session.user.organizationId, clientId: existing.clientId, id: { not: existing.id } },
+      select: { id: true, title: true, slug: true, wordpressPostId: true },
+    })
+    if (duplicatesOf(existing, siblings).length === 0) {
+      return NextResponse.json({ error: 'บทความนี้ขึ้นเว็บไซต์แล้ว และไม่มีแถวซ้ำ — ลบไม่ได้ ระบบเก็บไว้ไม่ให้หาย' }, { status: 409 })
+    }
   }
 
   await prisma.uploadArticle.delete({ where: { id: existing.id } })
 
-  // ตัด cardSel/publishAt/articleOwners[articleId] ของบทความที่ลบไปแล้วทิ้ง — เขียนผ่าน updatePrefs กัน pushPrefs ที่แก้พร้อมกันหาย (lost update)
+  // ตัด cardSel/publishAt/articleOwners/indexRequests[articleId] ของบทความที่ลบไปแล้วทิ้ง — เขียนผ่าน updatePrefs กัน pushPrefs ที่แก้พร้อมกันหาย (lost update)
   await updatePrefs(existing.clientId, session.user.organizationId, (current) => {
     const cur = current as UploadPushPrefs
     const inCardSel = Boolean(cur.cardSel && existing.id in cur.cardSel)
     const inPublishAt = Boolean(cur.publishAt && existing.id in cur.publishAt)
     const inOwners = Boolean(cur.articleOwners && existing.id in cur.articleOwners)
-    if (!inCardSel && !inPublishAt && !inOwners) return { result: undefined }
+    const inIndexRequests = Boolean(cur.indexRequests && existing.id in cur.indexRequests)
+    if (!inCardSel && !inPublishAt && !inOwners && !inIndexRequests) return { result: undefined }
     const next: UploadPushPrefs = { ...cur }
     if (inCardSel) {
       const nextCardSel = { ...cur.cardSel }
@@ -170,6 +191,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
       const nextOwners = { ...cur.articleOwners }
       delete nextOwners[existing.id]
       next.articleOwners = nextOwners
+    }
+    if (inIndexRequests) {
+      const nextIndexRequests = { ...cur.indexRequests }
+      delete nextIndexRequests[existing.id]
+      next.indexRequests = nextIndexRequests
     }
     return { prefs: next as PrefsObject, result: undefined }
   }).catch(() => null)
