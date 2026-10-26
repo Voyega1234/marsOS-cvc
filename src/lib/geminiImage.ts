@@ -212,6 +212,39 @@ function renderImagePromptTemplate(
     .replace(/\{\{\s*text_color\s*\}\}/gi, vars.textColor)
 }
 
+// มุมภาพของปก — เจ้าของแจ้ง 2026-10-26 ว่าปกหลายบทความออกมาซ้ำกัน: บรีฟ CE + ภาพอ้างอิงล็อกทุกอย่าง
+// ยกเว้นหัวเรื่อง และเนื้อหาบทความไม่เคยไปถึงฉาก โมเดลจึงวาดฉากเดิม (คนยืนยิ้มหน้ากล้อง) ซ้ำทุกใบ
+// จึงบังคับมุมภาพหมุนเวียนต่อปก ทุกแบบอิงเรื่องของบทความเอง ไม่ผูกกับธุรกิจใด (ใช้ได้ทุกวงการ)
+const COVER_SHOTS = [
+  {
+    th: 'ภาพระยะใกล้ของสิ่งที่บทความพูดถึงโดยตรง (ปัญหา วัสดุ สินค้า หรือผลลัพธ์) เต็มพื้นที่ภาพถ่าย เห็นรายละเอียดชัด มีคนได้อย่างมากแค่มือ',
+    en: 'a tight close-up of the exact thing this article is about (the problem, material, product or result) filling the photo area in crisp detail; at most a hand in frame, no full person',
+  },
+  {
+    th: 'คนกำลังลงมือทำงานตามที่บทความอธิบาย ณ จุดที่เรื่องเกิดขึ้นจริง มุมเฉียงสามในสี่ จดจ่อกับงาน ไม่มองกล้อง ไม่โพสท่า ไม่ถือแท็บเล็ตหรือคลิปบอร์ด',
+    en: 'a person mid-task doing the exact work this article describes, at the real spot where it happens, three-quarter angle, absorbed in the work — not looking at the camera, not posing, not holding a tablet or clipboard',
+  },
+  {
+    th: 'ลูกค้า/ผู้อ่านในสถานที่ของตัวเอง ในช่วงที่เจอปัญหาของบทความหรือได้ผลลัพธ์แล้ว ท่าทางเป็นธรรมชาติแบบภาพแคนดิด ไม่ใช่ภาพโพสต์',
+    en: "the article's reader or customer in their own setting at the moment they meet this article's problem or enjoy its outcome — a candid, natural reaction, not a posed portrait",
+  },
+  {
+    th: 'ภาพเดียวที่เห็นความต่างก่อน-หลัง หรือสาเหตุ-ผลลัพธ์ของเรื่องในบทความ อยู่คู่กันในฉากจริงฉากเดียว ไม่มีคน',
+    en: "one photograph that shows the contrast in this article's topic — before vs after, or cause vs effect — side by side within a single real scene, no people",
+  },
+  {
+    th: 'ภาพมุมกว้างของสถานที่เฉพาะที่เรื่องในบทความเกิดขึ้น โดยมีสิ่งที่บทความพูดถึงเป็นจุดเด่นชัดเจน',
+    en: "a wide establishing shot of the specific place where this article's topic happens, with the article's subject as the unmistakable focal point",
+  },
+  {
+    th: 'มุมบนลงล่างหรือข้ามไหล่ เห็นมือกำลังใช้อุปกรณ์ สินค้า หรือวัสดุที่บทความพูดถึง',
+    en: 'a top-down or over-the-shoulder shot of hands working with the specific tools, products or materials this article discusses',
+  },
+] as const
+// หมุนเวียนแทนการสุ่มล้วน: ปกที่สร้างพร้อมกันหลายใบใน instance เดียว (Generate ทีละชุด) ได้มุมไม่ซ้ำกันจนครบรอบ
+// จุดเริ่มสุ่มต่อ instance — กด Regenerate ปกเดิมก็ได้มุมใหม่
+let coverShotCursor = Math.floor(Math.random() * COVER_SHOTS.length)
+
 export async function callGeminiImage(params: {
   keyword: string
   title: string
@@ -285,8 +318,12 @@ export async function callGeminiImage(params: {
   const brandName = imageAssets?.brandName.trim() ?? ''
   const contactLine = (imageAssets?.contactInfo ?? '').trim().replace(/\n+/g, ' / ')
   const swapPeopleLine = imageAssets?.swapPeople
-    ? `[คนในภาพต้องเป็นคนใหม่ทุกครั้ง — หน้าตาไม่ซ้ำคนในภาพอ้างอิง แต่บทบาท เครื่องแบบ และบุคลิกแบบเดียวกับคนในภาพอ้างอิง]`
+    ? `[คนในภาพต้องเป็นคนใหม่ทุกครั้ง — หน้าตาไม่ซ้ำคนในภาพอ้างอิง แต่บทบาทและเครื่องแบบแบบเดียวกับคนในภาพอ้างอิง ท่าทางและการกระทำต้องเป็นไปตามมุมภาพของปกนี้ ห้ามโพสท่าเดียวกับภาพอ้างอิง]`
     : ''
+  // ปกเท่านั้น (รูปประกอบคงเดิม) — ดูหมายเหตุที่ COVER_SHOTS
+  const coverShot = type === 'cover' && slot === 'cover'
+    ? COVER_SHOTS[coverShotCursor++ % COVER_SHOTS.length]
+    : null
 
   if (!promptTemplate?.trim()) {
     throw new Error('CONTENT_ENGINE_NOT_CONFIGURED: ต้องมี Image Prompt จาก Content Engine — ไม่มี fallback')
@@ -405,6 +442,27 @@ export async function callGeminiImage(params: {
       : `ตัวอักษรทุกตัวในภาพต้องสูงอย่างน้อย 4% ของความสูงภาพ ข้อความไหนจะเล็กกว่านั้นให้ตัดทิ้งเหลือแต่แผง/รูปทรง ห้ามตัดคำใดออกจากหัวเรื่อง ห้ามใช้ข้อความเดียวกันซ้ำสองที่ในภาพ]`,
   ].filter(Boolean).join('\n')
 
+  // เรื่องของบทความ — เดิม Art Director เห็นแค่หัวเรื่อง ฉากจึงเดาเอาแบบกว้าง ๆ แล้วออกมาเหมือนกันทุกปก
+  // ส่งให้เลือกฉากเท่านั้น ข้อความบนภาพยังจำกัดตาม inventory ข้างบน
+  const topicSections = coverBullets
+    .map((b) => b.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((b) => clipAtWord(b, 60))
+  const topicSummary = clipAtWord(coverSubtitle.replace(/\s+/g, ' ').trim(), 200)
+  const coverSceneFacts = coverShot
+    ? [
+        [
+          `[เรื่องของบทความนี้ — ใช้เลือกว่าภาพถ่ายต้องเห็นอะไร (สถานที่ สิ่งของ สถานการณ์) เท่านั้น ห้ามยกประโยคเหล่านี้ไปเขียนเป็นข้อความบนภาพ และห้ามใส่ลงใน prompt ตรง ๆ ให้แปลงเป็นฉากที่มองเห็นได้`,
+          keyword.trim() ? `- คีย์เวิร์ด: ${keyword.trim()}` : '',
+          topicSummary ? `- สรุป: ${topicSummary}` : '',
+          topicSections.length ? `- หัวข้อในบทความ: ${topicSections.join(' / ')}` : '',
+          `]`,
+        ].filter(Boolean).join('\n'),
+        `[มุมภาพของปกนี้ (ข้อบังคับ — ปกของแต่ละบทความต้องไม่ซ้ำกัน ห้ามใช้ฉากคนยืนยิ้มหน้ากล้องแบบทั่วไป): ${coverShot.th} — สถานที่ สิ่งของ และสถานการณ์ต้องมาจากเรื่องของบทความนี้โดยเฉพาะ]`,
+      ]
+    : []
+
   // ข้อเท็จจริงประกอบบรีฟ (ไม่ใช่ทิศทางงานภาพ — ทิศทางมาจาก Content Engine เท่านั้น)
   const briefFacts = [
     `[ประเภทภาพ: ${type === 'cover' ? 'ภาพหน้าปกบทความ (cover)' : 'ภาพประกอบกลางบทความ (in-article)'}]`,
@@ -413,6 +471,7 @@ export async function callGeminiImage(params: {
     ...(type === 'cover' ? [refLed ? refTextInventory : overlayCover
       ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพนี้คือ "ภาพถ่ายพื้นหลังของปก" เท่านั้น ระบบจะวางหัวเรื่องและป้ายคีย์เวิร์ดทับด้วยฟอนต์จริงในขั้นตอนถัดไป จึงห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ, บล็อกข้อความ, แถบสีสำหรับใส่ข้อความ หรือข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline บล็อกข้อความ หรือป้ายคำ ให้ตัดออกทั้งหมด; องค์ประกอบภาพ: เป็นภาพถ่ายจริงเต็มเฟรม วางตัวแบบหลักไว้ครึ่งบนของเฟรม และเว้นครึ่งล่างให้เป็นพื้นที่เรียบสงบ (พื้น ผนัง ท้องฟ้า ระยะเบลอ) ไม่มีรายละเอียดสำคัญ เพราะจะถูกแผงสีทับ]`
       : coverTextInventory] : []),
+    ...coverSceneFacts,
     ...(type === 'mid' ? [`[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: นี่คือภาพประกอบกลางบทความ ไม่ใช่ภาพปก ต้องเป็นภาพถ่ายจริง (photorealistic photography) เต็มเฟรม ไม่มีบล็อกข้อความ ไม่มีแถบสี และห้ามมีตัวอักษรใดๆ ในภาพเด็ดขาด — ไม่มี headline, ชื่อบทความ, ป้ายคำ, ชิป, แท็ก, คำบรรยาย, ตัวเลข, โลโก้, ลายน้ำ หรือ ข้อความบนหน้าจอ/ป้าย/เอกสารในภาพ ถ้าบรีฟสั่งให้ใส่ headline หรือป้ายคำ ให้ตัดออกทั้งหมดแล้วเล่าด้วยภาพล้วน โดยคงสไตล์และชุดสีตามบรีฟไว้]`] : []),
     ...(palette ? [refLed
       ? `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: สีของตัวอักษรและกราฟิกเอาตามภาพอ้างอิงเป็นหลัก — ชุดสีธีมเว็บ (${palette}) ใช้เสริมได้เฉพาะจุดที่ไม่ขัดกับภาพอ้างอิง; ส่วนที่เป็นภาพถ่ายคงสีธรรมชาติสมจริงเสมอ ห้ามย้อม ห้ามเกรด ห้าม wash ทั้งภาพ]`
@@ -425,8 +484,8 @@ export async function callGeminiImage(params: {
     // ปก: ภาพอ้างอิงเป็นแม่แบบหลัก ชนะโครง layout/สี/ข้อห้ามโลโก้ในบรีฟ (คำสั่งเจ้าของ 2026-10-26)
     // ภาพประกอบกลางบทความ: คงคำสั่งเดิมทุกตัวอักษร (เจ้าของสั่ง 2026-10-26 ให้แก้เฉพาะปก)
     ...(refLed ? [
-      `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพ ${refImageCount} ภาพแรกที่แนบมากับบรีฟนี้คืองานโพสต์/แบนเนอร์จริงของแบรนด์ และเป็นแม่แบบหลักของปกนี้ — ชนะบรีฟทุกบรรทัดเรื่องโครง layout ตำแหน่งและวิธีจัดหัวเรื่อง ฟอนต์ ชุดสี องค์ประกอบกราฟิกประจำแบรนด์ การวางโลโก้/ชื่อแบรนด์ และลักษณะคนในภาพ บรรทัดในบรีฟที่สั่งโครงตายตัว (เช่น แผงหัวเรื่องฝั่งซ้าย คนฝั่งขวา แถวการ์ดล่าง ตรามุมขวาบน) หรือห้ามใส่โลโก้/ชื่อบริษัท ให้ตัดทิ้งทั้งหมด ใช้บรีฟเฉพาะเรื่องหัวข้อ ฉาก และข้อห้ามด้านเนื้อหา]`,
-      `[วิธีเขียน prompt ในโหมดนี้: ดูภาพอ้างอิงแล้วบรรยายระบบดีไซน์ที่ใช้ซ้ำในภาพเหล่านั้นให้เป็นรูปธรรม — หัวเรื่องวางตรงไหน ใหญ่และหนาแค่ไหน ใช้สีอะไร (ระบุ hex ที่เห็น) วางบนภาพถ่ายตรงๆ หรือบนแผง, องค์ประกอบที่ซ้ำทุกภาพ (ตรา กล่องคำพูด แถบท้ายแบรนด์ กรอบ ลวดลาย) อยู่ตรงไหนหน้าตาอย่างไร, สไตล์ภาพถ่าย, คนในภาพแต่งกายและโพสต์ท่าอย่างไร — แล้วสั่งให้สร้างปกใหม่ของหัวข้อบทความนี้ด้วยระบบนั้น ฉากใหม่ทั้งหมด ห้ามลอกฉาก ข้อความ หรือหน้าคนจากภาพอ้างอิง]`,
+      `[ข้อบังคับเอาต์พุต — เหนือกว่าทุกบรรทัดในบรีฟ: ภาพ ${refImageCount} ภาพแรกที่แนบมากับบรีฟนี้คืองานโพสต์/แบนเนอร์จริงของแบรนด์ และเป็นแม่แบบหลักของปกนี้ — ชนะบรีฟทุกบรรทัดเรื่องโครง layout ตำแหน่งและวิธีจัดหัวเรื่อง ฟอนต์ ชุดสี องค์ประกอบกราฟิกประจำแบรนด์ การวางโลโก้/ชื่อแบรนด์ และบทบาท/เครื่องแบบของคนในภาพ บรรทัดในบรีฟที่สั่งโครงตายตัว (เช่น แผงหัวเรื่องฝั่งซ้าย คนฝั่งขวา แถวการ์ดล่าง ตรามุมขวาบน) หรือห้ามใส่โลโก้/ชื่อบริษัท ให้ตัดทิ้งทั้งหมด ใช้บรีฟเฉพาะเรื่องหัวข้อ ฉาก และข้อห้ามด้านเนื้อหา — ส่วนภาพถ่ายต้องเป็นไปตามมุมภาพของปกนี้และเรื่องของบทความนี้ ไม่ใช่ฉากของภาพอ้างอิง]`,
+      `[วิธีเขียน prompt ในโหมดนี้: ดูภาพอ้างอิงแล้วบรรยายระบบดีไซน์ที่ใช้ซ้ำในภาพเหล่านั้นให้เป็นรูปธรรม — หัวเรื่องวางตรงไหน ใหญ่และหนาแค่ไหน ใช้สีอะไร (ระบุ hex ที่เห็น) วางบนภาพถ่ายตรงๆ หรือบนแผง, องค์ประกอบที่ซ้ำทุกภาพ (ตรา กล่องคำพูด แถบท้ายแบรนด์ กรอบ ลวดลาย) อยู่ตรงไหนหน้าตาอย่างไร, สไตล์ภาพถ่าย (แสง สี โทน), คนในภาพมีบทบาทและแต่งกายอย่างไร — แล้วสั่งให้สร้างปกใหม่ของหัวข้อบทความนี้ด้วยระบบนั้น โดยภาพถ่ายต้องเป็นไปตามมุมภาพของปกนี้ และเล่าเรื่องเฉพาะของบทความนี้ บรรยายฉากให้ละเอียด (สถานที่ สิ่งของ การกระทำ มุมกล้อง) ห้ามลอกฉาก องค์ประกอบ ท่าโพส มุมกล้อง พร็อพ ข้อความ หรือหน้าคนจากภาพอ้างอิง]`,
       `[ภาพอ้างอิงอาจเป็นสัดส่วนอื่น (เช่น โพสต์แนวตั้ง) — จัดระบบดีไซน์เดิมใหม่ให้เต็มเฟรม ${width}×${height} ห้ามวางโปสเตอร์แนวตั้งไว้กลางเฟรม ห้ามมีขอบว่างหรือแถบดำ]`,
       swapPeopleLine,
       imageAssets?.logoImage ? `[ภาพแนบลำดับสุดท้ายคือโลโก้จริงของแบรนด์ — วางในตำแหน่งและลักษณะเดียวกับที่ภาพอ้างอิงวาง ทำซ้ำรูปทรง สี และตัวอักษรของโลโก้ให้ตรงต้นฉบับ ห้ามวาดใหม่หรือดัดแปลง ต้องอยู่ในภาพครบทั้งชิ้น ห่างจากขอบภาพอย่างน้อย 6%]` : '',
@@ -454,6 +513,9 @@ export async function callGeminiImage(params: {
   // สะกดไทยถูกทั้งประโยค แต่ป้ายเล็กใต้ไอคอน/แถบล่างออกมาเป็นตัวมั่วแทบทุกครั้ง
   // ("ตรวจสุขภาพ" → "ตรวอ ลุอกาพ") จึงบังคับว่าอะไรที่เล็กกว่า 4% ของความสูงภาพ
   // ให้ตัดข้อความทิ้งเหลือแต่ไอคอน — กฎนี้ทับบรีฟจาก CE ที่สั่งให้มีป้ายใต้ไอคอน
+  const sceneRule = coverShot
+    ? `SCENE (hard requirement — every article's cover must look different from the others in the series): the photograph is ${coverShot.en}. Its place, objects and situation come from this article's own topic as described above — never a generic stock scene and never a person standing and smiling at the camera`
+    : ''
   const coverTextLine = overlayCover
     ? `\n\nBACKGROUND PLATE FOR A COVER — NO TEXT (CRITICAL): The headline and keyword label are rendered afterwards by the system using a real font, directly on top of this image. Your job is ONLY the photograph underneath:
 - Render ZERO text: no headline, no article title, no labels, captions, chips, tags, numbers, units, logos, watermarks, signatures, no text panels or coloured text bars, and no text on screens, signs, packaging or documents inside the scene. Any letterform you draw will be covered or will clash with the real typography
@@ -462,9 +524,9 @@ export async function callGeminiImage(params: {
 - Shoot it like a commissioned editorial photograph: considered camera angle, one dominant subject, supporting props that make the topic obvious at a glance, uncluttered background, believable lens character (natural bokeh, mild corner falloff, fine sensor grain) — never a CGI render, a stock cliché, or an AI-smooth plastic surface
 - NATURAL COLOUR (hard requirement): true-to-life photographic colour grading. Do NOT tint, wash, duotone, or colour-grade the frame toward any brand or theme colour — skies stay sky-coloured, skin stays natural, buildings and objects keep their real material colours. A brand colour may appear only on a small prop or garment where it would occur naturally, never as an overall cast
 - COMPOSITION (hard requirement): keep the subject and every important detail in the UPPER TWO THIRDS of the frame. The BOTTOM HALF must be calm, simple, uncluttered negative space (floor, wall, sky, water, blurred background, plain gradient) because a solid colour panel is composited over it. Nothing important may sit in the bottom half
-- Leave the frame edges clean: no borders, frames, vignette text, collage panels or split-screen layouts`
+- Leave the frame edges clean: no borders, frames, vignette text, collage panels or split-screen layouts${sceneRule ? `\n- ${sceneRule}` : ''}`
     : refLed
-    ? `\n\nREFERENCE-LED BRAND COVER (CRITICAL): The first ${refImageCount} attached image${refImageCount > 1 ? 's are' : ' is'} the brand's own published post${refImageCount > 1 ? 's' : ''}${imageAssets?.logoImage ? ' and the last attached image is the brand logo' : ''}. They are the MASTER TEMPLATE for this cover — it must look like the next post in that same series: the same headline treatment (position, weight, size, colours, outline or plate style), the same palette, the same recurring brand devices (badges, speech bubbles, footer strip, frames, patterns), the same photographic style and the same kind of people (role, uniform, energy). Change only the scene, the subject and the people so it fits this article's topic. Do NOT fall back to a generic banner template: no stacked headline plates unless the references use them, no feature-card row, no "updated" badge
+    ? `\n\nREFERENCE-LED BRAND COVER (CRITICAL): The first ${refImageCount} attached image${refImageCount > 1 ? 's are' : ' is'} the brand's own published post${refImageCount > 1 ? 's' : ''}${imageAssets?.logoImage ? ' and the last attached image is the brand logo' : ''}. They are the MASTER TEMPLATE for this cover — it must look like the next post in that same series: the same headline treatment (position, weight, size, colours, outline or plate style), the same palette, the same recurring brand devices (badges, speech bubbles, footer strip, frames, patterns), the same photographic style (light, colour, tone), and — whenever people appear — people of the same role and uniform. The PHOTOGRAPH itself must be new for every article: build it from this article's own topic, and never reuse the references' composition, pose, camera angle, setting or props (no generic staff member smiling at the camera, no tablet or clipboard prop unless the article is about one). Do NOT fall back to a generic banner template: no stacked headline plates unless the references use them, no feature-card row, no "updated" badge${sceneRule ? `\n- ${sceneRule}` : ''}
 - CANVAS: this is a WIDE ${width}×${height} landscape cover. If the references are square or portrait, re-flow their design system across the whole landscape frame edge to edge — never a portrait poster centred with empty sides, never letterboxing
 - TEXT INVENTORY (hard limit — the ONLY strings allowed, copy them character-for-character):
   · headline split into ${headlineLines.length} line${headlineLines.length > 1 ? 's' : ''} in exactly this order, never merged and never re-wrapped: ${headlineLines.map((l) => `"${l}"`).join(' / ')}${brandName ? `\n  · brand name: "${brandName}"` : ''}${contactLine ? `\n  · contact line (the only phone numbers, LINE ids, emails or URLs allowed): "${contactLine}"` : refContact.length ? `\n  · contact panel (REQUIRED on every cover, same look, colours and position as the contact panel in the references), exactly ${numbered(refContact)}; all ${refContact.length} lines must be visible, the last one included — the only phone numbers, LINE ids, emails or URLs allowed` : `\n  · no contact details at all — draw no phone number, LINE id, email or URL even if the references show one`}${refBrand.texts.length ? `\n  · brand template text (REQUIRED on every cover, inside the same footer strip / badge as in the references): ${quoted(refBrand.texts)}` : '\n  · recurring brand text that appears in the references (e.g. a slogan inside a badge or footer) only when copied exactly'}
@@ -482,7 +544,7 @@ ${brandStrings.length ? `- BRAND TEMPLATE (hard requirement): the references sha
   · headline, the dominant element, split into ${headlineLines.length} plates in exactly this order, one string per plate, never merged and never re-wrapped: ${headlineLines.map((l) => `"${l}"`).join(' / ')}
   · top-right circular badge: "${updatedBadge}"${keywordPill ? `\n  · small keyword pill above the headline: "${keywordPill}"` : `\n  · no keyword pill at all — draw no chip or label above the headline`}${bannerCards.length ? `\n  · bottom card row, one single-line string per card, in this exact order: ${bannerCards.map((c) => `"${c}"`).join(' | ')}` : `\n  · no bottom card row at all — omit that band`}
 - Do NOT invent, translate, shorten, truncate, drop words from, reorder or repeat any string, and never write a phrase twice in the image. No phone numbers, LINE ids, emails, URLs, company names, slogans, benefit lines, prices or filler words. Copy digits, decimal points and punctuation exactly
-- LAYOUT: left ~58% carries the headline stacked as the exact plate strings listed above, one plate per string, each on its own opaque rounded-rectangle plate with a soft drop shadow, plates alternating between the theme colour with white type, white with dark type, and one accent-coloured plate for the line worth emphasising. Right ~35% carries a photorealistic cut-out person (or, if the topic has no people, the topic's hero object) lit to match the background. Bottom ~26% carries the card row, floating clear of the bottom edge: one single row only, never a second row, equal width, equal height, equal gaps, one flat icon in a coloured circle plus one short bold line of text per card, white rounded cards with soft shadows
+- LAYOUT: left ~58% carries the headline stacked as the exact plate strings listed above, one plate per string, each on its own opaque rounded-rectangle plate with a soft drop shadow, plates alternating between the theme colour with white type, white with dark type, and one accent-coloured plate for the line worth emphasising. Right ~35% carries a photorealistic cut-out person (or, if the topic has no people, the topic's hero object) lit to match the background. Bottom ~26% carries the card row, floating clear of the bottom edge: one single row only, never a second row, equal width, equal height, equal gaps, one flat icon in a coloured circle plus one short bold line of text per card, white rounded cards with soft shadows${sceneRule ? `\n- ${sceneRule}. The full-bleed background photograph and the right-side subject belong to that same shot — if the shot has no full person, the right side carries the topic's hero subject from that shot instead of a cut-out person` : ''}
 - LAYERING: the card row sits in front of everything, including the person — nothing may cover a card or any part of a card's text; every card must show its full string
 - CARD BAND POSITION (hard limit): the whole card row floats clear of the bottom edge — the bottom of every card is at least 6% of the image height above the frame bottom, and no card is ever cropped, bled off, or flush with the edge
 - CARD TEXT (hard limit): every provided string appears complete — never drop, shorten or abbreviate a word anywhere in the image, headline included, and draw exactly as many cards as there are strings. A card string may wrap onto at most 2 lines; both lines stay at full size (at least 4% of the image height). Make the cards wider and the band taller if that is what it takes to fit the text at full size
