@@ -12,6 +12,7 @@ import PasteDialog from "@/components/upload-article/shared/PasteDialog";
 import GoogleDocDialog from "@/components/upload-article/shared/GoogleDocDialog";
 import DriveFolderDialog from "@/components/upload-article/shared/DriveFolderDialog";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
+import ArticleOwnerSelect, { type OwnerControls } from "@/components/upload-article/ArticleOwnerSelect";
 
 const SOURCE_LABEL: Record<string, string> = {
   docx: "Word (.docx)", txt: "Text (.txt)", md: "Markdown", html: "HTML",
@@ -31,7 +32,7 @@ async function readErrorMessage(r: Response, fallback: string): Promise<string> 
 }
 
 export default function ImportTab({
-  client, articles, selectedId, setSelectedId, refreshArticles, refreshClient, removeArticle,
+  client, articles, selectedId, setSelectedId, refreshArticles, refreshClient, removeArticle, owners,
 }: {
   client: UploadClientDTO;
   articles: UploadArticleDTO[];
@@ -40,6 +41,8 @@ export default function ImportTab({
   refreshArticles: () => Promise<void>;
   refreshClient: () => Promise<void>;
   removeArticle: (id: string) => void;
+  /** ผู้ดูแลบทความ (ไม่ส่ง = ไม่แสดง dropdown) */
+  owners?: OwnerControls;
 }) {
   const [busy, setBusy] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -174,9 +177,15 @@ export default function ImportTab({
                   className={`cursor-pointer hover:bg-gray-50/60 transition-colors ${selectedId === a.id ? "bg-brand-mist/40" : ""}`}
                 >
                   <td className="px-4 py-3">
-                    <div className="font-medium text-brand-navy truncate max-w-[16rem] xl:max-w-sm flex items-center gap-1.5">
-                      {selectedId === a.id && <CheckCircle2 size={12} className="text-brand-blue shrink-0" />}
-                      {a.title}
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium text-brand-navy truncate max-w-[16rem] xl:max-w-sm flex items-center gap-1.5">
+                        {selectedId === a.id && <CheckCircle2 size={12} className="text-brand-blue shrink-0" />}
+                        {a.title}
+                      </div>
+                      {owners && (
+                        <ArticleOwnerSelect articleId={a.id} ownerTags={owners.ownerTags} ownerTagId={owners.articleOwners[a.id]}
+                          onChange={owners.onOwnerChange} goToReport={owners.goToReport} />
+                      )}
                     </div>
                   </td>
                   <td className="hidden xl:table-cell px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{SOURCE_LABEL[a.sourceType] ?? a.sourceType}</td>

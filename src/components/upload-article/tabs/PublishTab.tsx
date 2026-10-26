@@ -5,12 +5,15 @@ import { Globe, ExternalLink, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { UploadArticleDTO } from "@/lib/upload-article/types";
 import UploadStatusBadge from "@/components/upload-article/shared/StatusBadge";
+import ArticleOwnerSelect, { type OwnerControls } from "@/components/upload-article/ArticleOwnerSelect";
 
 export default function PublishTab({
-  articles, goToPush,
+  articles, goToPush, owners,
 }: {
   articles: UploadArticleDTO[];
   goToPush: (id: string) => void;
+  /** ผู้ดูแลบทความ (ไม่ส่ง = ไม่แสดง dropdown) */
+  owners?: OwnerControls;
 }) {
   const list = articles.filter(a => a.status === "PUSHED" || a.status === "FAILED");
 
@@ -39,7 +42,13 @@ export default function PublishTab({
           {list.map(a => (
             <tr key={a.id} className="hover:bg-gray-50/60">
               <td className="px-4 py-3">
-                <p className="font-medium text-brand-navy truncate max-w-sm">{a.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-brand-navy truncate max-w-sm">{a.title}</p>
+                  {owners && (
+                    <ArticleOwnerSelect articleId={a.id} ownerTags={owners.ownerTags} ownerTagId={owners.articleOwners[a.id]}
+                      onChange={owners.onOwnerChange} goToReport={owners.goToReport} />
+                  )}
+                </div>
                 {a.pushError && (
                   <p className="text-[11px] text-rose-500 mt-0.5">
                     {a.status === "PUSHED" ? `Push ซ้ำครั้งล่าสุดไม่สำเร็จ (บทความบนเว็บยังเป็นเวอร์ชันก่อนหน้า): ${a.pushError}` : a.pushError}

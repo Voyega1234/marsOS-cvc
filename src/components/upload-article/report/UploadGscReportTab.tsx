@@ -5,7 +5,7 @@
  * Auth ฝั่งเซิร์ฟเวอร์ = service account (mars-seo-reporter) เท่านั้น — เจ้าของแค่เพิ่ม service email
  * เป็นผู้ใช้ในเว็บที่ Search Console แล้วเลือกเว็บที่นี่ ระบบดึงข้อมูลได้เลย
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertCircle, BarChart3, Copy, ExternalLink, Loader2, RefreshCw, TrendingDown, TrendingUp, Minus,
@@ -14,6 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import GscTable, { type GscTableColumn } from "./GscTable";
 import { GscLineChart, GscBarChart } from "./GscCharts";
+import OwnerTagsEditor from "./OwnerTagsEditor";
+import ArticleOwnerSelect from "@/components/upload-article/ArticleOwnerSelect";
+import type { UploadOwnerTag } from "@/lib/upload-article/types";
 import type {
   GscOverview, GscDailyPoint, GscQueryRow, GscPageRow, PositionBuckets, StrikingDistanceRow,
   LowCtrRow, CannibalRow, GscDimensionRow, UploadedArticleReportRow, ReportSearchType, ReportCompareMode,
@@ -27,6 +30,8 @@ interface GscReportPeriod {
 
 interface GscReportResponse {
   period: GscReportPeriod;
+  /** มีเมื่อกรองตามผู้ดูแล (null = ไม่กรอง) */
+  ownerFilter: { tagId: string; articles: number; pagesMatched: number } | null;
   overview: GscOverview;
   daily: GscDailyPoint[];
   dailyPrev: GscDailyPoint[];
@@ -89,7 +94,15 @@ function ChangeCell({ current, prev, isNew, isLost }: { current: number; prev: n
   return <span className={diff > 0 ? "text-emerald-600" : "text-red-500"}>{diff > 0 ? "+" : ""}{fmtNum(diff)}</span>;
 }
 
-export default function UploadGscReportTab({ clientId }: { clientId: string }) {
+export default function UploadGscReportTab({
+  clientId, ownerTags, articleOwners, onOwnerTagsChange, onOwnerChange,
+}: {
+  clientId: string;
+  ownerTags: UploadOwnerTag[];
+  articleOwners: Record<string, string>;
+  onOwnerTagsChange: (ownerTags: UploadOwnerTag[], articleOwners: Record<string, string>) => void;
+  onOwnerChange: (articleId: string, tagId: string | null) => void;
+}) {
   // ── ตั้งค่าเว็บ GSC ──
   const [sitesLoading, setSitesLoading] = useState(true);
   const [serviceEmail, setServiceEmail] = useState("");
@@ -108,11 +121,15 @@ export default function UploadGscReportTab({ clientId }: { clientId: string }) {
   const [searchType, setSearchType] = useState<ReportSearchType>("web");
   const [dailyMetric, setDailyMetric] = useState<"clicks" | "impressions">("clicks");
   const [subTab, setSubTab] = useState<SubTab>("overview");
+  // กรองทั้งหน้าตามผู้ดูแลบทความ ("" = ทั้งหมด)
+  const [ownerFilter, setOwnerFilter] = useState("");
 
   // ── ผลรายงาน ──
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState("");
   const [data, setData] = useState<GscReportResponse | null>(null);
+  // ลำดับคำขอ — ผลของคำขอเก่า (เช่นสลับผู้ดูแลรัว ๆ) มาช้ากว่าไม่ทับผลใหม่
+  const reqSeq = useRef(0);
 
   const loadSites = useCallback(async () => {
     setSitesLoading(true);
@@ -162,28 +179,38 @@ export default function UploadGscReportTab({ clientId }: { clientId: string }) {
 
   const loadReport = useCallback(async () => {
     if (!selectedSite) return;
+    const seq = ++reqSeq.current;
     setReportLoading(true);
     setReportError("");
     try {
       const body: Record<string, unknown> = { compare, searchType };
       if (customRange && startDate && endDate) { body.startDate = startDate; body.endDate = endDate; }
       else body.days = days;
+      if (ownerFilter) body.ownerTagId = ownerFilter;
       const r = await fetch(`/api/upload-article/clients/${clientId}/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const d = await r.json().catch(() => ({}));
+      if (seq !== reqSeq.current) return;
       if (!r.ok) { setReportError(d?.error || "ดึงรายงานไม่สำเร็จ"); setData(null); return; }
       setData(d);
     } catch (e) {
+      if (seq !== reqSeq.current) return;
       setReportError(`ดึงรายงานไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setReportLoading(false);
+      if (seq === reqSeq.current) setReportLoading(false);
     }
-  }, [clientId, selectedSite, days, customRange, startDate, endDate, compare, searchType]);
+  }, [clientId, selectedSite, days, customRange, startDate, endDate, compare, searchType, ownerFilter]);
 
-  useEffect(() => { if (selectedSite) void loadReport(); }, [selectedSite]); // eslint-disable-line react-hooks/exhaustive-deps
+  // เปลี่ยนเว็บ หรือเปลี่ยนตัวกรองผู้ดูแล = ดึงรายงานใหม่ทันที (ช่วงวัน/เทียบ/ประเภทยังต้องกด "ดึงข้อมูล" เหมือนเดิม)
+  useEffect(() => { if (selectedSite) void loadReport(); }, [selectedSite, ownerFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ผู้ดูแลที่เลือกกรองอยู่ถูกลบไปแล้ว → กลับไปดูทั้งหมด
+  useEffect(() => {
+    if (ownerFilter && !ownerTags.some(t => t.id === ownerFilter)) setOwnerFilter("");
+  }, [ownerTags, ownerFilter]);
 
   function copyServiceEmail() {
     if (!serviceEmail) return;
@@ -242,6 +269,8 @@ export default function UploadGscReportTab({ clientId }: { clientId: string }) {
         </div>
       </div>
 
+      <OwnerTagsEditor clientId={clientId} ownerTags={ownerTags} articleOwners={articleOwners} onChange={onOwnerTagsChange} />
+
       {selectedSite && (
         <>
           {/* ── ตัวควบคุมช่วงข้อมูล ── */}
@@ -267,12 +296,27 @@ export default function UploadGscReportTab({ clientId }: { clientId: string }) {
             <select value={searchType} onChange={(e) => setSearchType(e.target.value as ReportSearchType)} className="h-9 rounded-md border border-gray-200 px-2.5 text-xs bg-white">
               {Object.entries(SEARCH_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
+            {ownerTags.length > 0 && (
+              <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} title="กรองรายงานทั้งหน้าตามผู้ดูแลบทความ"
+                className={`h-9 rounded-md border px-2.5 text-xs bg-white ${ownerFilter ? "border-brand-soft/60 text-brand-blue font-semibold" : "border-gray-200"}`}>
+                <option value="">ผู้ดูแล: ทั้งหมด</option>
+                {ownerTags.map((t) => <option key={t.id} value={t.id}>ผู้ดูแล: {t.name}</option>)}
+              </select>
+            )}
             <Button size="sm" onClick={loadReport} disabled={reportLoading || (customRange && (!startDate || !endDate))}>
               {reportLoading ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <RefreshCw size={12} className="mr-1.5" />}
               ดึงข้อมูล
             </Button>
             {data && <span className="text-[11px] text-gray-400">{fmtDate(data.period.start)} – {fmtDate(data.period.end)} เทียบ {fmtDate(data.period.compareStart)} – {fmtDate(data.period.compareEnd)}</span>}
           </div>
+
+          {data?.ownerFilter && (
+            <div className="bg-brand-mist/60 border border-brand-soft/40 rounded-xl px-4 py-2.5 text-xs text-brand-navy">
+              กรองเฉพาะบทความของ <span className="font-semibold">{ownerTags.find((t) => t.id === data.ownerFilter?.tagId)?.name ?? "ผู้ดูแลที่ถูกลบ"}</span>
+              {" "}— {data.ownerFilter.articles.toLocaleString()} บทความ, พบใน GSC {data.ownerFilter.pagesMatched.toLocaleString()} หน้า
+              {data.ownerFilter.articles === 0 && <span className="text-gray-500"> (ยังไม่มีบทความที่ Push แล้วภายใต้ผู้ดูแลนี้)</span>}
+            </div>
+          )}
 
           {reportError && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-start gap-2">
@@ -331,7 +375,7 @@ export default function UploadGscReportTab({ clientId }: { clientId: string }) {
                   <PagesSubTab rows={data.pages} />
                 </TabsContent>
                 <TabsContent value="articles">
-                  <ArticlesSubTab rows={data.uploadedArticles} />
+                  <ArticlesSubTab rows={data.uploadedArticles} ownerTags={ownerTags} articleOwners={articleOwners} onOwnerChange={onOwnerChange} />
                 </TabsContent>
                 <TabsContent value="opportunities">
                   <OpportunitiesSubTab strikingDistance={data.opportunities.strikingDistance} lowCtr={data.opportunities.lowCtr} />
@@ -397,11 +441,20 @@ function PagesSubTab({ rows }: { rows: GscPageRow[] }) {
   return <GscTable rows={rows} columns={columns} rowKey={(r) => r.page} searchText={(r) => r.page} csvFilename="gsc-pages.csv" />;
 }
 
-function ArticlesSubTab({ rows }: { rows: UploadedArticleReportRow[] }) {
+function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange }: {
+  rows: UploadedArticleReportRow[];
+  ownerTags: UploadOwnerTag[];
+  articleOwners: Record<string, string>;
+  onOwnerChange: (articleId: string, tagId: string | null) => void;
+}) {
   const columns: GscTableColumn<UploadedArticleReportRow>[] = [
     { key: "title", label: "บทความ", sortValue: (r) => r.title, render: (r) => (
       <div>
-        <p className="font-medium text-brand-navy">{r.title}</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="font-medium text-brand-navy">{r.title}</p>
+          <ArticleOwnerSelect articleId={r.id} ownerTags={ownerTags} ownerTagId={articleOwners[r.id]}
+            onChange={onOwnerChange} emptyHint="เพิ่มชื่อผู้ดูแลด้านบนก่อน" />
+        </div>
         <a href={r.url} target="_blank" rel="noreferrer" className="text-brand-blue font-mono text-[10px] hover:underline break-all">{r.url}</a>
       </div>
     ) },

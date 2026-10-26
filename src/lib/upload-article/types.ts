@@ -136,7 +136,20 @@ export interface UploadPushPrefs {
   indexRequests?: Record<string, UploadIndexRequest>
   /** PBN: ผล Request Index ล่าสุด articleId → siteId (บทความเดียวขึ้นได้หลายเว็บ) */
   pbnIndexRequests?: Record<string, Record<string, UploadIndexRequest>>
+  /** ชื่อผู้ดูแลบทความที่ทีมพิมพ์เอง (หน้า Report) — ใช้กรองรายงาน GSC ทั้งหน้า */
+  ownerTags?: UploadOwnerTag[]
+  /** articleId → ownerTag.id ที่ดูแลบทความนั้น (ไม่มี entry = ยังไม่ระบุผู้ดูแล) */
+  articleOwners?: Record<string, string>
 }
+
+/** แท็กผู้ดูแลบทความ (ชื่อคนในทีม) — เก็บใน pushPrefs.ownerTags */
+export interface UploadOwnerTag {
+  id: string
+  name: string
+}
+
+export const UPLOAD_MAX_OWNER_TAGS = 30
+export const UPLOAD_MAX_OWNER_TAG_NAME = 40
 
 /** ผล Request Index (Google Indexing API) ล่าสุดของบทความ */
 export interface UploadIndexRequest {

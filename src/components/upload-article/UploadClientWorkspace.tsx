@@ -10,7 +10,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Globe, Loader2, Network, Settings } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
+import type { UploadArticleDTO, UploadClientDTO, UploadOwnerTag } from "@/lib/upload-article/types";
+import type { OwnerControls } from "@/components/upload-article/ArticleOwnerSelect";
 import KeywordTab from "@/components/upload-article/tabs/KeywordTab";
 import WriteTab from "@/components/upload-article/tabs/WriteTab";
 import ImportTab from "@/components/upload-article/tabs/ImportTab";
@@ -135,6 +136,21 @@ export default function UploadClientWorkspace({
     setSelectedId(prev => prev === id ? null : prev);
   }, []);
 
+  // ผู้ดูแลบทความ (pushPrefs.ownerTags/articleOwners) — เก็บใน state ของ client ที่นี่ที่เดียว ให้ Report/นำเข้า/Publish ตรงกัน
+  const setArticleOwner = useCallback((articleId: string, tagId: string | null) => {
+    setClient(prev => {
+      if (!prev) return prev;
+      const articleOwners = { ...(prev.pushPrefs.articleOwners ?? {}) };
+      if (tagId) articleOwners[articleId] = tagId;
+      else delete articleOwners[articleId];
+      return { ...prev, pushPrefs: { ...prev.pushPrefs, articleOwners } };
+    });
+  }, []);
+
+  const applyOwnerTags = useCallback((ownerTags: UploadOwnerTag[], articleOwners: Record<string, string>) => {
+    setClient(prev => prev ? { ...prev, pushPrefs: { ...prev.pushPrefs, ownerTags, articleOwners } } : prev);
+  }, []);
+
   // บทความที่กำลังเขียนอยู่ (WRITING) ยังไม่พร้อมให้แท็บอื่นเห็น — กันคนกดใช้งานบทความที่ยังไม่เสร็จ
   const visibleArticles = useMemo(() => articles.filter(a => a.status !== "WRITING"), [articles]);
 
@@ -156,6 +172,12 @@ export default function UploadClientWorkspace({
   }
 
   const host = client.website.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  const ownerTags = client.pushPrefs.ownerTags ?? [];
+  const articleOwners = client.pushPrefs.articleOwners ?? {};
+  // โหมด PBN ไม่มีผู้ดูแล (Report ของ PBN เป็นคนละตัว) — ไม่ส่ง controls = ไม่แสดง dropdown
+  const ownerControls: OwnerControls | undefined = isPbn
+    ? undefined
+    : { ownerTags, articleOwners, onOwnerChange: setArticleOwner, goToReport: () => goTab("report") };
   const selected = selectedId ? articles.find(a => a.id === selectedId) ?? null : null;
 
   const goTab = (t: TabId, id?: string, section?: SettingsSection) => {
@@ -250,6 +272,7 @@ export default function UploadClientWorkspace({
             refreshArticles={refreshArticles}
             refreshClient={refreshClient}
             removeArticle={removeArticle}
+            owners={ownerControls}
           />
         </TabsContent>
 
@@ -301,6 +324,7 @@ export default function UploadClientWorkspace({
           <PublishTab
             articles={visibleArticles}
             goToPush={id => goTab("push", id)}
+            owners={ownerControls}
           />
         </TabsContent>
 
@@ -320,7 +344,13 @@ export default function UploadClientWorkspace({
           {isPbn ? (
             <PbnReportTab onOpenSettings={() => openSettings("website")} />
           ) : (
-            <UploadGscReportTab clientId={clientId} />
+            <UploadGscReportTab
+              clientId={clientId}
+              ownerTags={ownerTags}
+              articleOwners={articleOwners}
+              onOwnerTagsChange={applyOwnerTags}
+              onOwnerChange={setArticleOwner}
+            />
           )}
         </TabsContent>
       </Tabs>

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { google, searchconsole_v1 } from 'googleapis'
 import { getSession } from '@/lib/auth'
@@ -5,11 +6,13 @@ import { prisma } from '@/lib/prisma'
 import { getGSCServiceAuth, getServiceIdentity } from '@/lib/google-auth'
 import { parsePrefs } from '@/lib/upload-article/prefs-store'
 import type { UploadGscReportPrefs } from '@/lib/upload-article/types'
+import { readArticleOwners, readOwnerTags } from '@/lib/upload-article/owner-tags'
 import {
   resolveReportPeriod, buildOverview, buildDailySeries, buildQueryRows, buildPageRows,
   buildPositionBuckets, parseQueryPageRows, buildStrikingDistance, buildLowCtrOpportunities,
   buildCannibalization, buildDimensionRows, countryLabel, buildUploadedArticleRows,
-  REPORT_DAY_OPTIONS, type RawGscRow, type ReportCompareMode, type ReportSearchType,
+  batchPagesForRegex, buildPageRegex, matchGscPagesToUrls, mergeGscRows, uploadedArticleUrl,
+  REPORT_DAY_OPTIONS, type RawGscRow, type ReportCompareMode, type ReportPeriod, type ReportSearchType,
 } from '@/lib/upload-article/gsc-report'
 
 // ─── Upload Article > Report — สรุปผล GSC แบบละเอียด (service account เท่านั้น) ───
@@ -47,6 +50,57 @@ async function runQuery(sc: searchconsole_v1.Searchconsole, siteUrl: string, bod
   return (res.data.rows ?? []) as RawGscRow[]
 }
 
+// ชุด query ของรายงาน (คู่ ปัจจุบัน/เทียบ ต่อมิติ ยกเว้น query+page ที่เอาแค่ช่วงปัจจุบัน) — ลำดับตรงกับ ReportRows
+// rowLimit ไม่ระบุ = ใช้ค่าเริ่มต้นของ GSC (ไม่ส่งไป) ใช้ตัดซ้ำตอนรวมผลหลาย batch ด้วย
+interface ReportQuerySpec { dimensions?: string[]; rowLimit?: number; prev: boolean }
+const REPORT_QUERY_SPECS: ReportQuerySpec[] = [
+  { prev: false }, { prev: true }, // totals
+  { dimensions: ['date'], rowLimit: 1000, prev: false }, { dimensions: ['date'], rowLimit: 1000, prev: true },
+  { dimensions: ['query'], rowLimit: 1000, prev: false }, { dimensions: ['query'], rowLimit: 1000, prev: true },
+  { dimensions: ['page'], rowLimit: 1000, prev: false }, { dimensions: ['page'], rowLimit: 1000, prev: true },
+  { dimensions: ['device'], prev: false }, { dimensions: ['device'], prev: true },
+  { dimensions: ['country'], rowLimit: 50, prev: false }, { dimensions: ['country'], rowLimit: 50, prev: true },
+  { dimensions: ['searchAppearance'], prev: false }, { dimensions: ['searchAppearance'], prev: true },
+  { dimensions: ['query', 'page'], rowLimit: 5000, prev: false },
+]
+
+type ReportRows = [
+  RawGscRow[], RawGscRow[], // totals
+  RawGscRow[], RawGscRow[], // daily
+  RawGscRow[], RawGscRow[], // query
+  RawGscRow[], RawGscRow[], // page
+  RawGscRow[], RawGscRow[], // device
+  RawGscRow[], RawGscRow[], // country
+  RawGscRow[], RawGscRow[], // searchAppearance
+  RawGscRow[], // query,page (current only)
+]
+
+type PageFilterGroups = Array<{ filters: Array<{ dimension: 'page'; operator: 'includingRegex'; expression: string }> }>
+
+/** ยิง query ทั้งชุด (15 ตัวพร้อมกัน) — filterGroups = กรองหน้าตามผู้ดูแล (ไม่ส่ง = ไม่กรอง เหมือนเดิม) */
+function runReportQueries(
+  sc: searchconsole_v1.Searchconsole, siteUrl: string, period: ReportPeriod, searchType: ReportSearchType, filterGroups?: PageFilterGroups,
+): Promise<ReportRows> {
+  return Promise.all(REPORT_QUERY_SPECS.map((spec) => runQuery(sc, siteUrl, {
+    startDate: spec.prev ? period.compareStart : period.start,
+    endDate: spec.prev ? period.compareEnd : period.end,
+    ...(spec.dimensions ? { dimensions: spec.dimensions } : {}),
+    type: searchType,
+    ...(spec.rowLimit ? { rowLimit: spec.rowLimit } : {}),
+    ...(filterGroups ? { dimensionFilterGroups: filterGroups } : {}),
+  }))) as Promise<ReportRows>
+}
+
+/** รวมผลของหลาย batch กลับเป็นชุดเดียว (บวก clicks/impressions, position ถ่วงน้ำหนัก, ตัดตาม rowLimit เดิม) */
+function mergeReportBatches(batches: ReportRows[]): ReportRows {
+  return REPORT_QUERY_SPECS.map((spec, i) => mergeGscRows(batches.map((b) => b[i]), spec.rowLimit)) as ReportRows
+}
+
+const EMPTY_REPORT_ROWS = (): ReportRows => REPORT_QUERY_SPECS.map(() => []) as unknown as ReportRows
+
+/** จำนวน batch ที่ยิงพร้อมกัน (ต่อ batch = 15 query) — กันยิง GSC รัวเกินเมื่อผู้ดูแลมีบทความเยอะ */
+const OWNER_BATCH_CONCURRENCY = 2
+
 /** POST /api/upload-article/clients/[id]/report — รายงาน GSC ละเอียด (ต้องตั้งเว็บที่ /report/site ก่อน) */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
@@ -71,9 +125,30 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const compare: ReportCompareMode = body?.compare === 'yoy' ? 'yoy' : 'previous'
   const searchType: ReportSearchType = SEARCH_TYPES.includes(body?.searchType) ? body.searchType : 'web'
 
+  const ownerTagId = typeof body?.ownerTagId === 'string' ? body.ownerTagId.trim().slice(0, 64) : ''
+
   const period = resolveReportPeriod({ days, startDate, endDate, compare })
 
-  const cacheKey = JSON.stringify({ clientId: params.id, siteUrl, period, searchType })
+  type ArticleRow = { id: string; title: string; wordpressUrl: string | null; slug: string; pushedAt: Date | null }
+  const loadPushedArticles = (): Promise<ArticleRow[]> => prisma.uploadArticle.findMany({
+    where: { clientId: params.id, organizationId: orgId, status: 'PUSHED' },
+    select: { id: true, title: true, wordpressUrl: true, slug: true, pushedAt: true },
+  })
+
+  // กรองตามผู้ดูแล: บทความของคนนี้ = PUSHED ที่ pushPrefs.articleOwners[id] === ownerTagId (tag ที่ไม่มีแล้ว = ไม่มีบทความ)
+  let ownerArticles: ArticleRow[] | null = null
+  let ownerSig = ''
+  if (ownerTagId) {
+    const tags = readOwnerTags(prefs.ownerTags)
+    const owners = readArticleOwners(prefs.articleOwners, tags)
+    ownerArticles = tags.some((t) => t.id === ownerTagId)
+      ? (await loadPushedArticles()).filter((a) => owners[a.id] === ownerTagId)
+      : []
+    // ลายเซ็นชุดบทความของผู้ดูแล — ย้ายบทความให้คนอื่น/เปลี่ยน URL แล้ว cache เดิมต้องไม่ถูกใช้ซ้ำ
+    ownerSig = createHash('sha1').update(ownerArticles.map((a) => `${a.id}|${a.wordpressUrl ?? a.slug}`).sort().join('\n')).digest('hex')
+  }
+
+  const cacheKey = JSON.stringify({ clientId: params.id, siteUrl, period, searchType, ownerTagId, ownerSig })
   const cached = getCached(cacheKey)
   if (cached) return NextResponse.json(cached)
 
@@ -85,39 +160,45 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   const sc = google.searchconsole({ version: 'v1', auth })
 
-  let results: [
-    RawGscRow[], RawGscRow[], // totals
-    RawGscRow[], RawGscRow[], // daily
-    RawGscRow[], RawGscRow[], // query
-    RawGscRow[], RawGscRow[], // page
-    RawGscRow[], RawGscRow[], // device
-    RawGscRow[], RawGscRow[], // country
-    RawGscRow[], RawGscRow[], // searchAppearance
-    RawGscRow[], // query,page (current only)
-    Array<{ id: string; title: string; wordpressUrl: string | null; slug: string; pushedAt: Date | null }>,
-  ]
+  let rows: ReportRows
+  let articles: ArticleRow[]
+  let ownerFilter: { tagId: string; articles: number; pagesMatched: number } | null = null
   try {
-    results = await Promise.all([
-      runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, type: searchType }),
-      runQuery(sc, siteUrl, { startDate: period.compareStart, endDate: period.compareEnd, type: searchType }),
-      runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, dimensions: ['date'], type: searchType, rowLimit: 1000 }),
-      runQuery(sc, siteUrl, { startDate: period.compareStart, endDate: period.compareEnd, dimensions: ['date'], type: searchType, rowLimit: 1000 }),
-      runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, dimensions: ['query'], type: searchType, rowLimit: 1000 }),
-      runQuery(sc, siteUrl, { startDate: period.compareStart, endDate: period.compareEnd, dimensions: ['query'], type: searchType, rowLimit: 1000 }),
-      runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, dimensions: ['page'], type: searchType, rowLimit: 1000 }),
-      runQuery(sc, siteUrl, { startDate: period.compareStart, endDate: period.compareEnd, dimensions: ['page'], type: searchType, rowLimit: 1000 }),
-      runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, dimensions: ['device'], type: searchType }),
-      runQuery(sc, siteUrl, { startDate: period.compareStart, endDate: period.compareEnd, dimensions: ['device'], type: searchType }),
-      runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, dimensions: ['country'], type: searchType, rowLimit: 50 }),
-      runQuery(sc, siteUrl, { startDate: period.compareStart, endDate: period.compareEnd, dimensions: ['country'], type: searchType, rowLimit: 50 }),
-      runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, dimensions: ['searchAppearance'], type: searchType }),
-      runQuery(sc, siteUrl, { startDate: period.compareStart, endDate: period.compareEnd, dimensions: ['searchAppearance'], type: searchType }),
-      runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, dimensions: ['query', 'page'], type: searchType, rowLimit: 5000 }),
-      prisma.uploadArticle.findMany({
-        where: { clientId: params.id, organizationId: orgId, status: 'PUSHED' },
-        select: { id: true, title: true, wordpressUrl: true, slug: true, pushedAt: true },
-      }),
-    ])
+    if (ownerArticles) {
+      articles = ownerArticles
+      // เฟส 1: หา "ข้อความหน้า" ตามที่ GSC ส่งมาเป๊ะ ๆ ของบทความผู้ดูแลคนนี้ (ช่วงปัจจุบัน + เทียบ) — ยังไม่กรอง
+      // ไม่มีบทความ/ไม่เจอหน้าใน GSC = รายงานว่าง (ห้ามหล่นไปใช้ข้อมูลทั้งเว็บ)
+      let matchedPages: string[] = []
+      if (articles.length > 0) {
+        const [pagesCurAll, pagesPrevAll] = await Promise.all([
+          runQuery(sc, siteUrl, { startDate: period.start, endDate: period.end, dimensions: ['page'], type: searchType, rowLimit: 25000 }),
+          runQuery(sc, siteUrl, { startDate: period.compareStart, endDate: period.compareEnd, dimensions: ['page'], type: searchType, rowLimit: 25000 }),
+        ])
+        const articleUrls = articles.map((a) => uploadedArticleUrl(a, client.website))
+        matchedPages = matchGscPagesToUrls([...pagesCurAll, ...pagesPrevAll].map((r) => r.keys?.[0] ?? ''), articleUrls)
+      }
+      ownerFilter = { tagId: ownerTagId, articles: articles.length, pagesMatched: matchedPages.length }
+
+      // เฟส 2: ยิง query ทั้งชุดพร้อมกรองหน้า — แบ่ง batch ให้ regex ยาวไม่เกินเพดาน แล้วรวมผลกลับ
+      const batches = batchPagesForRegex(matchedPages)
+      if (batches.length === 0) {
+        rows = EMPTY_REPORT_ROWS()
+      } else {
+        const batchResults: ReportRows[] = []
+        for (let i = 0; i < batches.length; i += OWNER_BATCH_CONCURRENCY) {
+          const chunk = batches.slice(i, i + OWNER_BATCH_CONCURRENCY)
+          batchResults.push(...await Promise.all(chunk.map((pages) => runReportQueries(
+            sc, siteUrl, period, searchType,
+            [{ filters: [{ dimension: 'page', operator: 'includingRegex', expression: buildPageRegex(pages) }] }],
+          ))))
+        }
+        rows = mergeReportBatches(batchResults)
+      }
+    } else {
+      const [allRows, pushed] = await Promise.all([runReportQueries(sc, siteUrl, period, searchType), loadPushedArticles()])
+      rows = allRows
+      articles = pushed
+    }
   } catch (e) {
     if (isForbiddenError(e)) {
       const identity = await getServiceIdentity()
@@ -137,13 +218,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     countryCur, countryPrev,
     searchAppearanceCur, searchAppearancePrev,
     queryPageCur,
-    articles,
-  ] = results
+  ] = rows
 
   const queryPageRows = parseQueryPageRows(queryPageCur)
 
   const responseBody = {
     period: { ...period, siteUrl, searchType, fetchedAt: new Date().toISOString() },
+    ownerFilter,
     overview: buildOverview(totalsCur, totalsPrev),
     daily: buildDailySeries(dailyCur),
     dailyPrev: buildDailySeries(dailyPrev),

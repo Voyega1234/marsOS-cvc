@@ -380,6 +380,104 @@ export function normalizeReportUrl(raw: string): string {
   }
 }
 
+// ── กรองตามผู้ดูแลบทความ (owner tag) — จับคู่หน้า GSC กับ URL บทความ + regex filter + รวมผลหลาย batch ──
+
+/** URL ของบทความที่ใช้เทียบกับ GSC: URL จริงบนเว็บถ้ามี ไม่งั้นเดาจาก website + slug */
+export function uploadedArticleUrl(a: { wordpressUrl: string | null; slug: string }, websiteFallback: string): string {
+  return a.wordpressUrl || `${websiteFallback.replace(/\/+$/, '')}/${a.slug}`
+}
+
+/**
+ * หา "ข้อความหน้าเว็บตามที่ GSC ส่งมาเป๊ะ ๆ" ที่ตรงกับ URL บทความ (เทียบผ่าน normalizeReportUrl ทั้งสองฝั่ง
+ * จึงข้าม http/https, trailing slash, slug ไทยแบบ encode/decode ได้) — ต้องส่ง string เดิมของ GSC ไปใช้ใน regex filter
+ * เพราะ GSC เทียบ filter กับข้อความดิบ ไม่ได้ normalize ให้
+ */
+export function matchGscPagesToUrls(gscPages: string[], articleUrls: string[]): string[] {
+  const wanted = new Set<string>()
+  for (const u of articleUrls) {
+    const n = normalizeReportUrl(u)
+    if (n) wanted.add(n)
+  }
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const p of gscPages) {
+    if (!p || seen.has(p)) continue
+    if (wanted.has(normalizeReportUrl(p))) { seen.add(p); out.push(p) }
+  }
+  return out
+}
+
+/** escape อักขระพิเศษของ RE2 (GSC includingRegex ใช้ RE2) */
+export function escapeRe2(s: string): string {
+  return s.replace(/[\\.^$|?*+()[\]{}]/g, '\\$&')
+}
+
+/** regex ที่ตรงกับหน้าเหล่านี้แบบเต็ม URL เท่านั้น: ^(a|b|c)$ */
+export function buildPageRegex(pages: string[]): string {
+  return `^(${pages.map(escapeRe2).join('|')})$`
+}
+
+/** ความยาวสูงสุดของ regex expression ต่อ 1 request (GSC รับได้ ~4096) */
+export const PAGE_REGEX_MAX_LEN = 3500
+
+/**
+ * แบ่งรายการหน้าเป็น batch ให้ buildPageRegex(batch) ยาวไม่เกิน maxLen
+ * หน้าเดียวที่ยาวเกิน maxLen เองจะอยู่ batch ลำพัง (ตัดทิ้งไม่ได้ เพราะจะทำให้รายงานขาดหน้า)
+ */
+export function batchPagesForRegex(pages: string[], maxLen = PAGE_REGEX_MAX_LEN): string[][] {
+  const unique = Array.from(new Set(pages.filter(Boolean)))
+  const overhead = 4 // "^(" + ")$"
+  const batches: string[][] = []
+  let cur: string[] = []
+  let curLen = overhead
+  for (const p of unique) {
+    const escLen = escapeRe2(p).length
+    // +1 = ตัวคั่น "|" (หน้าแรกของ batch ไม่มี)
+    if (cur.length > 0 && curLen + escLen + 1 > maxLen) {
+      batches.push(cur)
+      cur = []
+      curLen = overhead
+    }
+    curLen += cur.length === 0 ? escLen : escLen + 1
+    cur.push(p)
+  }
+  if (cur.length > 0) batches.push(cur)
+  return batches
+}
+
+/**
+ * รวมผล searchanalytics.query ของหลาย batch (คนละชุดหน้า) เป็นผลเดียว:
+ * key = keys.join('\u0001'), clicks/impressions บวกกัน, position = ถ่วงน้ำหนักด้วย impressions, ctr = clicks/impressions
+ * เรียงตามคลิกมาก→น้อย แล้วตัดตาม rowLimit เดิมของ query นั้น (ไม่ส่ง = ไม่ตัด)
+ * query แบบไม่มีมิติ (totals) ทุกแถวมี key เดียวกัน → รวมเหลือแถวเดียว
+ */
+export function mergeGscRows(rowsArrays: RawGscRow[][], rowLimit?: number): RawGscRow[] {
+  const acc = new Map<string, { keys: string[] | null | undefined; clicks: number; impressions: number; posWeighted: number }>()
+  for (const rows of rowsArrays) {
+    for (const r of rows) {
+      const key = (r.keys ?? []).join('\u0001')
+      const m = rowMetric(r)
+      const cur = acc.get(key)
+      if (cur) {
+        cur.clicks += m.clicks
+        cur.impressions += m.impressions
+        cur.posWeighted += m.position * m.impressions
+      } else {
+        acc.set(key, { keys: r.keys, clicks: m.clicks, impressions: m.impressions, posWeighted: m.position * m.impressions })
+      }
+    }
+  }
+  const merged: RawGscRow[] = Array.from(acc.values()).map((v) => ({
+    ...(v.keys ? { keys: v.keys } : {}),
+    clicks: v.clicks,
+    impressions: v.impressions,
+    ctr: v.impressions > 0 ? v.clicks / v.impressions : 0,
+    position: v.impressions > 0 ? v.posWeighted / v.impressions : 0,
+  }))
+  merged.sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0) || (b.impressions ?? 0) - (a.impressions ?? 0))
+  return rowLimit && rowLimit > 0 ? merged.slice(0, rowLimit) : merged
+}
+
 // ── บทความที่อัปโหลด (PUSHED) เทียบกับ GSC page rows ────────────────────────────
 
 export interface UploadedArticleReportInput {
@@ -443,10 +541,9 @@ export function buildUploadedArticleRows(
   }
 
   const zero: GscMetric = { clicks: 0, impressions: 0, ctr: 0, position: 0 }
-  const fallbackBase = websiteFallback.replace(/\/+$/, '')
 
   return articles.map((a) => {
-    const url = a.wordpressUrl || `${fallbackBase}/${a.slug}`
+    const url = uploadedArticleUrl(a, websiteFallback)
     const norm = normalizeReportUrl(url)
     const cur = curByNorm.get(norm) ?? zero
     const prev = prevByNorm.get(norm) ?? zero

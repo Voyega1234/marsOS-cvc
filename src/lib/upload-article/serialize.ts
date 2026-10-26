@@ -8,6 +8,7 @@ import { readImageDefaults } from './article-images'
 import { uploadCtaSummary } from './cta'
 import { uploadAuthorSummary } from './author'
 import { connectionFingerprint, readConnectionTest } from './connection-status'
+import { readArticleOwners, readOwnerTags } from './owner-tags'
 
 function safeParse<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback
@@ -99,6 +100,13 @@ export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCoun
   const publishAt = sanitizePublishAt((rawPrefs as Record<string, unknown>).publishAt)
   if (publishAt) pushPrefs.publishAt = publishAt
   else delete pushPrefs.publishAt
+  // ownerTags/articleOwners: sanitize กัน JSON เพี้ยน + ตัด articleOwners ที่ชี้ไป tag ที่ไม่มีแล้ว
+  const ownerTags = readOwnerTags((rawPrefs as Record<string, unknown>).ownerTags)
+  if (ownerTags.length > 0) pushPrefs.ownerTags = ownerTags
+  else delete pushPrefs.ownerTags
+  const articleOwners = readArticleOwners((rawPrefs as Record<string, unknown>).articleOwners, ownerTags)
+  if (Object.keys(articleOwners).length > 0) pushPrefs.articleOwners = articleOwners
+  else delete pushPrefs.articleOwners
   pushPrefs.imageDefaults = readImageDefaults((rawPrefs as Record<string, unknown>).imageDefaults)
   return {
     id: row.id,

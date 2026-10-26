@@ -148,12 +148,13 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
 
   await prisma.uploadArticle.delete({ where: { id: existing.id } })
 
-  // ตัด cardSel/publishAt[articleId] ของบทความที่ลบไปแล้วทิ้ง — เขียนผ่าน updatePrefs กัน pushPrefs ที่แก้พร้อมกันหาย (lost update)
+  // ตัด cardSel/publishAt/articleOwners[articleId] ของบทความที่ลบไปแล้วทิ้ง — เขียนผ่าน updatePrefs กัน pushPrefs ที่แก้พร้อมกันหาย (lost update)
   await updatePrefs(existing.clientId, session.user.organizationId, (current) => {
     const cur = current as UploadPushPrefs
     const inCardSel = Boolean(cur.cardSel && existing.id in cur.cardSel)
     const inPublishAt = Boolean(cur.publishAt && existing.id in cur.publishAt)
-    if (!inCardSel && !inPublishAt) return { result: undefined }
+    const inOwners = Boolean(cur.articleOwners && existing.id in cur.articleOwners)
+    if (!inCardSel && !inPublishAt && !inOwners) return { result: undefined }
     const next: UploadPushPrefs = { ...cur }
     if (inCardSel) {
       const nextCardSel = { ...cur.cardSel }
@@ -164,6 +165,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
       const nextPublishAt = { ...cur.publishAt }
       delete nextPublishAt[existing.id]
       next.publishAt = nextPublishAt
+    }
+    if (inOwners) {
+      const nextOwners = { ...cur.articleOwners }
+      delete nextOwners[existing.id]
+      next.articleOwners = nextOwners
     }
     return { prefs: next as PrefsObject, result: undefined }
   }).catch(() => null)
