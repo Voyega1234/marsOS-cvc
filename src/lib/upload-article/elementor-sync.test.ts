@@ -41,7 +41,7 @@ async function main() {
     const r = await syncElementorDocument({ ...base, useElementor: false, fetcher: wp.fetcher });
     assert(r.supported && !r.warning, 'สลับกลับสำเร็จ ไม่มีคำเตือน');
     assert(wp.meta?._elementor_edit_mode === '', 'ออกจากโหมด builder');
-    assert(wp.meta?._elementor_data === '', 'ล้างข้อมูล Elementor เก่า');
+    assert(JSON.parse(String(wp.meta?._elementor_data))[0].elements[0].elements[0].settings.html === base.html, 'แทนข้อมูล Elementor เก่าด้วย HTML widget ชุดใหม่');
     assert(wp.calls.some((c) => c.method === 'POST' && c.body && Object.keys(c.body).length === 0), 'แตะโพสต์อีกรอบให้ cache ล้าง');
     assert(wp.calls.every((c) => c.url.startsWith('https://example.com/wp-json/wp/v2/posts/5248')), 'ยิงแค่ endpoint ของโพสต์นี้');
   }
@@ -72,11 +72,20 @@ async function main() {
     assert(!r2.supported, 'อ่านไม่ได้ = supported false (ให้ไปใช้ convert-cake plugin)');
   }
 
+  console.log('ใช้ Elementor + โพสต์ยังไม่เคยเปิดใน Elementor');
+  {
+    const wp = fakeWp({ meta: { _elementor_edit_mode: '' } });
+    const r = await syncElementorDocument({ ...base, useElementor: true, fetcher: wp.fetcher });
+    assert(r.supported && !r.warning, 'ไม่มีคำเตือน');
+    assert(typeof wp.meta?._elementor_data === 'string' && wp.meta._elementor_data.includes('"widgetType":"html"'), 'เตรียม HTML widget ไว้ให้ Edit with Elementor');
+  }
+
   console.log('ใช้ Elementor');
   {
     const wp = fakeWp({ meta: { _elementor_edit_mode: 'builder', _elementor_data: '[{"old":1}]' } });
     const r = await syncElementorDocument({ ...base, useElementor: true, fetcher: wp.fetcher });
     assert(r.supported && !r.warning, 'เขียนสำเร็จ ไม่มีคำเตือน');
+    assert(wp.meta?._elementor_edit_mode === '', 'หน้าเว็บแสดง post_content (Elementor 4 cache ไม่ล้างเมื่อเขียน data ผ่าน REST)');
     const data = JSON.parse(String(wp.meta?._elementor_data));
     assert(data[0].elements[0].elements[0].widgetType === 'html', 'ใช้ HTML widget ไม่ใช่ Text Editor');
     assert(data[0].elements[0].elements[0].settings.html === base.html, 'HTML ชุดใหม่อยู่ใน widget');
@@ -85,6 +94,7 @@ async function main() {
     const blocked = fakeWp({ meta: { _elementor_edit_mode: 'builder', _elementor_data: '[{"old":1}]' }, rejectMeta: ['_elementor_data'] });
     const r2 = await syncElementorDocument({ ...base, useElementor: true, fetcher: blocked.fetcher });
     assert(r2.warning === ELEMENTOR_WRITE_WARNING, 'เขียน data ไม่ได้ = เตือน');
+    assert(blocked.meta?._elementor_edit_mode === '', 'data ถูกปฏิเสธ แต่ยังออกจาก builder ได้');
   }
 
   console.log(`\n${passed} passed`);

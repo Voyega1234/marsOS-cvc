@@ -66,15 +66,16 @@ export const ELEMENTOR_STUCK_WARNING =
   'โพสต์นี้ถูกเปิดแก้ด้วย Elementor — หน้าเว็บยังแสดงเวอร์ชันเก่าจาก Elementor และระบบสลับกลับให้ไม่ได้ ' +
   'ให้กด "กลับไปใช้ตัวแก้ไข WordPress" ในหน้าแก้โพสต์ แล้ว push ใหม่'
 export const ELEMENTOR_WRITE_WARNING =
-  'เขียนข้อมูล Elementor ไม่สำเร็จ — หน้าเว็บอาจยังแสดงเวอร์ชันเก่า ปิดตัวเลือก Elementor แล้ว push ใหม่'
+  'เขียนข้อมูล Elementor ไม่สำเร็จ — หน้าเว็บแสดงเวอร์ชันใหม่แล้ว แต่กด "Edit with Elementor" จะเจอเวอร์ชันเก่า'
 
 /**
  * ให้หน้าเว็บแสดงเนื้อหาที่เพิ่ง push จริง เมื่อโพสต์เป็นเอกสาร Elementor
  * Elementor แสดง _elementor_data แทน post_content — คนเปิด "Edit with Elementor" ครั้งเดียว
  * Re-push ที่เขียนแค่ content จะไม่เห็นผลบนเว็บอีกเลย (mfactors 2026-10-26)
  * Elementor รุ่นใหม่เปิด meta พวกนี้ให้เขียนผ่าน REST (context=edit) ได้เอง ไม่ต้องมีปลั๊กอิน convert-cake
- * - ไม่ใช้ Elementor: ออกจากโหมด builder (= ปุ่ม "กลับไปใช้ตัวแก้ไข WordPress") + ล้างข้อมูลเก่าที่ค้าง
- * - ใช้ Elementor: เขียน _elementor_data เป็น HTML widget ชุดใหม่ (ไม่ใช่ Text Editor ที่ TinyMCE ทำ HTML พัง)
+ * ทั้งสองโหมดจบที่: ออกจากโหมด builder (หน้าเว็บแสดง post_content) + _elementor_data = HTML widget ชุดใหม่
+ * - ไม่ใช้ Elementor: ทำเฉพาะโพสต์ที่ถูกเปิดใน Elementor ไปแล้ว
+ * - ใช้ Elementor: ทำทุกครั้ง ให้ "Edit with Elementor" เปิดมาเจอเวอร์ชันล่าสุด
  * supported = false → เว็บไม่เปิด meta ของ Elementor ผ่าน REST (ไม่มี Elementor / รุ่นเก่า / อ่านไม่ได้)
  */
 export async function syncElementorDocument(opts: {
@@ -112,30 +113,24 @@ export async function syncElementorDocument(opts: {
   const before = await readMeta()
   if (!before || !('_elementor_edit_mode' in before)) return { supported: false }
 
-  if (!useElementor) {
-    if (before._elementor_edit_mode !== 'builder') return { supported: true }
-    await update({ meta: { _elementor_edit_mode: '' } })
-    // ข้อมูลเก่าค้างไว้ = เปิด Elementor อีกครั้งจะโหลดเวอร์ชันเก่ากลับมาทับ — แยกคำขอ ล้มก็ไม่กระทบข้างบน
-    await update({ meta: { _elementor_data: '' } })
-    // meta ถูกเขียนหลัง save_post — แตะโพสต์อีกรอบให้ปลั๊กอิน cache (WP Rocket) ล้างหน้าเว็บตามสถานะใหม่
-    await update({})
-    const after = await readMeta()
-    return after?._elementor_edit_mode === 'builder' ? { supported: true, warning: ELEMENTOR_STUCK_WARNING } : { supported: true }
-  }
+  // โพสต์ที่ไม่เคยเปิดใน Elementor และไม่ได้เลือก Elementor = ไม่ต้องแตะ
+  if (!useElementor && before._elementor_edit_mode !== 'builder') return { supported: true }
 
+  // หน้าเว็บแสดง post_content เสมอ (โหมด '') — Elementor 4 แสดงผลจาก cache ของตัวเอง ซึ่งการเขียน
+  // _elementor_data ผ่าน REST ไม่ล้าง (mfactors 5248: data ใหม่แล้วแต่หน้าเว็บยังเป็น Text Editor เก่า)
+  // _elementor_data เขียนเป็น HTML widget ชุดเดียวกัน — กด "Edit with Elementor" แล้วได้เวอร์ชันนี้
+  // ไม่ใช่ Text Editor ที่ Elementor แปลงจาก content เอง (TinyMCE ตัด <summary> + ใส่ <br> ใน <style>)
   const elementorData = buildElementorData(html)
-  await update({
-    meta: {
-      _elementor_edit_mode: 'builder',
-      _elementor_template_type: isPage ? 'wp-page' : 'wp-post',
-      _elementor_data: elementorData,
-    },
-  })
+  // แยกคำขอ — data ใหญ่ถูกปฏิเสธก็ไม่ลากการออกจาก builder (ตัวที่ทำให้หน้าเว็บถูก) ล้มไปด้วย
+  await update({ meta: { _elementor_edit_mode: '' } })
+  await update({ meta: { _elementor_template_type: isPage ? 'wp-page' : 'wp-post', _elementor_data: elementorData } })
+  // meta ถูกเขียนหลัง save_post — แตะโพสต์อีกรอบให้ปลั๊กอิน cache (WP Rocket) ล้างหน้าเว็บตามสถานะใหม่
   await update({})
   const after = await readMeta()
+  if (after?._elementor_edit_mode === 'builder') return { supported: true, warning: ELEMENTOR_STUCK_WARNING }
   // ตรวจด้วย id ของ widget ชุดนี้ — Elementor อาจคืน _elementor_data เป็น string หรือ object ที่ถอดแล้ว
   const widgetId = String(JSON.parse(elementorData)[0].elements[0].elements[0].id)
-  const written = after?._elementor_edit_mode === 'builder' && JSON.stringify(after?._elementor_data ?? '').includes(widgetId)
+  const written = JSON.stringify(after?._elementor_data ?? '').includes(widgetId)
   return written ? { supported: true } : { supported: true, warning: ELEMENTOR_WRITE_WARNING }
 }
 
