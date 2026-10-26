@@ -33,7 +33,7 @@ async function readErrorMessage(r: Response, fallback: string): Promise<string> 
 }
 
 export default function ImportTab({
-  client, articles, allArticles, selectedId, setSelectedId, refreshArticles, refreshClient, removeArticle, owners,
+  client, articles, allArticles, selectedId, setSelectedId, refreshArticles, refreshClient, removeArticle, owners, pbn = false,
 }: {
   client: UploadClientDTO;
   articles: UploadArticleDTO[];
@@ -46,6 +46,8 @@ export default function ImportTab({
   removeArticle: (id: string) => void;
   /** ผู้ดูแลบทความ (ไม่ส่ง = ไม่แสดง dropdown) */
   owners?: OwnerControls;
+  /** PBN Backlinks: แถวที่ push แล้วลบไม่ได้ */
+  pbn?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -178,8 +180,8 @@ export default function ImportTab({
                     {new Date(a.updatedAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {!canDeleteArticle(a, allArticles) ? (
-                      <span title="ขึ้นเว็บไซต์แล้วและไม่มีแถวซ้ำ — ลบไม่ได้" className="inline-flex p-1.5 text-gray-300">
+                    {!canDeleteArticle(a, pbn) ? (
+                      <span title="บทความ PBN ที่ขึ้นเว็บไซต์แล้ว — ลบไม่ได้" className="inline-flex p-1.5 text-gray-300">
                         <Lock size={13} />
                       </span>
                     ) : (

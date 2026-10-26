@@ -9,7 +9,7 @@ import { setImageAltAt, setImageAltBySrc, setImageLinkAt, setImageLinkBySrc } fr
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
-import { duplicatesOf } from '@/lib/upload-article/duplicates'
+import { isArticlePushed } from '@/lib/upload-article/duplicates'
 import { isPbnPrefsRaw } from '@/lib/upload-article/pbn'
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024
@@ -137,7 +137,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
 
 /**
  * DELETE /api/upload-article/articles/[articleId] — ลบแถวในระบบเท่านั้น (ไม่ลบโพสต์บนเว็บไซต์)
- * บทความที่ขึ้นเว็บแล้ว (Draft/Publish) ลบได้เมื่อมีแถวซ้ำ (โพสต์/slug/ชื่อเดียวกัน) เหลืออยู่ให้เก็บไว้ ไม่งั้น 409
+ * Upload Article ลบได้ทุกแถว (เจ้าของสั่ง 2026-10-26) — PBN ที่ขึ้นเว็บแล้วลบไม่ได้ 409
  */
 export async function DELETE(_req: NextRequest, { params }: { params: { articleId: string } }) {
   const session = await getSession()
@@ -147,22 +147,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
   const existing = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: session.user.organizationId } })
   if (!existing) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
 
-  if (existing.wordpressPostId || existing.pushedAt) {
-    // push แล้ว: ลบได้เฉพาะเมื่อมีแถวซ้ำของลูกค้าเดียวกันเหลืออยู่ (กันบทความที่ขึ้นเว็บหายจากระบบ)
-    // PBN ไม่เข้ากติกานี้: variant ของคีย์เวิร์ดเดียวกันชื่อซ้ำกันโดยตั้งใจ และแต่ละแถวผูกประวัติ push ของเว็บตัวเอง
+  if (isArticlePushed(existing)) {
+    // PBN ที่ push แล้วลบไม่ได้: แต่ละแถวผูกประวัติ push ของเว็บ PBN ตัวเอง
     const owner = await prisma.uploadClient.findFirst({
       where: { id: existing.clientId, organizationId: session.user.organizationId },
       select: { pushPrefs: true },
     })
     if (isPbnPrefsRaw(owner?.pushPrefs)) {
       return NextResponse.json({ error: 'บทความนี้ขึ้นเว็บไซต์แล้ว — ลบไม่ได้ ระบบเก็บไว้ไม่ให้หาย' }, { status: 409 })
-    }
-    const siblings = await prisma.uploadArticle.findMany({
-      where: { organizationId: session.user.organizationId, clientId: existing.clientId, id: { not: existing.id } },
-      select: { id: true, title: true, slug: true, wordpressPostId: true },
-    })
-    if (duplicatesOf(existing, siblings).length === 0) {
-      return NextResponse.json({ error: 'บทความนี้ขึ้นเว็บไซต์แล้ว และไม่มีแถวซ้ำ — ลบไม่ได้ ระบบเก็บไว้ไม่ให้หาย' }, { status: 409 })
     }
   }
 

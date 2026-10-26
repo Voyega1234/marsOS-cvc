@@ -1,5 +1,5 @@
 /**
- * หาบทความซ้ำของลูกค้าเดียวกัน (ชื่อ/slug/โพสต์ WordPress เดียวกัน) — ใช้ตัดสินว่าแถวที่ push แล้วลบได้ไหม
+ * หาบทความซ้ำของลูกค้าเดียวกัน (ชื่อ/slug/โพสต์ WordPress เดียวกัน) — ชิป "ซ้ำ" + รายการในหน้าต่างยืนยันลบ
  * ลบแถวในระบบเท่านั้น ไม่เคยลบโพสต์บนเว็บไซต์
  */
 
@@ -40,11 +40,18 @@ export function duplicateMap<T extends ArticleDupKey>(articles: T[]): Map<string
   return map
 }
 
-/** ลบได้เมื่อยังไม่ push หรือมีแถวซ้ำเหลืออยู่ให้เก็บไว้ */
-export function canDeleteArticle<T extends ArticleDupKey>(
-  article: ArticleDupKey & { pushedAt: string | Date | null },
-  all: T[],
+/** ขึ้นเว็บแล้ว (มีโพสต์ หรือเคย push) */
+export function isArticlePushed(article: { wordpressPostId: string | null; pushedAt: string | Date | null }): boolean {
+  return Boolean(article.wordpressPostId || article.pushedAt)
+}
+
+/**
+ * Upload Article ลบได้ทุกแถว (เจ้าของสั่ง 2026-10-26) — แถวที่ push แล้วลบแค่ในระบบ โพสต์บนเว็บยังอยู่
+ * PBN ที่ push แล้วลบไม่ได้: แต่ละแถวผูกประวัติ push ของเว็บ PBN (server กันอีกชั้น)
+ */
+export function canDeleteArticle(
+  article: { wordpressPostId: string | null; pushedAt: string | Date | null },
+  pbn: boolean,
 ): boolean {
-  if (!article.wordpressPostId && !article.pushedAt) return true
-  return duplicatesOf(article, all).length > 0
+  return !pbn || !isArticlePushed(article)
 }

@@ -49,7 +49,7 @@ const MAX_PATCH_BYTES = 4_000_000;
 
 export default function ReviewTab({
   client, setClient, articles, allArticles, selectedId, setSelectedId, loadArticleDetail, articleDetails, applyArticleUpdate,
-  removeArticle, refreshClient,
+  removeArticle, refreshClient, pbn = false,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
@@ -63,6 +63,8 @@ export default function ReviewTab({
   applyArticleUpdate: (a: UploadArticleDTO) => void;
   removeArticle: (id: string) => void;
   refreshClient: () => Promise<void>;
+  /** PBN Backlinks: แถวที่ push แล้วลบไม่ได้ */
+  pbn?: boolean;
 }) {
   const [deleteTarget, setDeleteTarget] = useState<UploadArticleDTO | null>(null);
   const dupMap = useMemo(() => duplicateMap(allArticles), [allArticles]);
@@ -396,7 +398,7 @@ export default function ReviewTab({
                     )}
                   </div>
                 </button>
-                {canDeleteArticle(a, allArticles) && (
+                {canDeleteArticle(a, pbn) && (
                   <button title="ลบบทความ" onClick={() => setDeleteTarget(a)}
                     className="mr-2 p-1.5 shrink-0 rounded-lg text-gray-300 hover:text-rose-600 hover:bg-rose-50 transition-colors">
                     <Trash2 size={13} />

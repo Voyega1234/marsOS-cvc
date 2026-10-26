@@ -2,7 +2,7 @@
  * Regression: บทความซ้ำ (ชื่อ/slug เดียวกัน push ไปโพสต์เดียวกัน) ต้องลบได้ทั้งที่ push แล้ว โดยเก็บไว้อย่างน้อย 1 แถว
  * Run: npx tsx src/lib/upload-article/duplicates.test.ts
  */
-import { normalizeArticleTitle, duplicatesOf, duplicateMap, canDeleteArticle } from './duplicates';
+import { normalizeArticleTitle, duplicatesOf, duplicateMap, canDeleteArticle, isArticlePushed } from './duplicates';
 
 let passed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -78,28 +78,26 @@ assert(normalizeArticleTitle('   ') === '', 'normalize: whitespace only = empty'
   assert(!m.has('c'), 'duplicateMap: unique row absent');
 }
 
-// canDeleteArticle
+// canDeleteArticle — Upload ลบได้ทุกแถว, PBN ที่ push แล้วลบไม่ได้
 {
   const fresh = row('a');
-  assert(canDeleteArticle(fresh, [fresh]), 'unpushed row is deletable');
+  assert(canDeleteArticle(fresh, false), 'unpushed Upload row is deletable');
+  assert(canDeleteArticle(fresh, true), 'unpushed PBN row is deletable');
 }
 {
   const pushed = row('a', { wordpressPostId: '100', pushedAt: '2026-10-01T00:00:00Z' });
-  assert(!canDeleteArticle(pushed, [pushed]), 'pushed row without duplicates is NOT deletable');
+  assert(canDeleteArticle(pushed, false), 'pushed Upload row without duplicates is deletable');
+  assert(!canDeleteArticle(pushed, true), 'pushed PBN row is NOT deletable');
 }
 {
   const pushedOnlyAt = row('a', { pushedAt: '2026-10-01T00:00:00Z' });
-  assert(!canDeleteArticle(pushedOnlyAt, [pushedOnlyAt]), 'pushedAt alone counts as pushed');
+  assert(isArticlePushed(pushedOnlyAt), 'pushedAt alone counts as pushed');
+  assert(!canDeleteArticle(pushedOnlyAt, true), 'PBN row with pushedAt alone is NOT deletable');
 }
 {
-  const a = row('a', { wordpressPostId: '100', pushedAt: '2026-10-01T00:00:00Z' });
-  const b = row('b', { wordpressPostId: '100', pushedAt: '2026-10-02T00:00:00Z' });
-  assert(canDeleteArticle(a, [a, b]) && canDeleteArticle(b, [a, b]), 'pushed row with a duplicate is deletable');
-}
-{
-  const a = row('a', { title: 'ซ้ำ', wordpressPostId: '100', pushedAt: '2026-10-01T00:00:00Z' });
-  const b = row('b', { title: 'ซ้ำ' });
-  assert(canDeleteArticle(a, [a, b]), 'pushed row whose duplicate is unpushed is deletable');
+  const postOnly = row('a', { wordpressPostId: '100' });
+  assert(isArticlePushed(postOnly), 'wordpressPostId alone counts as pushed');
+  assert(!isArticlePushed(row('b')), 'fresh row is not pushed');
 }
 
 console.log(`\n${passed} passed`);

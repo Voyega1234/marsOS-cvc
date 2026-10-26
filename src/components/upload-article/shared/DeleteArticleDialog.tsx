@@ -69,6 +69,9 @@ export default function DeleteArticleDialog({
         {isPushed && (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
             ลบเฉพาะแถวในระบบ — โพสต์บนเว็บไซต์จะไม่ถูกลบ
+            {duplicates.length === 0 && (
+              <> · หลังลบจะแก้/Re-push โพสต์นี้จากระบบไม่ได้แล้ว ต้องไปแก้หรือลบบนเว็บไซต์เอง</>
+            )}
           </p>
         )}
 

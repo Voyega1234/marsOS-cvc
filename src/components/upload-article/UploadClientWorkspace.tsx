@@ -153,7 +153,7 @@ export default function UploadClientWorkspace({
 
   // บทความที่กำลังเขียนอยู่ (WRITING) ยังไม่พร้อมให้แท็บอื่นเห็น — กันคนกดใช้งานบทความที่ยังไม่เสร็จ
   const visibleArticles = useMemo(() => articles.filter(a => a.status !== "WRITING"), [articles]);
-  // ชุดที่ใช้หาแถวซ้ำ (ปุ่มลบ + ชิป "ซ้ำ") — PBN ส่งว่าง: variant ชื่อซ้ำกันโดยตั้งใจ แถวที่ push แล้วจึงลบไม่ได้ตามเดิม (server กันซ้ำอีกชั้น)
+  // ชุดที่ใช้หาแถวซ้ำ (ชิป "ซ้ำ" + รายการในหน้าต่างยืนยันลบ) — PBN ส่งว่าง: variant ชื่อซ้ำกันโดยตั้งใจ
   const dupPool = useMemo(() => (isPbn ? [] : articles), [isPbn, articles]);
 
   if (notFoundFlag) {
@@ -276,6 +276,7 @@ export default function UploadClientWorkspace({
             refreshClient={refreshClient}
             removeArticle={removeArticle}
             owners={ownerControls}
+            pbn={isPbn}
           />
         </TabsContent>
 
@@ -308,6 +309,7 @@ export default function UploadClientWorkspace({
             applyArticleUpdate={applyArticleUpdate}
             removeArticle={removeArticle}
             refreshClient={refreshClient}
+            pbn={isPbn}
           />
         </TabsContent>
 

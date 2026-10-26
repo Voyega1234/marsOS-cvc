@@ -567,7 +567,7 @@ export default function PushTab({
                     title={!pbn && a.wordpressPostId ? `อัปเดตทับโพสต์เดิมบนเว็บ (ID ${a.wordpressPostId}) ไม่สร้างโพสต์ใหม่` : undefined}>
                     {busy ? "กำลัง Push..." : pbn ? (pbnPushes[a.id]?.[targetSite[a.id] ?? ""] ? "Push อัปเดต" : "Push") : a.wordpressPostId ? <><RotateCcw size={12} className="mr-1" /> Re-push (ทับของเดิม)</> : "Push"}
                   </Button>
-                  {canDeleteArticle(a, allArticles) && (
+                  {canDeleteArticle(a, pbn) && (
                     <button type="button" title="ลบบทความ" disabled={busy || batchBusy} onClick={() => setDeleteTarget(a)}
                       className="p-1.5 rounded-lg text-gray-300 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-40 disabled:pointer-events-none">
                       <Trash2 size={14} />
