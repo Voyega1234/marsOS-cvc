@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { orChat, orChatStream, OR_MODELS } from '@/lib/openrouter'
-import { clientSlugFromProject } from '@/lib/orClient'
+import { clientSlugFromProject, withOrClient } from '@/lib/orClient'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
+import { buildRestrictionsBlock, hasRestrictions, restrictionsValidatorNote, type RestrictionsContext } from '@/lib/ce-restrictions'
+import { enforceRestrictions, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, normalizeCtaItems, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem } from '@/lib/articleComponents'
 import { sampleForPrompt } from '@/lib/articleSample'
@@ -216,6 +218,10 @@ function buildArticlePrompt(opts: {
   intentSkillBlock?: string
   /** Mars Human Voice Skill — แนบทุกครั้งที่เขียน (อ่านรู้เรื่อง ได้ใจความ รวม title/meta) */
   humanVoiceBlock?: string
+  /** Content Engine > ข้อจำกัด (buildRestrictionsBlock) — ว่าง '' = ไม่มีข้อจำกัด */
+  restrictionsBlock?: string
+  /** บรรทัดตรวจข้อจำกัดต่อท้าย Validator Pack (restrictionsValidatorNote) */
+  restrictionsNote?: string
   // Prompt ทั้งหมดมาจาก Content Engine เท่านั้น (เรียงลำดับ 4 layers)
   // ห้ามสร้าง prompt เอง — ดู src/lib/content-engine-resolve.ts
   ce: {
@@ -333,6 +339,14 @@ ${opts.ce.articleBrief}
 LAYER 4: VALIDATOR PACK (ตรวจก่อนส่งงาน — ข้อ BLOCKING ไม่ผ่านห้าม output)
 ==================================================
 ${opts.ce.validatorPack}
+${opts.restrictionsNote ? `${opts.restrictionsNote}\n` : ''}`
+    : ''
+
+  // ข้อจำกัดของลูกค้าอยู่ก่อน Validator Pack — ตัวตรวจท้ายสุดต้องเห็นข้อจำกัดแล้ว
+  const restrictionsBlock = opts.restrictionsBlock?.trim()
+    ? `==================================================
+${opts.restrictionsBlock.trim()}
+==================================================
 `
     : ''
 
@@ -348,6 +362,7 @@ ${opts.ctaBlock}
 ${sampleBlock}
 ${intentSkillBlock}
 ${humanVoiceBlock}
+${restrictionsBlock}
 ${validatorBlock}
 ---
 OUTPUT: ส่ง HTML ชุดเดียวเท่านั้น ไม่มีคำอธิบาย ไม่มี Markdown ไม่มี diagnostic text
@@ -967,7 +982,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const ceScope: CEScope = projectId ? { projectId } : 'studio'
-  const ce = await resolveContentEngine(orgId, ceScope)
+  const requestStartedAt = Date.now()
+  // Content Engine > ข้อจำกัด ของ scope เดียวกัน (ไม่มี/Draft = null) — โหลดพร้อม CE
+  const [ce, restrictions] = await Promise.all([
+    resolveContentEngine(orgId, ceScope),
+    loadRestrictions(orgId, ceScope).catch((e): RestrictionsContext | null => {
+      console.warn('[article/write] loadRestrictions failed', e instanceof Error ? e.message : e)
+      return null
+    }),
+  ])
   if (ce.missing.length > 0) {
     return NextResponse.json({
       error: 'CONTENT_ENGINE_NOT_CONFIGURED',
@@ -1045,6 +1068,8 @@ export async function POST(req: NextRequest) {
     ctaBlock: ctaResult.block,
     intentSkillBlock,
     humanVoiceBlock,
+    restrictionsBlock: buildRestrictionsBlock(restrictions, { keyword, title }),
+    restrictionsNote: restrictionsValidatorNote(restrictions),
     ce: {
       businessSkill: ce.businessSkill?.text,
       masterPrompt: ce.masterPrompt!.text,
@@ -1128,6 +1153,22 @@ export async function POST(req: NextRequest) {
     return `${schema}\n${body}`
   }
 
+  // คำต้องห้ามของลูกค้าในบทความที่เขียนเสร็จ — แทนคำ/เขียนท่อนใหม่ (เวลาเหลือน้อย = แทนคำอย่างเดียว)
+  // ไม่ทำให้งานล้ม: ที่เหลือคืนเป็นรายการให้ UI แจ้งทีม
+  const enforceBanned = async (html: string): Promise<{ html: string; warnings: string[] }> => {
+    if (!hasRestrictions(restrictions)) return { html, warnings: [] }
+    const r = await withOrClient(orClient, () =>
+      enforceRestrictions({
+        ctx: restrictions,
+        html,
+        trace: 'article_write_restrictions',
+        rewrite: Date.now() - requestStartedAt < 150_000,
+        timeoutMs: 45_000,
+      }),
+    )
+    return { html: r.html, warnings: r.remaining.map((h) => `${h.term} (${h.count})`) }
+  }
+
   if (!doStream) {
     const msg = await orChat({
       trace: 'article_write',
@@ -1136,6 +1177,8 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'user', content: articlePrompt }],
     })
     let html = sanitizeArticleHtml(msg.text)
+    const banned = await enforceBanned(html)
+    html = banned.html
 
     if (orgId && userId) {
       await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
@@ -1201,6 +1244,7 @@ export async function POST(req: NextRequest) {
       html, keyword, title,
       coverImage: coverResult.imageBase64, coverMimeType: coverResult.mimeType,
       midImage: midResult?.imageBase64 ?? '', midMimeType: midResult?.mimeType ?? '',
+      ...(banned.warnings.length ? { restrictionWarnings: banned.warnings } : {}),
     })
   }
 
@@ -1256,6 +1300,14 @@ export async function POST(req: NextRequest) {
       // ห้ามเดินหน้าทำรูป/บันทึกบทความเปล่า (เคยเกิด: OpenRouter ล้มเงียบ แล้วระบบประกาศสำเร็จ)
       if (fullHtml.replace(/<[^>]+>/g, '').trim().length < 500) {
         throw new Error(`Writer คืนเนื้อหาสั้นผิดปกติ (${fullHtml.length} ตัวอักษรหลัง sanitize) — ตรวจ OpenRouter key/เครดิต แล้วลองใหม่`)
+      }
+      if (hasRestrictions(restrictions)) {
+        send({ type: 'status', step: 'writing', message: '🛡️ ตรวจคำต้องห้ามตามข้อจำกัดของ Content Engine...' })
+        const banned = await enforceBanned(fullHtml)
+        fullHtml = banned.html
+        if (banned.warnings.length) {
+          send({ type: 'status', step: 'writing', message: `⚠️ ยังมีคำต้องห้ามที่แก้ไม่หมด: ${banned.warnings.join(', ')} — แก้เองก่อนเผยแพร่` })
+        }
       }
 
       // Log article write job

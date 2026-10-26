@@ -4,6 +4,8 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { withHumanVoice } from '@/lib/upload-article/human-voice'
 import { resolveCeSet } from '@/lib/upload-article/pbn-context'
+import { CE_RESTRICTION_FILE } from '@/lib/ce-restrictions'
+import { checkRestrictionFileLimits } from '@/lib/ce-restrictions-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,8 +35,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const resolvedProjectId = ceSet.scopeId
 
+  if (type === CE_RESTRICTION_FILE) {
+    const limitError = await checkRestrictionFileLimits(orgId, resolvedProjectId, promptText)
+    if (limitError) return NextResponse.json({ error: limitError }, { status: 413 })
+  }
+
   // Layer แรกของ type นั้นใน scope นี้ → เปิดใช้งานให้เลย (เหมือน POST /api/prompts)
-  const isCeLayer = typeof type === 'string' && type.startsWith('CE_')
+  // ไฟล์ข้อจำกัดไม่ใช่ layer — ใช้ทุกไฟล์ใน scope ไม่ต้อง active (ลบได้ทันที)
+  const isCeLayer = typeof type === 'string' && type.startsWith('CE_') && type !== CE_RESTRICTION_FILE
   const hasActiveSibling = isCeLayer
     ? (await prisma.promptTemplate.count({
         where: { organizationId: orgId, projectId: resolvedProjectId, type, isActive: true },

@@ -16,7 +16,10 @@ const CE_LAYER_TYPES = new Set([
   "CE_ARTICLE_BRIEF",
   "CE_VALIDATOR_PACK",
   "CE_IMAGE_PROMPT",
+  "CE_RESTRICTIONS",
 ]);
+// ข้อจำกัดไม่คัดลอกจาก Studio — ผูกกับไฟล์ของสโคปตัวเอง (fileIds) คัดลอกไปแล้วลิงก์ไฟล์ขาด
+const STUDIO_COPY_TYPES = new Set(Array.from(CE_LAYER_TYPES).filter((t) => t !== "CE_RESTRICTIONS"));
 
 function resolveProjectId(explicit?: string): string | null {
   if (explicit) return explicit;
@@ -75,7 +78,7 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
       if (!res.ok) throw new Error(`โหลดชุด Studio ไม่สำเร็จ (${res.status})`);
       const studioPrompts = await res.json();
       const activeLayers = (Array.isArray(studioPrompts) ? studioPrompts : []).filter(
-        (p: { type: string; isActive: boolean }) => CE_LAYER_TYPES.has(p.type) && p.isActive
+        (p: { type: string; isActive: boolean }) => STUDIO_COPY_TYPES.has(p.type) && p.isActive
       );
       if (activeLayers.length === 0) {
         toast.error("Studio ยังไม่มีชุด Active ให้คัดลอก");
@@ -116,7 +119,7 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
 
   return (
     <div className="space-y-4">
-      {userRole !== "CLIENT" && items.length === 0 && (
+      {userRole !== "CLIENT" && items.every((i) => i.type === "CE_RESTRICTIONS") && (
         <div className="flex items-center justify-between rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-3">
           <p className="text-sm text-indigo-700">Project นี้ยังไม่มีชุด Content Engine — เริ่มต้นได้เร็วขึ้นด้วยการคัดลอกชุด Active จาก Studio</p>
           <Button size="sm" className="gap-1.5" disabled={copying} onClick={copyFromStudio}>

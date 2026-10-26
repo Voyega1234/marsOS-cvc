@@ -26,6 +26,8 @@ import { readUploadAuthor, pickAuthorForArticle } from '@/lib/upload-article/aut
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { orChatStream, OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
+import { buildRestrictionsBlock, hasRestrictions, restrictionsValidatorNote } from '@/lib/ce-restrictions'
+import { enforceRestrictions, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
@@ -132,12 +134,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // keyword นี้กำลังเขียนอยู่แล้ว (ไม่นับที่ค้างเกิน 6 นาที — proc ตายกลางทาง ลบแล้วเขียนใหม่ได้)
   const sourceName = writerSourceName(keywordId, variant)
   // 3 การอ่านนี้เป็นอิสระจากกัน (ไม่พึ่งผลของกันและกัน) — ยิงพร้อมกันได้ แต่ยังเช็ค error ตามลำดับเดิม (409 → 422 → CTA 400)
-  const [existingWriting, ce, extraLinks] = await Promise.all([
+  const [existingWriting, ce, extraLinks, restrictions] = await Promise.all([
     prisma.uploadArticle.findMany({
       where: { clientId: client.id, organizationId: orgId, sourceName, status: 'WRITING' },
     }),
     resolveContentEngine(orgId, { projectId: effective.ceScopeId }),
     loadArticleLinkPairs(client.id, orgId, prefs),
+    // Content Engine > ข้อจำกัด ของ scope เดียวกับ CE (ไม่มี/Draft = null)
+    loadRestrictions(orgId, { projectId: effective.ceScopeId }),
   ])
   const staleIds: string[] = []
   for (const a of existingWriting) {
@@ -223,7 +227,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return changed ? { prefs: next, result: null } : { result: null }
   })
 
-  const system = buildWriterSystemPrompt({ masterPrompt, businessSkill, articleBrief, validatorPack })
+  const system = buildWriterSystemPrompt({
+    masterPrompt,
+    businessSkill,
+    articleBrief,
+    validatorPack,
+    restrictions: buildRestrictionsBlock(restrictions, { keyword: keyword.keyword, title, outline: keyword.note }),
+    restrictionsNote: restrictionsValidatorNote(restrictions),
+  })
   // ภาษาของบทความนี้ตามโหมดภาษาของลูกค้า (ไทย / อังกฤษ / ไทย+อังกฤษ = ดูจาก title ก่อน)
   const language = uploadArticleLanguage(writeClient.language, title, keyword.keyword)
   const user = buildWriterUserPrompt({
@@ -334,6 +345,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           }
         }
 
+        // คำต้องห้ามของลูกค้า (Content Engine > ข้อจำกัด) — แทนคำ/เขียนท่อนใหม่ก่อนแทรก CTA (CTA เป็นข้อความของทีม ไม่แตะ)
+        let metaDescription = parsed.metaDescription
+        let restrictionWarnings: string[] | undefined
+        if (hasRestrictions(restrictions)) {
+          const enforced = await withOrClient(clientSlug, () =>
+            enforceRestrictions({
+              ctx: restrictions,
+              html: cleaned,
+              metaDescription,
+              trace: 'upload_article_restrictions',
+              rewrite: remainingMs() >= EXTRA_ROUND_MIN_MS,
+              timeoutMs: Math.max(30_000, Math.min(120_000, remainingMs() - 20_000)),
+            }),
+          )
+          cleaned = enforced.html
+          metaDescription = enforced.metaDescription
+          if (enforced.remaining.length) restrictionWarnings = enforced.remaining.map((h) => `${h.term} (${h.count})`)
+        }
+
         // แทรกกล่อง CTA ลง sourceHtml เลย — Generate ใหม่กี่รอบก็ยังอยู่ (ข้อความ CTA มาจากที่ทีมตั้ง ไม่ใช่ AI)
         const sourceHtml = withCta ? insertUploadCta(cleaned, cta).html : cleaned
 
@@ -342,7 +372,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           mode: 'html',
           theme,
           site: { name: client.name, url: writeClient.website, language },
-          meta: { title, seoTitle, metaDescription: parsed.metaDescription || undefined, slug: keyword.slug || undefined },
+          meta: { title, seoTitle, metaDescription: metaDescription || undefined, slug: keyword.slug || undefined },
           cover: null,
           breadcrumb: true,
           cta: ctaDesign,
@@ -354,7 +384,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           data: {
             sourceHtml,
             htmlContent: built.html,
-            metaDescription: parsed.metaDescription,
+            metaDescription,
             status: 'GENERATED',
           },
         })
@@ -372,7 +402,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           createdById: userId,
         }).catch(() => {})
 
-        safeEnqueue({ type: 'done', article: toUploadArticleDTO(updated, false) })
+        safeEnqueue({ type: 'done', article: toUploadArticleDTO(updated, false), restrictionWarnings })
       } catch (e) {
         const message = e instanceof Error ? e.message.slice(0, 300) : String(e)
 

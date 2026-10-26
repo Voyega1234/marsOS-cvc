@@ -22,6 +22,10 @@ export interface WriterCELayers {
   businessSkill: string
   articleBrief: string
   validatorPack: string
+  /** Content Engine > ข้อจำกัด (buildRestrictionsBlock) — ว่าง = ไม่มีข้อจำกัด */
+  restrictions?: string
+  /** บรรทัดตรวจข้อจำกัดต่อท้าย Validator Pack (restrictionsValidatorNote) */
+  restrictionsNote?: string
 }
 
 /** 4 layer ที่ writer ต้องมีครบ (ไม่รวม Image Prompt — writer ไม่ยุ่งกับรูป) */
@@ -52,7 +56,10 @@ export function buildWriterSystemPrompt(ce: WriterCELayers): string {
     ce.masterPrompt +
     '\n\n# Business Skill\n' + ce.businessSkill +
     '\n\n# Article Brief\n' + ce.articleBrief +
-    '\n\n# Validator Pack (ตรวจตัวเองก่อนส่ง)\n' + ce.validatorPack
+    // ข้อจำกัดอยู่ก่อน Validator Pack — ตัวตรวจท้ายสุดต้องเห็นข้อจำกัดแล้ว
+    (ce.restrictions?.trim() ? '\n\n' + ce.restrictions.trim() : '') +
+    '\n\n# Validator Pack (ตรวจตัวเองก่อนส่ง)\n' + ce.validatorPack +
+    (ce.restrictionsNote?.trim() ? '\n' + ce.restrictionsNote.trim() : '')
   )
 }
 

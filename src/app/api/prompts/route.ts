@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { canViewPrompts, canEditPrompts } from "@/services/prompts";
+import { CE_RESTRICTION_FILE, RESTRICTION_FILE_PREVIEW_CHARS } from "@/lib/ce-restrictions";
+import { checkRestrictionFileLimits } from "@/lib/ce-restrictions-server";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -31,7 +33,14 @@ export async function GET(req: NextRequest) {
     },
     orderBy: [{ type: "asc" }, { version: "desc" }],
   });
-  return NextResponse.json(prompts);
+  // ไฟล์ข้อจำกัดยาวได้หลัก MB ต่อแถว — หน้า settings ได้แค่ตัวอย่างต้นไฟล์ ข้อความเต็มใช้ฝั่งเซิร์ฟเวอร์ตอนเขียน
+  return NextResponse.json(
+    prompts.map((p) =>
+      p.type === CE_RESTRICTION_FILE && p.promptText.length > RESTRICTION_FILE_PREVIEW_CHARS
+        ? { ...p, promptText: p.promptText.slice(0, RESTRICTION_FILE_PREVIEW_CHARS) }
+        : p,
+    ),
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -58,10 +67,16 @@ export async function POST(req: NextRequest) {
     resolvedProjectId = project.id;
   }
 
+  if (type === CE_RESTRICTION_FILE) {
+    const limitError = await checkRestrictionFileLimits(session.user.organizationId!, resolvedProjectId, promptText);
+    if (limitError) return NextResponse.json({ error: limitError }, { status: 413 });
+  }
+
   // Layer แรกของ type นั้นใน scope นั้น → เปิดใช้งานให้เลย
   // (เดิม isActive: false เสมอ → คัดลอกชุดเข้าโปรเจกต์แล้วไม่มี layer ไหน active
   //  → resolveContentEngine เห็น missing ครบทุกชั้น → เขียนบทความไม่ได้เลย)
-  const isCeLayer = typeof type === "string" && type.startsWith("CE_");
+  // ไฟล์ข้อจำกัดไม่ใช่ layer — ใช้ทุกไฟล์ใน scope ไม่ต้อง active (ลบได้ทันที)
+  const isCeLayer = typeof type === "string" && type.startsWith("CE_") && type !== CE_RESTRICTION_FILE;
   const hasActiveSibling = isCeLayer
     ? (await prisma.promptTemplate.count({
         where: {

@@ -19,6 +19,7 @@ const LAYER_LABEL: Record<string, string> = {
   [CE_TYPES.ARTICLE_BRIEF]: "Article Brief Template",
   [CE_TYPES.VALIDATOR_PACK]: "Validator Pack",
   [CE_TYPES.IMAGE_PROMPT]: "Image Prompt",
+  [CE_TYPES.RESTRICTIONS]: "ข้อจำกัด (Restrictions)",
 };
 
 interface VersionEntry {

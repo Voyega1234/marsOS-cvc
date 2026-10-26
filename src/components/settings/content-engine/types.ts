@@ -16,6 +16,9 @@ export const CE_TYPES = {
   ARTICLE_BRIEF: "CE_ARTICLE_BRIEF",
   VALIDATOR_PACK: "CE_VALIDATOR_PACK",
   IMAGE_PROMPT: "CE_IMAGE_PROMPT",
+  // ข้อจำกัด (ไม่บังคับ) + ไฟล์ข้อกำหนด/ข้อมูลอ้างอิง แถวละไฟล์ — ดู src/lib/ce-restrictions.ts
+  RESTRICTIONS: "CE_RESTRICTIONS",
+  RESTRICTION_FILE: "CE_RESTRICTION_FILE",
 } as const;
 
 export type CELayerType =

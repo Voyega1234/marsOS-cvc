@@ -265,7 +265,7 @@ export default function WriteTab({
         buf = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          let msg: { type?: string; elapsed?: number; chars?: number; article?: UploadArticleDTO; error?: string };
+          let msg: { type?: string; elapsed?: number; chars?: number; article?: UploadArticleDTO; error?: string; restrictionWarnings?: string[] };
           try { msg = JSON.parse(line); } catch { continue; }
           if (msg.type === "start") {
             setRowStatus(prev => ({ ...prev, [key]: { phase: "writing", elapsed: 0, chars: 0, attempt } }));
@@ -276,6 +276,10 @@ export default function WriteTab({
             setRowStatus(prev => ({ ...prev, [key]: { phase: "written", articleId: article.id, imagesPending: withImages } }));
             if (job.variant === 1) setKeywords(prev => prev.map(k => (k.id === keywordId ? { ...k, articleId: article.id, writeError: undefined } : k)));
             applyArticleUpdate(article);
+            // คำต้องห้ามที่ระบบแก้ไม่หมด (Content Engine > ข้อจำกัด) — ให้ทีมแก้เองก่อน push
+            if (msg.restrictionWarnings?.length) {
+              toast.warning(`"${article.title}" ยังมีคำต้องห้าม: ${msg.restrictionWarnings.join(", ")} — แก้ในแท็บ Review ก่อน push`, { duration: 15000 });
+            }
             writtenRef.current.push({ keywordId: key, articleId: article.id });
             result = { ok: true };
           } else if (msg.type === "error") {

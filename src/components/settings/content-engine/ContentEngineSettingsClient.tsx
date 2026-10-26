@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Ban,
   BookOpen,
   CheckCircle2,
   ClipboardList,
@@ -22,6 +23,7 @@ import { BusinessSkillsTab } from "./BusinessSkillsTab";
 import { ImagePromptsTab } from "./ImagePromptsTab";
 import { MasterPromptsTab } from "./MasterPromptsTab";
 import { PromptComposerTab } from "./PromptComposerTab";
+import { RestrictionsTab } from "./RestrictionsTab";
 import { CERefreshContext, SectionCard } from "./shared";
 import { ValidatorPacksTab } from "./ValidatorPacksTab";
 import { VersionsAuditTab } from "./VersionsAuditTab";
@@ -41,6 +43,7 @@ type TabKey =
   | "business-skills"
   | "master-prompts"
   | "article-briefs"
+  | "restrictions"
   | "validator-packs"
   | "image-prompts"
   | "prompt-composer"
@@ -51,6 +54,7 @@ const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
   { key: "business-skills", label: "Business Skills", icon: BookOpen },
   { key: "master-prompts", label: "Master Prompts", icon: FileCog },
   { key: "article-briefs", label: "Article Brief Templates", icon: ClipboardList },
+  { key: "restrictions", label: "ข้อจำกัด (Restrictions)", icon: Ban },
   { key: "validator-packs", label: "Validator Packs", icon: ShieldCheck },
   { key: "image-prompts", label: "Image Prompts", icon: ImageIcon },
   { key: "prompt-composer", label: "Prompt Composer & Test", icon: FlaskConical },
@@ -86,6 +90,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
   const businessSkills = useMemo(() => items.filter((i) => i.type === CE_TYPES.BUSINESS_SKILL), [items]);
   const masterPrompts = useMemo(() => items.filter((i) => i.type === CE_TYPES.MASTER_PROMPT), [items]);
   const briefTemplates = useMemo(() => items.filter((i) => i.type === CE_TYPES.ARTICLE_BRIEF), [items]);
+  const restrictions = useMemo(() => items.filter((i) => i.type === CE_TYPES.RESTRICTIONS), [items]);
   const validatorPacks = useMemo(() => items.filter((i) => i.type === CE_TYPES.VALIDATOR_PACK), [items]);
   const imagePrompts = useMemo(() => items.filter((i) => i.type === CE_TYPES.IMAGE_PROMPT), [items]);
 
@@ -97,7 +102,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
         <p className="mt-1 max-w-3xl text-sm text-gray-500">
           กำหนด 5 Layer ที่ประกอบกันเป็นคำสั่งเขียนบทความและสร้างภาพ — Business Skill (ความรู้ระดับธุรกิจ) + Master Prompt
           (มาตรฐานระดับเอเจนซี่) + Article Brief (คำสั่งเฉพาะบทความ) + Validator Pack (ชุดตรวจคุณภาพ) + Image Prompt
-          (แม่แบบสร้างภาพประกอบ) ={" "}
+          (แม่แบบสร้างภาพประกอบ) + ข้อจำกัด (คำต้องห้าม/ข้อมูลสินค้าที่ละเอียดอ่อน — ไม่บังคับ) ={" "}
           <span className="font-medium text-gray-700">Compiled Writing Instruction</span> ที่ใช้สร้าง Draft, ตรวจสอบ,
           และอนุมัติก่อน Publish — เฉพาะสโคปนี้เท่านั้น
         </p>
@@ -109,6 +114,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
           { label: "Business Skill", rows: businessSkills, optional: scope === "studio", jump: "business-skills" as TabKey },
           { label: "Master Prompt", rows: masterPrompts, optional: false, jump: "master-prompts" as TabKey },
           { label: "Article Brief", rows: briefTemplates, optional: false, jump: "article-briefs" as TabKey },
+          { label: "ข้อจำกัด", rows: restrictions, optional: true, jump: "restrictions" as TabKey },
           { label: "Validator", rows: validatorPacks, optional: false, jump: "validator-packs" as TabKey },
           { label: "Image Prompt", rows: imagePrompts, optional: false, jump: "image-prompts" as TabKey },
         ]).map((l) => {
@@ -174,6 +180,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
           {tab === "business-skills" && <BusinessSkillsTab items={businessSkills} scope={scope} canEdit={canEdit} />}
           {tab === "master-prompts" && <MasterPromptsTab items={masterPrompts} scope={scope} canEdit={canEdit} />}
           {tab === "article-briefs" && <ArticleBriefsTab items={briefTemplates} scope={scope} canEdit={canEdit} />}
+          {tab === "restrictions" && <RestrictionsTab items={restrictions} scope={scope} canEdit={canEdit} />}
           {tab === "validator-packs" && <ValidatorPacksTab items={validatorPacks} scope={scope} canEdit={canEdit} />}
           {tab === "image-prompts" && <ImagePromptsTab items={imagePrompts} scope={scope} canEdit={canEdit} />}
           {tab === "prompt-composer" && (

@@ -4,6 +4,8 @@ import { clientSlugForProject } from '@/lib/orClient'
 import { getSession } from '@/lib/auth'
 import { logAIJob } from '@/lib/logAIJob'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
+import { buildRestrictionsBlock, findBannedTerms, parseBannedTerms, restrictionsValidatorNote } from '@/lib/ce-restrictions'
+import { loadRestrictions } from '@/lib/ce-restrictions-server'
 
 // AI ทั้งระบบผ่าน OpenRouter — จุดนี้อยู่กลุ่ม "จุดอื่น ๆ" = MODEL_DEFAULT (gemini-3.7-flash)
 
@@ -42,7 +44,11 @@ export async function POST(req: NextRequest) {
     // ── เกณฑ์ตรวจบทความมาจาก Content Engine ของ scope นั้นเท่านั้น ──
     // ห้ามมี fallback ในไฟล์, ห้าม hardcode, ห้ามดึงข้าม scope (กติกาเดียวกับ /api/article/write)
     const ceScope: CEScope = projectId ? { projectId } : 'studio'
-    const ce = await resolveContentEngine(orgId, ceScope)
+    const [ce, restrictions] = await Promise.all([
+      resolveContentEngine(orgId, ceScope),
+      // Content Engine > ข้อจำกัด ของ scope เดียวกัน (ไม่มี/Draft = null)
+      loadRestrictions(orgId, ceScope).catch(() => null),
+    ])
     if (!ce.validatorPack) {
       const where = ce.scope === 'studio' ? 'ของ Studio' : 'ของโปรเจกต์นี้'
       const setAt = ce.scope === 'studio' ? ' Studio > Content Engine' : ' ฟันเฟือง > Content Engine ของโปรเจกต์'
@@ -54,10 +60,17 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
+    // ข้อจำกัดอยู่ก่อน Validator Pack — จับคู่สินค้าจากต้นบทความ (หัวข้อ/ย่อหน้าแรก)
+    const restrictionsBlock = buildRestrictionsBlock(restrictions, { outline: String(content).slice(0, 4000) })
+    const restrictionsNote = restrictionsValidatorNote(restrictions)
+    const bannedHits = restrictions ? findBannedTerms(content, parseBannedTerms(restrictions.data.bannedTerms)) : []
+
     const ceBlocks = [
       ce.businessSkill && `==================================================\nBUSINESS SKILL (บริบทธุรกิจ — ใช้ตัดสินว่า claim ไหนเขียนได้)\n==================================================\n${ce.businessSkill.text}`,
       ce.articleBrief && `==================================================\nARTICLE BRIEF (เกณฑ์เนื้อหาที่บทความนี้ต้องครอบคลุม)\n==================================================\n${ce.articleBrief.text}`,
-      `==================================================\nVALIDATOR PACK (เกณฑ์ตรวจ — ใช้ชุดนี้เป็นหลักในการให้ suggestion)\n==================================================\n${ce.validatorPack.text}`,
+      restrictionsBlock && `==================================================\n${restrictionsBlock}`,
+      `==================================================\nVALIDATOR PACK (เกณฑ์ตรวจ — ใช้ชุดนี้เป็นหลักในการให้ suggestion)\n==================================================\n${ce.validatorPack.text}${restrictionsNote ? `\n${restrictionsNote}` : ''}`,
+      bannedHits.length && `คำต้องห้ามที่ระบบเจอในบทความนี้ (ต้องเป็น suggestion ระดับสูงสุดทุกคำ พร้อมข้อความใหม่ที่ไม่มีคำนั้น):\n${bannedHits.map((h) => `- "${h.term}" ${h.count} ครั้ง${h.replacement ? ` → ใช้ "${h.replacement}"` : ''}`).join('\n')}`,
     ].filter(Boolean).join('\n\n')
 
     const prompt = `${ceBlocks}

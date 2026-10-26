@@ -13,14 +13,15 @@ const MAX_CHARS_PER_FILE = 60_000
  */
 const WORKER_SRC = '/pdfjs/pdf.worker-4.10.38.min.mjs'
 
-export async function readPdfText(file: File): Promise<{ text: string; pages: number }> {
+/** maxChars: เพดานข้อความ (default 60,000 ตามไฟล์ธุรกิจ) — ไฟล์ข้อจำกัดของ Content Engine ส่งค่าสูงกว่า */
+export async function readPdfText(file: File, maxChars = MAX_CHARS_PER_FILE): Promise<{ text: string; pages: number }> {
   const pdfjs = await import('pdfjs-dist')
   if (!pdfjs.GlobalWorkerOptions.workerSrc) pdfjs.GlobalWorkerOptions.workerSrc = WORKER_SRC
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise
   try {
     const pages: string[] = []
     let total = 0
-    for (let i = 1; i <= doc.numPages && total < MAX_CHARS_PER_FILE; i++) {
+    for (let i = 1; i <= doc.numPages && total < maxChars; i++) {
       const page = await doc.getPage(i)
       const content = await page.getTextContent()
       // ต่อบรรทัดตามตำแหน่ง y แบบ pdf-parse — hasEOL ของ pdf.js วางผิดที่กับสระ/วรรณยุกต์ไทย ("วาณาวั\nนที่")
@@ -37,7 +38,7 @@ export async function readPdfText(file: File): Promise<{ text: string; pages: nu
       pages.push(text.trim())
       total += text.length
     }
-    return { text: pages.filter(Boolean).join('\n\n').slice(0, MAX_CHARS_PER_FILE), pages: doc.numPages }
+    return { text: pages.filter(Boolean).join('\n\n').slice(0, maxChars), pages: doc.numPages }
   } finally {
     await doc.destroy()
   }
