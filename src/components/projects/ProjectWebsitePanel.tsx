@@ -36,6 +36,9 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
   const [hasStoredPassword, setHasStoredPassword] = useState(false);
   // credentials ของแพลตฟอร์มอื่น (เก็บรวมใน Project.siteConnection)
   const [siteConn, setSiteConn] = useState<Record<string, Record<string, string>>>({});
+  // secret ที่บันทึกไว้แล้ว ("platform.key") — API ส่งมาเป็นค่าปิดบัง ช่องจึงว่างไว้ เว้นว่าง = ใช้ค่าเดิม
+  const [storedSecrets, setStoredSecrets] = useState<string[]>([]);
+  const secretPlaceholder = (key: string, fallback: string) => storedSecrets.includes(key) ? "บันทึกไว้แล้ว — เว้นว่าง = ใช้ค่าเดิม" : fallback;
   const [choices, setChoices] = useState<{ blogs?: Array<{ id: string; title: string; handle: string }>; collections?: Array<{ id: string; name: string; slug: string }>; members?: Array<{ id: string; name: string }> }>({});
   // สิ่งที่ระบบแก้ให้/ยังต้องทำต่อหลังทดสอบ (Wix: แก้ Site ID, เลือกผู้เขียน)
   const [testHint, setTestHint] = useState("");
@@ -57,7 +60,18 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
         setWebsite(p.wpUrl || p.website || "");
         setWpUser(p.wpUser || "");
         setHasStoredPassword(!!p.wpAppPassword);
-        try { setSiteConn(JSON.parse(p.siteConnection || "{}")); } catch { /* ว่าง */ }
+        try {
+          const conn = JSON.parse(p.siteConnection || "{}") as Record<string, Record<string, string>>;
+          const stored: string[] = [];
+          for (const [plat, cfg] of Object.entries(conn)) {
+            if (!cfg || typeof cfg !== "object") continue;
+            for (const [k, v] of Object.entries(cfg)) {
+              if (typeof v === "string" && v.startsWith("••••")) { stored.push(`${plat}.${k}`); cfg[k] = ""; }
+            }
+          }
+          setSiteConn(conn);
+          setStoredSecrets(stored);
+        } catch { /* ว่าง */ }
         const stored = p.websitePlatform as PlatformId | null;
         if (stored && PLATFORMS.some(x => x.id === stored)) setPlatform(stored);
         else if (p.wpUser || p.wpAppPassword) setPlatform("wordpress");
@@ -92,6 +106,9 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
         body: JSON.stringify(body),
       });
       if (r.ok) {
+        const typed = Object.entries(siteConn).flatMap(([plat, cfg]) =>
+          Object.entries(cfg ?? {}).filter(([k, v]) => v && ["accessToken", "apiToken", "apiKey", "secret"].includes(k)).map(([k]) => `${plat}.${k}`));
+        if (typed.length) setStoredSecrets(prev => Array.from(new Set([...prev, ...typed])));
         if (platform === "wordpress" && wpAppPassword.trim()) {
           setHasStoredPassword(true);
           setWpAppPassword("");
@@ -223,7 +240,7 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
             <div>
               <label className="block text-xs font-semibold text-brand-navy mb-1.5">Admin API access token</label>
               <input type="password" value={siteConn.shopify?.accessToken ?? ""} onChange={e => setConnField("shopify", "accessToken", e.target.value)}
-                placeholder="shpat_..."
+                placeholder={secretPlaceholder("shopify.accessToken", "shpat_...")}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-soft/50" />
               <p className="mt-1 text-[11px] text-gray-400">สร้างจาก Shopify Admin › Settings › Apps › Develop apps (สิทธิ์ write_content)</p>
             </div>
@@ -252,7 +269,7 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
           <div>
             <label className="block text-xs font-semibold text-brand-navy mb-1.5">Site API token</label>
             <input type="password" value={siteConn.webflow?.apiToken ?? ""} onChange={e => setConnField("webflow", "apiToken", e.target.value)}
-              placeholder="Webflow API token"
+              placeholder={secretPlaceholder("webflow.apiToken", "Webflow API token")}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-soft/50" />
             <p className="mt-1 text-[11px] text-gray-400">Webflow › Site settings › Apps & integrations › API access (สิทธิ์ CMS read/write)</p>
           </div>
@@ -277,7 +294,7 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
           <div>
             <label className="block text-xs font-semibold text-brand-navy mb-1.5">API Key</label>
             <input type="password" value={siteConn.wix?.apiKey ?? ""} onChange={e => setConnField("wix", "apiKey", e.target.value)}
-              placeholder="IST...."
+              placeholder={secretPlaceholder("wix.apiKey", "IST....")}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-soft/50" />
             <p className="mt-1 text-[11px] text-gray-400">wix.com/my-account/api-keys (สิทธิ์ Blog)</p>
           </div>
@@ -325,7 +342,7 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
           <div>
             <label className="block text-xs font-semibold text-brand-navy mb-1.5">Secret (ไม่บังคับ)</label>
             <input type="password" value={siteConn.custom?.secret ?? ""} onChange={e => setConnField("custom", "secret", e.target.value)}
-              placeholder="ส่งไปใน header X-Content-Secret"
+              placeholder={secretPlaceholder("custom.secret", "ส่งไปใน header X-Content-Secret")}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-soft/50" />
           </div>
           <p className="sm:col-span-2 text-[11px] text-gray-400 leading-4">

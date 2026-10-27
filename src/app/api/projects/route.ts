@@ -4,6 +4,8 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { checkCredentialUrl } from "@/lib/upload-article/safe-fetch";
 import { normalizeSavedWpUrl } from "@/lib/upload-article/wp-push";
+import { encryptProjectWpPassword } from "@/lib/project-wp-credentials";
+import { maskProjectSecrets } from "@/lib/secret-mask";
 
 export async function GET() {
   const session = await getSession();
@@ -61,6 +63,12 @@ export async function POST(req: NextRequest) {
     const urlErr = await checkCredentialUrl(wpUrlNorm);
     if (urlErr) return NextResponse.json({ error: urlErr }, { status: 400 });
   }
+  let wpPassEnc: string | null = null;
+  try {
+    wpPassEnc = encryptProjectWpPassword(typeof wpAppPassword === "string" ? wpAppPassword : "");
+  } catch {
+    return NextResponse.json({ error: "เข้ารหัส Application Password ไม่สำเร็จ (ไม่มี WP_ENCRYPTION_KEY)" }, { status: 500 });
+  }
 
   const project = await prisma.project.create({
     data: {
@@ -78,7 +86,7 @@ export async function POST(req: NextRequest) {
       createdById: session!.user.id,
       ...(wpUrlNorm     && { wpUrl: wpUrlNorm }),
       ...(wpUser        && { wpUser: wpUser.trim() }),
-      ...(wpAppPassword && { wpAppPassword: wpAppPassword.trim() }),
+      ...(wpPassEnc     && { wpAppPassword: wpPassEnc }),
     },
   });
 
@@ -125,5 +133,5 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json(project, { status: 201 });
+  return NextResponse.json(maskProjectSecrets(project), { status: 201 });
 }

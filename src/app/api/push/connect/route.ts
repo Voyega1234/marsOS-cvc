@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { decrypt } from '@/lib/crypto'
 import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 import { testWordPressConnection } from '@/lib/upload-article/wp-push'
+import { resolveProjectWpCredentials } from '@/lib/project-wp-credentials'
 import { testSiteConnection, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 
 export async function POST(req: NextRequest) {
@@ -37,68 +37,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let wpUrl = '', wpUser = '', wpPass = '', source = 'env'
-  let decryptFailed = false
-
-  // 1. Use explicit connectionId (from dropdown in Push tab)
-  // Normalize WP URL: strip /wp-admin, /wp-login.php, trailing slash
-  function normalizeWpUrl(raw: string): string {
-    return raw.trim().replace(/\/(wp-admin|wp-login\.php)(\/.*)?$/, '').replace(/\/$/, '')
-  }
-
-  if (connectionId) {
-    const conn = await prisma.wordPressConnection.findFirst({
-      where: { id: connectionId, organizationId: orgId },
-    })
-    if (conn) {
-      wpUrl  = normalizeWpUrl(conn.siteUrl)
-      wpUser = conn.username.trim()
-      try { wpPass = decrypt(conn.appPasswordEncrypted) } catch { wpPass = ''; decryptFailed = true }
-      source = 'connection'
-    }
-  }
-
-  // 2. Project's linked WordPressConnection
-  if (!wpUrl && projectId) {
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, organizationId: orgId },
-      include: { wordpressConnection: true },
-    })
-    const conn = project?.wordpressConnection
-    if (conn) {
-      wpUrl  = normalizeWpUrl(conn.siteUrl)
-      wpUser = conn.username.trim()
-      try { wpPass = decrypt(conn.appPasswordEncrypted) } catch { wpPass = ''; decryptFailed = true }
-      source = 'connection'
-    }
-    // 3. Per-project inline credentials
-    if (!wpUrl) {
-      wpUrl  = normalizeWpUrl((project as any)?.wpUrl ?? '')
-      wpUser = (project as any)?.wpUser?.trim() ?? ''
-      wpPass = (project as any)?.wpAppPassword?.trim() ?? ''
-      if (wpUrl) source = 'project'
-    }
-  }
-
-  // ถอดรหัสไม่ได้ = หยุด ห้ามเอารหัสจาก .env ไปส่งให้เว็บลูกค้า
-  if (decryptFailed) {
-    return NextResponse.json({ error: 'ถอดรหัส Application Password ไม่สำเร็จ — ใส่รหัสใหม่' }, { status: 400 })
-  }
-
-  // 4. .env fallback — ใช้เฉพาะเมื่อไม่มี URL จาก connection/project และเอาทั้ง 3 ค่าจาก env ชุดเดียวกัน ห้ามปน
-  if (!wpUrl) {
-    wpUrl  = normalizeWpUrl(process.env.WP_URL ?? '')
-    wpUser = process.env.WP_USER?.trim() ?? ''
-    wpPass = process.env.WP_APP_PASSWORD?.trim() ?? ''
-    source = 'env'
-  }
-
-  if (!wpUrl || !wpUser || !wpPass) {
-    return NextResponse.json({ error: 'ไม่พบ WordPress credentials — เลือก Connection หรือตั้งค่าใน Project Settings' }, { status: 400 })
-  }
-
-  // ไม่มี scheme → เติม https:// แล้วตรวจว่าเป็นโฮสต์สาธารณะก่อนส่งรหัสผ่านไป
-  if (!/^https?:\/\//i.test(wpUrl)) wpUrl = `https://${wpUrl}`
+  // credentials ชุดเดียวกับตอน push จริง (/api/push/publish) — รหัสจาก .env ใช้ได้เฉพาะเว็บเดียวกับ WP_URL
+  const creds = await resolveProjectWpCredentials(orgId, projectId, connectionId)
+  if (!creds.ok) return NextResponse.json({ error: creds.error }, { status: 400 })
+  const { wpUrl, wpUser, wpPass, source } = creds
   const urlErr = await checkCredentialUrl(wpUrl)
   if (urlErr) return NextResponse.json({ error: urlErr }, { status: 400 })
 

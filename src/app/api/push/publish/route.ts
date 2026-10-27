@@ -19,6 +19,8 @@ import { isIndexableUrl, requestIndexIfLive } from '@/lib/upload-article/request
 import { parsePushPrefs, saveProjectIndexRequest } from '@/lib/project-index-requests'
 import { applyElementorMode, buildElementorData } from '@/lib/upload-article/wp-push'
 import { safeFetch } from '@/lib/upload-article/safe-fetch'
+import { resolveProjectWpCredentials } from '@/lib/project-wp-credentials'
+import { updateProjectPrefs } from '@/lib/project-prefs-store'
 
 function extractSeoMeta(html: string, fallbackTitle: string, fallbackKeyword: string) {
   // Parse <!-- CONVERT_CAKE_SEO_META ... --> block (line-based key: value format)
@@ -107,12 +109,14 @@ export async function POST(req: NextRequest) {
   let dbSeoTitle = ''
   let dbSlug = ''
   let dbCoverDataUri = ''
+  let dbArticleId = ''
   if (projectId && title) {
     const dbArticle = await prisma.article.findFirst({
       where: { projectId, project: { organizationId: orgId }, title },
-      select: { metaDescription: true, seoTitle: true, slug: true, coverImageUrl: true },
+      select: { id: true, metaDescription: true, seoTitle: true, slug: true, coverImageUrl: true },
     }).catch(() => null)
     if (dbArticle) {
+      dbArticleId       = dbArticle.id
       dbMetaDescription = dbArticle.metaDescription ?? ''
       dbSeoTitle        = dbArticle.seoTitle ?? ''
       dbSlug            = dbArticle.slug ?? ''
@@ -221,47 +225,10 @@ export async function POST(req: NextRequest) {
 
   const htmlForContent = processedHtml
 
-  const normalizeWpUrl = (raw: string) =>
-    raw.trim().replace(/\/(wp-admin|wp-login\.php)(\/.*)?$/, '').replace(/\/$/, '')
-
-  let wpUrl = '', wpUser = '', wpPass = ''
-
-  // 1. Explicit connectionId from Push tab dropdown
-  if (connectionId) {
-    const conn = await prisma.wordPressConnection.findFirst({ where: { id: connectionId, organizationId: orgId } })
-    if (conn) {
-      wpUrl  = normalizeWpUrl(conn.siteUrl)
-      wpUser = conn.username.trim()
-      try { const { decrypt } = await import('@/lib/crypto'); wpPass = decrypt(conn.appPasswordEncrypted) } catch { wpPass = '' }
-    }
-  }
-
-  // 2. Project's linked WordPressConnection
-  if (!wpUrl && projectId) {
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, organizationId: orgId },
-      include: { wordpressConnection: true },
-    })
-    const conn = project?.wordpressConnection
-    if (conn) {
-      wpUrl  = normalizeWpUrl(conn.siteUrl)
-      wpUser = conn.username.trim()
-      try { const { decrypt } = await import('@/lib/crypto'); wpPass = decrypt(conn.appPasswordEncrypted) } catch { wpPass = '' }
-    }
-    if (!wpUrl) {
-      wpUrl  = normalizeWpUrl((project as any)?.wpUrl ?? '')
-      wpUser = (project as any)?.wpUser?.trim() ?? ''
-      wpPass = (project as any)?.wpAppPassword?.trim() ?? ''
-    }
-  }
-
-  if (!wpUrl)  wpUrl  = normalizeWpUrl(process.env.WP_URL ?? '')
-  if (!wpUser) wpUser = process.env.WP_USER?.trim() ?? ''
-  if (!wpPass) wpPass = process.env.WP_APP_PASSWORD?.trim() ?? ''
-
-  if (!wpUrl || !wpUser || !wpPass) {
-    return NextResponse.json({ error: 'ไม่พบ WordPress credentials — เลือก Connection ใน Push tab หรือตั้งค่าใน Project Settings' }, { status: 400 })
-  }
+  // credentials ชุดเดียวกับปุ่มทดสอบ (/api/push/connect) — รหัสจาก .env ใช้ได้เฉพาะเว็บเดียวกับ WP_URL ห้ามปนกับเว็บลูกค้า
+  const resolved = await resolveProjectWpCredentials(orgId, projectId, connectionId)
+  if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 })
+  const { wpUrl, wpUser, wpPass } = resolved
 
   if (!html || !title) return NextResponse.json({ error: 'html และ title จำเป็น' }, { status: 400 })
 
@@ -339,9 +306,27 @@ export async function POST(req: NextRequest) {
 
   if (Object.keys(wpMeta).length > 0) payload.meta = wpMeta
 
-  // 6. Check if post/page with this slug already exists → update instead of create
+  // 6. โพสต์เดิมของบทความนี้ (เลขโพสต์ที่จดไว้ใน pushPrefs.wpPostIds) → อัปเดตโพสต์เดิมแม้ slug เปลี่ยน
+  //    ไม่มี/หาไม่เจอ/อยู่ในถังขยะ → หาจาก slug ต่อ
+  const postKind = isPage ? 'pages' : 'posts'
+  const siteHost = (() => { try { return new URL(wpUrl).host.toLowerCase() } catch { return '' } })()
   let existingPostId: number | null = null
-  if (finalSlug) {
+  if (projectId && dbArticleId) {
+    const proj = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId }, select: { pushPrefs: true } }).catch(() => null)
+    const map = parsePushPrefs(proj?.pushPrefs).wpPostIds as Record<string, { id?: unknown; kind?: unknown; host?: unknown }> | undefined
+    const stored = map?.[dbArticleId]
+    const storedId = Number(stored?.id)
+    if (stored && Number.isInteger(storedId) && storedId > 0 && stored.kind === postKind && stored.host === siteHost) {
+      const r = await fetch(`${wpUrl}/wp-json/wp/v2/${postKind}/${storedId}?context=edit&_fields=id,status`, {
+        headers: { Authorization: `Basic ${creds}` },
+        signal: AbortSignal.timeout(10000),
+      }).catch(() => null)
+      const found = r?.ok ? await r.json().catch(() => null) as { id?: number; status?: string } | null : null
+      if (found?.id === storedId && found.status !== 'trash') existingPostId = storedId
+    }
+  }
+  // 6b. Check if post/page with this slug already exists → update instead of create
+  if (!existingPostId && finalSlug) {
     const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&status=any&_fields=id&per_page=1`
     const checkRes = await fetch(checkUrl, {
       headers: { Authorization: `Basic ${creds}` },
@@ -494,6 +479,15 @@ export async function POST(req: NextRequest) {
           articleIdForIndex = created.id
         }
       } catch { /* non-fatal */ }
+    }
+
+    // จดเลขโพสต์ไว้ให้ push ครั้งหน้าอัปเดตโพสต์เดิม (ไม่สร้างซ้ำ) — ล้มก็ไม่กระทบผล push
+    const postMapKey = dbArticleId || articleIdForIndex
+    if (projectId && postMapKey && postId) {
+      await updateProjectPrefs(projectId, orgId, (cur) => {
+        const prev = cur.wpPostIds && typeof cur.wpPostIds === 'object' ? cur.wpPostIds as Record<string, unknown> : {}
+        return { prefs: { ...cur, wpPostIds: { ...prev, [postMapKey]: { id: postId, kind: postKind, host: siteHost, at: new Date().toISOString() } } }, result: null }
+      }).catch((e) => console.error('[push/publish] save wpPostIds failed:', e instanceof Error ? e.message : e))
     }
 
     // Request Index อัตโนมัติ (เฉพาะ Publish) — ห้ามทำให้ push ล้มเหลว

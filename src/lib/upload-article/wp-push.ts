@@ -42,11 +42,11 @@ export function normalizeWpUrl(raw: string): string {
   return raw.trim().replace(/\/(wp-admin|wp-login\.php)(\/.*)?$/, '').replace(/\/$/, '')
 }
 
-/** ปรับ URL ตอนบันทึก: เติม https:// ถ้าไม่มี scheme แล้วตัด /wp-admin, /wp-login.php, / ท้าย */
+/** ปรับ URL ตอนบันทึก: บังคับ https:// (Application Password ใช้ได้เฉพาะ https) แล้วตัด /wp-admin, /wp-login.php, / ท้าย */
 export function normalizeSavedWpUrl(raw: string): string {
   const t = raw.trim()
   if (!t) return ''
-  return normalizeWpUrl(/^https?:\/\//i.test(t) ? t : `https://${t}`)
+  return normalizeWpUrl(/^https?:\/\//i.test(t) ? t.replace(/^http:\/\//i, 'https://') : `https://${t}`)
 }
 
 /** id แบบที่ Elementor ใช้ (hex 7 ตัว) */

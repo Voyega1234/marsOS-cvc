@@ -3,10 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
-import { SECRET_MASK, maskProjectSecrets } from "@/lib/secret-mask";
+import { SECRET_MASK, domainBoundSecretMissing, maskProjectSecrets, mergeSiteConnectionSecrets } from "@/lib/secret-mask";
+import { encryptProjectWpPassword } from "@/lib/project-wp-credentials";
 import { mergeTimelineWrite } from "@/lib/project-timeline";
 import { logActivity } from "@/lib/logActivity";
-import { stripServerOwnedPrefs } from "@/lib/project-prefs-store";
+import { stripServerOwnedPrefs, updateProjectPrefs } from "@/lib/project-prefs-store";
 import { checkCredentialUrl } from "@/lib/upload-article/safe-fetch";
 import { normalizeSavedWpUrl } from "@/lib/upload-article/wp-push";
 
@@ -44,7 +45,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const orgId = session!.user.organizationId;
-  const existing = await prisma.project.findFirst({ where: { id: params.id, organizationId: orgId }, select: { id: true, timeline: true, pushPrefs: true, wpUrl: true } });
+  const existing = await prisma.project.findFirst({ where: { id: params.id, organizationId: orgId }, select: { id: true, timeline: true, pushPrefs: true, wpUrl: true, siteConnection: true } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
@@ -72,11 +73,26 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
   // ค่าปิดบังจาก GET ถูกส่งกลับมา = ไม่ได้แก้รหัส — ห้ามทับรหัสจริง
   if (data.wpAppPassword === SECRET_MASK) delete data.wpAppPassword;
+  // รหัสใหม่เก็บแบบเข้ารหัสเสมอ — ค่าว่าง/null = ล้างรหัส
+  if ("wpAppPassword" in data) {
+    try {
+      data.wpAppPassword = encryptProjectWpPassword(typeof data.wpAppPassword === "string" ? data.wpAppPassword : "");
+    } catch {
+      return NextResponse.json({ error: "เข้ารหัส Application Password ไม่สำเร็จ (ไม่มี WP_ENCRYPTION_KEY)" }, { status: 500 });
+    }
+  }
+  // secret ใน siteConnection ที่ส่งกลับมาเป็นค่าปิดบัง/ว่าง = คงค่าเดิม
+  if ("siteConnection" in data) {
+    const missing = domainBoundSecretMissing(existing.siteConnection, data.siteConnection);
+    if (missing) return NextResponse.json({ error: missing }, { status: 400 });
+    data.siteConnection = mergeSiteConnectionSecrets(existing.siteConnection, data.siteConnection);
+  }
   // timeline เก็บทั้งช่วงเวลาโปรเจกต์ (plan) และรายการบทความ — normalize ให้อยู่รูปเดียวเสมอ
   // และถ้าผู้เรียกส่งมาแค่ array ให้คง plan เดิมไว้ (ดู src/lib/project-timeline.ts)
   if ("timeline" in data) data.timeline = mergeTimelineWrite(existing.timeline, data.timeline);
   // pushPrefs เก็บ preference หลายชนิดปนกัน (manualChecks, excludeCards, stripH1, languagePrefs ฯลฯ)
   // — merge เฉพาะ top-level key ที่ส่งมา ห้ามทับ key อื่นที่ agent/แท็บอื่นเขียนไว้
+  const changedKeys = Object.keys(data);
   if ("pushPrefs" in data) {
     const parseJson = (v: unknown): Record<string, unknown> => {
       if (!v) return {};
@@ -84,19 +100,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       if (typeof v === "object") return v as Record<string, unknown>;
       return {};
     };
-    const existingPrefs = parseJson(existing.pushPrefs);
-    const incomingPrefs = parseJson(data.pushPrefs);
-    // indexRequests / siteScan / ownerTags / articleOwners เขียนฝั่งเซิร์ฟเวอร์เท่านั้น (route เฉพาะของมัน)
+    // indexRequests / siteScan / ownerTags / articleOwners / wpPostIds เขียนฝั่งเซิร์ฟเวอร์เท่านั้น (route เฉพาะของมัน)
     // — ทิ้งค่าที่ client ส่งมา (สำเนาเก่าในแท็บ Push/Article Lab) กันทับผลจริง
-    data.pushPrefs = JSON.stringify({ ...existingPrefs, ...stripServerOwnedPrefs(incomingPrefs) });
+    const incomingPrefs = stripServerOwnedPrefs(parseJson(data.pushPrefs));
+    delete data.pushPrefs;
+    // merge ใต้ row lock เดียวกับ push/index — ค่าที่ push เพิ่งจดระหว่างนี้ไม่ถูกทับ
+    await updateProjectPrefs(params.id, orgId, (cur) => ({ prefs: { ...cur, ...incomingPrefs }, result: null }));
   }
 
   const project = await prisma.project.update({ where: { id: params.id }, data });
-  const skipLog = Object.keys(data).length === 1 && ('timeline' in data || 'autoSchedule' in data)
+  const skipLog = changedKeys.length === 1 && ('timeline' in data || 'autoSchedule' in data)
   if (!skipLog) {
-    logActivity({ organizationId: orgId, userId: session!.user.id, action: 'UPDATE', entityType: 'Project', entityId: params.id, newValue: JSON.stringify(Object.keys(data)) })
+    logActivity({ organizationId: orgId, userId: session!.user.id, action: 'UPDATE', entityType: 'Project', entityId: params.id, newValue: JSON.stringify(changedKeys) })
   }
-  return NextResponse.json(project);
+  return NextResponse.json(maskProjectSecrets(project));
 }
 
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {

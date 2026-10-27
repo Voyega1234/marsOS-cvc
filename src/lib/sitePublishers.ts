@@ -400,7 +400,7 @@ async function wixTest(cfg: NonNullable<SiteConnectionConfig['wix']>, siteUrl?: 
   if (memberId !== saved) fixes.memberId = memberId
   const notes: string[] = []
   if (siteChanged) notes.push(entered ? `แก้ Site ID ให้ตรงกับเว็บ ${site} แล้ว (เดิม ${entered} เป็นของเว็บอื่น)` : `หา Site ID จากเว็บ ${site} ให้แล้ว`)
-  else if (mismatch) notes.push(`Site ID ที่ใส่ (${entered}) ไม่ตรงกับเว็บ ${site} (${detected}) — บทความจะลงเว็บของ Site ID ที่ใส่ ถ้าต้องการลง ${site} ให้ลบช่อง Site ID กดบันทึก แล้วทดสอบใหม่`)
+  else if (mismatch) notes.push(`Site ID ที่ใส่ (${entered}) ไม่ตรงกับเว็บ ${site} (${detected}) — บทความจะลงเว็บของ Site ID ที่ใส่ ถ้าต้องการลง ${site} ให้ใส่ Site ID เป็น ${detected} กดบันทึก แล้วทดสอบใหม่`)
   if (saved && !savedValid) notes.push(memberId ? 'ผู้เขียนเดิมไม่ใช่สมาชิกของเว็บนี้ — เลือกผู้เขียนให้ใหม่แล้ว ตรวจชื่ออีกครั้ง' : 'ผู้เขียนเดิมไม่ใช่สมาชิกของเว็บนี้ — เลือกผู้เขียนใหม่')
   else if (!saved && memberId) notes.push('เลือกผู้เขียนให้แล้ว เปลี่ยนได้ในช่องผู้เขียน')
   if (hint) notes.push(hint)

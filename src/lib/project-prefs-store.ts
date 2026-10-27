@@ -37,7 +37,7 @@ export async function updateProjectPrefs<T>(
  * key ของ pushPrefs ที่เขียนฝั่งเซิร์ฟเวอร์เท่านั้น — PUT /api/projects/[id] ต้องทิ้งค่าที่ client ส่งมา
  * (สำเนาเก่าในแท็บ Push/Article Lab ส่งกลับมาทับผลจริงไม่ได้)
  */
-export const SERVER_OWNED_PREF_KEYS = ['indexRequests', 'siteScan', 'ownerTags', 'articleOwners'] as const
+export const SERVER_OWNED_PREF_KEYS = ['indexRequests', 'siteScan', 'ownerTags', 'articleOwners', 'wpPostIds'] as const
 
 export function stripServerOwnedPrefs(incoming: ProjectPrefs): ProjectPrefs {
   const out = { ...incoming }
