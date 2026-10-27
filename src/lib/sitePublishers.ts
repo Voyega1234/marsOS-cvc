@@ -36,6 +36,8 @@ export interface ConnectionTestResult {
     /** Wix: ผู้เขียน (Member) ที่เลือกเป็น memberId */
     members?: Array<{ id: string; name: string }>
   }
+  /** เชื่อมต่อผ่านแต่ยังมีสิ่งที่ต้องทำต่อ (Wix: ไม่มีผู้เขียนให้เลือก) */
+  hint?: string
 }
 
 export interface PublishPayload {
@@ -339,22 +341,62 @@ async function wixTest(cfg: NonNullable<SiteConnectionConfig['wix']>): Promise<C
   const res = await fetch('https://www.wixapis.com/blog/v3/posts?paging.limit=1', {
     headers: await wixHeaders(cfg), signal: AbortSignal.timeout(TIMEOUT),
   })
-  if (!res.ok) return { ok: false, error: `เชื่อม Wix ไม่ได้ — ${await readError(res)}` }
-  // รายชื่อผู้เขียน (Member) ให้เลือกเป็น memberId — ดึงไม่ได้ก็ยังถือว่าเชื่อมต่อผ่าน
-  let members: Array<{ id: string; name: string }> = []
+  if (!res.ok) {
+    const err = await readError(res)
+    if (/No blog instanceId/i.test(err)) {
+      return { ok: false, error: `เว็บนี้ยังไม่ได้ติดตั้งแอป Wix Blog (หรือ Site ID เป็นของเว็บอื่น) — ติดตั้ง Wix Blog ใน dashboard ของเว็บแล้วกดทดสอบอีกครั้ง (${err})` }
+    }
+    return { ok: false, error: `เชื่อม Wix ไม่ได้ — ${err}` }
+  }
+  const { members, hint } = await wixAuthors(cfg)
+  return { ok: true, name: 'Wix Blog', url: '', choices: { members }, ...(hint ? { hint } : {}) }
+}
+
+/**
+ * ผู้เขียนที่เลือกเป็น memberId ได้ — Members API ก่อน แล้วเติมจากผู้เขียนโพสต์/ดราฟต์ที่มีในบล็อก
+ * (เจ้าของเว็บที่เขียนโพสต์ใน Wix เองจะมี memberId ติดโพสต์มา แม้ Members API จะคืนว่างหรือ key ไม่มีสิทธิ์ Members)
+ * ดึงไม่ได้เลยก็ยังถือว่าเชื่อมต่อผ่าน — คืน hint บอกสาเหตุ
+ */
+async function wixAuthors(cfg: NonNullable<SiteConnectionConfig['wix']>): Promise<{ members: Array<{ id: string; name: string }>; hint?: string }> {
+  const headers = await wixHeaders(cfg)
+  const byId = new Map<string, string>()
+  let membersErr = ''
   try {
     const mRes = await fetch('https://www.wixapis.com/members/v1/members?paging.limit=100&fieldsets=PUBLIC', {
-      headers: await wixHeaders(cfg), signal: AbortSignal.timeout(TIMEOUT),
+      headers, signal: AbortSignal.timeout(TIMEOUT),
     })
     if (mRes.ok) {
       const list = (await mRes.json()).members ?? []
-      members = list.map((m: { id: string; profile?: { nickname?: string }; contact?: { firstName?: string; lastName?: string }; loginEmail?: string }) => ({
-        id: m.id,
-        name: m.profile?.nickname || [m.contact?.firstName, m.contact?.lastName].filter(Boolean).join(' ') || m.loginEmail || m.id,
-      }))
+      for (const m of list as Array<{ id: string; profile?: { nickname?: string }; contact?: { firstName?: string; lastName?: string }; loginEmail?: string }>) {
+        if (m?.id) byId.set(m.id, m.profile?.nickname || [m.contact?.firstName, m.contact?.lastName].filter(Boolean).join(' ') || m.loginEmail || m.id)
+      }
+    } else {
+      membersErr = await readError(mRes)
     }
-  } catch { /* members = [] */ }
-  return { ok: true, name: 'Wix Blog', url: '', choices: { members } }
+  } catch (e) {
+    membersErr = e instanceof Error ? e.message : String(e)
+  }
+  for (const url of ['https://www.wixapis.com/blog/v3/posts?paging.limit=50', 'https://www.wixapis.com/blog/v3/draft-posts?paging.limit=50']) {
+    try {
+      const r = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT) })
+      if (!r.ok) continue
+      const j = await r.json()
+      for (const p of [...(j.posts ?? []), ...(j.draftPosts ?? [])] as Array<{ memberId?: string; title?: string }>) {
+        if (p?.memberId && !byId.has(p.memberId)) byId.set(p.memberId, `ผู้เขียนโพสต์ "${String(p.title ?? '').slice(0, 40)}"`)
+      }
+    } catch { /* ข้าม */ }
+  }
+  const members = Array.from(byId, ([id, name]) => ({ id, name }))
+  if (members.length) return { members }
+  const reason = /\b40[13]\b/.test(membersErr)
+    ? `API Key ไม่มีสิทธิ์อ่านสมาชิก — สร้าง key ใหม่ให้มีสิทธิ์ Wix Blog + Members (${membersErr.slice(0, 120)})`
+    : membersErr
+      ? `Members API ตอบ ${membersErr.slice(0, 120)}`
+      : 'เว็บยังไม่มีสมาชิกและยังไม่มีโพสต์ในบล็อก'
+  return {
+    members,
+    hint: `ยังไม่มีผู้เขียนให้เลือก — ${reason} · วิธีที่ง่ายสุด: เข้า Wix dashboard → Blog แล้วเขียนโพสต์สั้น ๆ 1 โพสต์ในชื่อเจ้าของเว็บ (บันทึกเป็น Draft ก็ได้) แล้วกดทดสอบการเชื่อมต่ออีกครั้ง`,
+  }
 }
 
 /** อัปโหลดรูปปกเข้า Wix Media Manager → คืน image object สำหรับ draftPost.media */

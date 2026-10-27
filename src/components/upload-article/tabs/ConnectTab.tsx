@@ -58,6 +58,7 @@ export default function ConnectTab({
   });
   const [shBlogs, setShBlogs] = useState<{ id: string; title: string; handle: string }[]>([]);
   const [wixMembers, setWixMembers] = useState<{ id: string; name: string }[]>([]);
+  const [wixHint, setWixHint] = useState("");
   const [wfCollections, setWfCollections] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [wfFields, setWfFields] = useState<{ slug: string; displayName: string; type: string }[]>([]);
   const setConnField = (plat: string, key: string, val: string) =>
@@ -183,7 +184,10 @@ export default function ConnectTab({
           }
         }
         if (platform === "shopify") setShBlogs(d.choices?.blogs ?? []);
-        if (platform === "wix") setWixMembers(d.choices?.members ?? []);
+        if (platform === "wix") {
+          setWixMembers(d.choices?.members ?? []);
+          setWixHint(d.hint || "");
+        }
       } else {
         const m = d.message || d.error || "เชื่อมต่อไม่สำเร็จ";
         setTestResult({ ok: false, message: m });
@@ -449,6 +453,9 @@ export default function ConnectTab({
                     placeholder="Member ID (หรือกดทดสอบการเชื่อมต่อเพื่อโหลดรายการ)" />
                 );
               })()}
+              {wixHint && wixMembers.length === 0 && (
+                <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1">{wixHint}</p>
+              )}
             </div>
           </div>
         )}

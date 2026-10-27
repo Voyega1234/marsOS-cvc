@@ -47,7 +47,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       saved = await prisma.uploadClient.update({ where: { id: client.id }, data: { siteConnection: JSON.stringify(next) } })
     }
     await recordTest(saved, true, result.name || client.websitePlatform)
-    return NextResponse.json({ ok: true, message: result.name || client.websitePlatform, url: result.url, choices: result.choices })
+    return NextResponse.json({ ok: true, message: result.name || client.websitePlatform, url: result.url, choices: result.choices, hint: result.hint })
   }
 
   if (!client.wpUrl || !client.wpUser || !client.wpAppPasswordEnc) {
