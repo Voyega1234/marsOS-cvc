@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { checkCredentialUrl } from "@/lib/upload-article/safe-fetch";
+import { normalizeSavedWpUrl } from "@/lib/upload-article/wp-push";
 
 export async function GET() {
   const session = await getSession();
@@ -53,6 +55,13 @@ export async function POST(req: NextRequest) {
 
   const { name, clientName, website, businessType, industry, targetAudience, language, market, notes, wpUrl, wpUser, wpAppPassword } = await req.json();
 
+  // wpUrl ที่บันทึกต้องเป็น https + โฮสต์สาธารณะ — ค่าว่างยังอนุญาต
+  const wpUrlNorm = typeof wpUrl === "string" ? normalizeSavedWpUrl(wpUrl) : "";
+  if (wpUrlNorm) {
+    const urlErr = await checkCredentialUrl(wpUrlNorm);
+    if (urlErr) return NextResponse.json({ error: urlErr }, { status: 400 });
+  }
+
   const project = await prisma.project.create({
     data: {
       organizationId,
@@ -67,7 +76,7 @@ export async function POST(req: NextRequest) {
       notes,
       ownerId: session!.user.id,
       createdById: session!.user.id,
-      ...(wpUrl         && { wpUrl: wpUrl.trim().replace(/\/$/, '') }),
+      ...(wpUrlNorm     && { wpUrl: wpUrlNorm }),
       ...(wpUser        && { wpUser: wpUser.trim() }),
       ...(wpAppPassword && { wpAppPassword: wpAppPassword.trim() }),
     },

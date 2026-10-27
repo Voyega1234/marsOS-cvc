@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
+import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
+import { testWordPressConnection } from '@/lib/upload-article/wp-push'
 import { testSiteConnection, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 
 export async function POST(req: NextRequest) {
@@ -15,22 +17,28 @@ export async function POST(req: NextRequest) {
   if (projectId && !connectionId) {
     const proj = await (prisma.project as any).findFirst({
       where: { id: projectId, organizationId: orgId },
-      select: { websitePlatform: true, siteConnection: true },
+      select: { websitePlatform: true, siteConnection: true, website: true },
     }).catch(() => null)
     const platform = proj?.websitePlatform as string | null
     if (platform && platform !== 'wordpress') {
       let conn: SiteConnectionConfig = {}
       try { conn = JSON.parse(proj?.siteConnection || '{}') } catch { /* ว่าง */ }
-      const result = await testSiteConnection(platform as SitePlatform, conn)
+      const result = await testSiteConnection(platform as SitePlatform, conn, { siteUrl: proj?.website ?? '' })
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+      // Wix: Site ID / ผู้เขียนที่ระบบแก้ให้ — บันทึกทันที
+      if (platform === 'wix' && result.fixes) {
+        const next = { ...conn, wix: { ...(conn.wix ?? {}), ...result.fixes } }
+        await prisma.project.updateMany({ where: { id: projectId, organizationId: orgId }, data: { siteConnection: JSON.stringify(next) } as any })
+      }
       return NextResponse.json({
         url: result.url ?? '', name: result.name ?? platform, version: '',
-        source: platform, choices: result.choices ?? {},
+        source: platform, choices: result.choices ?? {}, hint: result.hint, fixes: result.fixes,
       })
     }
   }
 
   let wpUrl = '', wpUser = '', wpPass = '', source = 'env'
+  let decryptFailed = false
 
   // 1. Use explicit connectionId (from dropdown in Push tab)
   // Normalize WP URL: strip /wp-admin, /wp-login.php, trailing slash
@@ -45,7 +53,7 @@ export async function POST(req: NextRequest) {
     if (conn) {
       wpUrl  = normalizeWpUrl(conn.siteUrl)
       wpUser = conn.username.trim()
-      try { wpPass = decrypt(conn.appPasswordEncrypted) } catch { wpPass = '' }
+      try { wpPass = decrypt(conn.appPasswordEncrypted) } catch { wpPass = ''; decryptFailed = true }
       source = 'connection'
     }
   }
@@ -60,7 +68,7 @@ export async function POST(req: NextRequest) {
     if (conn) {
       wpUrl  = normalizeWpUrl(conn.siteUrl)
       wpUser = conn.username.trim()
-      try { wpPass = decrypt(conn.appPasswordEncrypted) } catch { wpPass = '' }
+      try { wpPass = decrypt(conn.appPasswordEncrypted) } catch { wpPass = ''; decryptFailed = true }
       source = 'connection'
     }
     // 3. Per-project inline credentials
@@ -72,59 +80,30 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 4. .env fallback
-  if (!wpUrl) { wpUrl = normalizeWpUrl(process.env.WP_URL ?? ''); source = 'env' }
-  if (!wpUser) wpUser = process.env.WP_USER?.trim() ?? ''
-  if (!wpPass) wpPass = process.env.WP_APP_PASSWORD?.trim() ?? ''
+  // ถอดรหัสไม่ได้ = หยุด ห้ามเอารหัสจาก .env ไปส่งให้เว็บลูกค้า
+  if (decryptFailed) {
+    return NextResponse.json({ error: 'ถอดรหัส Application Password ไม่สำเร็จ — ใส่รหัสใหม่' }, { status: 400 })
+  }
+
+  // 4. .env fallback — ใช้เฉพาะเมื่อไม่มี URL จาก connection/project และเอาทั้ง 3 ค่าจาก env ชุดเดียวกัน ห้ามปน
+  if (!wpUrl) {
+    wpUrl  = normalizeWpUrl(process.env.WP_URL ?? '')
+    wpUser = process.env.WP_USER?.trim() ?? ''
+    wpPass = process.env.WP_APP_PASSWORD?.trim() ?? ''
+    source = 'env'
+  }
 
   if (!wpUrl || !wpUser || !wpPass) {
     return NextResponse.json({ error: 'ไม่พบ WordPress credentials — เลือก Connection หรือตั้งค่าใน Project Settings' }, { status: 400 })
   }
 
-  try {
-    // Strip spaces from Application Password (WP allows spaces in display but auth needs clean string)
-    const cleanPass = wpPass.replace(/\s+/g, '')
-    const creds = Buffer.from(`${wpUser}:${cleanPass}`).toString('base64')
-    const authHeaders = {
-      Authorization: `Basic ${creds}`,
-      'User-Agent': 'MarsOS/1.0',
-      'Content-Type': 'application/json',
-    }
+  // ไม่มี scheme → เติม https:// แล้วตรวจว่าเป็นโฮสต์สาธารณะก่อนส่งรหัสผ่านไป
+  if (!/^https?:\/\//i.test(wpUrl)) wpUrl = `https://${wpUrl}`
+  const urlErr = await checkCredentialUrl(wpUrl)
+  if (urlErr) return NextResponse.json({ error: urlErr }, { status: 400 })
 
-    // Try /wp-json/wp/v2/users/me — requires auth, confirms credentials work
-    const meRes = await fetch(`${wpUrl}/wp-json/wp/v2/users/me`, {
-      headers: authHeaders,
-      signal: AbortSignal.timeout(10000),
-    })
-
-    if (meRes.ok) {
-      const me = await meRes.json()
-      return NextResponse.json({ ok: true, url: wpUrl, name: me.name ?? wpUser, version: '5+', source })
-    }
-
-    // Fallback: try root wp-json (some hosts allow unauthenticated)
-    const rootRes = await fetch(`${wpUrl}/wp-json/wp/v2`, {
-      headers: authHeaders,
-      signal: AbortSignal.timeout(10000),
-    })
-
-    if (rootRes.ok) {
-      const data = await rootRes.json()
-      return NextResponse.json({ ok: true, url: wpUrl, name: data.name ?? '', version: '5+', source })
-    }
-
-    // Both failed — return the /users/me status as it's more informative
-    const errBody = await meRes.text().catch(() => '')
-    return NextResponse.json({
-      error: `WordPress ตอบ ${meRes.status} — ${meRes.status === 401
-        ? 'Application Password ไม่ถูกต้อง หรือ user ไม่มีสิทธิ์ REST API'
-        : meRes.status === 403
-        ? 'WordPress บล็อก REST API — ตรวจสอบ plugin หรือ .htaccess'
-        : `ตรวจสอบ URL และ Application Password (${errBody.slice(0, 120)})`
-      }`,
-    }, { status: 400 })
-
-  } catch (e: unknown) {
-    return NextResponse.json({ error: `เชื่อมต่อไม่ได้: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 })
-  }
+  // ตัวทดสอบเดียวกับ Upload Article (safeFetch + ตรวจสิทธิ์จริง)
+  const result = await testWordPressConnection(wpUrl, wpUser, wpPass)
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+  return NextResponse.json({ ok: true, url: wpUrl, name: result.name ?? wpUser, version: '5+', source })
 }

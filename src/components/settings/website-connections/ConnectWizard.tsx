@@ -142,6 +142,39 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
     setTestPassed(false);
     let list = initialChecks();
     setChecks(list);
+    // WordPress: ยิงทดสอบจริง (ได้ผลเดียวกับ Upload Article) — แพลตฟอร์มอื่นยังไม่มี endpoint ทดสอบ
+    if (platformId === "wordpress") {
+      list = list.map((c, idx) => (idx === 0 ? { ...c, state: "running" } : c));
+      setChecks([...list]);
+      try {
+        const res = await fetch("/api/settings/wordpress/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ siteUrl: websiteUrl, username, appPassword }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          list = list.map((c, idx) => (idx === 0 ? { ...c, state: "fail" } : { ...c, state: "skip" }));
+          setChecks([...list]);
+          setTesting(false);
+          toast.error(data.error || "Test Connection ไม่ผ่าน");
+          return;
+        }
+        // ผ่านจริงแค่ Authentication + Reachability — รายการที่เหลือยังไม่ได้ตรวจ จึงไม่ติ๊กผ่านให้
+        list = list.map((c, idx) => ({ ...c, state: idx < 2 ? "pass" : "skip" }));
+        setChecks([...list]);
+        setTesting(false);
+        setTestPassed(true);
+        toast.success("Test Connection ผ่าน");
+        return;
+      } catch {
+        list = list.map((c, idx) => (idx === 0 ? { ...c, state: "fail" } : { ...c, state: "skip" }));
+        setChecks([...list]);
+        setTesting(false);
+        toast.error("เชื่อมต่อไม่ได้ — ลองใหม่อีกครั้ง");
+        return;
+      }
+    }
     for (let i = 0; i < list.length; i++) {
       list = list.map((c, idx) => (idx === i ? { ...c, state: "running" } : c));
       setChecks([...list]);

@@ -342,7 +342,7 @@ export async function POST(req: NextRequest) {
   // 6. Check if post/page with this slug already exists → update instead of create
   let existingPostId: number | null = null
   if (finalSlug) {
-    const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&_fields=id&per_page=1`
+    const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&status=any&_fields=id&per_page=1`
     const checkRes = await fetch(checkUrl, {
       headers: { Authorization: `Basic ${creds}` },
       signal: AbortSignal.timeout(10000),
@@ -379,7 +379,7 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const errText = await res.text()
-      return NextResponse.json({ error: `WordPress API error ${res.status}: ${errText.slice(0, 300)}` }, { status: 400 })
+      return NextResponse.json({ error: `WordPress API error ${res.status}: ${errText.replace(/<(style|script)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)}` }, { status: 400 })
     }
 
     const data = await res.json()

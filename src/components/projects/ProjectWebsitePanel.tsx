@@ -36,7 +36,9 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
   const [hasStoredPassword, setHasStoredPassword] = useState(false);
   // credentials ของแพลตฟอร์มอื่น (เก็บรวมใน Project.siteConnection)
   const [siteConn, setSiteConn] = useState<Record<string, Record<string, string>>>({});
-  const [choices, setChoices] = useState<{ blogs?: Array<{ id: string; title: string; handle: string }>; collections?: Array<{ id: string; name: string; slug: string }> }>({});
+  const [choices, setChoices] = useState<{ blogs?: Array<{ id: string; title: string; handle: string }>; collections?: Array<{ id: string; name: string; slug: string }>; members?: Array<{ id: string; name: string }> }>({});
+  // สิ่งที่ระบบแก้ให้/ยังต้องทำต่อหลังทดสอบ (Wix: แก้ Site ID, เลือกผู้เขียน)
+  const [testHint, setTestHint] = useState("");
   const setConnField = (plat: string, key: string, val: string) =>
     setSiteConn(prev => ({ ...prev, [plat]: { ...(prev[plat] ?? {}), [key]: val } }));
   const [saving, setSaving] = useState(false);
@@ -66,7 +68,7 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
     return () => { alive = false; };
   }, [projectId]);
 
-  const save = useCallback(async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     setSaving(true);
     setTestResult(null);
     try {
@@ -97,20 +99,22 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
         setSavedFlash(true);
         setTimeout(() => setSavedFlash(false), 2500);
         onSaved?.();
-      } else {
-        const d = await r.json().catch(() => ({}));
-        setTestResult({ ok: false, message: d.error || "บันทึกไม่สำเร็จ" });
+        return true;
       }
+      const d = await r.json().catch(() => ({}));
+      setTestResult({ ok: false, message: d.error || "บันทึกไม่สำเร็จ" });
+      return false;
     } finally {
       setSaving(false);
     }
-  }, [projectId, platform, website, wpUser, wpAppPassword, hasStoredPassword, onSaved]);
+  }, [projectId, platform, website, wpUser, wpAppPassword, hasStoredPassword, siteConn, onSaved]);
 
   const testConnection = useCallback(async () => {
     setTesting(true);
-    // บันทึกค่าที่กรอกก่อนเสมอ — /api/push/connect อ่าน credentials จาก DB
-    await save();
+    // บันทึกค่าที่กรอกก่อนเสมอ — /api/push/connect อ่าน credentials จาก DB (บันทึกไม่ผ่าน = ไม่ทดสอบด้วยค่าเก่า)
+    if (!(await save())) { setTesting(false); return; }
     setTestResult(null);
+    setTestHint("");
     try {
       const r = await fetch("/api/push/connect", {
         method: "POST",
@@ -122,6 +126,11 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
         if (d.choices) setChoices(d.choices);
         // Webflow: จำ URL เว็บจริงไว้ประกอบลิงก์บทความ
         if (platform === "webflow" && d.url) setConnField("webflow", "siteUrl", d.url);
+        // Wix: Site ID / ผู้เขียนที่ระบบแก้ให้ถูกบันทึกฝั่งเซิร์ฟเวอร์แล้ว — อัปเดตฟอร์มให้ตรง (กันบันทึกค่าเก่าทับ)
+        if (platform === "wix" && d.fixes && typeof d.fixes === "object") {
+          setSiteConn(prev => ({ ...prev, wix: { ...(prev.wix ?? {}), ...d.fixes } }));
+        }
+        setTestHint(typeof d.hint === "string" ? d.hint : "");
         setTestResult({
           ok: true,
           message: `เชื่อมต่อสำเร็จ: ${d.name || d.url || website}${d.version ? ` (WordPress ${d.version})` : ""}`,
@@ -134,7 +143,7 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
     } finally {
       setTesting(false);
     }
-  }, [projectId, website, save]);
+  }, [projectId, platform, website, save]);
 
   if (loading) {
     return (
@@ -275,9 +284,31 @@ export function ProjectWebsitePanel({ projectId, onSaved }: Props) {
           <div>
             <label className="block text-xs font-semibold text-brand-navy mb-1.5">Site ID</label>
             <input value={siteConn.wix?.siteId ?? ""} onChange={e => setConnField("wix", "siteId", e.target.value)}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              placeholder="เว้นว่างได้ — ระบบหาจาก Website URL ให้"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-soft/50" />
-            <p className="mt-1 text-[11px] text-gray-400">จาก URL ของ Dashboard: manage.wix.com/dashboard/&lt;site-id&gt;</p>
+            <p className="mt-1 text-[11px] text-gray-400">กดทดสอบแล้วระบบตรวจกับ Website URL ถ้าไม่ตรงจะแก้ให้เอง (ดูเองได้ที่ manage.wix.com/dashboard/&lt;site-id&gt;)</p>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-brand-navy mb-1.5">ผู้เขียน (Member) — กดทดสอบการเชื่อมต่อก่อน</label>
+            {(() => {
+              const mid = siteConn.wix?.memberId ?? "";
+              const members = choices.members ?? [];
+              return members.length > 0 ? (
+                <select value={mid} onChange={e => setConnField("wix", "memberId", e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-soft/50">
+                  <option value="">— เลือกผู้เขียน —</option>
+                  {mid && !members.some(m => m.id === mid) && <option value={mid}>{mid}</option>}
+                  {members.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                </select>
+              ) : (
+                <input value={mid} onChange={e => setConnField("wix", "memberId", e.target.value)}
+                  placeholder="Member ID (หรือกดทดสอบการเชื่อมต่อเพื่อโหลดรายการ)"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-soft/50" />
+              );
+            })()}
+            {testHint && (
+              <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1">{testHint}</p>
+            )}
           </div>
         </div>
       )}

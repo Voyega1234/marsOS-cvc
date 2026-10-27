@@ -42,6 +42,13 @@ export function normalizeWpUrl(raw: string): string {
   return raw.trim().replace(/\/(wp-admin|wp-login\.php)(\/.*)?$/, '').replace(/\/$/, '')
 }
 
+/** ปรับ URL ตอนบันทึก: เติม https:// ถ้าไม่มี scheme แล้วตัด /wp-admin, /wp-login.php, / ท้าย */
+export function normalizeSavedWpUrl(raw: string): string {
+  const t = raw.trim()
+  if (!t) return ''
+  return normalizeWpUrl(/^https?:\/\//i.test(t) ? t : `https://${t}`)
+}
+
 /** id แบบที่ Elementor ใช้ (hex 7 ตัว) */
 const elementorId = () => Math.random().toString(16).slice(2, 9).padEnd(7, '0')
 
@@ -773,30 +780,48 @@ export async function testWordPressConnection(
       headers: authHeaders,
       signal: AbortSignal.timeout(10000),
     }, { requireHttps: true, sameHostOnly: true })
-    if (meRes.ok) {
-      const me = await meRes.json()
-      return { ok: true, name: me.name ?? wpUser }
-    }
-
-    const rootRes = await safeFetch(`${url}/wp-json/wp/v2`, {
+    // อ่านร่างได้ = ล็อกอินผ่าน + มีสิทธิ์เขียนโพสต์ (Author ขึ้นไป) — /wp/v2 รากเข้าได้โดยไม่ต้องล็อกอินจึงใช้ตรวจไม่ได้
+    const capRes = await safeFetch(`${url}/wp-json/wp/v2/posts?status=draft&per_page=1&_fields=id`, {
       headers: authHeaders,
       signal: AbortSignal.timeout(10000),
-    }, { requireHttps: true, sameHostOnly: true })
-    if (rootRes.ok) {
-      const data = await rootRes.json()
-      return { ok: true, name: data.name ?? '' }
+    }, { requireHttps: true, sameHostOnly: true }).catch(() => null)
+    if (meRes.ok) {
+      const me = await meRes.json()
+      // ล็อกอินได้แต่ WordPress ปฏิเสธการอ่านร่าง = บัญชีไม่มีสิทธิ์เขียน (เช่น Subscriber) — push จะล้มทีหลัง
+      if (capRes && (capRes.status === 401 || capRes.status === 403)) {
+        const capCode = await capRes.json().then((j: { code?: unknown }) => String(j?.code ?? '')).catch(() => '')
+        if (capCode === 'rest_forbidden_status' || capCode === 'rest_forbidden') {
+          return { ok: false, error: `WordPress ตอบ ${capRes.status} — บัญชี ${wpUser} ไม่มีสิทธิ์เขียนโพสต์ — ใช้บัญชี Author/Editor/Administrator` }
+        }
+      }
+      return { ok: true, name: me.name ?? wpUser }
     }
+    if (capRes?.ok) return { ok: true, name: wpUser }
 
-    return {
-      ok: false,
-      error: `WordPress ตอบ ${meRes.status} — ${meRes.status === 401
-        ? 'Application Password ไม่ถูกต้อง หรือ user ไม่มีสิทธิ์ REST API'
-        : meRes.status === 403
-        ? 'WordPress บล็อก REST API — ตรวจสอบ plugin หรือ .htaccess'
-        : 'ตรวจสอบ URL และ Application Password'}`,
+    // อ่านรหัสข้อผิดพลาดจาก body ของ /users/me (อาจเป็น HTML)
+    const bodyText = await meRes.text().catch(() => '')
+    let code = ''
+    if (!bodyText.trimStart().startsWith('<')) {
+      try { code = String((JSON.parse(bodyText) as { code?: unknown }).code ?? '') } catch { /* ไม่ใช่ JSON */ }
     }
+    const isHtml = bodyText.trimStart().startsWith('<')
+    const detail =
+      code === 'rest_not_logged_in' ? 'WordPress ไม่ได้รับรหัสผ่าน — โฮสต์ตัด Authorization header หรือปลั๊กอินความปลอดภัย (Wordfence/iThemes) บล็อก REST API'
+      : code === 'invalid_username' ? 'ไม่พบ Username นี้ใน WordPress — ใช้ Username สำหรับล็อกอิน ไม่ใช่ชื่อที่แสดง'
+      : code === 'incorrect_password' ? 'Application Password ไม่ถูกต้อง — สร้างใหม่ที่ Users → Profile → Application Passwords'
+      : code === 'application_passwords_disabled' ? 'เว็บปิด Application Passwords (มักเพราะไม่มี SSL หรือปลั๊กอินปิดไว้)'
+      : isHtml ? 'เว็บตอบเป็นหน้า HTML แทน API — Cloudflare/ไฟร์วอลล์บล็อก หรือ Permalinks ยังเป็น Plain (ตั้งเป็น Post name)'
+      : meRes.status === 404 ? 'ไม่พบ /wp-json — ตั้ง Permalinks เป็น Post name หรือปลั๊กอินปิด REST API'
+      : meRes.status === 401 ? 'Application Password ไม่ถูกต้อง หรือ user ไม่มีสิทธิ์ REST API'
+      : meRes.status === 403 ? 'WordPress บล็อก REST API — ตรวจสอบ plugin หรือ .htaccess'
+      : 'ตรวจสอบ URL และ Application Password'
+    return { ok: false, error: `WordPress ตอบ ${meRes.status} — ${detail}` }
   } catch (e: unknown) {
-    return { ok: false, error: `เชื่อมต่อไม่ได้: ${e instanceof Error ? e.message : String(e)}` }
+    const msg = e instanceof Error ? e.message : String(e)
+    // ไม่ส่งรหัสผ่านตามรีไดเรกต์ข้ามโดเมน — บอก URL ที่ถูกให้แก้เอง (มักเป็น www/ไม่มี www)
+    const redirectHost = msg.match(/^เว็บรีไดเรกต์ไปโดเมนอื่น \((.+)\)$/)?.[1]
+    if (redirectHost) return { ok: false, error: `${msg} — แก้ WordPress URL เป็น https://${redirectHost} แล้วทดสอบใหม่` }
+    return { ok: false, error: `เชื่อมต่อไม่ได้: ${msg}` }
   }
 }
 

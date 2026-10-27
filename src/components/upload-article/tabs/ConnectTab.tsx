@@ -187,6 +187,13 @@ export default function ConnectTab({
         if (platform === "wix") {
           setWixMembers(d.choices?.members ?? []);
           setWixHint(d.hint || "");
+          // Site ID / ผู้เขียนที่ระบบแก้ให้ถูกบันทึกฝั่งเซิร์ฟเวอร์แล้ว — อัปเดตฟอร์มโดยไม่ขึ้นเตือน "ยังไม่บันทึก"
+          // savedSnap = ค่าที่เซิร์ฟเวอร์มีตอนนี้ ส่วนฟอร์มคงค่าที่พิมพ์ระหว่างรอผลไว้ (ถ้ามีจะขึ้นเตือนยังไม่บันทึกตามจริง)
+          if (d.fixes && typeof d.fixes === "object") {
+            const fixes = d.fixes;
+            setSiteConn(prev => ({ ...prev, wix: { ...(prev.wix ?? {}), ...fixes } }));
+            setSavedSnap(snapshot({ ...siteConn, wix: { ...(siteConn.wix ?? {}), ...fixes } }));
+          }
         }
       } else {
         const m = d.message || d.error || "เชื่อมต่อไม่สำเร็จ";
@@ -435,7 +442,8 @@ export default function ConnectTab({
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Site ID</label>
               <Input value={siteConn.wix?.siteId ?? ""} onChange={e => setConnField("wix", "siteId", e.target.value)}
-                placeholder={maskedPlaceholder("wix", "siteId") || "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"} />
+                placeholder={maskedPlaceholder("wix", "siteId") || "เว้นว่างได้ — ระบบหาจากเว็บไซต์ให้"} />
+              <p className="mt-1 text-[11px] text-gray-400">กดทดสอบแล้วระบบตรวจกับเว็บไซต์ด้านบน ถ้าไม่ตรงจะแก้ให้เอง</p>
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-gray-600 mb-1">ผู้เขียน (Member) — กดทดสอบการเชื่อมต่อก่อน</label>
@@ -453,7 +461,7 @@ export default function ConnectTab({
                     placeholder="Member ID (หรือกดทดสอบการเชื่อมต่อเพื่อโหลดรายการ)" />
                 );
               })()}
-              {wixHint && wixMembers.length === 0 && (
+              {wixHint && (
                 <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1">{wixHint}</p>
               )}
             </div>

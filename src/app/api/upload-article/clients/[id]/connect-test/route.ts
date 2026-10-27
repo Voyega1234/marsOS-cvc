@@ -34,7 +34,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     } catch {
       conn = {}
     }
-    const result = await testSiteConnection(client.websitePlatform as SitePlatform, conn)
+    const result = await testSiteConnection(client.websitePlatform as SitePlatform, conn, { siteUrl: client.website })
     if (!result.ok) {
       await recordTest(client, false, result.error || 'เชื่อมต่อไม่สำเร็จ')
       return NextResponse.json({ error: result.error }, { status: 400 })
@@ -46,8 +46,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       const next = { ...conn, webflow: { ...wf, ...(result.siteId ? { siteId: result.siteId } : {}), ...(result.url ? { siteUrl: result.url } : {}) } }
       saved = await prisma.uploadClient.update({ where: { id: client.id }, data: { siteConnection: JSON.stringify(next) } })
     }
+    // Wix: Site ID / ผู้เขียนที่ระบบแก้ให้ — บันทึกทันที
+    if (client.websitePlatform === 'wix' && result.fixes) {
+      const next = { ...conn, wix: { ...(conn.wix ?? {}), ...result.fixes } }
+      saved = await prisma.uploadClient.update({ where: { id: client.id }, data: { siteConnection: JSON.stringify(next) } })
+    }
     await recordTest(saved, true, result.name || client.websitePlatform)
-    return NextResponse.json({ ok: true, message: result.name || client.websitePlatform, url: result.url, choices: result.choices, hint: result.hint })
+    return NextResponse.json({ ok: true, message: result.name || client.websitePlatform, url: result.url, choices: result.choices, hint: result.hint, fixes: result.fixes })
   }
 
   if (!client.wpUrl || !client.wpUser || !client.wpAppPasswordEnc) {

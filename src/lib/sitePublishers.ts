@@ -12,6 +12,7 @@
  */
 
 import { createHash } from 'crypto'
+import { safeFetchHtml } from '@/lib/upload-article/safe-fetch'
 
 export interface SiteConnectionConfig {
   shopify?: { storeDomain?: string; accessToken?: string; blogId?: string; blogHandle?: string }
@@ -36,8 +37,10 @@ export interface ConnectionTestResult {
     /** Wix: ผู้เขียน (Member) ที่เลือกเป็น memberId */
     members?: Array<{ id: string; name: string }>
   }
-  /** เชื่อมต่อผ่านแต่ยังมีสิ่งที่ต้องทำต่อ (Wix: ไม่มีผู้เขียนให้เลือก) */
+  /** เชื่อมต่อผ่านแต่ยังมีสิ่งที่ต้องทำต่อ / สิ่งที่ระบบแก้ให้ (Wix: ไม่มีผู้เขียนให้เลือก, แก้ Site ID) */
   hint?: string
+  /** ค่าที่ระบบแก้ให้ — route ต้อง merge เข้า siteConnection ของแพลตฟอร์มนั้นแล้วบันทึก ('' = ล้างค่า) */
+  fixes?: { siteId?: string; memberId?: string }
 }
 
 export interface PublishPayload {
@@ -336,31 +339,89 @@ async function wixHeaders(cfg: NonNullable<SiteConnectionConfig['wix']>) {
   }
 }
 
-async function wixTest(cfg: NonNullable<SiteConnectionConfig['wix']>): Promise<ConnectionTestResult> {
-  if (!cfg.apiKey || !cfg.siteId) return { ok: false, error: 'ต้องใส่ Wix API Key และ Site ID (จาก wix.com/my-account/api-keys)' }
+const WIX_SITE_ID_RE = /"metaSiteId"\s*:\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"/i
+
+/** Site ID จริงของเว็บ Wix อ่านจาก metaSiteId ในหน้าเว็บสาธารณะ — เว็บยังไม่เผยแพร่/ไม่ใช่ Wix/ดึงไม่ได้ = null */
+async function detectWixSiteId(siteUrl?: string): Promise<string | null> {
+  const raw = (siteUrl ?? '').trim()
+  if (!raw) return null
+  const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+  const page = await safeFetchHtml(url).catch(() => null)
+  if (!page?.ok) return null
+  return WIX_SITE_ID_RE.exec(page.html)?.[1]?.toLowerCase() ?? null
+}
+
+/** เรียก Blog API ด้วย Site ID นี้ — คืน error ภาษาไทยถ้าใช้ไม่ได้ */
+async function wixBlogCheck(cfg: NonNullable<SiteConnectionConfig['wix']>): Promise<string | null> {
   const res = await fetch('https://www.wixapis.com/blog/v3/posts?paging.limit=1', {
     headers: await wixHeaders(cfg), signal: AbortSignal.timeout(TIMEOUT),
   })
-  if (!res.ok) {
-    const err = await readError(res)
-    if (/No blog instanceId/i.test(err)) {
-      return { ok: false, error: `เว็บนี้ยังไม่ได้ติดตั้งแอป Wix Blog (หรือ Site ID เป็นของเว็บอื่น) — ติดตั้ง Wix Blog ใน dashboard ของเว็บแล้วกดทดสอบอีกครั้ง (${err})` }
-    }
-    return { ok: false, error: `เชื่อม Wix ไม่ได้ — ${err}` }
-  }
-  const { members, hint } = await wixAuthors(cfg)
-  return { ok: true, name: 'Wix Blog', url: '', choices: { members }, ...(hint ? { hint } : {}) }
+  if (res.ok) return null
+  const err = await readError(res)
+  if (/No blog instanceId/i.test(err)) return `เว็บนี้ยังไม่ได้ติดตั้งแอป Wix Blog — ติดตั้ง Wix Blog ใน dashboard ของเว็บแล้วกดทดสอบอีกครั้ง (${err})`
+  return `เชื่อม Wix ไม่ได้ — ${err}`
 }
 
 /**
- * ผู้เขียนที่เลือกเป็น memberId ได้ — Members API ก่อน แล้วเติมจากผู้เขียนโพสต์/ดราฟต์ที่มีในบล็อก
- * (เจ้าของเว็บที่เขียนโพสต์ใน Wix เองจะมี memberId ติดโพสต์มา แม้ Members API จะคืนว่างหรือ key ไม่มีสิทธิ์ Members)
- * ดึงไม่ได้เลยก็ยังถือว่าเชื่อมต่อผ่าน — คืน hint บอกสาเหตุ
+ * ทดสอบ Wix + แก้ค่าที่ผิดให้เอง (คืนใน fixes ให้ route บันทึก):
+ * - Site ID: อ่านจากหน้าเว็บ (ช่องเว็บไซต์) — ว่างก็หาให้, ไม่ตรงกับเว็บก็ใช้ของจริงแทน (กันโพสต์ไปลงเว็บอื่น)
+ * - ผู้เขียน: เลือกให้เองเมื่อยังไม่เลือก/ของเดิมไม่ใช่สมาชิกเว็บนี้
  */
-async function wixAuthors(cfg: NonNullable<SiteConnectionConfig['wix']>): Promise<{ members: Array<{ id: string; name: string }>; hint?: string }> {
+async function wixTest(cfg: NonNullable<SiteConnectionConfig['wix']>, siteUrl?: string): Promise<ConnectionTestResult> {
+  if (!cfg.apiKey) return { ok: false, error: 'ต้องใส่ Wix API Key (สร้างที่ wix.com/my-account/api-keys)' }
+  const entered = (cfg.siteId ?? '').trim().toLowerCase()
+  const detected = await detectWixSiteId(siteUrl)
+  const site = (siteUrl ?? '').trim()
+  if (!entered && !detected) {
+    return { ok: false, error: site
+      ? `หา Site ID จากเว็บ ${site} ไม่ได้ (เว็บยังไม่เผยแพร่หรือไม่ใช่เว็บ Wix) — ใส่ Site ID เอง (จาก URL ของ Dashboard: manage.wix.com/dashboard/<site-id>)`
+      : 'ต้องใส่ Site ID หรือใส่ URL เว็บไซต์ให้ระบบหา Site ID ให้' }
+  }
+  // Site ID ที่ใส่เองและใช้ได้ = ใช้ต่อ (แค่เตือนถ้าไม่ตรงกับเว็บ) — สลับไป Site ID ของเว็บเฉพาะเมื่อตัวที่ใส่ใช้ไม่ได้หรือเว้นว่าง
+  let siteId = entered || detected!
+  const err = await wixBlogCheck({ ...cfg, siteId })
+  const mismatch = !!(entered && detected && detected !== entered)
+  if (err) {
+    if (!mismatch) return { ok: false, error: err }
+    const errDetected = await wixBlogCheck({ ...cfg, siteId: detected! })
+    if (errDetected) {
+      return { ok: false, error: `Site ID ที่ใส่ (${entered}) ใช้ไม่ได้: ${err} · Site ID จริงของเว็บ ${site} คือ ${detected} แต่ก็ใช้ไม่ได้: ${errDetected} · ถ้า API Key จำกัดบางเว็บ ให้สร้าง key ใหม่ที่เลือกเว็บนี้ด้วย` }
+    }
+    siteId = detected!
+  }
+  const siteChanged = siteId !== entered
+  const { members, pick, complete, hint } = await wixAuthors({ ...cfg, siteId })
+  const saved = (cfg.memberId ?? '').trim()
+  // ผู้เขียนเดิมใช้ต่อได้เมื่อยังอยู่ในรายชื่อ หรือเช็คไม่ได้ (รายชื่อไม่ครบ) และยังเป็นเว็บเดิม
+  const savedValid = !!saved && (members.some(m => m.id === saved) || (!complete && !siteChanged))
+  const memberId = savedValid ? saved : (pick ?? '')
+  const fixes: NonNullable<ConnectionTestResult['fixes']> = {}
+  if (siteChanged) fixes.siteId = siteId
+  if (memberId !== saved) fixes.memberId = memberId
+  const notes: string[] = []
+  if (siteChanged) notes.push(entered ? `แก้ Site ID ให้ตรงกับเว็บ ${site} แล้ว (เดิม ${entered} เป็นของเว็บอื่น)` : `หา Site ID จากเว็บ ${site} ให้แล้ว`)
+  else if (mismatch) notes.push(`Site ID ที่ใส่ (${entered}) ไม่ตรงกับเว็บ ${site} (${detected}) — บทความจะลงเว็บของ Site ID ที่ใส่ ถ้าต้องการลง ${site} ให้ลบช่อง Site ID กดบันทึก แล้วทดสอบใหม่`)
+  if (saved && !savedValid) notes.push(memberId ? 'ผู้เขียนเดิมไม่ใช่สมาชิกของเว็บนี้ — เลือกผู้เขียนให้ใหม่แล้ว ตรวจชื่ออีกครั้ง' : 'ผู้เขียนเดิมไม่ใช่สมาชิกของเว็บนี้ — เลือกผู้เขียนใหม่')
+  else if (!saved && memberId) notes.push('เลือกผู้เขียนให้แล้ว เปลี่ยนได้ในช่องผู้เขียน')
+  if (hint) notes.push(hint)
+  return {
+    ok: true, name: 'Wix Blog', url: '', choices: { members },
+    ...(Object.keys(fixes).length ? { fixes } : {}),
+    ...(notes.length ? { hint: notes.join(' · ') } : {}),
+  }
+}
+
+/**
+ * ผู้เขียนที่เลือกเป็น memberId ได้ — ผู้เขียนโพสต์/ดราฟต์ที่มีในบล็อกขึ้นก่อน (มักเป็นเจ้าของเว็บ) ตามด้วยสมาชิกจาก Members API
+ * (Members API คืนว่างหรือ key ไม่มีสิทธิ์ Members ได้ — ผู้เขียนโพสต์ยังใช้ได้)
+ * pick = ตัวที่เลือกให้อัตโนมัติ: ผู้เขียนโพสต์ที่เขียนมากสุด หรือสมาชิกคนเดียวของเว็บ
+ * complete = รายชื่อสมาชิกครบทั้งเว็บ (ใช้ตัดสินว่า memberId เดิมไม่ใช่ของเว็บนี้)
+ */
+async function wixAuthors(cfg: NonNullable<SiteConnectionConfig['wix']>): Promise<{ members: Array<{ id: string; name: string }>; pick?: string; complete: boolean; hint?: string }> {
   const headers = await wixHeaders(cfg)
-  const byId = new Map<string, string>()
+  const memberNames = new Map<string, string>()
   let membersErr = ''
+  let complete = false
   try {
     const mRes = await fetch('https://www.wixapis.com/members/v1/members?paging.limit=100&fieldsets=PUBLIC', {
       headers, signal: AbortSignal.timeout(TIMEOUT),
@@ -368,33 +429,43 @@ async function wixAuthors(cfg: NonNullable<SiteConnectionConfig['wix']>): Promis
     if (mRes.ok) {
       const list = (await mRes.json()).members ?? []
       for (const m of list as Array<{ id: string; profile?: { nickname?: string }; contact?: { firstName?: string; lastName?: string }; loginEmail?: string }>) {
-        if (m?.id) byId.set(m.id, m.profile?.nickname || [m.contact?.firstName, m.contact?.lastName].filter(Boolean).join(' ') || m.loginEmail || m.id)
+        if (m?.id) memberNames.set(m.id, m.profile?.nickname || [m.contact?.firstName, m.contact?.lastName].filter(Boolean).join(' ') || m.loginEmail || m.id)
       }
+      complete = list.length < 100
     } else {
       membersErr = await readError(mRes)
     }
   } catch (e) {
     membersErr = e instanceof Error ? e.message : String(e)
   }
+  const writers = new Map<string, { count: number; title: string }>()
   for (const url of ['https://www.wixapis.com/blog/v3/posts?paging.limit=50', 'https://www.wixapis.com/blog/v3/draft-posts?paging.limit=50']) {
     try {
       const r = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT) })
       if (!r.ok) continue
       const j = await r.json()
       for (const p of [...(j.posts ?? []), ...(j.draftPosts ?? [])] as Array<{ memberId?: string; title?: string }>) {
-        if (p?.memberId && !byId.has(p.memberId)) byId.set(p.memberId, `ผู้เขียนโพสต์ "${String(p.title ?? '').slice(0, 40)}"`)
+        if (!p?.memberId) continue
+        const w = writers.get(p.memberId)
+        if (w) w.count++
+        else writers.set(p.memberId, { count: 1, title: String(p.title ?? '').slice(0, 40) })
       }
     } catch { /* ข้าม */ }
   }
-  const members = Array.from(byId, ([id, name]) => ({ id, name }))
-  if (members.length) return { members }
+  const ranked = Array.from(writers).sort((a, b) => b[1].count - a[1].count)
+  const members = [
+    ...ranked.map(([id, w]) => ({ id, name: memberNames.get(id) ?? `ผู้เขียนโพสต์ "${w.title}"` })),
+    ...Array.from(memberNames).filter(([id]) => !writers.has(id)).map(([id, name]) => ({ id, name })),
+  ]
+  const pick = ranked[0]?.[0] ?? (memberNames.size === 1 ? members[0]?.id : undefined)
+  if (members.length) return { members, pick, complete }
   const reason = /\b40[13]\b/.test(membersErr)
     ? `API Key ไม่มีสิทธิ์อ่านสมาชิก — สร้าง key ใหม่ให้มีสิทธิ์ Wix Blog + Members (${membersErr.slice(0, 120)})`
     : membersErr
       ? `Members API ตอบ ${membersErr.slice(0, 120)}`
       : 'เว็บยังไม่มีสมาชิกและยังไม่มีโพสต์ในบล็อก'
   return {
-    members,
+    members, complete,
     hint: `ยังไม่มีผู้เขียนให้เลือก — ${reason} · วิธีที่ง่ายสุด: เข้า Wix dashboard → Blog แล้วเขียนโพสต์สั้น ๆ 1 โพสต์ในชื่อเจ้าของเว็บ (บันทึกเป็น Draft ก็ได้) แล้วกดทดสอบการเชื่อมต่ออีกครั้ง`,
   }
 }
@@ -423,7 +494,10 @@ async function wixUploadCover(cfg: NonNullable<SiteConnectionConfig['wix']>, p: 
 
 async function wixPublish(cfg: NonNullable<SiteConnectionConfig['wix']>, p: PublishPayload): Promise<PublishResult> {
   if (!cfg.apiKey || !cfg.siteId) return { ok: false, error: 'Wix ยังตั้งค่าไม่ครบ (API Key / Site ID)' }
-  if (!cfg.memberId) return { ok: false, error: 'Wix ต้องเลือกผู้เขียน (Member ID) — กดทดสอบการเชื่อมต่อแล้วเลือกผู้เขียน' }
+  // ยังไม่ได้เลือกผู้เขียน → เลือกให้จากผู้เขียนโพสต์/สมาชิกของเว็บ
+  let memberId = (cfg.memberId ?? '').trim()
+  if (!memberId) memberId = (await wixAuthors(cfg).catch(() => null))?.pick ?? ''
+  if (!memberId) return { ok: false, error: 'Wix ต้องเลือกผู้เขียน (Member ID) — กดทดสอบการเชื่อมต่อแล้วเลือกผู้เขียน' }
   const live = p.publishMode === 'publish'
   const headers = await wixHeaders(cfg)
 
@@ -442,7 +516,7 @@ async function wixPublish(cfg: NonNullable<SiteConnectionConfig['wix']>, p: Publ
   const draftPost: Record<string, unknown> = {
     title: p.title.slice(0, 200),
     ...(p.excerpt ? { excerpt: p.excerpt.slice(0, 500) } : {}),
-    memberId: cfg.memberId,
+    memberId,
     richContent: {
       nodes: [{
         type: 'HTML',
@@ -463,22 +537,37 @@ async function wixPublish(cfg: NonNullable<SiteConnectionConfig['wix']>, p: Publ
     } : {}),
   }
 
-  let res: Response | null = null
-  if (p.existingId) {
-    // push ซ้ำ → แก้ draft เดิม (ถ้าถูกลบไปแล้ว 404 → สร้างใหม่)
-    res = await fetch(`https://www.wixapis.com/blog/v3/draft-posts/${encodeURIComponent(p.existingId)}`, {
-      method: 'PATCH', headers,
-      body: JSON.stringify({ draftPost: { id: p.existingId, ...draftPost }, action: live ? 'UPDATE_PUBLISH' : 'UPDATE' }),
-      signal: AbortSignal.timeout(60_000),
+  const send = async (post: Record<string, unknown>): Promise<Response> => {
+    if (p.existingId) {
+      // push ซ้ำ → แก้ draft เดิม (ถ้าถูกลบไปแล้ว 404 → สร้างใหม่)
+      const r = await fetch(`https://www.wixapis.com/blog/v3/draft-posts/${encodeURIComponent(p.existingId)}`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ draftPost: { id: p.existingId, ...post }, action: live ? 'UPDATE_PUBLISH' : 'UPDATE' }),
+        signal: AbortSignal.timeout(60_000),
+      })
+      if (r.status !== 404) return r
+    }
+    return fetch('https://www.wixapis.com/blog/v3/draft-posts', {
+      method: 'POST', headers, body: JSON.stringify({ draftPost: post, publish: live, fieldsets: ['URL'] }), signal: AbortSignal.timeout(60_000),
     })
-    if (res.status === 404) res = null
   }
-  if (!res) {
-    res = await fetch('https://www.wixapis.com/blog/v3/draft-posts', {
-      method: 'POST', headers, body: JSON.stringify({ draftPost, publish: live, fieldsets: ['URL'] }), signal: AbortSignal.timeout(60_000),
-    })
+
+  let res = await send(draftPost)
+  if (!res.ok) {
+    let err = await readError(res)
+    // ผู้เขียนที่บันทึกไว้ไม่ใช่สมาชิกของเว็บนี้ (เช่น เปลี่ยน Site ID) → ลองผู้เขียนที่เลือกให้ใหม่ 1 ครั้ง
+    if (res.status >= 400 && res.status < 500 && /member/i.test(err)) {
+      const pick = (await wixAuthors(cfg).catch(() => null))?.pick
+      if (pick && pick !== memberId) {
+        res = await send({ ...draftPost, memberId: pick })
+        if (res.ok) warning = [warning, 'ผู้เขียนที่บันทึกไว้ใช้กับเว็บนี้ไม่ได้ — ลงในชื่อผู้เขียนอื่นของเว็บแทน กดทดสอบการเชื่อมต่อแล้วเลือกผู้เขียนใหม่'].filter(Boolean).join(' · ')
+        else err = await readError(res)
+      }
+      if (!res.ok) return { ok: false, error: `ลงบทความ Wix ไม่สำเร็จ — ผู้เขียน (Member ID) ไม่ใช่สมาชิกของเว็บนี้ กดทดสอบการเชื่อมต่อแล้วเลือกผู้เขียนใหม่ (${err})` }
+    } else {
+      return { ok: false, error: `ลงบทความ Wix ไม่สำเร็จ — ${err}` }
+    }
   }
-  if (!res.ok) return { ok: false, error: `ลงบทความ Wix ไม่สำเร็จ — ${await readError(res)}` }
   const json = await res.json().catch(() => ({}))
   const postId: string = json?.draftPost?.id ?? p.existingId ?? ''
 
@@ -539,11 +628,12 @@ async function customPublish(cfg: NonNullable<SiteConnectionConfig['custom']>, p
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 
-export async function testSiteConnection(platform: SitePlatform, conn: SiteConnectionConfig): Promise<ConnectionTestResult> {
+/** opts.siteUrl = URL เว็บไซต์ของลูกค้า/โปรเจกต์ — Wix ใช้หา/ตรวจ Site ID */
+export async function testSiteConnection(platform: SitePlatform, conn: SiteConnectionConfig, opts: { siteUrl?: string } = {}): Promise<ConnectionTestResult> {
   try {
     if (platform === 'shopify') return await shopifyTest(conn.shopify ?? {})
     if (platform === 'webflow') return await webflowTest(conn.webflow ?? {})
-    if (platform === 'wix') return await wixTest(conn.wix ?? {})
+    if (platform === 'wix') return await wixTest(conn.wix ?? {}, opts.siteUrl)
     if (platform === 'custom') return await customTest(conn.custom ?? {})
     return { ok: false, error: `ไม่รู้จักแพลตฟอร์ม: ${platform}` }
   } catch (e) {

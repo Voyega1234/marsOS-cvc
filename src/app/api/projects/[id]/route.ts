@@ -7,6 +7,8 @@ import { SECRET_MASK, maskProjectSecrets } from "@/lib/secret-mask";
 import { mergeTimelineWrite } from "@/lib/project-timeline";
 import { logActivity } from "@/lib/logActivity";
 import { stripServerOwnedPrefs } from "@/lib/project-prefs-store";
+import { checkCredentialUrl } from "@/lib/upload-article/safe-fetch";
+import { normalizeSavedWpUrl } from "@/lib/upload-article/wp-push";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession();
@@ -42,7 +44,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!session?.user?.organizationId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const orgId = session!.user.organizationId;
-  const existing = await prisma.project.findFirst({ where: { id: params.id, organizationId: orgId }, select: { id: true, timeline: true, pushPrefs: true } });
+  const existing = await prisma.project.findFirst({ where: { id: params.id, organizationId: orgId }, select: { id: true, timeline: true, pushPrefs: true, wpUrl: true } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
@@ -58,6 +60,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     "styleGuide", "accentColor", "articleTheme", "forbiddenWords", "sampleArticle"];
   const data: Record<string, unknown> = {};
   for (const key of allowed) { if (key in body) data[key] = body[key]; }
+  // wpUrl ที่บันทึกต้องเป็น https + โฮสต์สาธารณะ (กัน SSRF) — ค่าว่างยังอนุญาต
+  if ("wpUrl" in data) {
+    const normalized = typeof data.wpUrl === "string" ? normalizeSavedWpUrl(data.wpUrl) : "";
+    // ตรวจเฉพาะตอนเปลี่ยน URL — ค่าเดิมที่บันทึกไว้แล้วไม่บล็อกการบันทึกช่องอื่น
+    if (normalized && normalized !== existing.wpUrl) {
+      const err = await checkCredentialUrl(normalized);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+    }
+    data.wpUrl = normalized || (data.wpUrl === null ? null : "");
+  }
   // ค่าปิดบังจาก GET ถูกส่งกลับมา = ไม่ได้แก้รหัส — ห้ามทับรหัสจริง
   if (data.wpAppPassword === SECRET_MASK) delete data.wpAppPassword;
   // timeline เก็บทั้งช่วงเวลาโปรเจกต์ (plan) และรายการบทความ — normalize ให้อยู่รูปเดียวเสมอ
