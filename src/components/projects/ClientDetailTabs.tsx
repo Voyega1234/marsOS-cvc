@@ -36,6 +36,7 @@ import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGap
 import { LabContextFilesCard } from '@/components/projects/workspace/LabContextFilesCard'
 import { LabTestImageCard } from '@/components/projects/workspace/LabTestImageCard'
 import { CtaSettingsEditor } from '@/components/upload-article/settings/CtaSection'
+import { googleDocsResultNotice, isDriveExportConfigured, preloadGoogleDocsExport, sendToGoogleDocs } from '@/lib/google-docs-export'
 import { AuthorSettingsEditor } from '@/components/upload-article/settings/AuthorSection'
 import { ImageSettingsEditor } from '@/components/upload-article/settings/ImagesSection'
 import { readArticleImageSettings, type ArticleImageSettings } from '@/lib/article-settings'
@@ -4379,6 +4380,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
   const reviewEditorRef = useRef<HTMLDivElement>(null)
   // ดาวน์โหลดบทความไปส่งลูกค้าตรวจ (Word / HTML) — เก็บ entryIdx ที่กำลังสร้างไฟล์ Word
   const [wordBusy, setWordBusy] = useState<number | null>(null)
+  const [docsBusy, setDocsBusy] = useState<number | null>(null)
   function exportSource(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
     // โหมดแก้ไข: ใช้เนื้อหาที่ยังไม่ได้บันทึกด้วย
     const src = viewMode === 'edit' && reviewEditorRef.current ? reviewEditorRef.current.innerHTML : html
@@ -4418,6 +4420,24 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
       toast.error('สร้างไฟล์ Word ไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       setWordBusy(null)
+    }
+  }
+  // ห้าม await ก่อน sendToGoogleDocs — popup ขอสิทธิ์ Google / แท็บใหม่ต้องเปิดในจังหวะคลิก
+  async function exportArticleGoogleDocs(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
+    const o = exportSource(entryIdx, entry, job, html)
+    setDocsBusy(entryIdx)
+    try {
+      const r = await sendToGoogleDocs(o, async () => {
+        const m = await import('@/lib/article-export')
+        return m.buildArticleDocx({ html: o.html, title: o.title, coverSrc: o.coverSrc, coverAlt: o.coverAlt })
+      })
+      const n = googleDocsResultNotice(r)
+      const action = n.action
+      toast.success(n.message, action ? { duration: 15000, action: { label: action.label, onClick: () => window.open(action.url, '_blank', 'noopener') } } : undefined)
+    } catch (e) {
+      toast.error('ส่งไป Google Docs ไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setDocsBusy(null)
     }
   }
   // ── แผง Search appearance (ขวา): meta title / slug / meta description + ภาพปก ──
@@ -4921,6 +4941,14 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                           title="ดาวน์โหลดเป็นไฟล์ Word ส่งให้ลูกค้าตรวจ"
                           className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
                           {wordBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />} Word
+                        </button>
+                        <button disabled={docsBusy !== null} onClick={() => exportArticleGoogleDocs(entryIdx, entry, job, html)}
+                          onPointerEnter={preloadGoogleDocsExport} onFocus={preloadGoogleDocsExport}
+                          title={isDriveExportConfigured()
+                            ? 'สร้างเป็น Google Doc ใน Drive ของคุณ แล้วเปิดให้ทันที'
+                            : 'คัดลอกบทความ แล้วเปิด Google Docs ใหม่ให้กดวาง (⌘V / Ctrl+V)'}
+                          className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                          {docsBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <FileText size={11} />} Google Docs
                         </button>
                         <button onClick={() => downloadArticleHtml(entryIdx, entry, job, html)}
                           title="ดาวน์โหลดเป็นไฟล์ HTML หน้าตาเหมือน Preview เปิดได้ทุกเบราว์เซอร์"

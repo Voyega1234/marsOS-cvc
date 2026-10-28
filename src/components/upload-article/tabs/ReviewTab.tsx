@@ -5,13 +5,14 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Sparkles, ImageIcon, Trash2, RefreshCw, Loader2, Download, ExternalLink } from "lucide-react";
+import { CheckCircle2, Sparkles, ImageIcon, Trash2, RefreshCw, Loader2, Download, ExternalLink, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import ScopedEditable from "@/components/shared/ScopedEditable";
 import { fileToDownscaledDataUrl } from "@/lib/imageDownscale";
+import { googleDocsResultNotice, isDriveExportConfigured, preloadGoogleDocsExport, sendToGoogleDocs } from "@/lib/google-docs-export";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import { canDeleteArticle, duplicateMap } from "@/lib/upload-article/duplicates";
 import SerpPreview from "@/components/upload-article/shared/SerpPreview";
@@ -90,6 +91,7 @@ export default function ReviewTab({
 
   const [approving, setApproving] = useState(false);
   const [wordBusy, setWordBusy] = useState(false);
+  const [docsBusy, setDocsBusy] = useState(false);
 
   useEffect(() => { if (selectedId) void loadArticleDetail(selectedId); }, [selectedId, loadArticleDetail]);
 
@@ -365,6 +367,25 @@ export default function ReviewTab({
       setWordBusy(false);
     }
   }
+  // ห้าม await ก่อน sendToGoogleDocs — popup ขอสิทธิ์ Google / แท็บใหม่ต้องเปิดในจังหวะคลิก
+  async function exportGoogleDocs() {
+    const o = exportSource();
+    if (!o) return;
+    setDocsBusy(true);
+    try {
+      const r = await sendToGoogleDocs(o, async () => {
+        const m = await import("@/lib/article-export");
+        return m.buildArticleDocx({ html: o.html, title: o.title, coverSrc: o.coverSrc, coverAlt: o.coverAlt });
+      });
+      const n = googleDocsResultNotice(r);
+      const action = n.action;
+      toast.success(n.message, action ? { duration: 15000, action: { label: action.label, onClick: () => window.open(action.url, "_blank", "noopener") } } : undefined);
+    } catch (e) {
+      toast.error("ส่งไป Google Docs ไม่สำเร็จ: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setDocsBusy(false);
+    }
+  }
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_340px] gap-4 items-start">
       {/* รายการบทความ */}
@@ -450,6 +471,14 @@ export default function ReviewTab({
                 <button onClick={downloadWord} disabled={wordBusy} title="ดาวน์โหลดไฟล์ Word (.docx)"
                   className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
                   {wordBusy ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Word
+                </button>
+                <button onClick={exportGoogleDocs} disabled={docsBusy}
+                  onPointerEnter={preloadGoogleDocsExport} onFocus={preloadGoogleDocsExport}
+                  title={isDriveExportConfigured()
+                    ? "สร้างเป็น Google Doc ใน Drive ของคุณ แล้วเปิดให้ทันที"
+                    : "คัดลอกบทความ แล้วเปิด Google Docs ใหม่ให้กดวาง (⌘V / Ctrl+V)"}
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
+                  {docsBusy ? <Loader2 size={11} className="animate-spin" /> : <FileText size={11} />} Google Docs
                 </button>
                 {viewMode === "edit" && (
                   <button onClick={() => setEditTone(t => (t === "site" ? "readable" : "site"))}
