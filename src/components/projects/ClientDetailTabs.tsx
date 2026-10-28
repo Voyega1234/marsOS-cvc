@@ -4521,7 +4521,8 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
   }
 
   async function expand(entryIdx: number, entry: TimelineEntry) {
-    if (expanded === entryIdx) { setExpanded(null); return }
+    // รายการซ้ายเป็นตัวเลือก ไม่ใช่ปุ่มพับ — กดบทความที่เปิดอยู่ซ้ำไม่ต้องทำอะไร
+    if (expanded === entryIdx) return
     setLoadingHtml(entryIdx)
     try {
       const data = await fetchArticle(entryIdx, entry)
@@ -4891,6 +4892,16 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
     onAdjustRewrite(entryIdx, '')
   }
 
+  // เปิดแท็บมา = เลือกบทความแรกที่ยังรอ Review ให้เลย (เหมือน Upload Review) — ครั้งเดียวต่อการเปิดแท็บ
+  const autoPicked = useRef(false)
+  useEffect(() => {
+    if (autoPicked.current || expanded !== null || !reviewEntries.length) return
+    autoPicked.current = true
+    const first = reviewEntries.find(({ entry, job }) => !(entry.articleStatus === 'approved' || job?.status === 'approved')) ?? reviewEntries[0]
+    void expand(first.entryIdx, first.entry)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewEntries.length])
+
   if (!reviewEntries.length) {
     return (
       <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
@@ -4903,6 +4914,398 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
 
   const pendingCount  = reviewEntries.filter(({ entry, job }) => !(entry.articleStatus === 'approved' || job?.status === 'approved')).length
   const approvedCount = reviewEntries.length - pendingCount
+
+  const reviewItems = reviewEntries.map(({ entryIdx, entry, job }) => {
+    const isApproved = entry.articleStatus === 'approved' || job?.status === 'approved'
+    const html = localJobHtml[entryIdx] || job?.html || ''
+    const entryComments = comments[entryIdx] ?? []
+    const hasComments = entryComments.length > 0
+    // writer/push กำลังทำงาน = ห้ามแก้รูป/ปก (รอบนั้นเซฟทับ) · แผงสร้างรูปทำงาน = ห้ามแก้ HTML/ปกซ้อน
+    const rewritingNow = job?.status === 'writing' || job?.status === 'cover'
+    const coverLocked = rewritingNow || articleStatus[entryIdx] === 'WRITING' || articleStatus[entryIdx] === 'PUSHING'
+    const imagesRunning = imgBusy === entryIdx
+    const coverControlsOff = coverLocked || imagesRunning || coverBusy === entryIdx || viewMode === 'edit'
+
+    // การ์ดภาพปก — ทีมงานเห็นในคอลัมน์ขวาใต้ Meta Description, ลูกค้าเห็นเหนือบทความ (ดูอย่างเดียว)
+    const coverCard = (
+      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+        <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><ImageIcon size={12} /> 🖼 ภาพปกบทความ</p>
+        {(job?.coverImage || coverUrl[entryIdx]) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={job?.coverImage ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}` : coverUrl[entryIdx]}
+            alt={coverAlt[entryIdx] || entry.title}
+            className="w-full h-auto rounded-lg border border-gray-200 object-contain bg-gray-50"
+          />
+        ) : (
+          <p className="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-lg">ยังไม่มีภาพปก</p>
+        )}
+        {!isClient && (
+          <>
+            <input type="file" accept="image/*" disabled={coverControlsOff}
+              onChange={e => { const f = e.target.files?.[0]; if (f) void uploadCoverFile(entryIdx, entry, f); e.target.value = '' }}
+              className="text-xs" />
+            <input
+              value={coverAlt[entryIdx] ?? entry.title}
+              disabled={coverControlsOff}
+              onFocus={e => { altAtFocus.current = e.target.value }}
+              onChange={e => setCoverAlt(prev => ({ ...prev, [entryIdx]: e.target.value }))}
+              onBlur={e => {
+                const v = e.target.value
+                if (v.trim() !== altAtFocus.current.trim() && !coverControlsOff) void patchCover(entryIdx, entry, { coverAlt: v })
+              }}
+              placeholder="Alt text ของภาพปก"
+              className="w-full text-xs border border-gray-200 rounded-md px-3 py-2 disabled:bg-gray-50"
+            />
+            {(job?.coverImage || coverUrl[entryIdx]) && (
+              <button
+                disabled={coverControlsOff}
+                onClick={() => void patchCover(entryIdx, entry, { coverImageUrl: null })}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                <X size={12} /> ลบภาพปก
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    )
+
+    const statusBadges = (
+      <>
+        {isApproved && <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✅ Approved</span>}
+        {hasComments && !isApproved && (
+          <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full">
+            💬 {entryComments.length} Comment{entryComments.length > 1 ? 's' : ''}
+          </span>
+        )}
+        {!hasComments && !isApproved && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">รอ Review</span>}
+      </>
+    )
+
+    // แถวในรายการซ้าย — กดแล้วเปิดบทความตรงกลาง
+    const row = (
+      <button key={entryIdx} onClick={() => expand(entryIdx, entry)} disabled={loadingHtml === entryIdx}
+        className={`w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors disabled:opacity-60 ${expanded === entryIdx ? 'bg-brand-mist/40' : ''}`}>
+        <p className="text-xs font-medium text-brand-navy line-clamp-2">{entry.title}</p>
+        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] text-gray-400">{entry.date}</span>
+          {statusBadges}
+          {loadingHtml === entryIdx && <RefreshCw size={10} className="animate-spin text-gray-400" />}
+        </div>
+      </button>
+    )
+    if (expanded !== entryIdx) return { entryIdx, row, detail: null }
+
+    // ตรงกลาง = บทความ · ขวา = Search appearance → สร้างรูปด้วย Mars → ภาพปก (เหมือน Upload Review)
+    const detail = (
+      <>
+            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-5 min-w-0">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs text-gray-400">{entry.date}</span>
+                  {statusBadges}
+                </div>
+                <p className="text-sm font-semibold text-brand-navy">{entry.title}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{entry.keyword}</p>
+                {hasComments && !isApproved && (
+                  <p className="text-xs text-rose-600 mt-1.5 italic line-clamp-1">
+                    💬 {entryComments[entryComments.length - 1].body}
+                  </p>
+                )}
+              </div>
+              {!isApproved && (
+                <button onClick={() => approve(entryIdx)} disabled={!!approving[entryIdx]}
+                  className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-60">
+                  <CheckCircle2 size={12} /> {approving[entryIdx] ? 'กำลังบันทึก…' : 'Approve'}
+                </button>
+              )}
+            </div>
+
+            {isClient && coverCard}
+
+            {/* Article viewer: Preview / Text / แก้ไข */}
+            {html ? (
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                  <div className="text-xs font-semibold text-gray-500">📄 บทความ</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(isClient
+                      ? ([['preview', '👁 Preview'], ['text', '📃 Text']] as const)
+                      : ([['preview', '👁 Preview'], ['text', '📃 Text'], ['edit', '✏️ แก้ไข']] as const)
+                    ).map(([m, label]) => (
+                      <button key={m} onClick={() => setViewMode(m)}
+                        disabled={m === 'edit' && (imagesRunning || rewritingNow)}
+                        title={m === 'edit' && imagesRunning ? 'รอสร้างรูปให้เสร็จก่อน' : m === 'edit' && rewritingNow ? 'กำลังเขียนใหม่ — รอให้เสร็จก่อน' : undefined}
+                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 ${
+                          viewMode === m ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                        }`}>
+                        {label}
+                      </button>
+                    ))}
+                    {!isClient && (
+                      <button onClick={() => regenerateArticle(entryIdx)} disabled={rewritingNow || imagesRunning || coverLocked || editSaving}
+                        title="ให้ AI เขียนบทความนี้ใหม่ทั้งบทความ (keyword/title เดิม) — ที่แก้มือ/รูปเดิมจะถูกแทน"
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                        <RefreshCw size={11} className={rewritingNow ? 'animate-spin' : ''} /> {rewritingNow ? 'กำลังเขียนใหม่...' : 'Re-generate'}
+                      </button>
+                    )}
+                    <button disabled={wordBusy !== null} onClick={() => downloadArticleWord(entryIdx, entry, job, html)}
+                      title="ดาวน์โหลดเป็นไฟล์ Word ส่งให้ลูกค้าตรวจ"
+                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      {wordBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />} Word
+                    </button>
+                    <button disabled={docsBusy !== null} onClick={() => exportArticleGoogleDocs(entryIdx, entry, job, html)}
+                      onPointerEnter={preloadGoogleDocsExport} onFocus={preloadGoogleDocsExport}
+                      title={isDriveExportConfigured()
+                        ? 'สร้างเป็น Google Doc ใน Drive ของคุณ แล้วเปิดให้ทันที'
+                        : 'คัดลอกบทความ แล้วเปิด Google Docs ใหม่ให้กดวาง (⌘V / Ctrl+V)'}
+                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      {docsBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <FileText size={11} />} Google Docs
+                    </button>
+                    <button onClick={() => downloadArticleHtml(entryIdx, entry, job, html)}
+                      title="ดาวน์โหลดเป็นไฟล์ HTML หน้าตาเหมือน Preview เปิดได้ทุกเบราว์เซอร์"
+                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
+                      <Download size={11} /> HTML
+                    </button>
+                    {viewMode === 'edit' && (
+                      <button disabled={editSaving} onClick={() => saveEditedHtml(entryIdx, entry)}
+                        className="flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors">
+                        {editSaving ? <RefreshCw size={10} className="animate-spin" /> : null} 💾 บันทึกการแก้ไข
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {viewMode === 'edit' && (
+                  <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 mb-2">
+                    คลิกที่ข้อความในบทความแล้วพิมพ์แก้ได้เลย — โครง HTML/สไตล์/Schema ระบบเก็บให้เหมือนเดิม กด 💾 เมื่อเสร็จ
+                  </p>
+                )}
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden max-h-[70vh] overflow-y-auto">
+                  {viewMode === 'preview' && <ArticleFrame html={boxKeyTakeaways(html)} />}
+                  {viewMode === 'text' && (
+                    <div className="p-5 text-sm text-gray-800 whitespace-pre-wrap leading-7">{htmlToPlainText(html)}</div>
+                  )}
+                  {viewMode === 'edit' && (
+                    <ScopedEditable html={html} editorRef={reviewEditorRef}
+                      className="p-5 outline-none min-h-[200px] focus:ring-2 focus:ring-brand-blue/20" />
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-4">ยังไม่มี HTML ของบทความนี้</p>
+            )}
+
+            {/* Comment history */}
+            {hasComments && (
+              <div>
+                <div className="text-xs font-semibold text-gray-500 mb-2">💬 ประวัติ Comment ({entryComments.length} รอบ)</div>
+                <div className="space-y-2">
+                  {entryComments.map((c, i) => (
+                    <div key={c.id} className="bg-rose-50 border border-rose-100 rounded-xl px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-bold text-rose-600">Comment รอบที่ {i + 1}</span>
+                        <span className="text-[10px] text-gray-400">{c.user?.name ?? 'ทีม'}</span>
+                        <span className="text-[10px] text-gray-300 ml-auto">{new Date(c.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{c.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Add comment + actions */}
+            {!isApproved && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                    💬 {hasComments ? `เพิ่ม Comment รอบที่ ${entryComments.length + 1}` : 'เพิ่ม Comment'}
+                  </label>
+                  <textarea
+                    value={commentDraft[entryIdx] ?? ''}
+                    onChange={e => setCommentDraft(prev => ({ ...prev, [entryIdx]: e.target.value }))}
+                    placeholder={isClient
+                      ? 'อยากให้แก้ตรงไหน พิมพ์บอกทีมงานได้เลย แล้วกด "ขอแก้ไข"'
+                      : 'ระบุสิ่งที่ต้องแก้ไข... comment จะถูกบันทึกไว้ในบทความและใช้เป็น instruction ในการ regenerate'}
+                    rows={3}
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none"
+                  />
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {/* Approve */}
+                  <button onClick={() => approve(entryIdx)} disabled={!!approving[entryIdx]}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-60">
+                    <CheckCircle2 size={12} /> {approving[entryIdx] ? 'กำลังบันทึก…' : 'Approve'}
+                  </button>
+                  {/* Save comment only */}
+                  {isClient ? (
+                  <button
+                    disabled={!(commentDraft[entryIdx] ?? '').trim() || savingComment[entryIdx]}
+                    onClick={() => requestRevision(entryIdx, entry)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 transition-colors disabled:opacity-40">
+                    {savingComment[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
+                    ขอแก้ไข
+                  </button>
+                  ) : (
+                  <>
+                  <button
+                    disabled={!(commentDraft[entryIdx] ?? '').trim() || savingComment[entryIdx]}
+                    onClick={() => saveComment(entryIdx, entry)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 disabled:opacity-40 transition-colors">
+                    {savingComment[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
+                    บันทึก Comment
+                  </button>
+                  {/* Rewrite with all comments */}
+                  <button
+                    disabled={(!hasComments && !(commentDraft[entryIdx] ?? '').trim()) || rewriting[entryIdx]}
+                    onClick={() => rewriteWithComments(entryIdx, entry)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-bold rounded-lg hover:bg-blue-500 disabled:opacity-40 transition-colors">
+                    {rewriting[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
+                    🔄 เขียนใหม่ตาม Comment{entryComments.length > 0 ? ` (${entryComments.length + (commentDraft[entryIdx]?.trim() ? 1 : 0)} รอบ)` : ''}
+                  </button>
+                  </>
+                  )}
+                </div>
+              </div>
+            )}
+            </div>
+
+            {/* ── Search appearance (Yoast style) — meta ที่ใช้ตอน Push จริง ──
+                เครื่องมือของทีมงาน ลูกค้าไม่เห็นและแก้ไม่ได้ ── */}
+            {!isClient && (() => {
+              const draft = seoDraft[entryIdx] ?? { seoTitle: entry.title ?? '', metaDescription: '', slug: entry.slug ?? '' }
+              const setDraft = (patch: Partial<typeof draft>) =>
+                setSeoDraft(prev => ({ ...prev, [entryIdx]: { ...draft, ...patch } }))
+              const savedRecently = Date.now() - (seoSavedAt[entryIdx] ?? 0) < 6000
+              return (
+                // คอลัมน์ขวา: Search appearance → สร้างรูปด้วย Mars → ภาพปก เรียงลงมา
+                <div className="space-y-4 min-w-0 lg:col-start-2 2xl:col-start-3">
+                <aside className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-brand-navy">Search appearance</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">หน้าตาบทความบน Google — แก้ตรงนี้แล้วกดบันทึก ค่าที่ได้จะถูกใช้ตอน Push</p>
+                    </div>
+                    <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 shrink-0">
+                      {(['mobile', 'desktop'] as const).map(d => (
+                        <button key={d} onClick={() => setSerpDevice(d)}
+                          className={`px-2 py-1 text-[10px] font-semibold rounded-md transition-colors ${
+                            serpDevice === d ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500'
+                          }`}>
+                          {d === 'mobile' ? 'Mobile' : 'Desktop'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <GoogleSerpPreview
+                    device={serpDevice}
+                    siteHost={siteHost}
+                    siteName={siteName}
+                    slug={slugifyEnSlug(draft.slug)}
+                    title={draft.seoTitle}
+                    description={draft.metaDescription}
+                    thumbnail={
+                      job?.coverImage
+                        ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}`
+                        : (coverUrl[entryIdx] || firstImageFromHtml(html))
+                    }
+                    dateLabel={entry.thaiDate || entry.date}
+                  />
+
+                  {/* SEO title */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-gray-600">Meta Title</label>
+                      <span className={`text-[10px] font-medium ${draft.seoTitle.length > 60 ? 'text-rose-500' : 'text-gray-400'}`}>
+                        {draft.seoTitle.length}/60
+                      </span>
+                    </div>
+                    <input
+                      value={draft.seoTitle}
+                      onChange={e => setDraft({ seoTitle: e.target.value })}
+                      placeholder="ชื่อที่จะแสดงบนผลการค้นหา"
+                      className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                    />
+                    <MetaLengthBar len={draft.seoTitle.length} min={30} max={60} />
+                  </div>
+
+                  {/* Slug */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-gray-600">Slug (URL)</label>
+                      <span className="text-[10px] text-gray-400">a-z 0-9 และ - เท่านั้น</span>
+                    </div>
+                    <input
+                      value={draft.slug}
+                      onChange={e => setDraft({ slug: e.target.value })}
+                      onBlur={e => setDraft({ slug: slugifyEnSlug(e.target.value) })}
+                      placeholder="english-url-slug"
+                      className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1 truncate">
+                      {siteHost ? `${siteHost}/` : '/'}{slugifyEnSlug(draft.slug)}
+                    </p>
+                  </div>
+
+                  {/* Meta description */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-gray-600">Meta Description</label>
+                      <span className={`text-[10px] font-medium ${draft.metaDescription.length > 160 ? 'text-rose-500' : 'text-gray-400'}`}>
+                        {draft.metaDescription.length}/160
+                      </span>
+                    </div>
+                    <textarea
+                      rows={4}
+                      value={draft.metaDescription}
+                      onChange={e => setDraft({ metaDescription: e.target.value })}
+                      placeholder="สรุปบทความ 1-2 ประโยคสำหรับผลการค้นหา"
+                      className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                    />
+                    <MetaLengthBar len={draft.metaDescription.length} min={120} max={160} />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      disabled={seoSaving === entryIdx || imagesRunning}
+                      title={imagesRunning ? 'รอสร้างรูปให้เสร็จก่อน' : undefined}
+                      onClick={() => saveSeo(entryIdx, entry)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors">
+                      {seoSaving === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
+                      {seoSaving === entryIdx ? 'กำลังบันทึก...' : 'บันทึก SEO'}
+                    </button>
+                    {savedRecently && (
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+                        <Check size={12} /> บันทึกแล้ว
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-400 leading-snug">
+                    บันทึกแล้วระบบเขียนค่าลงทั้งบทความและฐานข้อมูล — ตอนกด Push จะขึ้นเว็บด้วยค่าล่าสุดนี้ ไม่ใช่ค่าก่อนแก้
+                  </p>
+                </aside>
+                <SmeAiImagesPanel
+                  articleId={articleIds[entryIdx]}
+                  themeColors={project.themeColors}
+                  html={html}
+                  hasCover={!!(job?.coverImage || coverUrl[entryIdx])}
+                  locked={coverLocked}
+                  editing={viewMode === 'edit'}
+                  coverBusy={coverBusy === entryIdx}
+                  onUpdated={a => applyArticleUpdate(entryIdx, entry, a)}
+                  onBusyChange={b => setImgBusy(prev => b ? entryIdx : (prev === entryIdx ? null : prev))}
+                />
+                {coverCard}
+                </div>
+              )
+            })()}
+      </>
+    )
+    return { entryIdx, row, detail }
+  })
+  const selectedDetail = reviewItems.find(i => i.detail)?.detail ?? null
 
   return (
     <div className="space-y-4">
@@ -4919,385 +5322,22 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
         )}
       </div>
 
-      {reviewEntries.map(({ entryIdx, entry, job }) => {
-        const isApproved = entry.articleStatus === 'approved' || job?.status === 'approved'
-        const html = localJobHtml[entryIdx] || job?.html || ''
-        const entryComments = comments[entryIdx] ?? []
-        const hasComments = entryComments.length > 0
-        // writer/push กำลังทำงาน = ห้ามแก้รูป/ปก (รอบนั้นเซฟทับ) · แผงสร้างรูปทำงาน = ห้ามแก้ HTML/ปกซ้อน
-        const rewritingNow = job?.status === 'writing' || job?.status === 'cover'
-        const coverLocked = rewritingNow || articleStatus[entryIdx] === 'WRITING' || articleStatus[entryIdx] === 'PUSHING'
-        const imagesRunning = imgBusy === entryIdx
-        const coverControlsOff = coverLocked || imagesRunning || coverBusy === entryIdx || viewMode === 'edit'
-
-        return (
-          <div key={entryIdx} className={`border rounded-2xl overflow-hidden ${isApproved ? 'border-emerald-200 bg-emerald-50/20' : hasComments ? 'border-rose-200 bg-rose-50/10' : 'border-amber-200 bg-amber-50/10'}`}>
-            {/* Row header */}
-            <div className="px-5 py-4 flex items-start gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <span className="text-xs text-gray-400">{entry.date}</span>
-                  {isApproved && <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✅ Approved</span>}
-                  {hasComments && !isApproved && (
-                    <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full">
-                      💬 {entryComments.length} Comment{entryComments.length > 1 ? 's' : ''}
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm font-semibold text-brand-navy">{entry.title}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{entry.keyword}</p>
-                {/* Latest comment preview */}
-                {hasComments && !isApproved && (
-                  <p className="text-xs text-rose-600 mt-1.5 italic line-clamp-1">
-                    💬 {entryComments[entryComments.length - 1].body}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {/* ดู button */}
-                <button
-                  disabled={loadingHtml === entryIdx}
-                  onClick={() => expand(entryIdx, entry)}
-                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60">
-                  {loadingHtml === entryIdx ? '⏳' : expanded === entryIdx ? 'ซ่อน' : 'ดู'}
-                </button>
-                {/* Approve button */}
-                {!isApproved && (
-                  <button onClick={() => approve(entryIdx)} disabled={!!approving[entryIdx]}
-                    className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-60">
-                    <CheckCircle2 size={12} /> {approving[entryIdx] ? 'กำลังบันทึก…' : 'Approve'}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Expanded panel */}
-            {expanded === entryIdx && (
-              <div className={`border-t border-gray-200 p-5 grid grid-cols-1 gap-5 items-start ${isClient ? '' : 'xl:grid-cols-[minmax(0,1fr)_400px]'}`}>
-                <div className="space-y-5 min-w-0">
-
-                {/* สร้างรูปด้วย Mars + ภาพปกบทความ — เหมือน Upload Review เห็นผลทันทีก่อน Approve */}
-                {!isClient && (
-                  <SmeAiImagesPanel
-                    articleId={articleIds[entryIdx]}
-                    themeColors={project.themeColors}
-                    html={html}
-                    hasCover={!!(job?.coverImage || coverUrl[entryIdx])}
-                    locked={coverLocked}
-                    editing={viewMode === 'edit'}
-                    coverBusy={coverBusy === entryIdx}
-                    onUpdated={a => applyArticleUpdate(entryIdx, entry, a)}
-                    onBusyChange={b => setImgBusy(prev => b ? entryIdx : (prev === entryIdx ? null : prev))}
-                  />
-                )}
-                <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-                  <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><ImageIcon size={12} /> 🖼 ภาพปกบทความ</p>
-                  {(job?.coverImage || coverUrl[entryIdx]) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={job?.coverImage ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}` : coverUrl[entryIdx]}
-                      alt={coverAlt[entryIdx] || entry.title}
-                      className="w-full h-auto rounded-lg border border-gray-200 object-contain bg-gray-50"
-                    />
-                  ) : (
-                    <p className="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-lg">ยังไม่มีภาพปก</p>
-                  )}
-                  {!isClient && (
-                    <>
-                      <input type="file" accept="image/*" disabled={coverControlsOff}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) void uploadCoverFile(entryIdx, entry, f); e.target.value = '' }}
-                        className="text-xs" />
-                      <input
-                        value={coverAlt[entryIdx] ?? entry.title}
-                        disabled={coverControlsOff}
-                        onFocus={e => { altAtFocus.current = e.target.value }}
-                        onChange={e => setCoverAlt(prev => ({ ...prev, [entryIdx]: e.target.value }))}
-                        onBlur={e => {
-                          const v = e.target.value
-                          if (v.trim() !== altAtFocus.current.trim() && !coverControlsOff) void patchCover(entryIdx, entry, { coverAlt: v })
-                        }}
-                        placeholder="Alt text ของภาพปก"
-                        className="w-full text-xs border border-gray-200 rounded-md px-3 py-2 disabled:bg-gray-50"
-                      />
-                      {(job?.coverImage || coverUrl[entryIdx]) && (
-                        <button
-                          disabled={coverControlsOff}
-                          onClick={() => void patchCover(entryIdx, entry, { coverImageUrl: null })}
-                          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50">
-                          <X size={12} /> ลบภาพปก
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                {/* Article viewer: Preview / Text / แก้ไข */}
-                {html ? (
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                      <div className="text-xs font-semibold text-gray-500">📄 บทความ</div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {(isClient
-                          ? ([['preview', '👁 Preview'], ['text', '📃 Text']] as const)
-                          : ([['preview', '👁 Preview'], ['text', '📃 Text'], ['edit', '✏️ แก้ไข']] as const)
-                        ).map(([m, label]) => (
-                          <button key={m} onClick={() => setViewMode(m)}
-                            disabled={m === 'edit' && (imagesRunning || rewritingNow)}
-                            title={m === 'edit' && imagesRunning ? 'รอสร้างรูปให้เสร็จก่อน' : m === 'edit' && rewritingNow ? 'กำลังเขียนใหม่ — รอให้เสร็จก่อน' : undefined}
-                            className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 ${
-                              viewMode === m ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                            }`}>
-                            {label}
-                          </button>
-                        ))}
-                        {!isClient && (
-                          <button onClick={() => regenerateArticle(entryIdx)} disabled={rewritingNow || imagesRunning || coverLocked || editSaving}
-                            title="ให้ AI เขียนบทความนี้ใหม่ทั้งบทความ (keyword/title เดิม) — ที่แก้มือ/รูปเดิมจะถูกแทน"
-                            className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue hover:bg-gray-50 disabled:opacity-50 transition-colors">
-                            <RefreshCw size={11} className={rewritingNow ? 'animate-spin' : ''} /> {rewritingNow ? 'กำลังเขียนใหม่...' : 'Re-generate'}
-                          </button>
-                        )}
-                        <button disabled={wordBusy !== null} onClick={() => downloadArticleWord(entryIdx, entry, job, html)}
-                          title="ดาวน์โหลดเป็นไฟล์ Word ส่งให้ลูกค้าตรวจ"
-                          className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
-                          {wordBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />} Word
-                        </button>
-                        <button disabled={docsBusy !== null} onClick={() => exportArticleGoogleDocs(entryIdx, entry, job, html)}
-                          onPointerEnter={preloadGoogleDocsExport} onFocus={preloadGoogleDocsExport}
-                          title={isDriveExportConfigured()
-                            ? 'สร้างเป็น Google Doc ใน Drive ของคุณ แล้วเปิดให้ทันที'
-                            : 'คัดลอกบทความ แล้วเปิด Google Docs ใหม่ให้กดวาง (⌘V / Ctrl+V)'}
-                          className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
-                          {docsBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <FileText size={11} />} Google Docs
-                        </button>
-                        <button onClick={() => downloadArticleHtml(entryIdx, entry, job, html)}
-                          title="ดาวน์โหลดเป็นไฟล์ HTML หน้าตาเหมือน Preview เปิดได้ทุกเบราว์เซอร์"
-                          className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
-                          <Download size={11} /> HTML
-                        </button>
-                        {viewMode === 'edit' && (
-                          <button disabled={editSaving} onClick={() => saveEditedHtml(entryIdx, entry)}
-                            className="flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors">
-                            {editSaving ? <RefreshCw size={10} className="animate-spin" /> : null} 💾 บันทึกการแก้ไข
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {viewMode === 'edit' && (
-                      <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 mb-2">
-                        คลิกที่ข้อความในบทความแล้วพิมพ์แก้ได้เลย — โครง HTML/สไตล์/Schema ระบบเก็บให้เหมือนเดิม กด 💾 เมื่อเสร็จ
-                      </p>
-                    )}
-                    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden max-h-[60vh] overflow-y-auto">
-                      {viewMode === 'preview' && <ArticleFrame html={boxKeyTakeaways(html)} />}
-                      {viewMode === 'text' && (
-                        <div className="p-5 text-sm text-gray-800 whitespace-pre-wrap leading-7">{htmlToPlainText(html)}</div>
-                      )}
-                      {viewMode === 'edit' && (
-                        <ScopedEditable html={html} editorRef={reviewEditorRef}
-                          className="p-5 outline-none min-h-[200px] focus:ring-2 focus:ring-brand-blue/20" />
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400 text-center py-4">ยังไม่มี HTML ของบทความนี้</p>
-                )}
-
-                {/* Comment history */}
-                {hasComments && (
-                  <div>
-                    <div className="text-xs font-semibold text-gray-500 mb-2">💬 ประวัติ Comment ({entryComments.length} รอบ)</div>
-                    <div className="space-y-2">
-                      {entryComments.map((c, i) => (
-                        <div key={c.id} className="bg-rose-50 border border-rose-100 rounded-xl px-4 py-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[10px] font-bold text-rose-600">Comment รอบที่ {i + 1}</span>
-                            <span className="text-[10px] text-gray-400">{c.user?.name ?? 'ทีม'}</span>
-                            <span className="text-[10px] text-gray-300 ml-auto">{new Date(c.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                          </div>
-                          <p className="text-sm text-gray-800 whitespace-pre-wrap">{c.body}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Add comment + actions */}
-                {!isApproved && (
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                        💬 {hasComments ? `เพิ่ม Comment รอบที่ ${entryComments.length + 1}` : 'เพิ่ม Comment'}
-                      </label>
-                      <textarea
-                        value={commentDraft[entryIdx] ?? ''}
-                        onChange={e => setCommentDraft(prev => ({ ...prev, [entryIdx]: e.target.value }))}
-                        placeholder={isClient
-                          ? 'อยากให้แก้ตรงไหน พิมพ์บอกทีมงานได้เลย แล้วกด "ขอแก้ไข"'
-                          : 'ระบุสิ่งที่ต้องแก้ไข... comment จะถูกบันทึกไว้ในบทความและใช้เป็น instruction ในการ regenerate'}
-                        rows={3}
-                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none"
-                      />
-                    </div>
-                    <div className="flex gap-2 flex-wrap">
-                      {/* Approve */}
-                      <button onClick={() => approve(entryIdx)} disabled={!!approving[entryIdx]}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-60">
-                        <CheckCircle2 size={12} /> {approving[entryIdx] ? 'กำลังบันทึก…' : 'Approve'}
-                      </button>
-                      {/* Save comment only */}
-                      {isClient ? (
-                      <button
-                        disabled={!(commentDraft[entryIdx] ?? '').trim() || savingComment[entryIdx]}
-                        onClick={() => requestRevision(entryIdx, entry)}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 transition-colors disabled:opacity-40">
-                        {savingComment[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
-                        ขอแก้ไข
-                      </button>
-                      ) : (
-                      <>
-                      <button
-                        disabled={!(commentDraft[entryIdx] ?? '').trim() || savingComment[entryIdx]}
-                        onClick={() => saveComment(entryIdx, entry)}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 disabled:opacity-40 transition-colors">
-                        {savingComment[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
-                        บันทึก Comment
-                      </button>
-                      {/* Rewrite with all comments */}
-                      <button
-                        disabled={(!hasComments && !(commentDraft[entryIdx] ?? '').trim()) || rewriting[entryIdx]}
-                        onClick={() => rewriteWithComments(entryIdx, entry)}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-bold rounded-lg hover:bg-blue-500 disabled:opacity-40 transition-colors">
-                        {rewriting[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
-                        🔄 เขียนใหม่ตาม Comment{entryComments.length > 0 ? ` (${entryComments.length + (commentDraft[entryIdx]?.trim() ? 1 : 0)} รอบ)` : ''}
-                      </button>
-                      </>
-                      )}
-                    </div>
-                  </div>
-                )}
-                </div>
-
-                {/* ── Search appearance (Yoast style) — meta ที่ใช้ตอน Push จริง ──
-                    เครื่องมือของทีมงาน ลูกค้าไม่เห็นและแก้ไม่ได้ ── */}
-                {!isClient && (() => {
-                  const draft = seoDraft[entryIdx] ?? { seoTitle: entry.title ?? '', metaDescription: '', slug: entry.slug ?? '' }
-                  const setDraft = (patch: Partial<typeof draft>) =>
-                    setSeoDraft(prev => ({ ...prev, [entryIdx]: { ...draft, ...patch } }))
-                  const savedRecently = Date.now() - (seoSavedAt[entryIdx] ?? 0) < 6000
-                  return (
-                    <aside className="xl:sticky xl:top-4 bg-white border border-gray-200 rounded-2xl p-4 space-y-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-brand-navy">Search appearance</p>
-                          <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">หน้าตาบทความบน Google — แก้ตรงนี้แล้วกดบันทึก ค่าที่ได้จะถูกใช้ตอน Push</p>
-                        </div>
-                        <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 shrink-0">
-                          {(['mobile', 'desktop'] as const).map(d => (
-                            <button key={d} onClick={() => setSerpDevice(d)}
-                              className={`px-2 py-1 text-[10px] font-semibold rounded-md transition-colors ${
-                                serpDevice === d ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500'
-                              }`}>
-                              {d === 'mobile' ? 'Mobile' : 'Desktop'}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <GoogleSerpPreview
-                        device={serpDevice}
-                        siteHost={siteHost}
-                        siteName={siteName}
-                        slug={slugifyEnSlug(draft.slug)}
-                        title={draft.seoTitle}
-                        description={draft.metaDescription}
-                        thumbnail={
-                          job?.coverImage
-                            ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}`
-                            : (coverUrl[entryIdx] || firstImageFromHtml(html))
-                        }
-                        dateLabel={entry.thaiDate || entry.date}
-                      />
-
-                      {/* SEO title */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[11px] font-semibold text-gray-600">Meta Title</label>
-                          <span className={`text-[10px] font-medium ${draft.seoTitle.length > 60 ? 'text-rose-500' : 'text-gray-400'}`}>
-                            {draft.seoTitle.length}/60
-                          </span>
-                        </div>
-                        <input
-                          value={draft.seoTitle}
-                          onChange={e => setDraft({ seoTitle: e.target.value })}
-                          placeholder="ชื่อที่จะแสดงบนผลการค้นหา"
-                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                        />
-                        <MetaLengthBar len={draft.seoTitle.length} min={30} max={60} />
-                      </div>
-
-                      {/* Slug */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[11px] font-semibold text-gray-600">Slug (URL)</label>
-                          <span className="text-[10px] text-gray-400">a-z 0-9 และ - เท่านั้น</span>
-                        </div>
-                        <input
-                          value={draft.slug}
-                          onChange={e => setDraft({ slug: e.target.value })}
-                          onBlur={e => setDraft({ slug: slugifyEnSlug(e.target.value) })}
-                          placeholder="english-url-slug"
-                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                        />
-                        <p className="text-[10px] text-gray-400 mt-1 truncate">
-                          {siteHost ? `${siteHost}/` : '/'}{slugifyEnSlug(draft.slug)}
-                        </p>
-                      </div>
-
-                      {/* Meta description */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[11px] font-semibold text-gray-600">Meta Description</label>
-                          <span className={`text-[10px] font-medium ${draft.metaDescription.length > 160 ? 'text-rose-500' : 'text-gray-400'}`}>
-                            {draft.metaDescription.length}/160
-                          </span>
-                        </div>
-                        <textarea
-                          rows={4}
-                          value={draft.metaDescription}
-                          onChange={e => setDraft({ metaDescription: e.target.value })}
-                          placeholder="สรุปบทความ 1-2 ประโยคสำหรับผลการค้นหา"
-                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                        />
-                        <MetaLengthBar len={draft.metaDescription.length} min={120} max={160} />
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          disabled={seoSaving === entryIdx || imagesRunning}
-                          title={imagesRunning ? 'รอสร้างรูปให้เสร็จก่อน' : undefined}
-                          onClick={() => saveSeo(entryIdx, entry)}
-                          className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors">
-                          {seoSaving === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
-                          {seoSaving === entryIdx ? 'กำลังบันทึก...' : 'บันทึก SEO'}
-                        </button>
-                        {savedRecently && (
-                          <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                            <Check size={12} /> บันทึกแล้ว
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] text-gray-400 leading-snug">
-                        บันทึกแล้วระบบเขียนค่าลงทั้งบทความและฐานข้อมูล — ตอนกด Push จะขึ้นเว็บด้วยค่าล่าสุดนี้ ไม่ใช่ค่าก่อนแก้
-                      </p>
-                    </aside>
-                  )
-                })()}
-              </div>
-            )}
+      {/* จอกว้าง (2xl) = 3 คอลัมน์ รายการ | บทความ | meta+รูป แบบ Upload Review · จอเล็กกว่านั้นแผงขวาลงไปอยู่ใต้บทความ
+          (หน้าโปรเจกต์มีเมนูซ้ายอีกชั้น 3 คอลัมน์ที่ lg/xl ทำให้บทความแคบจนอ่านไม่ได้) */}
+      <div className={`grid grid-cols-1 gap-4 items-start lg:grid-cols-[240px_minmax(0,1fr)] ${isClient ? '' : '2xl:grid-cols-[240px_minmax(0,1fr)_360px]'}`}>
+        {/* รายการบทความ */}
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <p className="px-3 py-2.5 border-b border-gray-100 text-xs font-semibold text-gray-500">บทความ ({reviewEntries.length})</p>
+          <div className="max-h-[70vh] overflow-y-auto divide-y divide-gray-50">
+            {reviewItems.map(i => i.row)}
           </div>
-        )
-      })}
+        </div>
+        {selectedDetail ?? (
+          <div className="bg-white border border-gray-200 rounded-xl p-4 min-w-0">
+            <p className="text-sm text-gray-400 text-center py-10">เลือกบทความจากรายการด้านซ้าย</p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
