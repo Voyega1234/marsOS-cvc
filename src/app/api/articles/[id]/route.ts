@@ -10,6 +10,7 @@ import { loadTitleRestrictions } from "@/lib/ce-restrictions-server";
 import { cleanArticlePatch } from "@/lib/ce-restrictions";
 import { updateProjectPrefs } from "@/lib/project-prefs-store";
 import { pruneArticleFromPrefs } from "@/lib/sme-articles/duplicates";
+import { setCoverAltInHtml } from "@/lib/sme-articles/article-images";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession();
@@ -61,6 +62,30 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (key in body) data[key] = body[key];
   }
 
+  // ปกต้องเป็น data URI หรือ https เท่านั้น ('' = ลบปก)
+  if ("coverImageUrl" in data) {
+    const c = data.coverImageUrl;
+    if (c === null || c === "") data.coverImageUrl = null;
+    else if (typeof c !== "string" || !(c.startsWith("data:image/") || c.startsWith("https://"))) {
+      return NextResponse.json({ error: "coverImageUrl ต้องเป็น data:image/... หรือ https://" }, { status: 400 });
+    }
+  }
+
+  // ปก/alt ห้ามแก้ระหว่าง writer/push ทำงาน — รอบนั้นจะเซฟทับของที่แก้
+  if (("coverImageUrl" in data || typeof body.coverAlt === "string") && ["WRITING", "PUSHING", "PUBLISHING"].includes(existing.status)) {
+    return NextResponse.json({ error: "บทความกำลังเขียนหรือ push อยู่ — รอให้เสร็จก่อนแก้ภาพปก" }, { status: 409 });
+  }
+
+  // alt ปกอยู่ในบล็อก CONVERT_CAKE_SEO_META ของ htmlContent (ไม่มีคอลัมน์ coverAlt)
+  if (typeof body.coverAlt === "string") {
+    let html = typeof data.htmlContent === "string" ? data.htmlContent : null;
+    if (html === null) {
+      const cur = await prisma.article.findUnique({ where: { id: params.id }, select: { htmlContent: true } });
+      html = cur?.htmlContent ?? "";
+    }
+    data.htmlContent = setCoverAltInHtml(html, body.coverAlt);
+  }
+
   // คำต้องห้ามของ Content Engine โปรเจกต์นี้ — ค่าที่แก้มือ (SEO title/meta/slug ในหน้า Review) ต้องผ่านกฎเดียวกับที่ AI เขียน
   const restrictionWarnings = ["title", "seoTitle", "metaDescription", "slug", "htmlContent"].some(k => typeof data[k] === "string" && data[k])
     ? cleanArticlePatch(await loadTitleRestrictions(orgId, { projectId: existing.projectId }), existing, data)
@@ -75,7 +100,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       action: "UPDATE",
       entityType: "Article",
       entityId: params.id,
-      newValue: JSON.stringify(data),
+      // ปก data URI ใหญ่หลาย MB — เก็บแค่ความยาวใน log
+      newValue: JSON.stringify(typeof data.coverImageUrl === "string" && data.coverImageUrl.startsWith("data:")
+        ? { ...data, coverImageUrl: `[data URI ${data.coverImageUrl.length} chars]` }
+        : data),
     },
   });
 

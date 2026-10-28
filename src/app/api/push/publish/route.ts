@@ -21,6 +21,9 @@ import { applyElementorMode, buildElementorData } from '@/lib/upload-article/wp-
 import { safeFetch } from '@/lib/upload-article/safe-fetch'
 import { resolveProjectWpCredentials } from '@/lib/project-wp-credentials'
 import { updateProjectPrefs } from '@/lib/project-prefs-store'
+import { findOrUploadWpMedia, replaceInlineDataImages } from '@/lib/wp-media'
+
+export const maxDuration = 300
 
 function extractSeoMeta(html: string, fallbackTitle: string, fallbackKeyword: string) {
   // Parse <!-- CONVERT_CAKE_SEO_META ... --> block (line-based key: value format)
@@ -59,40 +62,9 @@ function svgToPngDataUrl(svg: string): string {
 
 async function uploadCoverImage(
   wpUrl: string, creds: string, imageBase64: string, mimeType: string, title: string, altText: string
-): Promise<number | null> {
-  try {
-    const imageBuffer = Buffer.from(imageBase64, 'base64')
-    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp'
-    const boundary = `----WPUpload${Date.now()}`
-    const filename = `cover-${Date.now()}.${ext}`
-
-    const titleBuf = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\n${title}\r\n` +
-      `--${boundary}\r\nContent-Disposition: form-data; name="alt_text"\r\n\r\n${altText}\r\n`
-    )
-    const header = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`
-    )
-    const footer = Buffer.from(`\r\n--${boundary}--\r\n`)
-    const body = Buffer.concat([titleBuf, header, imageBuffer, footer])
-
-    const res = await fetch(`${wpUrl}/wp-json/wp/v2/media`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${creds}`,
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Disposition': `attachment; filename="${filename}"`,
-      },
-      body,
-      signal: AbortSignal.timeout(30000),
-    })
-
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.id ? Number(data.id) : null
-  } catch {
-    return null
-  }
+): Promise<{ id: number; url: string } | null> {
+  const r = await findOrUploadWpMedia({ wpUrl, creds, base64: imageBase64, mime: mimeType, title, alt: altText, fetchFn: fetch })
+  return r ? { id: r.id, url: r.url } : null
 }
 
 export async function POST(req: NextRequest) {
@@ -101,20 +73,26 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   // metaTitle/metaDescription = ค่าที่แก้เองในแท็บ Review (override) — ถ้ามีต้องชนะทุกแหล่ง
-  const { html, title, keyword, slug: manualSlug, coverImage = '', coverMimeType = 'image/webp', metaTitle: reviewMetaTitle = '', metaDescription: reviewMetaDesc = '', publishMode = 'draft', useElementor = false, wpPostType = 'post', projectId, connectionId, stripH1, autoRequestIndex } = body
+  const { html, title, keyword, slug: manualSlug, coverImage = '', coverMimeType = 'image/webp', metaTitle: reviewMetaTitle = '', metaDescription: reviewMetaDesc = '', publishMode = 'draft', useElementor = false, wpPostType = 'post', projectId, connectionId, stripH1, autoRequestIndex, articleId } = body
   const orgId = session.user.organizationId
 
-  // Enrich with DB article data if we can match by projectId + title
+  // Enrich with DB article data — articleId (แถวที่หน้า Push ใช้จริง) มาก่อน ไม่มีค่อยหาตามชื่อ
+  // หาตามชื่อเรียง updatedAt desc ให้ตรงกับ by-title/writer — ชื่อซ้ำกันจะได้แถวเดียวกันทุกจุด
   let dbMetaDescription = ''
   let dbSeoTitle = ''
   let dbSlug = ''
   let dbCoverDataUri = ''
   let dbArticleId = ''
-  if (projectId && title) {
-    const dbArticle = await prisma.article.findFirst({
+  if (projectId && (title || articleId)) {
+    const select = { id: true, metaDescription: true, seoTitle: true, slug: true, coverImageUrl: true }
+    const byId = typeof articleId === 'string' && articleId
+      ? await prisma.article.findFirst({ where: { id: articleId, projectId, project: { organizationId: orgId } }, select }).catch(() => null)
+      : null
+    const dbArticle = byId ?? (title ? await prisma.article.findFirst({
       where: { projectId, project: { organizationId: orgId }, title },
-      select: { id: true, metaDescription: true, seoTitle: true, slug: true, coverImageUrl: true },
-    }).catch(() => null)
+      orderBy: { updatedAt: 'desc' },
+      select,
+    }).catch(() => null) : null)
     if (dbArticle) {
       dbArticleId       = dbArticle.id
       dbMetaDescription = dbArticle.metaDescription ?? ''
@@ -270,6 +248,7 @@ export async function POST(req: NextRequest) {
 
   // 2. Upload cover image as featured image
   let featuredMediaId: number | null = null
+  const uploadedInline = new Map<string, string>()
   // รูปในเซสชันมาก่อน (เพิ่งเขียน/เพิ่งเปลี่ยนรอบนี้) — ไม่มีค่อยใช้ปกที่บันทึกไว้จากแท็บ Review
   let effectiveCover = String(coverImage ?? '').trim()
   let effectiveCoverMime = coverMimeType
@@ -278,15 +257,23 @@ export async function POST(req: NextRequest) {
     if (m) { effectiveCoverMime = m[1]; effectiveCover = m[2] }
   }
   if (effectiveCover) {
-    featuredMediaId = await uploadCoverImage(wpUrl, creds, effectiveCover, effectiveCoverMime, dbSeoTitle || title, coverAltText)
+    const cover = await uploadCoverImage(wpUrl, creds, effectiveCover, effectiveCoverMime, dbSeoTitle || title, coverAltText)
+    featuredMediaId = cover?.id ?? null
+    // ปกในเนื้อหาเป็นรูปเดียวกับ featured image — ใช้ลิงก์ที่อัปแล้ว ไม่อัปซ้ำ
+    if (cover?.url) uploadedInline.set(`data:${effectiveCoverMime};base64,${effectiveCover}`, cover.url)
   }
+  // รูป data:image ในเนื้อหา → Media Library (บางเว็บตัด data: URI ทิ้ง)
+  const htmlLinked = await replaceInlineDataImages({
+    wpUrl, creds, html: htmlWithAlt, title: dbSeoTitle || title, known: uploadedInline, fetchFn: fetch,
+  })
 
   // 3. Build post payload
   // content ใส่ HTML จริงเสมอ — ติ๊ก Elementor ก็ตาม (Elementor ล้ม = หน้าเว็บยังแสดงเนื้อหาปกติ ไม่ว่าง)
-  const content = htmlWithAlt
+  const content = htmlLinked
   const payload: Record<string, unknown> = {
     // For pages: send empty title so WP doesn't show a title block above content (H1 is in HTML)
-    title:   isPage ? '' : finalMetaTitle,
+    // แต่ถ้าตัด H1 ออกแล้ว หน้าจะไม่มีหัวเรื่องเลย → ต้องส่ง title ไปด้วย
+    title:   isPage && !shouldStripH1 ? '' : finalMetaTitle,
     content,
     excerpt: finalMetaDesc ? finalMetaDesc.slice(0, 160) : undefined,
     status: publishMode === 'publish' ? 'publish' : 'draft',
@@ -311,6 +298,7 @@ export async function POST(req: NextRequest) {
   const postKind = isPage ? 'pages' : 'posts'
   const siteHost = (() => { try { return new URL(wpUrl).host.toLowerCase() } catch { return '' } })()
   let existingPostId: number | null = null
+  let existingStatus = ''
   if (projectId && dbArticleId) {
     const proj = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId }, select: { pushPrefs: true } }).catch(() => null)
     const map = parsePushPrefs(proj?.pushPrefs).wpPostIds as Record<string, { id?: unknown; kind?: unknown; host?: unknown }> | undefined
@@ -322,21 +310,26 @@ export async function POST(req: NextRequest) {
         signal: AbortSignal.timeout(10000),
       }).catch(() => null)
       const found = r?.ok ? await r.json().catch(() => null) as { id?: number; status?: string } | null : null
-      if (found?.id === storedId && found.status !== 'trash') existingPostId = storedId
+      if (found?.id === storedId && found.status !== 'trash') { existingPostId = storedId; existingStatus = found.status ?? '' }
     }
   }
   // 6b. Check if post/page with this slug already exists → update instead of create
   if (!existingPostId && finalSlug) {
-    const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&status=any&_fields=id&per_page=1`
+    const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&status=any&_fields=id,status&per_page=1`
     const checkRes = await fetch(checkUrl, {
       headers: { Authorization: `Basic ${creds}` },
       signal: AbortSignal.timeout(10000),
     }).catch(() => null)
     if (checkRes?.ok) {
       const found = await checkRes.json().catch(() => [])
-      if (Array.isArray(found) && found.length > 0) existingPostId = found[0].id
+      if (Array.isArray(found) && found.length > 0) { existingPostId = found[0].id; existingStatus = found[0].status ?? '' }
     }
   }
+
+  // Re-push โพสต์ที่ Live อยู่แล้ว (หน้า Push ตั้งต้นที่ Draft) — ห้ามดึงโพสต์ลงจากเว็บ คงสถานะ publish ไว้
+  //   อยากซ่อนโพสต์เป็น Draft ให้ทำใน WordPress เอง
+  const effectiveMode: 'draft' | 'publish' = publishMode === 'publish' || existingStatus === 'publish' ? 'publish' : 'draft'
+  if (effectiveMode !== publishMode) payload.status = 'publish'
 
   try {
     const method = existingPostId ? 'POST' : 'POST'
@@ -371,6 +364,14 @@ export async function POST(req: NextRequest) {
     const postId: number = data.id
     const postUrl: string = data.link ?? ''
 
+    // จดเลขโพสต์ทันทีหลังสร้างใหม่ — ถ้า timeout ระหว่างงานหลังจากนี้ ครั้งหน้าจะอัปเดตโพสต์เดิมไม่สร้างซ้ำ
+    if (projectId && dbArticleId && postId && !existingPostId) {
+      await updateProjectPrefs(projectId, orgId, (cur) => {
+        const prev = cur.wpPostIds && typeof cur.wpPostIds === 'object' ? cur.wpPostIds as Record<string, unknown> : {}
+        return { prefs: { ...cur, wpPostIds: { ...prev, [dbArticleId]: { id: postId, kind: postKind, host: siteHost, at: new Date().toISOString() } } }, result: null }
+      }).catch((e) => console.error('[push/publish] early save wpPostIds failed:', e instanceof Error ? e.message : e))
+    }
+
     // 7. Elementor: ติ๊ก = เอกสาร Elementor (HTML widget ชุดเดียวกับ content) ไม่ติ๊ก = ออกจาก builder
     //    ใช้ตัวเดียวกับ Upload Article — REST ก่อน ตรวจหน้าเว็บจริง เว็บที่ไม่เปิด meta ของ Elementor ค่อยใช้ปลั๊กอิน convert-cake
     const yoastMeta: Record<string, string> = {}
@@ -388,7 +389,7 @@ export async function POST(req: NextRequest) {
         headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           post_id: postId,
-          elementor_data_b64: Buffer.from(buildElementorData(htmlWithAlt)).toString('base64'),
+          elementor_data_b64: Buffer.from(buildElementorData(htmlLinked)).toString('base64'),
           edit_mode: 'builder',
           template_type: isPage ? 'wp-page' : 'wp-post',
           yoast_meta: yoastMeta,
@@ -400,7 +401,7 @@ export async function POST(req: NextRequest) {
       warning = await applyElementorMode({
         wpUrl, creds, postId, isPage,
         useElementor: !!useElementor,
-        html: htmlWithAlt,
+        html: htmlLinked,
         isUpdate: existingPostId != null,
         liveUrl: data.status === 'publish' && postUrl ? postUrl : undefined,
         yoastMeta,
@@ -451,11 +452,13 @@ export async function POST(req: NextRequest) {
     let articleIdForIndex: string | null = null
     if (projectId && orgId && title) {
       try {
-        const existing = await prisma.article.findFirst({
+        // แถวเดียวกับที่ enrich ไว้ตอนต้น (articleId/ชื่อล่าสุด) — ไม่หาตามชื่อซ้ำ ชื่อซ้ำกันจะเขียนผิดแถว
+        const existing = dbArticleId ? { id: dbArticleId } : await prisma.article.findFirst({
           where: { projectId, project: { organizationId: orgId }, title },
+          orderBy: { updatedAt: 'desc' },
           select: { id: true },
         })
-        const articleStatus = publishMode === 'publish' ? 'POSTED' : 'WORDPRESS_DRAFTED'
+        const articleStatus = effectiveMode === 'publish' ? 'POSTED' : 'WORDPRESS_DRAFTED'
         if (existing) {
           articleIdForIndex = existing.id
           await prisma.article.update({
@@ -493,7 +496,7 @@ export async function POST(req: NextRequest) {
     // Request Index อัตโนมัติ (เฉพาะ Publish) — ห้ามทำให้ push ล้มเหลว
     let indexRequest: { url: string; at: string; ok: boolean; error?: string } | undefined
     try {
-      if (articleIdForIndex && projectId && publishMode === 'publish' && data.status === 'publish' && autoRequestIndex !== false && isIndexableUrl(postUrl)) {
+      if (articleIdForIndex && projectId && effectiveMode === 'publish' && data.status === 'publish' && autoRequestIndex !== false && isIndexableUrl(postUrl)) {
         const proj = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId }, select: { pushPrefs: true } })
         if (parsePushPrefs(proj?.pushPrefs).autoRequestIndex !== false) {
           indexRequest = await requestIndexIfLive(postUrl)
@@ -512,7 +515,7 @@ export async function POST(req: NextRequest) {
             action: 'ARTICLE_PUSHED',
             entityType: 'Article',
             entityId: projectId || 'unknown',
-            newValue: JSON.stringify({ title, keyword, postId, postUrl, publishMode, wpUrl }),
+            newValue: JSON.stringify({ title, keyword, postId, postUrl, publishMode: effectiveMode, wpUrl }),
           },
         })
       }

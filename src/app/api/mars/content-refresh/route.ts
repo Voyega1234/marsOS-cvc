@@ -32,7 +32,8 @@ function readSiteReportsForDate(date: string) {
 export async function GET(req: NextRequest) {
   // route นี้ไม่มีด่าน auth เดิม — กัน role CLIENT ไว้ตรง ๆ (role อื่นไม่เปลี่ยนพฤติกรรม)
   const session = await getSessionRaw()
-  if (session?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { searchParams } = new URL(req.url)
   const requestedDate = searchParams.get('date')

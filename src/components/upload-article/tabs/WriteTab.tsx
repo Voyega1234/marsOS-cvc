@@ -13,6 +13,7 @@ import { requestArticleImages } from "@/components/upload-article/shared/AiImage
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { PBN_MAX_VARIANTS, parseWriterSourceName, writerSourceName } from "@/lib/upload-article/pbn";
 import { PBN_MAIN_PROFILE } from "@/lib/upload-article/pbn-sets";
+import UploadLanguageSelect from "@/components/upload-article/shared/UploadLanguageSelect";
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
 import { usePbnProfiles } from "@/components/upload-article/pbn/usePbnProfiles";
 
@@ -71,7 +72,7 @@ function hasArticle(s: RowStatus | undefined): s is Extract<RowStatus, { article
 }
 
 export default function WriteTab({
-  client, articles, preselectIds, clearPreselect, refreshArticles, applyArticleUpdate, goToReview, onOpenSettings, variantsEnabled = false,
+  client, articles, preselectIds, clearPreselect, refreshArticles, applyArticleUpdate, goToReview, onOpenSettings, variantsEnabled = false, setClient,
 }: {
   client: UploadClientDTO;
   articles: UploadArticleDTO[];
@@ -83,6 +84,7 @@ export default function WriteTab({
   onOpenSettings: (section: SettingsSection) => void;
   /** PBN Backlinks: เลือกจำนวนบทความต่อ keyword ได้ (title + keyword เดียวกัน เขียนต่างกัน intent เดิม) */
   variantsEnabled?: boolean;
+  setClient?: (fn: (prev: UploadClientDTO | null) => UploadClientDTO | null) => void;
 }) {
   const [ready, setReady] = useState<boolean | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
@@ -480,6 +482,17 @@ export default function WriteTab({
 
   return (
     <div className="space-y-4">
+      {!variantsEnabled && setClient && (
+        <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 space-y-1">
+          <p className="text-xs font-semibold text-gray-600">ภาษาที่ใช้เขียน</p>
+          <UploadLanguageSelect
+            value={client.language}
+            clientId={client.id}
+            showHint
+            onChange={v => setClient?.(prev => prev ? { ...prev, language: v } : prev)}
+          />
+        </div>
+      )}
       {ready === false && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
           <p className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">

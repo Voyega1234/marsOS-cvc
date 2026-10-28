@@ -98,6 +98,13 @@ export default function ConnectTab({
   // ค่าที่บันทึกล่าสุด — เทียบกับฟอร์มเพื่อเตือน "ยังไม่บันทึก" (Push ใช้ค่าที่บันทึกไว้เท่านั้น)
   const snapshot = (conn = siteConn) => JSON.stringify([name.trim(), website.trim(), language, platform, wpUrl.trim(), wpUser.trim(), conn]);
   const [savedSnap, setSavedSnap] = useState<string>(snapshot);
+  // ภาษาถูกเปลี่ยนจากที่อื่น (แท็บ Keyword/Write) → ซิงค์ฟอร์มและ snapshot ที่บันทึกไว้
+  useEffect(() => {
+    setLanguage(client.language);
+    setSavedSnap(prev => {
+      try { const a = JSON.parse(prev); a[2] = client.language; return JSON.stringify(a); } catch { return prev; }
+    });
+  }, [client.language]);
   const dirty = snapshot() !== savedSnap || !!wpAppPassword.trim();
 
   async function save(): Promise<UploadClientDTO | null> {

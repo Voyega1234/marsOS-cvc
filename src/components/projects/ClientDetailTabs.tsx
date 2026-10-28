@@ -52,7 +52,9 @@ import type { UploadOwnerTag } from '@/lib/upload-article/types'
 import { readLanguagePrefs } from '@/lib/keyword-language'
 import { EMPTY_PLAN, parseTimeline, planViolation, timelineEntries, type TimelinePlan } from '@/lib/project-timeline'
 import { stripInlineImages } from '@/lib/articleSample'
-import { extractCoverExtras } from '@/lib/cover-extras'
+import SmeAiImagesPanel, { type SmeArticleUpdate } from '@/components/projects/SmeAiImagesPanel'
+import { getCoverAltFromHtml } from '@/lib/sme-articles/article-images'
+import { fileToDownscaledDataUrl } from '@/lib/imageDownscale'
 import { boxKeyTakeaways } from '@/lib/article-structure'
 import { PAGE_TYPE_LABEL_TH } from '@/lib/wordgod/intent-skill/handoff'
 
@@ -2332,6 +2334,8 @@ function ContentMapTab({
 
   function generate() {
     if (!keywords.length) return
+    // Generate แทนที่ timeline ทั้งหมด — ถามก่อนถ้ามีรายการอยู่แล้ว
+    if (timeline.length > 0 && !confirm(`Timeline ปัจจุบันมี ${timeline.length} รายการ การ Generate จะแทนที่ทั้งหมด ต้องการดำเนินการต่อหรือไม่?`)) return
     setLoading(true)
     try {
       // Use selectedKws filter if any selected, else use all
@@ -3099,6 +3103,7 @@ function ArticlesTab({
   const [writing, setWriting] = useState<Set<number>>(new Set())
   // One AbortController per in-flight article write so the user can Stop it.
   const writeAbortRef = useRef<Map<number, AbortController>>(new Map())
+  const writeInFlightRef = useRef<Set<number>>(new Set())
   const [streamTexts, setStreamTexts] = useState<Record<number, string>>({})
   const [stepLabels, setStepLabels] = useState<Record<number, string>>({})
   // คำต้องห้ามที่ server แก้ไม่หมด ต่อบทความ — ค้างจนเขียนรอบใหม่หรือกด ✕ (ไม่ถูก status ทับ)
@@ -3242,6 +3247,9 @@ function ArticlesTab({
   async function writeArticle(entryIdx: number, adjustNote?: string) {
     const entry = timeline[entryIdx]
     if (!entry) return
+    // กันกดซ้ำ/เรียกซ้อนระหว่างเขียน idx เดิมอยู่
+    if (writeInFlightRef.current.has(entryIdx)) return
+    writeInFlightRef.current.add(entryIdx)
 
     setWriting(prev => new Set(Array.from(prev).concat(entryIdx)))
     setStreamTexts(prev => ({ ...prev, [entryIdx]: '' }))
@@ -3310,10 +3318,12 @@ function ArticlesTab({
       let coverMimeType = 'image/webp'
       let midImage = ''
       let midMimeType = 'image/webp'
+      let gotDone = false
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+        lastActivity = Date.now() // ทุก chunk ที่อ่านได้ (รวม ping) = ยังไม่ค้าง
         buf += dec.decode(value, { stream: true })
         const parts = buf.split('\n\n')
         buf = parts.pop() ?? ''
@@ -3325,13 +3335,16 @@ function ArticlesTab({
             try {
               const evt = JSON.parse(line)
               lastActivity = Date.now()
-              if (evt.type === 'chunk') {
+              if (evt.type === 'ping') {
+                continue // heartbeat จากเซิร์ฟเวอร์ — แค่กัน watchdog
+              } else if (evt.type === 'chunk') {
                 html += evt.content
                 setStreamTexts(prev => ({ ...prev, [entryIdx]: html }))
               } else if (evt.type === 'status') {
                 setStepLabels(prev => ({ ...prev, [entryIdx]: evt.message }))
                 if (evt.step === 'cover') updateJob({ status: 'cover' as const })
               } else if (evt.type === 'done') {
+                gotDone = true
                 html = evt.html ?? html
                 coverImage = evt.coverImage ?? ''
                 coverMimeType = evt.coverMimeType ?? 'image/webp'
@@ -3349,6 +3362,13 @@ function ArticlesTab({
             }
           }
         }
+      }
+
+      if (!gotDone) {
+        // stream ปิดโดยไม่มี 'done' (เซิร์ฟเวอร์ timeout/หลุดกลางทาง) — ห้ามนับเป็นสำเร็จ
+        toast.error('การเขียนถูกตัดกลางทาง ลองกดเขียนใหม่')
+        updateJob({ status: 'error', error: 'การเขียนถูกตัดกลางทาง ลองกดเขียนใหม่' })
+        return
       }
 
       updateJob({ status: 'review', html, coverImage, coverMimeType, midImage, midMimeType })
@@ -3375,6 +3395,7 @@ function ArticlesTab({
       }
     } finally {
       clearInterval(watchdog)
+      writeInFlightRef.current.delete(entryIdx)
       writeAbortRef.current.delete(entryIdx)
       setWriting(prev => { const n = new Set(prev); n.delete(entryIdx); return n })
       setStreamTexts(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
@@ -4177,6 +4198,20 @@ function ArticlesTab({
                           })
                         }
                         setDrawerViewMode('preview')
+                        // บันทึกลง DB ด้วยถ้ามี article id (เดิมแก้แค่ใน state แล้วหายตอนรีเฟรช)
+                        const artId = drawerIdx !== null ? jobs.find(j => j.entryIdx === drawerIdx)?.articleId : undefined
+                        if (artId) {
+                          fetch(`/api/articles/${artId}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ htmlContent: html }),
+                          }).then(async r => {
+                            if (!r.ok) {
+                              const d = await r.json().catch(() => ({}))
+                              toast.error(d?.error || (r.status === 409 ? 'บทความกำลังถูกใช้งานอยู่ — บันทึกลงฐานข้อมูลไม่สำเร็จ' : 'บันทึกบทความลงฐานข้อมูลไม่สำเร็จ'))
+                            }
+                          }).catch(() => toast.error('บันทึกบทความลงฐานข้อมูลไม่สำเร็จ'))
+                        }
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-blue hover:bg-blue-500 text-white text-xs font-semibold transition-colors"
                     >
@@ -4448,6 +4483,13 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
   const [coverBusy, setCoverBusy] = useState<number | null>(null)
   // ภาพปกที่บันทึกไว้ใน DB (Article.coverImageUrl) — ใช้ตอนเซสชันใหม่ที่ยังไม่มีรูปใน jobs
   const [coverUrl, setCoverUrl] = useState<Record<number, string>>({})
+  // alt ของภาพปก (เก็บใน META block ของบทความ) + สถานะบทความใน DB (WRITING = ล็อกแผงสร้างรูป)
+  const [coverAlt, setCoverAlt] = useState<Record<number, string>>({})
+  const [articleStatus, setArticleStatus] = useState<Record<number, string>>({})
+  // บทความที่แผงสร้างรูปกำลังทำงาน — ล็อกปุ่มแก้ไข/บันทึก SEO/ปก ไม่ให้เขียน HTML ทับกันระหว่างรอรูป
+  const [imgBusy, setImgBusy] = useState<number | null>(null)
+  // alt ตอนเริ่มพิมพ์ — บันทึกเฉพาะเมื่อค่าเปลี่ยนจริง
+  const altAtFocus = useRef<string>('')
 
   const siteHost = (project.website ?? '').replace(/^https?:\/\//i, '').replace(/\/+$/, '')
   const siteName = project.clientName || project.name || siteHost
@@ -4462,10 +4504,17 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
   async function fetchArticle(entryIdx: number, entry: TimelineEntry): Promise<{
     id: string; htmlContent: string; comments: ReviewComment[]
     seoTitle?: string | null; metaDescription?: string | null; slug?: string | null
-    coverImageUrl?: string | null
+    coverImageUrl?: string | null; status?: string
   } | null> {
     try {
-      const res = await fetch(`/api/articles/by-title?projectId=${encodeURIComponent(project.id)}&title=${encodeURIComponent(entry.title)}`)
+      const base = `/api/articles/by-title?projectId=${encodeURIComponent(project.id)}`
+      // รู้ id แถวแล้ว (เปิดครั้งก่อน/เพิ่งเขียน) ใช้ id ก่อน — ชื่อซ้ำกันหลายแถวจะไม่เปิดผิดแถว · ไม่เจอค่อยหาตามชื่อ
+      const knownId = articleIds[entryIdx] || jobs.find(j => j.entryIdx === entryIdx)?.articleId
+      if (knownId) {
+        const byId = await fetch(`${base}&id=${encodeURIComponent(knownId)}`)
+        if (byId.ok) return await byId.json()
+      }
+      const res = await fetch(`${base}&title=${encodeURIComponent(entry.title)}`)
       if (!res.ok) return null
       return await res.json()
     } catch { return null }
@@ -4481,6 +4530,8 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
         if (data.htmlContent) setLocalJobHtml(prev => ({ ...prev, [entryIdx]: data.htmlContent }))
         if (data.comments) setComments(prev => ({ ...prev, [entryIdx]: data.comments }))
         if (data.coverImageUrl) setCoverUrl(prev => ({ ...prev, [entryIdx]: data.coverImageUrl! }))
+        if (data.status) setArticleStatus(prev => ({ ...prev, [entryIdx]: data.status! }))
+        setCoverAlt(prev => ({ ...prev, [entryIdx]: getCoverAltFromHtml(data.htmlContent || '') || entry.title }))
         // เติมค่า SEO เริ่มต้น: DB ก่อน → ตกมาที่ meta block ในบทความ → ตกมาที่ title/slug ของ entry
         const htmlNow = data.htmlContent || jobs.find(j => j.entryIdx === entryIdx)?.html || ''
         const fromHtml = readSeoMetaFromHtml(htmlNow)
@@ -4605,66 +4656,78 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
     }
   }
 
-  /** สร้างภาพปกใหม่จาก Image Prompt ของ Content Engine (สไตล์มาจาก CE เท่านั้น) */
-  async function regenerateCover(entryIdx: number, entry: TimelineEntry) {
+  /**
+   * เอาบทความที่ server ส่งกลับ (หลังสร้าง/ลบรูป/แก้ปก) ไปใส่ทุก state ที่หน้า Review ใช้แสดง/export/push
+   * — localJobHtml (HTML ที่เห็น), coverUrl + jobs[].coverImage (ปกที่ชนะทุกที่), coverAlt
+   */
+  function applyArticleUpdate(entryIdx: number, entry: TimelineEntry, a: SmeArticleUpdate) {
+    if (a.id) setArticleIds(prev => ({ ...prev, [entryIdx]: a.id }))
+    if (a.status) setArticleStatus(prev => ({ ...prev, [entryIdx]: a.status! }))
+    const nextHtml = typeof a.htmlContent === 'string' ? a.htmlContent : ''
+    if (nextHtml) setLocalJobHtml(prev => ({ ...prev, [entryIdx]: nextHtml }))
+    const cover = a.coverImageUrl || ''
+    setCoverUrl(prev => {
+      const n = { ...prev }
+      if (cover) n[entryIdx] = cover; else delete n[entryIdx]
+      return n
+    })
+    // job.coverImage ชนะ coverUrl เสมอ → ต้องตั้งให้ตรงกับปกใหม่ (https = เคลียร์ให้ coverUrl ชนะ)
+    const m = /^data:([^;]+);base64,(.*)$/.exec(cover)
+    const coverImage = m ? m[2] : ''
+    const coverMimeType = m ? m[1] : 'image/webp'
+    setJobs(prev => {
+      if (prev.some(j => j.entryIdx === entryIdx)) {
+        return prev.map(j => j.entryIdx === entryIdx
+          ? { ...j, ...(nextHtml ? { html: nextHtml } : {}), coverImage, coverMimeType }
+          : j)
+      }
+      return [...prev, {
+        entryIdx, date: entry.date, keyword: entry.keyword, title: entry.title,
+        status: 'review' as const, html: nextHtml || htmlOf(entryIdx),
+        coverImage, coverMimeType,
+        midImage: '', midMimeType: 'image/webp', error: '',
+        slug: entry.slug, articleId: a.id,
+      }]
+    })
+    setCoverAlt(prev => ({ ...prev, [entryIdx]: getCoverAltFromHtml(nextHtml) || a.coverAlt || prev[entryIdx] || entry.title }))
+  }
+
+  /** PATCH ปก/alt ของบทความ แล้วอัปเดตทุก state — คืน true เมื่อสำเร็จ */
+  async function patchCover(entryIdx: number, entry: TimelineEntry, body: { coverImageUrl?: string | null; coverAlt?: string }): Promise<boolean> {
+    const artId = articleIds[entryIdx]
+    if (!artId) { toast.error('ยังไม่พบบทความนี้ใน DB — ลองกดดูใหม่อีกครั้ง'); return false }
+    if (JSON.stringify(body).length > 4_000_000) { toast.error('ไฟล์ภาพใหญ่เกินไป (เกิน 4MB) — ลองลดขนาดก่อน'); return false }
     setCoverBusy(entryIdx)
     try {
-      // ข้อความบนปกเหมือนตอนเขียนบทความ: คำโปรย = meta description, bullet = H2 จริง 3 หัวข้อแรก
-      // followImageSettings = เคารพตั้งค่า "ปกมีตัวหนังสือ" ของโปรเจกต์ (ปิด = server วาดแบบไม่มีข้อความ)
-      const extras = extractCoverExtras(htmlOf(entryIdx))
-      const res = await fetch('/api/article/cover', {
-        method: 'POST',
+      const r = await fetch(`/api/articles/${artId}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: project.id,
-          keyword: entry.keyword,
-          title: seoDraft[entryIdx]?.seoTitle?.trim() || entry.title,
-          type: 'cover',
-          subtitle: seoDraft[entryIdx]?.metaDescription?.trim() || extras.subtitle,
-          bullets: extras.bullets,
-          followImageSettings: true,
-        }),
+        body: JSON.stringify(body),
       })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || !data?.imageBase64) {
-        alert(data?.message || data?.error || 'สร้างภาพปกไม่สำเร็จ')
-        return
-      }
-      const mime = data.mimeType || 'image/webp'
-      setJobs(prev => {
-        if (prev.some(j => j.entryIdx === entryIdx)) {
-          return prev.map(j => j.entryIdx === entryIdx ? { ...j, coverImage: data.imageBase64, coverMimeType: mime } : j)
-        }
-        // ยังไม่มี job ในเซสชันนี้ (บทความโหลดจาก DB) — สร้างขึ้นมาถือรูปให้ Push หยิบไปใช้
-        return [...prev, {
-          entryIdx, date: entry.date, keyword: entry.keyword, title: entry.title,
-          status: 'review' as const, html: htmlOf(entryIdx),
-          coverImage: data.imageBase64, coverMimeType: mime,
-          midImage: '', midMimeType: 'image/webp', error: '',
-          slug: entry.slug, articleId: articleIds[entryIdx],
-        }]
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) { toast.error(d?.error || 'บันทึกภาพปกไม่สำเร็จ'); return false }
+      applyArticleUpdate(entryIdx, entry, {
+        id: artId,
+        htmlContent: typeof d.htmlContent === 'string' ? d.htmlContent : '',
+        coverImageUrl: 'coverImageUrl' in d ? (d.coverImageUrl ?? null) : (body.coverImageUrl !== undefined ? body.coverImageUrl : (coverUrl[entryIdx] ?? null)),
+        coverAlt: body.coverAlt,
       })
-
-      // เก็บรูปลง DB (Article.coverImageUrl) — รูปที่เปลี่ยนตรงนี้ต้องอยู่ข้ามเซสชัน
-      // ไม่งั้นรีเฟรชแล้ว Push จะได้ปกเดิม (เดิมรูปอยู่แค่ใน state ของเซสชัน)
-      const dataUri = `data:${mime};base64,${data.imageBase64}`
-      setCoverUrl(prev => ({ ...prev, [entryIdx]: dataUri }))
-      let artId = articleIds[entryIdx]
-      if (!artId) {
-        const a = await fetchArticle(entryIdx, entry)
-        if (a?.id) { artId = a.id; setArticleIds(prev => ({ ...prev, [entryIdx]: a.id })) }
-      }
-      if (artId && dataUri.length <= 3_000_000) {
-        fetch(`/api/articles/${artId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ coverImageUrl: dataUri }),
-        }).catch(() => { /* รูปยังอยู่ในเซสชัน — Push รอบนี้ไม่กระทบ */ })
-      }
+      return true
     } catch {
-      alert('สร้างภาพปกไม่สำเร็จ — ลองอีกครั้ง')
+      toast.error('บันทึกภาพปกไม่สำเร็จ')
+      return false
     } finally {
       setCoverBusy(null)
+    }
+  }
+
+  async function uploadCoverFile(entryIdx: number, entry: TimelineEntry, file: File) {
+    try {
+      const dataUrl = await fileToDownscaledDataUrl(file, 1600)
+      const ok = await patchCover(entryIdx, entry, { coverImageUrl: dataUrl, coverAlt: coverAlt[entryIdx] || entry.title })
+      if (ok) toast.success('อัปโหลดภาพปกแล้ว')
+    } catch {
+      toast.error('อัปโหลดภาพปกไม่สำเร็จ')
     }
   }
 
@@ -4798,13 +4861,34 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
     // Save draft comment first if any
     const draft = (commentDraft[entryIdx] ?? '').trim()
     if (draft) await saveComment(entryIdx, entry)
-    // Build combined note from all comments
-    const latestComments = (comments[entryIdx] ?? [])
-    const note = latestComments.map((c, i) => `[Comment ${i + 1}] ${c.body}`).join('\n')
+    // รวม comment ทั้งหมด + ที่เพิ่งพิมพ์ (state comments ในฟังก์ชันนี้ยังเป็นค่าก่อนบันทึก)
+    const bodies = [...allComments.map(c => c.body), ...(draft ? [draft] : [])]
+    const note = bodies.map((body, i) => `[Comment ${i + 1}] ${body}`).join('\n')
     setRewriting(prev => ({ ...prev, [entryIdx]: true }))
     setExpanded(null)
+    setLocalJobHtml(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
     onAdjustRewrite(entryIdx, note)
     setTimeout(() => setRewriting(prev => ({ ...prev, [entryIdx]: false })), 3000)
+  }
+
+  /**
+   * Re-generate แบบ Upload — SME ไม่มีไฟล์ต้นฉบับ จึงให้ AI เขียนใหม่ทั้งบทความจาก keyword/title เดิม (writer ตัวเดียวกับแท็บ Article)
+   * เขียนเสร็จ = กลับมารอ Review ใหม่ · บทความบนเว็บไม่เปลี่ยนจนกว่าจะ Re-push
+   */
+  function regenerateArticle(entryIdx: number) {
+    const pushed = ['POSTED', 'WORDPRESS_DRAFTED', 'PUBLISHED'].includes(articleStatus[entryIdx] ?? '')
+    const msg = [
+      'Generate บทความนี้ใหม่ทั้งบทความ?',
+      'AI เขียนใหม่จาก keyword/title เดิม ใช้เวลาหลายนาที (มีค่า AI)',
+      'ที่แก้มือ + รูปปก/รูปประกอบเดิมจะถูกแทนด้วยของที่เขียนใหม่',
+      pushed ? 'บทความบนเว็บยังเป็นเวอร์ชันเดิมจนกว่าจะ Approve แล้วกด Re-push ที่หน้า Push' : '',
+    ].filter(Boolean).join('\n')
+    if (!confirm(msg)) return
+    setExpanded(null)
+    setViewMode('preview')
+    // HTML ที่โหลดไว้เป็นของเก่า — ล้างทิ้ง ให้หน้า Review แสดงบทความใหม่ทันทีที่เขียนเสร็จ
+    setLocalJobHtml(prev => { const n = { ...prev }; delete n[entryIdx]; return n })
+    onAdjustRewrite(entryIdx, '')
   }
 
   if (!reviewEntries.length) {
@@ -4840,6 +4924,11 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
         const html = localJobHtml[entryIdx] || job?.html || ''
         const entryComments = comments[entryIdx] ?? []
         const hasComments = entryComments.length > 0
+        // writer/push กำลังทำงาน = ห้ามแก้รูป/ปก (รอบนั้นเซฟทับ) · แผงสร้างรูปทำงาน = ห้ามแก้ HTML/ปกซ้อน
+        const rewritingNow = job?.status === 'writing' || job?.status === 'cover'
+        const coverLocked = rewritingNow || articleStatus[entryIdx] === 'WRITING' || articleStatus[entryIdx] === 'PUSHING'
+        const imagesRunning = imgBusy === entryIdx
+        const coverControlsOff = coverLocked || imagesRunning || coverBusy === entryIdx || viewMode === 'edit'
 
         return (
           <div key={entryIdx} className={`border rounded-2xl overflow-hidden ${isApproved ? 'border-emerald-200 bg-emerald-50/20' : hasComments ? 'border-rose-200 bg-rose-50/10' : 'border-amber-200 bg-amber-50/10'}`}>
@@ -4887,36 +4976,58 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
               <div className={`border-t border-gray-200 p-5 grid grid-cols-1 gap-5 items-start ${isClient ? '' : 'xl:grid-cols-[minmax(0,1fr)_400px]'}`}>
                 <div className="space-y-5 min-w-0">
 
-                {/* ภาพปกบทความ — เปลี่ยนได้ตรงนี้ เห็นผลทันทีก่อน Approve */}
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                    <div className="text-xs font-semibold text-gray-500">🖼 ภาพปกบทความ</div>
-                    {!isClient && (
-                    <button
-                      disabled={coverBusy === entryIdx}
-                      onClick={() => regenerateCover(entryIdx, entry)}
-                      className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors">
-                      {coverBusy === entryIdx
-                        ? <><RefreshCw size={11} className="animate-spin" /> กำลังสร้างภาพใหม่...</>
-                        : <><ImageIcon size={11} /> เปลี่ยนภาพปก</>}
-                    </button>
-                    )}
-                  </div>
+                {/* สร้างรูปด้วย Mars + ภาพปกบทความ — เหมือน Upload Review เห็นผลทันทีก่อน Approve */}
+                {!isClient && (
+                  <SmeAiImagesPanel
+                    articleId={articleIds[entryIdx]}
+                    themeColors={project.themeColors}
+                    html={html}
+                    hasCover={!!(job?.coverImage || coverUrl[entryIdx])}
+                    locked={coverLocked}
+                    editing={viewMode === 'edit'}
+                    coverBusy={coverBusy === entryIdx}
+                    onUpdated={a => applyArticleUpdate(entryIdx, entry, a)}
+                    onBusyChange={b => setImgBusy(prev => b ? entryIdx : (prev === entryIdx ? null : prev))}
+                  />
+                )}
+                <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><ImageIcon size={12} /> 🖼 ภาพปกบทความ</p>
                   {(job?.coverImage || coverUrl[entryIdx]) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={job?.coverImage ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}` : coverUrl[entryIdx]}
-                      alt={entry.title}
-                      className="w-full h-auto rounded-xl border border-gray-200 object-contain bg-gray-50"
+                      alt={coverAlt[entryIdx] || entry.title}
+                      className="w-full h-auto rounded-lg border border-gray-200 object-contain bg-gray-50"
                     />
                   ) : (
-                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center">
-                      <p className="text-xs text-gray-500">ยังไม่มีภาพปกของบทความนี้</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">กด "เปลี่ยนภาพปก" เพื่อให้ระบบวาดใหม่จาก Image Prompt ของ Content Engine</p>
-                    </div>
+                    <p className="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-lg">ยังไม่มีภาพปก</p>
                   )}
-                  {coverBusy === entryIdx && (
-                    <p className="text-[11px] text-gray-400 mt-1.5">ใช้เวลาราว 20-40 วินาที — ภาพใหม่ถูกบันทึกไว้กับบทความ และใช้ตอน Push แทนภาพเดิม</p>
+                  {!isClient && (
+                    <>
+                      <input type="file" accept="image/*" disabled={coverControlsOff}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) void uploadCoverFile(entryIdx, entry, f); e.target.value = '' }}
+                        className="text-xs" />
+                      <input
+                        value={coverAlt[entryIdx] ?? entry.title}
+                        disabled={coverControlsOff}
+                        onFocus={e => { altAtFocus.current = e.target.value }}
+                        onChange={e => setCoverAlt(prev => ({ ...prev, [entryIdx]: e.target.value }))}
+                        onBlur={e => {
+                          const v = e.target.value
+                          if (v.trim() !== altAtFocus.current.trim() && !coverControlsOff) void patchCover(entryIdx, entry, { coverAlt: v })
+                        }}
+                        placeholder="Alt text ของภาพปก"
+                        className="w-full text-xs border border-gray-200 rounded-md px-3 py-2 disabled:bg-gray-50"
+                      />
+                      {(job?.coverImage || coverUrl[entryIdx]) && (
+                        <button
+                          disabled={coverControlsOff}
+                          onClick={() => void patchCover(entryIdx, entry, { coverImageUrl: null })}
+                          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                          <X size={12} /> ลบภาพปก
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -4931,12 +5042,21 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                           : ([['preview', '👁 Preview'], ['text', '📃 Text'], ['edit', '✏️ แก้ไข']] as const)
                         ).map(([m, label]) => (
                           <button key={m} onClick={() => setViewMode(m)}
-                            className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${
+                            disabled={m === 'edit' && (imagesRunning || rewritingNow)}
+                            title={m === 'edit' && imagesRunning ? 'รอสร้างรูปให้เสร็จก่อน' : m === 'edit' && rewritingNow ? 'กำลังเขียนใหม่ — รอให้เสร็จก่อน' : undefined}
+                            className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 ${
                               viewMode === m ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
                             }`}>
                             {label}
                           </button>
                         ))}
+                        {!isClient && (
+                          <button onClick={() => regenerateArticle(entryIdx)} disabled={rewritingNow || imagesRunning || coverLocked || editSaving}
+                            title="ให้ AI เขียนบทความนี้ใหม่ทั้งบทความ (keyword/title เดิม) — ที่แก้มือ/รูปเดิมจะถูกแทน"
+                            className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                            <RefreshCw size={11} className={rewritingNow ? 'animate-spin' : ''} /> {rewritingNow ? 'กำลังเขียนใหม่...' : 'Re-generate'}
+                          </button>
+                        )}
                         <button disabled={wordBusy !== null} onClick={() => downloadArticleWord(entryIdx, entry, job, html)}
                           title="ดาวน์โหลดเป็นไฟล์ Word ส่งให้ลูกค้าตรวจ"
                           className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
@@ -5154,7 +5274,8 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
 
                       <div className="flex items-center gap-2">
                         <button
-                          disabled={seoSaving === entryIdx}
+                          disabled={seoSaving === entryIdx || imagesRunning}
+                          title={imagesRunning ? 'รอสร้างรูปให้เสร็จก่อน' : undefined}
                           onClick={() => saveSeo(entryIdx, entry)}
                           className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors">
                           {seoSaving === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
@@ -6525,6 +6646,12 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       setSettingsDrawerOpen(true)
       return
     }
+    // ?tab=settings (จาก ClientReportClient) → เปิด settings drawer ซึ่งเป็นหน้าตั้งค่าจริงของหน้านี้
+    if (t === ('settings' as Tab) && !isClient) {
+      setSettingsDrawerTab('checklist')
+      setSettingsDrawerOpen(true)
+      return
+    }
     const allowed = isClient ? CLIENT_TABS : ['overview','timeline-view','competitor-gap','keyword-research','keywords','keyword-bank','content-map','articles','content-refresh','push','review','publish','request-index','report','on-page','technical','indexing']
     if (t && allowed.includes(t as Tab)) {
       setTab(t as Tab)
@@ -6628,7 +6755,8 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId: initialProject.id, timeline }),
-    }).catch(() => {})
+    }).then(r => { if (!r.ok) toast.error('บันทึก Timeline ลงฐานข้อมูลไม่สำเร็จ — ลองใหม่อีกครั้ง') })
+      .catch(() => { toast.error('บันทึก Timeline ลงฐานข้อมูลไม่สำเร็จ — ลองใหม่อีกครั้ง') })
     try { localStorage.setItem(storageKey, JSON.stringify({ timeline })) } catch { /* ignore */ }
   }, [timeline]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -6653,7 +6781,8 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId: initialProject.id, timeline: [] }),
-    }).catch(() => {})
+    }).then(r => { if (!r.ok) toast.error('ล้าง Timeline ในฐานข้อมูลไม่สำเร็จ') })
+      .catch(() => { toast.error('ล้าง Timeline ในฐานข้อมูลไม่สำเร็จ') })
     // Clear localStorage
     try {
       const saved = localStorage.getItem(storageKey)
@@ -6671,13 +6800,45 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId: initialProject.id, autoSchedule }),
-    }).catch(() => {})
+    }).then(r => { if (!r.ok) toast.error('บันทึกการตั้งค่า Auto Schedule ไม่สำเร็จ') })
+      .catch(() => { toast.error('บันทึกการตั้งค่า Auto Schedule ไม่สำเร็จ') })
   }, [autoSchedule]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist timeline to localStorage (keywords are in DB via keywords-cache endpoint)
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify({ timeline })) } catch { /* ignore */ }
   }, [timeline, storageKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // job ผูกกับ entryIdx (ตำแหน่ง) — เมื่อ timeline ถูกแทนที่/เรียงใหม่ ต้องย้าย job ตามชื่อบทความ
+  // job ที่ title ไม่ตรงกับแถวเดิมจะหาแถวใหม่ที่ title ตรงกัน ถ้าไม่มีก็ทิ้ง (กัน html/status ไปติดแถวผิด)
+  useEffect(() => {
+    if (!timeline.length) return
+    setJobs(prev => {
+      if (!prev.length) return prev
+      const norm = (t?: string) => (t ?? '').trim()
+      let changed = false
+      const used = new Set<number>()
+      const next: ArticleJob[] = []
+      const pending: ArticleJob[] = []
+      // รอบแรก: job ที่ title ตรงกับแถวเดิมอยู่แล้ว
+      for (const j of prev) {
+        if (norm(timeline[j.entryIdx]?.title) === norm(j.title) && !used.has(j.entryIdx)) {
+          used.add(j.entryIdx); next.push(j)
+        } else pending.push(j)
+      }
+      // รอบสอง: ย้ายตาม title ไปแถวใหม่ที่ยังว่าง
+      for (const j of pending) {
+        changed = true
+        const t = norm(j.title)
+        if (!t) continue
+        const newIdx = timeline.findIndex((e, i) => !used.has(i) && norm(e.title) === t)
+        if (newIdx < 0) continue
+        used.add(newIdx)
+        next.push({ ...j, entryIdx: newIdx })
+      }
+      return changed ? next : prev
+    })
+  }, [timeline]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist jobs — localStorage for html (survives navigation/reload), sessionStorage for images (large base64)
   useEffect(() => {
@@ -6740,6 +6901,22 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
 
   // Ref to ArticlesTab's writeArticle function so poller can call it
   const writeArticleRef = useRef<((idx: number, adjustNote?: string) => void) | null>(null)
+
+  // Review สั่งเขียนใหม่ (Re-generate / เขียนใหม่ตาม Comment) แต่ writeArticle อยู่ในแท็บ Article ที่ mount เฉพาะตอนเปิด
+  // → สลับไปแท็บ Article ให้เห็นความคืบหน้า แล้วเริ่มเขียนหลังแท็บพร้อม (effect ลูกตั้ง ref ก่อน effect แม่เสมอ)
+  const pendingRewriteRef = useRef<{ idx: number; note?: string } | null>(null)
+  function requestRewrite(idx: number, note?: string) {
+    if (writeArticleRef.current) { writeArticleRef.current(idx, note); return }
+    pendingRewriteRef.current = { idx, note }
+    setTab('articles')
+  }
+  useEffect(() => {
+    const pending = pendingRewriteRef.current
+    if (tab !== 'articles' || !pending || !writeArticleRef.current) return
+    pendingRewriteRef.current = null
+    writeArticleRef.current(pending.idx, pending.note)
+    toast.info('กำลังเขียนบทความใหม่ — เสร็จแล้วกลับไปตรวจที่แท็บ Review')
+  }, [tab])
 
   function handleAutoScheduleToggle(enabled: boolean) {
     setAutoSchedule(enabled)
@@ -7047,7 +7224,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             jobs={jobs}
             setJobs={setJobs}
             isClient={isClient}
-            onAdjustRewrite={(entryIdx, note) => writeArticleRef.current?.(entryIdx, note)}
+            onAdjustRewrite={requestRewrite}
           />
         )}
         </div>

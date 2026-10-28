@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { Upload, Sparkles, Trash2, Loader2, ArrowRight, FileSpreadsheet, X, Download } from "lucide-react";
+import UploadLanguageSelect from "@/components/upload-article/shared/UploadLanguageSelect";
 import { Button } from "@/components/ui/button";
 import { parseKeywordTable, parseKeywordText, type KeywordImportField, type KeywordTableParse, type ParsedKeywordRow } from "@/lib/upload-article/keyword-import";
 import {
@@ -54,11 +55,13 @@ function EditableCell({
 }
 
 export default function KeywordTab({
-  client, onWrite, goToReview,
+  client, onWrite, goToReview, setClient, isPbn = false,
 }: {
   client: UploadClientDTO;
   onWrite: (ids: string[]) => void;
   goToReview: (articleId: string) => void;
+  setClient?: (fn: (prev: UploadClientDTO | null) => UploadClientDTO | null) => void;
+  isPbn?: boolean;
 }) {
   const [items, setItems] = useState<UploadKeyword[]>([]);
   const [loading, setLoading] = useState(true);
@@ -270,6 +273,17 @@ export default function KeywordTab({
 
   return (
     <div className="space-y-4">
+      {!isPbn && setClient && (
+        <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 space-y-1">
+          <p className="text-xs font-semibold text-gray-600">ภาษาที่ใช้เขียน</p>
+          <UploadLanguageSelect
+            value={client.language}
+            clientId={client.id}
+            showHint
+            onChange={v => setClient?.(prev => prev ? { ...prev, language: v } : prev)}
+          />
+        </div>
+      )}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
           <Upload size={14} className="text-gray-400" />

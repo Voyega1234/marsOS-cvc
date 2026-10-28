@@ -464,4 +464,6 @@ export interface RunState {
   error: string | null
   createdAt: string
   updatedAt: string
+  /** epoch ms — มี request กำลังเดินเฟสอยู่ถึงเวลานี้ (กันสองแท็บ/กลับมาแท็บแล้วยิงเฟสเดียวกันซ้อน = จ่ายเงินซ้ำ) */
+  leaseUntil?: number
 }

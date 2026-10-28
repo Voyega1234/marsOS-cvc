@@ -2,9 +2,9 @@
 
 /** แท็บ Push ของ SEO SME — หน้าตา/พฤติกรรมเหมือน Upload Article > Push
  * แต่ยังใช้ backend เดิมของ SME (/api/push/publish, /api/articles, /api/projects/[id]/request-index) */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, SearchCheck, Loader2, CheckCircle2, XCircle, RefreshCw, Settings, Trash2 } from 'lucide-react'
+import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, SearchCheck, Loader2, CheckCircle2, XCircle, RefreshCw, RotateCcw, Settings, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { parseArticleCards, assembleArticleHtml, type ParsedArticle } from '@/lib/articleCards'
 import type { UploadSiteScan } from '@/lib/upload-article/types'
@@ -32,17 +32,19 @@ export interface SmeWpConnection { id: string; name: string; siteUrl: string; us
 type ReadyPushItem = {
   entryIdx: number; title: string; keyword: string; slug: string
   html: string; coverImage: string; coverMimeType: string
+  /** แถว Article ใน DB (ไม่มี = บทความในเซสชันที่ยังไม่มีแถว) — ส่งให้ push จับแถวถูกแม้ชื่อซ้ำ */
+  articleId?: string
 }
 type DbArticleLite = {
   id: string; wordpressUrl?: string | null
-  title?: string; slug?: string; status?: string; htmlContent?: string
+  title?: string; slug?: string; status?: string; hasHtml?: boolean; hasDataCover?: boolean; updatedAt?: string
   keyword?: { keyword?: string } | null
 }
 type PushPrefsState = { excludeCards?: Record<string, boolean>; stripH1?: boolean; autoRequestIndex?: boolean; useElementor?: boolean }
 type IndexRec = { url: string; at: string; ok: boolean; error?: string }
 
 // ชนิดขั้นต่ำที่แท็บนี้ใช้ (ชนิดจริงใน ClientDetailTabs เป็น superset — assign ได้ตรง ๆ)
-type SmeProject = { id: string; wordpressConnectionId?: string | null }
+type SmeProject = { id: string; wordpressConnectionId?: string | null; wpUrl?: string | null; website?: string | null }
 type SmeTimelineEntry = {
   title: string; keyword: string; slug?: string; page_type?: string
   reviewSeoTitle?: string; reviewMetaDescription?: string
@@ -59,7 +61,8 @@ const TYPE_CHIP: Record<string, { label: string; cls: string }> = {
   cta: { label: 'CTA', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   faq: { label: 'FAQ', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
 }
-const NOT_PUSHABLE = new Set(['POSTED', 'PUBLISHED', 'WORDPRESS_DRAFTED'])
+// บทความที่ push แล้วยังอยู่ในรายการ (กด Re-push ทับโพสต์เดิมได้) — ตัดออกแค่ตอนกำลังเขียนใหม่
+const NOT_PUSHABLE = new Set(['WRITING'])
 const fmtDate = (iso: string) => new Date(iso).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 export default function SmePushTab({
@@ -103,6 +106,11 @@ export default function SmePushTab({
   const [indexBusy, setIndexBusy] = useState<Record<string, boolean>>({})
   const [savingConn, setSavingConn] = useState(false)
   const [dbArticles, setDbArticles] = useState<DbArticleLite[]>([])
+  // เนื้อหาบทความโหลดทีละชิ้น (รายการ /api/articles ไม่ส่ง htmlContent แล้ว) — key = id, at = updatedAt ตอนโหลด
+  const htmlCache = useRef(new Map<string, { at: string; html: string }>())
+  const htmlInflight = useRef(new Map<string, Promise<string>>())
+  const htmlFailed = useRef(new Set<string>())
+  const [, setHtmlTick] = useState(0)
   /** แถวที่กำลังยืนยันลบ (dialog เดียวใช้ร่วมทุกการ์ด) */
   const [deleting, setDeleting] = useState<DbArticleLite | null>(null)
   /** โหมดที่ push ล่าสุดในเซสชันนี้ (entryIdx → draft/publish) ไว้ทำป้ายสถานะ */
@@ -148,7 +156,15 @@ export default function SmePushTab({
       .then((data: SmeWpConnection[]) => {
         setWpConnections(data)
         if (project.wordpressConnectionId) setSelectedConnId(project.wordpressConnectionId)
-        else if (data.length === 1) setSelectedConnId(data[0].id)
+        else if (data.length === 1) {
+          // เลือกให้อัตโนมัติเฉพาะเมื่อโฮสต์ตรงกับเว็บของโปรเจกต์ — กัน push ไปผิดเว็บ
+          const hostOf = (u?: string | null) => {
+            if (!u) return ''
+            try { return new URL(/^https?:\/\//i.test(u) ? u : `https://${u}`).host.toLowerCase().replace(/^www\./, '') } catch { return '' }
+          }
+          const projHost = hostOf(project.wpUrl) || hostOf(project.website)
+          if (projHost && hostOf(data[0].siteUrl) === projHost) setSelectedConnId(data[0].id)
+        }
       })
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,6 +177,41 @@ export default function SmePushTab({
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /** เนื้อหาล่าสุดของแถว DB — มีในแคชและ updatedAt ตรงกันใช้เลย ไม่งั้นโหลดใหม่ · โหลดไม่ได้ = '' */
+  function loadArticleHtml(a: DbArticleLite): Promise<string> {
+    const at = a.updatedAt ?? ''
+    const hit = htmlCache.current.get(a.id)
+    if (hit && hit.at === at) return Promise.resolve(hit.html)
+    const key = `${a.id}:${at}`
+    const running = htmlInflight.current.get(key)
+    if (running) return running
+    const p = fetch(`/api/articles/by-title?projectId=${encodeURIComponent(project.id)}&id=${encodeURIComponent(a.id)}&fields=html`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { htmlContent?: unknown } | null) => {
+        const html = typeof d?.htmlContent === 'string' ? d.htmlContent : ''
+        if (d) { htmlCache.current.set(a.id, { at, html }); htmlFailed.current.delete(a.id) }
+        else htmlFailed.current.add(a.id)
+        setHtmlTick(t => t + 1)
+        return html
+      })
+      .catch(() => { htmlFailed.current.add(a.id); setHtmlTick(t => t + 1); return '' })
+      .finally(() => { htmlInflight.current.delete(key) })
+    htmlInflight.current.set(key, p)
+    return p
+  }
+
+  // โหลดเนื้อหาเบื้องหลังทีละ 3 บทความ — ใช้ทำการ์ด TOC/FAQ/CTA และเป็นเนื้อหาที่ push
+  useEffect(() => {
+    const todo = dbArticles.filter(a => a.hasHtml && !NOT_PUSHABLE.has(a.status ?? '') && htmlCache.current.get(a.id)?.at !== (a.updatedAt ?? ''))
+    if (todo.length === 0) return
+    let cancelled = false
+    let next = 0
+    const worker = async () => { while (!cancelled && next < todo.length) await loadArticleHtml(todo[next++]) }
+    void Promise.all([worker(), worker(), worker()])
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbArticles])
 
   async function handleSaveConnection() {
     setSavingConn(true)
@@ -190,27 +241,41 @@ export default function SmePushTab({
     }
   }
 
-  // บทความพร้อม push = session jobs (มีรูปที่เจน) + DB (รอดตอนรีเฟรช) — รวมกันเหมือนเดิม
+  // บทความพร้อม push = DB เป็นหลัก (Review แก้ข้อความ/สร้างรูป/เปลี่ยนปก บันทึกลง DB) + session jobs ที่ยังไม่มีแถวใน DB
   const readyArticles: ReadyPushItem[] = (() => {
+    const dbByTitle = new Map<string, DbArticleLite>()
+    for (const a of dbArticles) {
+      const t = (a.title ?? '').trim()
+      if (t && !dbByTitle.has(t)) dbByTitle.set(t, a)
+    }
+    const rewriting = new Set(jobs.filter(j => j.status === 'writing' || j.status === 'cover').map(j => j.entryIdx))
     const byEntry = new Map<number, ReadyPushItem>()
     for (const j of jobs) {
       if (j.html && (j.status === 'done' || j.status === 'review' || j.status === 'approved')) {
+        const db = dbByTitle.get((j.title ?? '').trim())
+        if (db && NOT_PUSHABLE.has(db.status ?? '')) continue
+        // ปกใน DB = ปกล่าสุด → ไม่ส่งปกจาก session ให้ server ใช้ของ DB · DB ไม่มีปก (บทความรุ่นเก่า) ค่อยใช้ปกใน session
+        const dbHasCover = db?.hasDataCover === true
         byEntry.set(j.entryIdx, {
           entryIdx: j.entryIdx, title: j.title, keyword: j.keyword, slug: j.slug ?? '',
-          html: j.html, coverImage: j.coverImage ?? '', coverMimeType: j.coverMimeType ?? 'image/webp',
+          html: (db && htmlCache.current.get(db.id)?.html) || j.html,
+          coverImage: dbHasCover ? '' : (j.coverImage ?? ''), coverMimeType: j.coverMimeType ?? 'image/webp',
+          articleId: db?.id,
         })
       }
     }
     for (const a of dbArticles) {
-      if (!a.htmlContent || NOT_PUSHABLE.has(a.status ?? '')) continue
+      if (!a.hasHtml || NOT_PUSHABLE.has(a.status ?? '')) continue
       const entryIdx = timeline.findIndex(t => (t.title ?? '').trim() === (a.title ?? '').trim())
-      if (entryIdx < 0 || byEntry.has(entryIdx)) continue
+      if (entryIdx < 0 || byEntry.has(entryIdx) || rewriting.has(entryIdx)) continue
       byEntry.set(entryIdx, {
         entryIdx,
         title: a.title ?? timeline[entryIdx]?.title ?? '',
         keyword: a.keyword?.keyword ?? timeline[entryIdx]?.keyword ?? '',
         slug: a.slug ?? timeline[entryIdx]?.slug ?? '',
-        html: a.htmlContent, coverImage: '', coverMimeType: 'image/webp',
+        // ยังโหลดเนื้อหาไม่เสร็จ = html ว่าง (การ์ดขึ้นทีหลัง) · กด Push จะโหลดให้ก่อนส่ง
+        html: htmlCache.current.get(a.id)?.html ?? '', coverImage: '', coverMimeType: 'image/webp',
+        articleId: a.id,
       })
     }
     return Array.from(byEntry.values())
@@ -223,13 +288,16 @@ export default function SmePushTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readyArticles.map(j => `${j.entryIdx}:${j.html.length}`).join('|')])
 
-  function isCardOn(entryIdx: number, cardId: string): boolean {
-    const card = parsedMap.get(entryIdx)?.cards.find(c => c.id === cardId)
-    if (!card) return false
-    const explicit = cardSel[entryIdx]?.[cardId]
+  function cardOn(entryIdx: number, card: ParsedArticle['cards'][number]): boolean {
+    const explicit = cardSel[entryIdx]?.[card.id]
     if (explicit !== undefined) return explicit
     if (pushPrefs.excludeCards?.[card.type]) return false
     return !card.derived
+  }
+
+  function isCardOn(entryIdx: number, cardId: string): boolean {
+    const card = parsedMap.get(entryIdx)?.cards.find(c => c.id === cardId)
+    return card ? cardOn(entryIdx, card) : false
   }
 
   function toggleCard(entryIdx: number, cardId: string) {
@@ -241,12 +309,11 @@ export default function SmePushTab({
     }
   }
 
-  function htmlForPush(entryIdx: number, originalHtml: string): string {
-    const parsed = parsedMap.get(entryIdx)
-    if (!parsed) return originalHtml
-    const untouched = parsed.cards.every(c => isCardOn(entryIdx, c.id) === !c.derived)
+  /** parsed = ผล parse ของ originalHtml ตัวเดียวกัน (ไม่ส่ง = parse ใหม่ เช่นเนื้อหาเพิ่งโหลดตอนกด Push) */
+  function htmlForPush(entryIdx: number, originalHtml: string, parsed: ParsedArticle = parseArticleCards(originalHtml)): string {
+    const untouched = parsed.cards.every(c => cardOn(entryIdx, c) === !c.derived)
     if (untouched) return originalHtml
-    const ids = new Set(parsed.cards.filter(c => isCardOn(entryIdx, c.id)).map(c => c.id))
+    const ids = new Set(parsed.cards.filter(c => cardOn(entryIdx, c)).map(c => c.id))
     return assembleArticleHtml(parsed, ids)
   }
 
@@ -264,12 +331,13 @@ export default function SmePushTab({
     [dbArticles],
   )
 
-  const findDbArticle = (title: string) => dbArticles.find(a => (a.title ?? '').trim() === (title ?? '').trim())
+  const findDbArticle = (title: string, id?: string) =>
+    (id ? dbArticles.find(a => a.id === id) : undefined) ?? dbArticles.find(a => (a.title ?? '').trim() === (title ?? '').trim())
   const getPushJob = (entryIdx: number) => pushJobs.find(p => p.entryIdx === entryIdx)
 
   async function handlePush(entryIdx: number) {
     const job = readyArticles.find(j => j.entryIdx === entryIdx)
-    if (!job?.html) return
+    if (!job || (!job.html && !job.articleId)) return
     const entry = timeline[entryIdx]
     const title = entry?.title ?? job.title ?? ''
     const keyword = entry?.keyword ?? job.keyword ?? ''
@@ -281,10 +349,19 @@ export default function SmePushTab({
 
     setPushJobs(prev => [...prev.filter(p => p.entryIdx !== entryIdx), { entryIdx, keyword, title, slug, status: 'pushing' }])
     try {
+      // เนื้อหาล่าสุดใน DB (Review แก้แล้วบันทึก DB) ชนะ — โหลดไม่ได้ค่อยใช้ของในเซสชัน
+      const dbRow = job.articleId ? dbArticles.find(a => a.id === job.articleId) : undefined
+      const html = (dbRow?.hasHtml ? await loadArticleHtml(dbRow) : '') || job.html
+      if (!html) {
+        setPushJobs(prev => prev.map(p => p.entryIdx === entryIdx ? { ...p, status: 'error', error: 'โหลดเนื้อหาบทความไม่สำเร็จ — ลองใหม่อีกครั้ง' } : p))
+        toast.error('Push ไม่สำเร็จ: โหลดเนื้อหาบทความไม่สำเร็จ')
+        return
+      }
+      const parsedNow = html === job.html ? parsedMap.get(entryIdx) : undefined
       const res = await fetch('/api/push/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, html: htmlForPush(entryIdx, job.html), title, keyword, slug, coverImage, coverMimeType, metaTitle: reviewMetaTitle, metaDescription: reviewMetaDesc, publishMode, useElementor: pushPrefs.useElementor === true, wpPostType: getWpPostType(entryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true, autoRequestIndex: pushPrefs.autoRequestIndex !== false }),
+        body: JSON.stringify({ projectId: project.id, articleId: job.articleId, html: htmlForPush(entryIdx, html, parsedNow), title, keyword, slug, coverImage, coverMimeType, metaTitle: reviewMetaTitle, metaDescription: reviewMetaDesc, publishMode, useElementor: pushPrefs.useElementor === true, wpPostType: getWpPostType(entryIdx), connectionId: selectedConnId || undefined, stripH1: pushPrefs.stripH1 ?? true, autoRequestIndex: pushPrefs.autoRequestIndex !== false }),
       })
       const data = await res.json()
       if (!res.ok || data.error) {
@@ -294,8 +371,10 @@ export default function SmePushTab({
       }
       setPushJobs(prev => prev.map(p => p.entryIdx === entryIdx
         ? { ...p, status: 'done', postId: data.postId, postUrl: data.postUrl, pushedAt: new Date().toISOString() } : p))
-      setPushedMode(prev => ({ ...prev, [entryIdx]: publishMode }))
-      toast.success('Push สำเร็จ')
+      // สถานะจริงบนเว็บ — Re-push โพสต์ที่ Live อยู่ server คง Live ไว้แม้เลือก Draft
+      const pushedAs: 'draft' | 'publish' = data.status === 'publish' ? 'publish' : 'draft'
+      setPushedMode(prev => ({ ...prev, [entryIdx]: pushedAs }))
+      toast.success(pushedAs === 'publish' && publishMode === 'draft' ? 'Re-push สำเร็จ — โพสต์นี้ Live อยู่แล้ว จึงคง Live ไว้ (ไม่ดึงลงเป็น Draft)' : 'Push สำเร็จ')
       if (typeof data.warning === 'string' && data.warning) toast.warning(data.warning)
       if (data.indexRequest) {
         if (data.indexRequest.ok) toast.success('ส่ง Request Index ให้ Google แล้ว')
@@ -307,7 +386,7 @@ export default function SmePushTab({
           const wb = await fetch('/api/articles/by-title', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId: project.id, title, wordpressUrl: data.postUrl, status: publishMode === 'publish' ? 'POSTED' : 'WORDPRESS_DRAFTED' }),
+            body: JSON.stringify({ projectId: project.id, id: job.articleId, title, wordpressUrl: data.postUrl, status: pushedAs === 'publish' ? 'POSTED' : 'WORDPRESS_DRAFTED' }),
           })
           if (!wb.ok) throw new Error(`HTTP ${wb.status}`)
         } catch (e) {
@@ -448,6 +527,7 @@ export default function SmePushTab({
           </label>
         </div>
         {publishMode === 'publish' && <p className="text-[11px] text-amber-600">จะ Publish บทความขึ้น Live ทันที</p>}
+        {publishMode === 'draft' && <p className="text-[11px] text-gray-400">Re-push บทความที่ Live อยู่แล้ว = อัปเดตเนื้อหาและคง Live ไว้ (ไม่ดึงลงเป็น Draft)</p>}
 
         {/* ผลสแกนเว็บปลายทาง (อ่านอย่างเดียว) */}
         <div className="border border-gray-100 rounded-lg px-3 py-2 space-y-1">
@@ -490,7 +570,7 @@ export default function SmePushTab({
         {readyArticles.map(job => {
           const entry = timeline[job.entryIdx]
           const pj = getPushJob(job.entryIdx)
-          const dbA = findDbArticle(job.title)
+          const dbA = findDbArticle(job.title, job.articleId)
           const parsed = parsedMap.get(job.entryIdx)
           const pushing = pj?.status === 'pushing'
           const liveUrl = (pj?.status === 'done' ? pj.postUrl : undefined) || dbA?.wordpressUrl || undefined
@@ -517,6 +597,9 @@ export default function SmePushTab({
                         : 'bg-gray-100 text-gray-500'}`}>
                         {pushing ? 'กำลัง Push...' : pj?.status === 'error' ? 'Push ไม่สำเร็จ' : pushed ? (isDraft ? 'Draft' : 'Push แล้ว') : 'ยังไม่ push'}
                       </span>
+                      {dbA?.status === 'REVIEW' && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">ยังไม่ Approve</span>
+                      )}
                       {liveUrl && (
                         <a href={liveUrl} target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 hover:underline">
@@ -559,8 +642,9 @@ export default function SmePushTab({
                       {ir?.ok ? 'Request Index อีกครั้ง' : 'Request Index'}
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" disabled={!connected || pushing || batchBusy} onClick={() => handlePush(job.entryIdx)}>
-                    {pushing ? 'กำลัง Push...' : pushed ? 'Push ซ้ำ' : 'Push'}
+                  <Button size="sm" variant="outline" disabled={!connected || pushing || batchBusy} onClick={() => handlePush(job.entryIdx)}
+                    title={pushed ? 'อัปเดตทับโพสต์เดิมบนเว็บ ไม่สร้างโพสต์ใหม่' : undefined}>
+                    {pushing ? 'กำลัง Push...' : pushed ? <><RotateCcw size={12} className="mr-1" /> Re-push (ทับของเดิม)</> : 'Push'}
                   </Button>
                   {canDelete && dbA?.id && (
                     <Button size="sm" variant="outline" title="ลบแถวนี้ในระบบ" aria-label="ลบแถวนี้ในระบบ"
@@ -578,6 +662,9 @@ export default function SmePushTab({
               )}
               {pj?.status === 'error' && pj.error && <p className="text-xs text-rose-500">{pj.error}</p>}
 
+              {!parsed && !job.html && (job.articleId && htmlFailed.current.has(job.articleId)
+                ? <p className="text-[11px] text-rose-500">โหลดเนื้อหาไม่สำเร็จ — กด Push จะลองโหลดใหม่</p>
+                : <p className="text-[11px] text-gray-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> กำลังโหลดเนื้อหา…</p>)}
               {parsed && (
                 <div className="border border-gray-100 rounded-lg">
                   <div className="flex items-center gap-1.5 flex-wrap px-2.5 py-1.5">

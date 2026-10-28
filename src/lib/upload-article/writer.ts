@@ -7,8 +7,10 @@ import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
 import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
 import { articleStructureSkillBlock } from '@/lib/article-structure'
 
-/** WRITING ที่ค้างเกินนี้ถือว่าตาย (proc ตายกลางทาง) — ลบทิ้งแล้วเขียนใหม่ได้ */
-export const WRITER_STALE_MS = 6 * 60 * 1000
+/** เวลาสูงสุดที่ route เขียนทำงานได้ (= maxDuration ของ write route, วินาที) */
+export const WRITER_MAX_DURATION_S = 800
+/** WRITING ที่ค้างเกินนี้ถือว่าตาย (proc ตายกลางทาง) — ต้องมากกว่า maxDuration ของ route + เผื่อ กันลบแถวที่ยังเขียนอยู่ */
+export const WRITER_STALE_MS = WRITER_MAX_DURATION_S * 1000 + 2 * 60 * 1000
 
 /** เนื้อหาที่ clean แล้วสั้นกว่านี้ถือว่าล้มเหลว (โมเดลตอบว่าง/ตัดกลางทาง) */
 export const MIN_CLEANED_HTML_LENGTH = 300
@@ -179,7 +181,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push(`- มี <h1> เดียวเท่านั้น (${keyword.title ? `ใช้ข้อความ "${keyword.title}" เป๊ะ ๆ` : 'ตั้งตามหัวข้อบทความที่เหมาะกับ keyword'})`)
   lines.push('- โครงสร้างใช้ <h2>/<h3>, <p>, <ul>/<ol>/<li>, <table>, <strong>/<em>, <a href="...">')
   lines.push(`- กล่องสรุปประเด็นสำคัญ ต่อจากย่อหน้าเปิดเรื่อง: <h2>${task.language === 'en' ? 'Key Takeaways' : 'สรุปประเด็นสำคัญ'}</h2> ตามด้วย <ul> 3-5 ข้อ (ระบบแปลงเป็นกล่องเอง)`)
-  lines.push('- ส่วน FAQ ให้ทำเป็น <h2> ที่มีคำว่า "FAQ" หรือ "คำถามที่พบบ่อย" ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>')
+  lines.push(`- ส่วน FAQ ให้ทำเป็น <h2>${task.language === 'en' ? 'Frequently Asked Questions' : 'คำถามที่พบบ่อย'}</h2> ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>`)
   lines.push('- ห้ามมี <style>, inline style (style="..."), class="...", <html>, <body>, รูปภาพ (<img>) เด็ดขาด')
 
   return lines.join('\n')
@@ -244,7 +246,7 @@ export function buildFaqFillPrompt(language: 'th' | 'en' | undefined): string {
     '- จำนวนคำถามและรูปแบบคำตอบตาม Business Skill / Master Prompt / Article Brief / Validator Pack ด้านบน ถ้าไม่ได้กำหนดจำนวน ให้ครอบคลุมคำถามสำคัญที่ผู้อ่านของ keyword นี้น่าจะถามจริง (มากกว่า 1 ข้อ)',
     '- ข้อเท็จจริงต้องมาจาก Business Skill และเนื้อหาบทความเท่านั้น ห้ามแต่งตัวเลข/ราคา/ข้อมูลใหม่',
     `- ภาษา: ${language === 'en' ? 'English' : 'ไทย'} และใช้น้ำเสียงเดียวกับบทความ`,
-    '- ตอบเป็น HTML ล้วน ขึ้นต้นด้วย <h2> ที่มีคำว่า "FAQ" หรือ "คำถามที่พบบ่อย" ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>',
+    `- ตอบเป็น HTML ล้วน ขึ้นต้นด้วย <h2>${language === 'en' ? 'Frequently Asked Questions' : 'คำถามที่พบบ่อย'}</h2> ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>`,
     '- ห้ามมีส่วนอื่นของบทความ ห้ามมี META_DESCRIPTION, ---HTML---, markdown code fence, style, class',
   ].join('\n')
 }

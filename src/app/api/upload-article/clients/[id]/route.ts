@@ -235,7 +235,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     data.siteConnection = JSON.stringify(merged)
   }
 
+  // เปลี่ยนเว็บ WordPress (โฮสต์ wpUrl) → id/ลิงก์โพสต์เดิมเป็นของเว็บเก่า ห้ามเก็บไว้ ไม่งั้น Re-push จะไปทับโพสต์เลขเดียวกันบนเว็บใหม่
+  // (PBN เก็บประวัติ push ใน pushPrefs.pbnPushes ต่อเว็บ ไม่ใช้คอลัมน์นี้ จึงไม่กระทบ)
+  const newHost = typeof data.wpUrl === 'string' ? hostOf(data.wpUrl) : ''
+  const wpHostChanged = newHost !== '' && newHost !== hostOf(existing.wpUrl)
+
   const updated = await prisma.uploadClient.update({ where: { id: existing.id }, data })
+  if (wpHostChanged && (existing.websitePlatform || 'wordpress') === 'wordpress') {
+    await prisma.uploadArticle.updateMany({
+      where: { clientId: existing.id, organizationId: orgId, OR: [{ wordpressPostId: { not: null } }, { wordpressUrl: { not: null } }] },
+      data: { wordpressPostId: null, wordpressUrl: null },
+    })
+  }
   const withArticles = await loadClient(updated.id, orgId)
   return NextResponse.json({
     ...toUploadClientDTO(updated, computeClientCounts(withArticles?.articles ?? [])),

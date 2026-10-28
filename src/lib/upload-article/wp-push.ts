@@ -4,6 +4,7 @@
 
 import { safeFetch, safeFetchHtml } from './safe-fetch'
 import { flattenEmbeddedNewlines } from '@/lib/articleComponents'
+import { findOrUploadWpMedia, replaceInlineDataImages } from '@/lib/wp-media'
 
 export interface WpPushInput {
   wpUrl: string
@@ -486,97 +487,14 @@ export async function applyElementorMode(
   return (await rest.exitBuilder()) ? ELEMENTOR_STALE_WARNING : ELEMENTOR_STUCK_WARNING
 }
 
-/** เรียก fn กับ items พร้อมกันไม่เกิน limit ตัว — คงลำดับผลลัพธ์ตาม items เดิม */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  async function worker() {
-    while (next < items.length) {
-      const i = next++
-      results[i] = await fn(items[i])
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()))
-  return results
-}
-
-/**
- * รูปที่ฝังเป็น data:image ในเนื้อหา → อัปขึ้น Media Library แล้วเปลี่ยน src เป็นลิงก์จริง
- * (HTML สั้นลงมาก และ WordPress บางเว็บตัด data: URI ทิ้ง) อัปไม่สำเร็จ = คงรูปเดิมไว้
- * อัปพร้อมกันไม่เกิน 3 รูป — data URI ซ้ำ (Map dedupe โดย key) อัปครั้งเดียว
- */
-/** alt ของแท็ก <img> ที่ครอบตำแหน่ง pos (ตำแหน่ง src ใน html) — ถอด entity พื้นฐาน, ไม่มี = '' */
-function imgAltAt(html: string, pos: number): string {
-  const start = html.lastIndexOf('<img', pos)
-  const end = html.indexOf('>', pos)
-  if (start < 0 || end < 0) return ''
-  const tag = html.slice(start, end + 1)
-  const alt = /\balt="([^"]*)"/i.exec(tag)?.[1] || ''
-  return alt.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim()
-}
-
-async function replaceInlineImages(
-  wpUrl: string, creds: string, html: string, title: string, known: Map<string, string>,
-): Promise<string> {
-  const re = /src="(data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+))"/gi
-  const found = new Map<string, { mime: string; base64: string; alt: string }>()
-  let m: RegExpExecArray | null
-  while ((m = re.exec(html))) {
-    if (found.get(m[1])?.alt) continue
-    found.set(m[1], { mime: m[2].toLowerCase(), base64: m[3], alt: imgAltAt(html, m.index) })
-  }
-  const toUpload = Array.from(found.entries()).filter(([dataUri]) => !known.has(dataUri))
-  const uploadedNow = new Map<string, string>()
-  await mapWithConcurrency(toUpload, 3, async ([dataUri, img]) => {
-    // ชื่อรูปใน Media Library = alt ของรูปนั้น (ไม่มี alt = ชื่อบทความแบบเดิม)
-    const name = img.alt || title
-    const result = await uploadMedia(wpUrl, creds, img.base64, img.mime, name, name)
-    if (result?.url) uploadedNow.set(dataUri, result.url)
-  })
-  let out = html
-  for (const [dataUri] of Array.from(found)) {
-    const url = known.get(dataUri) ?? uploadedNow.get(dataUri)
-    if (url) out = out.split(dataUri).join(url)
-  }
-  return out
-}
-
 async function uploadMedia(
   wpUrl: string, creds: string, imageBase64: string, mimeType: string, title: string, altText: string,
 ): Promise<{ id: number; url: string } | null> {
-  try {
-    const imageBuffer = Buffer.from(imageBase64, 'base64')
-    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp'
-    const boundary = `----WPUpload${Date.now()}`
-    const filename = `cover-${Date.now()}.${ext}`
-
-    const titleBuf = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\n${title}\r\n` +
-      `--${boundary}\r\nContent-Disposition: form-data; name="alt_text"\r\n\r\n${altText}\r\n`,
-    )
-    const header = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`,
-    )
-    const footer = Buffer.from(`\r\n--${boundary}--\r\n`)
-    const body = Buffer.concat([titleBuf, header, imageBuffer, footer])
-
-    const res = await safeFetch(`${wpUrl}/wp-json/wp/v2/media`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${creds}`,
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Disposition': `attachment; filename="${filename}"`,
-      },
-      body,
-      signal: AbortSignal.timeout(30000),
-    }, { requireHttps: true, sameHostOnly: true })
-
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.id ? { id: Number(data.id), url: String(data.source_url || '') } : null
-  } catch {
-    return null
-  }
+  const r = await findOrUploadWpMedia({
+    wpUrl, creds, base64: imageBase64, mime: mimeType, title, alt: altText,
+    fetchFn: (u, i) => safeFetch(u, i, { requireHttps: true, sameHostOnly: true }),
+  })
+  return r ? { id: r.id, url: r.url } : null
 }
 
 /** push บทความหนึ่งชิ้นขึ้น WordPress (สร้างใหม่ หรืออัพเดตถ้ามี slug ชนกัน) */
@@ -613,7 +531,10 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
     // ปกในเนื้อหาเป็นรูปเดียวกับ featured image — ใช้ลิงก์ที่อัปแล้ว ไม่อัปซ้ำ
     if (cover?.url) uploaded.set(`data:${mime};base64,${input.coverBase64}`, cover.url)
   }
-  const htmlLinked = await replaceInlineImages(wpUrl, creds, htmlWithAlt, finalMetaTitle, uploaded)
+  const htmlLinked = await replaceInlineDataImages({
+    wpUrl, creds, html: htmlWithAlt, title: finalMetaTitle, known: uploaded,
+    fetchFn: (u, i) => safeFetch(u, i, { requireHttps: true, sameHostOnly: true }),
+  })
 
   // ใส่เนื้อหาเสมอแม้ใช้ Elementor — เขียน Elementor ไม่สำเร็จ หน้าเว็บก็ยังแสดงเนื้อหาจริง ไม่ใช่หน้าว่าง
   const content = htmlLinked
@@ -643,14 +564,19 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
   // หา post ที่มีอยู่แล้ว: re-push ใช้ existingPostId ตรง ๆ ก่อน ถ้าไม่มีค่อยตรวจ slug ชนกัน
   const findBySlug = async (): Promise<number | null> => {
     if (!finalSlug) return null
-    const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&status=any&_fields=id&per_page=1`
+    const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&status=any&context=edit&_fields=id,content&per_page=1`
     const checkRes = await safeFetch(checkUrl, {
       headers: { Authorization: `Basic ${creds}` },
       signal: AbortSignal.timeout(10000),
     }, { requireHttps: true, sameHostOnly: true }).catch(() => null)
     if (checkRes?.ok) {
       const found = await checkRes.json().catch(() => [])
-      if (Array.isArray(found) && found.length > 0) return found[0].id
+      if (Array.isArray(found) && found.length > 0) {
+        // รับเป็นโพสต์เดิมเฉพาะที่ Mars สร้าง (มี wrapper content-article ที่ build-html ใส่ทุกบทความ) — โพสต์ที่คนเขียนเองห้ามทับ
+        const c = found[0].content as { raw?: unknown; rendered?: unknown } | undefined
+        const text = `${typeof c?.raw === 'string' ? c.raw : ''}${typeof c?.rendered === 'string' ? c.rendered : ''}`
+        if (text.includes('content-article')) return found[0].id
+      }
     }
     return null
   }

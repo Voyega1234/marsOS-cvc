@@ -27,12 +27,20 @@ const TITLE_SKILL_EXAMPLES_TH: { keyword: string; bad: string; good: string }[] 
   { keyword: 'ทำฟันคุด', bad: 'ทำฟันคุด ขั้นตอน ราคา การดูแล', good: 'ทำฟันคุดเจ็บไหม ต้องเตรียมตัวยังไง และหลังผ่าต้องดูแลแบบไหน' },
 ]
 
-/** ขั้นคิดก่อนตั้งชื่อ (ภาษาอังกฤษ) — ใช้เมื่อ keyword เป็นภาษาอังกฤษ */
+/** ขั้นคิดก่อนตั้งชื่อ (ภาษาอังกฤษ) — ใช้เมื่อโปรเจกต์เขียนอังกฤษ หรือ keyword เป็นภาษาอังกฤษในโหมดไทย+อังกฤษ */
 const TITLE_SKILL_STEPS_EN = [
   'Work out what the searcher actually wants to know before writing.',
   'Write one natural sentence a person would say out loud, not a keyword followed by a loose fragment.',
   'Join ideas with real connectors (and, so, how, why, what, when) instead of stacking bare verb phrases.',
+  'Keep the core words of the keyword, but reorder them or add words so the sentence is grammatical.',
   'No colon or dash splitting the title into two halves, no clickbait, no filler like "Ultimate Guide", "Everything You Need to Know", "Unlock".',
+  'Check before sending: a friend who knows nothing about the topic should understand at once what the article helps with.',
+]
+
+const TITLE_SKILL_EXAMPLES_EN: { keyword: string; bad: string; good: string }[] = [
+  { keyword: 'how to get rid of termites', bad: 'How to Get Rid of Termites: Methods and Tips', good: 'How to get rid of termites yourself and when to call a pro' },
+  { keyword: 'condo near bts', bad: 'Condo Near BTS Location and Price Comparison', good: 'How to choose a condo near the BTS that is worth the price' },
+  { keyword: 'wisdom tooth removal', bad: 'Wisdom Tooth Removal: Procedure, Cost, Aftercare', good: 'Does wisdom tooth removal hurt, and how should you prepare for it' },
 ]
 
 export interface TitleSkillOptions {
@@ -40,25 +48,38 @@ export interface TitleSkillOptions {
   language: 'th' | 'en' | 'both'
 }
 
-/** ข้อความ skill ที่แนบใน system prompt ของการตั้ง title */
-export function titleSkillBlock(opts: TitleSkillOptions): string {
-  const lines: string[] = [`════ ${TITLE_SKILL_NAME} — วิธีตั้งชื่อบทความให้เป็นภาษาคน อ่านต่อเนื่อง มีความหมาย ════`]
-  lines.push(...TITLE_SKILL_STEPS_TH.map((s, i) => `${i + 1}. ${s}`))
+function thaiSkillLines(): string[] {
+  const lines = TITLE_SKILL_STEPS_TH.map((s, i) => `${i + 1}. ${s}`)
   lines.push('ตัวอย่าง (ดูรูปแบบ ห้ามลอกคำ):')
-  for (const ex of TITLE_SKILL_EXAMPLES_TH) {
-    lines.push(`- keyword "${ex.keyword}" ✗ "${ex.bad}" ✓ "${ex.good}"`)
+  for (const ex of TITLE_SKILL_EXAMPLES_TH) lines.push(`- keyword "${ex.keyword}" ✗ "${ex.bad}" ✓ "${ex.good}"`)
+  lines.push('กฎภาษาเพิ่มเติม:', humanTitleRulesBlock('th'))
+  return lines
+}
+
+function englishSkillLines(): string[] {
+  const lines = TITLE_SKILL_STEPS_EN.map((s, i) => `${i + 1}. ${s}`)
+  lines.push('Examples (copy the pattern, not the words):')
+  for (const ex of TITLE_SKILL_EXAMPLES_EN) lines.push(`- keyword "${ex.keyword}" ✗ "${ex.bad}" ✓ "${ex.good}"`)
+  lines.push('More language rules:', humanTitleRulesBlock('en'))
+  return lines
+}
+
+/** ข้อความ skill ที่แนบใน system prompt ของการตั้ง title — ภาษาของ skill ตามภาษาของโปรเจกต์ */
+export function titleSkillBlock(opts: TitleSkillOptions): string {
+  if (opts.language === 'en') {
+    return [
+      `════ ${TITLE_SKILL_NAME} — how to write a title that reads like a person wrote it ════`,
+      ...englishSkillLines(),
+      'Title language: English only. Thai keywords must get a natural English title that keeps their search intent (brand and proper names stay as they are).',
+    ].join('\n')
   }
-  lines.push('กฎภาษาเพิ่มเติม:', humanTitleRulesBlock())
-  if (opts.language !== 'th') {
-    lines.push('For English keywords:', ...TITLE_SKILL_STEPS_EN.map((s) => `- ${s}`))
+  const lines: string[] = [`════ ${TITLE_SKILL_NAME} — วิธีตั้งชื่อบทความให้เป็นภาษาคน อ่านต่อเนื่อง มีความหมาย ════`, ...thaiSkillLines()]
+  if (opts.language === 'both') {
+    lines.push('สำหรับ keyword ภาษาอังกฤษ (For English keywords):', ...englishSkillLines())
+    lines.push('ภาษาของ title: ใช้ภาษาเดียวกับ keyword นั้น (keyword ไทย = title ไทย, keyword อังกฤษ = title อังกฤษ)')
+  } else {
+    lines.push('ภาษาของ title: ไทยเท่านั้น (keyword ภาษาอังกฤษให้ตั้งชื่อเป็นภาษาไทย คงชื่อเฉพาะ/ชื่อแบรนด์ไว้ได้)')
   }
-  lines.push(
-    opts.language === 'th'
-      ? 'ภาษาของ title: ไทยเท่านั้น (keyword ภาษาอังกฤษให้ตั้งชื่อเป็นภาษาไทย คงชื่อเฉพาะ/ชื่อแบรนด์ไว้ได้)'
-      : opts.language === 'en'
-        ? 'Title language: English only (translate the intent of Thai keywords into a natural English title).'
-        : 'ภาษาของ title: ใช้ภาษาเดียวกับ keyword นั้น (keyword ไทย = title ไทย, keyword อังกฤษ = title อังกฤษ)',
-  )
   return lines.join('\n')
 }
 

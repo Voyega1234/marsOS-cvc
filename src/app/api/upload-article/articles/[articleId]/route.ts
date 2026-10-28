@@ -167,8 +167,30 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
     const inPublishAt = Boolean(cur.publishAt && existing.id in cur.publishAt)
     const inOwners = Boolean(cur.articleOwners && existing.id in cur.articleOwners)
     const inIndexRequests = Boolean(cur.indexRequests && existing.id in cur.indexRequests)
-    if (!inCardSel && !inPublishAt && !inOwners && !inIndexRequests) return { result: undefined }
+    // แผนที่อื่นที่คีย์ด้วย articleId (PBN) + keywordPlan ที่ผูก articleId — ตัดทิ้งด้วย
+    const raw = cur as unknown as Record<string, unknown>
+    const mapKeys = ['pbnArticleTargets', 'pbnPushes', 'pbnIndexRequests'].filter((k) => {
+      const m = raw[k]
+      return Boolean(m && typeof m === 'object' && existing.id in (m as Record<string, unknown>))
+    })
+    const plan = Array.isArray(raw.keywordPlan) ? (raw.keywordPlan as Array<Record<string, unknown>>) : []
+    const inPlan = plan.some((k) => k?.articleId === existing.id)
+    if (!inCardSel && !inPublishAt && !inOwners && !inIndexRequests && mapKeys.length === 0 && !inPlan) return { result: undefined }
     const next: UploadPushPrefs = { ...cur }
+    const nextRaw = next as unknown as Record<string, unknown>
+    for (const k of mapKeys) {
+      const m = { ...(raw[k] as Record<string, unknown>) }
+      delete m[existing.id]
+      nextRaw[k] = m
+    }
+    if (inPlan) {
+      nextRaw.keywordPlan = plan.map((k) => {
+        if (k?.articleId !== existing.id) return k
+        const item = { ...k }
+        delete item.articleId
+        return item
+      })
+    }
     if (inCardSel) {
       const nextCardSel = { ...cur.cardSel }
       delete nextCardSel[existing.id]

@@ -17,7 +17,8 @@ export async function GET(req: NextRequest) {
     where: projectId
       ? { projectId, project: { organizationId: orgId } }
       : { project: { organizationId: orgId } },
-    orderBy: { priority: "asc" },
+    // priority = คะแนนยิ่งมากยิ่งสำคัญ (>=70 high, >=40 medium) → เรียงมากไปน้อยให้ Top-N ได้ตัวสำคัญสุด
+    orderBy: { priority: "desc" },
   });
   return NextResponse.json(keywords);
 }

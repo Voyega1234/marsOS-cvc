@@ -6,13 +6,13 @@ import { stripStyleTags, stripLeadingH1 } from '@/lib/articleComponents'
 import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 import { pushArticleToWordPress } from '@/lib/upload-article/wp-push'
 import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
-import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
+import { refreshUploadSchema, uploadArticleLanguage, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { parseUploadCards, assembleUploadHtml, uploadHtmlVersion } from '@/lib/upload-article/cards'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
-import { isPbnPrefs, readPbnSites, readPbnPushes, type PbnSite } from '@/lib/upload-article/pbn'
-import { publishToGithub } from '@/lib/upload-article/github-push'
+import { isPbnPrefs, readPbnSites, readPbnPushes, cleanRepoPath, DEFAULT_GH_DIR, type PbnSite } from '@/lib/upload-article/pbn'
+import { publishToGithub, safeFileSlug } from '@/lib/upload-article/github-push'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
 import { faqQuestionsToSpan } from '@/lib/article-structure'
@@ -242,6 +242,14 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   try {
     const { base64, mime } = coverToBase64(article.coverImageUrl)
     if (pbnSite && pbnSite.platform === 'github') {
+      // slug ซ้ำกับบทความอื่นบนเว็บเดียวกัน = path ไฟล์เดียวกัน → ห้ามทับ (re-push บทความเดิมได้)
+      const ghDirClean = cleanRepoPath(pbnSite.ghDir ?? DEFAULT_GH_DIR) ?? ''
+      const ghExt = pbnSite.ghFormat === 'html' ? 'html' : pbnSite.ghFormat === 'mdx' ? 'mdx' : 'md'
+      const targetPath = `${ghDirClean ? `${ghDirClean}/` : ''}${safeFileSlug(article.slug || article.title, article.title)}.${ghExt}`
+      const taken = Object.entries(readPbnPushes(prevPrefs as Record<string, unknown>)).some(
+        ([aid, bySite]) => aid !== article.id && bySite[pbnSite.id]?.postId === targetPath,
+      )
+      if (taken) throw new Error('slug นี้ถูกใช้กับบทความอื่นบนเว็บนี้แล้ว เปลี่ยน slug ก่อน')
       const result = await publishToGithub({
         owner: pbnSite.ghOwner as string,
         repo: pbnSite.ghRepo as string,
@@ -263,7 +271,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         coverMimeType: mime,
         coverAlt: article.coverAlt || article.title,
         publishMode,
-        language: eff.client.language === 'en' ? 'en' : 'th',
+        language: uploadArticleLanguage(eff.client.language, article.title),
         date: publishAt,
       })
       ok = result.ok
@@ -356,11 +364,17 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     wasPushed = Boolean(readPbnPushes(prevPrefs as Record<string, unknown>)[article.id])
     if (ok) {
       const site = pbnSite
-      await updatePrefs(client.id, orgId, (current) => {
-        const pushes = readPbnPushes(current)
-        pushes[article.id] = { ...(pushes[article.id] || {}), [site.id]: { url: postUrl, postId, at: new Date().toISOString() } }
-        return { prefs: { ...current, pbnPushes: pushes }, result: null }
-      })
+      // จดผลล้มก็ต้องออกจาก PUSHING — push ขึ้นเว็บสำเร็จไปแล้ว จึงนับเป็น PUSHED แล้วแจ้งเตือนใน pushError
+      try {
+        await updatePrefs(client.id, orgId, (current) => {
+          const pushes = readPbnPushes(current)
+          pushes[article.id] = { ...(pushes[article.id] || {}), [site.id]: { url: postUrl, postId, at: new Date().toISOString() } }
+          return { prefs: { ...current, pbnPushes: pushes }, result: null }
+        })
+      } catch (e) {
+        const msg = `จดผล push ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`
+        error = error ? `${error}; ${msg}` : msg
+      }
       await prisma.uploadArticle.update({
         where: { id: article.id },
         data: {
@@ -384,7 +398,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       data: {
         status: 'PUSHED',
         wordpressUrl: postUrl || null,
-        wordpressPostId: postId || null,
+        // แพลตฟอร์มที่ไม่ตอบ id กลับมา → คง id เดิมไว้ (อย่าล้างทิ้ง ไม่งั้น Re-push สร้างโพสต์ซ้ำ)
+        wordpressPostId: postId || article.wordpressPostId || null,
         pushMode: effectiveMode,
         pushedAt: new Date(),
         pushError: null,

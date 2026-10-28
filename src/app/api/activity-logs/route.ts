@@ -42,6 +42,10 @@ export async function GET(request: Request) {
   if (!session?.user?.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // อ่าน log ได้เฉพาะ ADMIN (ส่วน /track ยังเปิดให้ทุกคนจดได้)
+  if (session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { searchParams } = new URL(request.url);
   const articleId = searchParams.get("articleId");

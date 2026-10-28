@@ -18,6 +18,8 @@ import type { AdvancedSettings, RunState } from '@/lib/competitor-gap/types'
 import { toDomain, toOrigin } from '@/lib/competitor-gap/urls'
 
 export const maxDuration = 300
+/** ระยะ lease ต่อหนึ่งเฟส — เกิน maxDuration เผื่อไว้ ถ้า request ตายกลางทาง lease จะหมดเอง */
+const LEASE_MS = (maxDuration + 30) * 1000
 
 const DEFAULT_ADVANCED: AdvancedSettings = {
   maxPagesPerDomain: 300,
@@ -108,6 +110,12 @@ export async function POST(req: NextRequest) {
     if (!state) return NextResponse.json({ error: 'ไม่พบรอบสแกนนี้ (อาจหมดอายุแล้ว)' }, { status: 404 })
     const project = await prisma.project.findFirst({ where: { id: state.projectId, organizationId: orgId } })
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+    // มี request อื่นกำลังเดินเฟสนี้อยู่ (เช่น สลับแท็บแล้วกลับมา) → ไม่เดินซ้อน ให้ client รอแล้วถามใหม่
+    if (state.status === 'running' && state.leaseUntil && state.leaseUntil > Date.now()) {
+      return NextResponse.json({ ...toStatus(state), busy: true })
+    }
+    state.leaseUntil = Date.now() + LEASE_MS
+    await saveRun(state)
     const ctx: RunContext = { organizationId: orgId, userId: session.user.id, projectId: state.projectId }
     const client = clientSlugFromProject(project)
     return NextResponse.json(toStatus(await withOrClient(client, () => advanceRun(state, ctx))))
@@ -143,6 +151,7 @@ export async function POST(req: NextRequest) {
     advanced: sanitizeAdvanced(body.advanced),
   }, runId)
 
+  state.leaseUntil = Date.now() + LEASE_MS
   await saveRun(state)
   const ctx: RunContext = { organizationId: orgId, userId: session.user.id, projectId }
   return NextResponse.json(toStatus(await withOrClient(clientSlugFromProject(project), () => advanceRun(state, ctx))))

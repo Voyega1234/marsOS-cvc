@@ -32,6 +32,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // approve ได้เฉพาะบทความที่อยู่ในขั้น review (APPROVED ซ้ำ = idempotent) — กัน approve ทับบทความที่ push/ยังไม่เสร็จ
+  if (action === 'approve' && !['REVIEW', 'CLIENT_REVIEW', 'APPROVED'].includes(article.status)) {
+    return NextResponse.json({ error: 'บทความนี้ยังไม่อยู่ในขั้นตอนรีวิว จึงอนุมัติไม่ได้' }, { status: 409 })
+  }
+
   const newStatus = action === 'approve' ? 'APPROVED' : 'CLIENT_REVISION'
 
   await prisma.article.update({

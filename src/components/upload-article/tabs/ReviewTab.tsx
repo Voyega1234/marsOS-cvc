@@ -15,6 +15,7 @@ import { fileToDownscaledDataUrl } from "@/lib/imageDownscale";
 import { googleDocsResultNotice, isDriveExportConfigured, preloadGoogleDocsExport, sendToGoogleDocs } from "@/lib/google-docs-export";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
 import { canDeleteArticle, duplicateMap } from "@/lib/upload-article/duplicates";
+import { resolveArticleLanguage } from "@/lib/keyword-language";
 import SerpPreview from "@/components/upload-article/shared/SerpPreview";
 import UploadStatusBadge, { UPLOAD_STATUS_OPTIONS } from "@/components/upload-article/shared/StatusBadge";
 import { listH2Sections, insertFigureAfterH2 } from "@/components/upload-article/shared/htmlSections";
@@ -326,7 +327,7 @@ export default function ReviewTab({
     if (!o) return null;
     const m = await import("@/lib/article-export");
     const doc = m.buildStandaloneArticleHtml({
-      html: o.html, title: o.title, lang: client.language === "en" ? "en" : "th",
+      html: o.html, title: o.title, lang: resolveArticleLanguage({ projectLanguage: client.language, mode: client.language, title: o.title }),
       coverSrc: o.coverSrc, coverAlt: o.coverAlt, pageBackground: client.theme.pageBackground,
     });
     return { m, blob: new Blob([doc], { type: "text/html;charset=utf-8" }), name: `${m.articleFileName(o.fileBase)}.html` };

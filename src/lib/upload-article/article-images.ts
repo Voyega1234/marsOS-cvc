@@ -9,7 +9,7 @@ import { TAKEAWAYS_HEADING_RE } from '@/lib/article-structure'
 export const GEN_FIGURE_ATTR = 'data-ua-gen'
 
 const H2_RE = /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi
-const FAQ_HEADING_RE = /(faq|คำถามที่พบบ่อย|คำถามยอดฮิต|ถาม\s*-?\s*ตอบ)/i
+const FAQ_HEADING_RE = /(faq|frequently asked|คำถามที่พบบ่อย|คำถามยอดฮิต|ถาม\s*-?\s*ตอบ)/i
 /** หัวข้อสารบัญที่ผู้เขียน/AI เขียนมาในเนื้อหา — ระบบใส่สารบัญเอง ไม่ใช่หัวข้อเนื้อหา (ไม่วางรูป/ไม่ขึ้นปก) */
 export const TOC_HEADING_RE = /^\s*(?:สารบัญ(?:บทความ|เนื้อหา)?|table of contents|contents|in this article)\s*:?\s*$/i
 

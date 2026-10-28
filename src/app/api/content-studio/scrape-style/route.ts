@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionRaw } from '@/lib/auth'
+import { safeFetch } from '@/lib/upload-article/safe-fetch'
 
 interface ScrapedStyle {
   colors: {
@@ -129,7 +130,8 @@ function extractSpacing(css: string): { paragraphMargin: string | null; sectionP
 export async function POST(req: NextRequest) {
   // route นี้ไม่มีด่าน auth เดิม — กัน role CLIENT ไว้ตรง ๆ (role อื่นไม่เปลี่ยนพฤติกรรม)
   const session = await getSessionRaw()
-  if (session?.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user?.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const { url } = await req.json();
@@ -151,7 +153,8 @@ export async function POST(req: NextRequest) {
     const timeout = setTimeout(() => controller.abort(), 12000);
     let html: string;
     try {
-      const res = await fetch(url, {
+      // safeFetch เช็ค SSRF ทุก hop (กันยิงเข้า IP ภายใน / metadata)
+      const res = await safeFetch(url, {
         signal: controller.signal,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; StyleScraper/1.0)",
@@ -183,7 +186,7 @@ export async function POST(req: NextRequest) {
     for (const href of cssHrefs.slice(0, 3)) {
       try {
         const absHref = href.startsWith("http") ? href : new URL(href, url).toString();
-        const r = await fetch(absHref, {
+        const r = await safeFetch(absHref, {
           headers: { "User-Agent": "Mozilla/5.0 (compatible; StyleScraper/1.0)" },
           signal: AbortSignal.timeout(5000),
         });

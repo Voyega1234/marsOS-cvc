@@ -16,6 +16,18 @@ const nextConfig = {
       "/api/article/write": ["./assets/fonts/**"],
     },
   },
+  // /share/[id] เป็นลิงก์สาธารณะที่แสดง HTML บทความตรง ๆ บน origin ของแอป —
+  // ห้ามรันสคริปต์ทุกชนิด (รวม onerror=) กัน stored XSS ขโมย session ทีม
+  async headers() {
+    return [
+      {
+        source: "/share/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

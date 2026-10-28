@@ -43,9 +43,8 @@ const ALLOWED_EMAILS = new Set([
 ]);
 
 /**
- * ADMIN ที่เจ้าของระบบกำหนดไว้ในโค้ด — login ครั้งแรกสร้างเป็น ADMIN เลย
- * ถ้ามี User อยู่แล้วแต่ role ยังไม่ใช่ ADMIN จะยกเป็น ADMIN ให้ตอนเข้าใช้ครั้งถัดไป (บันทึกลง DB + Activity Log)
- * เอาชื่อออกจากชุดนี้ = ไม่ยกให้อีก แต่ role ใน DB ยังอยู่ ต้องไปลดสิทธิ์ที่หน้า Users
+ * ADMIN ที่เจ้าของระบบกำหนดไว้ในโค้ด — ใช้แค่ตอน login ครั้งแรก (สร้าง User เป็น ADMIN เลย)
+ * มี User อยู่แล้ว = ใช้ role ใน DB ตามจริง ไม่ยกสิทธิ์ซ้ำทุกครั้งที่ login (เปลี่ยน role ที่หน้า Users)
  */
 const ADMIN_EMAILS = new Set([
   "apps@convertcake.com",
@@ -91,23 +90,6 @@ const resolveSession = cache(async (): Promise<AppSession | null> => {
   if (existing) {
     // INACTIVE = ถูกปิดสิทธิ์ (เช่น adminseo/userseo เก่า) — ห้ามเข้าแม้ login ผ่าน
     if (existing.status !== "ACTIVE") return null;
-    if (ADMIN_EMAILS.has(email) && existing.role !== "ADMIN") {
-      const promoted = await prisma.user.update({ where: { id: existing.id }, data: { role: "ADMIN" } });
-      if (existing.organizationId) {
-        await prisma.activityLog.create({
-          data: {
-            organizationId: existing.organizationId,
-            userId: existing.id,
-            action: "ROLE_CHANGED",
-            entityType: "User",
-            entityId: existing.id,
-            oldValue: existing.role,
-            newValue: "ADMIN",
-          },
-        }).catch(() => {});
-      }
-      return toSession(promoted);
-    }
     return toSession(existing);
   }
 

@@ -356,8 +356,10 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
 
   function sendToContentMap() {
     // ติ๊กเลือกไว้ → ส่งเฉพาะที่เลือก (count ถูกละเว้น) | ไม่ได้เลือก → ส่ง top N ตามลำดับที่แสดง
+    // รวมแถวที่ติ๊กไว้แต่ถูก filter ซ่อนอยู่ด้วย (ไม่ทิ้งเงียบ ๆ) — แถวที่เห็นมาก่อนตามลำดับที่แสดง
+    const shown = new Set(sorted.map(r => r.id))
     const source = selectedIds.size
-      ? sorted.filter(r => selectedIds.has(r.id))
+      ? [...sorted.filter(r => selectedIds.has(r.id)), ...rows.filter(r => selectedIds.has(r.id) && !shown.has(r.id))]
       : (sendCount === Infinity ? sorted : sorted.slice(0, sendCount))
     if (!source.length) return
     onSendToContentMap(source.map((r, i) => toKeywordRow(r, i)))
@@ -479,9 +481,9 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                   <option value="all">ส่งทั้งหมด</option>
                 </select>
               )}
-              <button onClick={sendToContentMap} disabled={filtered.length === 0}
+              <button onClick={sendToContentMap} disabled={filtered.length === 0 && selectedIds.size === 0}
                 className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors">
-                ส่งเข้า Content Map <ArrowRight size={12} />
+                {selectedIds.size > 0 ? `ส่งที่เลือก ${selectedIds.size} เข้า Content Map` : 'ส่งเข้า Content Map'} <ArrowRight size={12} />
               </button>
             </div>
           </div>

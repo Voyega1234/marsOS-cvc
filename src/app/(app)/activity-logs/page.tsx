@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -10,6 +11,8 @@ export default async function ActivityLogsPage() {
   const session = await getSession();
   const orgId = session?.user?.organizationId;
   if (!orgId) return null;
+  // ดูได้เฉพาะ ADMIN — log มีอีเมล/การกระทำของทุกคนในทีม
+  if (session.user.role !== "ADMIN") redirect("/dashboard");
 
   const users = await prisma.user.findMany({
     where: { organizationId: orgId },

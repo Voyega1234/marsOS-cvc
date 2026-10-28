@@ -9,8 +9,10 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const projectId = searchParams.get('projectId')
   const title     = searchParams.get('title')
+  // id = แถวที่หน้าเรียกรู้อยู่แล้ว — ชื่อซ้ำกันหลายแถวจะได้แถวที่ถูก ไม่ต้องเดาจากชื่อ
+  const id        = searchParams.get('id')
 
-  if (!projectId || !title) return NextResponse.json({ error: 'projectId and title required' }, { status: 400 })
+  if (!projectId || (!title && !id)) return NextResponse.json({ error: 'projectId and title (or id) required' }, { status: 400 })
 
   const userRole = session.user.role ?? ''
   let whereClause: Record<string, unknown>
@@ -21,14 +23,28 @@ export async function GET(req: NextRequest) {
       where: { userId_projectId: { userId: session.user.id, projectId } },
     })
     if (!access) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    whereClause = { projectId, title }
+    whereClause = id ? { id, projectId } : { projectId, title }
   } else {
     if (!session.user.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    whereClause = { projectId, title, project: { organizationId: session.user.organizationId } }
+    whereClause = id
+      ? { id, projectId, project: { organizationId: session.user.organizationId } }
+      : { projectId, title, project: { organizationId: session.user.organizationId } }
+  }
+
+  // fields=html = เอาแค่เนื้อหา (หน้า Push โหลดทีละบทความ) — ไม่ส่งปก data URI/คอมเมนต์ที่ไม่ได้ใช้
+  if (searchParams.get('fields') === 'html') {
+    const lite = await prisma.article.findFirst({
+      where: whereClause,
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, status: true, htmlContent: true, updatedAt: true },
+    })
+    if (!lite) return NextResponse.json({ error: 'not found' }, { status: 404 })
+    return NextResponse.json(lite)
   }
 
   const article = await prisma.article.findFirst({
     where: whereClause,
+    orderBy: { updatedAt: 'desc' },
     select: {
       id: true, title: true, htmlContent: true, status: true, slug: true, metaDescription: true, seoTitle: true,
       // ปกที่เปลี่ยนในแท็บ Review เก็บเป็น data URI — ต้องส่งกลับไปโชว์ตอนเปิดรอบใหม่
@@ -45,8 +61,8 @@ export async function PATCH(req: NextRequest) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { projectId, title, wordpressUrl, status, scheduledAt } = await req.json()
-  if (!projectId || !title) return NextResponse.json({ error: 'projectId and title required' }, { status: 400 })
+  const { projectId, title, id, wordpressUrl, status, scheduledAt } = await req.json()
+  if (!projectId || (!title && !id)) return NextResponse.json({ error: 'projectId and title (or id) required' }, { status: 400 })
 
   // scheduledAt มาจาก Content Map เป็น 'YYYY-MM-DD' — ตีความเป็นเที่ยงคืนตามเวลาท้องถิ่น
   // ไม่ใช่ UTC ไม่งั้นโซนเวลาไทยจะทำให้วันที่เพี้ยนไป 1 วัน
@@ -63,8 +79,12 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  // มี id ใช้ id ก่อน · ไม่มีหาตามชื่อเรียง updatedAt desc ให้ตรงกับ GET (ชื่อซ้ำได้แถวเดียวกัน)
   const article = await prisma.article.findFirst({
-    where: { projectId, title, project: { organizationId: session.user.organizationId } },
+    where: typeof id === 'string' && id
+      ? { id, projectId, project: { organizationId: session.user.organizationId } }
+      : { projectId, title, project: { organizationId: session.user.organizationId } },
+    orderBy: { updatedAt: 'desc' },
     select: { id: true },
   })
   if (!article) return NextResponse.json({ error: 'not found' }, { status: 404 })

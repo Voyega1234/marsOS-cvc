@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 
 import { getSession } from "@/lib/auth";
 import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/utils";
+
+// ทุกคอลัมน์ของ Article ยกเว้น htmlContent — คอลัมน์ใหม่ใน schema ตามมาเอง
+const LIST_SCALARS = Object.fromEntries(
+  Object.values(Prisma.ArticleScalarFieldEnum).filter(f => f !== "htmlContent").map(f => [f, true]),
+) as { [K in Exclude<Prisma.ArticleScalarFieldEnum, "htmlContent">]: true };
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -19,9 +25,12 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = { project: { organizationId: session.user.organizationId } };
   if (projectId) where.projectId = projectId;
 
-  const articles = await prisma.article.findMany({
+  // htmlContent ไม่ส่งในรายการ (บทความละหลาย MB เมื่อมีรูปฝังในเนื้อหา) — ใครต้องใช้ดึงทีละบทความ (/by-title?id=&fields=html)
+  //   hasHtml บอกแค่ว่ามีเนื้อหาใน DB
+  const [articles, withHtml] = await Promise.all([prisma.article.findMany({
     where,
-    include: {
+    select: {
+      ...LIST_SCALARS,
       project: {
         select: {
           id: true,
@@ -35,8 +44,18 @@ export async function GET(req: NextRequest) {
       assignedTo: { select: { id: true, name: true, email: true, image: true, role: true } },
     },
     orderBy: { updatedAt: "desc" },
-  });
-  return NextResponse.json(articles);
+  }), prisma.article.findMany({
+    where: { ...where, htmlContent: { not: "" } },
+    select: { id: true },
+  })]);
+  const hasHtml = new Set(withHtml.map(a => a.id));
+  // ปกแบบ data URI (หลายร้อย KB ต่อบทความ) ไม่ส่งในรายการ — กัน response เกินเพดาน 4.5MB ของ Vercel
+  //   ใครต้องใช้รูปปกดึงทีละบทความ (/api/articles/[id], /by-title) · hasDataCover บอกแค่ว่ามีปกใน DB
+  return NextResponse.json(articles.map(a => {
+    const dataCover = a.coverImageUrl?.startsWith("data:") === true;
+    const row = { ...a, hasHtml: hasHtml.has(a.id) };
+    return dataCover ? { ...row, coverImageUrl: null, hasDataCover: true } : row;
+  }));
 }
 
 export async function POST(req: NextRequest) {

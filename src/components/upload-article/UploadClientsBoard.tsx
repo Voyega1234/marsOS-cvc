@@ -15,6 +15,7 @@ import type { UploadClientDTO } from "@/lib/upload-article/types";
 import DropZone from "@/components/upload-article/shared/DropZone";
 import PasteDialog from "@/components/upload-article/shared/PasteDialog";
 import GoogleDocDialog from "@/components/upload-article/shared/GoogleDocDialog";
+import UploadLanguageSelect from "@/components/upload-article/shared/UploadLanguageSelect";
 
 /** เพดานต่อไฟล์ฝั่งเบราว์เซอร์ — เผื่อที่ให้ multipart header ใต้เพดาน 4.5MB ของ Vercel */
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
@@ -33,6 +34,7 @@ export default function UploadClientsBoard() {
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newWebsite, setNewWebsite] = useState("");
+  const [newLanguage, setNewLanguage] = useState<"th" | "en" | "both">("th");
   const [creating, setCreating] = useState(false);
 
   // state ต่อการ์ด (client id) — ไม่ล็อกรวม อัปหลายเจ้าพร้อมกันได้
@@ -66,7 +68,7 @@ export default function UploadClientsBoard() {
       const r = await fetch("/api/upload-article/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim(), website: newWebsite.trim() || undefined }),
+        body: JSON.stringify({ name: newName.trim(), website: newWebsite.trim() || undefined, language: newLanguage }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "เพิ่มลูกค้าไม่สำเร็จ"); return; }
@@ -74,6 +76,7 @@ export default function UploadClientsBoard() {
       setAddOpen(false);
       setNewName("");
       setNewWebsite("");
+      setNewLanguage("th");
       await loadClients();
     } finally {
       setCreating(false);
@@ -214,6 +217,15 @@ export default function UploadClientsBoard() {
                     ))}
                   </div>
 
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-gray-400 shrink-0">ภาษา</span>
+                    <UploadLanguageSelect
+                      value={c.language}
+                      clientId={c.id}
+                      onChange={v => setClients(prev => prev.map(x => x.id === c.id ? { ...x, language: v } : x))}
+                    />
+                  </div>
+
                   <DropZone
                     label="ลากไฟล์มาวาง (.docx .txt .md .html)"
                     disabled={cardBusy}
@@ -269,6 +281,10 @@ export default function UploadClientsBoard() {
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">เว็บไซต์ (ไม่บังคับ)</label>
               <Input value={newWebsite} onChange={e => setNewWebsite(e.target.value)} placeholder="https://www.example.com" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">ภาษาที่ใช้เขียนบทความ</label>
+              <UploadLanguageSelect value={newLanguage} onChange={setNewLanguage} showHint />
             </div>
           </div>
           <DialogFooter>

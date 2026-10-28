@@ -372,7 +372,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
           <KpiCard
             label="Keywords ในคลัง"
             value={data.keywords.count.toLocaleString()}
-            onClick={() => handleNavigate("keywords")}
+            onClick={() => handleNavigate("keyword-bank")}
           />
           <KpiCard
             label="รอ Review"

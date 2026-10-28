@@ -21,7 +21,7 @@ export async function GET() {
   return NextResponse.json(dtos)
 }
 
-/** POST /api/upload-article/clients — สร้างลูกค้าใหม่ { name, website? } */
+/** POST /api/upload-article/clients — สร้างลูกค้าใหม่ { name, website?, language? } */
 export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -31,12 +31,14 @@ export async function POST(req: NextRequest) {
   const name = String(body?.name ?? '').trim().slice(0, 120)
   const website = String(body?.website ?? '').trim()
   if (!name) return NextResponse.json({ error: 'กรุณากรอกชื่อลูกค้า' }, { status: 400 })
+  const language = body?.language === 'en' || body?.language === 'both' ? body.language : 'th'
 
   const created = await prisma.uploadClient.create({
     data: {
       organizationId: session.user.organizationId,
       name,
       website,
+      language,
       createdById: session.user.id,
     },
   })

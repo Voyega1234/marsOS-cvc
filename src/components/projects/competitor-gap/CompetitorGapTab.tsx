@@ -112,6 +112,19 @@ interface RunStatus {
   updatedAt: string
 }
 
+// parse JSON แบบปลอดภัย — 504/502 จาก Vercel เป็น HTML ไม่ใช่ JSON
+async function safeJson<T>(res: Response): Promise<T> {
+  const text = await res.text()
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    if (res.status === 504 || res.status === 502 || res.status === 503) {
+      throw new Error(`เซิร์ฟเวอร์ตอบช้าเกินไป (${res.status}) ลองใหม่`)
+    }
+    throw new Error(`เซิร์ฟเวอร์ตอบกลับผิดรูปแบบ (${res.status}) ลองใหม่`)
+  }
+}
+
 export default function CompetitorGapTab({ project }: { project: { id: string; website?: string | null } }) {
   const [website, setWebsite] = useState(project.website ?? '')
   const [keyword, setKeyword] = useState('')
@@ -131,6 +144,8 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
   const [formError, setFormError] = useState<string | null>(null)
   const [section, setSection] = useState<SectionId>('overview')
   const cancelled = useRef(false)
+  const driving = useRef(false)
+  const [lastRunId, setLastRunId] = useState<string | null>(null)
 
   useEffect(() => () => { cancelled.current = true }, [])
 
@@ -138,8 +153,8 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
   useEffect(() => {
     let alive = true
     fetch(`/api/competitor-gap/report?projectId=${encodeURIComponent(project.id)}`)
-      .then(r => r.json())
-      .then((d: { report: GapReport | null; history?: GapSnapshot[]; projectWebsite: string | null }) => {
+      .then(r => safeJson<{ report: GapReport | null; history?: GapSnapshot[]; projectWebsite: string | null; lastRunId?: string | null }>(r))
+      .then(d => {
         if (!alive) return
         if (Array.isArray(d.history)) setHistory(d.history)
         if (d.report) {
@@ -151,22 +166,83 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
         } else if (d.projectWebsite) {
           setWebsite(d.projectWebsite)
         }
+        if (d.lastRunId) setLastRunId(d.lastRunId)
       })
       .catch(() => {})
       .finally(() => { if (alive) setLoadingReport(false) })
     return () => { alive = false }
   }, [project.id])
 
+  // เดินรอบสแกนทีละเฟสจนจบ (หนึ่ง request = หนึ่งเฟส) — ใช้ทั้งตอนเริ่มใหม่และตอนกลับมาต่อ
+  const drive = useCallback(async (initial: RunStatus) => {
+    if (driving.current) return
+    driving.current = true
+    cancelled.current = false
+    setRunning(true)
+    try {
+      let data = initial
+      setRun(data)
+      let guard = 0
+      while (!cancelled.current && data.status === 'running' && guard < 60) {
+        const res = await fetch('/api/competitor-gap/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId: data.runId }),
+        })
+        const next = await safeJson<RunStatus & { error?: string; busy?: boolean }>(res)
+        if (!res.ok) throw new Error(next.error ?? 'สแกนไม่สำเร็จ')
+        if (cancelled.current) return
+        data = next
+        setRun(data)
+        // เฟสนี้มี request อื่นเดินอยู่ (lease ฝั่งเซิร์ฟเวอร์ หมดเองภายใน ~5.5 นาที) → รอแล้วถามใหม่ ไม่นับรอบ
+        if (next.busy) { await new Promise(r => setTimeout(r, 5000)); continue }
+        guard++
+      }
+
+      if (data.status === 'done') {
+        const r = await safeJson<{ report?: GapReport; history?: GapSnapshot[] }>(
+          await fetch(`/api/competitor-gap/report?projectId=${encodeURIComponent(project.id)}`),
+        )
+        if (!cancelled.current && r.report) {
+          setReport(r.report)
+          if (Array.isArray(r.history)) setHistory(r.history)
+          setSection('overview')
+        }
+      }
+    } catch (e) {
+      if (!cancelled.current) setFormError(e instanceof Error ? e.message : String(e))
+    } finally {
+      driving.current = false
+      if (!cancelled.current) setRunning(false)
+    }
+  }, [project.id])
+
+  // กลับมาที่แท็บ: ถ้ารอบล่าสุดยัง running ฝั่งเซิร์ฟเวอร์ ให้เดินต่อ (state เก็บใน DB) ไม่ใช่ทำเป็นว่าว่าง
+  useEffect(() => {
+    if (!lastRunId) return
+    let alive = true
+    fetch(`/api/competitor-gap/run?runId=${encodeURIComponent(lastRunId)}`)
+      .then(r => safeJson<RunStatus & { error?: string }>(r).then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!alive || !ok) return
+        if (d.status === 'running') void drive(d)
+        else setRun(d) // done/error — แสดงสถานะรอบล่าสุดไว้
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [lastRunId, drive])
+
   const startRun = useCallback(async () => {
     if (!keyword.trim()) { setFormError('กรุณาระบุคีย์เวิร์ดเป้าหมาย'); return }
     if (!website.trim()) { setFormError('กรุณาระบุเว็บไซต์ของเรา'); return }
+    if (driving.current) return
     setFormError(null)
     setRunning(true)
     setRun(null)
     cancelled.current = false
 
     try {
-      let res = await fetch('/api/competitor-gap/run', {
+      const res = await fetch('/api/competitor-gap/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -178,39 +254,14 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           advanced: { maxPagesPerDomain: maxPages, competitorCount, includeKeywordGap, jsFallback },
         }),
       })
-      let data = await res.json()
+      const data = await safeJson<RunStatus & { error?: string }>(res)
       if (!res.ok) throw new Error(data.error ?? 'เริ่มสแกนไม่สำเร็จ')
-      setRun(data as RunStatus)
-
-      // หนึ่ง request = หนึ่งเฟส — เดินต่อจนกว่าจะจบ
-      let guard = 0
-      while (!cancelled.current && (data as RunStatus).status === 'running' && guard < 60) {
-        guard++
-        res = await fetch('/api/competitor-gap/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ runId: (data as RunStatus).runId }),
-        })
-        data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'สแกนไม่สำเร็จ')
-        if (cancelled.current) return
-        setRun(data as RunStatus)
-      }
-
-      if ((data as RunStatus).status === 'done') {
-        const r = await fetch(`/api/competitor-gap/report?projectId=${encodeURIComponent(project.id)}`).then(x => x.json())
-        if (!cancelled.current && r.report) {
-          setReport(r.report as GapReport)
-          if (Array.isArray(r.history)) setHistory(r.history as GapSnapshot[])
-          setSection('overview')
-        }
-      }
+      await drive(data)
     } catch (e) {
       if (!cancelled.current) setFormError(e instanceof Error ? e.message : String(e))
-    } finally {
       if (!cancelled.current) setRunning(false)
     }
-  }, [keyword, website, country, project.id, maxPages, competitorCount, includeKeywordGap, jsFallback])
+  }, [keyword, website, country, project.id, manualCompetitors, maxPages, competitorCount, includeKeywordGap, jsFallback, drive])
 
   const compDomains = report?.competitors.map(c => c.domain) ?? []
 

@@ -749,6 +749,7 @@ export async function advanceRun(state: RunState, ctx: RunContext): Promise<RunS
       error: msg,
     })
   }
+  delete state.leaseUntil
   await saveRun(state)
   return state
 }

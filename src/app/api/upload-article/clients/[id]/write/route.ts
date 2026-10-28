@@ -13,6 +13,8 @@ import {
   parseWriterOutput,
   MIN_CLEANED_HTML_LENGTH,
   WRITER_MAX_CONTINUATIONS,
+  WRITER_MAX_DURATION_S,
+  WRITER_STALE_MS,
   WRITER_MIN_FAQ_ITEMS,
   isTruncatedFinish,
   buildContinuePrompt,
@@ -40,7 +42,7 @@ import { PBN_MAIN_PROFILE, isPbnProfileId, readPbnProfiles, readPbnArticleTarget
 import { pbnEffectiveClient, resolveCeSet } from '@/lib/upload-article/pbn-context'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
-export const maxDuration = 800
+export const maxDuration = WRITER_MAX_DURATION_S
 /** เวลาที่ใช้ได้ทั้งงาน (เผื่อบันทึกผลก่อนชน maxDuration) — รอบเขียนต่อ/เติม FAQ ต้องอยู่ในกรอบนี้ */
 const WRITE_BUDGET_MS = 770_000
 /** รอบเสริมต้องมีเวลาเหลืออย่างน้อยเท่านี้ถึงจะเริ่ม */
@@ -134,7 +136,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const keyword = plan.find((k) => k.id === keywordId)
   if (!keyword) return NextResponse.json({ error: 'ไม่พบ keyword นี้' }, { status: 404 })
 
-  // keyword นี้กำลังเขียนอยู่แล้ว (ไม่นับที่ค้างเกิน 6 นาที — proc ตายกลางทาง ลบแล้วเขียนใหม่ได้)
+  // keyword นี้กำลังเขียนอยู่แล้ว (ไม่นับที่ค้างเกิน WRITER_STALE_MS — proc ตายกลางทาง ลบแล้วเขียนใหม่ได้)
   const sourceName = writerSourceName(keywordId, variant)
   // 3 การอ่านนี้เป็นอิสระจากกัน (ไม่พึ่งผลของกันและกัน) — ยิงพร้อมกันได้ แต่ยังเช็ค error ตามลำดับเดิม (409 → 422 → CTA 400)
   const [existingWriting, ce, extraLinks, restrictions] = await Promise.all([
@@ -202,20 +204,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ...hitWarnings('slug', slugClean.remaining),
   ]
 
-  const article = await prisma.uploadArticle.create({
-    data: {
-      organizationId: orgId,
-      clientId: client.id,
-      title: title.slice(0, 200),
-      sourceType: 'ai',
-      sourceName,
-      sourceHtml: '',
-      seoTitle,
-      slug: articleSlug,
-      status: 'WRITING',
-      createdById: userId,
-    },
+  // claim แบบ atomic: สร้างแถว WRITING เฉพาะเมื่อยังไม่มีแถว WRITING ของ keyword นี้ที่ยังสด (กัน 2 request ผ่านเช็ค 409 พร้อมกัน)
+  const article = await prisma.$transaction(async (tx) => {
+    // ล็อกแถวลูกค้าให้ request ที่แข่งกันต่อคิว
+    await tx.$queryRaw`SELECT id FROM "plans_seo_pipeline"."UploadClient" WHERE id = ${client.id} FOR UPDATE`
+    const fresh = await tx.uploadArticle.count({
+      where: {
+        clientId: client.id, organizationId: orgId, sourceName, status: 'WRITING',
+        updatedAt: { gt: new Date(Date.now() - WRITER_STALE_MS) },
+      },
+    })
+    if (fresh > 0) return null
+    return tx.uploadArticle.create({
+      data: {
+        organizationId: orgId,
+        clientId: client.id,
+        title: title.slice(0, 200),
+        sourceType: 'ai',
+        sourceName,
+        sourceHtml: '',
+        seoTitle,
+        slug: articleSlug,
+        status: 'WRITING',
+        createdById: userId,
+      },
+    })
   })
+  if (!article) return NextResponse.json({ error: 'keyword นี้กำลังเขียนอยู่ รอสักครู่แล้วลองใหม่' }, { status: 409 })
 
   // รวม 2 การแก้ pushPrefs (เป้าหมาย PBN + ผูก keyword กับบทความ) เป็น read-modify-write ครั้งเดียว — เรียงลำดับเดิม (target ก่อน แล้วค่อยผูก plan)
   if (target || isPrimary) await updatePrefs(client.id, orgId, (current) => {
@@ -306,7 +321,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           usage.costUsd += r.usage.costUsd
           return r
         }
-        // รอบเสริมทำให้เขียนนานเกิน 6 นาทีได้ — ขยับ updatedAt กันคำขอใหม่มองว่าค้าง (isWritingStale) แล้วลบทิ้งกลางทาง
+        // รอบเสริมทำให้เขียนนานเกินเวลา stale ได้ — ขยับ updatedAt กันคำขอใหม่มองว่าค้าง (isWritingStale) แล้วลบทิ้งกลางทาง
         const touchWriting = () =>
           prisma.uploadArticle.update({ where: { id: article.id }, data: { status: 'WRITING' } }).catch(() => {})
 
@@ -431,6 +446,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           const idx = p.findIndex((k) => k.id === keywordId)
           if (idx === -1) return { result: null }
           const next = [...p]
+          // ล้างเฉพาะเมื่อ articleId ยังเป็นของ request นี้ (กันล้างของการเขียนรอบใหม่กว่า)
+          if (next[idx].articleId !== article.id) return { result: null }
           const item = { ...next[idx] }
           delete item.articleId
           item.writeError = 'เขียนบทความไม่สำเร็จ — ลองใหม่อีกครั้ง'

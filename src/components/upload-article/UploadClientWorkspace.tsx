@@ -248,6 +248,8 @@ export default function UploadClientWorkspace({
             client={client}
             onWrite={ids => { setWritePreselect(ids); goTab("write"); }}
             goToReview={id => goTab("review", id)}
+            setClient={setClient}
+            isPbn={isPbn}
           />
         </TabsContent>
 
@@ -262,6 +264,7 @@ export default function UploadClientWorkspace({
             goToReview={id => goTab("review", id)}
             onOpenSettings={openSettings}
             variantsEnabled={isPbn}
+            setClient={setClient}
           />
         </TabsContent>
 

@@ -95,10 +95,15 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     })
 
     const nextStatus = article.status === 'PUSHED' || article.status === 'PUSHING' ? article.status : 'GENERATED'
-    const updated = await prisma.uploadArticle.update({
-      where: { id: article.id },
+    // เขียนเฉพาะเมื่อแถวไม่ถูกแก้ระหว่างที่ build (optimistic lock ด้วย updatedAt) — กันทับ sourceHtml/meta ที่ทีมเพิ่งแก้
+    const written = await prisma.uploadArticle.updateMany({
+      where: { id: article.id, updatedAt: article.updatedAt },
       data: { htmlContent: result.html, outputMode: mode, status: nextStatus, seoTitle, metaDescription, slug, ...(cleanedSource !== null ? { sourceHtml: cleanedSource } : {}) },
     })
+    if (written.count === 0) {
+      return NextResponse.json({ error: 'บทความถูกแก้ไประหว่างสร้าง HTML — โหลดใหม่แล้วกด Generate อีกครั้ง' }, { status: 409 })
+    }
+    const updated = await prisma.uploadArticle.findUniqueOrThrow({ where: { id: article.id } })
 
     return NextResponse.json(toUploadArticleDTO(updated, true), { headers: { 'X-Links-Added': String(linksAdded), 'X-Links-Removed': String(linksRemoved) } })
   } catch (e) {

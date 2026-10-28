@@ -295,6 +295,10 @@ export function mergePbnSiteInput(
       return { error: 'Deploy Hook URL ไม่ถูกต้อง', cleared }
     }
     base.deployHookEnc = encryptFn(hook)
+  } else if (base.deployHookEnc && existing && nextRepo !== prevRepo) {
+    // เปลี่ยน repo โดยไม่ได้ใส่ Deploy Hook ใหม่ → ล้างของเดิม กันยิง hook ของ repo เก่า
+    delete base.deployHookEnc
+    cleared.push('deployHook')
   }
 
   // ── Report ──

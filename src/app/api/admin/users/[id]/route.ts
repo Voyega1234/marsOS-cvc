@@ -9,6 +9,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
+  const scoped = await prisma.user.findFirst({
+    where: { id: params.id, organizationId: session.user.organizationId ?? null },
+    select: { id: true },
+  });
+  if (!scoped) return NextResponse.json({ error: "ไม่พบ user" }, { status: 404 });
+
   const body = await req.json();
 
   if (body.password) {
@@ -31,7 +37,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const target = await prisma.user.findUnique({ where: { id: params.id }, select: { role: true } });
+  const target = await prisma.user.findFirst({
+    where: { id: params.id, organizationId: session.user.organizationId ?? null },
+    select: { role: true },
+  });
   if (!target) return NextResponse.json({ error: "ไม่พบ user" }, { status: 404 });
   if (target.role !== "CLIENT") return NextResponse.json({ error: "ลบได้เฉพาะ CLIENT เท่านั้น" }, { status: 403 });
 

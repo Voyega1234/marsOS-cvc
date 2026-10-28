@@ -83,6 +83,28 @@ export default function KeywordMemoryFields({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  // รีเฟรชเฉพาะรายการส่งต่อจาก Gap (ไม่แตะช่องที่ผู้ใช้พิมพ์อยู่)
+  const refreshHandoff = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/keyword-guard?projectId=${encodeURIComponent(projectId)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setHandoff(data?.handoff ?? []);
+    } catch {
+      /* เงียบไว้ — ลองใหม่ตอนกลับมาที่แท็บหรือกดปุ่มรีเฟรช */
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') void refreshHandoff(); };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshHandoff]);
+
   const save = useCallback(async () => {
     setBusy(true);
     setStatus(null);
@@ -106,8 +128,9 @@ export default function KeywordMemoryFields({
 
   const useHandoff = useCallback(async () => {
     const keywords = handoff.map(h => h.keyword).filter(Boolean);
-    if (keywords.length === 0) return;
-    onSeeds?.(keywords);
+    // ไม่มีที่รับคำตั้งต้น (โหมด Local) = ห้ามล้างรายการ ไม่งั้นคำหาย
+    if (keywords.length === 0 || !onSeeds) return;
+    onSeeds(keywords);
     setBusy(true);
     try {
       await fetch('/api/keyword-guard', {
@@ -165,7 +188,18 @@ export default function KeywordMemoryFields({
         >
           บันทึกเข้าโปรเจกต์
         </button>
-        {handoff.length > 0 ? (
+        {onSeeds ? (
+          <button
+            type="button"
+            onClick={() => void refreshHandoff()}
+            disabled={busy}
+            className="rounded-lg border border-[#dbe1ee] px-2.5 py-1.5 font-semibold text-[#374763] disabled:opacity-40"
+            title="โหลดรายการคำที่ Competitor Gap ส่งมาใหม่"
+          >
+            รีเฟรชรายการจาก Gap
+          </button>
+        ) : null}
+        {onSeeds && handoff.length > 0 ? (
           <button
             type="button"
             onClick={useHandoff}

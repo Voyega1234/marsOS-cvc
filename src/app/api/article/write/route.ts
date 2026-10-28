@@ -649,13 +649,17 @@ function extractMetaDescFromHtml(html: string): string {
 
 async function saveArticleHtml(opts: {
   orgId: string; userId: string; projectId: string; keyword: string; title: string; html: string; keywordId?: string
+  /** ปกที่สร้างในรอบนี้ (data URI) — ไม่ส่ง = ไม่แตะ Article.coverImageUrl */
+  coverImageUrl?: string
 }) {
   if (!opts.projectId || !opts.html) return
   try {
     const enSlug      = extractEnSlugFromHtml(opts.html)
     const metaDesc    = extractMetaDescFromHtml(opts.html)
+    // ชื่อซ้ำหลายแถว: เลือกแถวล่าสุดเสมอ ให้ตรงกับ by-title/push (ไม่งั้นเขียนลงแถวหนึ่ง อ่านอีกแถว)
     const existing = await prisma.article.findFirst({
       where: { projectId: opts.projectId, title: opts.title, project: { organizationId: opts.orgId } },
+      orderBy: { updatedAt: 'desc' },
       select: { id: true },
     })
     // Always have a non-empty slug (DB requires NOT NULL)
@@ -666,6 +670,7 @@ async function saveArticleHtml(opts: {
         data: {
           htmlContent: opts.html,
           status: 'REVIEW',
+          ...(opts.coverImageUrl && { coverImageUrl: opts.coverImageUrl }),
           ...(enSlug   && { slug: enSlug }),
           ...(metaDesc && { metaDescription: metaDesc }),
           ...(opts.keywordId && { keywordId: opts.keywordId }),
@@ -680,6 +685,7 @@ async function saveArticleHtml(opts: {
           htmlContent: opts.html,
           status:      'REVIEW',
           createdById: opts.userId,
+          ...(opts.coverImageUrl && { coverImageUrl: opts.coverImageUrl }),
           ...(metaDesc && { metaDescription: metaDesc }),
           ...(opts.keywordId && { keywordId: opts.keywordId }),
         },
@@ -1250,7 +1256,7 @@ export async function POST(req: NextRequest) {
     // ครอบ wrapper มาตรฐาน + CSS ตามโหมดของ client (ทำหลังใส่รูป/author ให้สไตล์คลุมถึง)
     html = finalizeArticleHtml(html)
 
-    await saveArticleHtml({ orgId, userId, projectId, keyword, title, html, keywordId: keywordId || undefined })
+    await saveArticleHtml({ orgId, userId, projectId, keyword, title, html, keywordId: keywordId || undefined, coverImageUrl: coverResult.imageBase64 ? `data:${coverResult.mimeType};base64,${coverResult.imageBase64}` : undefined })
 
     return NextResponse.json({
       html, keyword, title,
@@ -1270,6 +1276,7 @@ export async function POST(req: NextRequest) {
   if (orgId && projectId) {
     prisma.article.findFirst({
       where: { projectId, title, project: { organizationId: orgId } },
+      orderBy: { updatedAt: 'desc' },
       select: { id: true },
     }).then(existing => {
       if (existing) {
@@ -1286,6 +1293,14 @@ export async function POST(req: NextRequest) {
       }
     }).catch(() => {})
   }
+
+  // heartbeat ทุก 15 วิ กัน proxy/เบราว์เซอร์ตัด stream ที่เงียบนาน (client ข้าม type 'ping')
+  let streamClosed = false
+  const heartbeat = setInterval(() => {
+    if (streamClosed) return
+    try { Promise.resolve(send({ type: 'ping' })).catch(() => { streamClosed = true; clearInterval(heartbeat) }) }
+    catch { streamClosed = true; clearInterval(heartbeat) }
+  }, 15000)
 
   ;(async () => {
     let fullHtml = ''
@@ -1400,7 +1415,7 @@ export async function POST(req: NextRequest) {
       // ครอบ wrapper มาตรฐาน + CSS ตามโหมดของ client
       fullHtml = finalizeArticleHtml(fullHtml)
 
-      await saveArticleHtml({ orgId, userId, projectId, keyword, title, html: fullHtml, keywordId: keywordId || undefined })
+      await saveArticleHtml({ orgId, userId, projectId, keyword, title, html: fullHtml, keywordId: keywordId || undefined, coverImageUrl: coverResult.imageBase64 ? `data:${coverResult.mimeType};base64,${coverResult.imageBase64}` : undefined })
 
       send({ type: 'status', step: 'done', message: '✅ เสร็จสมบูรณ์' })
       send({
@@ -1420,6 +1435,8 @@ export async function POST(req: NextRequest) {
         }).catch(() => {})
       }
     } finally {
+      streamClosed = true
+      clearInterval(heartbeat)
       try { await writer.close() } catch { /* client อาจปิด connection ไปแล้ว */ }
     }
   })()

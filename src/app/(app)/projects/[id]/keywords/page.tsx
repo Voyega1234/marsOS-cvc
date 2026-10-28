@@ -17,7 +17,7 @@ export default async function ProjectKeywordsPage({ params }: { params: { id: st
 
   const keywords = await prisma.keyword.findMany({
     where: { projectId: params.id, project: { organizationId: orgId } },
-    orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+    orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
   });
 
   return (
