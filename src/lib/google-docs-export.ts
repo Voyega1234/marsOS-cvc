@@ -246,6 +246,16 @@ function stripWrittenToc(body: HTMLElement): void {
   })
 }
 
+const TABLE_STYLE = 'border-collapse:collapse;width:100%'
+const TD_STYLE = 'border:1px solid #9ca3af;padding:6px 8px;vertical-align:top'
+const TH_STYLE = `${TD_STYLE};background-color:#f3f4f6;font-weight:bold`
+
+/** ต่อท้าย style เดิม — ของเราชนะเมื่อชนกัน (เช่น border:none) */
+function addInlineStyle(el: Element, style: string): void {
+  const prev = (el.getAttribute('style') || '').trim().replace(/;$/, '')
+  el.setAttribute('style', prev ? `${prev};${style}` : style)
+}
+
 /** ตัวหนังสือสำรอง — ขึ้นบรรทัดใหม่ระหว่างย่อหน้า/หัวข้อ ไม่งั้น textContent จะติดกันเป็นก้อน */
 function plainText(body: HTMLElement): string {
   const c = body.cloneNode(true) as HTMLElement
@@ -287,6 +297,9 @@ export function buildDocsClipboard(o: GoogleDocsSource): { html: string; text: s
     div.append(...Array.from(d.childNodes))
     d.replaceWith(div)
   })
+  // เส้นตารางมาจาก CSS ของบทความซึ่งถูกตัดทิ้งไปแล้ว — Google Docs อ่านแค่ style แบบ inline ตอนวาง
+  body.querySelectorAll('table').forEach(t => addInlineStyle(t, TABLE_STYLE))
+  body.querySelectorAll('th,td').forEach(c => addInlineStyle(c, c.tagName === 'TH' ? TH_STYLE : TD_STYLE))
   // Google Docs ดึงรูปจาก URL เอง — URL แบบ relative ต้องเติมโดเมนระบบ
   body.querySelectorAll('img').forEach(img => {
     const src = img.getAttribute('src')
