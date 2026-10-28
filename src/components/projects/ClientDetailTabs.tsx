@@ -4388,6 +4388,14 @@ function GoogleSerpPreview({ device, siteHost, siteName, slug, title, descriptio
 
 interface ReviewComment { id: string; body: string; createdAt: string; user: { name: string | null; role: string } }
 
+// สถานะในรายการ Review — แยกกันไม่ทับซ้อน ตรงกับป้ายในแถว
+type ReviewListStatus = 'pending' | 'comments' | 'approved'
+const REVIEW_LIST_STATUS_OPTIONS: { value: ReviewListStatus; label: string }[] = [
+  { value: 'pending', label: 'รอ Review' },
+  { value: 'comments', label: 'มี Comment' },
+  { value: 'approved', label: 'Approved' },
+]
+
 function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewrite, isClient = false }: {
   project: ProjectData
   timeline: TimelineEntry[]
@@ -4892,6 +4900,9 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
     onAdjustRewrite(entryIdx, '')
   }
 
+  // filter รายการซ้ายตามสถานะ (ตรงกับป้ายในแถว) — '' = ทุกสถานะ
+  const [statusFilter, setStatusFilter] = useState<'' | ReviewListStatus>('')
+
   // เปิดแท็บมา = เลือกบทความแรกที่ยังรอ Review ให้เลย (เหมือน Upload Review) — ครั้งเดียวต่อการเปิดแท็บ
   const autoPicked = useRef(false)
   useEffect(() => {
@@ -4925,6 +4936,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
     const coverLocked = rewritingNow || articleStatus[entryIdx] === 'WRITING' || articleStatus[entryIdx] === 'PUSHING'
     const imagesRunning = imgBusy === entryIdx
     const coverControlsOff = coverLocked || imagesRunning || coverBusy === entryIdx || viewMode === 'edit'
+    const status: ReviewListStatus = isApproved ? 'approved' : hasComments ? 'comments' : 'pending'
 
     // การ์ดภาพปก — ทีมงานเห็นในคอลัมน์ขวาใต้ Meta Description, ลูกค้าเห็นเหนือบทความ (ดูอย่างเดียว)
     const coverCard = (
@@ -4994,7 +5006,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
         </div>
       </button>
     )
-    if (expanded !== entryIdx) return { entryIdx, row, detail: null }
+    if (expanded !== entryIdx) return { entryIdx, status, row, detail: null }
 
     // ตรงกลาง = บทความ · ขวา = Search appearance → สร้างรูปด้วย Mars → ภาพปก (เหมือน Upload Review)
     const detail = (
@@ -5303,9 +5315,12 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
             })()}
       </>
     )
-    return { entryIdx, row, detail }
+    return { entryIdx, status, row, detail }
   })
   const selectedDetail = reviewItems.find(i => i.detail)?.detail ?? null
+  // บทความที่เปิดอยู่ยังแสดงตรงกลางต่อแม้ filter ซ่อนแถวของมัน (เหมือน Upload Review)
+  const statusCounts = reviewItems.reduce<Record<string, number>>((acc, i) => { acc[i.status] = (acc[i.status] || 0) + 1; return acc }, {})
+  const visibleItems = statusFilter ? reviewItems.filter(i => i.status === statusFilter) : reviewItems
 
   return (
     <div className="space-y-4">
@@ -5327,9 +5342,21 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
       <div className={`grid grid-cols-1 gap-4 items-start lg:grid-cols-[240px_minmax(0,1fr)] ${isClient ? '' : '2xl:grid-cols-[240px_minmax(0,1fr)_360px]'}`}>
         {/* รายการบทความ */}
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <p className="px-3 py-2.5 border-b border-gray-100 text-xs font-semibold text-gray-500">บทความ ({reviewEntries.length})</p>
+          <div className="px-3 py-2.5 border-b border-gray-100 space-y-1.5">
+            <p className="text-xs font-semibold text-gray-500">
+              บทความ ({statusFilter ? `${visibleItems.length}/${reviewItems.length}` : reviewItems.length})
+            </p>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as '' | ReviewListStatus)}
+              className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+              <option value="">ทุกสถานะ ({reviewItems.length})</option>
+              {REVIEW_LIST_STATUS_OPTIONS.filter(o => statusCounts[o.value] || o.value === statusFilter).map(o => (
+                <option key={o.value} value={o.value}>{o.label} ({statusCounts[o.value] || 0})</option>
+              ))}
+            </select>
+          </div>
           <div className="max-h-[70vh] overflow-y-auto divide-y divide-gray-50">
-            {reviewItems.map(i => i.row)}
+            {visibleItems.map(i => i.row)}
+            {!visibleItems.length && <p className="px-3 py-6 text-xs text-gray-400 text-center">ไม่มีบทความในสถานะนี้</p>}
           </div>
         </div>
         {selectedDetail ?? (

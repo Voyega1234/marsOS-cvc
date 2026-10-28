@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { ReviewPageClient } from '@/components/review/ReviewPageClient'
+import { loadArticleOverview } from '@/lib/article-overview-server'
 
 export const metadata: Metadata = { title: 'Review Queue' }
 
@@ -62,7 +63,8 @@ export default async function ReviewPage() {
   }
 
   // ADMIN/team: see CLIENT_REVISION (needs action) + CLIENT_REVIEW (waiting for client)
-  const [clientRevisionArticles, clientReviewArticles] = await Promise.all([
+  // + คิวทีมทั้งระบบ: รอทีม Review / Push ไม่สำเร็จ (SEO SME + Upload Article + PBN)
+  const [clientRevisionArticles, clientReviewArticles, overview] = await Promise.all([
     prisma.article.findMany({
       where: { project: { organizationId: orgId }, status: 'CLIENT_REVISION' },
       include: {
@@ -89,7 +91,17 @@ export default async function ReviewPage() {
       },
       orderBy: { updatedAt: 'desc' },
     }),
+    loadArticleOverview(orgId),
   ])
+
+  const teamQueue = overview.articles.filter(a => a.status === 'review' || a.status === 'failed')
+  // dropdown client: เฉพาะที่มีรายการค้างในหน้านี้
+  const queueClientIds = new Set([
+    ...teamQueue.map(a => a.clientId),
+    ...clientRevisionArticles.map(a => a.project.id),
+    ...clientReviewArticles.map(a => a.project.id),
+  ])
+  const queueClients = overview.clients.filter(c => queueClientIds.has(c.id))
 
   const mapArticle = (a: typeof clientRevisionArticles[0]) => ({
     id: a.id,
@@ -112,6 +124,8 @@ export default async function ReviewPage() {
       role={userRole}
       clientRevisionArticles={clientRevisionArticles.map(mapArticle)}
       clientReviewArticles={clientReviewArticles.map(mapArticle)}
+      teamQueue={teamQueue}
+      queueClients={queueClients}
     />
   )
 }
