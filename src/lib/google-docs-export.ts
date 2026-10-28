@@ -11,6 +11,7 @@
  * ไฟล์นี้ไม่มี import หนัก — import แบบ static ได้ เพื่อให้ popup / clipboard เรียกได้ในจังหวะคลิก
  */
 import { boxKeyTakeaways } from '@/lib/article-structure'
+import { TOC_HEADING_RE } from '@/lib/upload-article/article-images'
 
 const CLIENT_ID = (process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '').trim()
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
@@ -223,6 +224,28 @@ const STRIP_SEL = [
 ].join(',')
 const TEXT_BLOCK_SEL = 'h1,h2,h3,h4,h5,h6,p,li,div,blockquote,figure,figcaption,table,tr,ul,ol,section,article,header,footer'
 
+/**
+ * สารบัญที่เขียนมาในเนื้อหา (บทความเก่า / SME) — หัวข้อ "สารบัญ" + รายการลิงก์ #anchor
+ * เกณฑ์เดียวกับ stripAuthorToc ใน build-html.ts · ใน Google Docs ลิงก์ #anchor กดไม่ได้ และ Docs มีสารบัญของตัวเอง
+ */
+function stripWrittenToc(body: HTMLElement): void {
+  // ดูทุกชั้น — บทความอาจถูกห่อด้วย div/article ของธีม
+  body.querySelectorAll('h1,h2,h3,h4,h5,h6,p').forEach(el => {
+    if (!el.isConnected || !TOC_HEADING_RE.test(el.textContent || '')) return
+    for (let next = el.nextElementSibling; next; next = next.nextElementSibling) {
+      if (/^h[1-6]$/i.test(next.tagName)) return
+      if (!/^(ul|ol)$/i.test(next.tagName)) continue
+      const links = Array.from(next.querySelectorAll('a'))
+      const anchors = links.filter(a => (a.getAttribute('href') || '').startsWith('#'))
+      if (anchors.length >= 2 && anchors.length * 2 >= links.length) {
+        el.remove()
+        next.remove()
+      }
+      return
+    }
+  })
+}
+
 /** ตัวหนังสือสำรอง — ขึ้นบรรทัดใหม่ระหว่างย่อหน้า/หัวข้อ ไม่งั้น textContent จะติดกันเป็นก้อน */
 function plainText(body: HTMLElement): string {
   const c = body.cloneNode(true) as HTMLElement
@@ -248,6 +271,9 @@ export function buildDocsClipboard(o: GoogleDocsSource): { html: string; text: s
       if (name.startsWith('on') || (isUrlAttr && /^\s*(javascript|vbscript):/i.test(a.value))) el.removeAttribute(a.name)
     }
   })
+  stripWrittenToc(body)
+  // ลิงก์ #anchor ในหน้า (เช่นลิงก์ไปหัวข้อ) ใช้ใน Google Docs ไม่ได้ — เหลือไว้แค่ตัวหนังสือ
+  body.querySelectorAll('a[href^="#"]').forEach(a => a.replaceWith(...Array.from(a.childNodes)))
   // Google Docs ไม่มี details/summary — คลี่ FAQ เป็นย่อหน้าธรรมดา คำถามตัวหนา
   body.querySelectorAll('summary').forEach(s => {
     const p = doc.createElement('p')
@@ -281,15 +307,71 @@ export function buildDocsClipboard(o: GoogleDocsSource): { html: string; text: s
   return { html: `<meta charset="utf-8">${body.innerHTML}`, text: plainText(body) }
 }
 
+// Google Docs รับรูปฝัง (data URI) ตอนวางได้แค่ PNG / JPEG / GIF — webp/avif ขึ้นเป็นกล่องเทา (ทดสอบจริง 2026-10-28)
+const DOCS_IMAGE_OK = /^data:image\/(png|jpe?g|gif)[;,]/i
+// PNG ใหญ่ (ภาพถ่ายจากโมเดล) แปลงเป็น JPEG ด้วย — clipboard เบาลง วางเร็วขึ้น
+const PNG_TO_JPEG_ABOVE = 1_500_000
+const DOCS_IMAGE_MAX_EDGE = 1600
+
+async function toJpegDataUrl(src: string): Promise<string | null> {
+  try {
+    const img = new Image()
+    img.src = src
+    await img.decode()
+    const w = img.naturalWidth
+    const h = img.naturalHeight
+    if (!w || !h) return null
+    const scale = Math.min(1, DOCS_IMAGE_MAX_EDGE / Math.max(w, h))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(w * scale))
+    canvas.height = Math.max(1, Math.round(h * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.fillStyle = '#ffffff' // JPEG ไม่มีพื้นโปร่งใส
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.85)
+  } catch {
+    return null
+  }
+}
+
+/** แปลงรูปฝังที่ Google Docs ไม่รับเป็น JPEG — แปลงไม่ได้ก็ปล่อยตามเดิม */
+export async function docsReadyHtml(html: string): Promise<string> {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const done = new Map<string, Promise<string | null>>()
+  await Promise.all(Array.from(doc.querySelectorAll('img')).map(async img => {
+    const src = img.getAttribute('src') || ''
+    if (!src.startsWith('data:image/')) return
+    if (DOCS_IMAGE_OK.test(src) && !(/^data:image\/png/i.test(src) && src.length > PNG_TO_JPEG_ABOVE)) return
+    if (!done.has(src)) done.set(src, toJpegDataUrl(src))
+    const jpeg = await done.get(src)
+    if (jpeg) img.setAttribute('src', jpeg)
+  }))
+  return `<meta charset="utf-8">${doc.body.innerHTML}`
+}
+
 async function copyForGoogleDocs(o: GoogleDocsSource): Promise<void> {
   if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
     throw new Error('เบราว์เซอร์นี้คัดลอกแบบมีรูปแบบไม่ได้ — ใช้ปุ่ม Word แล้วอัปโหลดเข้า Google Drive แทน')
   }
   const c = buildDocsClipboard(o)
-  await navigator.clipboard.write([new ClipboardItem({
-    'text/html': new Blob([c.html], { type: 'text/html' }),
-    'text/plain': new Blob([c.text], { type: 'text/plain' }),
-  })])
+  const html = docsReadyHtml(c.html)
+  const text = new Blob([c.text], { type: 'text/plain' })
+  try {
+    // ส่ง Promise ให้ ClipboardItem — เรียก write ได้ทันทีในจังหวะคลิก ระหว่างที่รูปยังแปลงอยู่ (Safari บังคับแบบนี้)
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': html.then(h => new Blob([h], { type: 'text/html' })),
+      'text/plain': text,
+    })])
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e
+    // เบราว์เซอร์เก่าที่ ClipboardItem รับ Promise ไม่ได้
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([await html], { type: 'text/html' }),
+      'text/plain': text,
+    })])
+  }
 }
 
 // ───────────────────────── ปุ่ม Google Docs ─────────────────────────
