@@ -8,6 +8,17 @@ import { TAKEAWAYS_HEADING_RE } from '@/lib/article-structure'
 /** ป้ายบน <figure> ที่ระบบสร้าง — ใช้หาแล้วลบ/แทนที่ตอนสร้างใหม่ (รูปของผู้เขียนไม่มีป้ายนี้ ไม่โดนแตะ) */
 export const GEN_FIGURE_ATTR = 'data-ua-gen'
 
+/**
+ * ป้ายบนรูปที่ต้นฉบับแปะไว้ติดหัวเรื่องเอง แล้ว Generate ใช้เป็นปกในเนื้อหาแทนกล่องปกของระบบ
+ * push ไม่ตัดรูปนี้ (อยู่เหมือนเดิมทั้งติ๊ก/ไม่ติ๊ก "ใส่ปกในเนื้อหาด้วย") · export ไม่ใส่ปกซ้ำด้านบน
+ */
+export const SOURCE_COVER_ATTR = 'data-ua-src-cover'
+
+/** เนื้อหามีปกอยู่แล้ว (กล่องปกระบบ หรือรูปปกของต้นฉบับ) — export ไม่ต้องแปะปกเพิ่มด้านบน */
+export function htmlHasBodyCover(html: string): boolean {
+  return html.includes('content-cover') || html.includes(SOURCE_COVER_ATTR)
+}
+
 const H2_RE = /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi
 const FAQ_HEADING_RE = /(faq|frequently asked|คำถามที่พบบ่อย|คำถามยอดฮิต|ถาม\s*-?\s*ตอบ)/i
 /** หัวข้อสารบัญที่ผู้เขียน/AI เขียนมาในเนื้อหา — ระบบใส่สารบัญเอง ไม่ใช่หัวข้อเนื้อหา (ไม่วางรูป/ไม่ขึ้นปก) */
@@ -123,7 +134,8 @@ function plainCoverRange(html: string, coverSrc: string | null | undefined): { s
   const re = /<(figure|p)\b[^>]*>\s*(?:<a\b[^>]*>\s*)?<img\b[^>]*\bsrc="([^"]*)"[^>]*>\s*(?:<\/a>\s*)?(?:<figcaption\b[\s\S]*?<\/figcaption>\s*)?<\/\1>\s*/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(html))) {
-    if (wanted.has(m[2])) return { start: m.index, end: m.index + m[0].length }
+    // รูปปกของผู้เขียนเอง (ป้าย SOURCE_COVER_ATTR) ไม่ใช่ปกที่ระบบใส่ — ไม่ตัด/ไม่แทนที่
+    if (wanted.has(m[2]) && !m[0].slice(0, m[0].indexOf('>')).includes(SOURCE_COVER_ATTR)) return { start: m.index, end: m.index + m[0].length }
   }
   return null
 }

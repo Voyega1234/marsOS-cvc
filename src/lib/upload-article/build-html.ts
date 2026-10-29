@@ -9,7 +9,7 @@ import { type UploadOutputMode, type UploadTheme } from './types'
 import { buildUploadCss } from './theme-css'
 import { decodeTextEntities } from './entities'
 import { stripGoogleDocsCommentsHtml, applyAltCaptionsHtml } from './clean-html'
-import { TOC_HEADING_RE } from './article-images'
+import { TOC_HEADING_RE, GEN_FIGURE_ATTR, SOURCE_COVER_ATTR } from './article-images'
 import { TAKEAWAYS_HEADING_RE, applyFaqDisplayMarkup, boxKeyTakeaways } from '@/lib/article-structure'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import type { UploadCtaSettings } from './cta'
@@ -100,6 +100,29 @@ function normalizeH1(blocks: HTMLElement[], title: string): number {
     }
   }
   return h1Index
+}
+
+/** บล็อกที่มีแค่รูปเดียว (p/figure — ห่อ a/span ได้ มี figcaption ได้) ไม่มีข้อความอื่น · รูปที่ระบบสร้าง (data-ua-gen) ไม่นับ */
+function isLoneImageBlock(b: HTMLElement | undefined): boolean {
+  if (!b || !/^(p|figure)$/i.test(b.tagName)) return false
+  if (b.hasAttribute(GEN_FIGURE_ATTR)) return false
+  if (b.querySelectorAll('img').length !== 1) return false
+  const text = b.childNodes
+    .filter((n) => !(n instanceof HTMLElement && n.tagName.toLowerCase() === 'figcaption'))
+    .map((n) => n.text)
+    .join('')
+  return !text.replace(/ /g, ' ').trim()
+}
+
+/**
+ * ต้นฉบับ (Google Doc/Drive) แปะปกไว้ติดหัวเรื่องเอง = ใช้รูปนั้นเป็นปกในเนื้อหา ระบบไม่ใส่กล่องปกซ้ำ (กันปกซ้อน 2 รูปในหน้า Review)
+ * ติดป้าย SOURCE_COVER_ATTR ไว้ ตอน push ไม่ถูกตัด — ผล push เหมือนก่อนแก้ (ก่อนนี้ push ตัดกล่องปกระบบ เหลือรูปนี้)
+ * ดูแค่บล็อกที่ติด H1 (ใต้ก่อน แล้วค่อยเหนือ) · บทความที่ระบบเขียน (ไม่มีรูปติด H1) ได้กล่องปกเหมือนเดิม
+ */
+function markSourceCover(blocks: HTMLElement[], h1Index: number): boolean {
+  const b = isLoneImageBlock(blocks[h1Index + 1]) ? blocks[h1Index + 1] : h1Index > 0 && isLoneImageBlock(blocks[h1Index - 1]) ? blocks[h1Index - 1] : null
+  b?.setAttribute(SOURCE_COVER_ATTR, '1')
+  return b !== null
 }
 
 /** ใส่ id ภาษาอังกฤษที่เสถียรให้ทุก H2 (สำหรับ TOC/anchor) คืนจำนวน H2 */
@@ -620,16 +643,18 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
     blocks = wrapComponents(blocks, o.meta.title)
     h1Index = blocks.findIndex((b) => b.tagName.toLowerCase() === 'h1')
   }
+  // ไม่ขยับ cursor ผ่านรูปปกของต้นฉบับ — ตำแหน่งสารบัญเหมือนก่อนแก้ (แค่ไม่มีกล่องปกระบบ)
+  const sourceCover = o.cover?.url ? markSourceCover(blocks, h1Index) : false
 
   let cursor = h1Index + 1
   if (htmlMode) {
-    if (o.cover?.url) {
+    if (o.cover?.url && !sourceCover) {
       const figHtml = `<figure class="content-figure content-cover"><img src="${escapeAttr(o.cover.url)}" alt="${escapeAttr(o.cover.alt || o.meta.title)}"></figure>`
       blocks.splice(cursor, 0, parseTopLevelBlocks(figHtml)[0])
       cursor++
     }
     // breadcrumb ไม่แสดงในเนื้อหา (เจ้าของสั่ง 2026-09-28) — ใส่เฉพาะ BreadcrumbList ใน schema
-  } else if (o.cover?.url) {
+  } else if (o.cover?.url && !sourceCover) {
     const figHtml = `<figure><img src="${escapeAttr(o.cover.url)}" alt="${escapeAttr(o.cover.alt || o.meta.title)}"></figure>`
     blocks.splice(cursor, 0, parseTopLevelBlocks(figHtml)[0])
     cursor++

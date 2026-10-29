@@ -11,7 +11,7 @@
  * ไฟล์นี้ไม่มี import หนัก — import แบบ static ได้ เพื่อให้ popup / clipboard เรียกได้ในจังหวะคลิก
  */
 import { boxKeyTakeaways } from '@/lib/article-structure'
-import { TOC_HEADING_RE } from '@/lib/upload-article/article-images'
+import { TOC_HEADING_RE, htmlHasBodyCover } from '@/lib/upload-article/article-images'
 
 const CLIENT_ID = (process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID || '').trim()
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
@@ -306,7 +306,7 @@ export function buildDocsClipboard(o: GoogleDocsSource): { html: string; text: s
     if (!src || src.startsWith('data:')) return
     try { img.setAttribute('src', new URL(src, window.location.href).href) } catch { /* ปล่อยตามเดิม */ }
   })
-  if (o.coverSrc && !(o.html || '').includes('content-cover')) {
+  if (o.coverSrc && !htmlHasBodyCover(o.html || '')) {
     const img = doc.createElement('img')
     img.setAttribute('src', o.coverSrc)
     img.setAttribute('alt', o.coverAlt ?? o.title)

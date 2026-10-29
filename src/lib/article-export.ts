@@ -11,6 +11,7 @@ import {
   ShadingType, UnderlineType,
 } from 'docx'
 import { boxKeyTakeaways } from '@/lib/article-structure'
+import { htmlHasBodyCover } from '@/lib/upload-article/article-images'
 
 const escHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -36,7 +37,7 @@ export function buildStandaloneArticleHtml(o: {
   // หัวกล่องสรุปตามภาษาของเนื้อหา (บทความเก่า / โหมดไทย+อังกฤษ ที่ project.language ไม่บอกภาษาจริง)
   const html = boxKeyTakeaways(o.html || '')
   const bg = o.pageBackground && PAGE_BG_RE.test(o.pageBackground.trim()) ? o.pageBackground.trim() : '#fff'
-  const cover = o.coverSrc && !html.includes('content-cover')
+  const cover = o.coverSrc && !htmlHasBodyCover(html)
     ? `<img src="${escHtml(o.coverSrc)}" alt="${escHtml(o.coverAlt ?? o.title)}" style="width:100%;height:auto;display:block;margin:0 0 24px;border-radius:12px" />\n`
     : ''
   return `<!doctype html>
@@ -492,7 +493,7 @@ export async function buildArticleDocx(o: {
   if (!body.querySelector('h1') && o.title) {
     out.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: o.title })] }))
   }
-  if (o.coverSrc && !(o.html || '').includes('content-cover')) {
+  if (o.coverSrc && !htmlHasBodyCover(o.html || '')) {
     await pushImage(o.coverSrc, o.coverAlt ?? o.title, root, cx)
   }
   await walkChildren(body, root, cx)

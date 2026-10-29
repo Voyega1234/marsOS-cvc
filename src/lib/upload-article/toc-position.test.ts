@@ -7,7 +7,7 @@ import {
   placeToc, tocPositionOfHtml, sectionCountOfHtml, buildTocFromHeadings, detectTocPosition,
   majorityTocPosition, effectiveTocPosition, normalizeTocPosition,
 } from './toc-position';
-import { removeCoverFromHtml, replaceCoverInHtml } from './article-images';
+import { removeCoverFromHtml, replaceCoverInHtml, SOURCE_COVER_ATTR, htmlHasBodyCover } from './article-images';
 import { buildElementorData, type SiteTocWidget } from './wp-push';
 import { DEFAULT_UPLOAD_THEME, SITE_TOC_ID_TOKEN } from './types';
 
@@ -192,6 +192,42 @@ console.log('5 — Elementor site TOC slot');
   assert(il > 0 && txt(wLegacy[il - 1]).includes('intro') && txt(wLegacy[il + 1]).startsWith('<h2 id="a">'), 'undefined: legacy slot (หลังย่อหน้าแรก ก่อน H2 แรก)');
   const wNeg = wsOf(noNav, -1);
   assert(JSON.stringify(wNeg.map((w) => w.widgetType + txt(w).length)) === JSON.stringify(wLegacy.map((w) => w.widgetType + txt(w).length)), '-1 = legacy');
+}
+
+console.log('6 — ปกที่ Doc แปะไว้เองติดหัวเรื่อง vs ปกระบบ');
+{
+  const B = (src: string, mode: 'html' | 'text', cover = true) => buildUploadArticleHtml({
+    sourceHtml: src, mode, theme: DEFAULT_UPLOAD_THEME,
+    site: { name: 'Test', url: 'https://example.com', language: 'th' },
+    meta: { title: 'หัวเรื่อง' },
+    cover: cover ? { url: 'c.webp', alt: 'cover' } : null,
+  }).html;
+  const srcs = (h: string) => (h.match(/<img\b[^>]*\bsrc="[^"]*"/g) || []).map((t) => t.replace(/^[\s\S]*src="/, '').replace(/"$/, '')).join();
+  const H2X = '<h2>A</h2><p>a</p><h2>B</h2><p>b</p><h2>C</h2><p>c</p>';
+  const GEN = '<figure class="content-figure" data-ua-gen="1"><img src="g.webp" alt="g"></figure>';
+  for (const mode of ['html', 'text'] as const) {
+    const hero = B(`<h1>หัวเรื่อง</h1><p><img src="doc.jpg" alt="hero"></p><p>intro</p>${H2X}`, mode);
+    assert(srcs(hero) === 'doc.jpg' && hero.includes(SOURCE_COVER_ATTR), `${mode}: Doc มีรูปใต้ H1 + มีปก -> ใช้รูป Doc รูปเดียว ไม่ใส่ปกระบบ`);
+    assert(removeCoverFromHtml(hero, 'c.webp') === hero, `${mode}: push ไม่ติ๊ก bodyCover ไม่ตัดรูป Doc`);
+    const same = B(`<h1>หัวเรื่อง</h1><p><img src="c.webp"></p><p>intro</p>${H2X}`, mode);
+    assert(srcs(same) === 'c.webp' && removeCoverFromHtml(same, 'c.webp') === same, `${mode}: รูป Doc = ไฟล์ปก -> รูปเดียว และ push ไม่ตัด`);
+    const above = B(`<p><img src="doc.jpg"></p><h1>หัวเรื่อง</h1><p>intro</p>${H2X}`, mode);
+    assert(srcs(above) === 'doc.jpg', `${mode}: รูป Doc เหนือ H1 -> ไม่ใส่ปกระบบ`);
+    const sys = B(`<h1>หัวเรื่อง</h1><p>intro</p><h2>A</h2>${GEN}<p>a</p><h2>B</h2><p>b</p><h2>C</h2><p>c</p>`, mode);
+    assert(srcs(sys) === 'c.webp,g.webp' && !sys.includes(SOURCE_COVER_ATTR), `${mode}: บทความที่ระบบเขียน -> ปกระบบใต้ H1 เหมือนเดิม`);
+    const h1h2 = B(`<h1>หัวเรื่อง</h1><h2>A</h2>${GEN}<p>a</p><h2>B</h2><p>b</p><h2>C</h2><p>c</p>`, mode);
+    assert(srcs(h1h2).startsWith('c.webp,') && !h1h2.includes(SOURCE_COVER_ATTR), `${mode}: รูปประกอบ AI (data-ua-gen) ไม่นับเป็นปก Doc`);
+    const captioned = B(`<h1>หัวเรื่อง</h1><p><img src="doc.jpg"> คำบรรยาย</p><p>intro</p>${H2X}`, mode);
+    assert(srcs(captioned) === 'c.webp,doc.jpg', `${mode}: รูปมีข้อความในย่อหน้าเดียวกัน = ไม่ใช่ปก Doc`);
+    const noCover = B(`<h1>หัวเรื่อง</h1><p><img src="doc.jpg"></p><p>intro</p>${H2X}`, mode, false);
+    assert(srcs(noCover) === 'doc.jpg' && !noCover.includes(SOURCE_COVER_ATTR), `${mode}: ไม่มีปก -> ไม่แตะรูป Doc`);
+  }
+  assert(
+    htmlHasBodyCover('<figure class="content-figure content-cover"><img src="c"></figure>') &&
+      htmlHasBodyCover(`<p ${SOURCE_COVER_ATTR}="1"><img src="d"></p>`) &&
+      !htmlHasBodyCover('<p><img src="d"></p>'),
+    'htmlHasBodyCover: กล่องปก/ปก Doc = มีปก (export ไม่แปะปกซ้ำ)',
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
