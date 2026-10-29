@@ -14,6 +14,7 @@ import {
   batchPagesForRegex, buildPageRegex, matchGscPagesToUrls, mergeGscRows, uploadedArticleUrl,
   REPORT_DAY_OPTIONS, type RawGscRow, type ReportCompareMode, type ReportPeriod, type ReportSearchType,
 } from '@/lib/upload-article/gsc-report'
+import { PUSHED_ARTICLE_WHERE } from '@/lib/upload-article/duplicates'
 
 // ─── Upload Article > Report — สรุปผล GSC แบบละเอียด (service account เท่านั้น) ───
 // cache ในหน่วยความจำ 10 นาที กัน dashboard โดนเปิดซ้ำ ๆ ยิง GSC รัว ๆ (ต่อ clientId+siteUrl+params)
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   type ArticleRow = { id: string; title: string; wordpressUrl: string | null; slug: string; pushedAt: Date | null }
   const loadPushedArticles = (): Promise<ArticleRow[]> => prisma.uploadArticle.findMany({
-    where: { clientId: params.id, organizationId: orgId, status: 'PUSHED' },
+    where: { clientId: params.id, organizationId: orgId, ...PUSHED_ARTICLE_WHERE },
     select: { id: true, title: true, wordpressUrl: true, slug: true, pushedAt: true },
   })
 

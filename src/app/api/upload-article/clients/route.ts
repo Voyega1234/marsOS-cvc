@@ -14,7 +14,7 @@ export async function GET() {
     // แถวโปรเจกต์ PBN Backlinks อยู่เมนูของมันเอง ไม่แสดงในรายชื่อลูกค้า Upload Article
     where: { organizationId: session.user.organizationId, NOT: { pushPrefs: { contains: PBN_PREFS_MARK } } },
     orderBy: { updatedAt: 'desc' },
-    include: { articles: { select: { status: true } } },
+    include: { articles: { select: { status: true, wordpressPostId: true, pushedAt: true } } },
   })
 
   const dtos = clients.map((c) => toUploadClientDTO(c, computeClientCounts(c.articles)))

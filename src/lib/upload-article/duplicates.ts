@@ -41,8 +41,24 @@ export function duplicateMap<T extends ArticleDupKey>(articles: T[]): Map<string
 }
 
 /** ขึ้นเว็บแล้ว (มีโพสต์ หรือเคย push) */
-export function isArticlePushed(article: { wordpressPostId: string | null; pushedAt: string | Date | null }): boolean {
+export function isArticlePushed(article: { wordpressPostId?: string | null; pushedAt?: string | Date | null }): boolean {
   return Boolean(article.wordpressPostId || article.pushedAt)
+}
+
+/**
+ * สถานะที่ใช้แสดง/กรอง: บทความขึ้นเว็บแล้วแต่สถานะถูกทับเป็น REVIEWED/GENERATED (กด "ผ่าน Review" หลัง push — แก้ที่ PATCH แล้ว)
+ * นับเป็น PUSHED เหมือนเดิม — แถวเก่าที่หลุดไปแล้วกลับมาอยู่หน้า Publish/Index/Report โดยไม่ต้องแก้ DB
+ */
+export function effectiveArticleStatus(article: { status: string; wordpressPostId?: string | null; pushedAt?: string | Date | null }): string {
+  return (article.status === 'REVIEWED' || article.status === 'GENERATED') && isArticlePushed(article) ? 'PUSHED' : article.status
+}
+
+/** where ของ Prisma คู่กับ effectiveArticleStatus: บทความที่ขึ้นเว็บแล้ว (รวมแถวที่สถานะถูกทับ) — ห้ามใช้คู่กับ OR อื่นระดับเดียวกัน */
+export const PUSHED_ARTICLE_WHERE = {
+  OR: [
+    { status: 'PUSHED' },
+    { status: { in: ['REVIEWED', 'GENERATED'] }, OR: [{ wordpressPostId: { not: null } }, { pushedAt: { not: null } }] },
+  ],
 }
 
 /**

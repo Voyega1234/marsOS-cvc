@@ -45,7 +45,7 @@ const BUSY_WINDOW_MS = 6 * 60 * 1000
 async function loadClient(id: string, orgId: string) {
   return prisma.uploadClient.findFirst({
     where: { id, organizationId: orgId },
-    include: { articles: { select: { status: true } } },
+    include: { articles: { select: { status: true, wordpressPostId: true, pushedAt: true } } },
   })
 }
 

@@ -14,6 +14,7 @@ import { isPbnPrefsRaw } from '@/lib/upload-article/pbn'
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024
 const VALID_STATUS = new Set(['IMPORTED', 'GENERATED', 'REVIEWED', 'PUSHED', 'FAILED'])
+const DOWNGRADE_STATUS = new Set(['IMPORTED', 'GENERATED', 'REVIEWED'])
 
 function sanitizeSlug(raw: string): string {
   return raw
@@ -113,7 +114,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   }
   if (typeof body.status === 'string') {
     if (!VALID_STATUS.has(body.status)) return NextResponse.json({ error: 'status ไม่ถูกต้อง' }, { status: 400 })
-    data.status = body.status
+    // ขึ้นเว็บแล้ว = คง PUSHED (กด "ผ่าน Review" หลัง Re-generate เคยทับเป็น REVIEWED บทความเลยหายจากหน้า Publish)
+    const pushed = existing.status === 'PUSHED' || isArticlePushed(existing)
+    data.status = pushed && DOWNGRADE_STATUS.has(body.status) ? 'PUSHED' : body.status
   }
 
   // meta/slug/ปก หรือ HTML เปลี่ยน → สร้าง schema ใหม่ให้ตรงค่าล่าสุด (ไม่แตะเนื้อหา)

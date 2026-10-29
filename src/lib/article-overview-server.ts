@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { parseTimeline, type TimelinePlan } from '@/lib/project-timeline'
 import { PBN_PREFS_MARK, PBN_CLIENT_NAME } from '@/lib/upload-article/pbn'
+import { effectiveArticleStatus } from '@/lib/upload-article/duplicates'
 import {
   UPLOAD_TO_OVERVIEW,
   smeToOverview,
@@ -75,7 +76,7 @@ export async function loadArticleOverview(orgId: string): Promise<ArticleOvervie
     }),
     prisma.uploadArticle.findMany({
       where: { organizationId: orgId },
-      select: { id: true, clientId: true, title: true, slug: true, status: true, pushedAt: true, updatedAt: true },
+      select: { id: true, clientId: true, title: true, slug: true, status: true, wordpressPostId: true, pushedAt: true, updatedAt: true },
       orderBy: { updatedAt: 'desc' },
     }),
   ])
@@ -127,6 +128,7 @@ export async function loadArticleOverview(orgId: string): Promise<ArticleOvervie
   for (const a of uploadArticles) {
     const c = clientInfo.get(a.clientId)
     if (!c) continue
+    const rawStatus = effectiveArticleStatus(a)
     const publishAt = c.publishAt[a.id] ?? a.pushedAt?.toISOString() ?? null
     articles.push({
       id: `ua-${a.id}`,
@@ -137,12 +139,12 @@ export async function loadArticleOverview(orgId: string): Promise<ArticleOvervie
       uploadArticleId: a.id,
       title: a.title,
       keyword: '',
-      status: UPLOAD_TO_OVERVIEW[a.status] ?? 'pending',
-      rawStatus: a.status,
+      status: UPLOAD_TO_OVERVIEW[rawStatus] ?? 'pending',
+      rawStatus,
       date: '',
       publishAt,
       updatedAt: a.updatedAt.toISOString(),
-      href: c.isPbn ? '/pbn-backlinks?tab=review' : `/upload-article/${a.clientId}?tab=${uploadTab(a.status)}`,
+      href: c.isPbn ? '/pbn-backlinks?tab=review' : `/upload-article/${a.clientId}?tab=${uploadTab(rawStatus)}`,
       slug: a.slug || undefined,
     })
   }

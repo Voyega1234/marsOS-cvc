@@ -93,6 +93,8 @@ export default function ReviewTab({
   const [inserting, setInserting] = useState(false);
 
   const [approving, setApproving] = useState(false);
+  // บทความที่ขึ้นเว็บแล้วคงสถานะ PUSHED หลังกด "ผ่าน Review" — จำไว้แสดงปุ่มว่าผ่านแล้ว
+  const [reviewedPushedId, setReviewedPushedId] = useState<string | null>(null);
   const [wordBusy, setWordBusy] = useState(false);
   const [docsBusy, setDocsBusy] = useState(false);
 
@@ -231,6 +233,7 @@ export default function ReviewTab({
   async function regenerate(successMessage: string, relink = false) {
     if (!detail) return;
     setRegenBusy(true);
+    setReviewedPushedId(null);
     try {
       const r = await fetch(`/api/upload-article/articles/${detail.id}/generate`, {
         method: "POST",
@@ -305,7 +308,10 @@ export default function ReviewTab({
     setApproving(true);
     try {
       const d = await patchArticle(detail.id, { status: "REVIEWED" });
-      if (d) toast.success("ผ่าน Review แล้ว");
+      if (d?.status === "PUSHED") {
+        setReviewedPushedId(d.id);
+        toast.success("ผ่าน Review แล้ว — กด Re-push ที่หน้า Push เพื่ออัปเดตบนเว็บ");
+      } else if (d) toast.success("ผ่าน Review แล้ว");
     } finally {
       setApproving(false);
     }
@@ -509,9 +515,9 @@ export default function ReviewTab({
               )}
             </div>
 
-            <Button className="w-full" disabled={approving || detail.status === "REVIEWED"} onClick={markReviewed}>
+            <Button className="w-full" disabled={approving || detail.status === "REVIEWED" || reviewedPushedId === detail.id} onClick={markReviewed}>
               <CheckCircle2 size={14} className="mr-1.5" />
-              {detail.status === "REVIEWED" ? "ผ่าน Review แล้ว" : approving ? "กำลังบันทึก..." : "ผ่าน Review ✓"}
+              {detail.status === "REVIEWED" || reviewedPushedId === detail.id ? "ผ่าน Review แล้ว" : approving ? "กำลังบันทึก..." : "ผ่าน Review ✓"}
             </Button>
           </>
         )}

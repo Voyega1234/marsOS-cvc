@@ -21,7 +21,7 @@ export async function loadArticleLinkRows(
   if (isPbnPrefs(prefs)) return []
   const rows = await prisma.uploadArticle.findMany({
     where: { clientId, organizationId: orgId },
-    select: { id: true, title: true, sourceName: true, status: true, pushMode: true, wordpressUrl: true, createdAt: true },
+    select: { id: true, title: true, sourceName: true, status: true, pushMode: true, wordpressUrl: true, wordpressPostId: true, pushedAt: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
     take: 500,
   })

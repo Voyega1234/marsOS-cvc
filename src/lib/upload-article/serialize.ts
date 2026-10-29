@@ -8,6 +8,7 @@ import { readImageDefaults } from './article-images'
 import { uploadCtaSummary } from './cta'
 import { uploadAuthorSummary } from './author'
 import { connectionFingerprint, readConnectionTest } from './connection-status'
+import { effectiveArticleStatus } from './duplicates'
 import { readArticleOwners, readOwnerTags } from './owner-tags'
 
 function safeParse<T>(json: string | null | undefined, fallback: T): T {
@@ -178,7 +179,7 @@ export function toUploadArticleDTO(row: UploadArticleRow, includeContent = false
     sourceType: row.sourceType,
     sourceName: row.sourceName,
     outputMode: (row.outputMode === 'text' ? 'text' : 'html') as UploadOutputMode,
-    status: row.status as UploadArticleStatus,
+    status: effectiveArticleStatus(row) as UploadArticleStatus,
     seoTitle: row.seoTitle,
     metaDescription: row.metaDescription,
     slug: row.slug,
@@ -202,14 +203,15 @@ export function toUploadArticleDTO(row: UploadArticleRow, includeContent = false
   return dto
 }
 
-export function computeClientCounts(articles: Array<{ status: string }>): UploadClientCounts {
+export function computeClientCounts(articles: Array<{ status: string; wordpressPostId?: string | null; pushedAt?: Date | null }>): UploadClientCounts {
   const counts: UploadClientCounts = { total: articles.length, imported: 0, generated: 0, reviewed: 0, pushed: 0, failed: 0 }
   for (const a of articles) {
-    if (a.status === 'IMPORTED') counts.imported++
-    else if (a.status === 'GENERATED') counts.generated++
-    else if (a.status === 'REVIEWED') counts.reviewed++
-    else if (a.status === 'PUSHED') counts.pushed++
-    else if (a.status === 'FAILED') counts.failed++
+    const status = effectiveArticleStatus(a)
+    if (status === 'IMPORTED') counts.imported++
+    else if (status === 'GENERATED') counts.generated++
+    else if (status === 'REVIEWED') counts.reviewed++
+    else if (status === 'PUSHED') counts.pushed++
+    else if (status === 'FAILED') counts.failed++
   }
   return counts
 }

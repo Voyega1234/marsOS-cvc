@@ -8,6 +8,7 @@ import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/li
 import { isPbnPrefs, readPbnPushes, readPbnSites } from '@/lib/upload-article/pbn'
 import { parsePrefs } from '@/lib/upload-article/prefs-store'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
+import { effectiveArticleStatus } from '@/lib/upload-article/duplicates'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
 
 export const maxDuration = 60
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     }
     const { record, prefs: nextPrefs } = await requestIndexForPbn(client.id, orgId, article.id, site.id, pbnUrl)
     const pbnClientRow = nextPrefs ? { ...client, pushPrefs: JSON.stringify(nextPrefs) } : client
-    const pbnArticleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true } })
+    const pbnArticleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true, wordpressPostId: true, pushedAt: true } })
     return NextResponse.json({
       ok: record.ok,
       error: record.error,
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       client: toUploadClientDTO(pbnClientRow, computeClientCounts(pbnArticleRows)),
     }, { status: record.ok ? 200 : 502 })
   }
-  if (article.status !== 'PUSHED' || (!article.wordpressPostId && !article.wordpressUrl)) {
+  if (effectiveArticleStatus(article) !== 'PUSHED' || (!article.wordpressPostId && !article.wordpressUrl)) {
     return NextResponse.json({ error: 'บทความนี้ยังไม่ได้ขึ้นเว็บ — Push ก่อน' }, { status: 400 })
   }
 
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
 
   const { record, prefs: nextPrefs } = await requestIndexForArticle(client.id, orgId, article.id, url)
   const clientRow = nextPrefs ? { ...client, pushPrefs: JSON.stringify(nextPrefs) } : client
-  const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true } })
+  const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true, wordpressPostId: true, pushedAt: true } })
   return NextResponse.json({
     ok: record.ok,
     error: record.error,

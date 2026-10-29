@@ -3,6 +3,7 @@
 
 import type { UploadInternalLinks, UploadKeyword, UploadLinkPair } from './types'
 import { parseWriterSourceName } from './pbn'
+import { effectiveArticleStatus } from './duplicates'
 
 const URL_MAX = 500
 const KEYWORD_MAX = 200
@@ -397,6 +398,8 @@ export interface ArticleLinkSourceRow {
   status: string
   pushMode: string | null
   wordpressUrl: string | null
+  wordpressPostId?: string | null
+  pushedAt?: Date | string | null
   createdAt: Date | string
 }
 
@@ -417,7 +420,7 @@ export function articleLinkRows(rows: ArticleLinkSourceRow[], keywordPlan: Uploa
   return rows.slice(0, ARTICLE_ROWS_MAX).map((r) => {
     const parsed = parseWriterSourceName(r.sourceName)
     const keyword = (parsed && planById.get(parsed.keywordId)?.keyword) || r.title
-    const url = r.status === 'PUSHED' && r.pushMode === 'publish' && r.wordpressUrl ? r.wordpressUrl : null
+    const url = effectiveArticleStatus(r) === 'PUSHED' && r.pushMode === 'publish' && r.wordpressUrl ? r.wordpressUrl : null
     return {
       articleId: r.id,
       title: r.title,

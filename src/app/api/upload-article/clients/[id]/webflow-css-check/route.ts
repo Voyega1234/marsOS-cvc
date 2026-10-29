@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma'
 import { webflowCssHash } from '@/lib/upload-article/theme-css'
 import { checkWebflowCss, savedUploadTheme } from '@/lib/upload-article/webflow-css-check'
 import { hostOf, withProtocol } from '@/lib/upload-article/platform-info'
+import { PUSHED_ARTICLE_WHERE } from '@/lib/upload-article/duplicates'
 
 export const maxDuration = 30
 
@@ -32,7 +33,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   // หน้าบทความล่าสุดที่ push แล้ว (ถ้าเป็นเว็บเดียวกัน) — ใช้เป็นหน้าตัวอย่างตรวจ CSS
   let sampleUrl: string | undefined
   const last = await prisma.uploadArticle.findFirst({
-    where: { clientId: params.id, organizationId: orgId, status: 'PUSHED', wordpressUrl: { not: null } },
+    where: { clientId: params.id, organizationId: orgId, ...PUSHED_ARTICLE_WHERE, wordpressUrl: { not: null } },
     orderBy: { pushedAt: 'desc' },
     select: { wordpressUrl: true },
   })

@@ -451,7 +451,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     }
   }
 
-  const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true } })
+  const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true, wordpressPostId: true, pushedAt: true } })
   const clientDto = toUploadClientDTO(clientRow, computeClientCounts(articleRows))
 
   return NextResponse.json({ ok, postUrl, postId, error, warning, indexRequest, client: clientDto })

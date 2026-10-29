@@ -19,6 +19,7 @@ import { webflowCssHash } from '@/lib/upload-article/theme-css'
 import { checkWebflowCss, savedUploadTheme } from '@/lib/upload-article/webflow-css-check'
 import { withProtocol, hostOf } from '@/lib/upload-article/platform-info'
 import type { UploadInternalLinks, UploadSiteScan } from '@/lib/upload-article/types'
+import { PUSHED_ARTICLE_WHERE } from '@/lib/upload-article/duplicates'
 
 export type UploadChecklistSection = 'website' | 'scan' | 'style' | 'links' | 'images' | 'cta' | 'author' | 'engine'
 
@@ -102,7 +103,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     let hint = 'ยังไม่ได้ตั้ง URL เว็บ — ใส่ Site URL ในหน้า Connect เพื่อให้ระบบตรวจให้'
     if (siteUrl) {
       const last = await prisma.uploadArticle.findFirst({
-        where: { clientId: params.id, organizationId: orgId, status: 'PUSHED', wordpressUrl: { not: null } },
+        where: { clientId: params.id, organizationId: orgId, ...PUSHED_ARTICLE_WHERE, wordpressUrl: { not: null } },
         orderBy: { pushedAt: 'desc' },
         select: { wordpressUrl: true },
       })

@@ -2,7 +2,8 @@
  * Regression: บทความซ้ำ (ชื่อ/slug เดียวกัน push ไปโพสต์เดียวกัน) ต้องลบได้ทั้งที่ push แล้ว โดยเก็บไว้อย่างน้อย 1 แถว
  * Run: npx tsx src/lib/upload-article/duplicates.test.ts
  */
-import { normalizeArticleTitle, duplicatesOf, duplicateMap, canDeleteArticle, isArticlePushed } from './duplicates';
+import { normalizeArticleTitle, duplicatesOf, duplicateMap, canDeleteArticle, isArticlePushed, effectiveArticleStatus, PUSHED_ARTICLE_WHERE } from './duplicates';
+import { articleLinkRows } from './internal-links';
 
 let passed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -98,6 +99,32 @@ assert(normalizeArticleTitle('   ') === '', 'normalize: whitespace only = empty'
   const postOnly = row('a', { wordpressPostId: '100' });
   assert(isArticlePushed(postOnly), 'wordpressPostId alone counts as pushed');
   assert(!isArticlePushed(row('b')), 'fresh row is not pushed');
+}
+
+// effectiveArticleStatus — กด "ผ่าน Review" หลัง push เคยทับ PUSHED เป็น REVIEWED บทความเลยหายจากหน้า Publish
+{
+  const at = '2026-10-29T00:00:00Z';
+  assert(effectiveArticleStatus({ status: 'REVIEWED', wordpressPostId: '5248', pushedAt: at }) === 'PUSHED', 'REVIEWED + pushed = PUSHED (overwritten row heals)');
+  assert(effectiveArticleStatus({ status: 'GENERATED', wordpressPostId: null, pushedAt: at }) === 'PUSHED', 'GENERATED + pushedAt only = PUSHED');
+  assert(effectiveArticleStatus({ status: 'REVIEWED', wordpressPostId: null, pushedAt: null }) === 'REVIEWED', 'REVIEWED never pushed stays REVIEWED');
+  assert(effectiveArticleStatus({ status: 'GENERATED' }) === 'GENERATED', 'missing push fields = raw status');
+  assert(effectiveArticleStatus({ status: 'FAILED', wordpressPostId: '1', pushedAt: null }) === 'FAILED', 'FAILED is left as is');
+  assert(effectiveArticleStatus({ status: 'PUSHING', wordpressPostId: '1', pushedAt: at }) === 'PUSHING', 'PUSHING is left as is');
+  assert(effectiveArticleStatus({ status: 'IMPORTED', wordpressPostId: '1', pushedAt: at }) === 'IMPORTED', 'IMPORTED is left as is');
+}
+// PUSHED_ARTICLE_WHERE ต้องตรงกับ effectiveArticleStatus (Prisma where ฝั่ง Report/Index)
+{
+  const or = PUSHED_ARTICLE_WHERE.OR;
+  assert(or.length === 2 && or[0].status === 'PUSHED', 'where: plain PUSHED branch');
+  const healed = or[1] as { status: { in: string[] }; OR: Array<Record<string, unknown>> };
+  assert(healed.status.in.join(',') === 'REVIEWED,GENERATED', 'where: overwritten statuses match effectiveArticleStatus');
+  assert(healed.OR.length === 2 && 'wordpressPostId' in healed.OR[0] && 'pushedAt' in healed.OR[1], 'where: pushed = wordpressPostId or pushedAt');
+}
+// ลิงก์ภายในยังใช้บทความที่สถานะถูกทับได้
+{
+  const base = { id: 'a', title: 'บทความ', sourceName: 'manual', pushMode: 'publish', wordpressUrl: 'https://x.com/a', createdAt: '2026-10-01T00:00:00Z' };
+  assert(articleLinkRows([{ ...base, status: 'REVIEWED', wordpressPostId: '9' }], [])[0].url === 'https://x.com/a', 'link rows: REVIEWED + pushed keeps its URL');
+  assert(articleLinkRows([{ ...base, status: 'REVIEWED' }], [])[0].url === null, 'link rows: REVIEWED never pushed has no URL');
 }
 
 console.log(`\n${passed} passed`);

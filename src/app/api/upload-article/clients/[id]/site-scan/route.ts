@@ -89,7 +89,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
   if (!prefsResult) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
   const updated = { ...client, pushPrefs: JSON.stringify(prefsResult.result) }
-  const articles = await prisma.uploadArticle.findMany({ where: { clientId: client.id }, select: { status: true } })
+  const articles = await prisma.uploadArticle.findMany({ where: { clientId: client.id }, select: { status: true, wordpressPostId: true, pushedAt: true } })
   const counts = computeClientCounts(articles)
 
   return NextResponse.json({

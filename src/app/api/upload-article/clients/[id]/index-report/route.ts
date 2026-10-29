@@ -9,6 +9,7 @@ import {
   resolveReportPeriod, normalizeReportUrl, rowMetric, REPORT_DAY_OPTIONS, type RawGscRow, type GscMetric,
 } from '@/lib/upload-article/gsc-report'
 import { isPbnPrefs, readPbnPushes, readPbnSites } from '@/lib/upload-article/pbn'
+import { PUSHED_ARTICLE_WHERE } from '@/lib/upload-article/duplicates'
 
 // ─── Upload Article > Request Index — performance ต่อบทความที่ push แล้ว (GSC ระดับหน้าเว็บ) ───
 // เบากว่า /report (ยิงแค่ page ช่วงนี้ + ช่วงก่อน) cache 10 นาที
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: 'ยังไม่ได้เลือกเว็บ GSC — เลือกเว็บที่แท็บ Report ก่อน', needSetup: true }, { status: 400 })
     }
     const articles = await prisma.uploadArticle.findMany({
-      where: { clientId: params.id, organizationId: orgId, status: 'PUSHED' },
+      where: { clientId: params.id, organizationId: orgId, ...PUSHED_ARTICLE_WHERE },
       select: { id: true, wordpressUrl: true, slug: true },
     })
     const base = client.website.replace(/\/+$/, '')
