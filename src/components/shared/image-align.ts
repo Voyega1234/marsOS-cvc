@@ -22,3 +22,16 @@ export function alignImage(img: HTMLElement, align: ImageAlign, root: HTMLElemen
   const fig = img.closest('figure')
   if (fig && fig !== root && root.contains(fig)) (fig as HTMLElement).style.setProperty('text-align', align)
 }
+
+// ปรับขนาดรูปเป็น % ของความกว้างบทความ — รูป AI กว้างเต็มกรอบ ต้องย่อก่อนจัดวางถึงจะเห็นผล
+// pct >= 100 = ขนาดเดิม (ล้าง width ให้ max-width ของบทความคุมเหมือนเดิม)
+export function setImageWidth(img: HTMLElement, pct: number): void {
+  const s = img.style
+  if (pct >= 100) {
+    s.removeProperty('width')
+    s.removeProperty('height')
+    return
+  }
+  s.setProperty('width', `${pct}%`)
+  s.setProperty('height', 'auto')
+}

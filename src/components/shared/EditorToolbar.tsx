@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify, CornerDownLeft, Rows3, Undo2, Redo2 } from "lucide-react";
-import { alignImage, type ImageAlign } from "./image-align";
+import { alignImage, setImageWidth, type ImageAlign } from "./image-align";
 
 const BLOCK_SEL = "p,h1,h2,h3,h4,h5,h6,li,blockquote,figure,td,th";
 // Tailwind preflight ทำ img เป็น block ทั้งหน้า → ใน editor คืนเป็น inline ให้เห็นเหมือนบนเว็บ (อยู่นอกตัว editor ไม่ถูกบันทึก)
@@ -131,6 +131,15 @@ export default function EditorToolbar({
     exec(cmd);
   }
 
+  function resize(pct: number) {
+    const root = editorRef.current;
+    const imgs = selectedImages();
+    if (!root || !imgs.length) return;
+    root.focus();
+    for (const img of imgs) setImageWidth(img, pct);
+    done();
+  }
+
   function lineBreak() {
     editorRef.current?.focus();
     if (!document.execCommand("insertLineBreak")) document.execCommand("insertHTML", false, "<br>");
@@ -201,6 +210,14 @@ export default function EditorToolbar({
       {iconBtn(AlignCenter, "กึ่งกลาง (คลิกรูปก่อน = จัดรูป)", () => align("center", "justifyCenter"))}
       {iconBtn(AlignRight, "ชิดขวา (คลิกรูปก่อน = จัดรูป)", () => align("right", "justifyRight"))}
       {iconBtn(AlignJustify, "เต็มแนว (รูป = กว้างเต็มบทความ)", () => align("full", "justifyFull"))}
+      {imgActive && (
+        <>
+          {sep}
+          <span className="text-[10px] font-semibold text-blue-600 mr-0.5">ขนาดรูป</span>
+          {[25, 50, 75].map((p) => textBtn(`${p}%`, `ขนาดรูป ${p}% ของความกว้างบทความ`, () => resize(p)))}
+          {textBtn("เดิม", "ขนาดรูปเดิม", () => resize(100))}
+        </>
+      )}
       {sep}
       {iconBtn(CornerDownLeft, "ขึ้นบรรทัดใหม่ (ในย่อหน้าเดิม)", lineBreak)}
       {iconBtn(Rows3, "เว้นบรรทัดว่าง (เพิ่มย่อหน้าว่างต่อท้าย)", blankLine)}
