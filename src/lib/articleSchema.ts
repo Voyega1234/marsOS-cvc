@@ -6,6 +6,8 @@
  * โครง output ของบทความ: <script ld+json> → <style> → <div class="content-article">
  */
 
+import { faqToAccordion } from '@/lib/article-structure'
+
 export interface ArticleSchemaOptions {
   /** HTML สุดท้ายของบทความ (ใช้ parse FAQ) */
   html: string
@@ -38,8 +40,10 @@ function stripTags(html: string): string {
 export function parseFaqFromHtml(html: string): Array<{ q: string; a: string }> {
   const out: Array<{ q: string; a: string }> = []
   const re = /<details[^>]*class="[^"]*content-faq__item[^"]*"[^>]*>([\s\S]*?)<\/details>/gi
+  // FAQ แบบเปิดตลอด (div + h3) → อ่านแบบเดียวกับ details
+  const source = faqToAccordion(html)
   let m: RegExpExecArray | null
-  while ((m = re.exec(html))) {
+  while ((m = re.exec(source))) {
     const block = m[1]
     const q = block.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i)?.[1] ?? ''
     const a = block.match(/<div[^>]*class="[^"]*content-faq__answer[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1]

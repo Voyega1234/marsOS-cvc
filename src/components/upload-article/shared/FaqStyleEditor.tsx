@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import { Input } from "@/components/ui/input";
 import { wrapArticleHtml } from "@/lib/articleComponents";
+import { applyFaqDisplayMarkup } from "@/lib/article-structure";
 import { buildUploadCss, sanitizeThemeDraft } from "@/lib/upload-article/theme-css";
 import type { UploadFaqStyle, UploadTableStyle, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
 
@@ -64,13 +65,26 @@ export default function FaqStyleEditor({ theme, onChange }: { theme: UploadTheme
   }
   const num = (v: string) => (v.trim() === "" ? undefined : Number(v));
 
-  const previewHtml = useMemo(() => wrapArticleHtml(SAMPLE, buildUploadCss(sanitizeThemeDraft(theme))), [theme]);
+  const previewHtml = useMemo(() => {
+    const clean = sanitizeThemeDraft(theme);
+    return wrapArticleHtml(applyFaqDisplayMarkup(SAMPLE, clean.detail?.faq?.display), buildUploadCss(clean));
+  }, [theme]);
+  // เปิดตลอด = ไม่มีปุ่มกด ไอคอนไม่ใช้
+  const openMode = faq.display === "open";
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
       <div className="space-y-3">
         {detail.source && <p className="text-[10px] text-gray-400">ค่าจากการสแกน: {detail.source}</p>}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <label className="space-y-0.5">
+            <span className="block text-[10px] font-semibold text-gray-500">การแสดงผล</span>
+            <select value={faq.display || ""} onChange={e => setFaq("display", (e.target.value || undefined) as UploadFaqStyle["display"])} className="w-full h-7 border border-gray-200 rounded px-1 text-[11px]">
+              <option value="">ค่าตั้งต้น (กดเปิด-ปิด)</option>
+              <option value="accordion">กดเปิด-ปิด</option>
+              <option value="open">เปิดตลอด (คำถามเป็นหัวข้อ ไม่ต้องกด)</option>
+            </select>
+          </label>
           <label className="space-y-0.5">
             <span className="block text-[10px] font-semibold text-gray-500">รูปแบบกล่อง</span>
             <select value={faq.layout || ""} onChange={e => setFaq("layout", (e.target.value || undefined) as UploadFaqStyle["layout"])} className="w-full h-7 border border-gray-200 rounded px-1 text-[11px]">
@@ -82,7 +96,7 @@ export default function FaqStyleEditor({ theme, onChange }: { theme: UploadTheme
           </label>
           <label className="space-y-0.5">
             <span className="block text-[10px] font-semibold text-gray-500">ไอคอน</span>
-            <select value={faq.icon || ""} onChange={e => setFaq("icon", (e.target.value || undefined) as UploadFaqStyle["icon"])} className="w-full h-7 border border-gray-200 rounded px-1 text-[11px]">
+            <select value={faq.icon || ""} disabled={openMode} title={openMode ? "แบบเปิดตลอดไม่มีไอคอน" : undefined} onChange={e => setFaq("icon", (e.target.value || undefined) as UploadFaqStyle["icon"])} className="w-full h-7 border border-gray-200 rounded px-1 text-[11px] disabled:opacity-50">
               <option value="">ค่าตั้งต้น (+ / −)</option>
               <option value="plus">+ / −</option>
               <option value="chevron">ลูกศรหัก (chevron)</option>
@@ -93,7 +107,7 @@ export default function FaqStyleEditor({ theme, onChange }: { theme: UploadTheme
           </label>
           <label className="space-y-0.5">
             <span className="block text-[10px] font-semibold text-gray-500">ตำแหน่งไอคอน</span>
-            <select value={faq.iconPosition || ""} onChange={e => setFaq("iconPosition", (e.target.value || undefined) as UploadFaqStyle["iconPosition"])} className="w-full h-7 border border-gray-200 rounded px-1 text-[11px]">
+            <select value={faq.iconPosition || ""} disabled={openMode} title={openMode ? "แบบเปิดตลอดไม่มีไอคอน" : undefined} onChange={e => setFaq("iconPosition", (e.target.value || undefined) as UploadFaqStyle["iconPosition"])} className="w-full h-7 border border-gray-200 rounded px-1 text-[11px] disabled:opacity-50">
               <option value="">ค่าตั้งต้น (ขวา)</option>
               <option value="right">ขวา</option>
               <option value="left">ซ้าย</option>

@@ -10,7 +10,7 @@ import { buildUploadCss } from './theme-css'
 import { decodeTextEntities } from './entities'
 import { stripGoogleDocsCommentsHtml, applyAltCaptionsHtml } from './clean-html'
 import { TOC_HEADING_RE } from './article-images'
-import { TAKEAWAYS_HEADING_RE, boxKeyTakeaways } from '@/lib/article-structure'
+import { TAKEAWAYS_HEADING_RE, applyFaqDisplayMarkup, boxKeyTakeaways } from '@/lib/article-structure'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import type { UploadCtaSettings } from './cta'
 import { buildAuthorCardHtml, type AuthorCardStyle } from '@/lib/articleAuthorCard'
@@ -645,7 +645,8 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
         heading: o.site.language === 'en' ? 'About the author' : undefined,
       })
     : ''
-  const htmlBody = authorHtml ? `${bodyHtml}\n${authorHtml.trim()}` : bodyHtml
+  // FAQ แบบเปิดตลอดเมื่อธีมตั้งไว้ (ตามที่สแกนเจอบนเว็บ) — plainText/schema ได้คำถามคำตอบชุดเดียวกัน
+  const htmlBody = applyFaqDisplayMarkup(authorHtml ? `${bodyHtml}\n${authorHtml.trim()}` : bodyHtml, o.theme.detail?.faq?.display)
 
   const finalCss = buildUploadCss(o.theme, o.cta)
   const wrapped = o.theme.styleMode === 'clean' ? wrapArticleHtml(htmlBody, null) : wrapArticleHtml(htmlBody, finalCss)

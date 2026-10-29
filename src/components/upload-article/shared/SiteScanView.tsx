@@ -9,6 +9,7 @@ import { Loader2, ScanSearch, ChevronDown, ChevronRight, Palette } from "lucide-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { UploadComponentFinding, UploadSiteScan, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
+import { seoPluginLabel, seoPluginNote } from "@/lib/upload-article/seo-plugins";
 
 export const COMPONENT_LABEL: Record<"toc" | "faq" | "cta", string> = { toc: "สารบัญ (TOC)", faq: "FAQ", cta: "CTA" };
 
@@ -72,6 +73,13 @@ export default function SiteScanView({
               </div>
               <div><span className="text-gray-500">ตัวสร้างหน้า:</span> <b>{scan.platform.builders.join(", ") || "—"}</b></div>
             </div>
+            {scan.platform.seoPlugins && (
+              <div>
+                <span className="text-gray-500">ปลั๊กอิน SEO (title/description):</span>{" "}
+                <b>{scan.platform.seoPlugins.map(seoPluginLabel).join(", ") || "ไม่เจอ"}</b>
+                <span className={seoPluginNote(scan.platform.seoPlugins).warn ? "text-amber-600" : "text-gray-500"}> — {seoPluginNote(scan.platform.seoPlugins).text}</span>
+              </div>
+            )}
             {scan.platform.plugins.length > 0 && (
               <div>
                 <button onClick={() => setShowPlugins(v => !v)} className="text-gray-500 hover:text-brand-navy flex items-center gap-1">

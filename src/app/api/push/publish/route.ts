@@ -12,12 +12,14 @@ import { prisma } from '@/lib/prisma'
 import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { boxKeyTakeaways, faqQuestionsToSpan } from '@/lib/article-structure'
 import { stripStyleTags, stripLeadingH1, normalizeCtaItems, flattenEmbeddedNewlines } from '@/lib/articleComponents'
-import { buildProjectArticleCss } from '@/lib/project-theme'
+import { buildProjectArticleCss, projectThemeToUpload } from '@/lib/project-theme'
+import { applyFaqDisplay } from '@/lib/upload-article/theme-css'
 import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 import { buildArticleSchema } from '@/lib/articleSchema'
 import { isIndexableUrl, requestIndexIfLive } from '@/lib/upload-article/request-index'
 import { parsePushPrefs, saveProjectIndexRequest } from '@/lib/project-index-requests'
 import { applyElementorMode, buildElementorData } from '@/lib/upload-article/wp-push'
+import { syncSeoPluginMeta } from '@/lib/upload-article/seo-plugins'
 import { safeFetch } from '@/lib/upload-article/safe-fetch'
 import { resolveProjectWpCredentials } from '@/lib/project-wp-credentials'
 import { updateProjectPrefs } from '@/lib/project-prefs-store'
@@ -123,6 +125,8 @@ export async function POST(req: NextRequest) {
       try { projectStyleMode = JSON.parse(proj?.themeColors || '{}').styleMode === 'clean' ? 'clean' : 'embed' } catch { /* default */ }
       try { prefStripH1 = JSON.parse(proj?.pushPrefs || '{}').stripH1 } catch { /* default */ }
       if (proj && projectStyleMode === 'embed') projectEmbedCss = buildProjectArticleCss(proj)
+      // FAQ เป็นแบบที่ธีมโปรเจกต์ตั้งไว้ (กดเปิด-ปิด / เปิดตลอด ตามที่สแกนเจอ) — ไม่ได้ตั้ง = แบบเดิม
+      if (proj) processedHtml = applyFaqDisplay(processedHtml, projectThemeToUpload(proj.themeColors, proj.accentColor).detail?.faq)
       sitePlatform = proj?.websitePlatform ?? null
       try { siteConn = JSON.parse(proj?.siteConnection || '{}') } catch { /* ว่าง */ }
     } catch { /* non-fatal */ }
@@ -299,9 +303,13 @@ export async function POST(req: NextRequest) {
   const siteHost = (() => { try { return new URL(wpUrl).host.toLowerCase() } catch { return '' } })()
   let existingPostId: number | null = null
   let existingStatus = ''
+  // ปลั๊กอิน SEO จากผลสแกนเว็บ (Article Lab) — ใช้เมื่ออ่าน /wp-json/ ไม่ได้
+  let seoPluginHint: unknown
   if (projectId && dbArticleId) {
     const proj = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId }, select: { pushPrefs: true } }).catch(() => null)
-    const map = parsePushPrefs(proj?.pushPrefs).wpPostIds as Record<string, { id?: unknown; kind?: unknown; host?: unknown }> | undefined
+    const projPrefs = parsePushPrefs(proj?.pushPrefs)
+    seoPluginHint = (projPrefs.siteScan as { platform?: { seoPlugins?: unknown } } | undefined)?.platform?.seoPlugins
+    const map = projPrefs.wpPostIds as Record<string, { id?: unknown; kind?: unknown; host?: unknown }> | undefined
     const stored = map?.[dbArticleId]
     const storedId = Number(stored?.id)
     if (stored && Number.isInteger(storedId) && storedId > 0 && stored.kind === postKind && stored.host === siteHost) {
@@ -446,6 +454,18 @@ export async function POST(req: NextRequest) {
         const xmlText = await xmlRes?.text().catch(() => '')
         console.log('[push/publish] xmlrpc:', xmlRes?.status, xmlText?.replace(/\s+/g,' ').slice(0, 600))
       }
+
+      // ปลั๊กอิน SEO ตัวอื่น (AIOSEO / Rank Math / SEOPress / Slim SEO) — ไม่เจอ = ไม่ยิงเพิ่ม
+      const seo = await syncSeoPluginMeta({
+        wpUrl, creds, postId, isPage,
+        title: finalMetaTitle,
+        description: finalMetaDesc,
+        post: data,
+        hint: seoPluginHint,
+        fetcher: (url, init) => safeFetch(url, init, { requireHttps: wpUrl.startsWith('https://'), sameHostOnly: true }),
+      })
+      console.log('[push/publish] seo plugins:', seo.plugins.join(',') || '-', 'written:', seo.written.join(',') || '-')
+      if (seo.warning) warning = warning ? `${warning} · ${seo.warning}` : seo.warning
     }
 
     // Upsert article status in DB so Published tab persists across refreshes

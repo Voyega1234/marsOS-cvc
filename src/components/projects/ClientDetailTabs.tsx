@@ -9,7 +9,7 @@ import {
   Calendar, CheckCircle2, XCircle, Clock, AlertTriangle,
   Zap, Image as ImageIcon, Eye, Save, X,
   Lock, Unlock, ChevronDown, Info, Target, BarChart2, Globe,
-  Code2, FileText, Edit3, Bold, Italic, List, AlignLeft, Minus, Copy, Check,
+  Code2, FileText, Edit3, List, Copy, Check,
   Settings as SettingsIcon, Maximize2, Minimize2,
 } from 'lucide-react'
 
@@ -17,6 +17,7 @@ import type { AuthorProfile } from '@/types'
 import { ClientReportClient } from '@/components/report/ClientReportClient'
 import ArticleFrame from '@/components/shared/ArticleFrame'
 import ScopedEditable from '@/components/shared/ScopedEditable'
+import EditorToolbar from '@/components/shared/EditorToolbar'
 import RestrictionWarningBox from '@/components/shared/RestrictionWarningBox'
 import { ClientOverview } from '@/components/projects/workspace/ClientOverview'
 import { ProjectTimeline } from '@/components/projects/workspace/ProjectTimeline'
@@ -3672,12 +3673,6 @@ function ArticlesTab({
     return j?.status === 'review' || j?.status === 'approved' || e.articleStatus === 'approved'
   }).length
 
-  function execDrawerCmd(cmd: string, value?: string) {
-    drawerEditorRef.current?.focus()
-    document.execCommand(cmd, false, value)
-    if (drawerEditorRef.current) setDrawerHtml(drawerEditorRef.current.innerHTML)
-  }
-
   function stripHtml(html: string) {
     return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
   }
@@ -4052,43 +4047,8 @@ function ArticlesTab({
             {/* Formatting toolbar — edit mode only */}
             {drawerViewMode === 'edit' && (
               <div className="flex items-center gap-0.5 flex-wrap px-3 py-1.5 border-b border-orange-100 bg-orange-50 flex-shrink-0">
-                {[
-                  { icon: Bold, title: 'Bold', cmd: 'bold' },
-                  { icon: Italic, title: 'Italic', cmd: 'italic' },
-                ].map(({ icon: Icon, title, cmd }) => (
-                  <button key={cmd} title={title} onMouseDown={e => { e.preventDefault(); execDrawerCmd(cmd) }}
-                    className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
-                    <Icon size={14} />
-                  </button>
-                ))}
-                <div className="w-px h-4 bg-orange-200 mx-1" />
-                {[
-                  { label: 'H1', tag: 'h1' }, { label: 'H2', tag: 'h2' },
-                  { label: 'H3', tag: 'h3' }, { label: 'P', tag: 'p' },
-                ].map(({ label, tag }) => (
-                  <button key={tag} onMouseDown={e => { e.preventDefault(); execDrawerCmd('formatBlock', tag) }}
-                    className="px-2 py-1 rounded text-xs font-semibold hover:bg-orange-200 text-slate-700 transition-colors">
-                    {label}
-                  </button>
-                ))}
-                <div className="w-px h-4 bg-orange-200 mx-1" />
-                <button onMouseDown={e => { e.preventDefault(); execDrawerCmd('insertUnorderedList') }}
-                  className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
-                  <List size={14} />
-                </button>
-                <button onMouseDown={e => { e.preventDefault(); execDrawerCmd('insertOrderedList') }}
-                  className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
-                  <AlignLeft size={14} />
-                </button>
-                <button onMouseDown={e => { e.preventDefault(); execDrawerCmd('insertHorizontalRule') }}
-                  className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
-                  <Minus size={14} />
-                </button>
-                <div className="w-px h-4 bg-orange-200 mx-1" />
-                <button onMouseDown={e => { e.preventDefault(); execDrawerCmd('undo') }}
-                  className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-slate-700">↩</button>
-                <button onMouseDown={e => { e.preventDefault(); execDrawerCmd('redo') }}
-                  className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-slate-700">↪</button>
+                <EditorToolbar editorRef={drawerEditorRef} className="!p-0 !border-0 !bg-transparent"
+                  onChange={() => { if (drawerEditorRef.current) setDrawerHtml(drawerEditorRef.current.innerHTML) }} />
                 <div className="ml-auto flex items-center gap-2">
                   <span className="text-[10px] text-orange-500 font-medium">กำลังแก้ไข — คลิกเพื่อพิมพ์ได้เลย</span>
                   <button
@@ -5099,8 +5059,11 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                     <div className="p-5 text-sm text-gray-800 whitespace-pre-wrap leading-7">{htmlToPlainText(html)}</div>
                   )}
                   {viewMode === 'edit' && (
-                    <ScopedEditable html={html} editorRef={reviewEditorRef}
-                      className="p-5 outline-none min-h-[200px] focus:ring-2 focus:ring-brand-blue/20" />
+                    <>
+                      <EditorToolbar editorRef={reviewEditorRef} className="sticky top-0 z-10 bg-white" />
+                      <ScopedEditable html={html} editorRef={reviewEditorRef}
+                        className="p-5 outline-none min-h-[200px] focus:ring-2 focus:ring-brand-blue/20" />
+                    </>
                   )}
                 </div>
               </div>

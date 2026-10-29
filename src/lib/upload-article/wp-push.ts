@@ -3,6 +3,7 @@
 // เป็น pure function ล้วน — ไม่แตะ prisma/session, รับ credentials ตรงจากผู้เรียก
 
 import { safeFetch, safeFetchHtml } from './safe-fetch'
+import { syncSeoPluginMeta } from './seo-plugins'
 import { flattenEmbeddedNewlines } from '@/lib/articleComponents'
 import { findOrUploadWpMedia, replaceInlineDataImages } from '@/lib/wp-media'
 
@@ -26,6 +27,8 @@ export interface WpPushInput {
   wpPostType?: 'post' | 'page'
   /** post/page ที่เคย push ไว้แล้ว — re-push ต้องอัพเดตตัวนี้ ไม่ใช่สร้างใหม่ */
   existingPostId?: number
+  /** ปลั๊กอิน SEO จากผลสแกนเว็บ — ใช้เมื่ออ่าน /wp-json/ ไม่ได้ */
+  seoPlugins?: string[]
 }
 
 export interface WpPushResult {
@@ -159,14 +162,24 @@ const classOf = (attrs: string): string[] => {
 // tag ที่ Text Editor (TinyMCE) แก้แล้วเพี้ยน/ถูกตัด — มีอยู่ข้างในเมื่อไหร่ต้องเป็น HTML widget
 const NOT_TEXT_SAFE = /<(details|summary|script|style|iframe|form|input|button|svg|video|audio|noscript|object|embed|select|textarea|canvas|pre|template|math|nav|aside|section)\b|\son[a-z]+\s*=/i
 const TEXT_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'blockquote', 'figure', 'table', 'hr'])
-const TEXT_DIV_CLASSES = ['content-takeaways', 'content-table-wrap', 'content-highlight', 'content-notice', 'content-quote', 'content-figure']
+// inline ที่หลุดมาอยู่ชั้นบน (แก้ในหน้า Review แล้วพิมพ์นอกย่อหน้า) — Text Editor ครอบ <p> ให้เอง
+const INLINE_TAGS = new Set(['a', 'strong', 'b', 'em', 'i', 'u', 'span', 'br', 'img', 'sub', 'sup', 'mark', 'small', 'code'])
+// content-faq__item = FAQ แบบเปิดตลอด (div + h3 + คำตอบ) — ไม่มี details จึงแก้เป็นข้อความได้
+const TEXT_DIV_CLASSES = ['content-takeaways', 'content-table-wrap', 'content-highlight', 'content-notice', 'content-quote', 'content-figure', 'content-faq__item']
 
 /** บล็อกนี้แก้เป็นข้อความใน Text Editor ได้โดยไม่เพี้ยน */
 function isTextSafe(node: HtmlNode): boolean {
+  if (node.kind === 'text') return true
   if (node.kind !== 'el') return false
   if (NOT_TEXT_SAFE.test(node.html)) return false
-  if (TEXT_TAGS.has(node.tag)) return true
+  if (TEXT_TAGS.has(node.tag) || INLINE_TAGS.has(node.tag)) return true
   return node.tag === 'div' && classOf(node.attrs).some((c) => TEXT_DIV_CLASSES.includes(c))
+}
+
+/** div ที่มีแต่ class (ไม่มี id/style/data-*) — ย้าย class ไปไว้ที่ section ได้ */
+function isClassOnlyDiv(node: HtmlNode): node is Extract<HtmlNode, { kind: 'el' }> {
+  if (node.kind !== 'el' || node.tag !== 'div' || !classOf(node.attrs).length) return false
+  return !node.attrs.replace(/(?:^|\s)class\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)/i, '').trim()
 }
 
 /**
@@ -187,33 +200,43 @@ type ElementorWidget = { id: string; elType: 'widget'; widgetType: 'html' | 'tex
 
 /**
  * แยกบทความเป็น widget ให้ทีมแก้ใน Elementor ได้ทั้งแบบข้อความ (Text Editor) และ HTML
- * โครงที่รับ: script/style ชั้นบน + <div class="..."> ครอบเนื้อหา 1 ตัว (class เท่านั้น ไม่มี attribute อื่น)
- * - widget แรก (markerId) = HTML widget ถือ script (schema) + style บทความ + CSS กันหน้าตาเพี้ยน — ใช้ id นี้ตรวจหน้าเว็บ
- * - บล็อกข้อความ (p/h2/h3/ul/ol/table/figure/กล่องสรุป) → Text Editor ตัดใหม่ทุก <h2>
+ * - script/style/link/comment ชั้นบน (ทุกตำแหน่ง) → widget แรก (markerId) = HTML widget ถือ schema + style บทความ
+ *   + CSS กันหน้าตาเพี้ยน — ใช้ id นี้ตรวจหน้าเว็บ
+ * - ตัวครอบเนื้อหา = <div class="..."> ตัวเดียว หรือ div.content-article (มีของหลุดนอกตัวครอบได้ เช่นพิมพ์เพิ่มในหน้า Review)
+ *   class ของตัวครอบย้ายไปที่ section → CSS แบบ .content-article p ยังจับได้เหมือนเดิม
+ *   ไม่มีตัวครอบ (บทความ SME รุ่นเก่า/โหมด clean) → แยกโหนดชั้นบนตรง ๆ
+ * - บล็อกข้อความ (p/h2/h3/ul/ol/table/figure/กล่องสรุป/FAQ แบบเปิด) → Text Editor ตัดใหม่ทุก <h2>
  * - บล็อกซับซ้อน (FAQ details/summary, CTA, ผู้เขียน, สารบัญ) ที่ติดกัน → HTML widget เดียว
- * - class ของตัวครอบย้ายไปที่ section → CSS แบบ .content-article p ยังจับได้เหมือนเดิม
- * null = โครงไม่ตรง → ใช้ HTML widget ก้อนเดียวแบบเดิม
+ * null = HTML ไม่ปิด tag หรือไม่มีส่วนไหนแก้เป็นข้อความได้ → ใช้ HTML widget ก้อนเดียวแบบเดิม
  */
 function splitArticleWidgets(html: string, markerId: string): { sectionClasses: string; widgets: ElementorWidget[] } | null {
   const top = topLevelNodes(html)
   if (!top) return null
   const blank = (n: HtmlNode) => n.kind === 'text' && !n.html.trim()
-  const wrapperIdx = top.findIndex((n) => n.kind === 'el' && n.tag === 'div')
-  if (wrapperIdx < 0) return null
-  const wrapper = top[wrapperIdx] as Extract<HtmlNode, { kind: 'el' }>
-  const isHead = (n: HtmlNode) => blank(n) || n.kind === 'comment' || (n.kind === 'el' && (n.tag === 'script' || n.tag === 'style' || n.tag === 'link'))
-  const before = top.slice(0, wrapperIdx)
-  const after = top.slice(wrapperIdx + 1)
-  if (!before.every(isHead) || !after.every(isHead)) return null
-  const classes = classOf(wrapper.attrs)
-  if (!classes.length) return null
-  // attribute อื่นของตัวครอบ (id/style/data-*) ย้ายไป section ไม่ได้ — ถอยไปแบบเดิม
-  if (wrapper.attrs.replace(/(?:^|\s)class\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)/i, '').trim()) return null
-  const children = topLevelNodes(wrapper.inner)
-  if (!children) return null
+  const isHead = (n: HtmlNode) => n.kind === 'comment' || (n.kind === 'el' && (n.tag === 'script' || n.tag === 'style' || n.tag === 'link'))
+  const first = top.findIndex((n) => !blank(n) && !isHead(n))
+  if (first < 0) return null
+  let last = top.length - 1
+  while (blank(top[last]) || isHead(top[last])) last--
+  // head ก่อน/หลังเนื้อหา → widget แรก/ท้าย (เหมือนเดิม) — style/script ที่แทรกกลางเนื้อหาอยู่ตำแหน่งเดิมเป็น HTML widget
+  const lead = top.slice(0, first).filter((n) => !blank(n))
+  const tailNodes = top.slice(last + 1).filter((n) => !blank(n))
+  const body = top.slice(first, last + 1).filter((n) => !blank(n))
+  const isArticleDiv = (n: HtmlNode) => isClassOnlyDiv(n) && classOf(n.attrs).includes('content-article')
+  const wrapper = body.length === 1 && isClassOnlyDiv(body[0])
+    ? body[0]
+    : body.filter(isArticleDiv).length === 1 ? body.find(isArticleDiv) : undefined
+  let classes = ['mars-article']
+  let children = body
+  if (wrapper && wrapper.kind === 'el') {
+    const inner = topLevelNodes(wrapper.inner)
+    if (!inner) return null
+    classes = [...classOf(wrapper.attrs), 'mars-article']
+    children = body.flatMap((n) => (n === wrapper ? inner : [n]))
+  }
 
   const widgets: ElementorWidget[] = []
-  const headHtml = before.filter((n) => !blank(n)).map((n) => n.html).join('\n')
+  const headHtml = lead.map((n) => n.html).join('\n')
   widgets.push({ id: markerId, elType: 'widget', widgetType: 'html', settings: { html: `${headHtml}${headHtml ? '\n' : ''}<style>${ELEMENTOR_RESET_CSS}</style>` }, elements: [] })
 
   let group: { type: 'text' | 'html'; parts: string[] } | null = null
@@ -237,11 +260,13 @@ function splitArticleWidgets(html: string, markerId: string): { sectionClasses: 
     group.parts.push(node.html)
   }
   flush()
-  const tail = after.filter((n) => !blank(n)).map((n) => n.html).join('\n')
+  const tail = tailNodes.map((n) => n.html).join('\n')
   if (tail) widgets.push({ id: elementorId(), elType: 'widget', widgetType: 'html', settings: { html: tail }, elements: [] })
   // ไม่มีบล็อกเนื้อหาเลย = ไม่มีอะไรให้แก้แยก
   if (widgets.length < 2) return null
-  return { sectionClasses: [...classes, 'mars-article'].join(' '), widgets }
+  // ไม่มีตัวครอบ + ไม่มี Text Editor = แยกไปก็แก้เป็นข้อความไม่ได้ — คง HTML ก้อนเดียวแบบเดิม
+  if (!wrapper && !widgets.some((w) => w.widgetType === 'text-editor')) return null
+  return { sectionClasses: classes.join(' '), widgets }
 }
 
 /**
@@ -676,6 +701,17 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
           signal: AbortSignal.timeout(15000),
         }, { requireHttps: true, sameHostOnly: true }).catch(() => null)
       }
+
+      // ปลั๊กอิน SEO ตัวอื่น (AIOSEO / Rank Math / SEOPress / Slim SEO) — ไม่เจอ = ไม่ยิงเพิ่ม
+      const seo = await syncSeoPluginMeta({
+        wpUrl, creds, postId, isPage,
+        title: finalMetaTitle,
+        description: finalMetaDesc,
+        post: data,
+        hint: input.seoPlugins,
+        fetcher: (url, init) => safeFetch(url, init, { requireHttps: true, sameHostOnly: true }),
+      })
+      if (seo.warning) warning = warning ? `${warning} · ${seo.warning}` : seo.warning
     }
 
     return { ok: true, postId, postUrl, status: data.status, slug: data.slug ?? finalSlug, ...(warning && { warning }) }

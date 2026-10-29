@@ -3,6 +3,7 @@
 // ทุกค่าที่มาจากผู้ใช้หรือ AI ต้องผ่าน sanitizeThemeDetail ก่อนต่อเป็น CSS เสมอ (กัน CSS injection)
 
 import { buildArticleCss, type ArticleCssOptions } from '@/lib/articleComponents'
+import { applyFaqDisplayMarkup, FAQ_HEADING_CSS, FAQ_OPEN_CLASS } from '@/lib/article-structure'
 import {
   UPLOAD_GOOGLE_FONTS,
   type UploadTheme,
@@ -57,6 +58,7 @@ export function sanitizeFaqStyle(raw: unknown): UploadFaqStyle | undefined {
   const size = typeof r.questionFontSize === 'string' && FONT_SIZE_RE.test(r.questionFontSize.trim()) ? r.questionFontSize.trim() : undefined
   return compact<UploadFaqStyle>({
     layout: pickEnum(r.layout, ['card', 'divider', 'plain'] as const),
+    display: pickEnum(r.display, ['accordion', 'open'] as const),
     itemBackground: safeColor(r.itemBackground),
     itemBorderColor: safeColor(r.itemBorderColor),
     itemBorderWidth: safeNum(r.itemBorderWidth, 0, 6),
@@ -129,6 +131,8 @@ function lowContrast(a: string, b: string): boolean {
 
 const Q = '.content-article .content-faq__question'
 const ITEM = '.content-article .content-faq__item'
+// คำถามของ FAQ แบบเปิดตลอด (h3) — ใช้สี/ขนาด/ระยะเดียวกับแถบคำถาม
+const HEADING = '.content-article .content-faq__heading'
 
 function iconCss(icon: UploadFaqIcon, color: string | undefined, left: boolean): string[] {
   const out: string[] = []
@@ -184,7 +188,7 @@ export function themeDetailCss(detail: UploadThemeDetail | undefined): string {
     if (f.questionWeight) q.push(`font-weight:${f.questionWeight};`)
     if (f.questionPadding) q.push(`padding:${f.questionPadding};`)
     if (layout !== 'card' && !f.questionPadding) q.push('padding-left:0;padding-right:0;')
-    if (q.length) lines.push(`${Q}{${q.join('')}}`)
+    if (q.length) lines.push(`${Q},${HEADING}{${q.join('')}}`)
 
     const oq: string[] = []
     if (f.openQuestionBackground) oq.push(`background:${f.openQuestionBackground};`)
@@ -308,6 +312,19 @@ function ctaItemScopedCss(item: UploadCtaItem): string {
     `${sel} .content-cta__button{background:${buttonBg};color:${buttonText};border:1.5px solid ${buttonBorderColor};border-radius:${buttonRadius}px;}`,
     `${sel} .content-cta__button--secondary{background:transparent;color:${boxText};border-color:${boxText};}`,
   ].join('\n')
+}
+
+/**
+ * FAQ ตามโหมดของธีม (กดเปิด-ปิด / เปิดตลอด) — ใช้ตอน push และพรีวิวบทความที่ generate ไว้แล้ว
+ * บทความที่ generate ก่อนมีโหมดเปิดตลอดไม่มี CSS ของคำถามแบบหัวข้อ → เติมท้าย <style> เดิม (โหมด clean ไม่มี <style> = ธีมเว็บคุมเอง)
+ */
+export function applyFaqDisplay(html: string, faq: UploadFaqStyle | undefined): string {
+  const out = applyFaqDisplayMarkup(html, faq?.display)
+  if (!out.includes(FAQ_OPEN_CLASS) || /\.content-faq__heading\s*[,{]/.test(out)) return out
+  const at = out.search(/<\/style>/i)
+  if (at === -1) return out
+  const detailCss = themeDetailCss({ faq })
+  return `${out.slice(0, at)}\n${FAQ_HEADING_CSS}${detailCss ? `\n${detailCss}` : ''}\n${out.slice(at)}`
 }
 
 /** CSS เต็มของบทความ Upload Article (ใช้ทั้งตอน generate และพรีวิวสดในหน้า Generate)

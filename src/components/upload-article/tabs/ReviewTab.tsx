@@ -11,9 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import ScopedEditable from "@/components/shared/ScopedEditable";
+import EditorToolbar from "@/components/shared/EditorToolbar";
 import { fileToDownscaledDataUrl } from "@/lib/imageDownscale";
 import { googleDocsResultNotice, isDriveExportConfigured, preloadGoogleDocsExport, sendToGoogleDocs } from "@/lib/google-docs-export";
 import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
+import { applyFaqDisplay } from "@/lib/upload-article/theme-css";
 import { canDeleteArticle, duplicateMap } from "@/lib/upload-article/duplicates";
 import { resolveArticleLanguage } from "@/lib/keyword-language";
 import SerpPreview from "@/components/upload-article/shared/SerpPreview";
@@ -496,11 +498,12 @@ export default function ReviewTab({
               </div>
             </div>
             <div className="border border-gray-200 rounded-xl overflow-hidden max-h-[55vh] overflow-y-auto">
-              {viewMode === "preview" && <ArticleFrame html={html} pageBackground={client.theme.pageBackground} />}
+              {viewMode === "preview" && <ArticleFrame html={applyFaqDisplay(html, client.theme.detail?.faq)} pageBackground={client.theme.pageBackground} />}
               {viewMode === "edit" && (
                 <div className={editTone === "readable" ? "ua-edit-readable" : ""}
                   style={{ background: editTone === "site" ? editBackground(client.theme.pageBackground) : "#fff" }}>
                   {editTone === "readable" && <style>{EDIT_READABLE_CSS}</style>}
+                  <EditorToolbar editorRef={editorRef} className="sticky top-0 z-10 bg-white" />
                   <ScopedEditable html={html} editorRef={editorRef} className="p-5 outline-none min-h-[200px]" />
                 </div>
               )}

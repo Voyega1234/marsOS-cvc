@@ -60,6 +60,93 @@ export function faqQuestionsToSpan(html: string): string {
   })
 }
 
+// ── FAQ แบบเปิดตลอด (ไม่ต้องกด) ──
+// เว็บที่ FAQ เดิมเป็นหัวข้อ + คำตอบธรรมดา: <div class="content-faq__item content-faq__item--open"><h3 class="content-faq__heading">Q</h3><div class="content-faq__answer">A</div></div>
+// แปลงไป-กลับกับ <details> ได้ตลอด — แตะเฉพาะ FAQ ของระบบ (class content-faq__item) บทความเดิมที่ไม่ได้เลือกโหมดนี้ไม่เปลี่ยน
+export const FAQ_OPEN_CLASS = 'content-faq__item--open'
+
+type HtmlAttr = { name: string; raw: string }
+
+function parseAttrs(attrs: string): HtmlAttr[] {
+  return Array.from(attrs.matchAll(/([^\s=/>]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?/g)).map((m) => ({ name: m[1].toLowerCase(), raw: m[0] }))
+}
+
+/** attrs ใหม่: ตัด attr ตามชื่อ + เพิ่ม/ลบ class */
+function editAttrs(attrs: string, opts: { drop?: string[]; addClass?: string; removeClass?: string }): string {
+  const out: string[] = []
+  for (const a of parseAttrs(attrs)) {
+    if (opts.drop?.includes(a.name)) continue
+    if (a.name !== 'class') {
+      out.push(a.raw)
+      continue
+    }
+    const value = /=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(a.raw)
+    const classes = (value ? (value[1] ?? value[2] ?? value[3] ?? '') : '').split(/\s+/).filter((c) => c && c !== opts.removeClass)
+    if (opts.addClass && !classes.includes(opts.addClass)) classes.push(opts.addClass)
+    out.push(`class="${classes.join(' ')}"`)
+  }
+  return out.length ? ` ${out.join(' ')}` : ''
+}
+
+/** index หลัง </div> ที่ปิด <div> ซึ่งเริ่มที่ start (-1 = ไม่ปิด) */
+function divEnd(html: string, start: number): number {
+  const re = /<(\/?)div\b[^>]*>/gi
+  re.lastIndex = start
+  let depth = 0
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    depth += m[1] ? -1 : 1
+    if (depth === 0) return m.index + m[0].length
+  }
+  return -1
+}
+
+/** ข้อความคำถามจาก summary — ถอด span/หัวข้อ/ย่อหน้าที่ครอบ (เก็บตัวหนา/ลิงก์ไว้) */
+function questionInner(summaryInner: string): string {
+  return summaryInner.replace(/<\/?(?:p|div|h[1-6])\b[^>]*>/gi, ' ').replace(/<span\b[^>]*\bcontent-faq__q\b[^>]*>([\s\S]*?)<\/span>/gi, '$1').replace(/\s+/g, ' ').trim()
+}
+
+/** <details class="content-faq__item"> → แบบเปิดตลอด (idempotent) */
+export function faqToOpen(html: string): string {
+  return html.replace(/<details\b([^>]*)>([\s\S]*?)<\/details>/gi, (m, attrs: string, inner: string) => {
+    if (!/\bcontent-faq__item\b/.test(attrs)) return m
+    const sm = /^\s*<summary\b[^>]*>([\s\S]*?)<\/summary>/i.exec(inner)
+    if (!sm) return m
+    const q = questionInner(sm[1])
+    if (!stripTags(q)) return m
+    let answer = inner.slice(sm[0].length).trim()
+    const wrapped = /^<div\b[^>]*\bcontent-faq__answer\b[^>]*>/i.test(answer) && divEnd(answer, 0) === answer.length
+    if (!wrapped) answer = `<div class="content-faq__answer">${answer}</div>`
+    return `<div${editAttrs(attrs, { drop: ['open'], addClass: FAQ_OPEN_CLASS })}><h3 class="content-faq__heading">${q}</h3>${answer}</div>`
+  })
+}
+
+/** แบบเปิดตลอด → <details> กดเปิด-ปิดแบบเดิม (idempotent — บทความที่ไม่มีแบบเปิดตลอดไม่เปลี่ยนเลย) */
+export function faqToAccordion(html: string): string {
+  if (!html.includes(FAQ_OPEN_CLASS)) return html
+  const openRe = /<div\b([^>]*\bcontent-faq__item--open\b[^>]*)>/gi
+  let out = ''
+  let pos = 0
+  for (let m = openRe.exec(html); m; m = openRe.exec(html)) {
+    if (m.index < pos) continue
+    const end = divEnd(html, m.index)
+    if (end === -1) break
+    const inner = html.slice(m.index + m[0].length, end - '</div>'.length)
+    const hm = /^\s*<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/i.exec(inner)
+    if (!hm || !stripTags(hm[2])) continue
+    const answer = inner.slice(hm[0].length).trim()
+    out += html.slice(pos, m.index) +
+      `<details${editAttrs(m[1], { removeClass: FAQ_OPEN_CLASS })}><summary class="content-faq__question"><span class="content-faq__q">${hm[2].trim()}</span></summary>${answer}</details>`
+    pos = end
+    openRe.lastIndex = end
+  }
+  return out + html.slice(pos)
+}
+
+/** FAQ ตามโหมดที่ตั้งไว้ — 'open' = เปิดตลอด, อื่น ๆ (ไม่ได้ตั้ง) = กดเปิด-ปิดแบบเดิม */
+export function applyFaqDisplayMarkup(html: string, display: unknown): string {
+  return display === 'open' ? faqToOpen(html) : faqToAccordion(html)
+}
+
 /** หัว FAQ ที่เป็น h3-h6 (ก่อน <details> ข้อแรก) → <h2>, และคำถามแบบหัวข้อ h4-h6 ในส่วน FAQ → <h3> */
 export function faqHeadingToH2(html: string): string {
   let out = html.replace(/<(h[3-6])\b([^>]*)>([\s\S]{1,300}?)<\/\1>(\s*<details\b)/gi, (m, _tag: string, attrs: string, inner: string, next: string) => {
@@ -118,12 +205,16 @@ export function normalizeFaqAndTakeaways(html: string, language?: 'th' | 'en'): 
   return boxKeyTakeaways(faqQuestionsToSpan(faqHeadingToH2(html)), language)
 }
 
+// FAQ แบบเปิดตลอด: คำถามเป็น h3 ขนาด/สีตามหัวข้อของบทความ เว้นระยะเท่าแถบคำถามแบบกดเปิด
+export const FAQ_HEADING_CSS = '.content-article .content-faq__heading{margin:0;padding:.9em 1.2em .4em;}'
+
 /** CSS ของ H3 ในคำถาม FAQ + กล่องสรุปประเด็นสำคัญ — ต่อท้าย buildArticleCss */
 export function articleStructureCss(theme: string, border: string): string[] {
   return [
     // คำถาม (span หรือ h3 ในบทความที่ยังไม่ได้แปลงกลับ): หน้าตาตามแถบคำถาม FAQ เดิม ไม่เอาขนาด/สี/margin ของ h3 จากเนื้อหาหรือธีมเว็บ
     `.content-article .content-faq__question h3,.content-article .content-faq__question .content-faq__q{margin:0;padding:0;border:0;background:none;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;flex:1 1 auto;min-width:0;text-align:left;}`,
     `.content-article .content-faq__question h3::before,.content-article .content-faq__question h3::after{content:none;display:none;}`,
+    FAQ_HEADING_CSS,
     `.content-article .content-takeaways{border:1px solid color-mix(in srgb, ${theme} 30%, ${border});background:color-mix(in srgb, ${theme} 6%, transparent);border-radius:12px;padding:1.1em 1.3em;margin:1.6em 0;}`,
     `.content-article .content-takeaways__title{font-weight:700;color:${theme};margin:0 0 .5em;font-size:1.05em;}`,
     `.content-article .content-takeaways ul,.content-article .content-takeaways ol{margin:0;padding-left:1.3em;}`,

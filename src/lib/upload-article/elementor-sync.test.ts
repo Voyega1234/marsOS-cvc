@@ -103,6 +103,8 @@ function fakeWp(opts: {
 const base = { wpUrl: 'https://example.com', creds: 'x', postId: 5248, isPage: false, html: '<p>ใหม่</p>' };
 const live = 'https://example.com/article/';
 const widgetOf = (data: unknown) => JSON.parse(String(data))[0].elements[0].elements[0];
+// เนื้อหาทุก widget ต่อกัน — บทความถูกแยกเป็น Text Editor หลายตัว
+const contentOf = (data: unknown) => (JSON.parse(String(data))[0].elements[0].elements as { settings: { editor?: string; html?: string } }[]).map((w) => w.settings.editor ?? w.settings.html ?? '').join('');
 const cacheCalls = (calls: { url: string }[]) => calls.filter((c) => c.url.endsWith('/elementor/v1/cache')).length;
 
 async function main() {
@@ -111,8 +113,28 @@ async function main() {
     const data = JSON.parse(buildElementorData('<p>x</p>', 'abc1234'));
     assert(data[0].settings.layout === 'full_width' && data[0].settings.gap === 'no', 'section เต็มความกว้าง ไม่มีช่องไฟ — หน้าตาเท่าตอนไม่ใช้ Elementor');
     assert(data[0].elements[0].elements[0].id === 'abc1234', 'id ของ widget ใช้เป็นตัวตรวจหน้าเว็บ');
-    assert(data[0].elements[0].elements[0].widgetType === 'html', 'ไม่มีตัวครอบ .content-article = HTML widget ก้อนเดียวแบบเดิม');
-    assert(data[0].elements[0].elements.length === 1 && !data[0].settings.css_classes, 'โครงไม่ตรง = ไม่แยก ไม่ใส่ class ให้ section');
+    assert(data[0].elements[0].elements[0].widgetType === 'html', 'widget แรกเป็น HTML widget ตัวตรวจหน้าเว็บเสมอ');
+    const ws = data[0].elements[0].elements;
+    assert(ws.length === 2 && ws[1].widgetType === 'text-editor' && ws[1].settings.editor === '<p>x</p>', 'ไม่มีตัวครอบ (โหมด clean) = แยกเป็น Text Editor แก้ได้');
+    assert(data[0].settings.css_classes === 'mars-article', 'ไม่มีตัวครอบ = section ได้แค่ mars-article');
+  }
+
+  console.log('buildElementorData — โหมด clean / ของแปลก');
+  {
+    const types = (html: string) => (JSON.parse(buildElementorData(html, 'abc1234'))[0].elements[0].elements as { widgetType: string }[]).map((w) => w.widgetType).join(',');
+    const editors = (html: string) => (JSON.parse(buildElementorData(html, 'abc1234'))[0].elements[0].elements as { settings: { editor?: string; html?: string } }[]).map((w) => w.settings.editor ?? w.settings.html ?? '');
+    const clean = '<p>บทนำ</p><h2>หัวข้อ</h2><p>เนื้อหา <strong>หนา</strong> <a href="https://x.com">ลิงก์</a></p><details class="content-faq"><summary><span>ถาม?</span></summary><p>ตอบ</p></details>';
+    assert(types(clean) === 'html,text-editor,text-editor,html', 'โหมด clean: ตัดตาม H2 + FAQ เป็น HTML widget');
+    assert(editors(clean)[2].includes('<strong>หนา</strong>') && editors(clean)[2].includes('ลิงก์'), 'ตัวหนา/ลิงก์ยังอยู่ใน Text Editor');
+    const stray = '<div class="content-article"><p>a</p></div><p>หลังตัวครอบ</p>';
+    assert(editors(stray).join('').includes('หลังตัวครอบ'), 'ข้อความหลังตัวครอบไม่หาย');
+    const tail = '<div class="content-article"><p>a</p></div><script type="application/ld+json">{"@type":"FAQPage"}</script>';
+    const tailEd = editors(tail);
+    assert(types(tail).endsWith(',html') && tailEd[tailEd.length - 1].includes('FAQPage'), 'schema ท้ายบทความอยู่ HTML widget ท้ายสุด ไม่ย้ายขึ้นหัว');
+    const faqOpen = '<div class="content-article"><h2>FAQ</h2><div class="content-faq__item"><h3>ถาม?</h3><p>ตอบ</p></div></div>';
+    assert(types(faqOpen) === 'html,text-editor', 'FAQ แบบเปิด (div.content-faq__item) = Text Editor แก้ได้');
+    const inline = 'ข้อความเปล่า <strong>หนา</strong>';
+    assert(editors(inline).join('').includes('ข้อความเปล่า'), 'ข้อความ/inline ที่ไม่มี <p> ไม่หาย');
   }
 
   console.log('buildElementorData — แยก Text Editor / HTML widget');
@@ -164,7 +186,7 @@ async function main() {
     const r = await syncElementorDocument({ ...base, useElementor: false, fetcher: wp.fetcher });
     assert(r.supported && !r.warning, 'สลับกลับสำเร็จ ไม่มีคำเตือน');
     assert(wp.meta?._elementor_edit_mode === '', 'ออกจากโหมด builder');
-    assert(widgetOf(wp.meta?._elementor_data).settings.html === base.html, 'แทนข้อมูล Elementor เก่าด้วย HTML widget ชุดใหม่');
+    assert(contentOf(wp.meta?._elementor_data).includes(base.html), 'แทนข้อมูล Elementor เก่าด้วย HTML widget ชุดใหม่');
     assert(wp.calls.some((c) => c.method === 'POST' && c.body && Object.keys(c.body).length === 0), 'แตะโพสต์อีกรอบให้ cache ล้าง');
     assert(wp.calls.every((c) => c.url.startsWith('https://example.com/wp-json/wp/v2/posts/5248')), 'ยิงแค่ endpoint ของโพสต์นี้');
   }
@@ -206,7 +228,7 @@ async function main() {
     assert(wp.meta?._elementor_edit_mode === 'builder', 'โหมด builder');
     assert(wp.meta?._elementor_template_type === 'wp-post', 'template type = wp-post');
     const widget = widgetOf(wp.meta?._elementor_data);
-    assert(widget.widgetType === 'html' && widget.settings.html === base.html, 'HTML ชุดเดียวกับ content อยู่ใน widget');
+    assert(widget.widgetType === 'html' && contentOf(wp.meta?._elementor_data).includes(base.html), 'widget แรกเป็นตัวตรวจ + เนื้อหาชุดเดียวกับ content');
     assert(wp.pageUrls[0] === `${live}?mars_v=${widget.id}`, 'เปิดหน้าเว็บจริงพร้อม query กัน page cache');
     assert(cacheCalls(wp.calls) === 0, 'หน้าเว็บถูกแล้ว = ไม่ล้าง cache ทั้งเว็บ');
     const dataIdx = wp.calls.findIndex((c) => (c.body?.meta as Record<string, unknown> | undefined)?._elementor_data);
@@ -230,7 +252,7 @@ async function main() {
     const r = await syncElementorDocument({ ...base, useElementor: true, isUpdate: true, liveUrl: live, fetcher: wp.fetcher, pageFetcher: wp.pageFetcher });
     assert(r.builder === false && r.warning === ELEMENTOR_STALE_WARNING, `${cacheClear}: เตือนว่าถอยกลับโหมดปกติ`);
     assert(wp.meta?._elementor_edit_mode === '', `${cacheClear}: ออกจาก builder — หน้าเว็บแสดงเวอร์ชันใหม่ ไม่ค้างของเก่า`);
-    assert(widgetOf(wp.meta?._elementor_data).settings.html === base.html, `${cacheClear}: data ใหม่ยังอยู่ กด Edit with Elementor ได้เวอร์ชันนี้`);
+    assert(contentOf(wp.meta?._elementor_data).includes(base.html), `${cacheClear}: data ใหม่ยังอยู่ กด Edit with Elementor ได้เวอร์ชันนี้`);
   }
 
   console.log('ใช้ Elementor + ถอยกลับไม่ได้');
@@ -317,7 +339,7 @@ async function main() {
     const restRefused = fakeWp({ meta: { _elementor_edit_mode: '' }, rejectMeta: ['_elementor_data'], plugin: true });
     const w1 = await applyElementorMode({ ...base, useElementor: true, liveUrl: live, yoastMeta: {}, fetcher: restRefused.fetcher, pageFetcher: restRefused.pageFetcher });
     assert(w1 === undefined && restRefused.meta?._elementor_edit_mode === 'builder', 'REST ไม่รับ data = ปลั๊กอินเขียนแทน เป็นเอกสาร Elementor');
-    assert(widgetOf(restRefused.meta?._elementor_data).settings.html === base.html, 'data จากปลั๊กอินเป็น HTML ชุดเดียวกัน');
+    assert(contentOf(restRefused.meta?._elementor_data).includes(base.html), 'data จากปลั๊กอินเป็น HTML ชุดเดียวกัน');
     const stuck = fakeWp({ meta: { _elementor_edit_mode: 'builder', _elementor_data: OLD_DATA }, staleCache: true, cacheClear: 'denied', rejectMeta: ['_elementor_edit_mode'], plugin: true });
     const w2 = await applyElementorMode({ ...base, useElementor: true, isUpdate: true, liveUrl: live, yoastMeta: {}, fetcher: stuck.fetcher, pageFetcher: stuck.pageFetcher });
     assert(w2 === ELEMENTOR_STUCK_WARNING, 'ค้าง builder + ปลั๊กอินก็ไม่ช่วย = ยังเตือน STUCK ไม่กลืนคำเตือน');

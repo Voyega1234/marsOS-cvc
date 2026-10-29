@@ -12,6 +12,7 @@ import { safeFetchHtml as fetchHtml, safeFetchText as fetchText } from './safe-f
 import { askJson } from '@/lib/competitor-gap/ai'
 import type { ORUsage } from '@/lib/openrouter'
 import { safeColor, sanitizeThemeDetail } from './theme-css'
+import { detectSeoPluginsFromHtml, detectSeoPluginsFromNamespaces, seoPluginLabel, seoPluginNote, type SeoPluginKey } from './seo-plugins'
 import { contrast, CssCascade, luminance, mediaApplies, openChainAt, parseCssRules, parseOpenTag, toHex, type CssEl, type CssRule } from './css-cascade'
 import type {
   UploadComponentFinding,
@@ -409,6 +410,19 @@ function extractFaqSnippet(pages: string[]): { html: string; label: string; page
     if (at !== -1) return { html: tidy(doc.slice(at, at + 6000)), label: 'FAQ แบบ details/summary ในบทความ', pageIndex: i }
   }
   return null
+}
+
+// ร่องรอยของ FAQ แบบกดเปิด-ปิด (ดูเฉพาะใน tag ไม่ดูข้อความ)
+const FAQ_ACCORDION_MARK = /<details\b|<summary\b|accordion|toggle|collaps|aria-expanded|elementor-tab-title|ewd-ufaq|helpie-faq/i
+
+/**
+ * FAQ บนเว็บเป็นแบบกดเปิด-ปิด หรือแสดงคำตอบตลอด (คำถามเป็นหัวข้อ) — ดูจากโครง HTML จริง ไม่ใช้ AI
+ * Rank Math / Yoast FAQ block / หัวข้อ h3 + ย่อหน้า = เปิดตลอด
+ */
+export function detectFaqDisplay(snippetHtml: string): 'accordion' | 'open' {
+  const tags = Array.from(snippetHtml.matchAll(/<[a-z][^>]*>/gi), (m) => m[0]).join(' ')
+  if (/uagb-faq-layout-grid/i.test(tags)) return 'open'
+  return FAQ_ACCORDION_MARK.test(tags) ? 'accordion' : 'open'
 }
 
 /** tag ของ FAQ ที่ไม่มี class (details/summary/dl) — ใช้จับกฎ CSS แบบ `.x details summary` */
@@ -972,6 +986,20 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
   const platform = detectPlatform([allRaw])
   const pluginSlugs = uniq(Array.from(allRaw.matchAll(/\/wp-content\/plugins\/([a-z0-9_.-]+)\//gi), (m) => m[1].toLowerCase()))
 
+  // ปลั๊กอิน SEO ที่ลง title/description — ดูจาก HTML + namespace ของ REST (WordPress เท่านั้น)
+  if (/^WordPress/i.test(platform.cms)) {
+    const nsRaw = tryRest ? await fetchText(`${target}/wp-json/?_fields=namespaces`) : null
+    let fromNs: SeoPluginKey[] = []
+    if (nsRaw) {
+      try { fromNs = detectSeoPluginsFromNamespaces((JSON.parse(nsRaw) as { namespaces?: unknown }).namespaces) } catch { /* ไม่ใช่ JSON = ใช้แค่ HTML */ }
+    }
+    const seoPlugins = uniq([...fromNs, ...detectSeoPluginsFromHtml(allRaw)])
+    platform.seoPlugins = seoPlugins
+    checked.push(`ปลั๊กอิน SEO (${seoPlugins.length ? seoPlugins.map(seoPluginLabel).join(', ') : 'ไม่เจอ'})`)
+    const note = seoPluginNote(seoPlugins)
+    if (note.warn) warnings.push(note.text)
+  }
+
   if (/^Webflow/i.test(platform.cms)) warnings.push('Webflow ตัด <style> ที่แนบมากับบทความทิ้ง — ตั้งสไตล์ผ่าน CSS ใน Webflow Custom Code (หน้าสไตล์บทความ)')
   else if (platform.cms === 'Wix') warnings.push('Wix ใส่บทความเป็นกล่อง HTML — ใช้โหมด embed')
 
@@ -1074,6 +1102,12 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
       faqSummary = typeof ai.data.summary === 'string' ? ai.data.summary.replace(/[<>]/g, '').slice(0, 600) : ''
     } else if (ai.error) {
       warnings.push(`วิเคราะห์หน้าตา FAQ ไม่สำเร็จ: ${ai.error}`)
+    }
+    // FAQ บนเว็บกดเปิด-ปิด หรือเปิดตลอด — push ออกไปแบบเดียวกัน (เว็บไม่มี FAQ = ไม่ตั้ง ใช้ค่าเดิม)
+    if (snippet) {
+      const display = detectFaqDisplay(snippet.html)
+      detail = { ...(detail || { source: `${snippet.label} บน ${target}` }), faq: { ...(detail?.faq || {}), display } }
+      checked.push(display === 'open' ? 'FAQ บนเว็บแสดงคำตอบตลอด (คำถามเป็นหัวข้อ ไม่ต้องกดเปิด)' : 'FAQ บนเว็บเป็นแบบกดเปิด-ปิด')
     }
     // ค่าที่คำนวณจาก CSS จริงชนะค่าที่ AI อ่าน — รวมถึงพื้นหลังโปร่งใส ('' = ไม่ใส่พื้น ใช้พื้นของเว็บ)
     if (computed) {

@@ -16,6 +16,7 @@ import { publishToGithub, safeFileSlug } from '@/lib/upload-article/github-push'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
 import { faqQuestionsToSpan } from '@/lib/article-structure'
+import { applyFaqDisplay } from '@/lib/upload-article/theme-css'
 import { removeCoverFromHtml } from '@/lib/upload-article/article-images'
 import { pushArticleToWebflow, type WebflowUploadConfig } from '@/lib/upload-article/webflow-push'
 import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
@@ -117,7 +118,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // schema ต้องตรงกับ meta/slug ล่าสุดเสมอ (แก้ meta หลัง generate ได้)
   // บทความที่ generate ช่วง 2026-10-21 มี <h3> ใน <summary> FAQ — บางเว็บตัด summary ทิ้ง แปลงกลับเป็น <span> ก่อนขึ้นเว็บ
   // (ทำหลังประกอบ card — id ของ card ต้องตรงกับที่หน้าเว็บแยกจาก htmlContent เดิม)
-  let processedHtml = stripDocumentWrapper(refreshUploadSchema(faqQuestionsToSpan(rawHtml), uploadSchemaOptions(article, eff.client)))
+  // FAQ เป็นแบบที่ธีมตั้งไว้ (กดเปิด-ปิด / เปิดตลอด ตามที่สแกนเจอ) — บทความเก่าที่ Generate ก่อนตั้งค่าก็ได้แบบเดียวกัน
+  let processedHtml = stripDocumentWrapper(refreshUploadSchema(applyFaqDisplay(faqQuestionsToSpan(rawHtml), theme.detail?.faq), uploadSchemaOptions(article, eff.client)))
   if (theme.styleMode === 'clean') processedHtml = stripStyleTags(processedHtml)
   if (stripH1) processedHtml = stripLeadingH1(processedHtml)
   // บทความที่ generate ก่อนเลิกแสดง breadcrumb ในเนื้อหา — ตัดทิ้งตอน push (schema ยังมี BreadcrumbList)
@@ -343,6 +345,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         useElementor,
         wpPostType,
         existingPostId,
+        // ผลสแกนเป็นของเว็บลูกค้า — PBN เป็นเว็บอื่น ใช้แค่ที่ตรวจตอน push
+        seoPlugins: pbnSite ? undefined : prevPrefs.siteScan?.platform.seoPlugins,
       })
       ok = result.ok
       postUrl = result.postUrl

@@ -3,6 +3,7 @@
 
 import type { UploadCtaSummary } from './cta'
 import type { UploadAuthorSummary } from './author'
+import type { SeoPluginKey } from './seo-plugins'
 export type UploadOutputMode = 'html' | 'text'
 export type UploadArticleStatus = 'WRITING' | 'IMPORTED' | 'GENERATED' | 'REVIEWED' | 'PUSHING' | 'PUSHED' | 'FAILED'
 
@@ -30,6 +31,8 @@ export type UploadFaqIcon = 'plus' | 'chevron' | 'caret' | 'arrow' | 'none'
 export interface UploadFaqStyle {
   /** card = กล่องมีขอบรอบ, divider = เส้นคั่นด้านล่างอย่างเดียว, plain = ไม่มีขอบ */
   layout?: 'card' | 'divider' | 'plain'
+  /** accordion (ค่าเดิม) = กดเปิด-ปิด (details/summary), open = คำถามเป็นหัวข้อ h3 คำตอบแสดงตลอด — ตามที่สแกนเจอบนเว็บ */
+  display?: 'accordion' | 'open'
   itemBackground?: string
   itemBorderColor?: string
   itemBorderWidth?: number
@@ -92,6 +95,8 @@ export interface UploadSiteScan {
     childTheme: string | null
     builders: string[]
     plugins: string[]
+    /** ปลั๊กอิน SEO ที่ใช้ลง title/description (ผลสแกนเก่าไม่มีช่องนี้) */
+    seoPlugins?: SeoPluginKey[]
   }
   components: Record<UploadComponentKey, UploadComponentFinding>
   /** สรุปหน้าตา FAQ ของเว็บเป็นภาษาคน */
