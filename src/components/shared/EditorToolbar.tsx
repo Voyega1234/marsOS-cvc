@@ -1,9 +1,12 @@
 "use client";
 
-import type { RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Bold, Italic, Underline, List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify, CornerDownLeft, Rows3, Undo2, Redo2 } from "lucide-react";
+import { alignImage, type ImageAlign } from "./image-align";
 
 const BLOCK_SEL = "p,h1,h2,h3,h4,h5,h6,li,blockquote,figure,td,th";
+// Tailwind preflight ทำ img เป็น block ทั้งหน้า → ใน editor คืนเป็น inline ให้เห็นเหมือนบนเว็บ (อยู่นอกตัว editor ไม่ถูกบันทึก)
+const EDITOR_IMG_CSS = ".cc-scoped-editor img{display:inline;}";
 
 // แถบจัดรูปแบบสำหรับ contentEditable (ScopedEditable) — ใช้ inline style ให้รอดตอน push
 export default function EditorToolbar({
@@ -16,6 +19,44 @@ export default function EditorToolbar({
   className?: string;
 }) {
   const done = () => onChange?.();
+  // รูปที่คลิกล่าสุด — คลิกที่อื่นใน editor หรือพิมพ์ = ล้าง (คลิกแถบเครื่องมือไม่ล้าง)
+  const activeImg = useRef<HTMLElement | null>(null);
+  const [imgActive, setImgActive] = useState(false);
+
+  useEffect(() => {
+    const setActive = (img: HTMLElement | null) => {
+      activeImg.current = img;
+      setImgActive(!!img);
+    };
+    const onDown = (e: MouseEvent) => {
+      const root = editorRef.current;
+      const t = e.target as Element | null;
+      if (!root || !t || !root.contains(t)) return;
+      const img = t.closest<HTMLElement>("img");
+      setActive(img && root.contains(img) ? img : null);
+    };
+    // คลุมรูปไว้ให้เห็นว่าเลือกอยู่
+    const onClick = (e: MouseEvent) => {
+      const img = activeImg.current;
+      const sel = window.getSelection();
+      if (!img || e.target !== img || !sel) return;
+      const r = document.createRange();
+      r.selectNode(img);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (activeImg.current && editorRef.current?.contains(e.target as Node)) setActive(null);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [editorRef]);
 
   function exec(cmd: string, value?: string) {
     editorRef.current?.focus();
@@ -57,6 +98,37 @@ export default function EditorToolbar({
       }
     }
     done();
+  }
+
+  // รูปในช่วงที่เลือก หรือรูปที่คลิกไว้
+  function selectedImages(): HTMLElement[] {
+    const root = editorRef.current;
+    if (!root) return [];
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      if (!range.collapsed && root.contains(range.commonAncestorContainer)) {
+        const imgs = Array.from(root.querySelectorAll<HTMLElement>("img")).filter((img) => range.intersectsNode(img));
+        if (imgs.length) return imgs;
+      }
+    }
+    const a = activeImg.current;
+    return a && root.contains(a) ? [a] : [];
+  }
+
+  // execCommand justify* จัดแค่ text-align — รูปต้องจัดเอง; เลือกข้อความด้วยก็จัดข้อความต่อ
+  function align(mode: ImageAlign, cmd: string) {
+    const root = editorRef.current;
+    const imgs = selectedImages();
+    if (root && imgs.length) {
+      root.focus();
+      for (const img of imgs) alignImage(img, mode, root);
+      if (!window.getSelection()?.toString().trim()) {
+        done();
+        return;
+      }
+    }
+    exec(cmd);
   }
 
   function lineBreak() {
@@ -111,6 +183,7 @@ export default function EditorToolbar({
 
   return (
     <div className={`flex items-center gap-0.5 flex-wrap px-3 py-1.5 border-b border-gray-200 bg-gray-50 ${className}`}>
+      <style>{EDITOR_IMG_CSS}</style>
       {iconBtn(Bold, "ตัวหนา", () => exec("bold"))}
       {iconBtn(Italic, "ตัวเอียง", () => exec("italic"))}
       {iconBtn(Underline, "ขีดเส้นใต้", () => exec("underline"))}
@@ -123,10 +196,11 @@ export default function EditorToolbar({
       {iconBtn(List, "รายการแบบจุด", () => exec("insertUnorderedList"))}
       {iconBtn(ListOrdered, "รายการแบบตัวเลข", () => exec("insertOrderedList"))}
       {sep}
-      {iconBtn(AlignLeft, "ชิดซ้าย", () => exec("justifyLeft"))}
-      {iconBtn(AlignCenter, "กึ่งกลาง", () => exec("justifyCenter"))}
-      {iconBtn(AlignRight, "ชิดขวา", () => exec("justifyRight"))}
-      {iconBtn(AlignJustify, "เต็มแนว", () => exec("justifyFull"))}
+      {imgActive && <span className="text-[10px] font-semibold text-blue-600 mr-0.5">จัดรูป</span>}
+      {iconBtn(AlignLeft, "ชิดซ้าย (คลิกรูปก่อน = จัดรูป)", () => align("left", "justifyLeft"))}
+      {iconBtn(AlignCenter, "กึ่งกลาง (คลิกรูปก่อน = จัดรูป)", () => align("center", "justifyCenter"))}
+      {iconBtn(AlignRight, "ชิดขวา (คลิกรูปก่อน = จัดรูป)", () => align("right", "justifyRight"))}
+      {iconBtn(AlignJustify, "เต็มแนว (รูป = กว้างเต็มบทความ)", () => align("full", "justifyFull"))}
       {sep}
       {iconBtn(CornerDownLeft, "ขึ้นบรรทัดใหม่ (ในย่อหน้าเดิม)", lineBreak)}
       {iconBtn(Rows3, "เว้นบรรทัดว่าง (เพิ่มย่อหน้าว่างต่อท้าย)", blankLine)}
