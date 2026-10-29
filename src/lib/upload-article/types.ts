@@ -83,7 +83,23 @@ export interface UploadComponentFinding {
   postsWith: number
   postsChecked: number
   evidence: string[]
+  /** สารบัญของเว็บที่ผู้เขียนใส่ในบทความเอง และระบบวางแทนของเราได้ (เฉพาะ toc) */
+  native?: UploadSiteToc
 }
+
+/** สารบัญของเว็บที่ระบบวางแทนสารบัญของเราได้ ตรงจุดเดียวกัน */
+export interface UploadSiteToc {
+  /** elementor-widget = widget Table of Contents ของ Elementor Pro (ใส่ได้ตอน push แบบ Elementor) */
+  kind: 'elementor-widget'
+  /** settings ของ widget จากบทความของเว็บ (data-settings + หัวข้อ + ไอคอน) */
+  settings: Record<string, unknown>
+  /** CSS หน้าตาของ widget จากบทความต้นแบบ — id ของ widget แทนด้วย SITE_TOC_ID_TOKEN */
+  css?: string
+  postsWith: number
+}
+
+/** ตัวแทน id ของ widget สารบัญใน UploadSiteToc.css — push แทนด้วย id ของ widget ใหม่ */
+export const SITE_TOC_ID_TOKEN = 'MARSTOCID'
 
 export interface UploadSiteScan {
   target: string

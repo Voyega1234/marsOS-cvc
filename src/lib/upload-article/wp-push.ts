@@ -6,6 +6,7 @@ import { safeFetch, safeFetchHtml } from './safe-fetch'
 import { syncSeoPluginMeta } from './seo-plugins'
 import { flattenEmbeddedNewlines } from '@/lib/articleComponents'
 import { findOrUploadWpMedia, replaceInlineDataImages } from '@/lib/wp-media'
+import { SITE_TOC_ID_TOKEN } from './types'
 
 export interface WpPushInput {
   wpUrl: string
@@ -29,6 +30,8 @@ export interface WpPushInput {
   existingPostId?: number
   /** ปลั๊กอิน SEO จากผลสแกนเว็บ — ใช้เมื่ออ่าน /wp-json/ ไม่ได้ */
   seoPlugins?: string[]
+  /** สารบัญของเว็บ (ผลสแกน) — push แบบ Elementor วางแทนสารบัญของเรา */
+  siteToc?: SiteTocWidget | null
 }
 
 export interface WpPushResult {
@@ -196,7 +199,46 @@ const ELEMENTOR_RESET_CSS =
   '.mars-article .elementor-widget-container{margin:0;padding:0}' +
   '.mars-article .elementor-widget-text-editor,.mars-article .elementor-widget-html{color:inherit;font-family:inherit;font-size:inherit;font-weight:inherit;line-height:inherit;letter-spacing:inherit}'
 
-type ElementorWidget = { id: string; elType: 'widget'; widgetType: 'html' | 'text-editor'; settings: Record<string, string>; elements: [] }
+type ElementorWidget = {
+  id: string
+  elType: 'widget'
+  widgetType: 'html' | 'text-editor' | 'table-of-contents'
+  settings: Record<string, unknown>
+  elements: []
+}
+
+/** widget สารบัญของเว็บ (จากผลสแกน) — settings ของ Elementor + CSS ที่ id แทนด้วย SITE_TOC_ID_TOKEN */
+export interface SiteTocWidget {
+  settings: Record<string, unknown>
+  css?: string
+}
+// รีเซ็ตด้านบนตัดระยะห่างของ widget ทิ้ง — สารบัญต้องเว้นระยะจากย่อหน้าก่อน/หลัง
+const SITE_TOC_SPACING_CSS =
+  '.mars-article .elementor-widget.elementor-widget-table-of-contents,.mars-article .elementor-widget.elementor-widget-table-of-contents:not(:last-child)' +
+  '{margin:1.6em 0!important;margin-block:1.6em!important}'
+
+/**
+ * จุดวางสารบัญของเว็บ: แทน nav.content-toc ของเรา ตรงตำแหน่งเดิม
+ * บทความไม่มีสารบัญของเรา (โหมดข้อความ) → จุดเดียวกับที่ build-html วาง: หลัง H1 → หลังรูปปก → หลังย่อหน้าแรก (ไม่เลย H2 แรก)
+ * H2 ไม่ถึง 3 = ไม่วาง (เกณฑ์เดียวกับสารบัญของเรา) · คืน -1 = ไม่วาง
+ */
+function siteTocSlot(children: HtmlNode[], isHead: (n: HtmlNode) => boolean): { at: number; replace: boolean } {
+  const isEl = (n: HtmlNode | undefined, tag: string) => !!n && n.kind === 'el' && n.tag === tag
+  const nav = children.findIndex((n) => isEl(n, 'nav') && n.kind === 'el' && classOf(n.attrs).includes('content-toc'))
+  if (nav >= 0) return { at: nav, replace: true }
+  if (children.filter((n) => isEl(n, 'h2')).length < 3) return { at: -1, replace: false }
+  const content = (n: HtmlNode) => !(n.kind === 'text' && !n.html.trim()) && !isHead(n)
+  let i = -1
+  const next = () => {
+    i++
+    while (i < children.length && !content(children[i])) i++
+  }
+  next()
+  if (isEl(children[i], 'h1')) next()
+  if (isEl(children[i], 'figure')) next()
+  if (isEl(children[i], 'p')) i++
+  return { at: i, replace: false }
+}
 
 /**
  * แยกบทความเป็น widget ให้ทีมแก้ใน Elementor ได้ทั้งแบบข้อความ (Text Editor) และ HTML
@@ -209,7 +251,11 @@ type ElementorWidget = { id: string; elType: 'widget'; widgetType: 'html' | 'tex
  * - บล็อกซับซ้อน (FAQ details/summary, CTA, ผู้เขียน, สารบัญ) ที่ติดกัน → HTML widget เดียว
  * null = HTML ไม่ปิด tag หรือไม่มีส่วนไหนแก้เป็นข้อความได้ → ใช้ HTML widget ก้อนเดียวแบบเดิม
  */
-function splitArticleWidgets(html: string, markerId: string): { sectionClasses: string; widgets: ElementorWidget[] } | null {
+function splitArticleWidgets(
+  html: string,
+  markerId: string,
+  siteToc?: SiteTocWidget | null,
+): { sectionClasses: string; widgets: ElementorWidget[] } | null {
   const top = topLevelNodes(html)
   if (!top) return null
   const blank = (n: HtmlNode) => n.kind === 'text' && !n.html.trim()
@@ -235,9 +281,14 @@ function splitArticleWidgets(html: string, markerId: string): { sectionClasses: 
     children = body.flatMap((n) => (n === wrapper ? inner : [n]))
   }
 
+  // สารบัญของเว็บ (ผลสแกน) แทนของเรา — ไม่มีผลสแกน = เหมือนเดิมทุกไบต์
+  const slot = siteToc ? siteTocSlot(children, isHead) : { at: -1, replace: false }
+  const tocId = slot.at >= 0 ? elementorId() : ''
+  const tocCss = tocId && siteToc ? `${(siteToc.css || '').split(SITE_TOC_ID_TOKEN).join(tocId)}${SITE_TOC_SPACING_CSS}` : ''
+
   const widgets: ElementorWidget[] = []
   const headHtml = lead.map((n) => n.html).join('\n')
-  widgets.push({ id: markerId, elType: 'widget', widgetType: 'html', settings: { html: `${headHtml}${headHtml ? '\n' : ''}<style>${ELEMENTOR_RESET_CSS}</style>` }, elements: [] })
+  widgets.push({ id: markerId, elType: 'widget', widgetType: 'html', settings: { html: `${headHtml}${headHtml ? '\n' : ''}<style>${ELEMENTOR_RESET_CSS}${tocCss}</style>` }, elements: [] })
 
   let group: { type: 'text' | 'html'; parts: string[] } | null = null
   const flush = () => {
@@ -249,8 +300,13 @@ function splitArticleWidgets(html: string, markerId: string): { sectionClasses: 
       : { id: elementorId(), elType: 'widget', widgetType: 'html', settings: { html: joined }, elements: [] })
     group = null
   }
-  for (const node of children) {
-    if (blank(node)) continue
+  children.forEach((node, i) => {
+    if (i === slot.at && siteToc) {
+      flush()
+      widgets.push({ id: tocId, elType: 'widget', widgetType: 'table-of-contents', settings: { ...siteToc.settings }, elements: [] })
+      if (slot.replace) return
+    }
+    if (blank(node)) return
     const type = isTextSafe(node) ? 'text' : 'html'
     const startsSection = node.kind === 'el' && node.tag === 'h2'
     if (!group || group.type !== type || (type === 'text' && startsSection)) {
@@ -258,7 +314,7 @@ function splitArticleWidgets(html: string, markerId: string): { sectionClasses: 
       group = { type, parts: [] }
     }
     group.parts.push(node.html)
-  }
+  })
   flush()
   const tail = tailNodes.map((n) => n.html).join('\n')
   if (tail) widgets.push({ id: elementorId(), elType: 'widget', widgetType: 'html', settings: { html: tail }, elements: [] })
@@ -276,8 +332,8 @@ function splitArticleWidgets(html: string, markerId: string): { sectionClasses: 
  * section เต็มความกว้าง + คอลัมน์ไม่มีช่องไฟ (gap no) → หน้าเว็บออกมาเหมือนตอนไม่ใช้ Elementor
  * widgetId = id ของ widget แรก ใช้ตรวจว่าหน้าเว็บแสดงเอกสารชุดนี้จริง
  */
-export function buildElementorData(html: string, widgetId: string = elementorId()): string {
-  const split = splitArticleWidgets(html, widgetId)
+export function buildElementorData(html: string, widgetId: string = elementorId(), opts: { siteToc?: SiteTocWidget | null } = {}): string {
+  const split = splitArticleWidgets(html, widgetId, opts.siteToc)
   const data = [{
     id: elementorId(), elType: 'section',
     settings: {
@@ -330,6 +386,8 @@ export interface ElementorSyncOptions {
   /** ลิงก์หน้าเว็บ เมื่อโพสต์ publish แล้ว — ใช้ตรวจว่าหน้าเว็บแสดงเวอร์ชันนี้จริง */
   liveUrl?: string
   pageFetcher?: PageFetcher
+  /** สารบัญของเว็บ — ใช้เฉพาะตอนเลือก Elementor (โหมดปกติคงสารบัญของเราใน post_content) */
+  siteToc?: SiteTocWidget | null
 }
 
 /** คำขอ REST ของ Elementor สำหรับโพสต์เดียว — ใช้ทั้งทาง REST และหลังเรียกปลั๊กอิน convert-cake */
@@ -447,7 +505,7 @@ export async function syncElementorDocument(opts: ElementorSyncOptions): Promise
   // ── ใช้ Elementor ──
   const widgetId = elementorId()
   // data ก่อน แล้วค่อยเปิด builder — เปิด builder ทั้งที่ data ไม่เข้า = หน้าเว็บแสดงของเก่า/หน้าว่าง
-  await update({ meta: { _elementor_template_type: templateType, _elementor_data: buildElementorData(html, widgetId) } })
+  await update({ meta: { _elementor_template_type: templateType, _elementor_data: buildElementorData(html, widgetId, { siteToc: opts.siteToc }) } })
   if (!dataHas(await readMeta(), widgetId)) {
     if (wasBuilder && !(await exitBuilder())) return { supported: true, warning: ELEMENTOR_STUCK_WARNING }
     return { supported: true, builder: false, warning: ELEMENTOR_NOT_APPLIED_WARNING }
@@ -497,7 +555,7 @@ export async function applyElementorMode(
     headers: { Authorization: `Basic ${opts.creds}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       post_id: opts.postId,
-      elementor_data_b64: Buffer.from(buildElementorData(opts.html, widgetId)).toString('base64'),
+      elementor_data_b64: Buffer.from(buildElementorData(opts.html, widgetId, { siteToc: opts.siteToc })).toString('base64'),
       edit_mode: 'builder',
       template_type: opts.isPage ? 'wp-page' : 'wp-post',
       yoast_meta: opts.yoastMeta,
@@ -665,6 +723,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
         isUpdate: existingPostId != null,
         liveUrl: data.status === 'publish' && postUrl ? postUrl : undefined,
         yoastMeta: wpMeta,
+        siteToc: input.siteToc,
         fetcher: (url, init) => safeFetch(url, init, { requireHttps: true, sameHostOnly: true }),
       })
       if (Object.keys(wpMeta).length > 0) {

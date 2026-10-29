@@ -18,7 +18,7 @@ import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/l
 import { buildArticleSchema } from '@/lib/articleSchema'
 import { isIndexableUrl, requestIndexIfLive } from '@/lib/upload-article/request-index'
 import { parsePushPrefs, saveProjectIndexRequest } from '@/lib/project-index-requests'
-import { applyElementorMode, buildElementorData } from '@/lib/upload-article/wp-push'
+import { applyElementorMode, buildElementorData, type SiteTocWidget } from '@/lib/upload-article/wp-push'
 import { syncSeoPluginMeta } from '@/lib/upload-article/seo-plugins'
 import { safeFetch } from '@/lib/upload-article/safe-fetch'
 import { resolveProjectWpCredentials } from '@/lib/project-wp-credentials'
@@ -305,11 +305,16 @@ export async function POST(req: NextRequest) {
   let existingStatus = ''
   // ปลั๊กอิน SEO จากผลสแกนเว็บ (Article Lab) — ใช้เมื่ออ่าน /wp-json/ ไม่ได้
   let seoPluginHint: unknown
-  if (projectId && dbArticleId) {
+  // สารบัญที่เว็บลูกค้าวางในบทความเอง (Elementor) — วางแทนของเราตอน push แบบ Elementor, ปิด card สารบัญ = ไม่วาง
+  let siteToc: SiteTocWidget | undefined
+  if (projectId) {
     const proj = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId }, select: { pushPrefs: true } }).catch(() => null)
     const projPrefs = parsePushPrefs(proj?.pushPrefs)
-    seoPluginHint = (projPrefs.siteScan as { platform?: { seoPlugins?: unknown } } | undefined)?.platform?.seoPlugins
-    const map = projPrefs.wpPostIds as Record<string, { id?: unknown; kind?: unknown; host?: unknown }> | undefined
+    const scan = projPrefs.siteScan as { platform?: { seoPlugins?: unknown }; components?: { toc?: { native?: SiteTocWidget } } } | undefined
+    if (dbArticleId) seoPluginHint = scan?.platform?.seoPlugins
+    const excluded = (projPrefs.excludeCards as Record<string, unknown> | undefined)?.toc === true
+    if (!excluded) siteToc = scan?.components?.toc?.native
+    const map = dbArticleId ? projPrefs.wpPostIds as Record<string, { id?: unknown; kind?: unknown; host?: unknown }> | undefined : undefined
     const stored = map?.[dbArticleId]
     const storedId = Number(stored?.id)
     if (stored && Number.isInteger(storedId) && storedId > 0 && stored.kind === postKind && stored.host === siteHost) {
@@ -397,7 +402,7 @@ export async function POST(req: NextRequest) {
         headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           post_id: postId,
-          elementor_data_b64: Buffer.from(buildElementorData(htmlLinked)).toString('base64'),
+          elementor_data_b64: Buffer.from(buildElementorData(htmlLinked, undefined, { siteToc: useElementor ? siteToc : undefined })).toString('base64'),
           edit_mode: 'builder',
           template_type: isPage ? 'wp-page' : 'wp-post',
           yoast_meta: yoastMeta,
@@ -413,6 +418,7 @@ export async function POST(req: NextRequest) {
         isUpdate: existingPostId != null,
         liveUrl: data.status === 'publish' && postUrl ? postUrl : undefined,
         yoastMeta,
+        siteToc,
         // มีรหัสผ่าน + ล้าง cache ทั้งเว็บ — ห้ามถูกรีไดเรกต์ไปโดเมนอื่น หรือจาก https ลงไป http
         fetcher: (url, init) => safeFetch(url, init, { requireHttps: wpUrl.startsWith('https://'), sameHostOnly: true }),
       })

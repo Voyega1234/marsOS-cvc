@@ -85,6 +85,7 @@ const COMPONENT_LABEL: Record<'toc' | 'faq' | 'cta', string> = { toc: 'สาร
 /** ข้อความ/สีของ badge บอกที่มาของ TOC/FAQ/CTA — คำเดียวกับ Upload Article (SiteScanPanel) */
 function statusOf(f: UploadComponentFinding): { text: string; cls: string } {
   if (f.where === 'auto') return { text: 'ปลั๊กอิน/ธีมใส่ให้ทุกบทความเอง — ไม่ใส่ของเราซ้ำ', cls: 'bg-rose-50 text-rose-700 border-rose-200' }
+  if (f.where === 'some-posts' && f.native) return { text: 'เว็บวางสารบัญ (Elementor) ในบทความเอง — push แบบ Elementor ใช้สารบัญของเว็บแทนของเรา ตรงจุดเดิม', cls: 'bg-sky-50 text-sky-700 border-sky-200' }
   if (f.where === 'some-posts') return { text: 'ผู้เขียนเขียนเองในเนื้อหา (ไม่ใช่ปลั๊กอิน) — ใส่ของเราตามปกติ', cls: 'bg-amber-50 text-amber-700 border-amber-200' }
   if (f.where === 'site') return { text: 'เจอนอกบทความ (เช่น หน้าแรก/เมนู) — ใส่ของเราตามปกติ', cls: 'bg-gray-50 text-gray-600 border-gray-200' }
   return { text: 'ไม่พบ — ใส่ของเราตามปกติ', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }

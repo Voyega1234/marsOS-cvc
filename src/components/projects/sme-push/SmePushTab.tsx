@@ -706,6 +706,9 @@ export default function SmePushTab({
                                   <AlertTriangle size={10} /> ปลั๊กอิน/ธีมของเว็บใส่ให้ทุกบทความเองแล้ว{finding.source ? ` (${finding.source})` : ''} — push ไปจะซ้อนกัน
                                 </p>
                               )}
+                              {c.type === 'toc' && !c.derived && finding?.native && (
+                                <p className="text-[10px] text-sky-700 mt-0.5">push แบบ Elementor: ระบบวางสารบัญของเว็บแทนตรงจุดนี้ — push แบบปกติใช้ของเรา</p>
+                              )}
                               {c.plainText && <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{c.plainText}</p>}
                             </div>
                           </label>

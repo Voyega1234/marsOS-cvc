@@ -14,10 +14,12 @@ import type { ORUsage } from '@/lib/openrouter'
 import { safeColor, sanitizeThemeDetail } from './theme-css'
 import { detectSeoPluginsFromHtml, detectSeoPluginsFromNamespaces, seoPluginLabel, seoPluginNote, type SeoPluginKey } from './seo-plugins'
 import { contrast, CssCascade, luminance, mediaApplies, openChainAt, parseCssRules, parseOpenTag, toHex, type CssEl, type CssRule } from './css-cascade'
+import { SITE_TOC_ID_TOKEN } from './types'
 import type {
   UploadComponentFinding,
   UploadComponentKey,
   UploadSiteScan,
+  UploadSiteToc,
   UploadTheme,
   UploadThemeDetail,
 } from './types'
@@ -37,6 +39,9 @@ interface Detector {
   templateOk?: boolean
 }
 
+const ELEMENTOR_TOC_LABEL = 'Elementor Table of Contents widget'
+const ELEMENTOR_TOC_OPEN_RE = /<div\b[^>]*\sclass=["'][^"']*(?<![\w-])elementor-widget-table-of-contents(?![\w-])[^"']*["'][^>]*>/i
+
 const DETECTORS: Record<UploadComponentKey, Detector[]> = {
   toc: [
     { re: /ez-toc-container|ez-toc-v2|class="[^"]*\bez-toc/i, label: 'Easy Table of Contents (ปลั๊กอิน)', autoInsert: true },
@@ -46,7 +51,7 @@ const DETECTORS: Record<UploadComponentKey, Detector[]> = {
     { re: /class="[^"]*\b(?:joli-toc|wpj-jtoc)/i, label: 'Joli Table of Contents (ปลั๊กอิน)', autoInsert: true },
     { re: /wp-block-rank-math-toc-block|class="[^"]*\brank-math-toc/i, label: 'Rank Math TOC block' },
     { re: /yoast-table-of-contents/i, label: 'Yoast TOC block' },
-    { re: /elementor-widget-table-of-contents|class="[^"]*\belementor-toc/i, label: 'Elementor Table of Contents widget' },
+    { re: /elementor-widget-table-of-contents|class="[^"]*\belementor-toc/i, label: ELEMENTOR_TOC_LABEL },
     { re: /uagb-toc|wp-block-uagb-table-of-contents/i, label: 'Spectra TOC block' },
     { re: /kb-table-of-content/i, label: 'Kadence TOC block' },
     { re: /class="[^"]*(?<![\w-])(?:toc|table-of-contents)(?![\w-])[^"]*"/i, label: 'กล่องสารบัญของธีม' },
@@ -279,7 +284,7 @@ function detectPlatform(pages: string[]): UploadSiteScan['platform'] {
 
 // ── component findings ──────────────────────────────────────────────────────
 
-interface PostSample {
+export interface PostSample {
   link: string
   /** เนื้อดิบจาก REST (content.rendered หลังผ่าน filter) — null ถ้า REST ปิด */
   content: string | null
@@ -287,7 +292,7 @@ interface PostSample {
   page: string | null
 }
 
-function findComponent(key: UploadComponentKey, posts: PostSample[], home: string | null, pluginSlugs: string[]): UploadComponentFinding {
+export function findComponent(key: UploadComponentKey, posts: PostSample[], home: string | null, pluginSlugs: string[]): UploadComponentFinding {
   const evidence: string[] = []
   const labels: string[] = []
   const templateLabels: string[] = []
@@ -300,7 +305,12 @@ function findComponent(key: UploadComponentKey, posts: PostSample[], home: strin
     // เนื้อหาที่ผู้เขียนเขียน: REST content.rendered ก่อน (เนื้อดิบ) — ไม่มี REST ใช้กล่องเนื้อหาในหน้าจริง
     const inRest = p.content !== null ? matchDetectors(p.content, key) : []
     const inRendered = p.page ? matchDetectors(region ? region.html : stripChrome(p.page), key) : []
-    const author = p.content !== null ? inRest : inRendered
+    let author = p.content !== null ? inRest : inRendered
+    // widget สารบัญในเอกสาร Elementor ของตัวบทความเอง = ผู้เขียนวางเอง (บางเว็บ REST ไม่มี markup ของ Elementor — ห้ามนับเป็นปลั๊กอินแทรก)
+    const ownElementorToc = key === 'toc' && !!region && ELEMENTOR_TOC_OPEN_RE.test(elementorPostDocs(region.html))
+    if (ownElementorToc && !author.some((d) => d.label === ELEMENTOR_TOC_LABEL)) {
+      author = [...author, ...DETECTORS.toc.filter((d) => d.label === ELEMENTOR_TOC_LABEL)]
+    }
     // template ของหน้าบทความ (นอกกล่องเนื้อหา) — ต้องเจอกล่องเนื้อหาก่อน ไม่งั้นแยกไม่ได้ว่าอะไรเป็นของผู้เขียน
     const inTemplate =
       p.page && region
@@ -308,7 +318,15 @@ function findComponent(key: UploadComponentKey, posts: PostSample[], home: strin
         : []
     // มีในกล่องเนื้อหาที่ render แต่เนื้อดิบจาก REST ไม่มี = ปลั๊กอินแทรกให้ตอนแสดงผล (the_content filter)
     const injected =
-      p.content !== null && region ? inRendered.filter((d) => !d.weak && d.templateOk !== false && !inRest.some((x) => x.label === d.label)) : []
+      p.content !== null && region
+        ? inRendered.filter(
+            (d) =>
+              !d.weak &&
+              d.templateOk !== false &&
+              !inRest.some((x) => x.label === d.label) &&
+              !(ownElementorToc && d.label === ELEMENTOR_TOC_LABEL),
+          )
+        : []
 
     if (author.length) authorPosts++
     if (inTemplate.length || injected.length) templatePosts++
@@ -362,6 +380,151 @@ function findComponent(key: UploadComponentKey, posts: PostSample[], home: strin
     postsChecked,
     evidence: [...evidence, ...(allLabels.length > 1 ? [`สัญญาณที่เจอ: ${allLabels.join(', ')}`] : [])],
   }
+}
+
+// ── สารบัญของเว็บ (widget Elementor ที่ผู้เขียนวางในบทความเอง) ─────────────────
+
+/** เอกสาร Elementor ของตัวบทความเอง (wp-post/wp-page) — ไม่รวม template single-post/header/footer */
+function elementorPostDocs(html: string): string {
+  const re = /<([a-z][\w-]*)\b[^>]*\sdata-elementor-type=["']wp-(?:post|page)["'][^>]*>/gi
+  const out: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) && out.length < 3) {
+    const e = balancedEnd(html, m.index, m[1].toLowerCase())
+    if (e === -1) break
+    out.push(html.slice(m.index, e))
+    re.lastIndex = e
+  }
+  return out.join('\n')
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&#x27;|&apos;/gi, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+}
+
+const FA_LIBRARY: Record<string, string> = { fas: 'fa-solid', far: 'fa-regular', fab: 'fa-brands' }
+
+/** ไอคอนปุ่มเปิด/ปิดของ widget — <i class="fas fa-x"> หรือ svg แบบ inline (e-fas-x) */
+function tocIcon(widget: string, which: 'expand' | 'collapse'): { value: string; library: string } | null {
+  const m = new RegExp(`elementor-toc__toggle-button--${which}[^>]*>([\\s\\S]{0,600}?)</div>`, 'i').exec(widget)
+  if (!m) return null
+  const fa = /class=["'](fa[srb])\s+(fa-[a-z0-9-]+)["']/i.exec(m[1])
+  if (fa) return { value: `${fa[1]} ${fa[2]}`, library: FA_LIBRARY[fa[1].toLowerCase()] }
+  const svg = /class=["'][^"']*\be-(fa[srb])-([a-z0-9-]+)/i.exec(m[1])
+  if (svg) return { value: `${svg[1]} fa-${svg[2]}`, library: FA_LIBRARY[svg[1].toLowerCase()] }
+  return null
+}
+
+/**
+ * อ่าน widget สารบัญของ Elementor ตัวแรกใน html
+ * settings = data-settings (ส่วนที่หน้าเว็บใช้) + หัวข้อ/แท็กหัวข้อ/ไอคอนที่อ่านจาก markup
+ */
+export function parseElementorToc(html: string): { dataId: string; settings: Record<string, unknown> } | null {
+  const m = ELEMENTOR_TOC_OPEN_RE.exec(html)
+  if (!m) return null
+  const end = balancedEnd(html, m.index, 'div')
+  const widget = html.slice(m.index, end === -1 ? m.index + 20_000 : end)
+  const dataId = /\sdata-id=["']([a-z0-9]{1,16})["']/i.exec(m[0])?.[1] || ''
+  const settings: Record<string, unknown> = {}
+  const raw = /\sdata-settings=(["'])([\s\S]*?)\1/.exec(m[0])?.[2]
+  if (raw && raw.length <= 8000) {
+    try {
+      const obj: unknown = JSON.parse(decodeEntities(raw))
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        for (const [k, v] of Object.entries(obj as Record<string, unknown>)) if (/^[a-z_]{1,40}$/.test(k)) settings[k] = v
+      }
+    } catch {
+      /* data-settings เสีย — ใช้ค่าเริ่มต้นของ Elementor */
+    }
+  }
+  const t = /<(h[1-6]|div|span|p)\b[^>]*class=["'][^"']*elementor-toc__header-title[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i.exec(widget)
+  if (t) {
+    const title = decodeEntities(t[2].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim().slice(0, 100)
+    if (title) settings.title = title
+    settings.html_tag = t[1].toLowerCase()
+  }
+  const expand = tocIcon(widget, 'expand')
+  const collapse = tocIcon(widget, 'collapse')
+  if (expand) settings.expand_icon = expand
+  if (collapse) settings.collapse_icon = collapse
+  return { dataId, settings }
+}
+
+/** กฎ CSS ที่เลือก element นี้ (รวมใน @media) — ยกหน้าตา widget จาก CSS ของบทความต้นแบบ */
+export function cssRulesFor(css: string, cls: string, cap = 6000): string {
+  const hit = new RegExp(`\\.${cls}(?![\\w-])`)
+  const out: string[] = []
+  let size = 0
+  const walk = (src: string, wrap: (rule: string) => string) => {
+    let i = 0
+    while (i < src.length) {
+      const open = src.indexOf('{', i)
+      if (open === -1) return
+      const prelude = src.slice(i, open).trim()
+      let depth = 1
+      let j = open + 1
+      while (j < src.length && depth) {
+        if (src[j] === '{') depth++
+        else if (src[j] === '}') depth--
+        j++
+      }
+      const body = src.slice(open + 1, j - 1)
+      if (/^@media\b/i.test(prelude)) walk(body, (r) => wrap(`${prelude}{${r}}`))
+      else if (!prelude.startsWith('@') && hit.test(prelude)) {
+        const rule = wrap(`${prelude}{${body}}`)
+        if (size + rule.length > cap) return
+        out.push(rule)
+        size += rule.length
+      }
+      i = j
+    }
+  }
+  walk(css.replace(/\/\*[\s\S]*?\*\//g, ''), (r) => r)
+  // CSS นี้จะไปอยู่ใน <style> ของบทความ — ตัดทุกอย่างที่ปิดแท็กหรือรันโค้ดได้
+  return out.join('').replace(/</g, '').replace(/expression\s*\(|javascript:/gi, '')
+}
+
+/**
+ * สารบัญที่ผู้เขียนวางในบทความเองแบบ widget ของ Elementor — ระบบวาง widget เดียวกันแทนของเราตอน push แบบ Elementor
+ * (สารบัญในเนื้อหาไม่ติดมากับบทความใหม่ ถ้าไม่วางเองบทความจะไม่มีสารบัญเลย)
+ */
+async function findSiteToc(posts: PostSample[]): Promise<UploadSiteToc | null> {
+  let picked: { toc: NonNullable<ReturnType<typeof parseElementorToc>>; page: string | null; docId: string } | null = null
+  let postsWith = 0
+  for (const p of posts) {
+    const region = p.page ? postContentRegion(p.page) : null
+    const docs = region ? elementorPostDocs(region.html) : ''
+    const src = ELEMENTOR_TOC_OPEN_RE.test(docs) ? docs : p.content && ELEMENTOR_TOC_OPEN_RE.test(p.content) ? p.content : ''
+    if (!src) continue
+    postsWith++
+    if (picked) continue
+    const toc = parseElementorToc(src)
+    if (!toc) continue
+    const docId = src === docs ? /data-elementor-id=["'](\d+)["']/.exec(docs)?.[1] || '' : ''
+    picked = { toc, page: p.page, docId }
+  }
+  if (!picked) return null
+
+  // หน้าตาที่ตั้งใน Elementor อยู่ใน CSS ของบทความต้นแบบ (post-<id>.css หรือ <style> ในหน้า)
+  let css = ''
+  const { toc, page, docId } = picked
+  if (page && docId && toc.dataId) {
+    const inline = new RegExp(`<style[^>]*id=["']elementor-post-${docId}["'][^>]*>([\\s\\S]*?)</style>`, 'i').exec(page)?.[1]
+    const href = new RegExp(`href=["']([^"']*/elementor/css/post-${docId}\\.css[^"']*)["']`, 'i').exec(page)?.[1]
+    const source = inline ?? (href && /^https:\/\//i.test(href) ? await fetchText(decodeEntities(href)) : null)
+    if (source) {
+      css = cssRulesFor(source, `elementor-element-${toc.dataId}`)
+        .replace(new RegExp(`elementor-element-${toc.dataId}(?![\\w-])`, 'g'), `elementor-element-${SITE_TOC_ID_TOKEN}`)
+        .replace(new RegExp(`\\.elementor-${docId}(?![\\w-])`, 'g'), '.elementor')
+    }
+  }
+  return { kind: 'elementor-widget', settings: toc.settings, ...(css ? { css } : {}), postsWith }
 }
 
 // ── FAQ / content style (CSS) ───────────────────────────────────────────────
@@ -1007,6 +1170,17 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
     toc: findComponent('toc', posts, home, pluginSlugs),
     faq: findComponent('faq', posts, home, pluginSlugs),
     cta: findComponent('cta', posts, home, pluginSlugs),
+  }
+  // ผู้เขียนวางสารบัญ (widget Elementor) ไว้ในบทความเอง — ไม่ติดมากับบทความใหม่ ระบบต้องวางให้แทนของเรา
+  // template/ปลั๊กอินใส่ให้เอง (auto) ไม่ต้องวาง — วางซ้ำจะมี 2 อัน
+  if (components.toc.where === 'some-posts') {
+    const native = await findSiteToc(posts)
+    if (native) {
+      components.toc.native = native
+      components.toc.evidence.unshift(
+        `บทความของเว็บวางสารบัญ (widget ของ Elementor) ไว้ในเนื้อหาเอง ${native.postsWith}/${components.toc.postsChecked} บทความ — push แบบ Elementor ระบบจะวางสารบัญแบบเดียวกันแทนของเรา ตรงจุดเดิม (push แบบปกติยังใช้ของเรา)`,
+      )
+    }
   }
 
   // หน้าตา FAQ + บทความ — ใช้หน้าบทความจริง (ถ้าไม่มีใช้หน้าแรก)

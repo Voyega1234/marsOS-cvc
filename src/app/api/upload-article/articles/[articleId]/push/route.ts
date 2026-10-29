@@ -26,6 +26,7 @@ export const maxDuration = 300
 
 /** สถานะ PUSHING ค้างนานกว่านี้ถือว่าฟังก์ชันตายกลางทาง (maxDuration 300 วินาที + เผื่อ) */
 const PUSH_LOCK_MS = 6 * 60 * 1000
+const SYSTEM_TOC_RE = /<nav\b[^>]*class="[^"]*\bcontent-toc\b/i
 
 function coverToBase64(dataUri: string | null): { base64?: string; mime?: string } {
   if (!dataUri) return {}
@@ -124,6 +125,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   if (stripH1) processedHtml = stripLeadingH1(processedHtml)
   // บทความที่ generate ก่อนเลิกแสดง breadcrumb ในเนื้อหา — ตัดทิ้งตอน push (schema ยังมี BreadcrumbList)
   processedHtml = processedHtml.replace(/<nav class="content-breadcrumb"[\s\S]*?<\/nav>\s*/g, '')
+  // ไม่ติ๊ก card สารบัญ = ไม่เอาสารบัญ — ไม่วางสารบัญของเว็บแทนด้วย
+  const tocDeselected = SYSTEM_TOC_RE.test(fullHtml) && !SYSTEM_TOC_RE.test(rawHtml)
 
   // เก็บ preference ที่ใช้รอบนี้ไว้ใน client.pushPrefs (ไม่รอ push สำเร็จก่อน — ผู้ใช้ตั้งใจเลือกแล้ว)
   // เขียนผ่าน updatePrefs (ล็อกแถว อ่านค่าล่าสุดก่อนแก้) กัน prefs ที่เพิ่งถูกแก้จากที่อื่นระหว่างที่ request นี้กำลังทำงานหาย (lost update)
@@ -347,6 +350,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         existingPostId,
         // ผลสแกนเป็นของเว็บลูกค้า — PBN เป็นเว็บอื่น ใช้แค่ที่ตรวจตอน push
         seoPlugins: pbnSite ? undefined : prevPrefs.siteScan?.platform.seoPlugins,
+        // สารบัญที่เว็บลูกค้าวางในบทความเอง (Elementor) — วางแทนของเราตอน push แบบ Elementor
+        siteToc: pbnSite || tocDeselected ? undefined : prevPrefs.siteScan?.components?.toc?.native,
       })
       ok = result.ok
       postUrl = result.postUrl
