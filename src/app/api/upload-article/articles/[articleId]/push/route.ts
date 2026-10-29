@@ -9,7 +9,7 @@ import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 import { refreshUploadSchema, uploadArticleLanguage, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { parseUploadCards, assembleUploadHtml, uploadHtmlVersion } from '@/lib/upload-article/cards'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
-import type { UploadPushPrefs, UploadTheme } from '@/lib/upload-article/types'
+import { effectiveBodyCover, type UploadPushPrefs, type UploadTheme } from '@/lib/upload-article/types'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import { isPbnPrefs, readPbnSites, readPbnPushes, cleanRepoPath, DEFAULT_GH_DIR, type PbnSite } from '@/lib/upload-article/pbn'
 import { publishToGithub, safeFileSlug } from '@/lib/upload-article/github-push'
@@ -18,6 +18,7 @@ import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
 import { faqQuestionsToSpan } from '@/lib/article-structure'
 import { applyFaqDisplay } from '@/lib/upload-article/theme-css'
 import { removeCoverFromHtml } from '@/lib/upload-article/article-images'
+import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
 import { pushArticleToWebflow, type WebflowUploadConfig } from '@/lib/upload-article/webflow-push'
 import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
 import type { UploadIndexRequest } from '@/lib/upload-article/types'
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     body.wpPostType === 'page' ? 'page' : body.wpPostType === 'post' ? 'post' : (prevPrefs.wpPostType ?? 'post')
   const useElementor = boolPref(body.useElementor, Boolean(prevPrefs.useElementor))
   const stripH1 = boolPref(body.stripH1, prevPrefs.stripH1 ?? true)
-  const bodyCover = boolPref(body.bodyCover, prevPrefs.bodyCover ?? false)
+  const bodyCover = boolPref(body.bodyCover, effectiveBodyCover(prevPrefs))
   const autoRequestIndex = boolPref(body.autoRequestIndex, prevPrefs.autoRequestIndex ?? true)
 
   // วัน-เวลาเผยแพร่ที่ตั้งไว้ในหน้า Review (pushPrefs.publishAt) — ส่งเฉพาะ WordPress
@@ -242,7 +243,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     platform === 'wordpress' ||
     (platform === 'webflow' && !pbnSite && !!((conn.webflow ?? {}) as WebflowUploadConfig).imageField)
   )
-  if (coverAsFeatured && !bodyCover) processedHtml = removeCoverFromHtml(processedHtml)
+  // โหมด text ไม่มีกล่องปก (figure.content-cover) — จับรูปที่ src เดียวกับปกแทน
+  if (coverAsFeatured && !bodyCover) processedHtml = removeCoverFromHtml(processedHtml, article.coverImageUrl)
 
   try {
     const { base64, mime } = coverToBase64(article.coverImageUrl)
@@ -352,6 +354,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         seoPlugins: pbnSite ? undefined : prevPrefs.siteScan?.platform.seoPlugins,
         // สารบัญที่เว็บลูกค้าวางในบทความเอง (Elementor) — วางแทนของเราตอน push แบบ Elementor
         siteToc: pbnSite || tocDeselected ? undefined : prevPrefs.siteScan?.components?.toc?.native,
+        // บทความยังไม่มีสารบัญของเรา (โหมด text ที่ Generate ก่อนมีตำแหน่ง) — วางตามตำแหน่งที่ตั้ง/สแกนไว้
+        tocPosition: pbnSite ? undefined : effectiveTocPosition(prevPrefs),
       })
       ok = result.ok
       postUrl = result.postUrl

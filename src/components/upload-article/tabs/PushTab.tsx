@@ -4,9 +4,10 @@
  * (การสแกนเว็บปลายทางย้ายไปอยู่ที่ Project Setting > สแกนเว็บปลายทาง แล้ว) */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, Settings, CalendarClock, SearchCheck, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { Globe, ExternalLink, Send, AlertTriangle, ChevronDown, ChevronRight, ChevronUp, Settings, CalendarClock, SearchCheck, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { UploadArticleDTO, UploadClientDTO } from "@/lib/upload-article/types";
+import { effectiveBodyCover, scanWantsBodyCover, type UploadArticleDTO, type UploadClientDTO } from "@/lib/upload-article/types";
+import { describeTocPosition, effectiveTocPosition, sectionCountOfHtml, tocPositionOfHtml } from "@/lib/upload-article/toc-position";
 import { parseUploadCards, uploadHtmlVersion, type ParsedArticle } from "@/lib/upload-article/cards";
 import { canDeleteArticle, duplicateMap } from "@/lib/upload-article/duplicates";
 import { AiHelpInline } from "@/components/upload-article/shared/AiHelpPanel";
@@ -83,8 +84,9 @@ export default function PushTab({
   const [wpPostType, setWpPostType] = useState<"post" | "page">(client.pushPrefs.wpPostType ?? "post");
   const [useElementor, setUseElementor] = useState(!!client.pushPrefs.useElementor);
   const [stripH1, setStripH1] = useState(client.pushPrefs.stripH1 !== false);
-  const [bodyCover, setBodyCover] = useState(client.pushPrefs.bodyCover === true);
+  const [bodyCover, setBodyCover] = useState(effectiveBodyCover(client.pushPrefs));
   const [autoRequestIndex, setAutoRequestIndex] = useState(client.pushPrefs.autoRequestIndex !== false);
+  const [tocBusy, setTocBusy] = useState<Record<string, boolean>>({});
   const [indexBusy, setIndexBusy] = useState<Record<string, boolean>>({});
 
   // เก็บเวอร์ชัน HTML ของบทความไว้คู่กับ selection — ถ้า HTML บทความเปลี่ยน (เวอร์ชันไม่ตรง) ต้องเมิน selection เก่า
@@ -107,6 +109,8 @@ export default function PushTab({
   const scanMismatch = !pbn && !!client.pushPrefs.siteScan?.target && !!pushTargetUrl
     && hostOf(client.pushPrefs.siteScan.target) !== hostOf(pushTargetUrl);
   const siteScan = scanMismatch ? undefined : client.pushPrefs.siteScan;
+  // ค่าเริ่มต้น "ใส่ปกในเนื้อหา" มาจากผลสแกน (ทีมไม่เคยตั้งเอง) — โชว์เหตุผลใต้ช่องติ๊ก
+  const bodyCoverFromScan = client.pushPrefs.bodyCover === undefined && scanWantsBodyCover(client.pushPrefs.siteScan?.layout);
 
   // เก็บ client ล่าสุดไว้ใน ref — การบันทึก card selection debounce 600ms อาจ fire หลังจาก client เปลี่ยนแล้ว
   // (เช่น push สำเร็จคืน client ใหม่มา) อ่านจาก ref กันข้อมูล pushPrefs อื่นที่เพิ่งอัปเดตถูกทับ
@@ -278,6 +282,65 @@ export default function PushTab({
         toast.error(`บันทึกการเลือก card ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
       }
     }, 600);
+  }
+
+  /** ย้าย/เพิ่มสารบัญของระบบ แล้วย้าย selection ของ card ไปเวอร์ชัน HTML ใหม่ (จับคู่ด้วย type|label|ลำดับที่ซ้ำ) */
+  async function moveToc(articleId: string, position: number) {
+    if (tocBusy[articleId]) return;
+    const html = articleDetails[articleId]?.htmlContent;
+    const oldParsed = parsedMap.get(articleId);
+    if (!html || !oldParsed) return;
+    setTocBusy(prev => ({ ...prev, [articleId]: true }));
+    try {
+      const r = await fetch(`/api/upload-article/articles/${articleId}/toc-position`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ position, version: uploadHtmlVersion(html) }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.article) { toast.error(d?.error || "ย้ายสารบัญไม่สำเร็จ"); return; }
+      const keyOf = (cards: ParsedArticle["cards"]) => {
+        const seen = new Map<string, number>();
+        return cards.map(c => {
+          const base = `${c.type}|${c.label}`;
+          const n = seen.get(base) ?? 0;
+          seen.set(base, n + 1);
+          return `${base}|${n}`;
+        });
+      };
+      const oldKeys = keyOf(oldParsed.cards);
+      const oldOn = new Map<string, boolean>();
+      oldParsed.cards.forEach((c, i) => oldOn.set(oldKeys[i], isCardOn(articleId, c.id)));
+      const newHtml: string = d.article.htmlContent ?? "";
+      const newParsed = parseUploadCards(newHtml);
+      const newKeys = keyOf(newParsed.cards);
+      const sel: Record<string, boolean> = {};
+      newParsed.cards.forEach((c, i) => { if (oldOn.get(newKeys[i]) === false) sel[c.id] = false; });
+      const version = uploadHtmlVersion(newHtml);
+      // บันทึกเวอร์ชันใหม่ให้ใช้ selection นี้ แล้ว sync ไป server ทันที
+      cardSelInited.current.add(articleId);
+      setCardSel(prev => ({ ...prev, [articleId]: { version, sel } }));
+      applyArticleUpdate({ ...articleDetails[articleId], ...d.article });
+      const latest = clientRef.current;
+      setClient({ ...latest, pushPrefs: { ...latest.pushPrefs, tocPosition: d.tocPosition } });
+      const off = newParsed.cards.filter(c => sel[c.id] === false).map(c => c.id);
+      const rs = await fetch(`/api/upload-article/articles/${articleId}/card-selection`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version, off }),
+      });
+      if (!rs.ok) {
+        const e = await rs.json().catch(() => ({}));
+        toast.error(e?.error || "บันทึกการเลือก card ไม่สำเร็จ");
+      } else {
+        const l2 = clientRef.current;
+        setClient({ ...l2, pushPrefs: { ...l2.pushPrefs, tocPosition: d.tocPosition, cardSel: { ...(l2.pushPrefs.cardSel ?? {}), [articleId]: { version, off } } } });
+      }
+    } catch (e) {
+      toast.error(`ย้ายสารบัญไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setTocBusy(prev => ({ ...prev, [articleId]: false }));
+    }
   }
 
   async function pushOne(articleId: string) {
@@ -459,6 +522,9 @@ export default function PushTab({
           <label className="flex items-center gap-1.5" title="ปกถูกส่งเป็น Featured Image อยู่แล้ว ธีมส่วนใหญ่แสดงเอง — ติ๊กเฉพาะเว็บที่ธีมไม่แสดง Featured Image (ไม่งั้นปกจะซ้อน 2 รูป)">
             <input type="checkbox" checked={bodyCover} onChange={e => setBodyCover(e.target.checked)} /> ใส่ปกในเนื้อหาด้วย
           </label>
+          {bodyCover && bodyCoverFromScan && (
+            <span className="text-[11px] text-gray-400 self-center">สแกนพบว่าธีมไม่แสดงรูป featured และบทความของเว็บใส่ปกในเนื้อหาเอง — ติ๊กให้แล้ว</span>
+          )}
           <label className="flex items-center gap-1.5" title={pbn
             ? "หลัง Push แบบ Publish สำเร็จ ส่ง URL ให้ Google Indexing API อัตโนมัติ (เว็บ GitHub ต้องรอ build — ถ้าหน้ายังไม่ขึ้นจะบันทึกว่าไม่สำเร็จ ให้กด Index ที่ชื่อเว็บอีกครั้งในไม่กี่นาที)"
             : "หลัง Push แบบ Publish สำเร็จ ส่ง URL ให้ Google Indexing API อัตโนมัติ (บทความที่ตั้งวันเผยแพร่ขึ้นเป็น Draft — กด Request Index เองหลัง Publish ใน WordPress)"}>
@@ -594,12 +660,24 @@ export default function PushTab({
               {parsed && (() => {
                 const offCount = parsed.cards.filter(c => !isCardOn(a.id, c.id)).length;
                 const isOpen = !!expanded[a.id];
+                const html = articleDetails[a.id]?.htmlContent ?? "";
+                const tocPos = !pbn && html ? tocPositionOfHtml(html) : undefined;
+                const secCount = !pbn && html ? sectionCountOfHtml(html) : 0;
+                const tocIsBusy = !!tocBusy[a.id];
                 return (
                   <div className="border border-gray-100 rounded-lg">
                     <button onClick={() => setExpanded(prev => ({ ...prev, [a.id]: !isOpen }))} className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-gray-600 hover:text-brand-navy">
                       {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                       {parsed.cards.length} Cards{offCount ? ` (ไม่ push ${offCount})` : ""}
                     </button>
+                    {isOpen && !pbn && html && tocPos === undefined && secCount >= 3 && (
+                      <div className="px-2.5 py-1.5 border-t border-gray-100">
+                        <button type="button" disabled={tocIsBusy} onClick={() => moveToc(a.id, effectiveTocPosition(client.pushPrefs) ?? 0)}
+                          className="text-[11px] font-semibold text-brand-blue hover:underline disabled:opacity-50">
+                          {tocIsBusy ? "กำลังเพิ่ม..." : "+ เพิ่มสารบัญ"}
+                        </button>
+                      </div>
+                    )}
                     {isOpen && (
                       <div className="divide-y divide-gray-100 border-t border-gray-100">
                         {parsed.cards.map(c => {
@@ -622,6 +700,20 @@ export default function PushTab({
                                 )}
                                 {c.type === "toc" && !c.derived && finding?.native && (
                                   <p className="text-[10px] text-sky-700 mt-0.5">push แบบ Elementor: ระบบวางสารบัญของเว็บแทนตรงจุดนี้ — push แบบปกติใช้ของเรา</p>
+                                )}
+                                {c.type === "toc" && !c.derived && tocPos !== undefined && (
+                                  <div className="flex items-center gap-1.5 mt-0.5" onClick={e => e.preventDefault()}>
+                                    <button type="button" title="ย้ายขึ้น" disabled={tocIsBusy || tocPos <= -1} onClick={() => moveToc(a.id, tocPos - 1)}
+                                      className="p-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:pointer-events-none">
+                                      <ChevronUp size={12} />
+                                    </button>
+                                    <button type="button" title="ย้ายลง" disabled={tocIsBusy || tocPos >= secCount} onClick={() => moveToc(a.id, tocPos + 1)}
+                                      className="p-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:pointer-events-none">
+                                      <ChevronDown size={12} />
+                                    </button>
+                                    {tocIsBusy && <Loader2 size={11} className="animate-spin text-gray-400" />}
+                                    <span className="text-[10px] text-gray-400">ตำแหน่ง: {describeTocPosition(tocPos, secCount)} — บทความที่ Generate ครั้งถัดไปวางตรงนี้ด้วย</span>
+                                  </div>
                                 )}
                                 {c.plainText && <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{c.plainText}</p>}
                               </div>

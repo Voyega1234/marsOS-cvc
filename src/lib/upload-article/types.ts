@@ -85,6 +85,8 @@ export interface UploadComponentFinding {
   evidence: string[]
   /** สารบัญของเว็บที่ผู้เขียนใส่ในบทความเอง และระบบวางแทนของเราได้ (เฉพาะ toc) */
   native?: UploadSiteToc
+  /** ตำแหน่งที่บทความของเว็บวางสารบัญไว้ (toc-position.ts: -1 กลางอินโทร, 0 ก่อนหัวข้อแรก, n หลังหัวข้อที่ n) — เฉพาะ toc */
+  position?: number
 }
 
 /** สารบัญของเว็บที่ระบบวางแทนสารบัญของเราได้ ตรงจุดเดียวกัน */
@@ -121,6 +123,31 @@ export interface UploadSiteScan {
   /** สี/ฟอนต์ที่เสนอจากเว็บ (sanitize แล้ว) — ยังไม่ถูกใช้จนกว่าทีมกดรับและบันทึกธีม */
   suggestedTheme?: Partial<UploadTheme> | null
   detail?: UploadThemeDetail | null
+  /** โครงบทความที่คนเขียนเองบนเว็บ (ผลสแกนเก่าไม่มีช่องนี้) */
+  layout?: UploadSiteLayout
+}
+
+/** ส่วนในบทความ เรียงตามที่เจอในเนื้อหา */
+export type UploadLayoutPart = 'cover' | 'intro' | 'toc' | 'sections' | 'faq' | 'cta'
+
+export const UPLOAD_LAYOUT_LABEL: Record<UploadLayoutPart, string> = {
+  cover: 'ปก', intro: 'อินโทร', toc: 'สารบัญ', sections: 'หัวข้อ H2', faq: 'FAQ', cta: 'CTA',
+}
+
+/** โครงบทความของเว็บจากสแกน — ใช้ตั้งตำแหน่งสารบัญ/ปกให้ตรงกับเว็บ */
+export interface UploadSiteLayout {
+  /** จำนวนบทความที่ดู */
+  posts: number
+  /** ลำดับที่บทความส่วนใหญ่ใช้ เช่น cover → intro → toc → sections → faq */
+  order: UploadLayoutPart[]
+  /** บทความที่ใช้ลำดับนี้ */
+  orderCount: number
+  /** บทความที่มีรูปปกในเนื้อหา (ก่อนย่อหน้าแรก) */
+  coverInContent: number
+  /** ธีมแสดง featured image ในหน้าบทความเองไหม — null = ตรวจไม่ได้ */
+  featuredShown: boolean | null
+  /** บทความที่มีสารบัญ + ตำแหน่งที่ใช้มากสุด (toc-position.ts) */
+  toc?: { posts: number; position: number; count: number }
 }
 
 /** ฟอนต์ Google ที่เลือกได้ในหน้า Generate (build-html จะ @import ให้เมื่อเลือกตัวใดตัวหนึ่ง) */
@@ -133,6 +160,22 @@ export const UPLOAD_GOOGLE_FONTS = [
 /** ค่า fontFamily พิเศษ: ไม่กำหนดฟอนต์ ใช้ฟอนต์ของเว็บปลายทาง */
 export const UPLOAD_FONT_INHERIT = 'inherit'
 
+/**
+ * ผลสแกนบอกให้ใส่ปกในเนื้อหาไหม — ต้องมีหลักฐาน 2 ชั้น: ธีมไม่แสดงรูป featured + บทความส่วนใหญ่ของเว็บใส่ปกในเนื้อหาเอง
+ * (ธีมบางเว็บแสดง featured ผ่านไฟล์ CSS ที่สแกนมองไม่เห็น — เชื่อชั้นเดียวแล้วจะได้ปกซ้อน)
+ */
+export function scanWantsBodyCover(layout: { featuredShown?: boolean | null; coverInContent?: number; posts?: number } | null | undefined): boolean {
+  if (!layout || layout.featuredShown !== false) return false
+  return (layout.coverInContent ?? 0) * 2 > (layout.posts ?? 0)
+}
+
+/** ใส่ปกในเนื้อหาไหม: ค่าที่ทีมตั้งชนะเสมอ — ไม่เคยตั้ง = ตามผลสแกน (scanWantsBodyCover) */
+export function effectiveBodyCover(prefs: { bodyCover?: boolean; siteScan?: { layout?: { featuredShown?: boolean | null; coverInContent?: number; posts?: number } | null } | null } | null | undefined): boolean {
+  if (!prefs) return false
+  if (prefs.bodyCover !== undefined) return prefs.bodyCover === true
+  return scanWantsBodyCover(prefs.siteScan?.layout)
+}
+
 export interface UploadPushPrefs {
   stripH1?: boolean
   /** ใส่ปกในเนื้อหาด้วยตอน push (default ปิด — ปกไปเป็น featured image แล้ว ธีมส่วนใหญ่แสดงเอง ส่งทั้งคู่ = ปกซ้อน 2 รูป) */
@@ -143,6 +186,8 @@ export interface UploadPushPrefs {
   excludeCards?: { toc?: boolean; cta?: boolean; faq?: boolean }
   /** ผลสแกนเว็บปลายทางล่าสุด (แสดงซ้ำในหน้า Generate/Push) */
   siteScan?: UploadSiteScan
+  /** ตำแหน่งสารบัญที่ทีมย้ายเองในหน้า Push (toc-position.ts) — ใช้กับบทความที่ Generate ครั้งถัดไป ชนะผลสแกน */
+  tocPosition?: number
   /** card ที่ทีมติ๊กออกในหน้า Push ต่อบทความ — ผูกกับ htmlVersion ถ้า HTML เปลี่ยน ค่านี้ใช้ไม่ได้ */
   cardSel?: Record<string, UploadCardSelection>
   /** วัน-เวลาเผยแพร่ที่ตั้งไว้ต่อบทความ (ISO UTC) — push ขึ้น WordPress เป็น date_gmt, อนาคต + publish = ตั้งเวลา (future) */

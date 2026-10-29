@@ -40,6 +40,7 @@ import { insertUploadCta } from '@/lib/upload-article/cta-insert'
 import { PBN_MAX_VARIANTS, isPbnPrefsRaw, readPbnSites, writerSourceName } from '@/lib/upload-article/pbn'
 import { PBN_MAIN_PROFILE, isPbnProfileId, readPbnProfiles, readPbnArticleTargets } from '@/lib/upload-article/pbn-sets'
 import { pbnEffectiveClient, resolveCeSet } from '@/lib/upload-article/pbn-context'
+import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
 export const maxDuration = WRITER_MAX_DURATION_S
@@ -406,6 +407,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           breadcrumb: true,
           cta: ctaDesign,
           author: authorForArticle(article.id),
+          // ตำแหน่งสารบัญเดียวกับปุ่ม Generate (ไม่ตั้ง = แบบเดิม) — PBN ไม่ใช้
+          tocPosition: isPbn ? undefined : effectiveTocPosition(prefs),
         })
 
         const updated = await prisma.uploadArticle.update({

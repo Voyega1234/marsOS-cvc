@@ -14,9 +14,12 @@ import type { ORUsage } from '@/lib/openrouter'
 import { safeColor, sanitizeThemeDetail } from './theme-css'
 import { detectSeoPluginsFromHtml, detectSeoPluginsFromNamespaces, seoPluginLabel, seoPluginNote, type SeoPluginKey } from './seo-plugins'
 import { contrast, CssCascade, luminance, mediaApplies, openChainAt, parseCssRules, parseOpenTag, toHex, type CssEl, type CssRule } from './css-cascade'
-import { SITE_TOC_ID_TOKEN } from './types'
+import { SITE_TOC_ID_TOKEN, UPLOAD_LAYOUT_LABEL } from './types'
+import { TOC_POSITION_MAX, describeTocPosition, detectTocPosition, majorityTocPosition } from './toc-position'
 import type {
   UploadComponentFinding,
+  UploadLayoutPart,
+  UploadSiteLayout,
   UploadComponentKey,
   UploadSiteScan,
   UploadSiteToc,
@@ -290,6 +293,8 @@ export interface PostSample {
   content: string | null
   /** หน้าโพสต์ที่ render จริง — null ถ้าไม่ได้เปิด */
   page: string | null
+  /** id รูป featured จาก REST (0/ไม่มี = ไม่ได้ตั้ง) */
+  featuredMedia?: number
 }
 
 export function findComponent(key: UploadComponentKey, posts: PostSample[], home: string | null, pluginSlugs: string[]): UploadComponentFinding {
@@ -997,6 +1002,209 @@ async function analyzeStyle(input: {
 
 // ── main ────────────────────────────────────────────────────────────────────
 
+// ── โครงบทความของเว็บ (ลำดับปก/อินโทร/สารบัญ/หัวข้อ/FAQ/CTA) ─────────────────
+
+export interface PostLayout {
+  order: UploadLayoutPart[]
+  h2Count: number
+  /** src ของรูปปกในเนื้อหา (รูปแรกก่อนย่อหน้าแรกและหัวข้อแรก) */
+  coverSrc: string | null
+  /** ตำแหน่งสารบัญ (toc-position.ts) — ไม่มีสารบัญ = undefined */
+  tocPosition?: number
+}
+
+function plainText(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;| /g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** แท็กเปิดของ element ที่ regex เจอ (regex อาจเจอกลาง attribute) */
+function tagStartOf(html: string, matchIndex: number): number {
+  const i = html.lastIndexOf('<', matchIndex)
+  return i === -1 ? matchIndex : i
+}
+
+function firstDetectorStart(html: string, detectors: Detector[], skip: (i: number) => boolean): number {
+  let best = -1
+  for (const d of detectors) {
+    const re = new RegExp(d.re.source, d.re.flags.includes('g') ? d.re.flags : d.re.flags + 'g')
+    let m: RegExpExecArray | null
+    while ((m = re.exec(html))) {
+      const at = tagStartOf(html, m.index)
+      if (!skip(at)) {
+        if (best === -1 || at < best) best = at
+        break
+      }
+      if (m[0] === '') re.lastIndex++
+    }
+  }
+  return best
+}
+
+/** รูปที่ใช้เป็นปกได้ (ไม่ใช่ไอคอน/อีโมจิ) — คืน src จริง (lazy-load ใช้ data-src) */
+function coverImageSrc(tag: string): string | null {
+  if (/\bclass=["'][^"']*\bemoji\b/i.test(tag)) return null
+  const w = Number(/\bwidth=["']?(\d+)/i.exec(tag)?.[1] || 0)
+  const h = Number(/\bheight=["']?(\d+)/i.exec(tag)?.[1] || 0)
+  if ((w && w < 120) || (h && h < 80)) return null
+  const attr = (name: string) => new RegExp(`\\s${name}=["']([^"']+)["']`, 'i').exec(tag)?.[1] || ''
+  const src = attr('data-lazy-src') || attr('data-src') || attr('src')
+  return src && !/^data:/i.test(src) ? decodeEntities(src) : src ? 'data:' : null
+}
+
+/**
+ * ลำดับส่วนในเนื้อหาบทความหนึ่งบทความ (html = เนื้อหาที่ผู้เขียนเขียน ไม่รวม template)
+ * เนื้อหาว่าง/ไม่มีอะไรให้ดูคืน null
+ */
+export function analyzePostLayout(raw: string): PostLayout | null {
+  const html = raw.replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>|<noscript\b[\s\S]*?<\/noscript>|<!--[\s\S]*?-->/gi, '')
+  if (!plainText(html)) return null
+
+  // สารบัญก่อน — ข้างในมี li/p/h ที่ไม่ใช่เนื้อหา
+  const tocStart = firstDetectorStart(html, DETECTORS.toc.filter((d) => !d.weak), () => false)
+  let tocEnd = -1
+  if (tocStart !== -1) {
+    const tag = /^<([a-z][\w-]*)/i.exec(html.slice(tocStart))?.[1]?.toLowerCase() || 'div'
+    const e = balancedEnd(html, tocStart, tag)
+    tocEnd = e === -1 ? tocStart + 1 : e
+  }
+  const inToc = (i: number) => tocStart !== -1 && i >= tocStart && i < tocEnd
+
+  const h2s = Array.from(html.matchAll(/<h2\b/gi), (m) => m.index ?? 0).filter((i) => !inToc(i))
+  const firstH2 = h2s.length ? h2s[0] : -1
+
+  // ย่อหน้าข้อความแรก (p หรือ widget ข้อความของ Elementor ที่ไม่มี p)
+  let firstText = -1
+  for (const m of Array.from(html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi))) {
+    const at = m.index ?? 0
+    if (inToc(at) || !plainText(m[1])) continue
+    firstText = at
+    break
+  }
+  const editor = /<div\b[^>]*\sclass=["'][^"']*\belementor-widget-text-editor\b[^"']*["'][^>]*>/gi
+  for (let m: RegExpExecArray | null; (m = editor.exec(html)); ) {
+    if (inToc(m.index)) continue
+    const e = balancedEnd(html, m.index, 'div')
+    if (e !== -1 && plainText(html.slice(m.index, e))) {
+      if (firstText === -1 || m.index < firstText) firstText = m.index
+      break
+    }
+  }
+
+  // ปก = รูปแรกก่อนข้อความแรกและหัวข้อแรก
+  let cover: { at: number; src: string } | null = null
+  const limit = Math.min(...[firstText, firstH2].filter((i) => i !== -1), html.length)
+  for (const m of Array.from(html.matchAll(/<img\b[^>]*>/gi))) {
+    const at = m.index ?? 0
+    if (at >= limit) break
+    if (inToc(at)) continue
+    const src = coverImageSrc(m[0])
+    if (src) {
+      cover = { at, src }
+      break
+    }
+  }
+
+  const faqHeading = FAQ_HEADING_RE.exec(html)
+  const faqStarts = [
+    faqHeading && !inToc(faqHeading.index) ? faqHeading.index : -1,
+    firstDetectorStart(html, DETECTORS.faq.filter((d) => !d.weak), inToc),
+  ].filter((i) => i !== -1)
+  const faq = faqStarts.length ? Math.min(...faqStarts) : -1
+  const cta = firstDetectorStart(html, DETECTORS.cta, inToc)
+
+  const parts: Array<[UploadLayoutPart, number]> = []
+  if (cover) parts.push(['cover', cover.at])
+  if (firstText !== -1 && (firstH2 === -1 || firstText < firstH2)) parts.push(['intro', firstText])
+  if (tocStart !== -1) parts.push(['toc', tocStart])
+  if (firstH2 !== -1) parts.push(['sections', firstH2])
+  if (faq !== -1) parts.push(['faq', faq])
+  if (cta !== -1) parts.push(['cta', cta])
+  parts.sort((a, b) => a[1] - b[1])
+
+  // สารบัญหลังหัวข้อสุดท้าย = "ท้ายบทความเสมอ" (บทความใหม่หัวข้อเยอะกว่าก็ยังอยู่ท้าย)
+  const tocAt = tocStart === -1 ? undefined : detectTocPosition(html, tocStart)
+  const tocPosition = tocAt !== undefined && tocAt > 0 && tocAt >= h2s.length ? TOC_POSITION_MAX : tocAt
+
+  return {
+    order: parts.map((p) => p[0]),
+    h2Count: h2s.length,
+    coverSrc: cover ? cover.src : null,
+    ...(tocPosition !== undefined ? { tocPosition } : {}),
+  }
+}
+
+/** รวมผลหลายบทความ — ลำดับที่เจอบ่อยสุด + ตำแหน่งสารบัญที่ใช้มากสุด */
+export function summarizeLayouts(layouts: PostLayout[], featuredShown: boolean | null): UploadSiteLayout | null {
+  if (!layouts.length) return null
+  const counts = new Map<string, number>()
+  for (const l of layouts) counts.set(l.order.join('>'), (counts.get(l.order.join('>')) || 0) + 1)
+  let best = ['', 0] as [string, number]
+  for (const [sig, n] of Array.from(counts)) if (n > best[1]) best = [sig, n]
+  const tocPositions = layouts.filter((l) => l.tocPosition !== undefined).map((l) => l.tocPosition as number)
+  const toc = majorityTocPosition(tocPositions)
+  return {
+    posts: layouts.length,
+    order: best[0] ? (best[0].split('>') as UploadLayoutPart[]) : [],
+    orderCount: best[1],
+    coverInContent: layouts.filter((l) => l.coverSrc).length,
+    featuredShown,
+    ...(toc ? { toc: { posts: tocPositions.length, position: toc.position, count: toc.count } } : {}),
+  }
+}
+
+/** เนื้อหาที่ผู้เขียนเขียนของแต่ละโพสต์ — เอกสาร Elementor ของบทความก่อน → กล่องเนื้อหาในหน้าจริง → REST */
+export function postAuthorContent(p: PostSample): string | null {
+  const region = p.page ? postContentRegion(p.page) : null
+  if (region) {
+    const docs = elementorPostDocs(region.html)
+    return docs || region.html.slice(region.openTag.length)
+  }
+  return p.content
+}
+
+/** ชื่อไฟล์รูปไม่รวมขนาด/นามสกุลที่ WordPress เติม (photo-1024x683.webp → photo) */
+function imageBaseName(url: string): string {
+  let path = url
+  try {
+    path = new URL(url).pathname
+  } catch {
+    /* path ตรง ๆ */
+  }
+  let file = path.split('/').pop() || ''
+  try {
+    file = decodeURIComponent(file)
+  } catch {
+    /* ชื่อไฟล์มี % เดี่ยว */
+  }
+  return file.replace(/\.[a-z0-9]+$/i, '').replace(/-e\d{10,}$/, '').replace(/-\d+x\d+$/, '').replace(/-scaled$/, '')
+}
+
+/**
+ * ธีม/template แสดงรูป featured ในหน้าบทความเองไหม
+ * true = เจอรูปนอกกล่องเนื้อหา (หรือในกล่องแต่เนื้อดิบจาก REST ไม่มี = ธีมแทรก), false = ไม่เจอ, null = ตัดสินไม่ได้
+ */
+export function featuredShownInPage(page: string, restContent: string | null, featuredUrl: string): boolean | null {
+  const base = imageBaseName(featuredUrl).toLowerCase()
+  if (base.length < 4) return null
+  const region = postContentRegion(page)
+  if (!region) return null
+  const b = Math.max(0, page.search(/<body\b/i))
+  let outside = page.slice(b, region.start) + page.slice(region.end)
+  // คง <style> ในหน้าไว้ — ธีมบางตัวใส่ featured เป็นพื้นหลัง (background-image) ผ่าน CSS ที่ฝังในหน้า
+  outside = outside.replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+  // sidebar/บทความล่าสุด/บทความที่เกี่ยวข้อง แสดงรูปของโพสต์นี้ได้ — ไม่นับ
+  outside = removeElements(outside, /<(?:aside|footer)\b[^>]*>/gi)
+  outside = removeElements(outside, /<[a-z][\w-]*\b[^>]*data-elementor-type=["'](?:footer|popup)["'][^>]*>/gi)
+  outside = removeElements(
+    outside,
+    /<[a-z][\w-]*\b[^>]*\sclass=["'][^"']*(?:related|recent-posts|widget_recent|elementor-widget-posts|elementor-widget-loop-grid|jp-relatedposts|yarpp|swiper)[^"']*["'][^>]*>/gi,
+  )
+  if (outside.toLowerCase().includes(base)) return true
+  if (!region.html.toLowerCase().includes(base)) return false
+  if (restContent === null) return null
+  return restContent.toLowerCase().includes(base) ? false : true
+}
+
 export interface SiteScanResult {
   scan: UploadSiteScan
   /** สี/ฟอนต์ที่เสนอ (ผ่าน sanitize แล้ว) — ผู้ใช้กดรับเองในหน้า Generate */
@@ -1069,10 +1277,10 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
   const hintNonWp = !!options.platform && options.platform !== 'wordpress'
   const homeCms = home ? detectPlatform([homeRes.html]).cms : 'ไม่ทราบ'
   const tryRest = /^WordPress/i.test(homeCms) || (homeCms === 'ไม่ทราบ' && !hintNonWp)
-  const restRaw = !tryRest ? null : await fetchText(`${target}/wp-json/wp/v2/posts?per_page=8&_fields=link,content.rendered`)
+  const restRaw = !tryRest ? null : await fetchText(`${target}/wp-json/wp/v2/posts?per_page=8&_fields=link,content.rendered,featured_media`)
   if (restRaw) {
     try {
-      const arr = JSON.parse(restRaw) as Array<{ link?: string; content?: { rendered?: string } }>
+      const arr = JSON.parse(restRaw) as Array<{ link?: string; content?: { rendered?: string }; featured_media?: number }>
       if (Array.isArray(arr)) {
         for (const p of arr) {
           const content = p.content?.rendered || ''
@@ -1081,7 +1289,8 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
             ownSkipped++
             continue
           }
-          posts.push({ link: p.link, content, page: null })
+          const featuredMedia = typeof p.featured_media === 'number' && p.featured_media > 0 ? p.featured_media : undefined
+          posts.push({ link: p.link, content, page: null, ...(featuredMedia ? { featuredMedia } : {}) })
         }
       }
     } catch {
@@ -1181,6 +1390,43 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
         `บทความของเว็บวางสารบัญ (widget ของ Elementor) ไว้ในเนื้อหาเอง ${native.postsWith}/${components.toc.postsChecked} บทความ — push แบบ Elementor ระบบจะวางสารบัญแบบเดียวกันแทนของเรา ตรงจุดเดิม (push แบบปกติยังใช้ของเรา)`,
       )
     }
+  }
+
+  // โครงบทความที่คนเขียนเอง (ปก → อินโทร → สารบัญ → หัวข้อ ...) + ธีมแสดงรูป featured เองไหม
+  const layouts = posts
+    .map(postAuthorContent)
+    .filter((h): h is string => !!h)
+    .map(analyzePostLayout)
+    .filter((l): l is PostLayout => !!l)
+  let featuredShown: boolean | null = null
+  const withFeatured = posts.filter((p): p is PostSample & { page: string; featuredMedia: number } => !!p.page && !!p.featuredMedia)
+  if (withFeatured.length) {
+    const ids = uniq(withFeatured.map((p) => p.featuredMedia))
+    const mediaRaw = await fetchText(`${target}/wp-json/wp/v2/media?include=${ids.join(',')}&per_page=${ids.length}&_fields=id,source_url`)
+    const urls = new Map<number, string>()
+    try {
+      for (const m of JSON.parse(mediaRaw || '[]') as Array<{ id?: unknown; source_url?: unknown }>) {
+        if (typeof m.id === 'number' && typeof m.source_url === 'string') urls.set(m.id, m.source_url)
+      }
+    } catch {
+      /* media REST ปิด — ตัดสินไม่ได้ */
+    }
+    const results = withFeatured.map((p) => {
+      const u = urls.get(p.featuredMedia)
+      return u ? featuredShownInPage(p.page, p.content, u) : null
+    })
+    featuredShown = results.includes(true) ? true : results.includes(false) ? false : null
+  }
+  const layout = summarizeLayouts(layouts, featuredShown)
+  // รายละเอียดแสดงในกล่อง "โครงบทความบนเว็บ" — ตรงนี้จดแค่ว่าดูอะไรไปบ้าง
+  if (layout) checked.push(`โครงบทความ ${layout.posts} โพสต์ (${layout.order.map((k) => UPLOAD_LAYOUT_LABEL[k]).join(' → ') || 'ไม่ชัด'})`)
+  if (featuredShown !== null) checked.push('รูป featured ในหน้าบทความ')
+  // ตำแหน่งสารบัญตามที่ผู้เขียนวางเอง (ปลั๊กอิน/ธีมใส่ให้ทุกบทความ = ไม่ใส่ของเรา ไม่ต้องตั้ง)
+  if (components.toc.where === 'some-posts' && layout?.toc) {
+    components.toc.position = layout.toc.position
+    components.toc.evidence.unshift(
+      `บทความของเว็บวางสารบัญ${describeTocPosition(layout.toc.position)} ${layout.toc.count}/${layout.toc.posts} บทความ — บทความใหม่วางตำแหน่งเดียวกัน (ย้ายเองได้ในหน้า Push)`,
+    )
   }
 
   // หน้าตา FAQ + บทความ — ใช้หน้าบทความจริง (ถ้าไม่มีใช้หน้าแรก)
@@ -1309,6 +1555,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
       components,
       faqSummary,
       warnings,
+      ...(layout ? { layout } : {}),
     },
     suggestedTheme,
     detail,

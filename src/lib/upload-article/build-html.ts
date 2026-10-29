@@ -28,6 +28,11 @@ export interface BuildUploadOptions {
   cta?: UploadCtaSettings
   /** ผู้เขียนที่เลือกให้บทความนี้แล้ว (Project Setting > Author Box) — ไม่ส่ง/null = ไม่ใส่กล่องผู้เขียน */
   author?: { profile: AuthorProfile; style: AuthorCardStyle } | null
+  /**
+   * ตำแหน่งสารบัญ (ดู toc-position.ts) — ไม่ส่ง = แบบเดิม (โหมด HTML หลังย่อหน้าแรก, โหมด text ไม่มีสารบัญ)
+   * ส่งมา = ใส่สารบัญทั้ง 2 โหมด ตรงตำแหน่งที่ทีมย้ายไว้หรือที่สแกนเว็บเจอ
+   */
+  tocPosition?: number
 }
 
 export interface BuildUploadResult {
@@ -581,6 +586,18 @@ function toPlainText(bodyHtml: string): string {
   return out.join('\n').trim()
 }
 
+/** จุดแทรกสารบัญ — ไม่ตั้ง/-1 = legacyCursor (หลังปก + ย่อหน้าแรก), n ≥ 0 = ก่อน H2 ตัวที่ n+1 (เกินจำนวนหัวข้อ = ท้ายบทความ) */
+function tocInsertIndex(blocks: HTMLElement[], legacyCursor: number, position: number | undefined): number {
+  if (position === undefined || position < 0) return legacyCursor
+  let seen = 0
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].tagName.toLowerCase() !== 'h2') continue
+    if (seen === position) return i
+    seen++
+  }
+  return blocks.length
+}
+
 export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult {
   const htmlMode = o.mode !== 'text'
   // บทความที่นำเข้าก่อนมีการถอด entity (Google Doc เก็บไทยเป็น &#NNNN;) — ถอดตอน Generate ด้วย ไม่ต้องนำเข้าใหม่
@@ -604,27 +621,28 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
     h1Index = blocks.findIndex((b) => b.tagName.toLowerCase() === 'h1')
   }
 
+  let cursor = h1Index + 1
   if (htmlMode) {
-    let cursor = h1Index + 1
     if (o.cover?.url) {
       const figHtml = `<figure class="content-figure content-cover"><img src="${escapeAttr(o.cover.url)}" alt="${escapeAttr(o.cover.alt || o.meta.title)}"></figure>`
       blocks.splice(cursor, 0, parseTopLevelBlocks(figHtml)[0])
       cursor++
     }
-    if (blocks[cursor] && blocks[cursor].tagName.toLowerCase() === 'p') {
-      cursor++
-    }
-    if (h2Count >= 3) {
-      const h2Blocks = blocks.filter((b) => b.tagName.toLowerCase() === 'h2')
-      const label = o.site.language === 'en' ? 'Contents' : 'สารบัญ'
-      const items = h2Blocks.map((b) => `<li><a href="#${b.getAttribute('id')}">${escapeHtml(b.text.trim())}</a></li>`).join('')
-      const tocHtml = `<nav class="content-toc" aria-label="${label}"><p class="content-toc__title">${label}</p><ol>${items}</ol></nav>`
-      blocks.splice(cursor, 0, parseTopLevelBlocks(tocHtml)[0])
-    }
     // breadcrumb ไม่แสดงในเนื้อหา (เจ้าของสั่ง 2026-09-28) — ใส่เฉพาะ BreadcrumbList ใน schema
   } else if (o.cover?.url) {
     const figHtml = `<figure><img src="${escapeAttr(o.cover.url)}" alt="${escapeAttr(o.cover.alt || o.meta.title)}"></figure>`
-    blocks.splice(h1Index + 1, 0, parseTopLevelBlocks(figHtml)[0])
+    blocks.splice(cursor, 0, parseTopLevelBlocks(figHtml)[0])
+    cursor++
+  }
+  if (blocks[cursor] && blocks[cursor].tagName.toLowerCase() === 'p') {
+    cursor++
+  }
+  if (h2Count >= 3 && (htmlMode || o.tocPosition !== undefined)) {
+    const h2Blocks = blocks.filter((b) => b.tagName.toLowerCase() === 'h2')
+    const label = o.site.language === 'en' ? 'Contents' : 'สารบัญ'
+    const items = h2Blocks.map((b) => `<li><a href="#${b.getAttribute('id')}">${escapeHtml(b.text.trim())}</a></li>`).join('')
+    const tocHtml = `<nav class="content-toc" aria-label="${label}"><p class="content-toc__title">${label}</p><ol>${items}</ol></nav>`
+    blocks.splice(tocInsertIndex(blocks, cursor, o.tocPosition), 0, parseTopLevelBlocks(tocHtml)[0])
   }
 
   const bodyHtml = stripEmptyParagraphs(blocks.map((b) => b.outerHTML).join('\n'))

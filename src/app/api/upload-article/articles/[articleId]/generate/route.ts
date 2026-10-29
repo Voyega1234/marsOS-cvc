@@ -13,6 +13,7 @@ import { readUploadCta } from '@/lib/upload-article/cta'
 import type { UploadOutputMode, UploadTheme } from '@/lib/upload-article/types'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { isPbnPrefs } from '@/lib/upload-article/pbn'
+import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
 
 /** POST /api/upload-article/articles/[articleId]/generate — ประกอบ HTML/Text พร้อมใช้จาก sourceHtml */
 export async function POST(req: NextRequest, { params }: { params: { articleId: string } }) {
@@ -92,6 +93,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       breadcrumb,
       cta,
       author: authorProfile ? { profile: authorProfile, style: authorSettings.style } : null,
+      // ตำแหน่งสารบัญที่ทีมย้ายไว้ในหน้า Push / ที่สแกนเว็บเจอ (ไม่ตั้ง = แบบเดิม) — PBN ไม่ใช้
+      tocPosition: isPbnPrefs(prefs) ? undefined : effectiveTocPosition(prefs),
     })
 
     const nextStatus = article.status === 'PUSHED' || article.status === 'PUSHING' ? article.status : 'GENERATED'

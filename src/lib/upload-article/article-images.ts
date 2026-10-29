@@ -111,20 +111,48 @@ export function insertFiguresAfterH2Text(html: string, figures: { text: string; 
   })
 }
 
-/** ตัดกล่องปก (figure.content-cover) ออกจาก HTML — ไม่มีกล่องปก = คืนค่าเดิม */
-export function removeCoverFromHtml(html: string): string {
-  return html.replace(/<figure\b[^>]*\bcontent-cover\b[^>]*>[\s\S]*?<\/figure>\s*/gi, '')
+const COVER_BOX_RE = /<figure\b[^>]*\bcontent-cover\b[^>]*>[\s\S]*?<\/figure>/i
+
+/**
+ * ปกโหมด text: <figure> (หรือ <p>) ที่มีแค่รูป src เดียวกับ coverImageUrl — โหมดนี้ไม่มี class content-cover ให้จับ
+ * คืนช่วง [start, end) ของตัวแรก (end รวมช่องว่างที่ตามมา) หรือ null
+ */
+function plainCoverRange(html: string, coverSrc: string | null | undefined): { start: number; end: number } | null {
+  if (!coverSrc) return null
+  const wanted = new Set([coverSrc, escapeAttr(coverSrc)])
+  const re = /<(figure|p)\b[^>]*>\s*(?:<a\b[^>]*>\s*)?<img\b[^>]*\bsrc="([^"]*)"[^>]*>\s*(?:<\/a>\s*)?(?:<figcaption\b[\s\S]*?<\/figcaption>\s*)?<\/\1>\s*/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) {
+    if (wanted.has(m[2])) return { start: m.index, end: m.index + m[0].length }
+  }
+  return null
+}
+
+/**
+ * ตัดกล่องปก (figure.content-cover) ออกจาก HTML — ไม่มีกล่องปก = คืนค่าเดิม
+ * ส่ง coverSrc มาด้วย = ไม่มีกล่องปกแต่เจอรูป src เดียวกับปก (บทความโหมด text) ก็ตัดตัวนั้นแทน
+ */
+export function removeCoverFromHtml(html: string, coverSrc?: string | null): string {
+  const out = html.replace(/<figure\b[^>]*\bcontent-cover\b[^>]*>[\s\S]*?<\/figure>\s*/gi, '')
+  if (out !== html) return out
+  const r = plainCoverRange(html, coverSrc)
+  return r ? html.slice(0, r.start) + html.slice(r.end) : html
 }
 
 /**
  * ใส่รูปปกในกล่องปก (figure.content-cover) ของ htmlContent ที่ Generate แล้ว ให้ preview เห็นปกใหม่ในบทความ
  * มีกล่องปก = เปลี่ยนรูป · ไม่มี (บทความที่ Generate ก่อนมีปก) = ใส่ต่อจาก H1 ตำแหน่งเดียวกับ buildUploadArticleHtml
+ * ส่ง oldSrc มา = ปกเดิมแบบโหมด text (ไม่มีกล่องปก) ถูกแทนที่ตรงจุดเดิม ไม่ใส่เพิ่มเป็น 2 รูป
  * ตอน push กล่องปกถูกตัดออกอยู่แล้วถ้าไม่ได้เปิด "ใส่ปกในเนื้อหาด้วย" (bodyCover) — ไม่เกิดปกซ้อน
  * ไม่มีทั้งกล่องปกและ H1 = คืนค่าเดิม
  */
-export function replaceCoverInHtml(html: string, src: string, alt: string): string {
+export function replaceCoverInHtml(html: string, src: string, alt: string, oldSrc?: string | null): string {
   const fig = `<figure class="content-figure content-cover"><img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}"></figure>`
-  const box = /<figure\b[^>]*\bcontent-cover\b[^>]*>[\s\S]*?<\/figure>/i
-  if (box.test(html)) return html.replace(box, () => fig)
+  if (COVER_BOX_RE.test(html)) return html.replace(COVER_BOX_RE, () => fig)
+  const r = plainCoverRange(html, oldSrc)
+  if (r) {
+    const trail = html.slice(r.start, r.end).match(/\s*$/)?.[0] || ''
+    return html.slice(0, r.start) + fig + trail + html.slice(r.end)
+  }
   return html.replace(/<\/h1>/i, (end) => `${end}\n${fig}`)
 }

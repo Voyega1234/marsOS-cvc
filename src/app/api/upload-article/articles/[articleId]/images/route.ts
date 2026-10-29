@@ -162,11 +162,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       const src = `data:${r.mimeType};base64,${r.imageBase64}`
       // HTML ที่ Generate แล้ว → เปลี่ยนรูปในกล่องปก หรือใส่กล่องปกต่อจาก H1 ถ้ายังไม่มี (preview ต้องเห็นปกใหม่ในบทความ)
       const updated = await prisma.$transaction(async tx => {
-        const rows = await tx.$queryRaw<Array<{ htmlContent: string | null }>>`
-          SELECT "htmlContent" FROM "plans_seo_pipeline"."UploadArticle"
+        const rows = await tx.$queryRaw<Array<{ htmlContent: string | null; coverImageUrl: string | null }>>`
+          SELECT "htmlContent", "coverImageUrl" FROM "plans_seo_pipeline"."UploadArticle"
           WHERE "id" = ${article.id} AND "organizationId" = ${orgId}
           FOR UPDATE`
-        const htmlContent = rows[0]?.htmlContent ? replaceCoverInHtml(rows[0].htmlContent, src, title) : undefined
+        // ปกเดิมโหมด text (ไม่มีกล่องปก) ถูกแทนตรงจุดเดิม ไม่ใส่ซ้ำเป็น 2 รูป
+        const htmlContent = rows[0]?.htmlContent ? replaceCoverInHtml(rows[0].htmlContent, src, title, rows[0].coverImageUrl) : undefined
         return tx.uploadArticle.update({
           where: { id: article.id },
           data: { coverImageUrl: src, coverAlt: title, ...(htmlContent !== undefined && { htmlContent }) },
@@ -242,8 +243,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { articleId
   if (kind !== 'cover' && kind !== 'inline') return NextResponse.json({ error: 'kind ต้องเป็น cover หรือ inline' }, { status: 400 })
 
   const updated = await prisma.$transaction(async tx => {
-      const rows = await tx.$queryRaw<Array<{ sourceHtml: string; htmlContent: string | null }>>`
-        SELECT "sourceHtml", "htmlContent" FROM "plans_seo_pipeline"."UploadArticle"
+      const rows = await tx.$queryRaw<Array<{ sourceHtml: string; htmlContent: string | null; coverImageUrl: string | null }>>`
+        SELECT "sourceHtml", "htmlContent", "coverImageUrl" FROM "plans_seo_pipeline"."UploadArticle"
         WHERE "id" = ${ctx.article.id} AND "organizationId" = ${orgId}
         FOR UPDATE`
       if (rows.length === 0) return null
@@ -251,7 +252,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { articleId
       if (kind === 'cover') {
         return tx.uploadArticle.update({
           where: { id: ctx.article.id },
-          data: { coverImageUrl: null, coverAlt: '', ...(rows[0].htmlContent && { htmlContent: removeCoverFromHtml(rows[0].htmlContent) }) },
+          data: { coverImageUrl: null, coverAlt: '', ...(rows[0].htmlContent && { htmlContent: removeCoverFromHtml(rows[0].htmlContent, rows[0].coverImageUrl) }) },
         })
       }
       return tx.uploadArticle.update({

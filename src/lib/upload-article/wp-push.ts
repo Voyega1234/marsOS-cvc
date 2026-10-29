@@ -32,6 +32,8 @@ export interface WpPushInput {
   seoPlugins?: string[]
   /** สารบัญของเว็บ (ผลสแกน) — push แบบ Elementor วางแทนสารบัญของเรา */
   siteToc?: SiteTocWidget | null
+  /** ตำแหน่งสารบัญ (toc-position.ts) — ใช้เมื่อบทความไม่มีสารบัญของเรา ไม่ส่ง = จุดเดิม */
+  tocPosition?: number
 }
 
 export interface WpPushResult {
@@ -220,13 +222,23 @@ const SITE_TOC_SPACING_CSS =
 /**
  * จุดวางสารบัญของเว็บ: แทน nav.content-toc ของเรา ตรงตำแหน่งเดิม
  * บทความไม่มีสารบัญของเรา (โหมดข้อความ) → จุดเดียวกับที่ build-html วาง: หลัง H1 → หลังรูปปก → หลังย่อหน้าแรก (ไม่เลย H2 แรก)
+ * ส่ง tocPosition (≥ 0) มา = ก่อน H2 ตัวที่ tocPosition+1 แบบเดียวกับ build-html (เกินจำนวนหัวข้อ = ท้ายบทความ)
  * H2 ไม่ถึง 3 = ไม่วาง (เกณฑ์เดียวกับสารบัญของเรา) · คืน -1 = ไม่วาง
  */
-function siteTocSlot(children: HtmlNode[], isHead: (n: HtmlNode) => boolean): { at: number; replace: boolean } {
+function siteTocSlot(children: HtmlNode[], isHead: (n: HtmlNode) => boolean, tocPosition?: number): { at: number; replace: boolean } {
   const isEl = (n: HtmlNode | undefined, tag: string) => !!n && n.kind === 'el' && n.tag === tag
   const nav = children.findIndex((n) => isEl(n, 'nav') && n.kind === 'el' && classOf(n.attrs).includes('content-toc'))
   if (nav >= 0) return { at: nav, replace: true }
   if (children.filter((n) => isEl(n, 'h2')).length < 3) return { at: -1, replace: false }
+  if (tocPosition !== undefined && tocPosition >= 0) {
+    let seen = 0
+    for (let k = 0; k < children.length; k++) {
+      if (!isEl(children[k], 'h2')) continue
+      if (seen === tocPosition) return { at: k, replace: false }
+      seen++
+    }
+    return { at: children.length, replace: false }
+  }
   const content = (n: HtmlNode) => !(n.kind === 'text' && !n.html.trim()) && !isHead(n)
   let i = -1
   const next = () => {
@@ -255,6 +267,7 @@ function splitArticleWidgets(
   html: string,
   markerId: string,
   siteToc?: SiteTocWidget | null,
+  tocPosition?: number,
 ): { sectionClasses: string; widgets: ElementorWidget[] } | null {
   const top = topLevelNodes(html)
   if (!top) return null
@@ -282,7 +295,7 @@ function splitArticleWidgets(
   }
 
   // สารบัญของเว็บ (ผลสแกน) แทนของเรา — ไม่มีผลสแกน = เหมือนเดิมทุกไบต์
-  const slot = siteToc ? siteTocSlot(children, isHead) : { at: -1, replace: false }
+  const slot = siteToc ? siteTocSlot(children, isHead, tocPosition) : { at: -1, replace: false }
   const tocId = slot.at >= 0 ? elementorId() : ''
   const tocCss = tocId && siteToc ? `${(siteToc.css || '').split(SITE_TOC_ID_TOKEN).join(tocId)}${SITE_TOC_SPACING_CSS}` : ''
 
@@ -316,6 +329,8 @@ function splitArticleWidgets(
     group.parts.push(node.html)
   })
   flush()
+  // ตำแหน่งท้ายบทความ (เกินจำนวนหัวข้อ)
+  if (slot.at >= children.length && siteToc) widgets.push({ id: tocId, elType: 'widget', widgetType: 'table-of-contents', settings: { ...siteToc.settings }, elements: [] })
   const tail = tailNodes.map((n) => n.html).join('\n')
   if (tail) widgets.push({ id: elementorId(), elType: 'widget', widgetType: 'html', settings: { html: tail }, elements: [] })
   // ไม่มีบล็อกเนื้อหาเลย = ไม่มีอะไรให้แก้แยก
@@ -332,8 +347,8 @@ function splitArticleWidgets(
  * section เต็มความกว้าง + คอลัมน์ไม่มีช่องไฟ (gap no) → หน้าเว็บออกมาเหมือนตอนไม่ใช้ Elementor
  * widgetId = id ของ widget แรก ใช้ตรวจว่าหน้าเว็บแสดงเอกสารชุดนี้จริง
  */
-export function buildElementorData(html: string, widgetId: string = elementorId(), opts: { siteToc?: SiteTocWidget | null } = {}): string {
-  const split = splitArticleWidgets(html, widgetId, opts.siteToc)
+export function buildElementorData(html: string, widgetId: string = elementorId(), opts: { siteToc?: SiteTocWidget | null; tocPosition?: number } = {}): string {
+  const split = splitArticleWidgets(html, widgetId, opts.siteToc, opts.tocPosition)
   const data = [{
     id: elementorId(), elType: 'section',
     settings: {
@@ -388,6 +403,7 @@ export interface ElementorSyncOptions {
   pageFetcher?: PageFetcher
   /** สารบัญของเว็บ — ใช้เฉพาะตอนเลือก Elementor (โหมดปกติคงสารบัญของเราใน post_content) */
   siteToc?: SiteTocWidget | null
+  tocPosition?: number
 }
 
 /** คำขอ REST ของ Elementor สำหรับโพสต์เดียว — ใช้ทั้งทาง REST และหลังเรียกปลั๊กอิน convert-cake */
@@ -505,7 +521,7 @@ export async function syncElementorDocument(opts: ElementorSyncOptions): Promise
   // ── ใช้ Elementor ──
   const widgetId = elementorId()
   // data ก่อน แล้วค่อยเปิด builder — เปิด builder ทั้งที่ data ไม่เข้า = หน้าเว็บแสดงของเก่า/หน้าว่าง
-  await update({ meta: { _elementor_template_type: templateType, _elementor_data: buildElementorData(html, widgetId, { siteToc: opts.siteToc }) } })
+  await update({ meta: { _elementor_template_type: templateType, _elementor_data: buildElementorData(html, widgetId, { siteToc: opts.siteToc, tocPosition: opts.tocPosition }) } })
   if (!dataHas(await readMeta(), widgetId)) {
     if (wasBuilder && !(await exitBuilder())) return { supported: true, warning: ELEMENTOR_STUCK_WARNING }
     return { supported: true, builder: false, warning: ELEMENTOR_NOT_APPLIED_WARNING }
@@ -555,7 +571,7 @@ export async function applyElementorMode(
     headers: { Authorization: `Basic ${opts.creds}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       post_id: opts.postId,
-      elementor_data_b64: Buffer.from(buildElementorData(opts.html, widgetId, { siteToc: opts.siteToc })).toString('base64'),
+      elementor_data_b64: Buffer.from(buildElementorData(opts.html, widgetId, { siteToc: opts.siteToc, tocPosition: opts.tocPosition })).toString('base64'),
       edit_mode: 'builder',
       template_type: opts.isPage ? 'wp-page' : 'wp-post',
       yoast_meta: opts.yoastMeta,
@@ -724,6 +740,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
         liveUrl: data.status === 'publish' && postUrl ? postUrl : undefined,
         yoastMeta: wpMeta,
         siteToc: input.siteToc,
+        tocPosition: input.tocPosition,
         fetcher: (url, init) => safeFetch(url, init, { requireHttps: true, sameHostOnly: true }),
       })
       if (Object.keys(wpMeta).length > 0) {

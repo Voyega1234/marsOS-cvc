@@ -66,7 +66,7 @@ export default function SiteScanPanel({
         </p>
       )}
       <SiteScanView key={defaultUrl || pushUrl} initialUrl={defaultUrl || pushUrl} scan={client.pushPrefs.siteScan}
-        onRun={run} onApplyTheme={onApplyTheme} title={title} />
+        onRun={run} onApplyTheme={onApplyTheme} title={title} layoutActions />
     </div>
   );
 }

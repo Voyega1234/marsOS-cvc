@@ -105,7 +105,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   if (body.coverImageUrl === null) {
     data.coverImageUrl = null
     // ลบภาพปก = เอากล่องปกออกจากเนื้อหาด้วย (เดิมค้างใน htmlContent จนกว่าจะ Generate ใหม่ — คนเลยไปลบเองในเนื้อหา)
-    if (typeof body.htmlContent !== 'string' && existing.htmlContent) data.htmlContent = removeCoverFromHtml(existing.htmlContent)
+    if (typeof body.htmlContent !== 'string' && existing.htmlContent) data.htmlContent = removeCoverFromHtml(existing.htmlContent, existing.coverImageUrl)
   } else if (typeof body.coverImageUrl === 'string') {
     if (body.coverImageUrl && !/^data:image\//i.test(body.coverImageUrl) && !/^https:\/\//i.test(body.coverImageUrl)) {
       return NextResponse.json({ error: 'coverImageUrl ต้องเป็น data:image/... หรือ https://' }, { status: 400 })

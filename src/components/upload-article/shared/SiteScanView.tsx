@@ -4,12 +4,13 @@
  * ส่วนแสดงผล/ปุ่มสแกนเว็บปลายทางแบบละเอียด (ไม่ผูก endpoint) — ใช้ร่วมกันระหว่าง Upload Article (SiteScanPanel)
  * และ Article Lab ของ SEO SME (sme-style/SmeStyleSettings) ผู้เรียกส่งฟังก์ชัน onRun ที่ยิง API ของตัวเอง
  */
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Loader2, ScanSearch, ChevronDown, ChevronRight, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { UploadComponentFinding, UploadSiteScan, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
+import { UPLOAD_LAYOUT_LABEL, scanWantsBodyCover, type UploadComponentFinding, type UploadSiteLayout, type UploadSiteScan, type UploadTheme, type UploadThemeDetail } from "@/lib/upload-article/types";
 import { seoPluginLabel, seoPluginNote } from "@/lib/upload-article/seo-plugins";
+import { describeTocPosition } from "@/lib/upload-article/toc-position";
 
 export const COMPONENT_LABEL: Record<"toc" | "faq" | "cta", string> = { toc: "สารบัญ (TOC)", faq: "FAQ", cta: "CTA" };
 
@@ -21,8 +22,33 @@ function statusOf(f: UploadComponentFinding): { text: string; cls: string } {
   return { text: "ไม่พบ — ใส่ของเราตามปกติ", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
 }
 
+/** บรรทัดปก/สารบัญของกล่องโครงบทความ — actions = บอกด้วยว่า Upload Article จะทำอะไรต่อ */
+function layoutNotes(layout: UploadSiteLayout, toc: UploadComponentFinding, actions: boolean): string[] {
+  const notes: string[] = [];
+  const own = layout.coverInContent ? ` (บทความของเว็บใส่ปกในเนื้อหาเอง ${layout.coverInContent}/${layout.posts})` : "";
+  if (layout.featuredShown === true) {
+    notes.push(`ปก: ธีมแสดงรูป featured ในหน้าบทความเอง${actions ? " — push ส่งปกเป็น featured อย่างเดียว ไม่ใส่ในเนื้อหา (กันปกซ้อน)" : ""}`);
+  } else if (layout.featuredShown === false) {
+    const act = scanWantsBodyCover(layout)
+      ? " — push ใส่ปกในเนื้อหาให้ด้วย (ถ้ายังไม่เคยตั้งเองในหน้า Push)"
+      : " — บทความของเว็บส่วนใหญ่ไม่มีปกในเนื้อหา ระบบยังไม่ใส่ให้ ตั้งเองที่ช่อง \"ใส่ปกในเนื้อหาด้วย\" หน้า Push";
+    notes.push(`ปก: ไม่เห็นรูป featured ในหน้าบทความ${own}${actions ? act : ""}`);
+  } else {
+    notes.push(`ปก: ดูไม่ได้ว่าธีมแสดงรูป featured ไหม${own}${actions ? " — ตั้งเองที่ช่อง \"ใส่ปกในเนื้อหาด้วย\" หน้า Push" : ""}`);
+  }
+  if (toc.where === "auto") {
+    notes.push("สารบัญ: ปลั๊กอิน/ธีมใส่ให้ทุกบทความเอง — ไม่ใส่ของเราซ้ำ");
+  } else if (layout.toc) {
+    const follow = actions && toc.where === "some-posts" && toc.position !== undefined;
+    notes.push(`สารบัญ: บทความของเว็บวาง${describeTocPosition(layout.toc.position)} ${layout.toc.count}/${layout.toc.posts} บทความ${follow ? " — บทความที่ Generate ใหม่วางตำแหน่งเดียวกัน (ย้ายเองได้ในหน้า Push)" : ""}`);
+  } else {
+    notes.push(`สารบัญ: บทความของเว็บไม่มีสารบัญ${actions ? " — ใช้ตำแหน่งเดิมของระบบ" : ""}`);
+  }
+  return notes;
+}
+
 export default function SiteScanView({
-  initialUrl, initialSampleUrl = "", scan, onRun, onApplyTheme, title = "สแกนเว็บปลายทาง (ละเอียด)",
+  initialUrl, initialSampleUrl = "", scan, onRun, onApplyTheme, title = "สแกนเว็บปลายทาง (ละเอียด)", layoutActions = false,
 }: {
   initialUrl: string;
   initialSampleUrl?: string;
@@ -31,6 +57,8 @@ export default function SiteScanView({
   onRun: (url: string, sampleUrl: string) => Promise<boolean>;
   onApplyTheme?: (theme: Partial<UploadTheme>, detail: UploadThemeDetail | null) => void;
   title?: string;
+  /** โชว์ว่าระบบจะวางปก/สารบัญตามโครงบทความยังไง (เฉพาะ Upload Article ที่ใช้ผลนี้ตอน Generate/Push) */
+  layoutActions?: boolean;
 }) {
   const [url, setUrl] = useState(initialUrl);
   const [sampleUrl, setSampleUrl] = useState(initialSampleUrl);
@@ -96,6 +124,28 @@ export default function SiteScanView({
               </div>
             )}
           </div>
+
+          {scan.layout && (
+            <div className="rounded-lg border border-gray-100 p-3 space-y-1.5">
+              <p className="font-semibold text-brand-navy">
+                โครงบทความบนเว็บ <span className="font-normal text-[11px] text-gray-400">จากบทความที่เว็บเขียนเอง {scan.layout.posts} บทความ</span>
+              </p>
+              {scan.layout.order.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  {scan.layout.order.map((k, i) => (
+                    <Fragment key={k}>
+                      {i > 0 && <span className="text-gray-300">→</span>}
+                      <span className="px-1.5 py-0.5 rounded bg-gray-50 border border-gray-200 text-[11px] text-gray-700">{UPLOAD_LAYOUT_LABEL[k]}</span>
+                    </Fragment>
+                  ))}
+                  <span className="text-[11px] text-gray-400">· ตรงกัน {scan.layout.orderCount}/{scan.layout.posts} บทความ</span>
+                </div>
+              )}
+              <ul className="list-disc pl-4 text-[11px] text-gray-600 space-y-0.5">
+                {layoutNotes(scan.layout, scan.components.toc, layoutActions).map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             {(["toc", "faq", "cta"] as const).map(k => {
