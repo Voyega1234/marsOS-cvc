@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * PBN Backlinks > Project Setting > เว็บ PBN & Connect
+ * PBN Backlinks > Project Setting > PBN Sites & Connect
  * connect เว็บ PBN ทุกเว็บไว้ที่เดียว (ตอน push เลือกว่าจะขึ้นเว็บไหน)
  * - WordPress: URL + User + Application Password
  * - GitHub: เว็บที่ deploy ด้วย Vercel / Cloudflare Pages — push = commit ไฟล์บทความลง repo แล้วเว็บ build ใหม่เอง

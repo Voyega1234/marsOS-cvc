@@ -469,7 +469,7 @@ export default function PushTab({
             )}
             {notConnected && (
               <button onClick={() => onOpenSettings("website")} className="text-xs text-rose-600 hover:underline flex items-center gap-1 mt-1">
-                <AlertTriangle size={11} /> {pbn ? "ยังไม่มีเว็บ PBN — ไปเพิ่มที่ Project Setting > เว็บ PBN & Connect" : `ยังตั้งค่า ${platformLabel} ไม่ครบ: ${missingFields.join(", ")} — ไปตั้งค่าที่ Connect Website`}
+                <AlertTriangle size={11} /> {pbn ? "ยังไม่มีเว็บ PBN — ไปเพิ่มที่ Project Setting > PBN Sites & Connect" : `ยังตั้งค่า ${platformLabel} ไม่ครบ: ${missingFields.join(", ")} — ไปตั้งค่าที่ Connect Website`}
               </button>
             )}
           </div>

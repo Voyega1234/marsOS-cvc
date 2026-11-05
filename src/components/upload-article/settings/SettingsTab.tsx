@@ -2,7 +2,7 @@
 
 /**
  * แท็บ "Project Setting" (ไอคอนเฟือง) — รวมทุกการตั้งค่าของลูกค้า Upload Article รายนี้ไว้ที่เดียว:
- * Checklist (upload เท่านั้น), เว็บไซต์ & Connect, หน้าตาบทความ (สแกนเว็บ + สไตล์), Internal Link, รูปภาพ, Content Engine, ลบลูกค้า
+ * Checklist (upload เท่านั้น), Website & Connect, Article Style (สแกนเว็บ + สไตล์), Internal Link, Images, Content Engine, Delete Client
  * ตำแหน่งซับแท็บ: เมนูแนวตั้งด้านซ้ายบนจอใหญ่ / แถบเลื่อนแนวนอนบนมือถือ
  */
 import { useEffect, useState } from "react";
@@ -32,15 +32,15 @@ export type SettingsSection = "checklist" | "website" | "scan" | "style" | "link
 
 const SECTIONS: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
   { id: "checklist", label: "Checklist", icon: ClipboardCheck },
-  { id: "website", label: "เว็บไซต์ & Connect", icon: Globe },
-  { id: "scan", label: "หน้าตาบทความ", icon: Palette },
+  { id: "website", label: "Website & Connect", icon: Globe },
+  { id: "scan", label: "Article Style", icon: Palette },
   { id: "links", label: "Internal Link", icon: Link2 },
-  { id: "images", label: "รูปภาพ", icon: ImageIcon },
+  { id: "images", label: "Images", icon: ImageIcon },
   { id: "cta", label: "CTA", icon: Megaphone },
   { id: "author", label: "Author Box", icon: UserRound },
   { id: "test-image", label: "Test Image", icon: Sparkles },
   { id: "engine", label: "Content Engine", icon: Cpu },
-  { id: "danger", label: "ลบลูกค้า", icon: Trash2 },
+  { id: "danger", label: "Delete Client", icon: Trash2 },
 ];
 
 export default function SettingsTab({
@@ -62,7 +62,7 @@ export default function SettingsTab({
   const isPbn = mode === "pbn";
   // Checklist เป็นของ Upload Article เท่านั้น — PBN ไม่มี
   const sections = isPbn
-    ? SECTIONS.filter(s => s.id !== "danger" && s.id !== "checklist").map(s => (s.id === "website" ? { ...s, label: "เว็บ PBN & Connect" } : s))
+    ? SECTIONS.filter(s => s.id !== "danger" && s.id !== "checklist").map(s => (s.id === "website" ? { ...s, label: "PBN Sites & Connect" } : s))
     : SECTIONS;
   const [internalSection, setInternalSection] = useState<SettingsSection>("website");
   const requested = section ?? internalSection;

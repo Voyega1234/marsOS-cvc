@@ -2,7 +2,7 @@
 
 /**
  * PBN Backlinks > Report — รายงาน GSC / GA4 แยกตามเว็บ PBN
- * ทีมเลือกเองว่าจะดูเว็บไหน (ผูก GSC property / GA4 property ต่อเว็บที่ Project Setting > เว็บ PBN & Connect)
+ * ทีมเลือกเองว่าจะดูเว็บไหน (ผูก GSC property / GA4 property ต่อเว็บที่ Project Setting > PBN Sites & Connect)
  * ใช้หน้ารายงานชุดเดียวกับ SEO SME (ClientReportClient) แบบฝัง
  */
 import { useEffect, useMemo, useState } from "react";
@@ -45,7 +45,7 @@ export default function PbnReportTab({ onOpenSettings }: { onOpenSettings: () =>
         <p className="text-sm text-gray-500">
           {sites.length ? "ยังไม่มีเว็บ PBN ที่ผูก GSC หรือ GA4" : "ยังไม่มีเว็บ PBN"} — ผูก property ต่อเว็บได้ที่ Project Setting
         </p>
-        <Button size="sm" variant="outline" onClick={onOpenSettings}>ไปที่ เว็บ PBN & Connect</Button>
+        <Button size="sm" variant="outline" onClick={onOpenSettings}>ไปที่ PBN Sites & Connect</Button>
       </div>
     );
   }
@@ -71,7 +71,7 @@ export default function PbnReportTab({ onOpenSettings }: { onOpenSettings: () =>
         <ClientReportClient
           key={site.id}
           embedded
-          setupHint="ผูก GSC / GA4 ของเว็บนี้ที่ Project Setting › เว็บ PBN & Connect"
+          setupHint="ผูก GSC / GA4 ของเว็บนี้ที่ Project Setting › PBN Sites & Connect"
           project={{
             id: site.id,
             name: site.name,

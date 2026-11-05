@@ -474,7 +474,7 @@ export function buildWriterDryRun(input: WriterDryRunInput): WriterDryRun {
     warnings.push({ level: "info", text: "Run Test จับคู่สินค้าด้วยคำตรงเท่านั้น ตอนเขียนจริง Gemini อาจเลือกสินค้าเพิ่ม" });
   }
   if (input.structure?.references && !input.structure.library?.length) {
-    warnings.push({ level: "warn", text: "เปิดส่วนอ้างอิงไว้แต่ยังไม่มีรายการแหล่ง บทความจะไม่มีส่วนอ้างอิง เพิ่มรายการที่หน้าหน้าตาบทความ หรือสแกนบทความที่มีอ้างอิง" });
+    warnings.push({ level: "warn", text: "เปิดส่วนอ้างอิงไว้แต่ยังไม่มีรายการแหล่ง บทความจะไม่มีส่วนอ้างอิง เพิ่มรายการที่หน้า Article Style หรือสแกนบทความที่มีอ้างอิง" });
   }
   if (input.pbn) warnings.push({ level: "info", text: "PBN: ตอนเขียนจริงเพิ่มมุมเล่าตามเวอร์ชันและสไตล์ตามเว็บปลายทาง" });
   if (target === "seo") warnings.push({ level: "info", text: "Prompt ด้านล่างเป็นโครงเรียงตามลำดับจริง ตอนเขียนจริงมีข้อมูลเว็บ CTA ตัวอย่างบทความ และผู้เขียนเพิ่ม" });
