@@ -4,8 +4,8 @@ import { clientSlugForProject } from '@/lib/orClient'
 import { getSession } from '@/lib/auth'
 import { logAIJob } from '@/lib/logAIJob'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
-import { buildRestrictionsBlock, findBannedTerms, parseBannedTerms, restrictionsValidatorNote } from '@/lib/ce-restrictions'
-import { loadRestrictions } from '@/lib/ce-restrictions-server'
+import { articleOutlineText, buildRestrictionsBlock, findBannedTerms, parseBannedTerms, restrictionsValidatorNote } from '@/lib/ce-restrictions'
+import { judgeRelatedProducts, loadRestrictions } from '@/lib/ce-restrictions-server'
 
 // AI ทั้งระบบผ่าน OpenRouter — จุดนี้อยู่กลุ่ม "จุดอื่น ๆ" = MODEL_DEFAULT (gemini-3.7-flash)
 
@@ -61,7 +61,13 @@ export async function POST(req: NextRequest) {
     }
 
     // ข้อจำกัดอยู่ก่อน Validator Pack — จับคู่สินค้าจากต้นบทความ (หัวข้อ/ย่อหน้าแรก)
-    const restrictionsBlock = buildRestrictionsBlock(restrictions, { outline: String(content).slice(0, 4000) })
+    const restrictionsTopic = { outline: articleOutlineText(String(content)) }
+    const orClient = await clientSlugForProject(projectId)
+    const relatedProductIds = await judgeRelatedProducts(restrictions, restrictionsTopic, {
+      trace: 'article_review_restrictions_match',
+      client: orClient,
+    })
+    const restrictionsBlock = buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds })
     const restrictionsNote = restrictionsValidatorNote(restrictions)
     const bannedHits = restrictions ? findBannedTerms(content, parseBannedTerms(restrictions.data.bannedTerms)) : []
 
@@ -86,7 +92,7 @@ ${OUTPUT_CONTRACT}`
     // ตอบไม่จบ → JSON ขาดกลาง → parse ไม่ผ่าน
     const message = await orChat({
       trace: 'article_review',
-      client: await clientSlugForProject(projectId),
+      client: orClient,
       model,
       maxTokens: 8000,
       messages: [{ role: 'user', content: prompt }],

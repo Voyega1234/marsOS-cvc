@@ -9,16 +9,21 @@ import {
   RESTRICTION_FILES_TOTAL_MAX_CHARS,
   RESTRICTION_FILE_MAX_CHARS,
   applyBannedReplacements,
+  buildProductJudgeMessages,
   collectBannedSegments,
   findBannedTerms,
   parseBannedTerms,
+  parseProductJudge,
   parseRestrictionFileMeta,
   parseRestrictions,
+  productJudgeCandidates,
   replaceSegments,
+  restrictionsTopicText,
   type BannedHit,
   type BannedTerm,
   type RestrictionFile,
   type RestrictionsContext,
+  type RestrictionsTopic,
   type TitleRestrictions,
   NO_TITLE_RESTRICTIONS,
   titleRestrictionsFrom,
@@ -125,6 +130,41 @@ export async function loadTitleRestrictions(orgId: string, scope: CEScope): Prom
   } catch (e) {
     console.warn("[restrictions] loadTitleRestrictions failed", e instanceof Error ? e.message : e);
     return NO_TITLE_RESTRICTIONS;
+  }
+}
+
+/**
+ * ให้ AI (gemini) ตัดสินว่าสินค้าไหนเกี่ยวกับบทความ — ส่งผลให้ buildRestrictionsBlock ผ่าน relatedProductIds
+ * ไม่มีสินค้า/เจอคำตรงครบแล้ว = ไม่เรียก AI · AI ล้ม = [] (เหลือการจับคำตรงเดิม) ไม่ทำให้งานเขียนล้ม
+ */
+export async function judgeRelatedProducts(
+  ctx: RestrictionsContext | null | undefined,
+  topic: RestrictionsTopic,
+  opts: { trace: string; client?: string; timeoutMs?: number; chat?: typeof orChat },
+): Promise<string[]> {
+  if (!ctx) return [];
+  const topicText = restrictionsTopicText(topic);
+  const candidates = productJudgeCandidates(ctx.data.productRules, topicText);
+  if (!candidates.length) return [];
+  try {
+    const { system, user } = buildProductJudgeMessages(candidates, topicText);
+    const res = await (opts.chat ?? orChat)({
+      trace: opts.trace,
+      client: opts.client,
+      model: OR_MODELS.default(),
+      jsonMode: true,
+      temperature: 0,
+      maxTokens: 2_000,
+      timeoutMs: opts.timeoutMs ?? 12_000,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    });
+    return parseProductJudge(res.text, candidates);
+  } catch (e) {
+    console.warn(`[restrictions] product judge failed (${opts.trace}):`, e instanceof Error ? e.message : e);
+    return [];
   }
 }
 

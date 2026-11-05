@@ -400,7 +400,7 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
 
       <SectionCard
         title="ข้อมูลสินค้าที่ละเอียดอ่อน"
-        description="ถ้า keyword/หัวข้อบทความเจอคำในช่อง คำที่บอกว่าพูดถึงสินค้านี้ ตัวเขียนต้องใช้ข้อมูลของสินค้านั้นเท่านั้น ห้ามแต่งสเปก/สรรพคุณ/ราคาเอง สินค้าที่บทความไม่ได้พูดถึง ส่งไปแค่ชื่อ"
+        description="ถ้า keyword/หัวข้อบทความเจอคำในช่อง คำที่บอกว่าพูดถึงสินค้านี้ หรือ AI ตัดสินว่าเรื่องเกี่ยวกันแม้ใช้คนละคำ ตัวเขียนจะใช้ข้อมูลนี้เป็นแหล่งหลักและอ้างอิงได้ เขียนเสริมได้แต่ห้ามขัดแย้ง ห้ามแต่งสเปก/สรรพคุณ/ราคาเอง สินค้าที่ไม่เกี่ยว ส่งไปแค่ชื่อ"
         action={
           <Button size="sm" variant="outline" className="gap-1.5" disabled={disabled} onClick={addRule}>
             <Plus className="size-3.5" /> เพิ่มสินค้า
@@ -440,7 +440,7 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
                 </div>
                 {files && files.length > 0 && (
                   <div className="mt-2">
-                    <Label className="text-xs">ไฟล์ของสินค้านี้ (ส่งเฉพาะบทความที่พูดถึงสินค้านี้)</Label>
+                    <Label className="text-xs">ไฟล์ของสินค้านี้ (ส่งเฉพาะบทความที่เกี่ยวกับสินค้านี้)</Label>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                       {files.map((g) => (
                         <label key={g.key} className="flex items-center gap-1.5 text-xs text-gray-600">

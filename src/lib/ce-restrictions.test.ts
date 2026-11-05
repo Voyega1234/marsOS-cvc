@@ -4,7 +4,9 @@
  */
 import {
   applyBannedReplacements,
+  articleOutlineText,
   bannedTermsFromTable,
+  buildProductJudgeMessages,
   buildRestrictionsBlock,
   chunkText,
   cleanArticlePatch,
@@ -19,9 +21,12 @@ import {
   keywordWarnings,
   matchProductRules,
   parseBannedTerms,
+  parseProductJudge,
   parseRestrictions,
   pickRelevantChunks,
+  productJudgeCandidates,
   replaceSegments,
+  restrictionsValidatorNote,
   tallyWarning,
   titleRestrictionsFrom,
   type ProductRule,
@@ -95,6 +100,73 @@ assert(block.includes('- ฉีดพ่น') && !block.includes('ข้อม�
 assert(block.includes('ลอกคราบ'), 'block: product file chunk');
 assert(!block.includes('ฉีดพ่นสารเคมี'), 'block: unrelated reference file excluded');
 assert(buildRestrictionsBlock({ rowId: null, data: parseRestrictions(''), files: [] }, {}) === '', 'block: empty when nothing set');
+
+// ── ข้อมูลในข้อจำกัดเป็นแหล่งหลัก + AI ตัดสินสินค้า ──
+const USAGE = 'วิธีใช้ข้อมูลสินค้าและไฟล์อ้างอิง';
+const implant: ProductRule = { id: 'i', product: 'ImplantX', triggers: 'รากฟันเทียม', info: 'อัตราสำเร็จ 97%', fileIds: ['pf'], enabled: true };
+const otherProduct: ProductRule = { id: 'o', product: 'WhiteY', triggers: 'ฟอกสีฟัน', info: 'ข้อมูล WhiteY', fileIds: ['of'], enabled: true };
+const ctxOf = (d: Partial<RestrictionsContext['data']>, files: RestrictionsContext['files'] = []): RestrictionsContext => ({
+  rowId: 'r', data: { status: 'Active', bannedTerms: '', rules: '', productRules: [], ...d }, files,
+});
+const refFile = (id: string, text: string, kind: 'reference' | 'rules' = 'reference') => ({ id, name: `${id}.pdf`, meta: { kind, chars: text.length, size: 1 }, text });
+const noTrigger = { keyword: 'ถอนฟันนานแล้ว ใส่ฟันถาวรได้ไหม' };
+
+// ไม่ได้ใส่ข้อจำกัด = ทำงานปกติ
+assert(buildRestrictionsBlock(null, noTrigger) === '', 'no restrictions: null context = empty block');
+assert(buildRestrictionsBlock(ctxOf({}), { ...noTrigger, relatedProductIds: ['i'] }) === '', 'no restrictions: empty context = empty block');
+assert(restrictionsValidatorNote(ctxOf({})) === '', 'no restrictions: empty validator note');
+assert(productJudgeCandidates([], 'คำไหนก็ได้').length === 0, 'no restrictions: no products = no AI call');
+
+// ใส่แค่คำต้องห้าม/กฎ = ไม่มีคำสั่งเรื่องข้อมูล
+const termsOnly = ctxOf({ bannedTerms: 'หายขาด', rules: 'ห้ามวินิจฉัยโรค' });
+assert(!buildRestrictionsBlock(termsOnly, noTrigger).includes(USAGE), 'terms/rules only: no data usage text');
+assert(!restrictionsValidatorNote(termsOnly).includes('ต้องใช้ข้อมูลนั้นจริง'), 'terms/rules only: validator note unchanged');
+const rulesFileOnly = ctxOf({}, [refFile('rf', 'ข้อกำหนดเรื่องฟันถาวร', 'rules')]);
+assert(!buildRestrictionsBlock(rulesFileOnly, noTrigger).includes(USAGE), 'rules file only: no data usage text');
+
+// คำไม่ตรงและ AI ไม่เลือก = ไม่ได้ข้อมูล และไม่มีคำสั่งให้ใช้ข้อมูล
+const prodCtx = ctxOf({ productRules: [implant, otherProduct] }, [refFile('pf', 'เอกสาร ImplantX งานวิจัยอายุการใช้งาน 10 ปี'), refFile('of', 'เอกสาร WhiteY')]);
+const noAi = buildRestrictionsBlock(prodCtx, noTrigger);
+assert(!noAi.includes('อัตราสำเร็จ 97%') && !noAi.includes(USAGE), 'not related: no product data and no usage text');
+assert(noAi.includes('ไม่ได้แปลว่าไม่มีข้อมูล') && noAi.includes('ห้ามเขียนว่าสินค้าเหล่านี้ไม่มีข้อมูล'), 'not related: name-only text must not imply no data');
+
+// AI เลือกสินค้า = ได้ข้อมูล + ไฟล์ของสินค้านั้น (แม้ไม่มีคำตรงกัน) แต่ไม่ได้ของอีกสินค้า
+const withAi = buildRestrictionsBlock(prodCtx, { ...noTrigger, relatedProductIds: ['i'] });
+assert(withAi.includes('#### ImplantX') && withAi.includes('อัตราสำเร็จ 97%'), 'AI related: product info sent without trigger word');
+assert(withAi.includes('งานวิจัยอายุการใช้งาน 10 ปี'), 'AI related: product file sent even with no shared word');
+assert(withAi.includes(USAGE) && withAi.includes('แหล่งข้อมูลหลัก') && withAi.includes('ยังพิสูจน์ไม่ได้'), 'AI related: data is primary, cannot claim no data');
+assert(withAi.includes('- WhiteY') && !withAi.includes('ข้อมูล WhiteY') && !withAi.includes('เอกสาร WhiteY'), 'AI related: unrelated product stays name only');
+const unknownId = buildRestrictionsBlock(ctxOf({ productRules: [{ ...implant, enabled: false }] }), { ...noTrigger, relatedProductIds: ['i', 'ghost'] });
+assert(!unknownId.includes('อัตราสำเร็จ 97%'), 'AI related: disabled product never sent');
+
+// คำตรงยังได้ข้อมูลเสมอ แม้ AI ไม่เลือกหรือล้ม
+const exactHit = buildRestrictionsBlock(prodCtx, { keyword: 'รากฟันเทียม อยู่ได้กี่ปี', relatedProductIds: [] });
+assert(exactHit.includes('อัตราสำเร็จ 97%') && exactHit.includes(USAGE), 'exact word: product data kept without AI');
+
+// ไฟล์อ้างอิงที่ไม่ผูกสินค้า ตรงหัวข้อ = มีคำสั่งให้ใช้, validator ต้องเช็ค
+const refCtx = ctxOf({}, [refFile('rs', 'งานวิจัย ใส่ฟันถาวร ได้ผลดี')]);
+assert(buildRestrictionsBlock(refCtx, noTrigger).includes(USAGE), 'reference file: data usage text added');
+assert(restrictionsValidatorNote(refCtx).includes('ต้องใช้ข้อมูลนั้นจริง'), 'reference file: validator checks data was used');
+assert(restrictionsValidatorNote(prodCtx).includes('ต้องใช้ข้อมูลนั้นจริง'), 'product: validator checks data was used');
+
+// ตัวเลือกที่ส่งให้ AI
+assert(productJudgeCandidates([implant, otherProduct], 'รากฟันเทียม').map((p) => p.id).join() === 'o', 'judge: exact matches are not asked again');
+assert(productJudgeCandidates([implant], 'รากฟันเทียม').length === 0, 'judge: all exact = no AI call');
+assert(productJudgeCandidates([implant], '   ').length === 0, 'judge: no topic = no AI call');
+assert(productJudgeCandidates([{ ...implant, enabled: false }], 'ฟัน').length === 0, 'judge: disabled product not asked');
+const longInfo = { ...implant, info: `หัวข้อ${'ก'.repeat(500)}ท้ายสุด` };
+const judgeMsg = buildProductJudgeMessages([longInfo], 'ใส่ฟันถาวร');
+assert(judgeMsg.user.includes('ImplantX') && !judgeMsg.user.includes('ท้ายสุด'), 'judge: full product info is not sent');
+assert(parseProductJudge('```json\n{"related":["i","ghost",3]}\n```', [implant]).join() === 'i', 'judge: only asked ids kept');
+let judgeThrew = false;
+try { parseProductJudge('not json', [implant]); } catch { judgeThrew = true; }
+assert(judgeThrew, 'judge: bad JSON throws for caller fallback');
+
+// หัวข้อจากบทความที่เขียนแล้ว
+const outlineHtml = `<style>${'x'.repeat(5000)}</style><h2>ใส่ <b>ฟันถาวร</b></h2><p>เนื้อหาย่อหน้าแรก</p>`;
+const outlineText = articleOutlineText(outlineHtml);
+assert(outlineText.startsWith('ใส่ ฟันถาวร') && outlineText.includes('เนื้อหาย่อหน้าแรก') && !outlineText.includes('xxx'), 'outline: headings first, CSS removed');
+assert(articleOutlineText('<p>' + 'ก'.repeat(9000) + '</p>').length === 4000, 'outline: capped');
 
 // ── collectBannedSegments / replaceSegments ──
 const segTerms = parseBannedTerms('รักษาหาย\ncure');

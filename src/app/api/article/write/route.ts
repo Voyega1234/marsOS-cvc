@@ -10,7 +10,7 @@ import {
   buildRestrictionsBlock, cleanPlainText, cleanSeoMetaBlock, cleanSlug, findBannedInText, hasRestrictions, hitWarnings,
   keywordWarnings, parseBannedTerms, restrictionsValidatorNote, type RestrictionsContext,
 } from '@/lib/ce-restrictions'
-import { enforceRestrictions, loadRestrictions } from '@/lib/ce-restrictions-server'
+import { enforceRestrictions, judgeRelatedProducts, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, normalizeCtaItems, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem } from '@/lib/articleComponents'
 import { sampleForPrompt } from '@/lib/articleSample'
@@ -1073,6 +1073,12 @@ export async function POST(req: NextRequest) {
   //    ทั้งตอนสร้าง prompt และตอนแทรกแบนเนอร์หลังบทความเขียนเสร็จ ──
   const ctaResult = buildCtaBlock(cta)
 
+  // สินค้าไหนเกี่ยวกับบทความนี้ — ไม่มีข้อจำกัด/ไม่มีสินค้า = ไม่เรียก AI
+  const restrictionsTopic = { keyword, title, outline: typeof adjustNote === 'string' ? adjustNote : '' }
+  const relatedProductIds = await judgeRelatedProducts(restrictions, restrictionsTopic, {
+    trace: 'article_write_restrictions_match',
+    client: orClient,
+  })
   let articlePrompt = buildArticlePrompt({
     keyword, title: safeTitle, language: effectiveLanguage, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,
     colorTheme: resolvedColorTheme, colorText: resolvedColorText, colorBorder: resolvedColorBorder,
@@ -1084,7 +1090,7 @@ export async function POST(req: NextRequest) {
     ctaBlock: ctaResult.block,
     intentSkillBlock,
     humanVoiceBlock,
-    restrictionsBlock: buildRestrictionsBlock(restrictions, { keyword, title }),
+    restrictionsBlock: buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
     restrictionsNote: restrictionsValidatorNote(restrictions),
     ce: {
       businessSkill: ce.businessSkill?.text,

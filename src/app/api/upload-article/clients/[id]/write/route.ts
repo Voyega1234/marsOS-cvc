@@ -32,7 +32,7 @@ import {
   buildRestrictionsBlock, cleanPlainText, cleanSlug, hasRestrictions, hitWarnings, keywordWarnings, parseBannedTerms,
   restrictionsValidatorNote,
 } from '@/lib/ce-restrictions'
-import { enforceRestrictions, loadRestrictions } from '@/lib/ce-restrictions-server'
+import { enforceRestrictions, judgeRelatedProducts, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
@@ -257,12 +257,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return changed ? { prefs: next, result: null } : { result: null }
   })
 
+  const clientSlug = `upload-${slugifyClient(client.name)}`
+  const restrictionsTopic = { keyword: keyword.keyword, title, outline: keyword.note }
+  const relatedProductIds = await judgeRelatedProducts(restrictions, restrictionsTopic, {
+    trace: 'upload_article_restrictions_match',
+    client: clientSlug,
+  })
   const system = buildWriterSystemPrompt({
     masterPrompt,
     businessSkill,
     articleBrief,
     validatorPack,
-    restrictions: buildRestrictionsBlock(restrictions, { keyword: keyword.keyword, title, outline: keyword.note }),
+    restrictions: buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
     restrictionsNote: restrictionsValidatorNote(restrictions),
   })
   // ภาษาของบทความนี้ตามโหมดภาษาของลูกค้า (ไทย / อังกฤษ / ไทย+อังกฤษ = ดูจาก title ก่อน)
@@ -274,7 +280,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     brandNames: [client.name],
     variant: variantTotal > 1 ? { index: variant, total: variantTotal } : undefined,
   })
-  const clientSlug = `upload-${slugifyClient(client.name)}`
 
   const encoder = new TextEncoder()
 
