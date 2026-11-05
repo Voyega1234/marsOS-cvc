@@ -14,6 +14,7 @@ import { resolveArticleLanguage } from '@/lib/keyword-language'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { cleanGeneratedFields, cleanSlug, tallyWarning } from '@/lib/ce-restrictions'
 import { loadTitleRestrictions } from '@/lib/ce-restrictions-server'
+import { freshRewriteShadow } from '@/lib/upload-article/rewrite-lock'
 
 function sanitizeSlug(raw: string): string {
   return raw
@@ -38,6 +39,17 @@ interface MetaAiResult {
   slug?: string
 }
 
+/** เขียน meta เฉพาะเมื่อแถวไม่ถูกแก้ระหว่างที่ AI คิด (เช่นเขียนใหม่ทับพอดี) — optimistic lock ด้วย updatedAt เหมือน generate */
+async function writeMetaIfUnchanged(
+  article: { id: string; updatedAt: Date },
+  data: { seoTitle: string; metaDescription: string; slug: string; htmlContent: string | null },
+): Promise<boolean> {
+  const w = await prisma.uploadArticle.updateMany({ where: { id: article.id, updatedAt: article.updatedAt }, data })
+  return w.count > 0
+}
+
+const metaConflict = () => NextResponse.json({ error: 'บทความถูกแก้ไประหว่างสร้าง meta — โหลดใหม่แล้วลองอีกครั้ง' }, { status: 409 })
+
 /** POST /api/upload-article/articles/[articleId]/meta — ให้ AI เขียน meta title/description/slug */
 export async function POST(_req: NextRequest, { params }: { params: { articleId: string } }) {
   const session = await getSession()
@@ -47,6 +59,9 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
   const orgId = session.user.organizationId
   const article = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: orgId } })
   if (!article) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+  if (await freshRewriteShadow(article.id, orgId)) {
+    return NextResponse.json({ error: 'บทความนี้กำลังถูก AI เขียนใหม่ — รอให้เสร็จก่อน' }, { status: 409 })
+  }
 
   const clientRow = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
   if (!clientRow) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
@@ -87,7 +102,7 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
     const htmlContent = article.htmlContent
       ? refreshUploadSchema(article.htmlContent, uploadSchemaOptions({ ...article, seoTitle, metaDescription, slug }, client))
       : article.htmlContent
-    await prisma.uploadArticle.update({ where: { id: article.id }, data: { seoTitle, metaDescription, slug, htmlContent } })
+    if (!(await writeMetaIfUnchanged(article, { seoTitle, metaDescription, slug, htmlContent }))) return metaConflict()
     return NextResponse.json({ seoTitle, metaDescription, slug, htmlContent, costUsd: 0, ...restrictionWarnings })
   }
 
@@ -155,7 +170,7 @@ ${humanBodyRulesBlock(language)}
   const htmlContent = article.htmlContent
     ? refreshUploadSchema(article.htmlContent, uploadSchemaOptions({ ...article, seoTitle, metaDescription, slug }, client))
     : article.htmlContent
-  await prisma.uploadArticle.update({ where: { id: article.id }, data: { seoTitle, metaDescription, slug, htmlContent } })
+  if (!(await writeMetaIfUnchanged(article, { seoTitle, metaDescription, slug, htmlContent }))) return metaConflict()
 
   return NextResponse.json({ seoTitle, metaDescription, slug, htmlContent, costUsd: result.usage.costUsd, ...restrictionWarnings })
 }

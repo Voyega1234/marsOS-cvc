@@ -26,8 +26,69 @@ export function detectContentLanguage(html: string): 'th' | 'en' {
   return th > 0 && th >= latin ? 'th' : 'en'
 }
 
+/** โครงบทความตามเว็บของลูกค้า (จากการสแกนหรือทีมตั้ง) — ไม่ส่ง = กฎเริ่มต้นเดิมทุกตัวอักษร */
+export interface ArticleStructureOptions {
+  takeaways?: boolean
+  faqPlain?: boolean
+  conclusionBeforeFaq?: boolean
+  references?: boolean
+  referencesTitle?: string
+  /** แหล่งที่เลือกใช้ได้ — ตัวเขียนห้ามอ้างนอกรายการนี้ */
+  library?: Array<{ title: string; url: string }>
+}
+
+function customStructureBlock(language: 'th' | 'en', o: ArticleStructureOptions): string {
+  const en = language === 'en'
+  const lines: string[] = [
+    en ? '════ Mars Article Structure — follow this site\'s own article layout ════' : '════ Mars Article Structure — โครงบทความตามเว็บของลูกค้า ════',
+  ]
+  let n = 1
+  if (o.takeaways === false) {
+    lines.push(en
+      ? `${n++}. No Key Takeaways box: this site does not use one. After the opening paragraphs go straight to the first <h2>.`
+      : `${n++}. ไม่มีกล่องสรุปประเด็นสำคัญ: เว็บนี้ไม่ใช้ ห้ามใส่หัวข้อ "สรุปประเด็นสำคัญ" หรือ Key Takeaways ต่อจากย่อหน้าเปิดเรื่องให้เข้า <h2> แรกได้เลย`)
+  } else {
+    lines.push(en
+      ? `${n++}. Key Takeaways: right after the opening paragraph and before the first <h2>, add a heading "Key Takeaways" followed by a <ul> of 3-5 short points. The system turns it into a box.`
+      : `${n++}. สรุปประเด็นสำคัญ: ต่อจากย่อหน้าเปิดเรื่อง ก่อน <h2> แรก ใส่หัวข้อ "สรุปประเด็นสำคัญ" (ห้ามใช้คำว่า Key Takeaways) ตามด้วย <ul> 3-5 ข้อ ระบบจะแปลงเป็นกล่องให้เอง`)
+  }
+  lines.push(en
+    ? `${n++}. FAQ: the section heading is an <h2>. Every question is an <h3>, its answer follows as <p>.${o.faqPlain ? ' Never use <details> or <summary>.' : ''}`
+    : `${n++}. FAQ: หัวส่วนเป็น <h2> แต่ละคำถามเป็น <h3> คำตอบตามหลังเป็น <p>${o.faqPlain ? ' ห้ามใช้ <details> หรือ <summary>' : ''}`)
+  if (o.conclusionBeforeFaq) {
+    lines.push(en
+      ? `${n++}. Order at the end of the article: the conclusion <h2> comes before the FAQ section.`
+      : `${n++}. ลำดับท้ายบทความ: หัวข้อบทสรุป (<h2>) มาก่อนส่วน FAQ`)
+  }
+  if (o.references) {
+    const title = o.referencesTitle || (en ? 'References' : 'อ้างอิง')
+    const library = o.library ?? []
+    if (library.length) {
+      lines.push(en
+        ? `${n++}. References: end the article, after the FAQ, with <h2>${title}</h2> followed by a <ul> where every item is <li><a href="URL">source title</a></li>.`
+        : `${n++}. แหล่งอ้างอิง: ปิดท้ายบทความ ต่อจาก FAQ ด้วย <h2>${title}</h2> ตามด้วย <ul> แต่ละข้อเป็น <li><a href="URL">ชื่อแหล่ง</a></li>`)
+      lines.push(en
+        ? '   - Pick only sources from the list below that genuinely support what this article says. Copy each URL exactly. Never invent a source, a study or a URL. If none fits, leave this section out.'
+        : '   - เลือกเฉพาะแหล่งจากรายการด้านล่างที่สนับสนุนสิ่งที่บทความนี้เขียนจริง ใช้ URL ตรงตามรายการทุกตัวอักษร ห้ามแต่งแหล่งอ้างอิง งานวิจัย หรือลิงก์เอง ถ้าไม่มีแหล่งที่เกี่ยวข้องให้เว้นส่วนนี้')
+      lines.push(en ? '   Sources you may cite:' : '   แหล่งที่ใช้ได้:')
+      for (const r of library) lines.push(`   - ${r.title} | ${r.url}`)
+    } else {
+      lines.push(en
+        ? `${n++}. References: no verified source list is available, so do not add a references section and do not invent any source.`
+        : `${n++}. แหล่งอ้างอิง: ยังไม่มีรายการแหล่งที่ตรวจแล้ว ห้ามใส่ส่วนอ้างอิง และห้ามแต่งแหล่งอ้างอิงขึ้นมาเอง`)
+    }
+  }
+  lines.push(en
+    ? 'If the task\'s HTML contract specifies exact markup for these parts, follow that markup; these rules decide where they go and which heading level they use.'
+    : 'ถ้าสัญญา HTML ของงานนี้กำหนดโครงแท็กของส่วนเหล่านี้ไว้ ให้ใช้โครงนั้น — กฎนี้คุมตำแหน่งและระดับหัวข้อ')
+  return lines.join('\n')
+}
+
 /** กฎโครงสร้างที่แนบทุกครั้งที่สั่งเขียนบทความ (ต่อจาก Human Voice Skill) */
-export function articleStructureSkillBlock(language: 'th' | 'en' = 'th'): string {
+export function articleStructureSkillBlock(language: 'th' | 'en' = 'th', structure?: ArticleStructureOptions): string {
+  if (structure && (structure.takeaways === false || structure.faqPlain || structure.conclusionBeforeFaq || structure.references)) {
+    return customStructureBlock(language, structure)
+  }
   if (language === 'en') {
     return [
       '════ Mars Article Structure — Key Takeaways box + FAQ headings (system default) ════',
@@ -203,6 +264,97 @@ export function boxKeyTakeaways(html: string, language?: 'th' | 'en'): string {
 /** ทั้งชุด — ใช้หลัง AI เขียนเสร็จ (SEO) และตอนย้ายบทความเก่า */
 export function normalizeFaqAndTakeaways(html: string, language?: 'th' | 'en'): string {
   return boxKeyTakeaways(faqQuestionsToSpan(faqHeadingToH2(html)), language)
+}
+
+const THAI_CHAR = '\\u0E01-\\u0E3A\\u0E40-\\u0E4E'
+const LATIN_THAI_RE = new RegExp(`([A-Za-z0-9])([${THAI_CHAR}])`, 'g')
+const THAI_LATIN_RE = new RegExp(`([${THAI_CHAR}])([A-Za-z0-9])`, 'g')
+const LATIN_CHAR_RE = /[A-Za-z0-9]/
+const THAI_CHAR_RE = new RegExp(`[${THAI_CHAR}]`)
+const HTML_TOKEN_RE = /(<!--[\s\S]*?-->|<\/?[a-zA-Z](?:[^>"']|"[^"]*"|'[^']*')*>)/
+const INLINE_TAGS = new Set(['a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'del', 'dfn', 'em', 'font', 'i', 'ins', 'mark', 'q', 's', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u'])
+const VERBATIM_TAGS = new Set(['code', 'kbd', 'math', 'noscript', 'pre', 'samp', 'script', 'style', 'svg', 'textarea', 'var'])
+
+/**
+ * เว้นวรรคระหว่างอังกฤษ/ตัวเลขกับตัวไทย เช่น "NKพบว่า" เป็น "NK พบว่า" รวมถึงกรณีคั่นด้วยแท็ก inline
+ * แตะเฉพาะข้อความ ไม่แตะแท็ก แอตทริบิวต์ คอมเมนต์ และเนื้อใน code/pre/style/script
+ */
+export function spaceLatinThai(html: string): string {
+  const parts = html.split(HTML_TOKEN_RE)
+  let verbatim: string | null = null
+  let lastChar = ''
+  // แท็กเปิดที่อยู่ระหว่างข้อความก่อนหน้ากับข้อความนี้ — ช่องว่างต้องอยู่นอกแท็ก
+  let firstOpenTag = -1
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (i % 2 === 1) {
+      if (part.startsWith('<!--')) continue
+      const closing = part[1] === '/'
+      const name = (/^<\/?([a-zA-Z][\w-]*)/.exec(part)?.[1] ?? '').toLowerCase()
+      if (verbatim) {
+        if (closing && name === verbatim) verbatim = null
+      } else if (VERBATIM_TAGS.has(name)) {
+        if (!closing && !part.endsWith('/>')) verbatim = name
+        lastChar = ''
+        firstOpenTag = -1
+      } else if (!INLINE_TAGS.has(name)) {
+        lastChar = ''
+        firstOpenTag = -1
+      } else if (!closing && firstOpenTag < 0) {
+        firstOpenTag = i
+      }
+      continue
+    }
+    if (verbatim || !part) continue
+    let text = part.replace(LATIN_THAI_RE, '$1 $2').replace(THAI_LATIN_RE, '$1 $2')
+    const first = text[0]
+    const crosses = !!lastChar && (
+      (LATIN_CHAR_RE.test(lastChar) && THAI_CHAR_RE.test(first)) ||
+      (THAI_CHAR_RE.test(lastChar) && LATIN_CHAR_RE.test(first))
+    )
+    if (crosses) {
+      if (firstOpenTag >= 0) parts[firstOpenTag] = ` ${parts[firstOpenTag]}`
+      else text = ` ${text}`
+    }
+    parts[i] = text
+    lastChar = text[text.length - 1]
+    firstOpenTag = -1
+  }
+  return parts.join('')
+}
+
+/**
+ * นับจุดที่อังกฤษ/ตัวเลขชนตัวไทย แยกว่าเว้นวรรคหรือติดกัน — ใช้วัดนิสัยการเขียนของเว็บตอนสแกน
+ * ข้ามแท็ก inline ได้ แต่ไม่ข้ามบล็อก และไม่นับเนื้อใน code/pre/style/script
+ */
+export function countLatinThaiBoundaries(html: string): { spaced: number; tight: number } {
+  const parts = html.split(HTML_TOKEN_RE)
+  let verbatim: string | null = null
+  let flat = ''
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (i % 2 === 1) {
+      if (part.startsWith('<!--')) continue
+      const closing = part[1] === '/'
+      const name = (/^<\/?([a-zA-Z][\w-]*)/.exec(part)?.[1] ?? '').toLowerCase()
+      if (verbatim) {
+        if (closing && name === verbatim) verbatim = null
+      } else if (VERBATIM_TAGS.has(name)) {
+        if (!closing && !part.endsWith('/>')) verbatim = name
+        flat += '\n'
+      } else if (!INLINE_TAGS.has(name)) {
+        flat += '\n'
+      }
+      continue
+    }
+    if (!verbatim) flat += part
+  }
+  const text = flat.replace(/&nbsp;|&#160;|&#xa0;/gi, ' ')
+  const count = (re: RegExp) => (text.match(re) || []).length
+  return {
+    spaced: count(new RegExp(`[A-Za-z0-9][ \\u00A0]+[${THAI_CHAR}]`, 'g')) + count(new RegExp(`[${THAI_CHAR}][ \\u00A0]+[A-Za-z0-9]`, 'g')),
+    tight: count(LATIN_THAI_RE) + count(THAI_LATIN_RE),
+  }
 }
 
 // FAQ แบบเปิดตลอด: คำถามเป็น h3 ขนาด/สีตามหัวข้อของบทความ เว้นระยะเท่าแถบคำถามแบบกดเปิด

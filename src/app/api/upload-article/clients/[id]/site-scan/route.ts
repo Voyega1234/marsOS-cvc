@@ -8,6 +8,7 @@ import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/ser
 import { scanUploadSite } from '@/lib/upload-article/site-scan'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
+import { NOT_REWRITE_SHADOW } from '@/lib/upload-article/rewrite-lock'
 
 export const maxDuration = 300
 
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
   if (!prefsResult) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
   const updated = { ...client, pushPrefs: JSON.stringify(prefsResult.result) }
-  const articles = await prisma.uploadArticle.findMany({ where: { clientId: client.id }, select: { status: true, wordpressPostId: true, pushedAt: true } })
+  const articles = await prisma.uploadArticle.findMany({ where: { clientId: client.id, ...NOT_REWRITE_SHADOW }, select: { status: true, wordpressPostId: true, pushedAt: true } })
   const counts = computeClientCounts(articles)
 
   return NextResponse.json({

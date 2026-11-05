@@ -8,7 +8,7 @@
  * ตัว ContentEngineSettingsClient เดิม hardcode fetch ไปที่ /api/prompts, /api/prompts/layer-scan,
  * /api/prompts/business-skill-scan ซึ่งฝั่งนั้น validate ว่า projectId ต้องเป็น Project จริง (client.id
  * ของ Upload Article ไม่ใช่) — ระหว่างที่ component นี้ถูก mount จึงสับ window.fetch ชั่วคราว
- * ให้ 3 path นี้วิ่งไปที่ route เฉพาะของ Upload Article แทน แล้วคืนค่าเดิมตอน unmount
+ * ให้ path เหล่านี้วิ่งไปที่ route เฉพาะของ Upload Article แทน แล้วคืนค่าเดิมตอน unmount
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PBN_MAIN_PROFILE, pbnCeScopeId } from "@/lib/upload-article/pbn-sets";
@@ -20,6 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { ContentEngineSettingsClient } from "@/components/settings/content-engine/ContentEngineSettingsClient";
 import type { PromptRow } from "@/components/settings/content-engine/types";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
+import { CE_RESTRICTION_FILE } from "@/lib/ce-restrictions";
+import { CE_FILES_CHANGED_EVENT, commentsLayerStatus, isTemplateBusinessSkillName, restrictionsLayerStatus, type LayerStatusRow, type OptionalLayerStatus } from "@/lib/ce-layer-status";
 
 const CE_LAYER_TYPES = new Set([
   "CE_BUSINESS_SKILL",
@@ -32,6 +34,14 @@ const CE_LAYER_TYPES = new Set([
 ]);
 
 const REQUIRED_TYPES = ["CE_BUSINESS_SKILL", "CE_MASTER_PROMPT", "CE_ARTICLE_BRIEF", "CE_VALIDATOR_PACK"];
+
+const OPTIONAL_CHIP_STYLE: Record<OptionalLayerStatus["state"], string> = {
+  on: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  off: "bg-gray-50 text-gray-500 border-gray-200",
+  blocked: "bg-amber-50 text-amber-700 border-amber-200",
+};
+
+const OPTIONAL_CHIP_MARK: Record<OptionalLayerStatus["state"], string> = { on: "✓", off: "–", blocked: "!" };
 
 const LAYER_LABELS: Record<string, string> = {
   CE_BUSINESS_SKILL: "Business Skill",
@@ -91,6 +101,8 @@ function buildCeFetch(original: typeof window.fetch, clientId: string, setId?: s
           newPath = `/api/upload-article/clients/${clientId}/prompts/layer-scan`;
         } else if (u.pathname === "/api/prompts/business-skill-scan") {
           newPath = `/api/upload-article/clients/${clientId}/prompts/business-skill-scan`;
+        } else if (u.pathname === "/api/prompts/writer-dry-run") {
+          newPath = `/api/upload-article/clients/${clientId}/prompts/writer-dry-run`;
         }
         if (newPath) {
           // set ข้อมูลโปรเจกต์ของ PBN — ส่ง ?set= ให้ route ใช้ Content Engine ของ set นั้น
@@ -131,7 +143,8 @@ const CE_LAYOUT_CSS = `
 .ua-ce { container-type: inline-size; }
 .ua-ce [class~="md:flex-row"]:has(> nav) { flex-direction: column; }
 .ua-ce nav[class~="md:w-56"] { width: auto; flex-direction: row; flex-wrap: wrap; overflow: visible; padding: 0.375rem; }
-.ua-ce nav[class~="md:w-56"] > button { width: auto; }
+.ua-ce nav[class~="md:w-56"] button { width: auto; }
+.ua-ce nav[class~="md:w-56"] > [role="group"] { flex-direction: row; flex-wrap: wrap; align-items: center; border-top-width: 0; padding-top: 0; }
 .ua-ce [class~="lg:col-span-2"], .ua-ce [class~="lg:col-span-4"] { grid-column: 1 / -1; }
 @container (max-width: 880px) {
   .ua-ce [class~="lg:grid-cols-[300px_1fr]"], .ua-ce [class~="lg:grid-cols-[340px_1fr]"] { grid-template-columns: minmax(0, 1fr); }
@@ -149,6 +162,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
   const setQs = ceSet ? `?set=${encodeURIComponent(ceSet)}` : "";
   const [fetchReady, setFetchReady] = useState(false);
   const [items, setItems] = useState<PromptRow[] | null>(null);
+  const [fileRows, setFileRows] = useState<LayerStatusRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -171,14 +185,19 @@ export default function UploadContentEngine({ client, userRole, setId }: {
       .then(async (res) => {
         if (!res.ok) throw new Error(res.status === 403 ? "เฉพาะ ADMIN / SEO Manager เท่านั้น" : `โหลด Content Engine ไม่สำเร็จ (${res.status})`);
         const prompts = await res.json();
-        setItems(
-          (Array.isArray(prompts) ? prompts : [])
-            .filter((p: { type: string }) => CE_LAYER_TYPES.has(p.type))
-            .map(toPromptRow)
-        );
+        const rows = Array.isArray(prompts) ? prompts : [];
+        setItems(rows.filter((p: { type: string }) => CE_LAYER_TYPES.has(p.type)).map(toPromptRow));
+        // ไฟล์แยก state — ห้ามปนใน items เพราะการตัดสินใจ seed ดูจาก items
+        setFileRows(rows.filter((p: { type: string }) => p.type === CE_RESTRICTION_FILE));
       })
       .catch((e) => setError((e as Error).message));
   }, [scopeId, refreshKey]);
+
+  useEffect(() => {
+    const onFiles = (e: Event) => setFileRows((e as CustomEvent<LayerStatusRow[]>).detail ?? []);
+    window.addEventListener(CE_FILES_CHANGED_EVENT, onFiles);
+    return () => window.removeEventListener(CE_FILES_CHANGED_EVENT, onFiles);
+  }, []);
 
   useEffect(() => {
     // ข้อจำกัดและ Comment ไม่ใช่ layer ที่ seed — มีแค่สองอย่างนี้ก็ยังต้อง seed ชุดหลัก
@@ -224,7 +243,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
     setExampleRows(prev => (prev.length >= 5 ? prev : [...prev, { mode: "url", value: "" }]));
   }
   function removeExampleRow(i: number) {
-    setExampleRows(prev => (prev.length <= 3 ? prev : prev.filter((_, j) => j !== i)));
+    setExampleRows(prev => (prev.length <= 1 ? prev : prev.filter((_, j) => j !== i)));
   }
   function updateExampleRow(i: number, patch: Partial<ExampleRow>) {
     setExampleRows(prev => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -234,7 +253,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
     const sources = exampleRows
       .filter(r => r.value.trim())
       .map(r => (r.mode === "url" ? { url: r.value.trim() } : { text: r.value.trim() }));
-    if (sources.length < 3) { toast.error("ต้องมีตัวอย่างอย่างน้อย 3 รายการ (URL หรือข้อความ)"); return; }
+    if (sources.length < 1) { toast.error("ต้องมีตัวอย่างอย่างน้อย 1 รายการ (URL หรือข้อความ)"); return; }
     setCreatingMaster(true);
     try {
       const r = await fetch(`/api/upload-article/clients/${client.id}/prompts/master-from-examples${setQs}`, {
@@ -245,6 +264,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "สร้าง Master Prompt ไม่สำเร็จ"); return; }
       toast.success("สร้าง Master Prompt จากตัวอย่างสำเร็จ");
+      if (Array.isArray(d?.warnings)) d.warnings.forEach((w: string) => toast.warning(w));
       setExampleRows([{ mode: "url", value: "" }, { mode: "url", value: "" }, { mode: "url", value: "" }]);
       setExampleName("");
       setExampleActivate(false);
@@ -317,6 +337,11 @@ export default function UploadContentEngine({ client, userRole, setId }: {
     );
   }
 
+  const statusRows: LayerStatusRow[] = [...(items ?? []), ...fileRows];
+  const optionalLayers = [restrictionsLayerStatus(statusRows), commentsLayerStatus(statusRows)];
+  const activeSkillName = items?.find(p => p.type === "CE_BUSINESS_SKILL" && p.isActive)?.name ?? "";
+  const templateSkill = isTemplateBusinessSkillName(activeSkillName) ? activeSkillName : null;
+
   return (
     <div className="space-y-4">
       <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -330,10 +355,21 @@ export default function UploadContentEngine({ client, userRole, setId }: {
               </span>
             );
           })}
+          {optionalLayers.map(s => (
+            <span key={s.label} className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${OPTIONAL_CHIP_STYLE[s.state]}`}>
+              {OPTIONAL_CHIP_MARK[s.state]} {s.label} · {s.detail}
+            </span>
+          ))}
         </div>
         <p className="text-[11px] text-gray-500 mt-2">
           การเขียนบทความต้องมีครบ Business Skill, Master Prompt, Article Brief, Validator Pack — Business Skill ต้องสแกน/เขียนเฉพาะของลูกค้ารายนี้เท่านั้น
+          ส่วนข้อจำกัดและ Comment ไม่บังคับ แต่ถ้าเปิดไว้จะส่งเข้าการเขียนทุกบทความ กด Run Test ในแท็บ Prompt Composer &amp; Test เพื่อดูว่าบทความแต่ละชิ้นใช้อะไรบ้าง
         </p>
+        {templateSkill && (
+          <p className="text-[11px] font-medium text-amber-700 mt-1">
+            Business Skill ที่ใช้อยู่ชื่อ &quot;{templateSkill}&quot; ดูเป็นแม่แบบที่ยังไม่ได้กรอกข้อมูลลูกค้า เปิดตรวจก่อนเขียน
+          </p>
+        )}
       </div>
 
       {seeding && (
@@ -353,7 +389,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <div>
           <p className="text-sm font-semibold text-brand-navy">สร้าง Master Prompt จากบทความตัวอย่าง</p>
-          <p className="text-xs text-gray-500 mt-0.5">ใส่ลิงก์หรือวางข้อความบทความตัวอย่าง 3-5 ชิ้น ให้ Mars สรุปเป็น Master Prompt (อาจใช้เวลาถึง 5 นาที)</p>
+          <p className="text-xs text-gray-500 mt-0.5">ใส่ลิงก์หรือวางข้อความบทความตัวอย่าง 1-5 ชิ้น ยิ่งใส่เยอะยิ่งแม่น ระบบจะวัดโครงสร้าง outline ของบทความจริง แล้วให้ Mars สรุปเป็น Master Prompt พร้อมโทนน้ำเสียงของแบรนด์จากตัวอย่าง (อาจใช้เวลาถึง 5 นาที)</p>
         </div>
         <div className="space-y-2">
           {exampleRows.map((row, i) => (
@@ -371,7 +407,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
                 <Textarea value={row.value} onChange={e => updateExampleRow(i, { value: e.target.value })}
                   placeholder="วางเนื้อหาบทความตัวอย่างที่นี่" rows={2} className="flex-1 text-xs" />
               )}
-              <button onClick={() => removeExampleRow(i)} disabled={exampleRows.length <= 3}
+              <button onClick={() => removeExampleRow(i)} disabled={exampleRows.length <= 1}
                 className="text-gray-300 hover:text-red-400 disabled:opacity-30 disabled:hover:text-gray-300 shrink-0 mt-2">
                 <Trash2 size={13} />
               </button>

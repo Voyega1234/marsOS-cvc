@@ -4,13 +4,13 @@
 
 import type { UploadKeyword, UploadLinkPair } from './types'
 import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
-import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
-import { articleStructureSkillBlock } from '@/lib/article-structure'
+import { humanVoiceSkillBlock, voiceProfilePrecedenceLine } from '@/lib/article-human-voice-skill'
+import { articleStructureSkillBlock, type ArticleStructureOptions } from '@/lib/article-structure'
+import { buildRestrictionsBlock, restrictionsValidatorNote, type RestrictionsContext, type RestrictionsTopic } from '@/lib/ce-restrictions'
+import { buildClientCommentsBlock, clientCommentsValidatorNote, joinPromptBlocks, type ClientCommentsContext } from '@/lib/ce-client-comments'
 
-/** เวลาสูงสุดที่ route เขียนทำงานได้ (= maxDuration ของ write route, วินาที) */
-export const WRITER_MAX_DURATION_S = 800
-/** WRITING ที่ค้างเกินนี้ถือว่าตาย (proc ตายกลางทาง) — ต้องมากกว่า maxDuration ของ route + เผื่อ กันลบแถวที่ยังเขียนอยู่ */
-export const WRITER_STALE_MS = WRITER_MAX_DURATION_S * 1000 + 2 * 60 * 1000
+import { WRITER_MAX_DURATION_S, WRITER_STALE_MS } from './writer-timing'
+export { WRITER_MAX_DURATION_S, WRITER_STALE_MS }
 
 /** เนื้อหาที่ clean แล้วสั้นกว่านี้ถือว่าล้มเหลว (โมเดลตอบว่าง/ตัดกลางทาง) */
 export const MIN_CLEANED_HTML_LENGTH = 300
@@ -54,6 +54,7 @@ export function missingWriterLayers(ce: WriterRequiredCE): string[] {
 
 /** system prompt = Master Prompt + Business Skill + Article Brief + Validator Pack เรียงตามลำดับ CE (ห้ามแต่งเอง) */
 export function buildWriterSystemPrompt(ce: WriterCELayers): string {
+  const voiceLine = voiceProfilePrecedenceLine(ce.masterPrompt)
   return (
     ce.masterPrompt +
     '\n\n# Business Skill\n' + ce.businessSkill +
@@ -61,8 +62,27 @@ export function buildWriterSystemPrompt(ce: WriterCELayers): string {
     // ข้อจำกัดอยู่ก่อน Validator Pack — ตัวตรวจท้ายสุดต้องเห็นข้อจำกัดแล้ว
     (ce.restrictions?.trim() ? '\n\n' + ce.restrictions.trim() : '') +
     '\n\n# Validator Pack (ตรวจตัวเองก่อนส่ง)\n' + ce.validatorPack +
-    (ce.restrictionsNote?.trim() ? '\n' + ce.restrictionsNote.trim() : '')
+    (ce.restrictionsNote?.trim() ? '\n' + ce.restrictionsNote.trim() : '') +
+    (voiceLine ? '\n' + voiceLine : '')
   )
+}
+
+/** ข้อจำกัด + Comment สำหรับบทความนี้ — ตัวเขียนจริงและ Run Test ใช้ตัวนี้ตัวเดียว ผลจึงไม่เพี้ยนจากกัน */
+export function composeWriterConstraints(input: {
+  restrictions: RestrictionsContext | null | undefined
+  clientComments: ClientCommentsContext | null | undefined
+  topic: RestrictionsTopic
+}) {
+  const restrictionsBlock = buildRestrictionsBlock(input.restrictions, input.topic)
+  const commentsBlock = buildClientCommentsBlock(input.clientComments, input.topic)
+  return {
+    restrictionsBlock,
+    commentsBlock,
+    restrictions: joinPromptBlocks(restrictionsBlock, commentsBlock),
+    restrictionsNote: joinPromptBlocks(restrictionsValidatorNote(input.restrictions), clientCommentsValidatorNote(input.clientComments)),
+    /** ชื่อ layer ที่มีเนื้อหาจริง — ไม่มีเลย = prompt เท่าเดิม */
+    layerNames: [restrictionsBlock ? 'ข้อจำกัด' : '', commentsBlock ? 'Comment จากลูกค้า' : ''].filter(Boolean),
+  }
 }
 
 export interface WriterTask {
@@ -72,8 +92,17 @@ export interface WriterTask {
   language?: 'th' | 'en'
   /** ชื่อลูกค้า/แบรนด์ — ใช้ตอนวิเคราะห์ intent เอง (keyword ที่มีชื่อแบรนด์ = navigational) */
   brandNames?: string[]
+  /** layer เสริมที่มีเนื้อหาจริงในบทความนี้ — ให้บรรทัดสั่งงานเอ่ยชื่อด้วย ไม่ส่ง = ข้อความเดิม */
+  constraintLayers?: string[]
+  /** โครงบทความตามเว็บของลูกค้า (detail.structure) — ไม่ส่ง = กฎเริ่มต้นเดิม */
+  structure?: ArticleStructureOptions
   /** PBN Backlinks: เขียนหลายบทความจาก title + keyword เดียวกัน — เวอร์ชันที่ index จาก total (total ≤ 1 = ไม่แนบอะไร) */
   variant?: { index: number; total: number }
+}
+
+/** แหล่งข้อเท็จจริงที่ตัวเขียนใช้ได้ — ไม่มีข้อจำกัด/Comment = ข้อความเดิมทุกตัวอักษร */
+function factSourcesText(constraintLayers: string[] | undefined): string {
+  return constraintLayers?.length ? `Business Skill, ${constraintLayers.join(', ')}` : 'Business Skill'
 }
 
 /** มุมเล่าเรื่องของแต่ละเวอร์ชัน (PBN) — เวอร์ชันเดียวกันได้มุมเดิมเสมอ เขียนซ้ำก็ไม่ชนกับเวอร์ชันอื่น */
@@ -91,7 +120,7 @@ export const VARIANT_ANGLES: readonly string[] = [
 ]
 
 /** บล็อกสั่งให้เขียนเวอร์ชันนี้ให้ต่างจากเวอร์ชันอื่น แต่ยังตอบ intent เดียวกัน — '' ถ้าไม่ได้เขียนหลายเวอร์ชัน */
-export function variantBlock(variant: WriterTask['variant']): string {
+export function variantBlock(variant: WriterTask['variant'], factSources = 'Business Skill'): string {
   if (!variant || variant.total <= 1) return ''
   const index = Math.min(Math.max(1, Math.floor(variant.index)), variant.total)
   const angle = VARIANT_ANGLES[(index - 1) % VARIANT_ANGLES.length]
@@ -101,7 +130,7 @@ export function variantBlock(variant: WriterTask['variant']): string {
     '- ใช้ H1 / หัวข้อ / keyword หลัก / Search Intent เดียวกับที่กำหนดด้านบน — ผู้อ่านต้องได้คำตอบเรื่องเดียวกัน',
     '- โครงหัวข้อ H2/H3 ลำดับเนื้อหา บทนำ ตัวอย่าง คำถาม FAQ และสำนวน ต้องต่างจากเวอร์ชันอื่นอย่างชัดเจน',
     '- ห้ามใช้ประโยคซ้ำหรือเรียบเรียงใหม่จากบทความเวอร์ชันอื่น เขียนใหม่ทั้งหมด',
-    '- ข้อเท็จจริง ตัวเลข ราคา ชื่อบริการ ยังต้องมาจาก Business Skill เท่านั้น ห้ามแต่งเพิ่มเพื่อให้ต่าง',
+    `- ข้อเท็จจริง ตัวเลข ราคา ชื่อบริการ ยังต้องมาจาก ${factSources} เท่านั้น ห้ามแต่งเพิ่มเพื่อให้ต่าง`,
   ].join('\n')
 }
 
@@ -117,7 +146,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
 
   const lines: string[] = [
     '# งานที่ต้องทำ',
-    'เขียนบทความ SEO เต็มบทความ 1 ชิ้น ตาม Business Skill / Master Prompt / Article Brief / Validator Pack ด้านบนอย่างเคร่งครัด',
+    `เขียนบทความ SEO เต็มบทความ 1 ชิ้น ตาม ${['Business Skill', 'Master Prompt', 'Article Brief', ...(task.constraintLayers ?? []), 'Validator Pack'].join(' / ')} ด้านบนอย่างเคร่งครัด`,
     '',
     `- Keyword หลัก: ${keyword.keyword}`,
   ]
@@ -134,7 +163,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   const note = (keyword.note || '').trim().slice(0, WRITER_NOTE_MAX)
   if (note) {
     lines.push('')
-    lines.push('# หมายเหตุจากทีมสำหรับบทความนี้ (ต้องทำตาม ถ้าขัดกับ Article Brief ให้ยึดหมายเหตุนี้ แต่ข้อเท็จจริงยังต้องมาจาก Business Skill เท่านั้น)')
+    lines.push(`# หมายเหตุจากทีมสำหรับบทความนี้ (ต้องทำตาม ถ้าขัดกับ Article Brief ให้ยึดหมายเหตุนี้ แต่ข้อเท็จจริงยังต้องมาจาก ${factSourcesText(task.constraintLayers)} เท่านั้น)`)
     lines.push(note)
   }
   // Mars Article Intent Skill — ให้เนื้อหาตรงกับ Search Intent + ประเภทบทความ (ไม่มีทั้งคู่ = โหมดพื้นฐาน วิเคราะห์จาก keyword)
@@ -155,7 +184,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push(humanVoiceSkillBlock(task.language ?? 'th'))
   // Mars Article Structure — กล่องสรุปประเด็นสำคัญ + FAQ (หัว H2 / คำถาม H3) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
   lines.push('')
-  lines.push(articleStructureSkillBlock(task.language === 'en' ? 'en' : 'th'))
+  lines.push(articleStructureSkillBlock(task.language === 'en' ? 'en' : 'th', task.structure))
   lines.push('')
   lines.push('# Internal Link ที่ต้องแทรกในเนื้อหา (ใช้แต่ละลิงก์ไม่เกิน 1 ครั้ง แทรก anchor text ให้เนียนเข้ากับประโยค ห้ามยัดทุกลิงก์ในย่อหน้าเดียว)')
   lines.push(linkLines)
@@ -166,7 +195,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
     lines.push('- วางลิงก์เฉพาะในประโยคที่พูดถึงเรื่องของ anchor นั้นจริง ๆ ถ้าไม่มีจุดที่เข้ากันได้อย่างเป็นธรรมชาติ ให้ข้ามลิงก์นั้นไป ดีกว่ายัดผิดบริบท')
     lines.push(`- ห้ามทำ "${keyword.keyword}" (keyword หลักของบทความนี้) เป็นลิงก์ไปหน้าอื่น`)
   }
-  const variantText = variantBlock(task.variant)
+  const variantText = variantBlock(task.variant, factSourcesText(task.constraintLayers))
   if (variantText) {
     lines.push('')
     lines.push(variantText)
@@ -180,7 +209,9 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push('ตามด้วย semantic HTML ล้วน ๆ เท่านั้น (ห้ามมี markdown code fence เช่น ``` ห้ามมีคำอธิบายอื่นปน):')
   lines.push(`- มี <h1> เดียวเท่านั้น (${keyword.title ? `ใช้ข้อความ "${keyword.title}" เป๊ะ ๆ` : 'ตั้งตามหัวข้อบทความที่เหมาะกับ keyword'})`)
   lines.push('- โครงสร้างใช้ <h2>/<h3>, <p>, <ul>/<ol>/<li>, <table>, <strong>/<em>, <a href="...">')
-  lines.push(`- กล่องสรุปประเด็นสำคัญ ต่อจากย่อหน้าเปิดเรื่อง: <h2>${task.language === 'en' ? 'Key Takeaways' : 'สรุปประเด็นสำคัญ'}</h2> ตามด้วย <ul> 3-5 ข้อ (ระบบแปลงเป็นกล่องเอง)`)
+  if (task.structure?.takeaways !== false) {
+    lines.push(`- กล่องสรุปประเด็นสำคัญ ต่อจากย่อหน้าเปิดเรื่อง: <h2>${task.language === 'en' ? 'Key Takeaways' : 'สรุปประเด็นสำคัญ'}</h2> ตามด้วย <ul> 3-5 ข้อ (ระบบแปลงเป็นกล่องเอง)`)
+  }
   lines.push(`- ส่วน FAQ ให้ทำเป็น <h2>${task.language === 'en' ? 'Frequently Asked Questions' : 'คำถามที่พบบ่อย'}</h2> ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>`)
   lines.push('- ห้ามมี <style>, inline style (style="..."), class="...", <html>, <body>, รูปภาพ (<img>) เด็ดขาด')
 
@@ -240,11 +271,11 @@ export function buildContinuePrompt(language: 'th' | 'en' | undefined): string {
 }
 
 /** คำสั่งเขียนส่วน FAQ ใหม่ทั้งส่วน (บทความเขียนจบแล้ว แต่ไม่มี FAQ หรือมีแค่ข้อเดียว) */
-export function buildFaqFillPrompt(language: 'th' | 'en' | undefined): string {
+export function buildFaqFillPrompt(language: 'th' | 'en' | undefined, constraintLayers?: string[]): string {
   return [
     'บทความด้านบนส่วน FAQ ขาดหรือไม่ครบ — เขียนเฉพาะส่วน FAQ ใหม่ทั้งส่วนสำหรับบทความนี้',
     '- จำนวนคำถามและรูปแบบคำตอบตาม Business Skill / Master Prompt / Article Brief / Validator Pack ด้านบน ถ้าไม่ได้กำหนดจำนวน ให้ครอบคลุมคำถามสำคัญที่ผู้อ่านของ keyword นี้น่าจะถามจริง (มากกว่า 1 ข้อ)',
-    '- ข้อเท็จจริงต้องมาจาก Business Skill และเนื้อหาบทความเท่านั้น ห้ามแต่งตัวเลข/ราคา/ข้อมูลใหม่',
+    `- ข้อเท็จจริงต้องมาจาก ${factSourcesText(constraintLayers)} และเนื้อหาบทความเท่านั้น ห้ามแต่งตัวเลข/ราคา/ข้อมูลใหม่`,
     `- ภาษา: ${language === 'en' ? 'English' : 'ไทย'} และใช้น้ำเสียงเดียวกับบทความ`,
     `- ตอบเป็น HTML ล้วน ขึ้นต้นด้วย <h2>${language === 'en' ? 'Frequently Asked Questions' : 'คำถามที่พบบ่อย'}</h2> ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>`,
     '- ห้ามมีส่วนอื่นของบทความ ห้ามมี META_DESCRIPTION, ---HTML---, markdown code fence, style, class',

@@ -3,8 +3,8 @@
 import { AlertTriangle, X } from 'lucide-react'
 
 /**
- * กล่องเตือนถาวร: คำต้องห้ามของ Content Engine ที่ server แก้ไม่หมด
- * (ชื่อ term + จำนวนที่เหลือ, อาจรวม title/meta/slug) — ค้างจนเริ่มเขียนรอบใหม่หรือกด ✕
+ * กล่องเตือนถาวร: คำต้องห้าม, จุดที่ขัด Comment หรือการค้นแหล่งอ้างอิงที่ server แก้ไม่หมด
+ * ค้างจนเริ่มเขียนรอบใหม่หรือกด ✕
  * ไม่มี warning = ไม่ render อะไรเลย
  */
 export default function RestrictionWarningBox({
@@ -24,7 +24,7 @@ export default function RestrictionWarningBox({
     >
       <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
       <p className="flex-1 min-w-0 text-xs text-amber-800 leading-relaxed break-words">
-        <span className="font-semibold">บทความยังมีคำต้องห้ามเหลือ:</span> {warnings.join(', ')} — ตรวจแก้ก่อน push
+        <span className="font-semibold">บทความยังมีจุดที่ต้องตรวจ:</span> {warnings.join(', ')} — ตรวจแก้ก่อน push
       </p>
       <button
         type="button"

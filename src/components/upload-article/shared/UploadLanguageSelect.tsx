@@ -19,7 +19,7 @@ const HINTS: Record<Lang, string> = {
 };
 
 export default function UploadLanguageSelect({
-  value, onChange, disabled, clientId, onSaved, showHint,
+  value, onChange, disabled, clientId, onSaved, showHint, compact,
 }: {
   value: Lang;
   onChange: (v: Lang) => void;
@@ -27,6 +27,8 @@ export default function UploadLanguageSelect({
   clientId?: string;
   onSaved?: (v: Lang) => void;
   showHint?: boolean;
+  /** ปุ่มเล็กลง สำหรับแถวในตาราง */
+  compact?: boolean;
 }) {
   const [saving, setSaving] = useState(false);
 
@@ -56,10 +58,10 @@ export default function UploadLanguageSelect({
 
   return (
     <div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className={`flex flex-wrap ${compact ? "gap-1" : "gap-1.5"}`}>
         {OPTIONS.map(o => (
           <button key={o.id} type="button" disabled={disabled || saving} onClick={() => pick(o.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-60 ${
+            className={`${compact ? "px-2 py-1 text-[11px]" : "px-3 py-1.5 text-xs"} rounded-lg font-medium border transition-colors disabled:opacity-60 ${
               value === o.id ? "bg-brand-mist text-brand-blue border-brand-soft/60" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
             }`}>
             {o.label}

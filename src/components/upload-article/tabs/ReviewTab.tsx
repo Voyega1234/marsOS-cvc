@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import ArticleFrame from "@/components/shared/ArticleFrame";
+import { exportFontCssDetailed } from "@/lib/upload-article/font-faces";
 import ScopedEditable from "@/components/shared/ScopedEditable";
 import EditorToolbar from "@/components/shared/EditorToolbar";
 import { fileToDownscaledDataUrl } from "@/lib/imageDownscale";
@@ -26,6 +27,8 @@ import AiImagesPanel from "@/components/upload-article/shared/AiImagesPanel";
 import PublishDatePanel from "@/components/upload-article/shared/PublishDatePanel";
 import ArticleImagesPanel from "@/components/upload-article/shared/ArticleImagesPanel";
 import DeleteArticleDialog from "@/components/upload-article/shared/DeleteArticleDialog";
+import { WRITER_STALE_MS } from "@/lib/upload-article/writer-timing";
+import RewriteDialog, { type RewriteCheck } from "@/components/upload-article/shared/RewriteDialog";
 
 const PAGE_BG_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i;
 
@@ -97,10 +100,30 @@ export default function ReviewTab({
   const [reviewedPushedId, setReviewedPushedId] = useState<string | null>(null);
   const [wordBusy, setWordBusy] = useState(false);
   const [docsBusy, setDocsBusy] = useState(false);
+  // Re-generate: เช็คว่าของที่ใช้เขียนเปลี่ยนไหม แล้วถามว่าจะให้ AI เขียนใหม่ทั้งบทความหรือไม่
+  const [rewriteCheck, setRewriteCheck] = useState<RewriteCheck | null>(null);
+  // บทความที่กำลังรอ/เช็คเขียนใหม่ (หลาย id ได้ — สลับไปบทความอื่นแล้วปุ่มของบทความนั้นไม่ถูกล็อกตาม)
+  const [rewriteBusyIds, setRewriteBusyIds] = useState<string[]>([]);
+  const markRewriteBusy = (id: string, on: boolean) =>
+    setRewriteBusyIds((cur) => (on ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter((x) => x !== id)));
+  // บทความที่มีเวอร์ชันก่อนเขียนใหม่ให้ย้อนกลับ
+  const [backupIds, setBackupIds] = useState<Record<string, boolean>>({});
+  const [undoBusy, setUndoBusy] = useState(false);
+
+  // บทความที่เลือกอยู่ตอนนี้ (async ที่จบทีหลังใช้เช็คว่ายังเลือกอยู่ไหม) + บทความที่กำลังรอผลเขียนใหม่ + ออกจากหน้าแล้ว
+  const selectedRef = useRef<string | null>(selectedId);
+  selectedRef.current = selectedId;
+  // id -> token ของลูปรอผล (กันลูปเก่าที่ถูกยกเลิกไปลบทะเบียนของลูปใหม่ตอนสลับ A-B-A)
+  const pollingIds = useRef<Map<string, object>>(new Map());
+  const unmountedRef = useRef(false);
+  useEffect(() => { unmountedRef.current = false; return () => { unmountedRef.current = true; }; }, []);
 
   useEffect(() => { if (selectedId) void loadArticleDetail(selectedId); }, [selectedId, loadArticleDetail]);
+  // กล่องถามเขียนใหม่เป็นของบทความที่เปิดตอนกด — สลับบทความแล้วปิด
+  useEffect(() => { setRewriteCheck(null); }, [selectedId]);
 
   const detail = selectedId ? articleDetails[selectedId] : null;
+  const rewriteBusy = !!selectedId && rewriteBusyIds.includes(selectedId);
   const html = detail?.htmlContent || "";
   const statusCounts = articles.reduce<Record<string, number>>((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc; }, {});
   const visibleArticles = statusFilter ? articles.filter(a => a.status === statusFilter) : articles;
@@ -147,7 +170,7 @@ export default function ReviewTab({
     setEditSaving(true);
     try {
       const newHtml = editorRef.current.innerHTML;
-      const d = await patchArticle(detail.id, { htmlContent: newHtml });
+      const d = await patchArticle(detail.id, { htmlContent: newHtml, expectedUpdatedAt: detail.updatedAt });
       if (d) { setViewMode("preview"); toast.success("บันทึกแล้ว"); }
     } finally {
       setEditSaving(false);
@@ -261,11 +284,273 @@ export default function ReviewTab({
     void regenerate("Generate ใหม่แล้ว — ปกถูกใส่ใน HTML แล้ว");
   }
 
+  /** ผลของ "เขียนใหม่ด้วย AI" ที่เซิร์ฟเวอร์จดไว้ใน pushPrefs.articleRewriteResults */
+  type RewriteResult = { at: string; ok: boolean; error?: string; warnings?: string[] };
+  const REWRITE_POLL_MS = 5000;
+  /** เกินเวลานี้ (WRITER_STALE_MS + 60 วินาที) ยังไม่มีผล = เซิร์ฟเวอร์ตัดกลางทาง */
+  const rewriteDeadline = (from: number) => from + WRITER_STALE_MS + 60_000;
+
+  /** poll พังติดกันเกินนี้ถึงจะเลิกรอ (เน็ต/เซิร์ฟเวอร์สะดุดครั้งสองครั้งไม่ใช่ความล้มเหลว) */
+  const REWRITE_MAX_POLL_FAILS = 6;
+  /** ไม่กำลังเขียนแล้วแต่ไม่มีผลใหม่นานเกินนี้ = ผลไม่ชัดเจน (เขียนผลลง prefs ไม่สำเร็จ) */
+  const REWRITE_NO_RESULT_MS = 30_000;
+
+  /** รอผลเขียนใหม่ — ผลใหม่ = lastResult.at ต่างจาก baseline (ไม่เทียบนาฬิกาเบราว์เซอร์) */
+  async function waitRewriteResult(id: string, baselineAt: string | null, startedAt: number, cancelled: () => boolean): Promise<RewriteResult | "timeout" | "stopped" | "error" | "unclear"> {
+    let fails = 0;
+    let idleSince: number | null = null;
+    for (;;) {
+      await new Promise((res) => setTimeout(res, REWRITE_POLL_MS));
+      if (cancelled()) return "stopped";
+      if (Date.now() > rewriteDeadline(startedAt)) return "timeout";
+      let c: { rewriting?: boolean; lastResult?: RewriteResult | null; hasBackup?: boolean } | null = null;
+      try {
+        const r = await fetch(`/api/upload-article/articles/${id}/rewrite-check`);
+        if (r.ok) c = await r.json().catch(() => null);
+      } catch { /* เน็ตหลุดชั่วคราว */ }
+      if (!c) {
+        if (++fails >= REWRITE_MAX_POLL_FAILS) return "error";
+        continue;
+      }
+      fails = 0;
+      if (c.rewriting) { idleSince = null; continue; }
+      const lr = c.lastResult;
+      if (lr && lr.at !== baselineAt) return lr;
+      if (idleSince === null) idleSince = Date.now();
+      else if (Date.now() - idleSince > REWRITE_NO_RESULT_MS) return "unclear";
+    }
+  }
+
+  const imageIntentKey = (id: string) => `rewriteImages:${id}`;
+
+  /** แสดงผลเขียนใหม่ (สำเร็จ/ล้ม/คำเตือน) — โหลดบทความใหม่เข้าจอเฉพาะเมื่อบทความนี้ยังถูกเลือกอยู่ */
+  async function finishRewrite(id: string, title: string, pushed: boolean, lr: RewriteResult, opts: { regenImages: boolean; imageCount: number }) {
+    try { sessionStorage.setItem(`rewriteSeen:${id}:${lr.at}`, "1"); } catch { /* sessionStorage ใช้ไม่ได้ = ข้าม */ }
+    // ติ๊ก "สร้างรูปใหม่" ไว้ตอนกดเขียน แต่หน้าถูกโหลดใหม่/กลับมาเปิด = ใช้ที่จำไว้ (ทำครั้งเดียว)
+    let regenImages = opts.regenImages;
+    let imageCount = opts.imageCount;
+    try {
+      const raw = sessionStorage.getItem(imageIntentKey(id));
+      if (raw) {
+        sessionStorage.removeItem(imageIntentKey(id));
+        if (!regenImages) { const v = JSON.parse(raw) as { imageCount?: number }; regenImages = true; imageCount = Math.max(1, Number(v.imageCount) || 1); }
+      }
+    } catch { /* ไม่มี/อ่านไม่ได้ = ตามที่ส่งมา */ }
+    if (!lr.ok) { toast.error(`เขียนใหม่ไม่สำเร็จ — บทความเดิมยังอยู่ (${title}): ${lr.error || ""}`); return; }
+    const fresh = await loadArticleDetail(id, true);
+    setBackupIds((cur) => ({ ...cur, [id]: true }));
+    if (selectedRef.current === id) {
+      if (fresh) {
+        applyArticleUpdate(fresh);
+        // แผง SEO เก็บค่าใน draft ของตัวเอง — ดึงค่า meta ใหม่เข้าไปด้วย ไม่งั้นบันทึกแล้วทับ meta ใหม่ด้วยของเก่า
+        setSeoDraft({ seoTitle: fresh.seoTitle || "", metaDescription: fresh.metaDescription || "", slug: fresh.slug || "" });
+      }
+      setViewMode("preview");
+      toast.success(pushed ? "AI เขียนใหม่แล้ว — กด ผ่าน Review แล้วไป Re-push ที่หน้า Push" : "AI เขียนใหม่แล้ว — ตรวจแล้วกด ผ่าน Review");
+    } else {
+      toast.success(`AI เขียนใหม่แล้ว: ${title}`);
+    }
+    if (lr.warnings?.length) toast.warning(`คำต้องห้ามที่ยังเหลือ (${title}): ${lr.warnings.join(", ")}`);
+    if (regenImages) {
+      try {
+        const ir = await fetch(`/api/upload-article/articles/${id}/images`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "inline", withText: true, count: imageCount }),
+        });
+        const imgRes = await ir.json().catch(() => ({}));
+        if (!ir.ok) toast.error(imgRes?.error || "สร้างรูปประกอบใหม่ไม่สำเร็จ");
+        else {
+          const f2 = await loadArticleDetail(id, true);
+          if (f2 && selectedRef.current === id) applyArticleUpdate(f2);
+          toast.success("สร้างรูปประกอบใหม่แล้ว");
+        }
+      } catch {
+        toast.error("สร้างรูปประกอบใหม่ไม่สำเร็จ (เชื่อมต่อไม่ได้) — ลองสร้างรูปจากแท็บรูปภาพ");
+      }
+    }
+  }
+
+  /** รอผลแล้วแสดง — ใช้ทั้งหลังกดเขียนใหม่ และตอนเปิดหน้าซ้ำที่ยังเขียนอยู่ */
+  async function awaitAndFinishRewrite(id: string, title: string, pushed: boolean, baselineAt: string | null, startedAt: number, cancelled: () => boolean, opts: { regenImages: boolean; imageCount: number }) {
+    const res = await waitRewriteResult(id, baselineAt, startedAt, cancelled);
+    if (res === "stopped") return;
+    if (res === "timeout") { toast.error("ยังไม่เห็นผล ลองเปิดหน้านี้ใหม่อีกครั้งภายหลัง"); return; }
+    if (res === "error") { toast.error("เช็คผลเขียนใหม่ไม่สำเร็จ — เปิดหน้านี้ใหม่อีกครั้งเพื่อดูผล"); return; }
+    if (res === "unclear") {
+      // เขียนจบแล้วแต่ไม่เห็นผลที่จดไว้ — โหลดบทความจริงมาแสดง แล้วให้ทีมตรวจเอง
+      const fresh = await loadArticleDetail(id, true);
+      if (fresh && selectedRef.current === id) {
+        applyArticleUpdate(fresh);
+        setSeoDraft({ seoTitle: fresh.seoTitle || "", metaDescription: fresh.metaDescription || "", slug: fresh.slug || "" });
+      }
+      toast.warning(`ผลไม่ชัดเจน (${title}) — โหลดบทความล่าสุดมาแสดงแล้ว ตรวจเนื้อหาก่อนใช้งาน`);
+      return;
+    }
+    await finishRewrite(id, title, pushed, res, opts);
+  }
+
+  /** เขียนใหม่ทั้งบทความด้วย AI (แถวเงา + สลับเข้าบทความเดิมตอนจบ) — เซิร์ฟเวอร์ทำต่อจนจบแม้ปิดหน้า จึง poll ผลจาก rewrite-check */
+  async function rewriteWithAi(opts: { regenImages: boolean }) {
+    if (!detail) return;
+    const id = detail.id;
+    const title = detail.title;
+    const pushed = detail.status === "PUSHED";
+    const m = /^kw:(.*?)(?:#v(\d+))?$/.exec(detail.sourceName || "");
+    if (!m) return;
+    const imageCount = Math.max(1, (detail.sourceHtml?.match(/data-ua-gen/g) || []).length);
+    setRewriteCheck(null);
+    markRewriteBusy(id, true);
+    setReviewedPushedId(null);
+    const token = {};
+    pollingIds.current.set(id, token);
+    // จำไว้ว่าติ๊กสร้างรูปใหม่ — โหลดหน้าใหม่ระหว่างรอแล้วยังทำต่อตอนเขียนเสร็จ
+    try {
+      if (opts.regenImages) sessionStorage.setItem(imageIntentKey(id), JSON.stringify({ imageCount }));
+      else sessionStorage.removeItem(imageIntentKey(id));
+    } catch { /* sessionStorage ใช้ไม่ได้ = ข้าม */ }
+    try {
+      // ผลก่อนหน้า = baseline (เช็คก่อน POST) — ผลใหม่คือ lastResult.at ที่ต่างจากนี้
+      const b = await fetch(`/api/upload-article/articles/${id}/rewrite-check`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+      if (!b) { toast.error("เช็คสถานะบทความไม่สำเร็จ ลองใหม่อีกครั้ง"); return; }
+      if (b.rewriting) { toast.info("AI กำลังเขียนบทความนี้ใหม่อยู่ รอให้เสร็จก่อน"); return; }
+      if (b.pushing) { toast.info("บทความนี้กำลัง push อยู่ รอให้เสร็จก่อนแล้วลองใหม่"); return; }
+      const baselineAt: string | null = b.lastResult?.at ?? null;
+      const startedAt = Date.now();
+      try {
+        const r = await fetch(`/api/upload-article/clients/${client.id}/write`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keywordId: m[1], variant: m[2] ? Number(m[2]) : 1, rewriteArticleId: id }),
+        });
+        if (!r.ok || !r.body) {
+          const d = await r.json().catch(() => ({}));
+          toast.error(d?.error || "เริ่มเขียนใหม่ไม่สำเร็จ");
+          try { sessionStorage.removeItem(imageIntentKey(id)); } catch { /* ข้าม */ }
+          return;
+        }
+        // อ่าน stream ทิ้งให้หมดเพื่อไม่ให้ค้าง — ผลจริงดูจาก rewrite-check (client หลุดกลางทางก็ยังได้ผล)
+        void r.body.pipeTo(new WritableStream()).catch(() => {});
+      } catch {
+        // คำขอหลุดกลางทาง — เซิร์ฟเวอร์อาจเริ่มเขียนไปแล้ว รอดูผลจาก baseline ต่อ
+        toast.warning("เชื่อมต่อสะดุดตอนสั่งเขียนใหม่ — กำลังตรวจว่าเซิร์ฟเวอร์เริ่มเขียนหรือไม่");
+      }
+      await awaitAndFinishRewrite(id, title, pushed, baselineAt, startedAt, () => unmountedRef.current || pollingIds.current.get(id) !== token, { regenImages: opts.regenImages, imageCount });
+    } finally {
+      if (pollingIds.current.get(id) === token) pollingIds.current.delete(id);
+      if (!unmountedRef.current) markRewriteBusy(id, false);
+    }
+  }
+
+  // เปิดบทความที่ AI เขียน: เช็คครั้งเดียว — ยังเขียนใหม่อยู่ = รอผลต่อ, มีผลที่ยังไม่เคยเห็น = แจ้งครั้งเดียว (ไม่เรียก AI)
+  const resumeKey = detail?.sourceType === "ai" ? detail.id : null;
+  useEffect(() => {
+    if (!resumeKey || pollingIds.current.has(resumeKey)) return;
+    const id = resumeKey;
+    const token = {};
+    let cancelled = false;
+    const stop = () => cancelled || unmountedRef.current || selectedRef.current !== id;
+    void (async () => {
+      const c = await fetch(`/api/upload-article/articles/${id}/rewrite-check`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+      if (!c || stop()) return;
+      setBackupIds((cur) => (cur[id] === !!c.hasBackup ? cur : { ...cur, [id]: !!c.hasBackup }));
+      const title = articleDetails[id]?.title || "";
+      const pushed = articleDetails[id]?.status === "PUSHED";
+      const lr = c.lastResult as RewriteResult | null | undefined;
+      if (c.rewriting) {
+        pollingIds.current.set(id, token);
+        markRewriteBusy(id, true);
+        try { await awaitAndFinishRewrite(id, title, pushed, lr?.at ?? null, Date.now(), stop, { regenImages: false, imageCount: 1 }); }
+        finally {
+          if (pollingIds.current.get(id) === token) { pollingIds.current.delete(id); if (!unmountedRef.current) markRewriteBusy(id, false); }
+        }
+        return;
+      }
+      if (lr?.at) {
+        let seen = false;
+        try { seen = sessionStorage.getItem(`rewriteSeen:${id}:${lr.at}`) === "1"; } catch { /* ถือว่ายังไม่เห็น */ }
+        if (!seen) await finishRewrite(id, title, pushed, lr, { regenImages: false, imageCount: 1 });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      // ปล่อยทะเบียนทันทีที่ออกจากบทความนี้ — กลับมาเปิดภายใน 5 วินาทีต้องเริ่มรอรอบใหม่ได้
+      if (pollingIds.current.get(id) === token) { pollingIds.current.delete(id); markRewriteBusy(id, false); }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeKey]);
+
+  /** กด Re-generate: ถามเซิร์ฟเวอร์ก่อนว่าของที่ใช้เขียนเปลี่ยนไหม — ไม่เปลี่ยน/เช็คไม่ได้ = ขั้นตอนเดิมทุกอย่าง */
+  async function onRegenerateClick() {
+    if (!detail) return;
+    const id = detail.id;
+    markRewriteBusy(id, true);
+    let c: RewriteCheck | null = null;
+    try {
+      const r = await fetch(`/api/upload-article/articles/${id}/rewrite-check`);
+      if (r.ok) c = await r.json();
+    } catch { /* เช็คไม่ได้ = ใช้ขั้นตอนเดิม */ }
+    markRewriteBusy(id, false);
+    // เช็คเสร็จตอนที่ผู้ใช้สลับไปบทความอื่นแล้ว — ห้ามเปิดกล่อง/สร้าง HTML ให้บทความผิดตัว
+    if (selectedRef.current !== id) return;
+    if (c?.rewriting) { toast.info("AI กำลังเขียนบทความนี้ใหม่อยู่ รอให้เสร็จก่อน"); return; }
+    if (c?.canRewrite && c.changed.length > 0) { setRewriteCheck(c); return; }
+    regenerateFromReview();
+  }
+
+  /** ปุ่ม "ให้ AI เขียนใหม่ทั้งบทความ" — เปิดกล่องแม้ไม่พบว่าของที่ใช้เขียนเปลี่ยน */
+  async function onForceRewriteClick() {
+    if (!detail) return;
+    const id = detail.id;
+    markRewriteBusy(id, true);
+    try {
+      const r = await fetch(`/api/upload-article/articles/${id}/rewrite-check`);
+      if (!r.ok) { toast.error("เช็คสถานะบทความไม่สำเร็จ ลองใหม่อีกครั้ง"); return; }
+      const c = await r.json();
+      if (selectedRef.current !== id) return;
+      if (c.rewriting) { toast.info("AI กำลังเขียนบทความนี้ใหม่อยู่ รอให้เสร็จก่อน"); return; }
+      if (c.pushing) { toast.info("บทความนี้กำลัง push อยู่ รอให้เสร็จก่อนแล้วลองใหม่"); return; }
+      if (!c.canRewrite) { toast.error(c.reason || "บทความนี้ให้ AI เขียนใหม่ไม่ได้"); return; }
+      setRewriteCheck(c);
+    } catch {
+      toast.error("เช็คสถานะบทความไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      markRewriteBusy(id, false);
+    }
+  }
+
+  /** ย้อนเนื้อหากลับไปก่อน AI เขียนใหม่รอบล่าสุด (โพสต์บนเว็บไม่ถูกแตะจนกว่าจะ Re-push) */
+  async function undoRewrite() {
+    if (!detail || undoBusy) return;
+    const id = detail.id;
+    const pushed = detail.status === "PUSHED";
+    if (!confirm(["ย้อนกลับไปเป็นเนื้อหาก่อน AI เขียนใหม่รอบล่าสุด?", "เนื้อหาตอนนี้ (รวมที่แก้มือหลังเขียนใหม่) จะถูกแทนที่ และย้อนซ้ำไม่ได้", pushed ? "บทความบนเว็บไม่เปลี่ยนจนกว่าจะ Re-push" : ""].filter(Boolean).join("\n"))) return;
+    setUndoBusy(true);
+    try {
+      const r = await fetch(`/api/upload-article/articles/${id}/rewrite-undo`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d?.error || "ย้อนกลับไม่สำเร็จ"); if (r.status === 404) setBackupIds((cur) => ({ ...cur, [id]: false })); return; }
+      setBackupIds((cur) => ({ ...cur, [id]: false }));
+      const fresh = await loadArticleDetail(id, true);
+      if (fresh && selectedRef.current === id) {
+        applyArticleUpdate(fresh);
+        setSeoDraft({ seoTitle: fresh.seoTitle || "", metaDescription: fresh.metaDescription || "", slug: fresh.slug || "" });
+        setViewMode("preview");
+      }
+      toast.success("ย้อนกลับเป็นเนื้อหาก่อนเขียนใหม่แล้ว");
+    } catch {
+      toast.error("ย้อนกลับไม่สำเร็จ (เชื่อมต่อไม่ได้) ลองใหม่อีกครั้ง");
+    } finally {
+      setUndoBusy(false);
+    }
+  }
+
   function regenerateFromReview() {
     if (!detail) return;
     const pushed = detail.status === "PUSHED";
     const msg = [
-      "Generate บทความนี้ใหม่จากต้นฉบับ?",
+      "สร้าง HTML ใหม่จากต้นฉบับเดิม?",
+      "ปุ่มนี้ไม่เรียก AI เนื้อหาเดิมทุกคำ และไม่ได้ใช้ Comment / ข้อจำกัดที่เพิ่มทีหลัง ถ้าต้องการให้ AI เขียนใหม่ ใช้ปุ่ม \"ให้ AI เขียนใหม่ทั้งบทความ\" ในหน้านี้",
       "ที่แก้มือในโหมด \"แก้ไข\" จะหาย (รูปปก/รูปประกอบยังอยู่)",
       detail.sourceType === "ai" ? "Internal Link จะถูกจัดใหม่ให้ตรงหัวข้อ" : "",
       pushed ? "บทความบนเว็บยังเป็นเวอร์ชันเดิมจนกว่าจะกด ผ่าน Review แล้ว Re-push" : "",
@@ -334,9 +619,11 @@ export default function ReviewTab({
     const o = exportSource();
     if (!o) return null;
     const m = await import("@/lib/article-export");
+    const { css: fontCss, skipped: fontsSkipped } = await exportFontCssDetailed(client.theme.detail?.article);
+    if (fontsSkipped > 0) toast.warning(`ไฟล์นี้ขาดฟอนต์ ${fontsSkipped} ไฟล์ เพราะดึงจากเว็บไม่ได้หรือไฟล์ใหญ่เกิน บทความบนเว็บจริงไม่กระทบ`);
     const doc = m.buildStandaloneArticleHtml({
-      html: o.html, title: o.title, lang: resolveArticleLanguage({ projectLanguage: client.language, mode: client.language, title: o.title }),
-      coverSrc: o.coverSrc, coverAlt: o.coverAlt, pageBackground: client.theme.pageBackground,
+      html: applyFaqDisplay(o.html, client.theme.detail?.faq), title: o.title, lang: resolveArticleLanguage({ projectLanguage: client.language, mode: client.language, title: o.title }),
+      coverSrc: o.coverSrc, coverAlt: o.coverAlt, pageBackground: client.theme.pageBackground, fontCss,
     });
     return { m, blob: new Blob([doc], { type: "text/html;charset=utf-8" }), name: `${m.articleFileName(o.fileBase)}.html` };
   }
@@ -461,11 +748,25 @@ export default function ReviewTab({
                   className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${viewMode === "edit" ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-500 border-gray-200"}`}>
                   แก้ไข
                 </button>
-                <button onClick={regenerateFromReview} disabled={regenBusy || editSaving}
-                  title="Generate ใหม่จากต้นฉบับ (ตัวเลือก Internal Link เดิม) — ที่แก้มือจะหาย"
+                <button onClick={onRegenerateClick} disabled={regenBusy || editSaving || rewriteBusy}
+                  title="สร้าง HTML ใหม่จากต้นฉบับเดิม ไม่เรียก AI และไม่ใช้ Comment / ข้อจำกัดที่เพิ่มทีหลัง — ที่แก้มือจะหาย (ให้ AI เขียนใหม่ใช้ปุ่ม ให้ AI เขียนใหม่ทั้งบทความ)"
                   className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
-                  <RefreshCw size={11} className={regenBusy ? "animate-spin" : ""} /> {regenBusy ? "กำลัง Generate..." : "Re-generate"}
+                  <RefreshCw size={11} className={regenBusy || rewriteBusy ? "animate-spin" : ""} /> {regenBusy ? "กำลัง Generate..." : rewriteBusy ? "AI กำลังทำงาน..." : "Re-generate"}
                 </button>
+                {detail.sourceType === "ai" && (detail.sourceName || "").startsWith("kw:") && (
+                  <button onClick={onForceRewriteClick} disabled={regenBusy || editSaving || rewriteBusy}
+                    title="ให้ AI เขียนบทความนี้ใหม่ทั้งบทความ (เสียค่าใช้จ่าย AI) แม้ไม่พบว่าของที่ใช้เขียนเปลี่ยน"
+                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50">
+                    ให้ AI เขียนใหม่ทั้งบทความ
+                  </button>
+                )}
+                {detail.sourceType === "ai" && backupIds[detail.id] && (
+                  <button onClick={undoRewrite} disabled={undoBusy || regenBusy || editSaving || rewriteBusy}
+                    title="ย้อนเนื้อหากลับไปก่อน AI เขียนใหม่รอบล่าสุด"
+                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50">
+                    {undoBusy ? "กำลังย้อนกลับ..." : "ย้อนกลับก่อนเขียนใหม่"}
+                  </button>
+                )}
                 <span className="w-px h-4 bg-gray-200 mx-0.5" aria-hidden />
                 <button onClick={openHtmlPreview}
                   title="เปิดบทความเป็นหน้า HTML ในแท็บใหม่ — ดูได้ทันที ส่งลิงก์/ไฟล์ให้ลูกค้าตรวจได้"
@@ -504,7 +805,7 @@ export default function ReviewTab({
               </div>
             </div>
             <div className="border border-gray-200 rounded-xl overflow-hidden max-h-[55vh] overflow-y-auto">
-              {viewMode === "preview" && <ArticleFrame html={applyFaqDisplay(html, client.theme.detail?.faq)} pageBackground={client.theme.pageBackground} />}
+              {viewMode === "preview" && <ArticleFrame html={applyFaqDisplay(html, client.theme.detail?.faq)} pageBackground={client.theme.pageBackground} fontFaces={client.theme.detail?.article?.fontFaces} />}
               {viewMode === "edit" && (
                 <div className={editTone === "readable" ? "ua-edit-readable" : ""}
                   style={{ background: editTone === "site" ? editBackground(client.theme.pageBackground) : "#fff" }}>
@@ -637,6 +938,18 @@ export default function ReviewTab({
             />
           )}
         </div>
+      )}
+
+      {rewriteCheck && detail && (
+        <RewriteDialog
+          key={detail.id}
+          check={rewriteCheck}
+          pushed={detail.status === "PUSHED"}
+          hasInlineImages={/data-ua-gen/.test(detail.sourceHtml || "")}
+          onRewrite={(o) => { void rewriteWithAi(o); }}
+          onHtmlOnly={() => { setRewriteCheck(null); regenerateFromReview(); }}
+          onClose={() => setRewriteCheck(null)}
+        />
       )}
 
       <DeleteArticleDialog

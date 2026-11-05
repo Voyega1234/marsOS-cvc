@@ -24,6 +24,7 @@ import {
   readImageFileWithAI,
   readImagePagesWithAI,
 } from "@/lib/restriction-file-client";
+import { CE_FILES_CHANGED_EVENT } from "@/lib/ce-layer-status";
 import { cn } from "@/lib/utils";
 import { EmptyRow } from "./shared";
 import { CE_TYPES } from "./types";
@@ -128,7 +129,9 @@ export function useRestrictionFiles(projectId: string | null, onError: (message:
     try {
       const url = projectId ? `/api/prompts?projectId=${encodeURIComponent(projectId)}` : "/api/prompts?scope=studio";
       const rows = await api<FileApiRow[]>(url);
-      setAllFiles(groupFiles((Array.isArray(rows) ? rows : []).filter((r) => r.type === CE_TYPES.RESTRICTION_FILE)));
+      const fileRows = (Array.isArray(rows) ? rows : []).filter((r) => r.type === CE_TYPES.RESTRICTION_FILE);
+      setAllFiles(groupFiles(fileRows));
+      window.dispatchEvent(new CustomEvent(CE_FILES_CHANGED_EVENT, { detail: fileRows }));
     } catch (e) {
       onError(`โหลดรายการไฟล์ไม่สำเร็จ: ${(e as Error).message}`);
       setAllFiles([]);

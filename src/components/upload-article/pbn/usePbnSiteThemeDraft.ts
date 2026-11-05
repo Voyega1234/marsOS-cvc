@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { mergeScannedDetail } from "@/lib/upload-article/theme-css";
 import type { UploadClientDTO, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
 import type { PbnStyle } from "@/lib/upload-article/pbn-sets";
 
@@ -32,9 +33,9 @@ export function usePbnSiteThemeDraft(
   }
 
   function applyScannedTheme(theme: Partial<UploadTheme>, detail: UploadThemeDetail | null) {
-    setThemeDraft(prev => ({ ...prev, ...theme, styleMode: prev.styleMode, detail: detail ?? prev.detail }));
+    setThemeDraft(prev => ({ ...prev, ...theme, styleMode: prev.styleMode, detail: mergeScannedDetail(prev.detail, detail) }));
     if (detail) setShowFaqEditor(true);
-    toast.success(`ใส่ธีมจากเว็บแล้ว — ไปตรวจพรีวิวที่แท็บ “สไตล์บทความ” แล้วกดบันทึก (สไตล์ของ ${siteName})`);
+    toast.success(`ใช้ผลสแกนแล้ว ตรวจพรีวิวด้านล่างแล้วกดบันทึก (สไตล์ของ ${siteName})`);
   }
 
   async function saveTheme() {

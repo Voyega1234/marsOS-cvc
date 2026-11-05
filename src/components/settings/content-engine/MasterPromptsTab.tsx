@@ -426,7 +426,7 @@ export function MasterPromptsTab({ items, scope, canEdit }: Props) {
               projectId={scopeProjectId(scope)}
               onApply={applyLayerScan}
               title="สร้าง Master Prompt จากบทความตัวอย่าง (วางลิงก์หรือข้อความบทความ)"
-              description="วางลิงก์บทความตัวอย่าง หรือวางข้อความบทความเต็ม ระบบจะถอดโครง/สไตล์การเขียนแล้วร่าง Master Prompt ให้บทความใหม่เขียนตามแพทเทิร์นเดิม แก้ต่อได้ทุกช่อง"
+              description="วางลิงก์บทความตัวอย่าง หรือวางข้อความบทความเต็ม ระบบจะถอดโครง สไตล์การเขียน และโทนน้ำเสียงของแบรนด์ แล้วร่าง Master Prompt ให้บทความใหม่เขียนตามแพทเทิร์นเดิม แก้ต่อได้ทุกช่อง"
               urlPlaceholder="https://example.com/blog/บทความตัวอย่าง"
               textPlaceholder="หรือวางข้อความบทความเต็มตรงนี้แทน"
             />

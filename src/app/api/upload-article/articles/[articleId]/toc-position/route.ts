@@ -7,6 +7,7 @@ import { isPbnPrefs } from '@/lib/upload-article/pbn'
 import { uploadHtmlVersion } from '@/lib/upload-article/cards'
 import { uploadArticleLanguage } from '@/lib/upload-article/build-html'
 import { TOC_POSITION_MAX, normalizeTocPosition, placeToc, sectionCountOfHtml } from '@/lib/upload-article/toc-position'
+import { freshRewriteShadow } from '@/lib/upload-article/rewrite-lock'
 
 /** POST /api/upload-article/articles/[articleId]/toc-position — ย้าย (หรือเพิ่ม) สารบัญของระบบในบทความ + จำตำแหน่งไว้ให้ Generate ครั้งถัดไป */
 export async function POST(req: NextRequest, { params }: { params: { articleId: string } }) {
@@ -17,6 +18,9 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const orgId = session.user.organizationId
   const article = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: orgId } })
   if (!article) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+  if (await freshRewriteShadow(article.id, orgId)) {
+    return NextResponse.json({ error: 'บทความนี้กำลังถูก AI เขียนใหม่ — รอให้เสร็จก่อน' }, { status: 409 })
+  }
 
   const client = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })

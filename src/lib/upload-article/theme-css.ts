@@ -11,8 +11,16 @@ import {
   type UploadFaqStyle,
   type UploadTableStyle,
   type UploadThemeDetail,
+  type UploadArticleStyle,
+  type UploadArticleStructure,
+  type UploadBoxStyle,
+  type UploadFontFace,
+  type UploadHeadingOrnament,
+  type UploadReference,
+  type UploadTextStyle,
 } from './types'
 import type { UploadCtaItem, UploadCtaSettings } from './cta'
+import { FONT_FACE_MAX } from './font-faces'
 
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 const RGB_RE = /^rgba?\(\s*\d{1,3}(?:\.\d+)?%?\s*,\s*\d{1,3}(?:\.\d+)?%?\s*,\s*\d{1,3}(?:\.\d+)?%?\s*(?:,\s*(?:0|1|0?\.\d+|\d{1,3}%)\s*)?\)$/i
@@ -92,6 +100,171 @@ export function sanitizeTableStyle(raw: unknown): UploadTableStyle | undefined {
   })
 }
 
+const FLUID_WORDS = new Set(['px', 'em', 'rem', 'vw', 'vh', 'clamp', 'min', 'max', 'calc', 'auto'])
+
+/** ความยาวแบบยืดตามจอ เช่น clamp(30px,2.25vw,42px) — รับแค่ตัวเลข เครื่องหมายคำนวณ และหน่วย/ฟังก์ชันที่รู้จัก */
+function safeFluid(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const s = v.trim().replace(/\s+/g, ' ')
+  if (!s || s.length > 120 || !/^[\d\s.,+\-*/()%a-z]+$/i.test(s)) return undefined
+  // กันคอมเมนต์ CSS และวงเล็บไม่สมดุลที่ลามไปกฎถัดไป
+  if (s.includes('/*') || s.includes('*/')) return undefined
+  let depth = 0
+  for (const ch of s) {
+    if (ch === '(') depth++
+    else if (ch === ')' && --depth < 0) return undefined
+  }
+  if (depth !== 0) return undefined
+  return (s.toLowerCase().match(/[a-z]+/g) || []).every((w) => FLUID_WORDS.has(w)) ? s : undefined
+}
+
+function safeStack(v: unknown): string | undefined {
+  if (typeof v !== 'string' || !v.trim() || v.length > 200 || !DRAFT_FONT_RE.test(v)) return undefined
+  // เครื่องหมายคำพูดคี่ = สตริงไม่ปิด ลามเข้า CSS ถัดไป
+  if ((v.match(/'/g) || []).length % 2 || (v.match(/"/g) || []).length % 2) return undefined
+  return v.trim().replace(/\s+/g, ' ')
+}
+
+function sanitizeText(raw: unknown): UploadTextStyle | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  return compact<UploadTextStyle>({
+    fontFamily: safeStack(r.fontFamily),
+    fontSize: safeFluid(r.fontSize),
+    fontWeight: safeNum(r.fontWeight, 100, 950),
+    lineHeight: safeFluid(r.lineHeight),
+    letterSpacing: safeFluid(r.letterSpacing),
+    color: safeColor(r.color),
+    marginTop: safeFluid(r.marginTop),
+    marginBottom: safeFluid(r.marginBottom),
+  })
+}
+
+function sanitizeBox(raw: unknown): UploadBoxStyle | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  return compact<UploadBoxStyle>({
+    background: safeColor(r.background),
+    borderColor: safeColor(r.borderColor),
+    borderWidth: safeFluid(r.borderWidth),
+    radius: safeFluid(r.radius),
+    padding: safeFluid(r.padding),
+    margin: safeFluid(r.margin),
+  })
+}
+
+function sanitizeOrnament(raw: unknown): UploadHeadingOrnament | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const width = safeFluid(r.width)
+  const height = safeFluid(r.height)
+  const color = safeColor(r.color)
+  if (!width || !height || !color) return undefined
+  return compact<UploadHeadingOrnament>({ width, height, color, marginBottom: safeFluid(r.marginBottom) })
+}
+
+function sanitizeHeading(raw: unknown): (UploadTextStyle & { ornament?: UploadHeadingOrnament }) | undefined {
+  const text = sanitizeText(raw)
+  const ornament = raw && typeof raw === 'object' ? sanitizeOrnament((raw as Record<string, unknown>).ornament) : undefined
+  return compact({ ...(text || {}), ornament })
+}
+
+function sanitizeFontFaces(raw: unknown): UploadFontFace[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: UploadFontFace[] = []
+  for (const item of raw.slice(0, FONT_FACE_MAX)) {
+    if (!item || typeof item !== 'object') continue
+    const f = item as Record<string, unknown>
+    const family = typeof f.family === 'string' ? f.family.trim() : ''
+    const url = typeof f.url === 'string' ? f.url.trim() : ''
+    if (!family || family.length > 80 || !/^[\w À-ɏ฀-๿-]+$/.test(family)) continue
+    if (!/^https:\/\/[^\s"'()<>{};\\]+$/.test(url) || url.length > 500) continue
+    const weight = typeof f.weight === 'string' && /^(?:normal|bold|\d{1,3}(?:\s+\d{1,3})?)$/.test(f.weight.trim()) ? f.weight.trim() : undefined
+    const style = typeof f.style === 'string' && /^(?:normal|italic|oblique)$/.test(f.style.trim()) ? f.style.trim() : undefined
+    const format = typeof f.format === 'string' && /^[\w-]{1,20}$/.test(f.format.trim()) ? f.format.trim() : undefined
+    const range = typeof f.unicodeRange === 'string' && f.unicodeRange.length <= 1000 && /^[uU+0-9a-fA-F?,\s-]+$/.test(f.unicodeRange) ? f.unicodeRange.trim() : undefined
+    const from = f.from === 'team' ? ('team' as const) : undefined
+    out.push(compact<UploadFontFace>({ family, url, weight, style, format, unicodeRange: range, from }) as UploadFontFace)
+  }
+  return out.length ? out : undefined
+}
+
+function sanitizeArticleStyle(raw: unknown): UploadArticleStyle | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const li = r.li && typeof r.li === 'object' ? (r.li as Record<string, unknown>) : {}
+  const link = r.link && typeof r.link === 'object' ? (r.link as Record<string, unknown>) : {}
+  const strong = r.strong && typeof r.strong === 'object' ? (r.strong as Record<string, unknown>) : {}
+  const img = r.img && typeof r.img === 'object' ? (r.img as Record<string, unknown>) : {}
+  const container = r.container && typeof r.container === 'object' ? (r.container as Record<string, unknown>) : null
+  const style = compact<UploadArticleStyle>({
+    container: container ? compact({ ...(sanitizeBox(container) || {}), width: safeFluid(container.width) }) : undefined,
+    p: sanitizeText(r.p),
+    h2: sanitizeHeading(r.h2),
+    h3: sanitizeHeading(r.h3),
+    h4: sanitizeText(r.h4),
+    ul: sanitizeBox(r.ul),
+    li: compact({
+      ...(sanitizeText(r.li) || {}),
+      paddingLeft: safeFluid(li.paddingLeft),
+      marginLeft: safeFluid(li.marginLeft),
+      markerColor: safeColor(li.markerColor),
+      listStyle: pickEnum(li.listStyle, ['none', 'disc', 'circle', 'square', 'decimal'] as const),
+    }),
+    link: compact({
+      color: safeColor(link.color),
+      decoration: pickEnum(link.decoration, ['none', 'underline'] as const),
+      fontWeight: safeNum(link.fontWeight, 100, 950),
+    }),
+    strong: compact({
+      fontFamily: safeStack(strong.fontFamily),
+      fontWeight: safeNum(strong.fontWeight, 100, 950),
+      color: safeColor(strong.color),
+    }),
+    img: compact({ radius: safeFluid(img.radius) }),
+    pageBackground: safeColor(r.pageBackground),
+    fontFaces: sanitizeFontFaces(r.fontFaces),
+  })
+  if (!style) return undefined
+  const source = typeof r.source === 'string' ? r.source.replace(/[<>{}]/g, '').trim().slice(0, 300) : undefined
+  return source ? { source, ...style } : style
+}
+
+function sanitizeStructure(raw: unknown): UploadArticleStructure | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const flag = (v: unknown) => (typeof v === 'boolean' ? v : undefined)
+  const title = typeof r.referencesTitle === 'string' ? r.referencesTitle.replace(/[<>{}]/g, '').trim().slice(0, 60) : undefined
+  return compact<UploadArticleStructure>({
+    posts: safeNum(r.posts, 0, 100),
+    toc: flag(r.toc),
+    takeaways: flag(r.takeaways),
+    references: flag(r.references),
+    referencesTitle: title || undefined,
+    conclusionBeforeFaq: flag(r.conclusionBeforeFaq),
+    faqPlain: flag(r.faqPlain),
+    latinThaiSpacing: flag(r.latinThaiSpacing),
+  })
+}
+
+function sanitizeReferences(raw: unknown): UploadReference[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  const out: UploadReference[] = []
+  for (const item of raw) {
+    if (out.length >= 200) break
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    const title = typeof r.title === 'string' ? r.title.replace(/[<>{}]/g, '').replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+    const url = typeof r.url === 'string' ? r.url.trim() : ''
+    if (!title || !/^https?:\/\/[^\s"'<>]+$/i.test(url) || url.length > 800 || seen.has(url)) continue
+    seen.add(url)
+    const from = pickEnum(r.from, ['site', 'team'] as const)
+    out.push(from ? { title, url, from } : { title, url })
+  }
+  return out.length ? out : undefined
+}
+
 export function sanitizeThemeDetail(raw: unknown): UploadThemeDetail | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const r = raw as Record<string, unknown>
@@ -100,6 +273,9 @@ export function sanitizeThemeDetail(raw: unknown): UploadThemeDetail | undefined
     source: source || undefined,
     faq: sanitizeFaqStyle(r.faq),
     table: sanitizeTableStyle(r.table),
+    article: sanitizeArticleStyle(r.article),
+    structure: sanitizeStructure(r.structure),
+    references: sanitizeReferences(r.references),
   })
 }
 
@@ -224,7 +400,103 @@ export function themeDetailCss(detail: UploadThemeDetail | undefined): string {
     if (t.borderColor) lines.push(`.content-article .content-table th,.content-article .content-table td{border:1px solid ${t.borderColor};}`)
     if (t.stripeBackground) lines.push(`.content-article .content-table tr:nth-child(even) td{background:${t.stripeBackground};}`)
   }
+  lines.push(...articleStyleCss(d))
   return lines.join('\n')
+}
+
+/** กล่องสำเร็จรูปของระบบคุมหน้าตาเอง — กฎจากการสแกนต้องไม่ลามเข้าไป (เช่น ตัวหนังสือเข้มบนกล่อง CTA) */
+const SKIP = ':not(:is(.content-cta,.content-toc,.content-takeaways,.content-author,.content-highlight,.content-notice,.content-pros,.content-cons,.content-quote,.content-table) *)'
+
+function textDecls(t: UploadTextStyle | undefined): string {
+  if (!t) return ''
+  return [
+    t.fontFamily && `font-family:${t.fontFamily};`,
+    t.fontSize && `font-size:${t.fontSize};`,
+    t.fontWeight && `font-weight:${t.fontWeight};`,
+    t.lineHeight && `line-height:${t.lineHeight};`,
+    t.letterSpacing && `letter-spacing:${t.letterSpacing};`,
+    t.color && `color:${t.color};`,
+    t.marginTop && `margin-top:${t.marginTop};`,
+    t.marginBottom && `margin-bottom:${t.marginBottom};`,
+  ]
+    .filter(Boolean)
+    .join('')
+}
+
+function boxDecls(b: UploadBoxStyle | undefined, opts?: { noMargin?: boolean }): string {
+  if (!b) return ''
+  const border = b.borderWidth === '0' ? 'border:0;' : b.borderWidth && b.borderColor ? `border:${b.borderWidth} solid ${b.borderColor};` : ''
+  return [
+    b.background && `background:${b.background};`,
+    border,
+    b.radius && `border-radius:${b.radius};`,
+    b.padding && `padding:${b.padding};`,
+    !opts?.noMargin && b.margin && `margin:${b.margin};`,
+  ]
+    .filter(Boolean)
+    .join('')
+}
+
+function ornamentDecls(o: UploadHeadingOrnament | undefined): string {
+  if (!o) return ''
+  return `content:"";display:block;width:${o.width};height:${o.height};background:${o.color};${o.marginBottom ? `margin-bottom:${o.marginBottom};` : ''}`
+}
+
+/** หน้าตาบทความจากการสแกน — ไม่มี detail.article/structure = ไม่เพิ่มบรรทัดเลย โปรเจกต์เก่าได้ CSS เท่าเดิมทุกไบต์ */
+function articleStyleCss(d: UploadThemeDetail): string[] {
+  const out: string[] = []
+  const a = d.article
+  const s = d.structure
+  const add = (selector: string, decls: string) => {
+    if (decls) out.push(`${selector}{${decls}}`)
+  }
+  if (a) {
+    // ฐานของทั้งบทความ: list ตาราง กล่องสำเร็จรูป ได้ฟอนต์/ขนาด/สีเดียวกับเนื้อหา · line-height ต้องไม่มีหน่วย ไม่งั้นหัวข้อในกล่องบรรทัดเบียด
+    const lh = a.p?.lineHeight && /^[\d.]+$/.test(a.p.lineHeight) ? a.p.lineHeight : undefined
+    add('.content-article', textDecls(a.p && { fontFamily: a.p.fontFamily, fontSize: a.p.fontSize, color: a.p.color, lineHeight: lh }))
+    add('.content-article h1', textDecls(a.h2 && { fontFamily: a.h2.fontFamily, fontWeight: a.h2.fontWeight, color: a.h2.color }))
+    add(`.content-article p${SKIP}`, textDecls(a.p))
+    add(`.content-article h2${SKIP}`, textDecls(a.h2))
+    add(`.content-article h3${SKIP},.content-article .content-faq__heading`, textDecls(a.h3))
+    add(`.content-article h4${SKIP}`, textDecls(a.h4))
+    add(`.content-article h2${SKIP}::before`, ornamentDecls(a.h2?.ornament))
+    add(`.content-article h3${SKIP}::before,.content-article .content-faq__heading::before`, ornamentDecls(a.h3?.ornament))
+    add(`.content-article ul${SKIP},.content-article ol${SKIP}`, boxDecls(a.ul))
+    if (a.ul) out.push(`.content-article li ul,.content-article li ol{background:transparent;border:0;border-radius:0;padding:0 0 0 1.2em;margin:.5em 0 0;}`)
+    if (a.li?.listStyle) out.push(`.content-article ul${SKIP}{list-style-type:${a.li.listStyle};}`)
+    add(
+      `.content-article li${SKIP}`,
+      textDecls(a.li) +
+        (a.li?.paddingLeft ? `padding-left:${a.li.paddingLeft};` : '') +
+        (a.li?.marginLeft ? `margin-left:${a.li.marginLeft};` : ''),
+    )
+    if (a.li?.markerColor) out.push(`.content-article li${SKIP}::marker{color:${a.li.markerColor};}`)
+    add(
+      `.content-article a${SKIP}`,
+      [a.link?.color && `color:${a.link.color};`, a.link?.decoration && `text-decoration:${a.link.decoration};`, a.link?.fontWeight && `font-weight:${a.link.fontWeight};`].filter(Boolean).join(''),
+    )
+    add(
+      `.content-article strong${SKIP},.content-article b${SKIP}`,
+      textDecls(a.strong && { fontFamily: a.strong.fontFamily, fontWeight: a.strong.fontWeight, color: a.strong.color }),
+    )
+    if (a.img?.radius) out.push(`.content-article img${SKIP},.content-article .content-figure img{border-radius:${a.img.radius};}`)
+    // กล่องเนื้อหาและพื้นหน้า: ตรงเฉพาะบทความที่อยู่ติด <body> ของกรอบพรีวิว/ไฟล์ดาวน์โหลด บนเว็บจริงธีมของเว็บทำให้เอง
+    const c = a.container
+    const frame = 'body>.content-article,.article-export-wrap>.content-article'
+    if (c) {
+      add(frame, `box-sizing:border-box;width:100%;${c.width ? `max-width:${c.width};` : ''}margin:0 auto;${boxDecls(c, { noMargin: true })}`)
+      if (c.width) out.push(`.article-export-wrap:has(>.content-article){max-width:${c.width};}`)
+    }
+    if (a.pageBackground) {
+      out.push(`html:has(body>.content-article),body:has(>.content-article),html:has(.article-export-wrap>.content-article),body:has(.article-export-wrap>.content-article){background:${a.pageBackground};}`)
+    }
+  }
+  if (s?.faqPlain) {
+    out.push(`.content-article .content-faq__item{border:0;border-radius:0;background:transparent;box-shadow:none;margin:0;padding:0;}`)
+    out.push(`.content-article .content-faq__heading,.content-article .content-faq__answer{padding:0;background:transparent;}`)
+  }
+  if (s?.references) out.push(`.content-article .content-references{margin-top:1.6em;}`)
+  return out
 }
 
 const DRAFT_FONT_RE = /^[\w\sÀ-ɏ฀-๿'",-]*$/
@@ -233,8 +505,9 @@ function sanitizeDraftColor(v: string | undefined): string {
   return typeof v === 'string' && (v === '' || HEX_RE.test(v) || RGB_RE.test(v)) ? v : ''
 }
 
-function sanitizeDraftFont(v: string | undefined): string | undefined {
+export function sanitizeDraftFont(v: string | undefined): string | undefined {
   if (typeof v !== 'string') return undefined
+  if ((v.match(/'/g) || []).length % 2 || (v.match(/"/g) || []).length % 2) return undefined // เครื่องหมายคำพูดคี่
   return v.length <= 200 && DRAFT_FONT_RE.test(v) ? v : undefined
 }
 
@@ -318,6 +591,26 @@ function ctaItemScopedCss(item: UploadCtaItem): string {
  * FAQ ตามโหมดของธีม (กดเปิด-ปิด / เปิดตลอด) — ใช้ตอน push และพรีวิวบทความที่ generate ไว้แล้ว
  * บทความที่ generate ก่อนมีโหมดเปิดตลอดไม่มี CSS ของคำถามแบบหัวข้อ → เติมท้าย <style> เดิม (โหมด clean ไม่มี <style> = ธีมเว็บคุมเอง)
  */
+/** ใช้ผลสแกนซ้ำ: หน้าตาตามผลสแกนใหม่ แต่รายการอ้างอิงที่ทีมเพิ่มเองต้องไม่หาย */
+export function mergeScannedDetail(prev: UploadThemeDetail | undefined, scanned: UploadThemeDetail | null): UploadThemeDetail | undefined {
+  if (!scanned) return prev
+  const team = (prev?.references ?? []).filter((r) => r.from === 'team')
+  // ไฟล์ฟอนต์ที่ทีมวางลิงก์เอง (from:'team') ต้องไม่หายตอนสแกนใหม่
+  const teamFaces = (prev?.article?.fontFaces ?? []).filter((f) => f.from === 'team')
+  if (!team.length && !(teamFaces.length && scanned.article)) return scanned
+  let out: UploadThemeDetail = scanned
+  if (team.length) {
+    const teamUrls = new Set(team.map((r) => r.url))
+    out = { ...out, references: [...team, ...(scanned.references ?? []).filter((r) => !teamUrls.has(r.url))] }
+  }
+  if (teamFaces.length && scanned.article) {
+    const keep = new Set(teamFaces.map((f) => `${f.family.toLowerCase()}|${f.url}`))
+    const fresh = (scanned.article.fontFaces ?? []).filter((f) => !keep.has(`${f.family.toLowerCase()}|${f.url}`))
+    out = { ...out, article: { ...scanned.article, fontFaces: [...teamFaces, ...fresh].slice(0, FONT_FACE_MAX) } }
+  }
+  return out
+}
+
 export function applyFaqDisplay(html: string, faq: UploadFaqStyle | undefined): string {
   const out = applyFaqDisplayMarkup(html, faq?.display)
   if (!out.includes(FAQ_OPEN_CLASS) || /\.content-faq__heading\s*[,{]/.test(out)) return out

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { NOT_REWRITE_SHADOW } from '@/lib/upload-article/rewrite-lock'
 import { parseTimeline, type TimelinePlan } from '@/lib/project-timeline'
 import { PBN_PREFS_MARK, PBN_CLIENT_NAME } from '@/lib/upload-article/pbn'
 import { effectiveArticleStatus } from '@/lib/upload-article/duplicates'
@@ -75,7 +76,7 @@ export async function loadArticleOverview(orgId: string): Promise<ArticleOvervie
       orderBy: { updatedAt: 'desc' },
     }),
     prisma.uploadArticle.findMany({
-      where: { organizationId: orgId },
+      where: { organizationId: orgId, ...NOT_REWRITE_SHADOW },
       select: { id: true, clientId: true, title: true, slug: true, status: true, wordpressPostId: true, pushedAt: true, updatedAt: true },
       orderBy: { updatedAt: 'desc' },
     }),

@@ -61,11 +61,103 @@ export interface UploadTableStyle {
   stripeBackground?: string
 }
 
+/** ตัวอักษรที่วัดจาก CSS จริงของเว็บ — ขนาดเป็น px, สีเป็น hex/rgba */
+export interface UploadTextStyle {
+  fontFamily?: string
+  fontSize?: string
+  fontWeight?: number
+  lineHeight?: string
+  letterSpacing?: string
+  color?: string
+  marginTop?: string
+  marginBottom?: string
+}
+
+export interface UploadBoxStyle {
+  background?: string
+  borderColor?: string
+  borderWidth?: string
+  radius?: string
+  padding?: string
+  margin?: string
+}
+
+/** เส้นตกแต่งเหนือหัวข้อ (::before ของ h2/h3) */
+export interface UploadHeadingOrnament {
+  width?: string
+  height?: string
+  color?: string
+  marginBottom?: string
+}
+
+export interface UploadFontFace {
+  family: string
+  weight?: string
+  style?: string
+  url: string
+  format?: string
+  unicodeRange?: string
+  /** team = ทีมวางลิงก์เอง — สแกนใหม่ต้องไม่ทับ */
+  from?: 'team'
+}
+
+/** หน้าตาบทความแบบละเอียดจากการสแกน — ไม่มีช่องนี้ = CSS เหมือนเดิมทุกไบต์ (โปรเจกต์เก่าไม่กระทบ) */
+export interface UploadArticleStyle {
+  /** ลิงก์บทความที่ใช้วัด */
+  source?: string
+  /** กล่องเนื้อหาบนเว็บ — ใช้แสดงตัวอย่าง/ไฟล์ดาวน์โหลดเท่านั้น บนเว็บจริงธีมของเว็บทำให้เอง */
+  container?: UploadBoxStyle & { width?: string }
+  p?: UploadTextStyle
+  h2?: UploadTextStyle & { ornament?: UploadHeadingOrnament }
+  h3?: UploadTextStyle & { ornament?: UploadHeadingOrnament }
+  h4?: UploadTextStyle
+  ul?: UploadBoxStyle
+  li?: UploadTextStyle & { paddingLeft?: string; marginLeft?: string; markerColor?: string; listStyle?: string }
+  link?: { color?: string; decoration?: string; fontWeight?: number }
+  strong?: { fontFamily?: string; fontWeight?: number; color?: string }
+  img?: { radius?: string }
+  /** พื้นหน้าเว็บด้านหลังกล่องเนื้อหา — ใช้แสดงตัวอย่าง/ไฟล์ดาวน์โหลดเท่านั้น */
+  pageBackground?: string
+  /** ไฟล์ฟอนต์บนเว็บลูกค้า — ใช้แสดงตัวอย่าง/ไฟล์ดาวน์โหลด ไม่ใส่ตอน push เพราะเว็บมีอยู่แล้ว */
+  fontFaces?: UploadFontFace[]
+}
+
+/** โครงบทความที่ scan เจอบนเว็บ — ไม่มีช่องนี้ = ตัวเขียนใช้โครงเดิม */
+export interface UploadArticleStructure {
+  /** จำนวนบทความที่ดู */
+  posts?: number
+  /** false = เว็บไม่มีสารบัญ ไม่ต้องใส่ของเรา */
+  toc?: boolean
+  /** false = เว็บไม่มีกล่องสรุปประเด็นสำคัญ */
+  takeaways?: boolean
+  /** true = จบบทความด้วยแหล่งอ้างอิง */
+  references?: boolean
+  /** ข้อความหัวส่วนอ้างอิงที่เว็บใช้ เช่น "อ้างอิง" */
+  referencesTitle?: string
+  /** true = สรุปอยู่ก่อน FAQ */
+  conclusionBeforeFaq?: boolean
+  /** true = FAQ บนเว็บเป็นหัวข้อ + ย่อหน้าธรรมดา ไม่มีกล่อง — คำถามใช้หน้าตาเดียวกับ H3 ของบทความ */
+  faqPlain?: boolean
+  /** true = บทความบนเว็บเว้นวรรคระหว่างอังกฤษ/ตัวเลขกับไทยสม่ำเสมอ — วัดจากบทความของเว็บนั้นเอง */
+  latinThaiSpacing?: boolean
+}
+
+/** แหล่งอ้างอิงที่อนุญาตให้ตัวเขียนใช้ — ตัวเขียนห้ามอ้างนอกรายการนี้ */
+export interface UploadReference {
+  title: string
+  url: string
+  /** site = เจอในบทความบนเว็บ, team = ทีมเพิ่มเอง */
+  from?: 'site' | 'team'
+}
+
 export interface UploadThemeDetail {
   /** มาจากไหน เช่น "Rank Math FAQ block บน https://…" */
   source?: string
   faq?: UploadFaqStyle
   table?: UploadTableStyle
+  article?: UploadArticleStyle
+  structure?: UploadArticleStructure
+  references?: UploadReference[]
 }
 
 export type UploadComponentKey = 'toc' | 'faq' | 'cta'
@@ -322,6 +414,8 @@ export interface UploadClientDTO {
   language: 'th' | 'en' | 'both'
   theme: UploadTheme
   pushPrefs: UploadPushPrefs
+  /** โลโก้ลูกค้า (data URL webp/png/jpeg ที่ย่อแล้ว) — null = ยังไม่ตั้ง */
+  logo?: string | null
   websitePlatform: string
   wpUrl: string
   wpUser: string

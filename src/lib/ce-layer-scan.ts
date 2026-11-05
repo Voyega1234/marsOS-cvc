@@ -23,9 +23,19 @@ import {
   RISK_OPTIONS,
 } from '@/components/settings/content-engine/constants'
 import type { CardConfig } from '@/components/settings/content-engine/types'
+import { VOICE_PROFILE_HEADING, VOICE_PROFILE_SPEC } from '@/lib/article-human-voice-skill'
 import { askJson } from '@/lib/competitor-gap/ai'
 import { collectLabScanEvidence, evidenceTextHeading, type LabScanEvidence } from '@/lib/lab-scan'
 import type { ORUsage } from '@/lib/openrouter'
+import {
+  analyzeExampleStructure,
+  buildOutlineSection,
+  formatStructureEvidence,
+  renderStructuredText,
+  type ExampleStructure,
+} from '@/lib/upload-article/example-structure'
+import { safeFetchHtml } from '@/lib/upload-article/safe-fetch'
+import { extractPostBodyHtml } from '@/lib/upload-article/site-scan'
 
 export type CELayerScanType = 'CE_MASTER_PROMPT' | 'CE_ARTICLE_BRIEF' | 'CE_VALIDATOR_PACK' | 'CE_IMAGE_PROMPT'
 
@@ -131,6 +141,7 @@ const MASTER_PROMPT_SYSTEM = `คุณคือ Prompt Engineer ที่อ่
   "optionalVariables": "รายการตัวแปรที่ใช้ได้แต่ไม่บังคับ เลือกจากชุดเดียวกัน — หนึ่งตัวต่อบรรทัด",
   "systemInstruction": "คำสั่งบทบาท + กติกาการเขียนของ AI นักเขียน อิงจากแพทเทิร์นที่พบ",
   "writingInstruction": "ขั้นตอน/กติกาการเขียนแบบละเอียด ให้ตรงโครง heading, ความยาว, list/table, FAQ, internal link ของบทความตัวอย่างเป๊ะ",
+  "voiceProfile": "ลายนิ้วมือน้ำเสียงของบทความตัวอย่าง ${VOICE_PROFILE_SPEC} ช่องนี้เท่านั้นยกคำจริงได้",
   "outputFormat": "รูปแบบผลลัพธ์ที่ต้องได้ (โครง HTML, schema)",
   "prohibitedBehavior": "สิ่งที่ห้ามทำ อิงจากสิ่งที่บทความตัวอย่างไม่ทำ",
   "fallbackBehavior": "ทำอย่างไรถ้าข้อมูลไม่พอ",
@@ -139,12 +150,15 @@ const MASTER_PROMPT_SYSTEM = `คุณคือ Prompt Engineer ที่อ่
 }
 
 กฎ
-1. writingInstruction ต้องระบุจำนวนและลำดับของ section ตามที่นับได้จริงในบทความตัวอย่าง ห้ามคิดเอง
-2. ห้ามคัดลอกเนื้อหาของบทความตัวอย่างมาใส่ตรง ๆ ให้เขียนเป็น "กติกา/คำสั่ง" แทน
+1. ถ้ามี "ผลวัดโครงสร้างจริง" แนบมา ให้ใช้ตัวเลขนั้นเป็นข้อเท็จจริง ห้ามนับ/เดาจำนวนและลำดับ section ซ้ำ และห้ามเขียนหัวข้อ "โครงสร้าง Outline" เอง (ระบบต่อท้าย writingInstruction ให้)
+   ถ้าไม่มีผลวัด writingInstruction ต้องระบุจำนวนและลำดับของ section ตามที่นับได้จริงในบทความตัวอย่าง ห้ามคิดเอง
+   ถอดสไตล์การเขียนให้เป๊ะ (โทน ความยาวประโยค/ย่อหน้า วิธีเปิดเกริ่นนำและปิดสรุป วิธีตั้งหัวข้อ การใช้ list/ตาราง รูปแบบ CTA) เป็นแพทเทิร์น ไม่ใช่เนื้อหาที่คัดลอก
+2. ห้ามคัดลอกเนื้อหาของบทความตัวอย่างมาใส่ตรง ๆ ให้เขียนเป็น "กติกา/คำสั่ง" แทน ยกเว้นช่อง voiceProfile
 3. outputFormat ต้องระบุชัดว่าเป็นเอกสาร HTML เดียว ห้ามเป็น plain text/Markdown และต้องมี JSON-LD schema
    (Article + BreadcrumbList + FAQPage เมื่อมี FAQ) พร้อม breadcrumb markup
 4. ถ้าบทความตัวอย่างไม่มี FAQ ให้ระบุใน writingInstruction ว่าไม่ต้องมี FAQ section
-5. เขียนภาษาไทยเป็นหลัก ยกเว้นศัพท์เทคนิคและชื่อตัวแปร`
+5. เขียนภาษาไทยเป็นหลัก ยกเว้นศัพท์เทคนิคและชื่อตัวแปร
+6. ห้ามเพิ่มความระมัดระวังหรือความเป็นกลางเกินที่ตัวอย่างแสดง เรื่องกฎหมายเป็นหน้าที่ของชั้นข้อจำกัด`
 
 function sanitizeMasterPromptFields(raw: Record<string, unknown>): Record<string, string> {
   const contentTypeRaw = toText(raw.contentType, 200)
@@ -178,9 +192,74 @@ function sanitizeMasterPromptFields(raw: Record<string, unknown>): Record<string
   }
 }
 
+const MASTER_BODY_MAX_CHARS = 15_000
+
+/**
+ * หลักฐานสำหรับ Master Prompt: อ่านหน้าบทความตามลิงก์ที่ให้ตรง ๆ แยกเฉพาะเนื้อบทความ แล้ววัดโครงสร้าง
+ * (ไม่ใช้ collectLabScanEvidence ซึ่งไล่อ่านหน้าอื่นของเว็บมารวมและตัดเหลือ 12,000 ตัวอักษรแบบไม่มีโครงหัวข้อ)
+ * ถ้าแยกเนื้อหาไม่ได้ ถอยไปใช้ collectEvidence เดิมพร้อมคำเตือน
+ */
+async function collectMasterEvidence(params: { url?: string; text?: string }): Promise<{
+  heading: string
+  body: string
+  summary: LayerScanEvidenceSummary
+  warnings: string[]
+  usage: ORUsage
+  structure: ExampleStructure | null
+}> {
+  const text = (params.text ?? '').trim()
+  if (text) {
+    if (/<(?:h[1-6]|p|ul|ol|table|div|article)\b/i.test(text)) {
+      const structure = analyzeExampleStructure(text)
+      return {
+        heading: 'ข้อความที่วางมาโดยตรง (แปลงจาก HTML คงโครงสร้าง: # = heading, - = list, | = ตาราง, > = quote, [รูป] = รูป):',
+        body: (renderStructuredText(text) || text).slice(0, MASTER_BODY_MAX_CHARS),
+        summary: { source: 'text', pages: [] },
+        warnings: structure ? [] : ['อ่านโครงสร้างจาก HTML ที่วางมาไม่ได้ ใช้ข้อความอย่างเดียว'],
+        usage: ZERO_USAGE,
+        structure,
+      }
+    }
+    const base = await collectEvidence(params)
+    return {
+      ...base,
+      warnings: [...base.warnings, 'วางเป็นข้อความล้วน วัดโครงสร้าง outline ไม่ได้เป๊ะ (ให้ใส่ลิงก์ของบทความหรือวาง HTML จะแม่นกว่า)'],
+      structure: null,
+    }
+  }
+
+  const rawUrl = (params.url ?? '').trim()
+  if (!rawUrl) throw new Error('ต้องมี url หรือ text อย่างใดอย่างหนึ่ง')
+  const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`
+
+  // ใช้ safeFetchHtml (กัน SSRF ทุก hop) — เปิดไม่ได้ก็ถอยไป collectEvidence เดิม
+  const page = await safeFetchHtml(url)
+  const bodyHtml = page.ok && page.html ? extractPostBodyHtml(page.html) : null
+  const structure = bodyHtml ? analyzeExampleStructure(bodyHtml) : null
+
+  if (bodyHtml && structure) {
+    return {
+      heading: `บทความที่อ่านมา (หน้าเดียว ${page.finalUrl || url}) แปลงจาก HTML คงโครงสร้าง: # = heading, - = list, | = ตาราง, > = quote, [รูป] = รูป:`,
+      body: renderStructuredText(bodyHtml).slice(0, MASTER_BODY_MAX_CHARS) || '(ไม่มีข้อความ)',
+      summary: { source: 'site', pages: [{ url: page.finalUrl || url, title: structure.h1 ?? '' }] },
+      warnings: [],
+      usage: ZERO_USAGE,
+      structure,
+    }
+  }
+
+  const base = await collectEvidence(params)
+  return {
+    ...base,
+    warnings: [...base.warnings, 'แยกเนื้อหาบทความจากลิงก์นี้ไม่ได้ จึงวัดโครงสร้าง outline เป๊ะไม่ได้ ผลที่ได้อ่านจากหลายหน้าของเว็บและอาจไม่ตรงบทความเดียว'],
+    structure: null,
+  }
+}
+
 async function scanMasterPrompt(params: { url?: string; text?: string }): Promise<LayerScanResult> {
-  const { heading, body, summary, warnings, usage: evidenceUsage } = await collectEvidence(params)
-  const user = ['บทความตัวอย่าง:', '', heading, body].join('\n')
+  const { heading, body, summary, warnings, usage: evidenceUsage, structure } = await collectMasterEvidence(params)
+  const measured = structure ? [{ label: 'บทความตัวอย่าง', structure }] : []
+  const user = ['บทความตัวอย่าง:', '', ...(measured.length ? [formatStructureEvidence(measured), ''] : []), heading, body].join('\n')
 
   const res = await askJson<Record<string, unknown>>({
     trace: 'content_engine_master_prompt_scan',
@@ -193,8 +272,16 @@ async function scanMasterPrompt(params: { url?: string; text?: string }): Promis
   if (!res.data) throw new Error(res.error ?? 'AI สรุปผลไม่สำเร็จ')
   if (res.error) warnings.push(res.error)
 
+  const fields = sanitizeMasterPromptFields(res.data)
+  // ต่อ outline ที่วัดได้หลัง sanitize เพื่อไม่ให้เพดานของช่องตัดทิ้ง (ใส่ที่ writingInstruction)
+  const outline = buildOutlineSection(measured)
+  if (outline) fields.writingInstruction = [fields.writingInstruction, outline].filter(Boolean).join('\n\n')
+  // ต่อหลัง sanitize เช่นกัน เพดาน 8000 จะได้ไม่ตัดหัวข้อนี้ทิ้ง
+  const voice = toText(res.data.voiceProfile, 3000)
+  if (voice) fields.writingInstruction = [fields.writingInstruction, `${VOICE_PROFILE_HEADING}\n${voice}`].filter(Boolean).join('\n\n')
+
   return {
-    fields: sanitizeMasterPromptFields(res.data), evidence: summary, warnings,
+    fields, evidence: summary, warnings,
     usage: { totalTokens: evidenceUsage.totalTokens + res.usage.totalTokens, costUsd: evidenceUsage.costUsd + res.usage.costUsd },
   }
 }

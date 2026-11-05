@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UPLOAD_LAYOUT_LABEL, scanWantsBodyCover, type UploadComponentFinding, type UploadSiteLayout, type UploadSiteScan, type UploadTheme, type UploadThemeDetail } from "@/lib/upload-article/types";
 import { seoPluginLabel, seoPluginNote } from "@/lib/upload-article/seo-plugins";
+import ScannedStyleSummary from "./ScannedStyleSummary";
 import { describeTocPosition } from "@/lib/upload-article/toc-position";
 
 export const COMPONENT_LABEL: Record<"toc" | "faq" | "cta", string> = { toc: "สารบัญ (TOC)", faq: "FAQ", cta: "CTA" };
@@ -79,10 +80,17 @@ export default function SiteScanView({
           ดูว่าเว็บใช้ธีม/ปลั๊กอินอะไร มีปลั๊กอิน/ธีมใส่สารบัญ FAQ CTA ให้ทุกบทความเองไหม (ถ้ามี ระบบไม่ใส่ของเราซ้ำ — ที่ผู้เขียนเขียนเองยังใส่ตามปกติ) และสี/หน้าตาบทความของเว็บ
         </p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
-        <Input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://เว็บปลายทาง.com" className="text-xs" />
-        <Input value={sampleUrl} onChange={e => setSampleUrl(e.target.value)} placeholder="ลิงก์บทความตัวอย่างบนเว็บ (ไม่บังคับ — แม่นขึ้น)" className="text-xs" />
-        <Button variant="outline" size="sm" disabled={busy} onClick={run} className="h-9">
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 items-start">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">เว็บปลายทาง</label>
+          <Input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://เว็บปลายทาง.com" className="text-xs" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-brand-navy mb-1">ลิงก์บทความตัวอย่างบนเว็บ</label>
+          <Input value={sampleUrl} onChange={e => setSampleUrl(e.target.value)} placeholder="https://เว็บปลายทาง.com/บทความตัวอย่าง" className="text-xs" />
+          <p className="text-[11px] text-gray-500 mt-1">แนะนำให้ใส่ ระบบจะอ่านฟอนต์ ขนาด สี กรอบ และโครงบทความจากบทความจริง</p>
+        </div>
+        <Button variant="outline" size="sm" disabled={busy} onClick={run} className="h-9 md:mt-[22px]">
           {busy ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <ScanSearch size={13} className="mr-1.5" />}
           {busy ? "กำลังสแกน... (~1 นาที)" : scan ? "สแกนใหม่" : "สแกนเว็บ"}
         </Button>
@@ -177,6 +185,10 @@ export default function SiteScanView({
             </div>
           )}
 
+          {scan.detail && (scan.detail.article || scan.detail.structure || scan.detail.references) && (
+            <ScannedStyleSummary detail={scan.detail} />
+          )}
+
           {scan.warnings.length > 0 && (
             <ul className="text-[11px] text-amber-700 list-disc pl-4 space-y-0.5">
               {scan.warnings.map((w, i) => <li key={i}>{w}</li>)}
@@ -184,9 +196,12 @@ export default function SiteScanView({
           )}
 
           {onApplyTheme && (scan.suggestedTheme || scan.detail) && (
-            <Button size="sm" variant="outline" onClick={() => onApplyTheme(scan.suggestedTheme || {}, scan.detail || null)}>
-              <Palette size={12} className="mr-1.5" /> ใช้ธีม + หน้าตา FAQ จากเว็บนี้
-            </Button>
+            <div className="space-y-1">
+              <Button size="sm" variant="outline" onClick={() => onApplyTheme(scan.suggestedTheme || {}, scan.detail || null)}>
+                <Palette size={12} className="mr-1.5" /> ใช้กับบทความ
+              </Button>
+              <p className="text-[11px] text-gray-500">ยังไม่บันทึกจนกว่าจะกดบันทึกด้านล่าง บทความเดิมไม่เปลี่ยนจนกว่าจะกด Re-generate</p>
+            </div>
           )}
         </div>
       )}

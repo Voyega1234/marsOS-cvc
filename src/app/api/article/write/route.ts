@@ -13,9 +13,11 @@ import {
 import {
   buildClientCommentsBlock,
   clientCommentsValidatorNote,
+  hasClientComments,
   joinPromptBlocks,
   type ClientCommentsContext,
 } from '@/lib/ce-client-comments'
+import { checkAgainstComments } from '@/lib/ce-comment-check'
 import { enforceRestrictions, judgeRelatedProducts, loadClientComments, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, normalizeCtaItems, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem } from '@/lib/articleComponents'
@@ -25,12 +27,14 @@ import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-language'
 import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
-import { humanVoiceSkillBlock, stripEditorialNotes } from '@/lib/article-human-voice-skill'
-import { articleStructureSkillBlock, normalizeFaqAndTakeaways } from '@/lib/article-structure'
+import { humanVoiceSkillBlock, stripEditorialNotes, voiceProfilePrecedenceLine } from '@/lib/article-human-voice-skill'
+import { articleStructureSkillBlock, normalizeFaqAndTakeaways, spaceLatinThai } from '@/lib/article-structure'
 import { readArticleImageSettings, type ArticleImageSettings, readArticleAuthorPick, type ArticleAuthorPick, pickAuthorIndex, STUDIO_ARTICLE_SETTINGS_KEY, readStudioArticleSettings } from '@/lib/article-settings'
 import { pickAuthorForArticle } from '@/lib/upload-article/author'
 import { rankLinksByTopic } from '@/lib/upload-article/internal-links'
 import { buildProjectArticleCss, projectThemeToUpload } from '@/lib/project-theme'
+import { boxReferencesSection, structureOptionsFromDetail } from '@/lib/upload-article/references'
+import { mergeEvidence, mergeLibrary, searchReferences, withFoundReferences } from '@/lib/upload-article/reference-search'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -360,6 +364,8 @@ ${opts.restrictionsBlock.trim()}
 `
     : ''
 
+  const voiceLine = voiceProfilePrecedenceLine(opts.ce.masterPrompt)
+
   return `${businessSkillBlock}
 ==================================================
 LAYER 2: MASTER PROMPT
@@ -373,7 +379,7 @@ ${sampleBlock}
 ${intentSkillBlock}
 ${humanVoiceBlock}
 ${restrictionsBlock}
-${validatorBlock}
+${validatorBlock}${voiceLine ? '\n' + voiceLine : ''}
 ---
 OUTPUT: ส่ง HTML ชุดเดียวเท่านั้น ไม่มีคำอธิบาย ไม่มี Markdown ไม่มี diagnostic text
 เริ่มด้วย <!-- CONVERT_CAKE_SEO_META หรือ <script type="application/ld+json">
@@ -666,7 +672,7 @@ async function saveArticleHtml(opts: {
     const existing = await prisma.article.findFirst({
       where: { projectId: opts.projectId, title: opts.title, project: { organizationId: opts.orgId } },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true },
+      select: { id: true, slug: true, wordpressUrl: true },
     })
     // Always have a non-empty slug (DB requires NOT NULL)
     const safeSlug = enSlug || `article-${Date.now()}`
@@ -677,7 +683,8 @@ async function saveArticleHtml(opts: {
           htmlContent: opts.html,
           status: 'REVIEW',
           ...(opts.coverImageUrl && { coverImageUrl: opts.coverImageUrl }),
-          ...(enSlug   && { slug: enSlug }),
+          // บทความที่ push แล้ว (มี URL) คง slug เดิม — ไม่ให้ URL บนเว็บไม่ตรงกับในระบบ
+          ...(enSlug && !(existing.wordpressUrl && existing.slug) && { slug: enSlug }),
           ...(metaDesc && { metaDescription: metaDesc }),
           ...(opts.keywordId && { keywordId: opts.keywordId }),
         },
@@ -1075,20 +1082,38 @@ export async function POST(req: NextRequest) {
     keyword, title, brandNames: resolvedSiteName ? [resolvedSiteName] : undefined,
   })
   // Mars Human Voice Skill — skill หลักแนบทุกครั้งที่เขียน (เจ้าของสั่ง 2026-09-28)
+  // โครงบทความตามเว็บของลูกค้าที่สแกนไว้ — โปรเจกต์ไม่มีค่าชุดนี้ได้กฎเดิมทุกตัวอักษร
+  const themeDetail = _dbProj
+    ? projectThemeToUpload((_dbProj as { themeColors?: string | null }).themeColors, (_dbProj as { accentColor?: string | null }).accentColor).detail
+    : undefined
+  // สินค้าไหนเกี่ยวกับบทความนี้ + ค้นแหล่งอ้างอิงจากโดเมนที่เว็บเคยอ้างอิง — ไม่เข้าเงื่อนไข = ไม่เรียก AI
+  const restrictionsTopic = { keyword, title, outline: typeof adjustNote === 'string' ? adjustNote : '' }
+  const [relatedProductIds, found] = await Promise.all([
+    judgeRelatedProducts(restrictions, restrictionsTopic, { trace: 'article_write_restrictions_match', client: orClient }),
+    searchReferences({
+      detail: themeDetail,
+      title,
+      keyword,
+      ownSite: resolvedWebsiteUrl,
+      trace: 'article_write_reference_search',
+      client: orClient,
+      searchTimeoutMs: 20_000,
+      verifyTimeoutMs: 6_000,
+    }),
+  ])
+  const writeRestrictions = mergeEvidence(restrictions, found.references)
+  const constraintBlocks = joinPromptBlocks(
+    buildRestrictionsBlock(writeRestrictions, { ...restrictionsTopic, relatedProductIds }),
+    buildClientCommentsBlock(clientComments, restrictionsTopic),
+  )
   const humanVoiceBlock = humanVoiceSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
     // Mars Article Structure — กล่องสรุปประเด็นสำคัญ + FAQ (หัว H2 / คำถามเป็น <span> ใน <summary>) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
-    + '\n\n' + articleStructureSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
+    + '\n\n' + articleStructureSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th', withFoundReferences(structureOptionsFromDetail(themeDetail, `${title} ${keyword}`), found.references))
 
   // ── CTA (หลายชุด — เลือกจำนวนต่อบทความได้) — สุ่ม spots ครั้งเดียวต่อ request แล้วใช้ต่อ
   //    ทั้งตอนสร้าง prompt และตอนแทรกแบนเนอร์หลังบทความเขียนเสร็จ ──
   const ctaResult = buildCtaBlock(cta)
 
-  // สินค้าไหนเกี่ยวกับบทความนี้ — ไม่มีข้อจำกัด/ไม่มีสินค้า = ไม่เรียก AI
-  const restrictionsTopic = { keyword, title, outline: typeof adjustNote === 'string' ? adjustNote : '' }
-  const relatedProductIds = await judgeRelatedProducts(restrictions, restrictionsTopic, {
-    trace: 'article_write_restrictions_match',
-    client: orClient,
-  })
   let articlePrompt = buildArticlePrompt({
     keyword, title: safeTitle, language: effectiveLanguage, styleGuide: resolvedStyleGuide, accentColor: resolvedAccentColor, theme: resolvedTheme,
     colorTheme: resolvedColorTheme, colorText: resolvedColorText, colorBorder: resolvedColorBorder,
@@ -1100,11 +1125,8 @@ export async function POST(req: NextRequest) {
     ctaBlock: ctaResult.block,
     intentSkillBlock,
     humanVoiceBlock,
-    restrictionsBlock: joinPromptBlocks(
-      buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
-      buildClientCommentsBlock(clientComments, restrictionsTopic),
-    ),
-    restrictionsNote: joinPromptBlocks(restrictionsValidatorNote(restrictions), clientCommentsValidatorNote(clientComments)),
+    restrictionsBlock: constraintBlocks,
+    restrictionsNote: joinPromptBlocks(restrictionsValidatorNote(writeRestrictions), clientCommentsValidatorNote(clientComments)),
     ce: {
       businessSkill: ce.businessSkill?.text,
       masterPrompt: ce.masterPrompt!.text,
@@ -1160,7 +1182,14 @@ export async function POST(req: NextRequest) {
    *  (schema ของ AI/รอบก่อนถูกถอดทิ้งเสมอ กัน URL มั่วและกัน FAQPage ไม่ตรงเนื้อหา) */
   const finalizeArticleHtml = (raw: string): string => {
     // FAQ คำถามเป็น <span> ใน <summary> + สรุปประเด็นสำคัญเป็นกล่อง (บทความไทยหัวกล่อง = "สรุปประเด็นสำคัญ") เสมอ แม้ Master Prompt/AI จะเขียนมาแบบอื่น
-    const body = wrapArticleHtml(normalizeFaqAndTakeaways(stripSchemaScripts(sanitizeArticleHtml(stripEditorialNotes(raw))), effectiveLanguage === 'en' ? 'en' : 'th'), resolvedStyleMode === 'embed' ? articleCss : null)
+    const cleanHtml = stripSchemaScripts(sanitizeArticleHtml(stripEditorialNotes(raw)))
+    // เปิดส่วนอ้างอิงไว้เท่านั้น — เหลือเฉพาะลิงก์ในรายการของลูกค้า ห้าม AI แต่งแหล่งเอง
+    const withReferences = themeDetail?.structure?.references
+      ? boxReferencesSection(cleanHtml, { library: mergeLibrary(themeDetail.references ?? [], found.references), title: themeDetail.structure.referencesTitle, language: effectiveLanguage === 'en' ? 'en' : 'th', onlyListed: true })
+      : cleanHtml
+    // เฉพาะเว็บที่สแกนแล้วพบว่าเว้นวรรคสม่ำเสมอ — โปรเจกต์เดิมได้ HTML เท่าเดิม
+    const spaced = themeDetail?.structure?.latinThaiSpacing ? spaceLatinThai(withReferences) : withReferences
+    const body = wrapArticleHtml(normalizeFaqAndTakeaways(spaced, effectiveLanguage === 'en' ? 'en' : 'th'), resolvedStyleMode === 'embed' ? articleCss : null)
     const metaBlock = body.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
     const metaOf = (k: string) => metaBlock.match(new RegExp(`${k}\\s*:\\s*(.+)`, 'i'))?.[1]?.trim() ?? ''
     type CtaChan = { type?: string; label?: string; value?: string }
@@ -1190,20 +1219,48 @@ export async function POST(req: NextRequest) {
 
   // คำต้องห้ามของลูกค้าในบทความที่เขียนเสร็จ — แทนคำ/เขียนท่อนใหม่ (เวลาเหลือน้อย = แทนคำอย่างเดียว)
   // ไม่ทำให้งานล้ม: ที่เหลือคืนเป็นรายการให้ UI แจ้งทีม
+  // ค่าใช้จ่ายนอกตัวเขียน (ค้นแหล่งอ้างอิง + ตรวจ Comment) รวมเข้า job เดียวกับการเขียน
+  let extraCostUsd = found.costUsd
+  const hasPostWriteChecks = () => hasRestrictions(writeRestrictions) || hasClientComments(clientComments) || !!found.warning
   const enforceBanned = async (html: string): Promise<{ html: string; warnings: string[] }> => {
-    if (!hasRestrictions(restrictions)) return { html, warnings: [] }
-    const r = await withOrClient(orClient, () =>
-      enforceRestrictions({
-        ctx: restrictions,
-        html,
-        trace: 'article_write_restrictions',
-        rewrite: Date.now() - requestStartedAt < 150_000,
-        timeoutMs: 45_000,
-      }),
-    )
-    // บล็อก META (meta_title / meta_description / en_slug) เป็น comment — enforce ของ body ไม่แตะ แต่ถูกอ่านไป push เป็น SEO title/description/URL จริง
-    const meta = cleanSeoMetaBlock(r.html, bannedTerms)
-    return { html: meta.html, warnings: [...r.remaining.map((h) => `${h.term} (${h.count})`), ...r.citationWarnings, ...meta.warnings, ...fieldWarnings] }
+    if (!hasPostWriteChecks()) return { html, warnings: [] }
+    let next = html
+    const warnings: string[] = found.warning ? [found.warning] : []
+    if (hasRestrictions(writeRestrictions)) {
+      const r = await withOrClient(orClient, () =>
+        enforceRestrictions({
+          ctx: writeRestrictions,
+          html,
+          trace: 'article_write_restrictions',
+          rewrite: Date.now() - requestStartedAt < 150_000,
+          timeoutMs: 45_000,
+        }),
+      )
+      // บล็อก META (meta_title / meta_description / en_slug) เป็น comment — enforce ของ body ไม่แตะ แต่ถูกอ่านไป push เป็น SEO title/description/URL จริง
+      const meta = cleanSeoMetaBlock(r.html, bannedTerms)
+      next = meta.html
+      warnings.push(...r.remaining.map((h) => `${h.term} (${h.count})`), ...r.citationWarnings, ...meta.warnings, ...fieldWarnings)
+    }
+    // ตรวจกับ Comment ลูกค้า แล้วแก้เฉพาะท่อนที่ขัด — เหลือเวลาน้อยให้เตือนแทน
+    if (hasClientComments(clientComments)) {
+      if (Date.now() - requestStartedAt < 180_000) {
+        const checked = await checkAgainstComments({
+          comments: clientComments,
+          rulesText: constraintBlocks,
+          html: next,
+          bannedTerms,
+          trace: 'article_write_comment_check',
+          client: orClient,
+          timeoutMs: 45_000,
+        })
+        next = checked.html
+        extraCostUsd += checked.costUsd
+        warnings.push(...checked.warnings)
+      } else {
+        warnings.push('ไม่ได้ตรวจกับ Comment เพราะเวลาไม่พอ กรุณาตรวจเอง')
+      }
+    }
+    return { html: next, warnings }
   }
 
   if (!doStream) {
@@ -1221,7 +1278,7 @@ export async function POST(req: NextRequest) {
       await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
         jobType: 'ARTICLE_WRITE', modelName: model,
         inputTokens: msg.usage.inputTokens, outputTokens: msg.usage.outputTokens, status: 'COMPLETED',
-        realCostUsd: msg.usage.costUsd })
+        realCostUsd: msg.usage.costUsd + extraCostUsd })
     }
 
     const { count: midCountRaw, cleanTemplate: midTemplate } = parseMidImageCount(imagePromptTemplate)
@@ -1292,14 +1349,18 @@ export async function POST(req: NextRequest) {
   const send = (data: object) => writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
 
   // Mark article as WRITING in DB immediately so client can poll status after tab switch
+  // สถานะเดิมของแถวที่ push แล้ว — เขียนไม่สำเร็จให้คืนค่านี้ ไม่ใช่ ERROR
+  let priorPushed: { id: string; status: string } | null = null
+  let markPromise: Promise<unknown> = Promise.resolve()
   if (orgId && projectId) {
-    prisma.article.findFirst({
+    markPromise = prisma.article.findFirst({
       where: { projectId, title, project: { organizationId: orgId } },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true },
+      select: { id: true, status: true, wordpressUrl: true },
     }).then(existing => {
+      if (existing && existing.wordpressUrl && existing.status !== 'WRITING') priorPushed = { id: existing.id, status: existing.status }
       if (existing) {
-        prisma.article.update({ where: { id: existing.id }, data: { status: 'WRITING' } }).catch(() => {})
+        return prisma.article.update({ where: { id: existing.id }, data: { status: 'WRITING' } }).catch(() => {})
       } else {
         prisma.article.create({
           data: {
@@ -1348,13 +1409,13 @@ export async function POST(req: NextRequest) {
       if (fullHtml.replace(/<[^>]+>/g, '').trim().length < 500) {
         throw new Error(`Writer คืนเนื้อหาสั้นผิดปกติ (${fullHtml.length} ตัวอักษรหลัง sanitize) — ตรวจ OpenRouter key/เครดิต แล้วลองใหม่`)
       }
-      if (hasRestrictions(restrictions)) {
-        send({ type: 'status', step: 'writing', message: '🛡️ ตรวจคำต้องห้ามตามข้อจำกัดของ Content Engine...' })
+      if (hasPostWriteChecks()) {
+        send({ type: 'status', step: 'writing', message: '🛡️ ตรวจคำต้องห้ามและ Comment ตาม Content Engine...' })
         const banned = await enforceBanned(fullHtml)
         fullHtml = banned.html
         if (banned.warnings.length) {
           restrictionWarnings = banned.warnings
-          send({ type: 'status', step: 'writing', message: `⚠️ ยังมีคำต้องห้ามที่แก้ไม่หมด: ${banned.warnings.join(', ')} — แก้เองก่อนเผยแพร่` })
+          send({ type: 'status', step: 'writing', message: `⚠️ ยังมีจุดที่ต้องตรวจ: ${banned.warnings.join(', ')} — แก้เองก่อนเผยแพร่` })
         }
       }
 
@@ -1363,7 +1424,7 @@ export async function POST(req: NextRequest) {
         await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
           jobType: 'ARTICLE_WRITE', modelName: model,
           inputTokens: streamed.usage.inputTokens, outputTokens: streamed.usage.outputTokens, status: 'COMPLETED',
-          realCostUsd: streamed.usage.costUsd })
+          realCostUsd: streamed.usage.costUsd + extraCostUsd })
         // Activity log for tracking
         try {
           await prisma.activityLog.create({
@@ -1448,6 +1509,12 @@ export async function POST(req: NextRequest) {
       send({ type: 'error', error: String(e) })
       // สำคัญ: อย่าปล่อยบทความค้างสถานะ WRITING ใน DB — client จะได้รู้ว่าพังและสั่งเขียนใหม่ได้
       if (orgId && projectId) {
+        await markPromise.catch(() => {})
+        const prior = priorPushed as { id: string; status: string } | null
+        if (prior) {
+          // แถวที่ push แล้ว: คืนสถานะเดิม (เนื้อหาเดิมยังอยู่ ไม่ถูกแตะ)
+          await prisma.article.updateMany({ where: { id: prior.id, status: 'WRITING' }, data: { status: prior.status } }).catch(() => {})
+        }
         prisma.article.updateMany({
           where: { projectId, title, status: 'WRITING', project: { organizationId: orgId } },
           data: { status: 'ERROR' },

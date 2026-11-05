@@ -16,6 +16,43 @@ const BROWSER_HEADERS: Record<string, string> = {
   'Accept-Language': 'th-TH,th;q=0.9,en;q=0.8',
 }
 
+/** พอร์ตที่ยอมให้ยิง — ว่าง (ค่าเริ่มต้น) / 80 / 443 เท่านั้น กันใช้เซิร์ฟเวอร์สแกนพอร์ตภายในแบบมองไม่เห็น */
+export function portAllowed(u: URL, https = false): boolean {
+  if (u.port === '') return true
+  return https ? u.port === '443' : u.port === '80' || u.port === '443'
+}
+
+/** อ่าน body ทีละก้อน หยุดและยกเลิกการโหลดเมื่อถึงเพดาน (ตัดเหลือ max ไบต์ ไม่ throw) */
+export async function readCapped(res: Response, max: number): Promise<Uint8Array> {
+  if (!res.body) {
+    const buf = new Uint8Array(await res.arrayBuffer())
+    return buf.byteLength > max ? buf.subarray(0, max) : buf
+  }
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const room = max - size
+    if (value.byteLength >= room) {
+      chunks.push(value.subarray(0, room))
+      size += room
+      await reader.cancel().catch(() => {})
+      break
+    }
+    chunks.push(value)
+    size += value.byteLength
+  }
+  const out = new Uint8Array(size)
+  let at = 0
+  for (const c of chunks) {
+    out.set(c, at)
+    at += c.byteLength
+  }
+  return out
+}
+
 /** ตรวจ URL เว็บ WordPress ก่อนส่งรหัสผ่านไป — คืนข้อความ error ภาษาไทย หรือ null ถ้าผ่าน */
 export async function checkCredentialUrl(url: string): Promise<string | null> {
   let u: URL
@@ -39,7 +76,7 @@ export async function checkCredentialUrl(url: string): Promise<string | null> {
 export async function safeFetch(
   url: string,
   init: RequestInit = {},
-  opts: { requireHttps?: boolean; sameHostOnly?: boolean } = {},
+  opts: { requireHttps?: boolean; sameHostOnly?: boolean; strictPorts?: boolean } = {},
 ): Promise<Response> {
   let current = url
   const firstHost = new URL(url).host
@@ -48,10 +85,12 @@ export async function safeFetch(
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
     const u = new URL(current)
     if (opts.requireHttps && u.protocol !== 'https:') throw new Error('ถูกพาไปที่ URL ที่ไม่ใช่ https')
+    // strictPorts = ทุก hop ต้องเป็นพอร์ต 443 (ใช้กับ font-proxy)
+    if (opts.strictPorts && !portAllowed(u, true)) throw new Error('พอร์ตนี้ยิงไม่ได้')
     if (opts.sameHostOnly && u.host !== firstHost) throw new Error(`เว็บรีไดเรกต์ไปโดเมนอื่น (${u.host})`)
     const guard = await assertCrawlable(current)
     if (!guard.ok) throw new Error(`ยิงไปปลายทางนี้ไม่ได้ (${guard.reason})`)
-    const res = await fetch(current, { ...init, method, body, redirect: 'manual' })
+    const res = await fetch(current, { cache: 'no-store', ...init, method, body, redirect: 'manual' })
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location')
       if (!loc) return res
@@ -83,10 +122,15 @@ const EMPTY: SafeFetchResult = { ok: false, status: 0, html: '', finalUrl: '', b
 export async function safeFetchHtml(url: string): Promise<SafeFetchResult> {
   try {
     let current = url
+    // เริ่มที่ https แล้ว redirect ห้ามถอยไป http · พอร์ตต้อง 80/443 ทุก hop
+    const startHttps = new URL(url).protocol === 'https:'
     for (let hop = 0; hop <= MAX_HOPS; hop++) {
+      const cu = new URL(current)
+      if (startHttps && cu.protocol !== 'https:') return { ...EMPTY, finalUrl: current, blocked: true, error: 'blocked: redirect to http' }
+      if (!portAllowed(cu, startHttps)) return { ...EMPTY, finalUrl: current, blocked: true, error: 'blocked: port not allowed' }
       const guard = await assertCrawlable(current)
       if (!guard.ok) return { ...EMPTY, finalUrl: current, blocked: true, error: `blocked: ${guard.reason}` }
-      const res = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS), headers: BROWSER_HEADERS })
+      const res = await fetch(current, { cache: 'no-store', redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS), headers: BROWSER_HEADERS })
       if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
         current = new URL(res.headers.get('location') as string, current).toString()
         continue
@@ -98,8 +142,7 @@ export async function safeFetchHtml(url: string): Promise<SafeFetchResult> {
       if (ctype && !/text\/|application\/(?:xhtml|json|xml)|\+json|\+xml/i.test(ctype)) {
         return { ...EMPTY, status, finalUrl: current, error: `content-type ${ctype.split(';')[0]}` }
       }
-      const buf = await res.arrayBuffer()
-      const sliced = buf.byteLength > MAX_BYTES ? buf.slice(0, MAX_BYTES) : buf
+      const sliced = await readCapped(res, MAX_BYTES)
       return { ok: true, status, html: new TextDecoder('utf-8', { fatal: false }).decode(sliced), finalUrl: current, blocked: false, error: null }
     }
     return { ...EMPTY, finalUrl: current, error: 'too many redirects' }

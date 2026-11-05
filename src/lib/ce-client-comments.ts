@@ -18,7 +18,7 @@ import {
 export const CE_CLIENT_COMMENTS = "CE_CLIENT_COMMENTS";
 
 /** งบตัวอักษรที่ส่งเข้าตัวเขียน — หน้า settings แสดงเลขนี้ให้ทีมเห็น */
-export const CLIENT_COMMENT_BUDGET = { text: 8_000, files: 8_000 };
+export const CLIENT_COMMENT_BUDGET = { text: 8_000, files: 16_000 };
 
 export interface ClientComment {
   id: string;
@@ -69,7 +69,7 @@ export function parseClientComments(raw: string | null | undefined): ClientComme
   };
 }
 
-function activeComments(data: ClientCommentsData): ClientComment[] {
+export function activeComments(data: ClientCommentsData): ClientComment[] {
   return data.comments.filter((c) => c.enabled && c.text.trim());
 }
 
@@ -94,24 +94,33 @@ function commentsText(data: ClientCommentsData): string {
   return out.join("\n");
 }
 
-/** ไฟล์สั้นส่งครบ · ไฟล์ยาวเลือกส่วนที่ตรงหัวข้อ ไม่เจอเลยส่งจากต้นไฟล์ */
+/** งบรวมกัน: ไฟล์สั้นเอาเท่าที่ใช้ ที่เหลือแบ่งให้ไฟล์ยาว · ไฟล์ยาวเลือกส่วนที่ตรงหัวข้อ ไม่เจอเลยส่งจากต้นไฟล์ */
 function commentFileText(files: RestrictionFile[], query: string): string {
   if (!files.length) return "";
-  const per = Math.floor(CLIENT_COMMENT_BUDGET.files / files.length);
-  return files
-    .map((f) => {
-      const text = f.text.trim();
-      if (text.length <= per) return `[${f.name}]\n${text}`;
-      const all = filesToChunks([f]);
-      let chunks = pickRelevantChunks(all, query, per);
-      if (!chunks.length) {
-        let used = 0;
-        chunks = all.filter((c) => (used += c.text.length) <= per);
-      }
-      return chunks.length ? `[${f.name}]\n${chunks.map((c) => c.text).join("\n\n")}` : "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
+  const out: string[] = files.map(() => "");
+  const shortFirst = files
+    .map((f, index) => ({ f, index, text: f.text.trim() }))
+    .sort((a, b) => a.text.length - b.text.length);
+  let left = CLIENT_COMMENT_BUDGET.files;
+  shortFirst.forEach(({ f, index, text }, n) => {
+    const per = Math.floor(left / (shortFirst.length - n));
+    if (text.length <= per) {
+      out[index] = `[${f.name}]\n${text}`;
+      left -= text.length;
+      return;
+    }
+    const all = filesToChunks([f]);
+    let chunks = pickRelevantChunks(all, query, per);
+    if (!chunks.length) {
+      let used = 0;
+      chunks = all.filter((c) => (used += c.text.length) <= per);
+    }
+    if (!chunks.length) return;
+    const body = chunks.map((c) => c.text).join("\n\n");
+    out[index] = `[${f.name}]\n${body}`;
+    left = Math.max(0, left - body.length);
+  });
+  return out.filter(Boolean).join("\n\n");
 }
 
 export function buildClientCommentsBlock(ctx: ClientCommentsContext | null | undefined, topic: RestrictionsTopic): string {
@@ -122,8 +131,10 @@ export function buildClientCommentsBlock(ctx: ClientCommentsContext | null | und
   return [
     "## Comment จากลูกค้า — ต้องปรับบทความให้ตรงทุกข้อ",
     "สิ่งที่ลูกค้าติหรือขอให้ปรับ บทความนี้ต้องไม่มีปัญหาแบบเดียวกัน",
+    "- เรื่องมุมมอง น้ำเสียง และสิ่งที่ต้องเน้น Comment ชนะ Master Prompt, Article Brief, Intent Skill, Human Voice และโครงสร้างบทความ แต่รูปแบบ output ยังต้องตามที่กำหนด",
     "- ถ้า Comment ขัดกับข้อจำกัด คำต้องห้าม หรือกฎ ให้ยึดข้อจำกัด และเขียนให้ตรง Comment เท่าที่ข้อจำกัดอนุญาต",
-    "- ห้ามแต่งข้อมูล ตัวเลข งานวิจัย หรือคำกล่าวอ้างเพื่อทำตาม Comment",
+    "- ข้อมูลจริงที่ลูกค้าให้ไว้ใน Comment เป็นแหล่งข้อมูลที่ใช้ได้ และต้องนำมาใช้เมื่อบทความเกี่ยวข้อง ยกเว้นส่วนที่ Comment บอกว่าพูดไม่ได้",
+    "- ห้ามแต่งข้อมูล ตัวเลข งานวิจัย หรือคำกล่าวอ้างที่ไม่มีใน Comment หรือข้อจำกัด เพื่อทำตาม Comment",
     "- ห้ามเอ่ยถึง Comment ในบทความ",
     "- ส่วนที่ Comment บอกว่าพูดไม่ได้ ไม่เปิดเผย หรือให้อ่านประกอบ ใช้เพื่อความเข้าใจเท่านั้น ห้ามเขียนลงบทความ",
     "- Comment ที่ระบุบทความหรือหัวข้อเฉพาะ ใช้เมื่อบทความนี้เป็นเรื่องเดียวกันเท่านั้น ส่วน Comment ทั่วไปใช้ทุกบทความ",

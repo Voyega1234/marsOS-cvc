@@ -58,6 +58,23 @@ export function mergeUploadThemeIntoThemeColors(themeColorsRaw: string | null | 
   return JSON.stringify(tc)
 }
 
+/** sanitize คีย์ธีม (สี/ฟอนต์/detail) ใน themeColors ที่ส่งมา — key อื่นคงเดิม ใช้ร่วมกันทุก route ที่รับ themeColors */
+export function sanitizeIncomingThemeColors(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return raw
+    const t = projectThemeToUpload(raw, null)
+    const next = JSON.parse(mergeUploadThemeIntoThemeColors(raw, t)) as Record<string, unknown>
+    // คีย์ที่ผู้ใช้ไม่ได้ส่งมา ไม่ต้องเติมค่า default ลง DB
+    for (const k of ['theme', 'text', 'border', 'accent', 'background', 'styleMode', 'pageBackground', 'fontFamily', 'headingFont', 'detail']) {
+      if (!(k in parsed)) delete next[k]
+    }
+    return JSON.stringify(next)
+  } catch {
+    return raw
+  }
+}
+
 /** ตัวเลือก cta ของ buildArticleCss จาก Project.ctaSetting (ไม่สน enabled — เหมือนไฟล์ CSS กลาง) */
 export function projectCtaForCss(ctaSettingRaw: string | null | undefined): ArticleCssOptions['cta'] {
   try {

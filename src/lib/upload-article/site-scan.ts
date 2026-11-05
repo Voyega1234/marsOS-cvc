@@ -14,6 +14,9 @@ import type { ORUsage } from '@/lib/openrouter'
 import { safeColor, sanitizeThemeDetail } from './theme-css'
 import { detectSeoPluginsFromHtml, detectSeoPluginsFromNamespaces, seoPluginLabel, seoPluginNote, type SeoPluginKey } from './seo-plugins'
 import { contrast, CssCascade, luminance, mediaApplies, openChainAt, parseCssRules, parseOpenTag, toHex, type CssEl, type CssRule } from './css-cascade'
+import { absolutizeFontUrls, scanArticleStructure, scanArticleStyle } from './article-style-scan'
+import { findMissingFontFaces } from './font-lookup'
+import { articleFontStacks, primaryFontFamilies } from './font-faces'
 import { SITE_TOC_ID_TOKEN, UPLOAD_LAYOUT_LABEL } from './types'
 import { TOC_POSITION_MAX, describeTocPosition, detectTocPosition, majorityTocPosition } from './toc-position'
 import type {
@@ -178,6 +181,29 @@ const CONTENT_CLASSES = [
   'the-content',
 ]
 
+// class ของ page builder/แพลตฟอร์มอื่น — บางชื่อกว้าง จึงนับเฉพาะกล่องที่มีย่อหน้าจริง
+const BUILDER_CONTENT_CLASSES = [
+  'td-post-content', // Newspaper
+  'brxe-post-content', // Bricks
+  'bde-post-content', // Breakdance
+  'et_pb_post_content', // Divi
+  'fl-post-content', // Beaver Builder
+  'mk-single-content', // Jupiter
+  'w-richtext', // Webflow
+  'gh-content', // Ghost
+  'article-template__content', // Shopify Dawn
+  'article__content',
+  'blog-item-content', // Squarespace
+  'blog-post-content',
+  'post-body', // HubSpot, Blogger
+  'post_content',
+  'article-body',
+  'article__body',
+  'prose', // Tailwind typography
+  'rte', // Shopify
+]
+const MIN_REGION_PARAGRAPHS = 3
+
 interface ContentRegion {
   start: number
   end: number
@@ -197,6 +223,16 @@ function postContentRegion(page: string): ContentRegion | null {
     if (end === -1) continue
     return { start: m.index, end, openTag: m[0], html: page.slice(m.index, end) }
   }
+  for (const cls of BUILDER_CONTENT_CLASSES) {
+    const re = new RegExp(`<([a-z][\\w-]*)\\b[^>]*\\sclass=["'][^"']*(?<![\\w-])${cls}(?![\\w-])[^"']*["'][^>]*>`, 'gi')
+    re.lastIndex = b
+    for (let m = re.exec(page); m; m = re.exec(page)) {
+      const end = balancedEnd(page, m.index, m[1].toLowerCase())
+      if (end === -1) continue
+      const html = page.slice(m.index, end)
+      if ((html.match(/<p[\s>]/gi) || []).length >= MIN_REGION_PARAGRAPHS) return { start: m.index, end, openTag: m[0], html }
+    }
+  }
   const i = page.search(/<article\b/i)
   if (i !== -1) {
     const e = balancedEnd(page, i, 'article')
@@ -205,7 +241,101 @@ function postContentRegion(page: string): ContentRegion | null {
       return { start: i, end: e, openTag, html: page.slice(i, e) }
     }
   }
-  return null
+  return densestParagraphRegion(page, b)
+}
+
+const ARTICLE_PATH_RE = /\/(?:blogs?|posts?|news|articles?|read|insights?|stories|story|learn|guides?|resources)\/[^/]+|\/\d{4}\/\d{1,2}\//i
+
+/** ลิงก์ในหน้าแรกที่น่าจะเป็นบทความ: อยู่ใต้ path ที่สแกน > URL แบบบทความ > อยู่ใน <article> > ที่เหลือตามลำดับเดิม */
+export function rankArticleLinks(home: string, base: string, host: string): string[] {
+  const basePath = (() => {
+    try { return new URL(base).pathname.replace(/\/$/, '') } catch { return '' }
+  })()
+  const inArticle = new Set<string>()
+  const toUrl = (href: string): string | null => {
+    try {
+      const url = new URL(href.replace(/&amp;/g, '&'), base)
+      if (url.host !== host || !/^https?:$/.test(url.protocol)) return null
+      if (url.pathname.length <= 12 || /\/(category|tag|author|page|about|contact|privacy|terms|shop|cart|login|wp-)/i.test(url.pathname)) return null
+      if (/categor|\/cdn-cgi\//i.test(url.pathname) || /\.(?:css|js|png|jpe?g|gif|webp|svg|pdf|xml)$/i.test(url.pathname)) return null
+      return `${url.origin}${url.pathname.replace(/\/$/, '')}`
+    } catch {
+      return null
+    }
+  }
+  const hrefs = (html: string) => Array.from(html.matchAll(/<a\b[^>]*\shref=["']([^"'#?]+)/gi), (m) => toUrl(m[1])).filter((u): u is string => !!u)
+  for (const block of Array.from(home.matchAll(/<article\b[\s\S]*?<\/article>/gi))) hrefs(block[0]).forEach((u) => inArticle.add(u))
+  const score = (u: string) => {
+    const path = new URL(u).pathname
+    if (basePath && path.startsWith(`${basePath}/`)) return 3
+    if (ARTICLE_PATH_RE.test(path)) return 2
+    return inArticle.has(u) ? 1 : 0
+  }
+  return uniq(hrefs(home))
+    .map((u, i) => ({ u, i, s: score(u) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map((x) => x.u)
+}
+
+/** กล่องเนื้อหามีย่อหน้ายาวพอจะเป็นบทความ — หน้าสินค้า/หน้ารวมโพสต์ไม่ผ่าน */
+export function looksLikeArticle(page: string | null | undefined): boolean {
+  const region = page ? postContentRegion(page) : null
+  if (!region) return false
+  const paragraphs = Array.from(region.html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi), (m) => m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean)
+  return paragraphs.length >= MIN_REGION_PARAGRAPHS && paragraphs.join('').length >= 400
+}
+
+const VOID_TAGS = /^(?:area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i
+
+/** ไม่รู้จัก class เลย: กล่องที่มี <p> เป็นลูกตรงมากสุด คือเนื้อบทความของ builder ที่ระบบยังไม่เคยเจอ */
+function densestParagraphRegion(page: string, from: number): ContentRegion | null {
+  const clean = page.replace(/<(script|style|noscript|svg|template)\b[\s\S]*?<\/\1>/gi, (all) => ' '.repeat(all.length))
+  const stack: Array<{ tag: string; start: number; openTag: string; paragraphs: number }> = []
+  let best: { tag: string; start: number; openTag: string; paragraphs: number } | null = null
+  const re = /<(\/?)([a-z][\w-]*)\b[^>]*?(\/?)>/gi
+  re.lastIndex = from
+  for (let m = re.exec(clean); m; m = re.exec(clean)) {
+    const tag = m[2].toLowerCase()
+    if (m[1]) {
+      let at = stack.length - 1
+      while (at >= 0 && stack[at].tag !== tag) at--
+      if (at >= 0) stack.length = at
+      continue
+    }
+    if (m[3] || VOID_TAGS.test(tag)) continue
+    if (tag === 'p') {
+      // <p> ที่ไม่ปิดเอง — แท็กใหม่แทนที่ตัวเดิม ไม่ซ้อนกัน
+      if (stack[stack.length - 1]?.tag === 'p') stack.pop()
+      const parent = stack[stack.length - 1]
+      if (parent) {
+        parent.paragraphs++
+        if (!best || parent.paragraphs > best.paragraphs) best = parent
+      }
+    }
+    if (/^(?:header|footer|nav|aside)$/.test(tag)) {
+      // เมนู/ท้ายเว็บไม่ใช่เนื้อบทความ ข้ามทั้งก้อน
+      const skip = balancedEnd(clean, m.index, tag)
+      if (skip !== -1) re.lastIndex = skip
+      continue
+    }
+    stack.push({ tag, start: m.index, openTag: m[0], paragraphs: 0 })
+  }
+  if (!best || best.paragraphs < MIN_REGION_PARAGRAPHS || best.tag === 'body') return null
+  const end = balancedEnd(page, best.start, best.tag)
+  if (end === -1) return null
+  return { start: best.start, end, openTag: best.openTag, html: page.slice(best.start, end) }
+}
+
+/**
+ * แยก "เนื้อบทความของหน้านี้หน้าเดียว" จากหน้าโพสต์ที่ render จริง (ไม่รวมเมนู/ท้ายเว็บ/บทความที่เกี่ยวข้อง)
+ * คืน HTML ของกล่องเนื้อหา + H1 ของหน้า (ถ้า H1 อยู่นอกกล่อง) — ไม่เจอกล่องเนื้อหาคืน null
+ */
+export function extractPostBodyHtml(page: string): string | null {
+  const region = postContentRegion(page)
+  if (!region) return null
+  const h1 = /<h1\b[^>]*>[\s\S]*?<\/h1>/i.exec(page)?.[0] ?? ''
+  const h1InRegion = /<h1\b/i.test(region.html)
+  return h1 && !h1InRegion ? `${h1}\n${region.html}` : region.html
 }
 
 /** ตัด element ที่แท็กเปิดตรง re ออกทั้งก้อน (นับซ้อน) */
@@ -633,7 +763,7 @@ async function collectCss(page: string, base: string): Promise<string> {
     const media = /\smedia=["']([^"']*)["']/i.exec(/^<[^>]*>/.exec(m[0])?.[0] || '')?.[1]
     if (media && !mediaApplies(media)) continue
     if (m[1] !== undefined) {
-      parts.push({ css: m[1] })
+      parts.push({ css: absolutizeFontUrls(m[1], base) })
       continue
     }
     const tag = m[0]
@@ -655,7 +785,7 @@ async function collectCss(page: string, base: string): Promise<string> {
   }
   const files = new Map<string, string>()
   await Promise.all(hrefs.map((h) => fetchText(h).then((t) => files.set(h, (t || '').slice(0, 800_000)))))
-  return parts.map((p) => (p.css !== undefined ? p.css : files.get(p.href as string) || '')).join('\n')
+  return parts.map((p) => (p.css !== undefined ? p.css : absolutizeFontUrls(files.get(p.href as string) || '', p.href as string))).join('\n')
 }
 
 /** URL ที่มีภาษาไทย/อีโมจิแบบ %xx → อ่านออก (ใช้แสดงผลเท่านั้น) */
@@ -684,6 +814,8 @@ export interface ComputedArticleStyle {
   background: string
   /** สีพื้นที่ผู้อ่านเห็นหลังตัวอักษรจริง (พื้นบทความ หรือพื้นของ section/หน้าเว็บด้านหลังถ้าบทความโปร่งใส) */
   backdrop: string
+  /** พื้นด้านนอกกล่องเนื้อหา (สิ่งที่เห็นรอบกล่องบทความ) — กล่องมีพื้นของตัวเองค่านี้ต่างจาก backdrop */
+  outerBackdrop: string | null
   bodyFont: string | null
   headingFont: string | null
   /** element ที่ใช้คำนวณ (ไว้แสดงเป็นหลักฐาน) */
@@ -765,16 +897,15 @@ function computeArticleStyle(page: string, rules: CssRule[]): ComputedArticleSty
       break
     }
   }
-  let backdrop = background
-  if (!backdrop) {
-    for (let i = contentDepth - 1; i >= 0; i--) {
-      const bg = cascade.background(pChain.slice(0, i + 1))
-      if (bg) {
-        backdrop = bg
-        break
-      }
+  let outerBackdrop: string | null = null
+  for (let i = contentDepth - 1; i >= 0; i--) {
+    const bg = cascade.background(pChain.slice(0, i + 1))
+    if (bg) {
+      outerBackdrop = bg
+      break
     }
   }
+  const backdrop = background || outerBackdrop
 
   return {
     text: color(pChain),
@@ -782,6 +913,7 @@ function computeArticleStyle(page: string, rules: CssRule[]): ComputedArticleSty
     link: linkColor(),
     background,
     backdrop: backdrop || '#ffffff',
+    outerBackdrop,
     bodyFont: font(pChain),
     headingFont: font(hChain),
     sampled: [describe(contentChain[contentChain.length - 1]), describe(pChain[pChain.length - 1]), describe(hChain[hChain.length - 1]), describe(aChain[aChain.length - 1])],
@@ -859,7 +991,7 @@ function resolveVars(body: string, vars: Map<string, string>): string {
   return out
 }
 
-const CONTENT_SEL = /(?:entry-content|post-content|single-content|article-content|the-content|elementor-widget-theme-post-content|wp-block-post-content|\barticle)[^,{]*\b(?:h2|h3|a|table|th|td|p|blockquote)\b|^(?:body|h2|h3|a|table|th|td)$/i
+const CONTENT_SEL = /(?:entry-content|post-content|single-content|article-content|the-content|elementor-widget-theme-post-content|wp-block-post-content|et_pb_post_content|w-richtext|gh-content|article-template__content|article__content|blog-item-content|post-body|post_content|article-body|article__body|\.prose\b|\.rte\b|\barticle)[^,{]*\b(?:h2|h3|a|table|th|td|p|blockquote)\b|^(?:body|h2|h3|a|table|th|td)$/i
 
 function cssVars(rules: CssRule[]): Map<string, string> {
   const vars = new Map<string, string>()
@@ -996,7 +1128,7 @@ async function analyzeStyle(input: {
     `## CSS ธีมสำหรับเนื้อหาบทความ (ค่าตั้งต้น — ใช้เมื่อ CSS ที่บทความฝังมาไม่ได้กำหนด)\n${input.contentCss || '(ไม่มี)'}`,
     ...(input.contentClassCss ? [`## CSS ของกล่องที่ใช้ในเนื้อบทความ (เช่นกล่อง CTA ที่ผู้เขียนเขียนเอง — ใช้เป็นแนวทางสี/มุมโค้งของกล่อง)\n${input.contentClassCss}`] : []),
   ].join('\n\n')
-  const r = await askJson<AiStyle>({ trace: 'uploadSiteScanStyle', system: buildSystem(input.cms || 'WordPress'), user, maxTokens: 1500, temperature: 0.1, timeoutMs: 90_000 })
+  const r = await askJson<AiStyle>({ trace: 'uploadSiteScanStyle', system: buildSystem(input.cms || 'WordPress'), user, maxTokens: 4000, temperature: 0.1, timeoutMs: 90_000 })
   return { data: r.data, usage: r.usage, error: r.error }
 }
 
@@ -1320,16 +1452,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
 
   if (!posts.length && home) {
     const host = new URL(homeRes.finalUrl || target).host
-    const links = uniq(Array.from(home.matchAll(/<a[^>]+href="(https?:\/\/[^"#?]+)"/gi), (m) => m[1].replace(/\/$/, '')))
-      .filter((u) => {
-        try {
-          const url = new URL(u)
-          return url.host === host && url.pathname.length > 12 && !/\/(category|tag|author|page|about|contact|privacy|terms|shop|cart|login|wp-)/i.test(url.pathname)
-        } catch {
-          return false
-        }
-      })
-      .slice(0, 3)
+    const links = rankArticleLinks(home, homeRes.finalUrl || target, host).slice(0, 3)
     for (const link of links) posts.push({ link, content: null, page: null })
     if (!links.length) warnings.push('หาลิงก์บทความในหน้าแรกไม่เจอ — ใส่ลิงก์บทความตัวอย่างเพื่อสแกนละเอียดขึ้น')
   }
@@ -1453,19 +1576,22 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
     const f = extractFaqSnippet([home])
     if (f) snippet = { ...f, pageIndex: -1 }
   }
-  const cssEntry =
+  const firstEntry =
     sampleEntry ||
     (snippet && snippet.pageIndex >= 0 ? postEntries[snippet.pageIndex] : null) ||
     postEntries.find((p) => bodyStyleCss(p.page).trim()) ||
     postEntries[0] ||
     null
+  // ลิงก์ที่ทีมใส่เองใช้ตามนั้น นอกนั้นต้องเป็นหน้าบทความจริง ไม่ใช่หน้าสินค้าหรือหน้ารวมโพสต์
+  const cssEntry = sampleEntry || (looksLikeArticle(firstEntry?.page) ? firstEntry : postEntries.find((p) => looksLikeArticle(p.page))) || firstEntry
   const cssPage = cssEntry?.page || home
   let suggestedTheme: Partial<UploadTheme> | null = null
   let detail: UploadThemeDetail | null = null
   let usage: ORUsage | null = null
   let faqSummary = ''
   if (cssPage) {
-    const themeRules = parseRules(await collectCss(cssPage, cssEntry?.link || target))
+    const rawCss = await collectCss(cssPage, cssEntry?.link || target)
+    const themeRules = parseRules(rawCss)
     const articleCss = articleOwnCss(parseRules(bodyStyleCss(cssPage)), themeRules)
     const { faqCss, contentCss } = relevantCss(themeRules, snippet ? classTokens(snippet.html) : [], snippet ? faqTags(snippet.html) : [])
     const region = postContentRegion(cssPage)
@@ -1474,7 +1600,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
     if (articleCss) checked.push('CSS ที่บทความฝังมาเอง')
     if (computed) {
       checked.push(
-        `คำนวณสีจาก CSS จริงของ ${readableUrl(cssEntry?.link || target)}: ตัวอักษร ${computed.text || '-'}, หัวข้อ ${computed.heading || '-'}, ลิงก์ ${computed.link || '-'}, พื้นหลัง${computed.background ? ` ${computed.background}` : 'โปร่งใส'} (พื้นหน้าเว็บด้านหลัง ${computed.backdrop})`,
+        `คำนวณสีจาก CSS จริงของ ${readableUrl(cssEntry?.link || target)}: ตัวอักษร ${computed.text || '-'}, หัวข้อ ${computed.heading || '-'}, ลิงก์ ${computed.link || '-'}, พื้นหลัง${computed.background ? ` ${computed.background}` : 'โปร่งใส'} (พื้นหน้าเว็บด้านหลัง ${computed.outerBackdrop || computed.backdrop})`,
       )
     } else {
       warnings.push('หากล่องเนื้อหาบทความในหน้าไม่เจอ — สีมาจากการวิเคราะห์ CSS โดย AI อย่างเดียว ควรเช็คสีอีกครั้ง')
@@ -1535,13 +1661,55 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
       if (computed.heading) t.theme = computed.heading
       if (computed.link) t.accent = computed.link
       t.background = computed.background && computed.background !== '#ffffff' ? computed.background : ''
-      t.pageBackground = computed.backdrop
+      // กล่องบทความมีพื้นของตัวเอง = พื้นหน้าเว็บคือสิ่งที่เห็นรอบกล่อง ไม่ใช่สีกล่อง
+      t.pageBackground = computed.outerBackdrop || computed.backdrop
       const bodyFont = safeFont(computed.bodyFont)
       const headingFont = safeFont(computed.headingFont)
       if (bodyFont) t.fontFamily = bodyFont
       if (headingFont && headingFont !== bodyFont) t.headingFont = headingFont
       else if (headingFont === bodyFont) delete t.headingFont
       if (detail) detail = sanitizeThemeDetail(fitDetailToBackdrop(detail, computed)) || null
+    }
+    // หน้าตาละเอียดและโครงบทความวัดจากของจริง ไม่ใช้ AI — AI ล้มก็ยังได้ค่าชุดนี้
+    const canReadArticle = region && (sampleEntry || looksLikeArticle(cssPage))
+    const article = canReadArticle ? scanArticleStyle({ page: cssPage, region, rules: themeRules, rawCss, sourceUrl: cssEntry?.link, pageBackground: computed?.outerBackdrop || computed?.backdrop }) : null
+    if (!article) warnings.push('ยังอ่านหน้าตาบทความไม่ได้ เพราะหน้าที่เปิดได้ไม่ใช่หน้าบทความ — ใส่ลิงก์บทความตัวอย่างแล้วสแกนใหม่ เพื่อให้ได้ฟอนต์ ขนาด และกรอบตรงกับเว็บ')
+    // ฟอนต์ที่เว็บไม่ได้ประกาศไฟล์ใน CSS ที่อ่านได้ (Google Fonts, @import) — หาไฟล์ให้พรีวิว ไม่ใช้ AI
+    if (article) {
+      const fonts = await findMissingFontFaces({ article, page: cssPage, rawCss, fetchCss: fetchText })
+      article.fontFaces = fonts.faces
+      // เตือนเฉพาะตัวหลักของแต่ละ stack ตัวสำรองท้าย stack หาไม่เจอเป็นเรื่องปกติ
+      const primary = new Set(primaryFontFamilies(articleFontStacks(article)).map((n) => n.toLowerCase()))
+      const missing = fonts.missing.filter((n) => primary.has(n.toLowerCase()))
+      if (missing.length) {
+        warnings.push(`หาไฟล์ฟอนต์ไม่เจอ: ${missing.join(', ')} — บนเว็บจริงยังแสดงถูก แต่พรีวิวในระบบจะใช้ตัวสำรอง วางลิงก์ไฟล์ได้ที่ส่วนฟอนต์ของบทความ`)
+      }
+    }
+    const toc = components.toc
+    const scanned = scanArticleStructure(
+      posts.map(postAuthorContent).filter((h): h is string => !!h),
+      toc.postsChecked > 0 ? toc.where !== null : null,
+    )
+    if (article || scanned) {
+      detail = sanitizeThemeDetail({
+        ...(detail || { source: `ภาษาออกแบบบทความของ ${target}` }),
+        ...(article ? { article } : {}),
+        ...(scanned ? { structure: scanned.structure, references: scanned.references } : {}),
+        // เว็บเขียน FAQ เป็นหัวข้อกับย่อหน้าธรรมดา — ใช้แบบเปิดตลอด ไม่มีกรอบ
+        ...(scanned?.structure.faqPlain ? { faq: { ...(detail?.faq || {}), display: 'open', layout: 'plain' } } : {}),
+      }) || null
+    }
+    if (article) {
+      const fonts = article.fontFaces?.length || 0
+      checked.push(
+        `วัดหน้าตาบทความจาก CSS จริง: ย่อหน้า ${article.p?.fontSize || '-'} / หัวข้อ H2 ${article.h2?.fontSize || '-'} / H3 ${article.h3?.fontSize || '-'}${article.h3?.ornament ? ' + เส้นเหนือหัวข้อ' : ''}${article.ul?.borderWidth && article.ul.borderWidth !== '0' ? ' + กรอบรายการ' : ''}, ไฟล์ฟอนต์ ${fonts} ไฟล์`,
+      )
+    }
+    if (scanned) {
+      const st = scanned.structure
+      checked.push(
+        `โครงบทความจาก ${st.posts} บทความ: สารบัญ${st.toc === undefined ? 'ตรวจไม่ได้' : st.toc ? 'มี' : 'ไม่มี'}, กล่องสรุป${st.takeaways ? 'มี' : 'ไม่มี'}, FAQ ${st.faqPlain ? 'แบบเปิดตลอด' : 'ตามที่สแกน'}, อ้างอิง${st.references ? ` มี (${scanned.references.length} รายการ)` : 'ไม่มี'}`,
+      )
     }
     suggestedTheme = Object.keys(t).length ? t : null
   }

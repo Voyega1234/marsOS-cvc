@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { freshRewriteShadow, rewriteBackupName } from '@/lib/upload-article/rewrite-lock'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { refreshUploadSchema, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { stripGoogleDocsCommentsHtml, sanitizeHref } from '@/lib/upload-article/clean-html'
@@ -46,6 +47,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
   const orgId = session.user.organizationId
   const existing = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: orgId } })
   if (!existing) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+
+  // กำลังถูก AI เขียนใหม่ — ห้ามแก้ระหว่างนั้น (ผลเขียนใหม่จะทับ)
+  if (await freshRewriteShadow(existing.id, orgId)) {
+    return NextResponse.json({ error: 'บทความนี้กำลังถูก AI เขียนใหม่ — รอให้เสร็จก่อนแล้วค่อยแก้' }, { status: 409 })
+  }
 
   const rawBody = await req.text()
   if (Buffer.byteLength(rawBody, 'utf-8') > MAX_BODY_BYTES) {
@@ -130,7 +136,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { articleId:
     }
   }
 
-  const updated = await prisma.uploadArticle.update({ where: { id: existing.id }, data })
+  // client ส่ง expectedUpdatedAt มา = บันทึกเฉพาะเมื่อแถวไม่ถูกแก้ตั้งแต่โหลด (กันแท็บเก่าทับผลเขียนใหม่) — ไม่ส่ง = แบบเดิม
+  const expectedAt = typeof body.expectedUpdatedAt === 'string' ? new Date(body.expectedUpdatedAt) : null
+  const guarded = !!expectedAt && !Number.isNaN(expectedAt.getTime()) && ('htmlContent' in data || 'sourceHtml' in data)
+  const staleMsg = 'บทความถูกแก้ไปแล้วจากที่อื่น (หรือ AI เพิ่งเขียนใหม่) — โหลดบทความใหม่ก่อนแล้วค่อยบันทึก'
+  if (guarded && existing.updatedAt.getTime() !== expectedAt!.getTime()) {
+    return NextResponse.json({ error: staleMsg }, { status: 409 })
+  }
+  let updated
+  if (guarded) {
+    const w = await prisma.uploadArticle.updateMany({ where: { id: existing.id, updatedAt: existing.updatedAt }, data })
+    if (w.count === 0) return NextResponse.json({ error: staleMsg }, { status: 409 })
+    updated = await prisma.uploadArticle.findUniqueOrThrow({ where: { id: existing.id } })
+  } else {
+    updated = await prisma.uploadArticle.update({ where: { id: existing.id }, data })
+  }
   // ตัด sourceHtml ออกจาก response ของ PATCH (ไม่มีหน้าไหนใช้ค่านี้จากผลลัพธ์ PATCH โดยตรง — ลดขนาด response
   // กัน 4.5MB ของ Vercel เวลาบันทึก htmlContent/coverImageUrl ก้อนใหญ่) ฝั่ง client merge แบบ spread จึงคงค่าที่มีอยู่เดิมไว้
   const dto = toUploadArticleDTO(updated, true)
@@ -150,6 +170,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
   const existing = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: session.user.organizationId } })
   if (!existing) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
 
+  // กำลังถูก AI เขียนใหม่ — ลบไม่ได้ (ผลเขียนใหม่จะไปสลับเข้าแถวที่หายไป) แถวเงาที่ค้างเก่าไม่นับ ลบทิ้งด้านล่าง
+  if (await freshRewriteShadow(existing.id, session.user.organizationId)) {
+    return NextResponse.json({ error: 'บทความนี้กำลังถูก AI เขียนใหม่ — รอให้เสร็จก่อนแล้วค่อยลบ' }, { status: 409 })
+  }
+
   if (isArticlePushed(existing)) {
     // PBN ที่ push แล้วลบไม่ได้: แต่ละแถวผูกประวัติ push ของเว็บ PBN ตัวเอง
     const owner = await prisma.uploadClient.findFirst({
@@ -162,6 +187,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
   }
 
   await prisma.uploadArticle.delete({ where: { id: existing.id } })
+  // แถวเงา + แถวสำรองของ "เขียนใหม่ด้วย AI" ของบทความนี้ลบไปด้วย
+  await prisma.uploadArticle.deleteMany({ where: { organizationId: session.user.organizationId, sourceType: 'ai-rewrite', sourceName: { in: [`rw:${existing.id}`, rewriteBackupName(existing.id)] } } }).catch(() => {})
 
   // ตัด cardSel/publishAt/articleOwners/indexRequests[articleId] ของบทความที่ลบไปแล้วทิ้ง — เขียนผ่าน updatePrefs กัน pushPrefs ที่แก้พร้อมกันหาย (lost update)
   await updatePrefs(existing.clientId, session.user.organizationId, (current) => {
@@ -172,7 +199,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
     const inIndexRequests = Boolean(cur.indexRequests && existing.id in cur.indexRequests)
     // แผนที่อื่นที่คีย์ด้วย articleId (PBN) + keywordPlan ที่ผูก articleId — ตัดทิ้งด้วย
     const raw = cur as unknown as Record<string, unknown>
-    const mapKeys = ['pbnArticleTargets', 'pbnPushes', 'pbnIndexRequests'].filter((k) => {
+    const mapKeys = ['pbnArticleTargets', 'pbnPushes', 'pbnIndexRequests', 'articleWriteStamps', 'articleRewriteResults'].filter((k) => {
       const m = raw[k]
       return Boolean(m && typeof m === 'object' && existing.id in (m as Record<string, unknown>))
     })

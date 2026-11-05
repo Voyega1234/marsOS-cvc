@@ -150,7 +150,7 @@ export default function FaqStyleEditor({ theme, onChange }: { theme: UploadTheme
       <div className="min-w-0">
         <p className="text-[10px] font-semibold text-gray-500 mb-1">พรีวิว (ยังไม่บันทึก)</p>
         <div className="border border-gray-200 rounded-xl overflow-hidden">
-          <ArticleFrame html={previewHtml} minHeight={320} pageBackground={theme.pageBackground} />
+          <ArticleFrame html={previewHtml} minHeight={320} pageBackground={theme.pageBackground} fontFaces={theme.detail?.article?.fontFaces} />
         </div>
       </div>
     </div>

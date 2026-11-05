@@ -26,7 +26,7 @@ function defaultName(): string {
 
 /**
  * POST /api/upload-article/clients/[id]/prompts/master-from-examples
- * body: { sources: ({url}|{text})[] (3-5), name?, activate? }
+ * body: { sources: ({url}|{text})[] (1-5 ยิ่งเยอะยิ่งแม่น), name?, activate? }
  * อ่านบทความตัวอย่างแล้วถอดแพทเทิร์นเป็น Master Prompt (ข้อความไทยล้วน — เปิดในโหมด raw)
  * บันทึกเป็น PromptTemplate CE_MASTER_PROMPT แถวใหม่ในขอบเขตลูกค้ารายนี้ ไม่ active โดยอัตโนมัติ
  * เว้นแต่ activate=true (จะ deactivate แถวเดิมแล้ว activate แถวใหม่ในทรานแซกชันเดียว)
@@ -139,5 +139,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
-  return NextResponse.json({ prompt }, { status: 201 })
+  return NextResponse.json({ prompt, warnings: extracted.warnings ?? [] }, { status: 201 })
 }

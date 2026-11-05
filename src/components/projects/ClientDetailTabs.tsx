@@ -57,6 +57,8 @@ import SmeAiImagesPanel, { type SmeArticleUpdate } from '@/components/projects/S
 import { getCoverAltFromHtml } from '@/lib/sme-articles/article-images'
 import { fileToDownscaledDataUrl } from '@/lib/imageDownscale'
 import { boxKeyTakeaways } from '@/lib/article-structure'
+import { applyFaqDisplay } from '@/lib/upload-article/theme-css'
+import { exportFontCssDetailed } from '@/lib/upload-article/font-faces'
 import { PAGE_TYPE_LABEL_TH } from '@/lib/wordgod/intent-skill/handoff'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -3069,15 +3071,25 @@ function ContentMapTab({
 
 // ─── Articles Tab ─────────────────────────────────────────────────────────────
 
+/** หน้าตาที่พรีวิว/ไฟล์ดาวน์โหลดต้องใช้จากธีมโปรเจกต์ — ยังไม่เคยสแกน = ไม่มีค่า พรีวิวเหมือนเดิม */
+function useProjectArticleLook(project: ProjectData) {
+  return useMemo(() => {
+    const t = projectThemeToUpload(project.themeColors ?? null, project.accentColor ?? null)
+    return { detail: t.detail, pageBackground: t.pageBackground || undefined }
+  }, [project.themeColors, project.accentColor])
+}
+
 function ArticlesTab({
   project, timeline, setTimeline, jobs, setJobs,
   autoSchedule, onAutoScheduleToggle, writeArticleRef,
   scheduleDays, setScheduleDays, scheduleSelectedEntries, setScheduleSelectedEntries,
   stopRequested, setStopRequested, stopRef,
-  onOpenContentEngine, timelineLoaded = true,
+  onOpenContentEngine, timelineLoaded = true, isClient = false,
 }: {
   project: ProjectData
   onOpenContentEngine?: () => void
+  /** ลูกค้าเรียก font proxy ไม่ได้ พรีวิวจึงใช้ฟอนต์สำรอง */
+  isClient?: boolean
   /** false = ยังโหลดคิวจาก DB ไม่เสร็จ — แสดง loading แทน empty state กันเข้าใจผิดว่าไม่มีข้อมูล */
   timelineLoaded?: boolean
   timeline: TimelineEntry[]
@@ -3095,6 +3107,7 @@ function ArticlesTab({
   setStopRequested: (v: boolean) => void
   stopRef: React.MutableRefObject<boolean>
 }) {
+  const articleLook = useProjectArticleLook(project)
   const today = new Date().toISOString().slice(0, 10)
   // โหมดภาษาบทความ (LanguageModeSelect โหลดค่าที่บันทึกไว้แล้วอัปเดตให้ — ค่าเริ่มต้นตาม project.language th/en/both)
   const [langPrefs, setLangPrefs] = useState(() => readLanguagePrefs(null, project.language))
@@ -4096,7 +4109,7 @@ function ArticlesTab({
                     </div>
                   ) : (
                     <div className="bg-white border border-blue-100 rounded-xl shadow-sm overflow-hidden">
-                      <ArticleFrame html={streamTexts[drawerIdx ?? -1]} />
+                      <ArticleFrame html={streamTexts[drawerIdx ?? -1]} pageBackground={articleLook.pageBackground} />
                     </div>
                   )}
                 </>
@@ -4105,7 +4118,7 @@ function ArticlesTab({
                 drawerHtml.trim()
                   ? (
                     <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
-                      <ArticleFrame html={boxKeyTakeaways(drawerHtml)} />
+                      <ArticleFrame html={applyFaqDisplay(boxKeyTakeaways(drawerHtml), articleLook.detail?.faq)} pageBackground={articleLook.pageBackground} fontFaces={isClient ? undefined : articleLook.detail?.article?.fontFaces} />
                     </div>
                   )
                   : (
@@ -4366,6 +4379,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
   /** โหมดลูกค้า: ดู + คอมเมนต์ + Approve เท่านั้น เครื่องมือของทีมถูกซ่อนทั้งหมด */
   isClient?: boolean
 }) {
+  const articleLook = useProjectArticleLook(project)
   const [expanded, setExpanded] = useState<number | null>(null)
   const [loadingHtml, setLoadingHtml] = useState<number | null>(null)
   const [localJobHtml, setLocalJobHtml] = useState<Record<number, string>>({})
@@ -4402,9 +4416,11 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
       const m = await import('@/lib/article-export')
       const o = exportSource(entryIdx, entry, job, html)
       const fileBase = m.articleFileName(entry.slug || entry.title)
+      const { css: fontCss, skipped: fontsSkipped } = isClient ? { css: '', skipped: 0 } : await exportFontCssDetailed(articleLook.detail?.article)
+      if (fontsSkipped > 0) toast.warning(`ไฟล์นี้ขาดฟอนต์ ${fontsSkipped} ไฟล์ เพราะดึงจากเว็บไม่ได้หรือไฟล์ใหญ่เกิน บทความบนเว็บจริงไม่กระทบ`)
       const doc = m.buildStandaloneArticleHtml({
-        html: o.html, title: o.title, lang: project.language === 'en' ? 'en' : 'th',
-        coverSrc: o.coverSrc, coverAlt: o.coverAlt,
+        html: applyFaqDisplay(o.html, articleLook.detail?.faq), title: o.title, lang: project.language === 'en' ? 'en' : 'th',
+        coverSrc: o.coverSrc, coverAlt: o.coverAlt, pageBackground: articleLook.pageBackground, fontCss,
       })
       m.downloadBlob(new Blob([doc], { type: 'text/html;charset=utf-8' }), `${fileBase}.html`)
     } catch (e) {
@@ -5054,7 +5070,7 @@ function ReviewTab({ project, timeline, setTimeline, jobs, setJobs, onAdjustRewr
                   </p>
                 )}
                 <div className="bg-white border border-gray-200 rounded-xl overflow-hidden max-h-[70vh] overflow-y-auto">
-                  {viewMode === 'preview' && <ArticleFrame html={boxKeyTakeaways(html)} />}
+                  {viewMode === 'preview' && <ArticleFrame html={applyFaqDisplay(boxKeyTakeaways(html), articleLook.detail?.faq)} pageBackground={articleLook.pageBackground} fontFaces={isClient ? undefined : articleLook.detail?.article?.fontFaces} />}
                   {viewMode === 'text' && (
                     <div className="p-5 text-sm text-gray-800 whitespace-pre-wrap leading-7">{htmlToPlainText(html)}</div>
                   )}
@@ -7195,7 +7211,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
         )}
         {tab === 'articles' && (
           <ArticlesTab
-            project={project} timeline={timeline} setTimeline={setTimeline} jobs={jobs} setJobs={setJobs} timelineLoaded={timelineLoaded}
+            project={project} timeline={timeline} setTimeline={setTimeline} jobs={jobs} setJobs={setJobs} timelineLoaded={timelineLoaded} isClient={isClient}
             autoSchedule={autoSchedule} onAutoScheduleToggle={handleAutoScheduleToggle} writeArticleRef={writeArticleRef}
             scheduleDays={scheduleDays} setScheduleDays={setScheduleDays}
             scheduleSelectedEntries={scheduleSelectedEntries} setScheduleSelectedEntries={setScheduleSelectedEntries}

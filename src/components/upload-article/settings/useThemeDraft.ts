@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { mergeScannedDetail } from "@/lib/upload-article/theme-css";
 import type { UploadClientDTO, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
 
 export function useThemeDraft(client: UploadClientDTO, setClient: (c: UploadClientDTO) => void) {
@@ -26,9 +27,9 @@ export function useThemeDraft(client: UploadClientDTO, setClient: (c: UploadClie
 
   /** รับสี/ฟอนต์ + หน้าตา FAQ จากผลสแกนเว็บปลายทาง — ยังไม่บันทึกจนกดบันทึกธีม */
   function applyScannedTheme(theme: Partial<UploadTheme>, detail: UploadThemeDetail | null) {
-    setThemeDraft(prev => ({ ...prev, ...theme, styleMode: prev.styleMode, detail: detail ?? prev.detail }));
+    setThemeDraft(prev => ({ ...prev, ...theme, styleMode: prev.styleMode, detail: mergeScannedDetail(prev.detail, detail) }));
     if (detail) setShowFaqEditor(true);
-    toast.success("ใส่ธีมจากเว็บแล้ว — ไปตรวจพรีวิวที่แท็บ “สไตล์บทความ” แล้วกดบันทึกธีม");
+    toast.success("ใช้ผลสแกนแล้ว ตรวจพรีวิวด้านล่างแล้วกดบันทึกธีม");
   }
 
   async function saveTheme() {

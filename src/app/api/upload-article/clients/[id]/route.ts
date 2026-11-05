@@ -9,6 +9,8 @@ import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import { isPbnPrefsRaw } from '@/lib/upload-article/pbn'
 import { readImageDefaults } from '@/lib/upload-article/article-images'
+import { CLIENT_LOGO_KEY, validateClientLogoInput } from '@/lib/upload-article/client-logo'
+import { NOT_REWRITE_SHADOW } from '@/lib/upload-article/rewrite-lock'
 
 const COLOR_RE = /^#[0-9a-f]{3,8}$/i
 
@@ -45,7 +47,7 @@ const BUSY_WINDOW_MS = 6 * 60 * 1000
 async function loadClient(id: string, orgId: string) {
   return prisma.uploadClient.findFirst({
     where: { id, organizationId: orgId },
-    include: { articles: { select: { status: true, wordpressPostId: true, pushedAt: true } } },
+    include: { articles: { where: NOT_REWRITE_SHADOW, select: { status: true, wordpressPostId: true, pushedAt: true } } },
   })
 }
 
@@ -72,6 +74,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!existing) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
   const body = await req.json().catch(() => ({}))
+
+  // โลโก้ลูกค้า: ตรวจก่อนเขียนอะไรทั้งหมด (null = ล้าง) — ไม่ผ่าน = 400
+  let logoInput: { value: string | null } | null = null
+  if ('clientLogo' in body) {
+    const v = validateClientLogoInput(body.clientLogo)
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+    logoInput = { value: v.value }
+  }
   const data: Record<string, unknown> = {}
 
   if (typeof body.name === 'string') {
@@ -167,6 +177,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         next.imageDefaults = readImageDefaults({ ...(cur.imageDefaults ?? {}), ...(p.imageDefaults as object) })
       }
       return { prefs: next as PrefsObject, result: undefined }
+    })
+    if (!result) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  }
+
+  // โลโก้เขียนผ่าน updatePrefs เหมือนกัน (ล็อกแถว) ไม่ทับ pushPrefs ที่อีก request เขียนพร้อมกัน
+  if (logoInput) {
+    const lg = logoInput
+    const result = await updatePrefs(existing.id, orgId, (current) => {
+      const next: PrefsObject = { ...current }
+      if (lg.value === null) delete next[CLIENT_LOGO_KEY]
+      else next[CLIENT_LOGO_KEY] = lg.value
+      return { prefs: next, result: undefined }
     })
     if (!result) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
   }

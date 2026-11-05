@@ -3,24 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { stripInlineImages } from '@/lib/articleSample'
 import { preserveLabManagedThemeKeys } from '@/lib/article-settings'
-import { projectThemeToUpload, mergeUploadThemeIntoThemeColors } from '@/lib/project-theme'
-
-/** sanitize คีย์ธีม (สี/ฟอนต์/detail) ใน themeColors ที่ส่งมา — key อื่นคงเดิม */
-function sanitizeIncomingThemeColors(raw: string): string {
-  try {
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return raw
-    const t = projectThemeToUpload(raw, null)
-    const next = JSON.parse(mergeUploadThemeIntoThemeColors(raw, t)) as Record<string, unknown>
-    // คีย์ที่ผู้ใช้ไม่ได้ส่งมา ไม่ต้องเติมค่า default ลง DB
-    for (const k of ['theme', 'text', 'border', 'accent', 'background', 'styleMode', 'pageBackground', 'fontFamily', 'headingFont', 'detail']) {
-      if (!(k in parsed)) delete next[k]
-    }
-    return JSON.stringify(next)
-  } catch {
-    return raw
-  }
-}
+import { sanitizeIncomingThemeColors } from '@/lib/project-theme'
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()

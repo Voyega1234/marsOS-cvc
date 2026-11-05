@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { freshRewriteShadow, NOT_REWRITE_SHADOW, PUSH_LOCK_MS } from '@/lib/upload-article/rewrite-lock'
 import { decrypt } from '@/lib/crypto'
 import { stripStyleTags, stripLeadingH1 } from '@/lib/articleComponents'
 import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
@@ -26,7 +27,6 @@ import type { UploadIndexRequest } from '@/lib/upload-article/types'
 export const maxDuration = 300
 
 /** สถานะ PUSHING ค้างนานกว่านี้ถือว่าฟังก์ชันตายกลางทาง (maxDuration 300 วินาที + เผื่อ) */
-const PUSH_LOCK_MS = 6 * 60 * 1000
 const SYSTEM_TOC_RE = /<nav\b[^>]*class="[^"]*\bcontent-toc\b/i
 
 function coverToBase64(dataUri: string | null): { base64?: string; mime?: string } {
@@ -214,6 +214,11 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     } catch {
       return NextResponse.json({ error: 'ถอดรหัส Application Password ไม่สำเร็จ' }, { status: 500 })
     }
+  }
+
+  // กำลังเขียนใหม่ด้วย AI อยู่ — push เนื้อหาเก่าไปก่อนไม่ได้ (รอเขียนเสร็จแล้ว push ครั้งเดียว)
+  if (await freshRewriteShadow(article.id, orgId)) {
+    return NextResponse.json({ error: 'บทความนี้กำลังถูก AI เขียนใหม่ — รอให้เสร็จก่อนแล้วค่อย push' }, { status: 409 })
   }
 
   // จองสถานะ PUSHING แบบ atomic กันกด push ซ้ำ/สองแท็บพร้อมกันจนได้โพสต์ซ้ำบนเว็บลูกค้า
@@ -455,7 +460,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     }
   }
 
-  const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId }, select: { status: true, wordpressPostId: true, pushedAt: true } })
+  const articleRows = await prisma.uploadArticle.findMany({ where: { clientId: client.id, organizationId: orgId, ...NOT_REWRITE_SHADOW }, select: { status: true, wordpressPostId: true, pushedAt: true } })
   const clientDto = toUploadClientDTO(clientRow, computeClientCounts(articleRows))
 
   return NextResponse.json({ ok, postUrl, postId, error, warning, indexRequest, client: clientDto })

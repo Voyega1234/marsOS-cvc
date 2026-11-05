@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Settings > "สไตล์บทความ" — สี/ฟอนต์/รูปแบบ CSS/หน้าตา FAQ ที่ใช้ตอน Generate
- * ค่าที่แก้ตรงนี้ (themeDraft) มาจาก useThemeDraft — ใช้ร่วมกับผลสแกนใน ScanSection
+ * ส่วนล่างของหน้า "หน้าตาบทความ" — สี/ฟอนต์/รูปแบบ CSS/หน้าตา FAQ ที่ใช้ตอน Generate
+ * ค่าที่แก้ตรงนี้ (themeDraft) มาจาก useThemeDraft — ใช้ร่วมกับผลสแกนใน ScanSection (หน้าเดียวกัน)
  */
 import { useState } from "react";
 import { toast } from "sonner";
@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import FontPicker from "../shared/FontPicker";
 import FaqStyleEditor from "../shared/FaqStyleEditor";
+import ArticleStructureEditor from "./ArticleStructureEditor";
+import ArticleFontEditor from "./ArticleFontEditor";
 import { UPLOAD_FONT_INHERIT } from "@/lib/upload-article/types";
 import { uploadPlatformOf } from "@/lib/upload-article/platform-info";
 import { buildWebflowCustomCss } from "@/lib/upload-article/theme-css";
@@ -156,6 +158,13 @@ export default function StyleSection({
           )}
         </div>
       )}
+
+      {themeDraft.detail?.article && (
+        <p className="text-[11px] text-gray-500 -mt-2">ฟอนต์จริงจากการสแกนจะใช้ก่อนฟอนต์ที่เลือกตรงนี้</p>
+      )}
+
+      <ArticleFontEditor theme={themeDraft} onChange={d => setThemeDraft(p => ({ ...p, detail: d }))} />
+      <ArticleStructureEditor theme={themeDraft} onChange={d => setThemeDraft(p => ({ ...p, detail: d }))} />
 
       <div className="border border-gray-100 rounded-lg">
         <button onClick={() => setShowFaqEditor(v => !v)} className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-brand-navy">

@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Search, Globe, FileText, Sparkles, CheckCircle2, UploadCloud, Loader2 } from "lucide-react";
+import { Plus, Search, Globe, FileText, CheckCircle2, UploadCloud, Loader2, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,23 @@ import DropZone from "@/components/upload-article/shared/DropZone";
 import PasteDialog from "@/components/upload-article/shared/PasteDialog";
 import GoogleDocDialog from "@/components/upload-article/shared/GoogleDocDialog";
 import UploadLanguageSelect from "@/components/upload-article/shared/UploadLanguageSelect";
+import ClientAvatar from "@/components/upload-article/ClientAvatar";
 
 /** เพดานต่อไฟล์ฝั่งเบราว์เซอร์ — เผื่อที่ให้ multipart header ใต้เพดาน 4.5MB ของ Vercel */
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+type SortKey = "recent" | "name" | "imported" | "generated" | "reviewed" | "pushed";
+type SortDir = "asc" | "desc";
+const SORT_STORAGE_KEY = "upload-article:clients-sort";
+const SORT_KEYS: SortKey[] = ["recent", "name", "imported", "generated", "reviewed", "pushed"];
+/** คอลัมน์ตาราง (md ขึ้นไป): ลูกค้า | ภาษา (xl) | 4 ตัวเลข | ปุ่ม */
+const ROW_GRID = "lg:grid lg:items-center lg:gap-3 lg:grid-cols-[minmax(0,1fr)_60px_66px_60px_72px_172px] xl:grid-cols-[minmax(0,1fr)_240px_64px_72px_64px_72px_172px]";
+const COUNT_COLS: Array<{ key: "imported" | "generated" | "reviewed" | "pushed"; label: string }> = [
+  { key: "imported", label: "นำเข้า" },
+  { key: "generated", label: "Generate" },
+  { key: "reviewed", label: "Review" },
+  { key: "pushed", label: "Push แล้ว" },
+];
 
 interface UploadResult {
   createdCount: number;
@@ -42,6 +56,30 @@ export default function UploadClientsBoard() {
   const [results, setResults] = useState<Record<string, UploadResult | undefined>>({});
   const [pasteOpenFor, setPasteOpenFor] = useState<string | null>(null);
   const [gdocOpenFor, setGdocOpenFor] = useState<string | null>(null);
+  // แถวที่เปิดแผง "เพิ่มบทความ" + แถวที่กำลังลากไฟล์ทับ
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [dragRow, setDragRow] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "recent", dir: "desc" });
+
+  // จำการเรียงไว้ใน localStorage (อ่านหลัง mount กัน hydration ไม่ตรง)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SORT_STORAGE_KEY);
+      if (!raw) return;
+      const v = JSON.parse(raw);
+      if (SORT_KEYS.includes(v?.key) && (v?.dir === "asc" || v?.dir === "desc")) setSort({ key: v.key, dir: v.dir });
+    } catch { /* ใช้ค่าเริ่มต้น */ }
+  }, []);
+
+  function toggleSort(key: SortKey) {
+    // กดซ้ำ: มาก→น้อย/ก→ฮ สลับทิศ, ครั้งที่สามกลับไป "ล่าสุด"
+    let next: { key: SortKey; dir: SortDir };
+    if (sort.key !== key) next = { key, dir: key === "name" ? "asc" : "desc" };
+    else if (sort.dir === (key === "name" ? "asc" : "desc")) next = { key, dir: key === "name" ? "desc" : "asc" };
+    else next = { key: "recent", dir: "desc" };
+    setSort(next);
+    try { localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(next)); } catch { /* ไม่เป็นไร */ }
+  }
 
   async function loadClients() {
     setLoading(true);
@@ -57,9 +95,15 @@ export default function UploadClientsBoard() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return clients;
-    return clients.filter(c => c.name.toLowerCase().includes(q) || c.website.toLowerCase().includes(q));
-  }, [clients, search]);
+    const list = !q ? clients : clients.filter(c => c.name.toLowerCase().includes(q) || c.website.toLowerCase().includes(q));
+    if (sort.key === "recent") return list;
+    const sign = sort.dir === "asc" ? 1 : -1;
+    const key = sort.key;
+    return [...list].sort((a, b) => {
+      if (key === "name") return sign * a.name.localeCompare(b.name, "th");
+      return sign * (a.counts[key] - b.counts[key]) || a.name.localeCompare(b.name, "th");
+    });
+  }, [clients, search, sort]);
 
   async function createClient() {
     if (!newName.trim()) return;
@@ -145,8 +189,20 @@ export default function UploadClientsBoard() {
     }
   }
 
+  function SortHead({ k, label, className = "" }: { k: SortKey; label: string; className?: string }) {
+    const active = sort.key === k;
+    const Icon = sort.dir === "asc" ? ArrowUp : ArrowDown;
+    return (
+      <button type="button" onClick={() => toggleSort(k)} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+        className={`inline-flex items-center gap-1 text-[11px] font-semibold hover:text-brand-navy ${active ? "text-brand-navy" : "text-gray-500"} ${className}`}>
+        {label}
+        {active ? <Icon size={11} /> : <ArrowDown size={11} className="opacity-0" />}
+      </button>
+    );
+  }
+
   return (
-    <div className="px-4 py-6 sm:px-6 w-full space-y-6">
+    <div className="px-4 py-6 sm:px-6 w-full space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-brand-navy">Upload Article</h1>
@@ -159,10 +215,17 @@ export default function UploadClientsBoard() {
         </Button>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" />
-        <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อลูกค้า / เว็บไซต์"
-          className="pl-9" />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="relative w-full max-w-sm">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อลูกค้า / เว็บไซต์"
+            className="pl-9" />
+        </div>
+        {!loading && clients.length > 0 && (
+          <p className="text-xs text-gray-500" aria-live="polite">
+            {search.trim() ? `พบ ${filtered.length} จาก ${clients.length} ลูกค้า` : `ทั้งหมด ${clients.length} ลูกค้า`}
+          </p>
+        )}
       </div>
 
       {loading ? (
@@ -180,91 +243,149 @@ export default function UploadClientsBoard() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map(c => {
-            const host = c.website.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
-            const result = results[c.id];
-            const cardBusy = !!busy[c.id];
-            return (
-              <div key={c.id}
-                className="bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col"
-                style={{ borderLeft: `4px solid ${c.theme.theme || "#2563eb"}` }}
-              >
-                <div className="p-4 space-y-3 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-brand-navy truncate">{c.name}</p>
-                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5 truncate">
-                        <Globe size={11} className="shrink-0" /> {host ? `→ ${host}` : "ยังไม่ตั้งเว็บไซต์"}
-                      </p>
-                    </div>
-                    <Button size="sm" variant="outline" onClick={() => router.push(`/upload-article/${c.id}`)}>
-                      เปิด
-                    </Button>
-                  </div>
+        <div className="bg-white rounded-xl border border-gray-200" role="table" aria-label="รายชื่อลูกค้า">
+          {/* หัวตาราง (md ขึ้นไป) — ติดบนเมื่อเลื่อน */}
+          <div role="row" className={`hidden ${ROW_GRID} sticky top-0 z-10 bg-gray-50 border-b border-gray-200 rounded-t-xl px-3 py-2`}>
+            <div role="columnheader"><SortHead k="name" label="ลูกค้า" /></div>
+            <div role="columnheader" className="hidden xl:block text-left text-[11px] font-semibold text-gray-500">ภาษา</div>
+            {COUNT_COLS.map(col => (
+              <div key={col.key} role="columnheader" className="text-right"><SortHead k={col.key} label={col.label} /></div>
+            ))}
+            <div role="columnheader" className="text-right text-[11px] font-semibold text-gray-500">จัดการ</div>
+          </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-center">
-                    {[
-                      ["นำเข้า", c.counts.imported],
-                      ["Generate", c.counts.generated],
-                      ["Review", c.counts.reviewed],
-                      ["Push แล้ว", c.counts.pushed],
-                    ].map(([label, val]) => (
-                      <div key={label as string} className="rounded-lg bg-gray-50 py-1.5">
-                        <p className="text-sm font-bold text-brand-navy">{val as number}</p>
-                        <p className="text-[10px] text-gray-400">{label}</p>
+          <div className="divide-y divide-gray-100">
+            {filtered.map(c => {
+              const host = c.website.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+              const result = results[c.id];
+              const cardBusy = !!busy[c.id];
+              const open = !!expanded[c.id];
+              const setLogo = (logo: string | null) => setClients(prev => prev.map(x => x.id === c.id ? { ...x, logo } : x));
+              const langSelect = (
+                <UploadLanguageSelect
+                  compact
+                  value={c.language}
+                  clientId={c.id}
+                  onChange={v => setClients(prev => prev.map(x => x.id === c.id ? { ...x, language: v } : x))}
+                />
+              );
+              return (
+                <div key={c.id}
+                  onDragOver={e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); if (!cardBusy) setDragRow(c.id); } }}
+                  onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragRow(prev => prev === c.id ? null : prev); }}
+                  onDrop={e => {
+                    if (!e.dataTransfer.files?.length) return;
+                    e.preventDefault();
+                    setDragRow(null);
+                    if (cardBusy) return;
+                    uploadFiles(c.id, Array.from(e.dataTransfer.files));
+                  }}
+                  className={dragRow === c.id ? "bg-brand-mist/40 ring-2 ring-inset ring-brand-blue" : "hover:bg-gray-50/60"}
+                >
+                  <div role="row" className={`${ROW_GRID} px-3 py-2 space-y-2 lg:space-y-0`}>
+                    <div role="cell" className="flex items-center gap-3 min-w-0">
+                      <ClientAvatar clientId={c.id} name={c.name} theme={c.theme.theme} logo={c.logo} onChange={setLogo} />
+                      <div className="min-w-0 flex-1">
+                        <button type="button" onClick={() => router.push(`/upload-article/${c.id}`)}
+                          className="block max-w-full text-left text-sm font-bold text-brand-navy truncate hover:text-brand-blue hover:underline focus:outline-none focus-visible:underline">
+                          {c.name}
+                        </button>
+                        <p className="text-xs text-gray-400 flex items-center gap-1 truncate">
+                          <Globe size={11} className="shrink-0" /> <span className="truncate">{host || "ยังไม่ตั้งเว็บไซต์"}</span>
+                        </p>
+                      </div>
+                      <Button size="sm" variant="outline" className="lg:hidden shrink-0" onClick={() => router.push(`/upload-article/${c.id}`)}>เปิด</Button>
+                    </div>
+
+                    {/* ภาษา: xl = คอลัมน์ของมันเอง, ต่ำกว่านั้นอยู่ใต้แถว */}
+                    <div role="cell" className="hidden xl:block">{langSelect}</div>
+
+                    {/* ตัวเลข: มือถือ = บรรทัดสรุป */}
+                    <div role="cell" className="lg:hidden flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+                      {COUNT_COLS.map(col => (
+                        <span key={col.key}>{col.label} <b className={`tabular-nums ${c.counts[col.key] ? "text-brand-navy" : "text-gray-300"}`}>{c.counts[col.key]}</b></span>
+                      ))}
+                    </div>
+                    {COUNT_COLS.map(col => (
+                      <div key={col.key} role="cell" className={`hidden lg:block text-right pr-[15px] text-sm tabular-nums ${c.counts[col.key] ? "font-semibold text-brand-navy" : "text-gray-300"}`}>
+                        {c.counts[col.key]}
                       </div>
                     ))}
+
+                    <div role="cell" className="flex items-center gap-2 lg:justify-end">
+                      <div className="mr-auto lg:hidden">{langSelect}</div>
+                      <Button size="sm" variant="outline" className="text-xs" aria-expanded={open}
+                        onClick={() => setExpanded(prev => ({ ...prev, [c.id]: !prev[c.id] }))}>
+                        {open ? <ChevronDown size={12} className="mr-1" /> : <ChevronRight size={12} className="mr-1" />}
+                        เพิ่มบทความ
+                      </Button>
+                      <Button size="sm" variant="outline" className="hidden lg:inline-flex" onClick={() => router.push(`/upload-article/${c.id}`)}>เปิด</Button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-gray-400 shrink-0">ภาษา</span>
-                    <UploadLanguageSelect
-                      value={c.language}
-                      clientId={c.id}
-                      onChange={v => setClients(prev => prev.map(x => x.id === c.id ? { ...x, language: v } : x))}
-                    />
-                  </div>
+                  {/* ภาษาสำหรับ md–xl: แถวเสริมใต้ชื่อ */}
+                  <div className="hidden lg:block xl:hidden px-3 pb-2 pl-[60px]">{langSelect}</div>
 
-                  <DropZone
-                    label="ลากไฟล์มาวาง (.docx .txt .md .html)"
-                    disabled={cardBusy}
-                    compact
-                    onFiles={files => uploadFiles(c.id, files)}
-                  />
-
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1 text-xs" disabled={cardBusy}
-                      onClick={() => setPasteOpenFor(c.id)}>
-                      วางข้อความ
-                    </Button>
-                    <Button variant="outline" size="sm" className="flex-1 text-xs" disabled={cardBusy}
-                      onClick={() => setGdocOpenFor(c.id)}>
-                      ลิงก์ Google Doc
-                    </Button>
-                  </div>
-
-                  {cardBusy && (
-                    <p className="flex items-center gap-1.5 text-[11px] text-gray-400">
-                      <UploadCloud size={11} className="animate-pulse" /> กำลังนำเข้า...
-                    </p>
-                  )}
-                  {result && (
-                    <div className="text-[11px] space-y-0.5">
-                      {result.createdCount > 0 && (
-                        <p className="flex items-center gap-1 text-emerald-600">
-                          <CheckCircle2 size={11} /> นำเข้าสำเร็จ {result.createdCount} บทความ
+                  {(open || cardBusy || result) && (
+                    <div className="px-3 pb-3 lg:pl-[60px] space-y-2">
+                      {open && (
+                        <div className="space-y-2 max-w-xl">
+                          <DropZone
+                            label="ลากไฟล์มาวาง (.docx .txt .md .html)"
+                            disabled={cardBusy}
+                            compact
+                            onFiles={files => uploadFiles(c.id, files)}
+                          />
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" className="flex-1 text-xs" disabled={cardBusy}
+                              onClick={() => setPasteOpenFor(c.id)}>
+                              วางข้อความ
+                            </Button>
+                            <Button variant="outline" size="sm" className="flex-1 text-xs" disabled={cardBusy}
+                              onClick={() => setGdocOpenFor(c.id)}>
+                              ลิงก์ Google Doc
+                            </Button>
+                          </div>
+                          {c.logo && (
+                            <button type="button" className="text-[11px] text-gray-400 hover:text-rose-600 underline"
+                              onClick={async () => {
+                                setLogo(null);
+                                try {
+                                  const r = await fetch(`/api/upload-article/clients/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientLogo: null }) });
+                                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                                } catch (e) {
+                                  setLogo(c.logo ?? null);
+                                  toast.error(`ลบโลโก้ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+                                }
+                              }}>
+                              ลบโลโก้
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {cardBusy && (
+                        <p className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                          <UploadCloud size={11} className="animate-pulse" /> กำลังนำเข้า...
                         </p>
                       )}
-                      {result.errors.map((e, i) => (
-                        <p key={i} className="text-rose-500">✕ {e.name}: {e.error}</p>
-                      ))}
+                      {result && (
+                        <div className="text-[11px] space-y-0.5">
+                          {result.createdCount > 0 && (
+                            <p className="flex items-center gap-1 text-emerald-600">
+                              <CheckCircle2 size={11} /> นำเข้าสำเร็จ {result.createdCount} บทความ
+                            </p>
+                          )}
+                          {result.errors.map((e, i) => (
+                            <p key={i} className="text-rose-500">✕ {e.name}: {e.error}</p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 

@@ -143,7 +143,7 @@ export interface ORChatResult {
   text: string
   usage: ORUsage
   /** ลิงก์อ้างอิงจาก web search (เมื่อเปิด webSearch) */
-  citations: Array<{ url: string; title: string }>
+  citations: Array<{ url: string; title: string; content?: string }>
 }
 
 function parseUsage(u: Record<string, unknown> | undefined): ORUsage {
@@ -169,6 +169,8 @@ export async function orChat(params: {
   temperature?: number
   /** เปิด web search plugin (แทน Google Search grounding ของ Gemini เดิม) */
   webSearch?: boolean
+  /** ใช้คู่กับ webSearch: จำกัดโดเมน/จำนวนผล ไม่ส่ง = ค่าเดิม */
+  webSearchOptions?: { engine?: 'exa'; maxResults?: number; includeDomains?: string[] }
   /**
    * บังคับให้โมเดลตอบเป็น JSON object
    * จำเป็นกับ gemini ผ่าน OpenRouter: โหมดปกติจะคืน finish_reason=error /
@@ -187,7 +189,15 @@ export async function orChat(params: {
   }
   if (params.maxTokens) body.max_tokens = params.maxTokens
   if (typeof params.temperature === 'number') body.temperature = params.temperature
-  if (params.webSearch) body.plugins = [{ id: 'web', max_results: 8 }]
+  if (params.webSearch) {
+    const o = params.webSearchOptions
+    body.plugins = [{
+      id: 'web',
+      ...(o?.engine ? { engine: o.engine } : {}),
+      max_results: o?.maxResults ?? 8,
+      ...(o?.includeDomains?.length ? { include_domains: o.includeDomains } : {}),
+    }]
+  }
   // json_object ใช้ร่วมกับ web plugin ไม่ได้ — gemini จะคืน finish_reason=error content ว่างทุกครั้ง
   // (ทดสอบแล้ว: ws อย่างเดียว = STOP ปกติ, ws+json = error 2/2) จึงยอมถอย jsonMode ให้ web search
   if (params.jsonMode && !params.webSearch) body.response_format = { type: 'json_object' }
@@ -211,10 +221,14 @@ export async function orChat(params: {
   const data = await res.json()
   if (data.error) throw new Error(`OpenRouter error: ${JSON.stringify(data.error).slice(0, 300)}`)
   const msg = data.choices?.[0]?.message
-  const annotations: Array<{ type?: string; url_citation?: { url?: string; title?: string } }> = msg?.annotations ?? []
+  const annotations: Array<{ type?: string; url_citation?: { url?: string; title?: string; content?: string } }> = msg?.annotations ?? []
   const citations = annotations
     .filter((a) => a.url_citation?.url)
-    .map((a) => ({ url: String(a.url_citation!.url), title: String(a.url_citation!.title ?? '') }))
+    .map((a) => ({
+      url: String(a.url_citation!.url),
+      title: String(a.url_citation!.title ?? ''),
+      ...(typeof a.url_citation!.content === 'string' ? { content: a.url_citation!.content } : {}),
+    }))
   // บาง provider คืน content เป็น array ของ content part — กันไว้ไม่ให้ .trim() ระเบิดเป็น TypeError
   const text: string = typeof msg?.content === 'string' ? msg.content : ''
   const usage = parseUsage(data.usage)

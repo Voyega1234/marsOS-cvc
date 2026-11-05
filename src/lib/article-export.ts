@@ -33,6 +33,8 @@ export function buildStandaloneArticleHtml(o: {
   coverAlt?: string
   /** สีพื้นหน้าเว็บปลายทาง (เหมือน ArticleFrame) — รับเฉพาะ hex/rgb, ไม่ตรงรูปแบบ = ขาว */
   pageBackground?: string
+  /** @font-face ที่ฝังไฟล์ฟอนต์แล้ว (data URI) — ไม่ส่ง = ไฟล์เท่าเดิม */
+  fontCss?: string
 }): string {
   // หัวกล่องสรุปตามภาษาของเนื้อหา (บทความเก่า / โหมดไทย+อังกฤษ ที่ project.language ไม่บอกภาษาจริง)
   const html = boxKeyTakeaways(o.html || '')
@@ -47,7 +49,7 @@ export function buildStandaloneArticleHtml(o: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'">
 <title>${escHtml(o.title)}</title>
-<style>html,body{margin:0;padding:24px;box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:${bg};line-height:1.7;word-break:break-word;overflow-wrap:break-word;}img{max-width:100%;height:auto;}table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;}.article-export-wrap{max-width:840px;margin:0 auto;}</style>
+<style>${o.fontCss || ''}html,body{margin:0;padding:24px;box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:${bg};line-height:1.7;word-break:break-word;overflow-wrap:break-word;}img{max-width:100%;height:auto;}table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;}.article-export-wrap{max-width:840px;margin:0 auto;}</style>
 </head>
 <body>
 <div class="article-export-wrap">

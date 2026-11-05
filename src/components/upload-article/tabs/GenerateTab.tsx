@@ -389,7 +389,7 @@ export default function GenerateTab({
                 <p className="text-sm text-gray-400 text-center py-10">บทความนี้ยังไม่ได้ generate</p>
               ) : (
                 <div className="border border-gray-200 rounded-xl overflow-hidden max-h-[60vh] overflow-y-auto">
-                  {previewMode === "preview" && <ArticleFrame html={detail.htmlContent} pageBackground={client.theme.pageBackground} />}
+                  {previewMode === "preview" && <ArticleFrame html={detail.htmlContent} pageBackground={client.theme.pageBackground} fontFaces={client.theme.detail?.article?.fontFaces} />}
                   {previewMode === "html" && (
                     <div className="p-3 space-y-2">
                       <Button size="sm" variant="outline" onClick={() => copy(detail.htmlContent || "", "HTML")}>
@@ -408,7 +408,7 @@ export default function GenerateTab({
                       <Button size="sm" variant="outline" onClick={() => copyText(detail.htmlContent || "")}>
                         <Copy size={12} className="mr-1.5" /> คัดลอกข้อความ
                       </Button>
-                      <ArticleFrame html={toReadableHtml(detail.htmlContent)} pageBackground={client.theme.pageBackground} />
+                      <ArticleFrame html={toReadableHtml(detail.htmlContent)} pageBackground={client.theme.pageBackground} fontFaces={client.theme.detail?.article?.fontFaces} />
                     </div>
                   )}
                 </div>

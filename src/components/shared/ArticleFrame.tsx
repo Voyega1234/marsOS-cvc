@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { fontFaceCss, proxiedFontUrl } from '@/lib/upload-article/font-faces'
+import type { UploadFontFace } from '@/lib/upload-article/types'
 
 /**
  * Renders AI-generated article HTML inside an isolated <iframe>.
@@ -15,6 +17,8 @@ import { useEffect, useRef } from 'react'
  *
  * `pageBackground` (optional) = สีพื้นของหน้าเว็บปลายทางด้านหลังบทความ — ใช้ดูตัวอย่างบทความที่พื้นโปร่งใส
  * บนเว็บพื้นเข้ม ไม่ส่ง = พื้นขาวแบบเดิม (รับเฉพาะ hex/rgb กัน CSS แปลกปลอม)
+ *
+ * `fontFaces` (optional) = ฟอนต์จริงจากการสแกนเว็บลูกค้า โหลดผ่าน /api/font-proxy ไม่ส่ง = เอกสารเท่าเดิมทุกไบต์
  */
 const PAGE_BG_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i
 
@@ -23,14 +27,18 @@ export default function ArticleFrame({
   className = '',
   minHeight = 200,
   pageBackground,
+  fontFaces,
 }: {
   html: string
   className?: string
   minHeight?: number
   pageBackground?: string
+  fontFaces?: UploadFontFace[]
 }) {
   const ref = useRef<HTMLIFrameElement>(null)
   const bg = pageBackground && PAGE_BG_RE.test(pageBackground.trim()) ? pageBackground.trim() : '#fff'
+  // เอกสารใน iframe ไม่มี URL ของตัวเอง ต้องใช้ URL เต็ม
+  const fontCss = typeof window === 'undefined' ? '' : fontFaceCss(fontFaces, (u) => window.location.origin + proxiedFontUrl(u))
 
   useEffect(() => {
     const iframe = ref.current
@@ -51,6 +59,7 @@ export default function ArticleFrame({
       `<meta name="viewport" content="width=device-width, initial-scale=1">` +
       `<base target="_blank">` +
       `<style>` +
+        fontCss +
         `html,body{margin:0;padding:24px;box-sizing:border-box;` +
         `font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;` +
         `color:#1e293b;background:${bg};line-height:1.7;` +
@@ -72,7 +81,7 @@ export default function ArticleFrame({
     const t = setTimeout(resize, 300)
 
     return () => { ro?.disconnect(); clearTimeout(t) }
-  }, [html, minHeight, bg])
+  }, [html, minHeight, bg, fontCss])
 
   return (
     <iframe

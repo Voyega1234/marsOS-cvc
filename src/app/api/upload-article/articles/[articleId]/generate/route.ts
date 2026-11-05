@@ -14,6 +14,7 @@ import type { UploadOutputMode, UploadTheme } from '@/lib/upload-article/types'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { isPbnPrefs } from '@/lib/upload-article/pbn'
 import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
+import { freshRewriteShadow } from '@/lib/upload-article/rewrite-lock'
 
 /** POST /api/upload-article/articles/[articleId]/generate — ประกอบ HTML/Text พร้อมใช้จาก sourceHtml */
 export async function POST(req: NextRequest, { params }: { params: { articleId: string } }) {
@@ -24,6 +25,9 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const orgId = session.user.organizationId
   const article = await prisma.uploadArticle.findFirst({ where: { id: params.articleId, organizationId: orgId } })
   if (!article) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+  if (await freshRewriteShadow(article.id, orgId)) {
+    return NextResponse.json({ error: 'บทความนี้กำลังถูก AI เขียนใหม่ — รอให้เสร็จก่อน' }, { status: 409 })
+  }
 
   const clientRow = await prisma.uploadClient.findFirst({ where: { id: article.clientId, organizationId: orgId } })
   if (!clientRow) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
@@ -82,6 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       sourceHtml,
       mode,
       theme,
+      aiSource: article.sourceType === 'ai',
       site: { name: client.name, url: client.website, language: uploadArticleLanguage(client.language, article.title) },
       meta: {
         title: article.title,

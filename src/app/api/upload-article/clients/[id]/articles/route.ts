@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { NOT_REWRITE_SHADOW } from '@/lib/upload-article/rewrite-lock'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import {
   extractTitleFromHtml,
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const status = req.nextUrl.searchParams.get('status') || undefined
   const articles = await prisma.uploadArticle.findMany({
-    where: { clientId: client.id, organizationId: session.user.organizationId, ...(status ? { status } : {}) },
+    where: { clientId: client.id, organizationId: session.user.organizationId, ...NOT_REWRITE_SHADOW, ...(status ? { status } : {}) },
     orderBy: { updatedAt: 'desc' },
   })
 

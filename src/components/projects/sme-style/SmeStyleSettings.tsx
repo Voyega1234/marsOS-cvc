@@ -11,6 +11,7 @@ import { Check, Palette, ScanSearch } from "lucide-react";
 import SiteScanView, { COMPONENT_LABEL } from "@/components/upload-article/shared/SiteScanView";
 import StyleSection from "@/components/upload-article/settings/StyleSection";
 import { mergeUploadThemeIntoThemeColors, projectThemeToUpload } from "@/lib/project-theme";
+import { mergeScannedDetail } from "@/lib/upload-article/theme-css";
 import { UPLOAD_FONT_INHERIT } from "@/lib/upload-article/types";
 import type { UploadSiteScan, UploadTheme, UploadThemeDetail } from "@/lib/upload-article/types";
 
@@ -83,13 +84,13 @@ export default function SmeStyleSettings({
       ...prev,
       ...theme,
       styleMode: prev.styleMode,
-      detail: detail ?? prev.detail,
+      detail: mergeScannedDetail(prev.detail, detail),
       // ฟอนต์ที่สแกนได้เป็น inherit/ว่าง ไม่ใช่ชื่อฟอนต์ที่ใช้ได้จริง — คงของเดิม
       fontFamily: (!theme.fontFamily || theme.fontFamily === UPLOAD_FONT_INHERIT) ? prev.fontFamily : theme.fontFamily,
       headingFont: (!theme.headingFont || theme.headingFont === UPLOAD_FONT_INHERIT) ? prev.headingFont : theme.headingFont,
     }));
     if (detail) setShowFaqEditor(true);
-    toast.success("ใส่ธีมจากเว็บแล้ว — ตรวจพรีวิวที่ส่วน “สไตล์บทความ” แล้วกดบันทึกธีม");
+    toast.success("ใช้ผลสแกนแล้ว ตรวจพรีวิวด้านล่างแล้วกดบันทึกธีม");
   }
 
   async function saveTheme() {

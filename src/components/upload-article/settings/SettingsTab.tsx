@@ -2,11 +2,11 @@
 
 /**
  * แท็บ "Project Setting" (ไอคอนเฟือง) — รวมทุกการตั้งค่าของลูกค้า Upload Article รายนี้ไว้ที่เดียว:
- * Checklist (upload เท่านั้น), เว็บไซต์ & Connect, สแกนเว็บปลายทาง, สไตล์บทความ, Internal Link, รูปภาพ, Content Engine, ลบลูกค้า
+ * Checklist (upload เท่านั้น), เว็บไซต์ & Connect, หน้าตาบทความ (สแกนเว็บ + สไตล์), Internal Link, รูปภาพ, Content Engine, ลบลูกค้า
  * ตำแหน่งซับแท็บ: เมนูแนวตั้งด้านซ้ายบนจอใหญ่ / แถบเลื่อนแนวนอนบนมือถือ
  */
 import { useEffect, useState } from "react";
-import { ClipboardCheck, Cpu, Globe, ImageIcon, Link2, Megaphone, Palette, ScanSearch, Sparkles, Trash2, UserRound } from "lucide-react";
+import { ClipboardCheck, Cpu, Globe, ImageIcon, Link2, Megaphone, Palette, Sparkles, Trash2, UserRound } from "lucide-react";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 import ConnectTab from "../tabs/ConnectTab";
 import ScanSection from "./ScanSection";
@@ -33,8 +33,7 @@ export type SettingsSection = "checklist" | "website" | "scan" | "style" | "link
 const SECTIONS: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
   { id: "checklist", label: "Checklist", icon: ClipboardCheck },
   { id: "website", label: "เว็บไซต์ & Connect", icon: Globe },
-  { id: "scan", label: "สแกนเว็บปลายทาง", icon: ScanSearch },
-  { id: "style", label: "สไตล์บทความ", icon: Palette },
+  { id: "scan", label: "หน้าตาบทความ", icon: Palette },
   { id: "links", label: "Internal Link", icon: Link2 },
   { id: "images", label: "รูปภาพ", icon: ImageIcon },
   { id: "cta", label: "CTA", icon: Megaphone },
@@ -68,7 +67,8 @@ export default function SettingsTab({
   const [internalSection, setInternalSection] = useState<SettingsSection>("website");
   const requested = section ?? internalSection;
   // โหมด PBN ไม่มีเมนูลบ/Checklist — ลิงก์เก่า ?section=danger ตกกลับไปหน้าเว็บ
-  const active = isPbn && (requested === "danger" || requested === "checklist") ? "website" : requested;
+  const requestedNorm: SettingsSection = requested === "style" ? "scan" : requested; // ลิงก์เก่า "style" = หน้าเดียวกับ scan
+  const active = isPbn && (requestedNorm === "danger" || requestedNorm === "checklist") ? "website" : requestedNorm;
 
   function go(s: SettingsSection) {
     setInternalSection(s);
@@ -99,7 +99,7 @@ export default function SettingsTab({
   const { reload: reloadStyles } = pbnStyles;
   useEffect(() => {
     if (!isPbn) return;
-    if (active === "scan" || active === "style") { void reloadSites(); void reloadStyles(); }
+    if (active === "scan") { void reloadSites(); void reloadStyles(); }
     if (active === "engine") void reloadProfiles();
   }, [isPbn, active, reloadSites, reloadStyles, reloadProfiles]);
 
@@ -152,15 +152,10 @@ export default function SettingsTab({
         {active === "scan" && (
           <div className="space-y-4">
             {stylePicker}
-            <ScanSection key={styleSite?.id || "main"} client={client} setClient={setClient}
-              setThemeDraft={themeDraft.setThemeDraft} applyScannedTheme={themeDraft.applyScannedTheme}
+            <ScanSection key={`scan:${styleSite?.id || "main"}`} client={client} setClient={setClient}
+              applyScannedTheme={themeDraft.applyScannedTheme}
               defaultUrl={styleSite?.siteUrl || undefined} />
-          </div>
-        )}
-        {active === "style" && (
-          <div className="space-y-4">
-            {stylePicker}
-            <StyleSection themeDraft={themeDraft.themeDraft} setThemeDraft={themeDraft.setThemeDraft}
+            <StyleSection key={`style:${styleSite?.id || "main"}`} themeDraft={themeDraft.themeDraft} setThemeDraft={themeDraft.setThemeDraft}
               setColor={themeDraft.setColor} savingTheme={themeDraft.savingTheme} saveTheme={themeDraft.saveTheme}
               showFaqEditor={themeDraft.showFaqEditor} setShowFaqEditor={themeDraft.setShowFaqEditor}
               client={isPbn ? undefined : client} />

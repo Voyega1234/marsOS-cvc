@@ -82,4 +82,31 @@ const unrelated = buildClientCommentsBlock(ctx({}, [file('other.docx', 'ข้�
 assert(unrelated.includes('ข้อความทั่วไป'), 'ไม่ตรงหัวข้อเลยยังส่งจากต้นไฟล์');
 assert(clientCommentsValidatorNote(ctx({}, [file('c.docx', 'x')])).includes('BLOCKING'), 'มีไฟล์ = validator ตรวจ');
 
+// งบไฟล์ใช้ร่วมกัน: ไฟล์สั้นไม่กันงบไฟล์ยาว และไม่มีไฟล์ไหนถูกทิ้ง
+const pooled = buildClientCommentsBlock(
+  ctx({}, [
+    file('short.docx', 'ลูกค้าติโทนคนกลาง'),
+    file('long.docx', 'สเต็มเซลล์เข่าต้องเขียนแบบผู้เชี่ยวชาญ\n\n'.repeat(1200)),
+  ]),
+  topic,
+);
+assert(pooled.includes('[short.docx]') && pooled.includes('[long.docx]'), 'ไฟล์สั้นและยาวเข้าครบทั้งคู่');
+assert(pooled.length > CLIENT_COMMENT_BUDGET.files * 0.6, 'ไฟล์ยาวได้งบที่ไฟล์สั้นไม่ใช้');
+assert(pooled.length < CLIENT_COMMENT_BUDGET.files + 1500, 'รวมแล้วไม่เกินงบ');
+const three = buildClientCommentsBlock(
+  ctx({}, ['ก', 'ข', 'ค'].map((n) => file(`${n}.docx`, `สเต็มเซลล์เข่า ${n}\n\n`.repeat(1500)))),
+  topic,
+);
+assert(['ก', 'ข', 'ค'].every((n) => three.includes(`[${n}.docx]`)), 'ไฟล์ยาวหลายไฟล์ได้งบทุกไฟล์');
+assert(three.length < CLIENT_COMMENT_BUDGET.files + 1500, 'ไฟล์ยาวหลายไฟล์ไม่เกินงบ');
+
+// ลำดับความสำคัญ
+const rules = buildClientCommentsBlock(ctx({ comments: [{ id: '1', text: 'ขอโทนผู้เชี่ยวชาญ', date: '', enabled: true }] } as never), topic);
+assert(rules.includes('Comment ชนะ Master Prompt'), 'Comment ชนะ Master เรื่องมุมมอง');
+assert(rules.includes('ให้ยึดข้อจำกัด'), 'ข้อจำกัดชนะ Comment');
+assert(rules.includes('ข้อมูลจริงที่ลูกค้าให้ไว้ใน Comment'), 'ใช้ข้อมูลจริงใน Comment ได้');
+assert(rules.includes('ห้ามแต่งข้อมูล'), 'ห้ามแต่งเพื่อทำตาม Comment');
+assert(rules.includes('ห้ามเอ่ยถึง Comment'), 'ห้ามเอ่ยถึง Comment ในบทความ');
+assert(rules.includes('พูดไม่ได้'), 'ส่วนที่พูดไม่ได้ห้ามเขียน');
+
 console.log(`ce-client-comments: ${passed} passed`);

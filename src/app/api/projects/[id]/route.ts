@@ -10,6 +10,7 @@ import { logActivity } from "@/lib/logActivity";
 import { stripServerOwnedPrefs, updateProjectPrefs } from "@/lib/project-prefs-store";
 import { checkCredentialUrl } from "@/lib/upload-article/safe-fetch";
 import { normalizeSavedWpUrl } from "@/lib/upload-article/wp-push";
+import { sanitizeIncomingThemeColors } from "@/lib/project-theme";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession();
@@ -61,6 +62,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     "styleGuide", "accentColor", "articleTheme", "forbiddenWords", "sampleArticle"];
   const data: Record<string, unknown> = {};
   for (const key of allowed) { if (key in body) data[key] = body[key]; }
+  // themeColors ผ่าน sanitizer ตัวเดียวกับ /style (สี/ฟอนต์/detail) — ไม่ใช่ string ก็ปล่อยตามเดิม
+  if (typeof data.themeColors === "string") data.themeColors = sanitizeIncomingThemeColors(data.themeColors);
   // wpUrl ที่บันทึกต้องเป็น https + โฮสต์สาธารณะ (กัน SSRF) — ค่าว่างยังอนุญาต
   if ("wpUrl" in data) {
     const normalized = typeof data.wpUrl === "string" ? normalizeSavedWpUrl(data.wpUrl) : "";

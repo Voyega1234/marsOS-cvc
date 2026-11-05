@@ -695,7 +695,7 @@ export interface BannedHit {
   count: number;
 }
 
-function textSegments(html: string): { text: string; isTag: boolean }[] {
+export function textSegments(html: string): { text: string; isTag: boolean }[] {
   const out: { text: string; isTag: boolean }[] = [];
   const re = /<[^>]*>/g;
   let last = 0;

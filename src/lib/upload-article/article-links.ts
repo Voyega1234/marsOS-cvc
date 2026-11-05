@@ -3,6 +3,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { isPbnPrefs, parseWriterSourceName } from './pbn'
+import { NOT_REWRITE_SHADOW } from './rewrite-lock'
 import { articleLinkPairs, articleLinkRows, linkPoolForArticle, maxLinksPerArticle, anchorPoolForTopic, normalizeUrl, rankLinksByTopic, type ArticleLinkRow } from './internal-links'
 import { linkHost, topicLinkKeeper } from './link-insert'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadLinkPair } from './types'
@@ -20,7 +21,7 @@ export async function loadArticleLinkRows(
 ): Promise<ArticleLinkRow[]> {
   if (isPbnPrefs(prefs)) return []
   const rows = await prisma.uploadArticle.findMany({
-    where: { clientId, organizationId: orgId },
+    where: { clientId, organizationId: orgId, ...NOT_REWRITE_SHADOW },
     select: { id: true, title: true, sourceName: true, status: true, pushMode: true, wordpressUrl: true, wordpressPostId: true, pushedAt: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
     take: 500,

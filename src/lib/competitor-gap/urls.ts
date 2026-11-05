@@ -115,6 +115,7 @@ function isPrivateIPv4(ip: string): boolean {
   if (a === 192 && b === 168) return true                       // private
   if (a === 192 && b === 0) return true                         // IETF protocol assignments
   if (a === 100 && b >= 64 && b <= 127) return true             // CGNAT
+  if (a === 198 && (b === 18 || b === 19)) return true          // benchmark 198.18.0.0/15
   if (a >= 224) return true                                     // multicast + reserved
   return false
 }
@@ -124,7 +125,20 @@ function isPrivateIPv6(ip: string): boolean {
   if (v === '::' || v === '::1') return true
   if (v.startsWith('fe80') || v.startsWith('fec0')) return true // link-local / site-local
   if (/^f[cd]/.test(v)) return true                             // unique local fc00::/7
-  if (v.startsWith('::ffff:')) return isPrivateIPv4(v.slice(7)) // IPv4-mapped
+  if (v.startsWith('::ffff:')) {
+    const rest = v.slice(7)
+    if (isPrivateIPv4(rest)) return true                        // IPv4-mapped
+    // URL parser แปลงเป็นเลขฐานสิบหก ::ffff:7f00:1
+    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest)
+    if (hex) {
+      const hi = parseInt(hex[1], 16)
+      const lo = parseInt(hex[2], 16)
+      return isPrivateIPv4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
+    }
+  }
+  if (v.startsWith('64:ff9b:')) return true                     // NAT64 64:ff9b::/96 (และ local-use)
+  if (v.startsWith('2002:')) return true                        // 6to4 2002::/16
+  if (/^ff[0-9a-f]{2}:/.test(v)) return true                    // multicast ff00::/8
   return false
 }
 

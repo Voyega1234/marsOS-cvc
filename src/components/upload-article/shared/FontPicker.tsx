@@ -54,7 +54,7 @@ export default function FontPicker({
           {UPLOAD_GOOGLE_FONTS.map(f => (
             <option key={f} value={f} style={{ fontFamily: toStack(f) }}>{f}</option>
           ))}
-          <option value={CUSTOM}>พิมพ์ชื่อฟอนต์เอง...</option>
+          <option value={CUSTOM}>{selectValue === CUSTOM ? "ฟอนต์นอกรายการ (จากเว็บลูกค้า หรือพิมพ์เอง)" : "พิมพ์ชื่อฟอนต์เอง..."}</option>
         </select>
         <button type="button" title="ตัดฟอนต์ออก (ใช้ฟอนต์ของเว็บ)" disabled={isNone}
           onClick={() => onChange(noneValue)}

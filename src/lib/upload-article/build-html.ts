@@ -10,7 +10,8 @@ import { buildUploadCss } from './theme-css'
 import { decodeTextEntities } from './entities'
 import { stripGoogleDocsCommentsHtml, applyAltCaptionsHtml } from './clean-html'
 import { TOC_HEADING_RE, GEN_FIGURE_ATTR, SOURCE_COVER_ATTR } from './article-images'
-import { TAKEAWAYS_HEADING_RE, applyFaqDisplayMarkup, boxKeyTakeaways } from '@/lib/article-structure'
+import { TAKEAWAYS_HEADING_RE, applyFaqDisplayMarkup, boxKeyTakeaways, spaceLatinThai } from '@/lib/article-structure'
+import { boxReferencesSection } from './references'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import type { UploadCtaSettings } from './cta'
 import { buildAuthorCardHtml, type AuthorCardStyle } from '@/lib/articleAuthorCard'
@@ -33,6 +34,8 @@ export interface BuildUploadOptions {
    * ส่งมา = ใส่สารบัญทั้ง 2 โหมด ตรงตำแหน่งที่ทีมย้ายไว้หรือที่สแกนเว็บเจอ
    */
   tocPosition?: number
+  /** ต้นฉบับมาจาก AI — ส่วนอ้างอิงเหลือเฉพาะลิงก์ในรายการของลูกค้า · เอกสารที่ทีมนำเข้าเองคงลิงก์เดิม */
+  aiSource?: boolean
 }
 
 export interface BuildUploadResult {
@@ -393,7 +396,7 @@ function convertFaqInPlace(blocks: HTMLElement[]): number {
   if (faqIdx === -1) return 0
   let endIdx = blocks.length
   for (let i = faqIdx + 1; i < blocks.length; i++) {
-    if (blocks[i].tagName.toLowerCase() === 'h2') {
+    if (blocks[i].tagName.toLowerCase() === 'h2' || /\bcontent-references\b/.test(blocks[i].getAttribute('class') || '')) {
       endIdx = i
       break
     }
@@ -575,7 +578,7 @@ function toPlainText(bodyHtml: string): string {
       lines.push('')
       return
     }
-    if (tag === 'div' && /\bcontent-takeaways\b/.test(el.getAttribute('class') || '')) {
+    if (tag === 'div' && /\bcontent-(?:takeaways|references)\b/.test(el.getAttribute('class') || '')) {
       for (const child of el.children) walkBlock(child)
       return
     }
@@ -625,7 +628,20 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
   const htmlMode = o.mode !== 'text'
   // บทความที่นำเข้าก่อนมีการถอด entity (Google Doc เก็บไทยเป็น &#NNNN;) — ถอดตอน Generate ด้วย ไม่ต้องนำเข้าใหม่
   // เช่นเดียวกับคอมเมนต์ Google Docs ([a]/[b] + ข้อความคอมเมนต์) และคำบรรยาย (Alt: ...) ใต้รูปที่ค้างในต้นฉบับเก่า
-  let blocks = stripAuthorToc(stripAuthorNotes(parseTopLevelBlocks(applyAltCaptionsHtml(stripGoogleDocsCommentsHtml(decodeTextEntities(o.sourceHtml))))))
+  const structure = o.theme.detail?.structure
+  // ลูกค้าที่ไม่ได้เปิดส่วนอ้างอิง ไม่เข้าทางนี้ — HTML เท่าเดิม
+  const source = structure?.references
+    ? boxReferencesSection(o.sourceHtml, {
+        library: o.theme.detail?.references ?? [],
+        title: structure.referencesTitle,
+        language: o.site.language,
+        onlyListed: !!o.aiSource,
+      })
+    : o.sourceHtml
+  const decoded = decodeTextEntities(source)
+  // เฉพาะบทความ AI ของเว็บที่สแกนแล้วพบว่าเว้นวรรคสม่ำเสมอ — ต้นฉบับจากคนและโปรเจกต์เดิมไม่เข้าทางนี้
+  const spaced = o.aiSource && structure?.latinThaiSpacing ? spaceLatinThai(decoded) : decoded
+  let blocks = stripAuthorToc(stripAuthorNotes(parseTopLevelBlocks(applyAltCaptionsHtml(stripGoogleDocsCommentsHtml(spaced)))))
 
   let h1Index = normalizeH1(blocks, o.meta.title)
   if (htmlMode) {
@@ -662,7 +678,8 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
   if (blocks[cursor] && blocks[cursor].tagName.toLowerCase() === 'p') {
     cursor++
   }
-  if (h2Count >= 3 && (htmlMode || o.tocPosition !== undefined)) {
+  // เว็บที่ไม่ใช้สารบัญ (สแกนเจอหรือทีมปิด) = ไม่ใส่ ไม่ได้ตั้ง = เดิม
+  if (structure?.toc !== false && h2Count >= 3 && (htmlMode || o.tocPosition !== undefined)) {
     const h2Blocks = blocks.filter((b) => b.tagName.toLowerCase() === 'h2')
     const label = o.site.language === 'en' ? 'Contents' : 'สารบัญ'
     const items = h2Blocks.map((b) => `<li><a href="#${b.getAttribute('id')}">${escapeHtml(b.text.trim())}</a></li>`).join('')

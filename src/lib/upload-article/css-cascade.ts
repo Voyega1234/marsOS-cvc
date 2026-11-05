@@ -133,7 +133,7 @@ interface ParsedSelector {
 }
 
 /** แยก selector ตามคอมมาระดับบนสุด (ไม่ตัดในวงเล็บ) */
-function splitTop(s: string, sep: string): string[] {
+export function splitTop(s: string, sep: string): string[] {
   const out: string[] = []
   let depth = 0
   let cur = ''
@@ -309,9 +309,11 @@ export class CssCascade {
   /** กฎแยกตาม property — ค้นเฉพาะกฎที่ประกาศ property นั้นจริง */
   private byProp = new Map<string, Array<{ selectors: ParsedSelector[]; decl: Decl; order: number }>>()
 
-  constructor(rules: CssRule[]) {
+  /** watch = property ที่เก็บ — ไม่ส่งมา = ชุดเดิม (สี + ฟอนต์) */
+  constructor(rules: CssRule[], opts?: { watch?: RegExp }) {
+    const watch = opts?.watch ?? WATCHED
     rules.forEach((r, order) => {
-      const decls = parseDecls(r.body).filter((d) => WATCHED.test(d.prop))
+      const decls = parseDecls(r.body).filter((d) => watch.test(d.prop))
       if (!decls.length) return
       const selectors = splitTop(r.selector, ',')
         .map(parseSelector)
@@ -351,6 +353,20 @@ export class CssCascade {
     return this.winner(chain, prop)?.value ?? null
   }
 
+  /** ตัวที่ชนะจากหลายชื่อ เช่น margin กับ margin-top — ได้ทั้งชื่อและค่าที่แทน var() แล้ว */
+  cascaded(chain: CssEl[], props: string[]): { prop: string; value: string } | null {
+    let best: Winner | null = null
+    let bestProp = ''
+    for (const prop of props) {
+      const w = this.winner(chain, prop)
+      if (w && (!best || beats(w, best))) {
+        best = w
+        bestProp = prop
+      }
+    }
+    return best ? { prop: bestProp, value: this.resolve(best.value, chain) } : null
+  }
+
   /** ค่าตัวแปร CSS ที่ element เห็น (ตัวแปรสืบทอดจากบรรพบุรุษ) */
   variable(chain: CssEl[], name: string, depth = 0): string | null {
     for (let i = chain.length; i > 0; i--) {
@@ -371,8 +387,8 @@ export class CssCascade {
     return out.trim()
   }
 
-  /** ค่าที่ใช้จริงของ property ที่สืบทอดได้ (color, font-family) */
-  inherited(chain: CssEl[], prop: 'color' | 'font-family'): { value: string; at: number } | null {
+  /** ค่าที่ใช้จริงของ property ที่สืบทอดได้ (color, font-family, font-size ฯลฯ) */
+  inherited(chain: CssEl[], prop: string): { value: string; at: number } | null {
     for (let i = chain.length; i > 0; i--) {
       const sub = chain.slice(0, i)
       const raw = this.declared(sub, prop)

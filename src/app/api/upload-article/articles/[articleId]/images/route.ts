@@ -16,6 +16,7 @@ import {
 import { DEFAULT_UPLOAD_THEME, UPLOAD_MAX_INLINE_IMAGES, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
+import { freshRewriteShadow } from '@/lib/upload-article/rewrite-lock'
 
 // สร้างรูปหลายภาพขนานกัน ภาพละ ~30-90 วิ — เผื่อเวลาให้พอ ไม่ให้ Vercel ตัดกลางทาง
 export const maxDuration = 800
@@ -68,6 +69,9 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const ctx = await loadContext(params.articleId, orgId)
   if (!ctx) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
   const { article, client } = ctx
+  if (await freshRewriteShadow(article.id, orgId)) {
+    return NextResponse.json({ error: 'บทความนี้กำลังถูก AI เขียนใหม่ — รอให้เสร็จก่อน' }, { status: 409 })
+  }
   if (article.status === 'PUSHING' || article.status === 'WRITING') {
     return NextResponse.json({ error: 'บทความนี้กำลังเขียนหรือกำลัง push อยู่ รอให้เสร็จก่อน' }, { status: 409 })
   }
@@ -239,6 +243,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { articleId
 
   const ctx = await loadContext(params.articleId, orgId)
   if (!ctx) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
+  if (await freshRewriteShadow(ctx.article.id, orgId)) {
+    return NextResponse.json({ error: 'บทความนี้กำลังถูก AI เขียนใหม่ — รอให้เสร็จก่อน' }, { status: 409 })
+  }
   const kind = req.nextUrl.searchParams.get('kind')
   if (kind !== 'cover' && kind !== 'inline') return NextResponse.json({ error: 'kind ต้องเป็น cover หรือ inline' }, { status: 400 })
 

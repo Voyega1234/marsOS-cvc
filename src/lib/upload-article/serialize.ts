@@ -8,8 +8,10 @@ import { readImageDefaults } from './article-images'
 import { uploadCtaSummary } from './cta'
 import { uploadAuthorSummary } from './author'
 import { connectionFingerprint, readConnectionTest } from './connection-status'
+import { sanitizeDraftFont, sanitizeThemeDetail } from './theme-css'
 import { effectiveArticleStatus } from './duplicates'
 import { readArticleOwners, readOwnerTags } from './owner-tags'
+import { CLIENT_LOGO_KEY, readClientLogo } from './client-logo'
 
 function safeParse<T>(json: string | null | undefined, fallback: T): T {
   if (!json) return fallback
@@ -89,12 +91,18 @@ function sanitizePublishAt(raw: unknown): Record<string, string> | undefined {
 }
 
 export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCounts): UploadClientDTO {
-  const theme = safeParse<UploadTheme>(row.themeColors, DEFAULT_UPLOAD_THEME)
+  const storedTheme = safeParse<UploadTheme>(row.themeColors, DEFAULT_UPLOAD_THEME)
+  // ธีมที่เก็บไว้ผ่านตัวตรวจก่อนส่งออก (ค่าที่เขียนตรงลง DB ไม่ผ่าน PATCH) — ไม่แก้ object กลาง
+  const theme: UploadTheme = { ...storedTheme }
+  if (theme.detail) theme.detail = sanitizeThemeDetail(theme.detail)
+  if (theme.fontFamily !== undefined) theme.fontFamily = sanitizeDraftFont(theme.fontFamily)
+  if (theme.headingFont !== undefined) theme.headingFont = sanitizeDraftFont(theme.headingFont)
   const rawPrefs = safeParse<UploadPushPrefs>(row.pushPrefs, {})
   // key หนัก (keywordPlan/internalLinks) ไม่ส่งไปกับ DTO นี้ — หน้า UI โหลดผ่าน route เฉพาะของมันเอง
   const pushPrefs: UploadPushPrefs = { ...rawPrefs }
   for (const key of HEAVY_PREF_KEYS) delete (pushPrefs as Record<string, unknown>)[key]
   delete (pushPrefs as Record<string, unknown>).connectionTest // ส่งเป็น connectionStatus แทน (ไม่ส่ง fp)
+  delete (pushPrefs as Record<string, unknown>)[CLIENT_LOGO_KEY] // ส่งเป็น field logo แทน ไม่ซ้ำใน pushPrefs
   const cardSel = sanitizeCardSel((rawPrefs as Record<string, unknown>).cardSel)
   if (cardSel) pushPrefs.cardSel = cardSel
   else delete pushPrefs.cardSel
@@ -116,6 +124,7 @@ export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCoun
     language: row.language === 'en' ? 'en' : row.language === 'both' ? 'both' : 'th',
     theme,
     pushPrefs,
+    logo: readClientLogo((rawPrefs as Record<string, unknown>)[CLIENT_LOGO_KEY]),
     websitePlatform: row.websitePlatform,
     wpUrl: row.wpUrl,
     wpUser: row.wpUser,

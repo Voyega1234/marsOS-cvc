@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import { PBN_PREFS_MARK } from '@/lib/upload-article/pbn'
+import { NOT_REWRITE_SHADOW } from '@/lib/upload-article/rewrite-lock'
 
 /** GET /api/upload-article/clients — รายชื่อลูกค้า Upload Article (ใหม่สุดก่อน) */
 export async function GET() {
@@ -14,7 +15,7 @@ export async function GET() {
     // แถวโปรเจกต์ PBN Backlinks อยู่เมนูของมันเอง ไม่แสดงในรายชื่อลูกค้า Upload Article
     where: { organizationId: session.user.organizationId, NOT: { pushPrefs: { contains: PBN_PREFS_MARK } } },
     orderBy: { updatedAt: 'desc' },
-    include: { articles: { select: { status: true, wordpressPostId: true, pushedAt: true } } },
+    include: { articles: { where: NOT_REWRITE_SHADOW, select: { status: true, wordpressPostId: true, pushedAt: true } } },
   })
 
   const dtos = clients.map((c) => toUploadClientDTO(c, computeClientCounts(c.articles)))

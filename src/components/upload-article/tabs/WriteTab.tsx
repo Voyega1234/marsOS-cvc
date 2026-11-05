@@ -280,7 +280,7 @@ export default function WriteTab({
             applyArticleUpdate(article);
             // คำต้องห้ามที่ระบบแก้ไม่หมด (Content Engine > ข้อจำกัด) — ให้ทีมแก้เองก่อน push
             if (msg.restrictionWarnings?.length) {
-              toast.warning(`"${article.title}" ยังมีคำต้องห้าม: ${msg.restrictionWarnings.join(", ")} — แก้ในแท็บ Review ก่อน push`, { duration: 15000 });
+              toast.warning(`"${article.title}" ยังมีจุดที่ต้องตรวจ: ${msg.restrictionWarnings.join(", ")} — แก้ในแท็บ Review ก่อน push`, { duration: 15000 });
             }
             writtenRef.current.push({ keywordId: key, articleId: article.id });
             result = { ok: true };
