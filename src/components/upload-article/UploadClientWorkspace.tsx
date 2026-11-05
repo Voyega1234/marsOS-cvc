@@ -32,8 +32,8 @@ const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "
 
 const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   keyword: "Keyword",
-  write: "Write",
-  import: "Import",
+  write: "Write Article",
+  import: "Import Article",
   generate: "Generate",
   review: "Review",
   push: "Push",
