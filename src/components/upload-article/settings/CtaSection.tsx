@@ -617,7 +617,7 @@ export default function CtaSection({ client, setClient }: {
       loadKey={client.id}
       accentColor={client.theme.theme}
       border={client.theme.border}
-      description={'CTA จะถูกใส่เฉพาะบทความที่ติ๊ก "ใส่ CTA" ในแท็บเขียนบทความ — ระบบจะสุ่ม CTA จากรายการด้านล่างไปวางตามจำนวนที่ตั้งไว้ กระจายตามหัวข้อ อันสุดท้ายอยู่ก่อน FAQ'}
+      description={'CTA จะถูกใส่เฉพาะบทความที่ติ๊ก "ใส่ CTA" ในแท็บ Write — ระบบจะสุ่ม CTA จากรายการด้านล่างไปวางตามจำนวนที่ตั้งไว้ กระจายตามหัวข้อ อันสุดท้ายอยู่ก่อน FAQ'}
       load={async () => {
         const r = await fetch(`/api/upload-article/clients/${client.id}/cta`);
         const d = await r.json().catch(() => ({}));

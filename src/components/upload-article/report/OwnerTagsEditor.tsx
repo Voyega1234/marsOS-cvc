@@ -12,7 +12,7 @@ import { UPLOAD_MAX_OWNER_TAGS, UPLOAD_MAX_OWNER_TAG_NAME, type UploadOwnerTag }
 
 type TagInput = { id?: string; name: string };
 
-const DEFAULT_DESCRIPTION = "พิมพ์ชื่อคนในทีมที่ดูแลลูกค้านี้ แล้วเลือกผู้ดูแลต่อบทความ (แท็บนำเข้า / Publish / ตาราง “บทความที่อัปโหลด” ด้านล่าง) — กรองรายงานทั้งหน้าตามผู้ดูแลได้";
+const DEFAULT_DESCRIPTION = "พิมพ์ชื่อคนในทีมที่ดูแลลูกค้านี้ แล้วเลือกผู้ดูแลต่อบทความ (แท็บ Import / Publish / ตาราง “บทความที่อัปโหลด” ด้านล่าง) — กรองรายงานทั้งหน้าตามผู้ดูแลได้";
 
 export default function OwnerTagsEditor({
   clientId, ownerTags, articleOwners, onChange, saveUrl, description = DEFAULT_DESCRIPTION,
