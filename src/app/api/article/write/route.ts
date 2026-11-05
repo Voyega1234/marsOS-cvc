@@ -19,7 +19,7 @@ import { sanitizeArticleHtml } from '@/lib/articleSanitize'
 import { buildArticleSchema, stripSchemaScripts } from '@/lib/articleSchema'
 import { readLanguagePrefs, resolveArticleLanguage } from '@/lib/keyword-language'
 import { articleIntentSkillBlock } from '@/lib/article-intent-skill'
-import { humanVoiceSkillBlock } from '@/lib/article-human-voice-skill'
+import { humanVoiceSkillBlock, stripEditorialNotes } from '@/lib/article-human-voice-skill'
 import { articleStructureSkillBlock, normalizeFaqAndTakeaways } from '@/lib/article-structure'
 import { readArticleImageSettings, type ArticleImageSettings, readArticleAuthorPick, type ArticleAuthorPick, pickAuthorIndex, STUDIO_ARTICLE_SETTINGS_KEY, readStudioArticleSettings } from '@/lib/article-settings'
 import { pickAuthorForArticle } from '@/lib/upload-article/author'
@@ -1147,7 +1147,7 @@ export async function POST(req: NextRequest) {
    *  (schema ของ AI/รอบก่อนถูกถอดทิ้งเสมอ กัน URL มั่วและกัน FAQPage ไม่ตรงเนื้อหา) */
   const finalizeArticleHtml = (raw: string): string => {
     // FAQ คำถามเป็น <span> ใน <summary> + สรุปประเด็นสำคัญเป็นกล่อง (บทความไทยหัวกล่อง = "สรุปประเด็นสำคัญ") เสมอ แม้ Master Prompt/AI จะเขียนมาแบบอื่น
-    const body = wrapArticleHtml(normalizeFaqAndTakeaways(stripSchemaScripts(sanitizeArticleHtml(raw)), effectiveLanguage === 'en' ? 'en' : 'th'), resolvedStyleMode === 'embed' ? articleCss : null)
+    const body = wrapArticleHtml(normalizeFaqAndTakeaways(stripSchemaScripts(sanitizeArticleHtml(stripEditorialNotes(raw))), effectiveLanguage === 'en' ? 'en' : 'th'), resolvedStyleMode === 'embed' ? articleCss : null)
     const metaBlock = body.match(/<!--\s*CONVERT_CAKE_SEO_META([\s\S]*?)-->/i)?.[1] ?? ''
     const metaOf = (k: string) => metaBlock.match(new RegExp(`${k}\\s*:\\s*(.+)`, 'i'))?.[1]?.trim() ?? ''
     type CtaChan = { type?: string; label?: string; value?: string }

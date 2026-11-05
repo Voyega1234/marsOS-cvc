@@ -563,7 +563,7 @@ export const DEFAULT_MASTER_PROMPT: MasterPromptData = {
 เขียนโดยใช้เฉพาะ Business Skill, Article Brief, Approved Sources และ Website Context ที่ได้รับ
 ห้ามสร้าง Claim ราคา บริการ เครื่องมือ สาขา Credential สถิติ URL หรือแหล่งข้อมูลขึ้นเอง
 หากข้อมูลไม่พอ ให้ระบุ MISSING_INFORMATION
-สำหรับ YMYL ให้ใช้ภาษาข้อมูลทั่วไป ไม่วินิจฉัย ไม่รับประกันผล และส่ง Expert Review
+สำหรับ YMYL ให้ใช้ภาษาข้อมูลทั่วไป ไม่วินิจฉัย ไม่รับประกันผล ส่วน Expert Review เป็นงานภายในของทีม ห้ามเขียนถึงในบทความ
 ห้ามสร้าง First-hand Experience หากไม่มีข้อมูลจริง
 ห้ามยัด Keyword
 ห้ามใช้ Template ซ้ำโดยไม่จำเป็น`,

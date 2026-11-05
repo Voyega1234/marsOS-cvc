@@ -73,6 +73,7 @@ export const HUMAN_BODY_RULES_TH = [
   'หัวข้อ H2/H3 ใช้ภาษาคนพูด สั้น ชัด อ่านแล้วรู้ว่าย่อหน้าใต้หัวข้อจะบอกอะไร ห้ามรูปแบบ "หัวข้อ: คำขยาย"',
   'ย่อหน้าสรุปท้ายบทความห้ามขึ้นต้นด้วย "โดยสรุป" "สรุปแล้ว" หรือ "ท้ายที่สุดนี้"',
   'ภาษาไทยต้องถูกไวยากรณ์และสะกดถูก ห้ามแปลตรงตัวจากภาษาอังกฤษ (เช่น "มันเป็นสิ่งสำคัญที่จะ…", "ทำการ…", "ได้รับการ…" ที่ไม่จำเป็น)',
+  'เขียนถึงผู้อ่านเท่านั้น ห้ามเขียนขั้นตอนทำงานภายในลงในบทความ เช่น ต้องให้ผู้เชี่ยวชาญตรวจทานก่อนเผยแพร่ ส่ง Expert Review หรือรออนุมัติ ส่วนคำเตือนให้ผู้อ่านปรึกษาผู้เชี่ยวชาญก่อนตัดสินใจยังเขียนได้',
 ]
 
 export const HUMAN_TITLE_RULES_EN = [
@@ -93,6 +94,7 @@ export const HUMAN_BODY_RULES_EN = [
   'No em dashes, no emoji, bullets only for real lists, no triple-adjective strings, no paragraph that just restates the heading',
   'Use concrete details (numbers, steps, examples, caveats), but business facts and prices must come only from the provided data',
   'H2/H3 headings are short and plain and tell what the section answers. The closing paragraph must not start with "In conclusion"',
+  'Write to the reader only. Never put internal workflow in the article, such as needing expert review before publication or awaiting approval. Telling readers to consult a professional before deciding is fine',
 ]
 
 export type HumanVoiceLanguage = 'th' | 'en' | 'both'
@@ -161,6 +163,24 @@ export function humanTitleSkillBlock(language: HumanVoiceLanguage = 'th'): strin
       : 'ก่อนส่ง อ่านชื่อเรื่องทุกอันออกเสียงในใจหนึ่งรอบ อันไหนสะดุด เป็นคำเรียงกัน หรืออ่านแล้วไม่รู้ว่าบทความจะให้อะไร ให้ตั้งใหม่',
     FORMAT_GUARD(en),
   ].join('\n')
+}
+
+// อ้างถึงตัวบทความเอง / เป็นข้อความ disclaimer — ต้องเข้าเงื่อนไขก่อนถึงตัด เรื่องการตรวจก่อนเผยแพร่ที่เป็นเนื้อหาจริงจะไม่โดน
+const NOTE_SELF_SUBJECT = /(?:บทความนี้|เนื้อหานี้)\s*(?:จำเป็นต้อง|ควร|ต้อง)|this (?:article|content)\s+(?:should|must|needs? to)/i
+const NOTE_DISCLAIMER = /(?:บทความนี้|เนื้อหานี้|this (?:article|content))[\s\S]*(?:ข้อมูลทั่วไป|ไม่ใช้แทน|ไม่สามารถใช้แทน|ไม่ใช่คำแนะนำ|general information|not a substitute|not medical advice|does not replace)/i
+const NOTE_CLAUSE_TH = /\s*(?:(?:และ|โดย|ทั้งนี้)\s*)?(?:(?:บทความนี้|เนื้อหานี้)\s*)?(?:จำเป็นต้อง|ควร|ต้อง)[^<]{0,40}?(?:ตรวจทาน|ตรวจสอบ|รีวิว|expert review|อนุมัติ)[^<]{0,60}?ก่อน(?:การ)?(?:เผยแพร่|ตีพิมพ์)/gi
+const NOTE_SENTENCE_EN = /\s*this (?:article|content)\s+(?:should|must|needs? to)\b[^<.]{0,40}?\b(?:review|reviewed|approved|checked)\b[^<.]{0,60}?\bbefore\s+(?:publication|publishing|being published)\.?/gi
+const NOTE_CLAUSE_EN = /,?\s*(?:and\s+)?(?:should|must|needs? to)\b[^<.]{0,40}?\b(?:review|reviewed|approved|checked)\b[^<.]{0,60}?\bbefore\s+(?:publication|publishing|being published)/gi
+
+/** ตัดข้อความขั้นตอนภายใน ("ควรผ่านการตรวจทาน...ก่อนเผยแพร่") ที่หลุดเข้าบทความ — กฎใน prompt อย่างเดียวกันไม่อยู่ ไม่เจอ = คืน HTML เดิม */
+export function stripEditorialNotes(html: string): string {
+  return html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (block, inner: string) => {
+    if (!NOTE_SELF_SUBJECT.test(inner) && !NOTE_DISCLAIMER.test(inner)) return block
+    const cut = inner.replace(NOTE_CLAUSE_TH, '').replace(NOTE_SENTENCE_EN, '').replace(NOTE_CLAUSE_EN, '')
+    if (cut === inner) return block
+    if (!cut.replace(/<[^>]*>/g, '').trim()) return ''
+    return block.replace(inner, () => cut.replace(/^(\s*(?:<[^>]+>\s*)*)\s+/, '$1').replace(/\s+((?:<\/[^>]+>\s*)*)$/, '$1'))
+  })
 }
 
 /** title ที่ยังมีร่องรอย AI ชัด ๆ (ใช้ตัดสินใจขอให้ AI ตั้งใหม่อีกรอบ) */

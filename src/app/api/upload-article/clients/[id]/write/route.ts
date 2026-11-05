@@ -33,6 +33,7 @@ import {
   restrictionsValidatorNote,
 } from '@/lib/ce-restrictions'
 import { enforceRestrictions, judgeRelatedProducts, loadRestrictions } from '@/lib/ce-restrictions-server'
+import { stripEditorialNotes } from '@/lib/article-human-voice-skill'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
@@ -351,7 +352,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         }
 
         const parsed = parseWriterOutput(rawText)
-        let cleaned = cleanSemanticHtml(parsed.html)
+        let cleaned = stripEditorialNotes(cleanSemanticHtml(parsed.html))
         if (cleaned.trim().length < MIN_CLEANED_HTML_LENGTH) {
           throw new Error('เนื้อหาที่ได้สั้นเกินไป (โมเดลอาจตอบว่างหรือถูกตัดกลางทาง) ลองเขียนใหม่อีกครั้ง')
         }
