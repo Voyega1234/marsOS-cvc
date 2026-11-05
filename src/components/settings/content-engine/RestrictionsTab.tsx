@@ -5,8 +5,8 @@
 // ไฟล์: เบราว์เซอร์อ่านเป็นข้อความก่อน (ไม่ส่งไฟล์ดิบ) ยาวเกินแถวเดียวแบ่งเป็นหลายส่วน — แถวไฟล์ไม่ผ่าน PUT
 // (PUT เก็บ version ทั้งข้อความ และหน้านี้ได้แค่ตัวอย่างต้นไฟล์) แก้ประเภทไฟล์ = ลบแล้วอัปโหลดใหม่
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, FileUp, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FileUp, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,28 +16,39 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
-  RESTRICTION_FILE_MAX_CHARS,
   RESTRICTION_FILES_TOTAL_MAX_CHARS,
   bannedTermsFromTable,
-  chunkText,
   emptyRestrictions,
   parseBannedTerms,
-  parseRestrictionFileMeta,
   parseRestrictions,
   type ProductRule,
+  type ResearchRef,
   type RestrictionFileKind,
-  type RestrictionFileMeta,
   type RestrictionsData,
 } from "@/lib/ce-restrictions";
+import { RESTRICTION_FILE_ACCEPT, readTermImport } from "@/lib/restriction-file-client";
+import { linesToCandidates, type TermCandidate } from "@/lib/restriction-table";
 import {
-  BANNED_TERMS_ACCEPT,
-  RESTRICTION_FILE_ACCEPT,
-  extractRestrictionFileText,
-  readBannedTermsTable,
-} from "@/lib/restriction-file-client";
+  KIND_LABEL,
+  RestrictionFileList,
+  api,
+  newGroupId,
+  useRestrictionFileUpload,
+  useRestrictionFiles,
+  type FileGroup,
+} from "./restriction-files";
 import { EmptyRow, ErrorBanner, SectionCard, useCERefresh } from "./shared";
+import { TermImportDialog } from "./TermImportDialog";
 import type { CEScope, PromptRow } from "./types";
 import { CE_TYPES, scopeProjectId } from "./types";
+
+/** ชนิดไฟล์ที่เลือกอัปโหลดในหน้านี้ — Comment อยู่แท็บของตัวเอง */
+const UPLOAD_KINDS: RestrictionFileKind[] = ["rules", "reference", "product", "research", "criticized"];
+
+/** ชุดใหม่เปิดเข้มงวดไว้ก่อน แถวที่มีอยู่แล้วใช้ค่าที่บันทึก ไม่เปลี่ยนเอง */
+function initialData(promptText: string | null): RestrictionsData {
+  return promptText !== null ? parseRestrictions(promptText) : { ...emptyRestrictions(), strictMode: true };
+}
 
 interface Props {
   items: PromptRow[];
@@ -45,127 +56,34 @@ interface Props {
   canEdit: boolean;
 }
 
-interface FileApiRow {
-  id: string;
-  name: string;
-  description: string | null;
-  promptText: string;
-  type: string;
-  createdAt?: string;
-}
-
-interface FileGroup {
-  key: string;
-  name: string;
-  kind: RestrictionFileKind;
-  ids: string[];
-  chars: number;
-  size: number;
-  pages?: number;
-  preview: string;
-}
-
-const PART_SUFFIX_RE = / \(ส่วน \d+\/\d+\)$/;
-
-const KIND_LABEL: Record<RestrictionFileKind, string> = {
-  rules: "ข้อกำหนด/ข้อห้าม",
-  reference: "ข้อมูลอ้างอิง",
-};
-
-function groupFiles(rows: FileApiRow[]): FileGroup[] {
-  const groups = new Map<string, FileGroup & { firstPart: number }>();
-  for (const r of rows) {
-    const meta = parseRestrictionFileMeta(r.description);
-    const key = meta.group ?? r.id;
-    const part = meta.part ?? 1;
-    const g = groups.get(key);
-    if (!g) {
-      groups.set(key, {
-        key,
-        name: r.name.replace(PART_SUFFIX_RE, ""),
-        kind: meta.kind,
-        ids: [r.id],
-        chars: meta.chars || r.promptText.length,
-        size: meta.size,
-        pages: meta.pages,
-        preview: r.promptText,
-        firstPart: part,
-      });
-    } else {
-      g.ids.push(r.id);
-      g.chars += meta.chars || r.promptText.length;
-      if (part < g.firstPart) {
-        g.firstPart = part;
-        g.preview = r.promptText;
-      }
-    }
-  }
-  return Array.from(groups.values()).map(({ firstPart: _firstPart, ...g }) => g);
-}
-
-function newGroupId(): string {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  }
-}
-
-function formatBytes(n: number): string {
-  if (!n) return "";
-  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(n / 1024))} KB`;
-}
-
-async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `${res.status} ${res.statusText}`);
-  }
-  return (await res.json().catch(() => ({}))) as T;
-}
-
 export function RestrictionsTab({ items, scope, canEdit }: Props) {
   const refresh = useCERefresh();
   const projectId = scopeProjectId(scope);
   const row = useMemo(() => items.find((i) => i.isActive) ?? items[0] ?? null, [items]);
 
-  const [data, setData] = useState<RestrictionsData>(() => (row ? parseRestrictions(row.promptText) : emptyRestrictions()));
+  const [data, setData] = useState<RestrictionsData>(() => initialData(row ? row.promptText : null));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [files, setFiles] = useState<FileGroup[] | null>(null);
+  const { allFiles, loadFiles } = useRestrictionFiles(projectId, setError);
+  const files = useMemo(() => allFiles?.filter((g) => g.kind !== "comment") ?? null, [allFiles]);
   const [uploadKind, setUploadKind] = useState<RestrictionFileKind>("rules");
-  const [uploading, setUploading] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [termImport, setTermImport] = useState<{ fileName: string; candidates: TermCandidate[]; usedTerms: string[] } | null>(null);
+  const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const termsInputRef = useRef<HTMLInputElement>(null);
 
   // แถวหลักเปลี่ยน (บันทึกแล้ว refresh) — ทับร่างเฉพาะตอนที่ไม่ได้แก้ค้างไว้
   useEffect(() => {
     if (dirty) return;
-    setData(row ? parseRestrictions(row.promptText) : emptyRestrictions());
+    setData(initialData(row ? row.promptText : null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row?.id, row?.version, row?.promptText]);
 
-  const loadFiles = useCallback(async () => {
-    try {
-      const url = projectId ? `/api/prompts?projectId=${encodeURIComponent(projectId)}` : "/api/prompts?scope=studio";
-      const rows = await api<FileApiRow[]>(url);
-      setFiles(groupFiles((Array.isArray(rows) ? rows : []).filter((r) => r.type === CE_TYPES.RESTRICTION_FILE)));
-    } catch (e) {
-      setError(`โหลดรายการไฟล์ไม่สำเร็จ: ${(e as Error).message}`);
-      setFiles([]);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    void loadFiles();
-  }, [loadFiles]);
-
-  const usedChars = useMemo(() => (files ?? []).reduce((n, g) => n + g.chars, 0), [files]);
+  const usedChars = useMemo(() => (allFiles ?? []).reduce((n, g) => n + g.chars, 0), [allFiles]);
+  const { uploading, setUploading, readFileText, upload, confirmDialog } = useRestrictionFileUpload(projectId, setError);
   const termCount = useMemo(() => parseBannedTerms(data.bannedTerms).length, [data.bannedTerms]);
 
   function update(patch: Partial<RestrictionsData>) {
@@ -183,6 +101,16 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
         ...data.productRules,
         { id: newGroupId(), product: "", triggers: "", info: "", fileIds: [], enabled: true },
       ],
+    });
+  }
+
+  function updateResearch(id: string, patch: Partial<ResearchRef>) {
+    update({ research: data.research.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+  }
+
+  function addResearch() {
+    update({
+      research: [...data.research, { id: newGroupId(), title: "", year: "", source: "", sample: "", finding: "", url: "", enabled: true }],
     });
   }
 
@@ -225,77 +153,74 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
     }
   }
 
-  async function importTerms(file: File) {
+  /** ข้อมูลสินค้าที่กรอกไว้ในหน้านี้ — คำที่อยู่ในนี้ไม่ควรถูกห้ามโดยไม่รู้ตัว */
+  function termsUsedInProductRules(terms: string[]): string[] {
+    const haystack = data.productRules
+      .map((p) => `${p.product} ${p.triggers} ${p.info}`)
+      .join(" ")
+      .toLowerCase()
+      .replace(/\s+/g, "");
+    return terms.filter((t) => haystack.includes(t.toLowerCase().replace(/\s+/g, "")));
+  }
+
+  async function openTermPreview(fileName: string, candidates: TermCandidate[]) {
+    const terms = Array.from(new Set(candidates.filter((c) => c.kind === "banned").map((c) => c.term)));
+    let usedInFiles: string[] = [];
     try {
-      const lines = bannedTermsFromTable(await readBannedTermsTable(file));
-      if (!lines.trim()) {
-        toast.error("ไม่พบคำในไฟล์ — คอลัมน์แรก = คำต้องห้าม, คอลัมน์ที่ 2 = คำแทน (ถ้ามี)");
+      const res = await api<{ usedTerms?: string[] }>("/api/prompts/term-usage", {
+        method: "POST",
+        body: JSON.stringify({ projectId, terms: terms.slice(0, 3000) }),
+      });
+      usedInFiles = res.usedTerms ?? [];
+    } catch (e) {
+      toast.warning(`ตรวจคำกับไฟล์ข้อมูลสินค้าไม่สำเร็จ: ${(e as Error).message}`);
+    }
+    setTermImport({ fileName, candidates, usedTerms: [...usedInFiles, ...termsUsedInProductRules(terms)] });
+  }
+
+  async function importTerms(file: File) {
+    setImporting(true);
+    try {
+      const result = await readTermImport(file);
+      if (result.kind === "legacy") {
+        // ตาราง 1-2 คอลัมน์: คอลัมน์แรก = คำ คอลัมน์ที่ 2 = คำแทน ทำงานเหมือนเดิม
+        const lines = bannedTermsFromTable(result.text);
+        if (!lines.trim()) {
+          toast.error("ไม่พบคำในไฟล์ — คอลัมน์แรก = คำต้องห้าม, คอลัมน์ที่ 2 = คำแทน (ถ้ามี)");
+          return;
+        }
+        const before = parseBannedTerms(data.bannedTerms).length;
+        const merged = [data.bannedTerms.trim(), lines].filter(Boolean).join("\n");
+        update({ bannedTerms: merged });
+        toast.success(`เพิ่ม ${(parseBannedTerms(merged).length - before).toLocaleString()} คำ — กดบันทึกเพื่อใช้งาน`);
         return;
       }
-      const before = parseBannedTerms(data.bannedTerms).length;
-      const merged = [data.bannedTerms.trim(), lines].filter(Boolean).join("\n");
-      update({ bannedTerms: merged });
-      toast.success(`เพิ่ม ${(parseBannedTerms(merged).length - before).toLocaleString()} คำ — กดบันทึกเพื่อใช้งาน`);
+      let candidates: TermCandidate[];
+      if (result.kind === "candidates") {
+        candidates = result.candidates;
+      } else {
+        const read = await readFileText(file);
+        if (!read) return;
+        candidates = linesToCandidates(read.text);
+      }
+      if (!candidates.length) {
+        toast.error("ไม่พบคำในไฟล์");
+        return;
+      }
+      await openTermPreview(file.name, candidates);
     } catch (e) {
       toast.error(`อ่านไฟล์ไม่สำเร็จ: ${(e as Error).message}`);
+    } finally {
+      setUploading(null);
+      setImporting(false);
     }
   }
 
   async function uploadFiles(list: File[]) {
     setError(null);
-    let used = usedChars;
-    let added = 0;
     // ยังไม่มีแถวหลัก = ตัวเขียนไม่โหลดไฟล์ (loadRestrictions อ่านจากแถวหลัก) — สร้างให้ก่อน
     if (!row && !(await saveMain(data, true))) return;
-    for (const file of list) {
-      try {
-        setUploading(`กำลังอ่าน ${file.name}…`);
-        const { text, pages } = await extractRestrictionFileText(file);
-        if (!text) throw new Error("ไม่พบข้อความในไฟล์ (PDF ที่สแกนเป็นรูปอ่านไม่ได้ — ต้องเป็นไฟล์ที่เลือกข้อความได้)");
-        if (used + text.length > RESTRICTION_FILES_TOTAL_MAX_CHARS) {
-          throw new Error(
-            `ข้อความ ${text.length.toLocaleString()} ตัวอักษร ทำให้ไฟล์รวมเกิน ${RESTRICTION_FILES_TOTAL_MAX_CHARS.toLocaleString()} — ลบไฟล์ที่ไม่ใช้ก่อน`,
-          );
-        }
-        const parts = text.length > RESTRICTION_FILE_MAX_CHARS ? chunkText(text, RESTRICTION_FILE_MAX_CHARS) : [text];
-        const group = parts.length > 1 ? newGroupId() : undefined;
-        const createdIds: string[] = [];
-        try {
-          for (let i = 0; i < parts.length; i++) {
-            setUploading(parts.length > 1 ? `กำลังบันทึก ${file.name} ส่วน ${i + 1}/${parts.length}…` : `กำลังบันทึก ${file.name}…`);
-            const meta: RestrictionFileMeta = {
-              kind: uploadKind,
-              chars: parts[i].length,
-              size: file.size,
-              ...(pages ? { pages } : {}),
-              ...(group ? { group, part: i + 1, parts: parts.length } : {}),
-            };
-            const created = await api<{ id?: string }>("/api/prompts", {
-              method: "POST",
-              body: JSON.stringify({
-                name: group ? `${file.name} (ส่วน ${i + 1}/${parts.length})` : file.name,
-                type: CE_TYPES.RESTRICTION_FILE,
-                description: JSON.stringify(meta),
-                promptText: parts[i],
-                projectId,
-              }),
-            });
-            if (created.id) createdIds.push(created.id);
-          }
-        } catch (e) {
-          // ส่วนที่บันทึกไปแล้วของไฟล์นี้ลบทิ้ง ไม่ให้เหลือไฟล์ครึ่ง ๆ
-          await Promise.all(createdIds.map((id) => fetch(`/api/prompts/${id}`, { method: "DELETE" }).catch(() => null)));
-          throw e;
-        }
-        used += text.length;
-        added++;
-        toast.success(`${file.name}: ${text.length.toLocaleString()} ตัวอักษร${parts.length > 1 ? ` (${parts.length} ส่วน)` : ""}`);
-      } catch (e) {
-        setError(`${file.name}: ${(e as Error).message}`);
-      }
-    }
-    setUploading(null);
-    if (added) await loadFiles();
+    if (await upload(list, uploadKind, usedChars)) await loadFiles();
   }
 
   async function deleteGroup(g: FileGroup) {
@@ -325,6 +250,8 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
   }
 
   const disabled = !canEdit || saving;
+  // ตัวอย่างที่ลูกค้าติไม่ใช่ข้อมูลของสินค้า
+  const linkableFiles = (files ?? []).filter((g) => g.kind !== "criticized");
 
   return (
     <div className="space-y-4">
@@ -353,6 +280,12 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
           <p className="mt-2 text-xs text-gray-500">สโคปนี้ยังไม่มีข้อจำกัด — กรอกแล้วกดบันทึก หรืออัปโหลดไฟล์ได้เลย</p>
         )}
         {dirty && <p className="mt-2 text-xs text-amber-600">มีการแก้ไขที่ยังไม่บันทึก</p>}
+        <label className="mt-3 flex items-start gap-2 text-xs text-gray-600">
+          <Switch checked={data.strictMode} disabled={disabled} onCheckedChange={(v) => update({ strictMode: v })} />
+          <span>
+            <span className="font-medium text-gray-700">เข้มงวดพิเศษ</span> — จับคำต้องห้ามที่เลี่ยงด้วยการเว้นวรรคหรือแทรกอักษรล่องหน, ตรวจข้อความ alt ของรูป และแก้ซ้ำ 2 รอบ
+          </span>
+        </label>
       </SectionCard>
 
       <SectionCard
@@ -363,7 +296,7 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
             <input
               ref={termsInputRef}
               type="file"
-              accept={BANNED_TERMS_ACCEPT}
+              accept={RESTRICTION_FILE_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -371,8 +304,8 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
                 if (f) void importTerms(f);
               }}
             />
-            <Button size="sm" variant="outline" className="gap-1.5" disabled={disabled} onClick={() => termsInputRef.current?.click()}>
-              <FileUp className="size-3.5" /> นำเข้าจาก Excel/CSV
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={disabled || importing} onClick={() => termsInputRef.current?.click()}>
+              {importing ? <Loader2 className="size-3.5 animate-spin" /> : <FileUp className="size-3.5" />} นำเข้าจากไฟล์
             </Button>
           </>
         }
@@ -388,6 +321,20 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
         <p className="mt-1 text-[11px] text-gray-400">{termCount.toLocaleString()} คำ · ขึ้นต้นบรรทัดด้วย # = หมายเหตุ ไม่นับ</p>
       </SectionCard>
 
+      <SectionCard
+        title="คำ/ข้อความที่ใช้ได้"
+        description="ถ้อยคำที่ฝ่ายกฎหมายของลูกค้าเห็นชอบ บรรทัดละข้อความ — ตัวเขียนใช้คำเหล่านี้แทนการเลี่ยงไปใช้คำกำกวม คำที่อยู่ในรายการต้องห้ามด้วยจะถือว่าห้าม"
+      >
+        <Textarea
+          value={data.approvedTerms}
+          disabled={disabled}
+          onChange={(e) => update({ approvedTerms: e.target.value })}
+          rows={5}
+          className="font-mono text-xs"
+          placeholder={"ฟื้นฟูความสมดุลฮอร์โมนในร่างกาย\nดูแลโดยแพทย์"}
+        />
+      </SectionCard>
+
       <SectionCard title="กฎที่ต้องทำตามทุกบทความ" description="ข้อห้าม/ข้อบังคับที่เป็นประโยค เช่น ห้ามวินิจฉัยโรค, ห้ามเปรียบเทียบกับคู่แข่ง, ต้องแนะนำให้ปรึกษาแพทย์">
         <Textarea
           value={data.rules}
@@ -396,6 +343,73 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
           rows={6}
           placeholder={"- ห้ามอ้างว่ารักษาโรคได้\n- ทุกบทความเรื่องยา ต้องแนะนำให้ปรึกษาแพทย์หรือเภสัชกร"}
         />
+      </SectionCard>
+
+      <SectionCard
+        title="งานวิจัยที่ใช้อ้างอิงได้"
+        description="ตัวเขียนอ้างได้เฉพาะงานวิจัยในรายการนี้และในไฟล์ประเภทงานวิจัย ต้องมีชื่อและผลที่พบจึงจะถูกใช้ — ห้าม AI หางานวิจัยมาเติมเอง"
+        action={
+          <Button size="sm" variant="outline" className="gap-1.5" disabled={disabled} onClick={addResearch}>
+            <Plus className="size-3.5" /> เพิ่มงานวิจัย
+          </Button>
+        }
+      >
+        {data.research.length === 0 ? (
+          <EmptyRow>ยังไม่มีงานวิจัย</EmptyRow>
+        ) : (
+          <div className="space-y-3">
+            {data.research.map((r) => (
+              <div key={r.id} className={cn("rounded-xl border p-3", r.enabled ? "border-gray-200" : "border-dashed border-gray-200 opacity-60")}>
+                <div className="grid gap-2 md:grid-cols-[1fr_6rem]">
+                  <div>
+                    <Label className="text-xs">ชื่องานวิจัย</Label>
+                    <Input value={r.title} disabled={disabled} onChange={(e) => updateResearch(r.id, { title: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">ปี</Label>
+                    <Input value={r.year} disabled={disabled} onChange={(e) => updateResearch(r.id, { year: e.target.value })} />
+                  </div>
+                </div>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <div>
+                    <Label className="text-xs">ผู้วิจัย / วารสาร / ประเทศ</Label>
+                    <Input value={r.source} disabled={disabled} onChange={(e) => updateResearch(r.id, { source: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">กลุ่มตัวอย่าง</Label>
+                    <Input value={r.sample} disabled={disabled} onChange={(e) => updateResearch(r.id, { sample: e.target.value })} />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <Label className="text-xs">ผลที่พบจริง</Label>
+                  <Textarea value={r.finding} disabled={disabled} onChange={(e) => updateResearch(r.id, { finding: e.target.value })} rows={3} />
+                </div>
+                <div className="mt-2">
+                  <Label className="text-xs">ลิงก์ (ถ้ามี)</Label>
+                  <Input value={r.url} disabled={disabled} onChange={(e) => updateResearch(r.id, { url: e.target.value })} />
+                </div>
+                {!(r.title.trim() && r.finding.trim()) && (
+                  <p className="mt-2 text-[11px] text-amber-600">ยังขาดชื่อหรือผลที่พบ ตัวเขียนจะไม่ใช้รายการนี้</p>
+                )}
+                <div className="mt-2 flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs text-gray-600">
+                    <Switch checked={r.enabled} disabled={disabled} onCheckedChange={(v) => updateResearch(r.id, { enabled: v })} />
+                    {r.enabled ? "ใช้งาน" : "ปิดไว้"}
+                  </label>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="gap-1 text-red-600 hover:text-red-700"
+                    disabled={disabled}
+                    onClick={() => update({ research: data.research.filter((x) => x.id !== r.id) })}
+                  >
+                    <Trash2 className="size-3.5" /> ลบ
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </SectionCard>
 
       <SectionCard
@@ -438,11 +452,11 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
                     placeholder="สเปก ข้อความที่อนุญาต คำเตือน ราคา ฯลฯ"
                   />
                 </div>
-                {files && files.length > 0 && (
+                {linkableFiles.length > 0 && (
                   <div className="mt-2">
                     <Label className="text-xs">ไฟล์ของสินค้านี้ (ส่งเฉพาะบทความที่เกี่ยวกับสินค้านี้)</Label>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                      {files.map((g) => (
+                      {linkableFiles.map((g) => (
                         <label key={g.key} className="flex items-center gap-1.5 text-xs text-gray-600">
                           <input
                             type="checkbox"
@@ -478,8 +492,21 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
       </SectionCard>
 
       <SectionCard
+        title="ตัวอย่างบทความที่ลูกค้าติ"
+        description="วางข้อความที่ลูกค้าไม่ชอบ ตัวเขียนใช้เป็นตัวอย่างสิ่งที่ห้ามทำ ไม่ใช่แหล่งข้อมูล บทความยาวอัปโหลดเป็นไฟล์ประเภทตัวอย่างที่ลูกค้าติด้านล่างได้"
+      >
+        <Textarea
+          value={data.criticizedSamples}
+          disabled={disabled}
+          onChange={(e) => update({ criticizedSamples: e.target.value })}
+          rows={5}
+          placeholder="ข้อความหรือบทความที่ลูกค้าติ"
+        />
+      </SectionCard>
+
+      <SectionCard
         title="ไฟล์ข้อกำหนด / ข้อมูลอ้างอิง"
-        description="PDF, Word (.docx), Excel, CSV, TXT — ไฟล์ใหญ่ได้ เบราว์เซอร์อ่านเป็นข้อความก่อนส่ง (ไม่อัปโหลดไฟล์ดิบ) ตอนเขียน ระบบเลือกเฉพาะส่วนที่ตรงหัวข้อบทความไปใช้"
+        description="PDF, Word, PowerPoint, Excel, CSV, TXT, HTML, RTF และรูปภาพ — ไฟล์ใหญ่ได้ เบราว์เซอร์อ่านเป็นข้อความก่อนส่ง (ไม่อัปโหลดไฟล์ดิบ) ตอนเขียน ระบบเลือกเฉพาะส่วนที่ตรงหัวข้อบทความไปใช้"
         action={
           <div className="flex items-center gap-2">
             <select
@@ -488,8 +515,11 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
               onChange={(e) => setUploadKind(e.target.value as RestrictionFileKind)}
               className="h-8 rounded-md border border-gray-200 bg-white px-2 text-xs"
             >
-              <option value="rules">{KIND_LABEL.rules}</option>
-              <option value="reference">{KIND_LABEL.reference}</option>
+              {UPLOAD_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABEL[k]}
+                </option>
+              ))}
             </select>
             <input
               ref={fileInputRef}
@@ -511,59 +541,34 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
         }
       >
         {uploading && <p className="mb-2 text-xs text-indigo-600">{uploading}</p>}
-        {files === null ? (
-          <p className="text-xs text-gray-400">กำลังโหลด…</p>
-        ) : files.length === 0 ? (
-          <EmptyRow>ยังไม่มีไฟล์</EmptyRow>
-        ) : (
-          <div className="divide-y divide-gray-100 rounded-xl border border-gray-200">
-            {files.map((g) => (
-              <details key={g.key} className="group px-3 py-2">
-                <summary className="flex cursor-pointer list-none items-center gap-2 text-sm">
-                  <FileText className="size-4 shrink-0 text-gray-400" />
-                  <span className="min-w-0 flex-1 truncate font-medium text-gray-700">{g.name}</span>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                      g.kind === "rules" ? "bg-red-50 text-red-700" : "bg-sky-50 text-sky-700",
-                    )}
-                  >
-                    {KIND_LABEL[g.kind]}
-                  </span>
-                  <span className="shrink-0 text-[11px] text-gray-400">
-                    {g.chars.toLocaleString()} ตัวอักษร
-                    {g.pages ? ` · ${g.pages} หน้า` : ""}
-                    {g.size ? ` · ${formatBytes(g.size)}` : ""}
-                    {g.ids.length > 1 ? ` · ${g.ids.length} ส่วน` : ""}
-                  </span>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      title="ลบไฟล์"
-                      disabled={deleting === g.key}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        void deleteGroup(g);
-                      }}
-                      className="shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                    >
-                      {deleting === g.key ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-                    </button>
-                  )}
-                </summary>
-                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-2 text-[11px] text-gray-600">
-                  {g.preview}
-                  {g.chars > g.preview.length ? "\n…" : ""}
-                </pre>
-              </details>
-            ))}
-          </div>
-        )}
+        <RestrictionFileList files={files} canEdit={canEdit} deleting={deleting} onDelete={(g) => void deleteGroup(g)} />
         <p className="mt-2 text-[11px] text-gray-400">
-          ใช้ไป {usedChars.toLocaleString()} / {RESTRICTION_FILES_TOTAL_MAX_CHARS.toLocaleString()} ตัวอักษร · {KIND_LABEL.rules} = ต้องทำตาม,{" "}
-          {KIND_LABEL.reference} = ใช้เป็นข้อเท็จจริง · ไฟล์ที่ผูกกับสินค้า ส่งเฉพาะบทความของสินค้านั้น
+          ใช้ไป {usedChars.toLocaleString()} / {RESTRICTION_FILES_TOTAL_MAX_CHARS.toLocaleString()} ตัวอักษร (รวมไฟล์ Comment) · {KIND_LABEL.rules} = ต้องทำตาม,{" "}
+          {KIND_LABEL.reference} = ใช้เป็นข้อเท็จจริง, {KIND_LABEL.product} = ข้อมูลหลักเมื่อเขียนถึงสินค้า, {KIND_LABEL.research} = อ้างอิงได้,{" "}
+          {KIND_LABEL.criticized} = สิ่งที่ห้ามทำ · ไฟล์ที่ผูกกับสินค้า ส่งเฉพาะบทความของสินค้านั้น
         </p>
       </SectionCard>
+
+      {confirmDialog}
+      {termImport && (
+        <TermImportDialog
+          fileName={termImport.fileName}
+          candidates={termImport.candidates}
+          usedTerms={termImport.usedTerms}
+          existingBanned={data.bannedTerms}
+          existingApproved={data.approvedTerms}
+          defaultKeywords={data.productRules
+            .flatMap((p) => [p.product, p.triggers])
+            .filter((t) => t.trim())
+            .join(", ")}
+          onClose={() => setTermImport(null)}
+          onApply={(patch) => {
+            update(patch);
+            setTermImport(null);
+            toast.success("เพิ่มรายการแล้ว — กดบันทึกเพื่อใช้งาน");
+          }}
+        />
+      )}
     </div>
   );
 }

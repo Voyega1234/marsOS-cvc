@@ -8,9 +8,15 @@ import { extractCoverExtras } from '@/lib/cover-extras'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
 import {
   buildRestrictionsBlock, cleanPlainText, cleanSeoMetaBlock, cleanSlug, findBannedInText, hasRestrictions, hitWarnings,
-  keywordWarnings, parseBannedTerms, restrictionsValidatorNote, type RestrictionsContext,
+  keywordWarnings, bannedTermsOf, restrictionsValidatorNote, type RestrictionsContext,
 } from '@/lib/ce-restrictions'
-import { enforceRestrictions, judgeRelatedProducts, loadRestrictions } from '@/lib/ce-restrictions-server'
+import {
+  buildClientCommentsBlock,
+  clientCommentsValidatorNote,
+  joinPromptBlocks,
+  type ClientCommentsContext,
+} from '@/lib/ce-client-comments'
+import { enforceRestrictions, judgeRelatedProducts, loadClientComments, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, normalizeCtaItems, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem } from '@/lib/articleComponents'
 import { sampleForPrompt } from '@/lib/articleSample'
@@ -991,10 +997,14 @@ export async function POST(req: NextRequest) {
   // เส้นตายของการสร้างรูป = maxDuration (300s) ลบกันชน 10s
   const imageDeadlineAt = requestStartedAt + (maxDuration - 10) * 1000
   // Content Engine > ข้อจำกัด ของ scope เดียวกัน (ไม่มี/Draft = null) — โหลดพร้อม CE
-  const [ce, restrictions] = await Promise.all([
+  const [ce, restrictions, clientComments] = await Promise.all([
     resolveContentEngine(orgId, ceScope),
     loadRestrictions(orgId, ceScope).catch((e): RestrictionsContext | null => {
       console.warn('[article/write] loadRestrictions failed', e instanceof Error ? e.message : e)
+      return null
+    }),
+    loadClientComments(orgId, ceScope).catch((e): ClientCommentsContext | null => {
+      console.warn('[article/write] loadClientComments failed', e instanceof Error ? e.message : e)
       return null
     }),
   ])
@@ -1018,7 +1028,7 @@ export async function POST(req: NextRequest) {
 
   // คำต้องห้ามในช่อง title / keyword — title จริง (ใช้เป็นคีย์ DB + ส่งกลับ UI) ไม่แก้, แต่ prompt/schema/ภาพใช้ safeTitle ที่แทนคำแล้ว
   // keyword หลักห้ามแก้ — มีคำต้องห้ามแค่เตือน (warning ไปช่อง restrictionWarnings เดียวกับ body)
-  const bannedTerms = restrictions ? parseBannedTerms(restrictions.data.bannedTerms) : []
+  const bannedTerms = restrictions ? bannedTermsOf(restrictions.data) : []
   const safeTitle: string = typeof title === 'string' ? cleanPlainText(title, bannedTerms).text : title
   const fieldWarnings = [
     ...keywordWarnings(String(keyword), bannedTerms),
@@ -1090,8 +1100,11 @@ export async function POST(req: NextRequest) {
     ctaBlock: ctaResult.block,
     intentSkillBlock,
     humanVoiceBlock,
-    restrictionsBlock: buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
-    restrictionsNote: restrictionsValidatorNote(restrictions),
+    restrictionsBlock: joinPromptBlocks(
+      buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
+      buildClientCommentsBlock(clientComments, restrictionsTopic),
+    ),
+    restrictionsNote: joinPromptBlocks(restrictionsValidatorNote(restrictions), clientCommentsValidatorNote(clientComments)),
     ce: {
       businessSkill: ce.businessSkill?.text,
       masterPrompt: ce.masterPrompt!.text,
@@ -1190,7 +1203,7 @@ export async function POST(req: NextRequest) {
     )
     // บล็อก META (meta_title / meta_description / en_slug) เป็น comment — enforce ของ body ไม่แตะ แต่ถูกอ่านไป push เป็น SEO title/description/URL จริง
     const meta = cleanSeoMetaBlock(r.html, bannedTerms)
-    return { html: meta.html, warnings: [...r.remaining.map((h) => `${h.term} (${h.count})`), ...meta.warnings, ...fieldWarnings] }
+    return { html: meta.html, warnings: [...r.remaining.map((h) => `${h.term} (${h.count})`), ...r.citationWarnings, ...meta.warnings, ...fieldWarnings] }
   }
 
   if (!doStream) {

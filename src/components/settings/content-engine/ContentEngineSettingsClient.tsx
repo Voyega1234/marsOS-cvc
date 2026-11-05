@@ -12,6 +12,7 @@ import {
   History,
   Image as ImageIcon,
   LayoutGrid,
+  MessageSquareText,
   ShieldCheck,
   XCircle,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import { BusinessSkillsTab } from "./BusinessSkillsTab";
 import { ImagePromptsTab } from "./ImagePromptsTab";
 import { MasterPromptsTab } from "./MasterPromptsTab";
 import { PromptComposerTab } from "./PromptComposerTab";
+import { ClientCommentsTab } from "./ClientCommentsTab";
 import { RestrictionsTab } from "./RestrictionsTab";
 import { CERefreshContext, SectionCard } from "./shared";
 import { ValidatorPacksTab } from "./ValidatorPacksTab";
@@ -44,6 +46,7 @@ type TabKey =
   | "master-prompts"
   | "article-briefs"
   | "restrictions"
+  | "client-comments"
   | "validator-packs"
   | "image-prompts"
   | "prompt-composer"
@@ -55,6 +58,7 @@ const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
   { key: "master-prompts", label: "Master Prompts", icon: FileCog },
   { key: "article-briefs", label: "Article Brief Templates", icon: ClipboardList },
   { key: "restrictions", label: "ข้อจำกัด (Restrictions)", icon: Ban },
+  { key: "client-comments", label: "Comment ลูกค้า", icon: MessageSquareText },
   { key: "validator-packs", label: "Validator Packs", icon: ShieldCheck },
   { key: "image-prompts", label: "Image Prompts", icon: ImageIcon },
   { key: "prompt-composer", label: "Prompt Composer & Test", icon: FlaskConical },
@@ -91,6 +95,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
   const masterPrompts = useMemo(() => items.filter((i) => i.type === CE_TYPES.MASTER_PROMPT), [items]);
   const briefTemplates = useMemo(() => items.filter((i) => i.type === CE_TYPES.ARTICLE_BRIEF), [items]);
   const restrictions = useMemo(() => items.filter((i) => i.type === CE_TYPES.RESTRICTIONS), [items]);
+  const clientComments = useMemo(() => items.filter((i) => i.type === CE_TYPES.CLIENT_COMMENTS), [items]);
   const validatorPacks = useMemo(() => items.filter((i) => i.type === CE_TYPES.VALIDATOR_PACK), [items]);
   const imagePrompts = useMemo(() => items.filter((i) => i.type === CE_TYPES.IMAGE_PROMPT), [items]);
 
@@ -181,6 +186,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
           {tab === "master-prompts" && <MasterPromptsTab items={masterPrompts} scope={scope} canEdit={canEdit} />}
           {tab === "article-briefs" && <ArticleBriefsTab items={briefTemplates} scope={scope} canEdit={canEdit} />}
           {tab === "restrictions" && <RestrictionsTab items={restrictions} scope={scope} canEdit={canEdit} />}
+          {tab === "client-comments" && <ClientCommentsTab items={clientComments} scope={scope} canEdit={canEdit} />}
           {tab === "validator-packs" && <ValidatorPacksTab items={validatorPacks} scope={scope} canEdit={canEdit} />}
           {tab === "image-prompts" && <ImagePromptsTab items={imagePrompts} scope={scope} canEdit={canEdit} />}
           {tab === "prompt-composer" && (

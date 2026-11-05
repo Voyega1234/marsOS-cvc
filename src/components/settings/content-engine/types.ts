@@ -19,6 +19,7 @@ export const CE_TYPES = {
   // ข้อจำกัด (ไม่บังคับ) + ไฟล์ข้อกำหนด/ข้อมูลอ้างอิง แถวละไฟล์ — ดู src/lib/ce-restrictions.ts
   RESTRICTIONS: "CE_RESTRICTIONS",
   RESTRICTION_FILE: "CE_RESTRICTION_FILE",
+  CLIENT_COMMENTS: "CE_CLIENT_COMMENTS",
 } as const;
 
 export type CELayerType =

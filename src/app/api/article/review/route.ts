@@ -4,8 +4,13 @@ import { clientSlugForProject } from '@/lib/orClient'
 import { getSession } from '@/lib/auth'
 import { logAIJob } from '@/lib/logAIJob'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
-import { articleOutlineText, buildRestrictionsBlock, findBannedTerms, parseBannedTerms, restrictionsValidatorNote } from '@/lib/ce-restrictions'
-import { judgeRelatedProducts, loadRestrictions } from '@/lib/ce-restrictions-server'
+import { articleOutlineText, bannedTermsOf, buildRestrictionsBlock, findBannedTerms, restrictionsValidatorNote } from '@/lib/ce-restrictions'
+import {
+  buildClientCommentsBlock,
+  clientCommentsValidatorNote,
+  joinPromptBlocks,
+} from '@/lib/ce-client-comments'
+import { judgeRelatedProducts, loadClientComments, loadRestrictions } from '@/lib/ce-restrictions-server'
 
 // AI ทั้งระบบผ่าน OpenRouter — จุดนี้อยู่กลุ่ม "จุดอื่น ๆ" = MODEL_DEFAULT (gemini-3.7-flash)
 
@@ -44,10 +49,11 @@ export async function POST(req: NextRequest) {
     // ── เกณฑ์ตรวจบทความมาจาก Content Engine ของ scope นั้นเท่านั้น ──
     // ห้ามมี fallback ในไฟล์, ห้าม hardcode, ห้ามดึงข้าม scope (กติกาเดียวกับ /api/article/write)
     const ceScope: CEScope = projectId ? { projectId } : 'studio'
-    const [ce, restrictions] = await Promise.all([
+    const [ce, restrictions, clientComments] = await Promise.all([
       resolveContentEngine(orgId, ceScope),
       // Content Engine > ข้อจำกัด ของ scope เดียวกัน (ไม่มี/Draft = null)
       loadRestrictions(orgId, ceScope).catch(() => null),
+      loadClientComments(orgId, ceScope).catch(() => null),
     ])
     if (!ce.validatorPack) {
       const where = ce.scope === 'studio' ? 'ของ Studio' : 'ของโปรเจกต์นี้'
@@ -67,9 +73,12 @@ export async function POST(req: NextRequest) {
       trace: 'article_review_restrictions_match',
       client: orClient,
     })
-    const restrictionsBlock = buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds })
-    const restrictionsNote = restrictionsValidatorNote(restrictions)
-    const bannedHits = restrictions ? findBannedTerms(content, parseBannedTerms(restrictions.data.bannedTerms)) : []
+    const restrictionsBlock = joinPromptBlocks(
+      buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
+      buildClientCommentsBlock(clientComments, restrictionsTopic),
+    )
+    const restrictionsNote = joinPromptBlocks(restrictionsValidatorNote(restrictions), clientCommentsValidatorNote(clientComments))
+    const bannedHits = restrictions ? findBannedTerms(content, bannedTermsOf(restrictions.data)) : []
 
     const ceBlocks = [
       ce.businessSkill && `==================================================\nBUSINESS SKILL (บริบทธุรกิจ — ใช้ตัดสินว่า claim ไหนเขียนได้)\n==================================================\n${ce.businessSkill.text}`,

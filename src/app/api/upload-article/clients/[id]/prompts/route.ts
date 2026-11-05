@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { withHumanVoice } from '@/lib/upload-article/human-voice'
 import { resolveCeSet } from '@/lib/upload-article/pbn-context'
-import { CE_RESTRICTION_FILE } from '@/lib/ce-restrictions'
+import { CE_RESTRICTION_FILE, stripNulChars } from '@/lib/ce-restrictions'
 import { checkRestrictionFileLimits } from '@/lib/ce-restrictions-server'
 
 export const dynamic = 'force-dynamic'
@@ -54,7 +54,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       name: name.trim(),
       type,
       description: description?.trim() ?? '',
-      promptText: type === 'CE_MASTER_PROMPT' ? withHumanVoice(promptText) : promptText.trim(),
+      promptText:
+        type === 'CE_MASTER_PROMPT'
+          ? withHumanVoice(promptText)
+          : type === CE_RESTRICTION_FILE
+            ? stripNulChars(promptText).trim()
+            : promptText.trim(),
       variables: variables ?? '[]',
       modelProvider: modelProvider ?? 'CLAUDE',
       modelName: modelName ?? 'claude-sonnet-4-6',

@@ -28,6 +28,7 @@ const CE_LAYER_TYPES = new Set([
   "CE_VALIDATOR_PACK",
   "CE_IMAGE_PROMPT",
   "CE_RESTRICTIONS",
+  "CE_CLIENT_COMMENTS",
 ]);
 
 const REQUIRED_TYPES = ["CE_BUSINESS_SKILL", "CE_MASTER_PROMPT", "CE_ARTICLE_BRIEF", "CE_VALIDATOR_PACK"];
@@ -39,6 +40,7 @@ const LAYER_LABELS: Record<string, string> = {
   CE_VALIDATOR_PACK: "Validator Pack",
   CE_IMAGE_PROMPT: "Image Prompt",
   CE_RESTRICTIONS: "ข้อจำกัด",
+  CE_CLIENT_COMMENTS: "Comment",
 };
 
 function toPromptRow(p: {
@@ -179,8 +181,8 @@ export default function UploadContentEngine({ client, userRole, setId }: {
   }, [scopeId, refreshKey]);
 
   useEffect(() => {
-    // ข้อจำกัดไม่ใช่ layer ที่ seed — มีแค่ข้อจำกัดก็ยังต้อง seed ชุดหลัก
-    if (items && items.every(i => i.type === "CE_RESTRICTIONS") && !seedAttemptedRef.current) {
+    // ข้อจำกัดและ Comment ไม่ใช่ layer ที่ seed — มีแค่สองอย่างนี้ก็ยังต้อง seed ชุดหลัก
+    if (items && items.every(i => i.type === "CE_RESTRICTIONS" || i.type === "CE_CLIENT_COMMENTS") && !seedAttemptedRef.current) {
       seedAttemptedRef.current = true;
       void runSeed();
     }

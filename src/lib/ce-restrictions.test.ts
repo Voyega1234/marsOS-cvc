@@ -86,7 +86,7 @@ assert(picked.reduce((n, c) => n + c.text.length, 0) <= 250, 'pick: within budge
 // ── buildRestrictionsBlock ──
 const ctx: RestrictionsContext = {
   rowId: 'r',
-  data: { status: 'Active', bannedTerms: 'หายขาด => บรรเทาอาการ', rules: 'ห้ามวินิจฉัยโรค', productRules: rules },
+  data: { status: 'Active', bannedTerms: 'หายขาด => บรรเทาอาการ', rules: 'ห้ามวินิจฉัยโรค', productRules: rules, approvedTerms: '', research: [], criticizedSamples: '', strictMode: false },
   files: [
     { id: 'f1', name: 'sentricon.pdf', meta: { kind: 'reference', chars: doc.length, size: 1 }, text: doc },
     { id: 'f2', name: 'other.pdf', meta: { kind: 'reference', chars: 10, size: 1 }, text: 'ฉีดพ่นสารเคมีรอบบ้าน' },
@@ -106,7 +106,7 @@ const USAGE = 'วิธีใช้ข้อมูลสินค้าแล�
 const implant: ProductRule = { id: 'i', product: 'ImplantX', triggers: 'รากฟันเทียม', info: 'อัตราสำเร็จ 97%', fileIds: ['pf'], enabled: true };
 const otherProduct: ProductRule = { id: 'o', product: 'WhiteY', triggers: 'ฟอกสีฟัน', info: 'ข้อมูล WhiteY', fileIds: ['of'], enabled: true };
 const ctxOf = (d: Partial<RestrictionsContext['data']>, files: RestrictionsContext['files'] = []): RestrictionsContext => ({
-  rowId: 'r', data: { status: 'Active', bannedTerms: '', rules: '', productRules: [], ...d }, files,
+  rowId: 'r', data: { status: 'Active', bannedTerms: '', rules: '', productRules: [], approvedTerms: '', research: [], criticizedSamples: '', strictMode: false, ...d }, files,
 });
 const refFile = (id: string, text: string, kind: 'reference' | 'rules' = 'reference') => ({ id, name: `${id}.pdf`, meta: { kind, chars: text.length, size: 1 }, text });
 const noTrigger = { keyword: 'ถอนฟันนานแล้ว ใส่ฟันถาวรได้ไหม' };
@@ -215,7 +215,7 @@ assert(metaOut.warnings.some((w) => w.startsWith('meta description') && w.includ
 assert(cleanSeoMetaBlock('<h1>no block</h1>', pt).html === '<h1>no block</h1>', 'meta block: missing block = identity');
 assert(cleanSeoMetaBlock(metaHtml, []).html === metaHtml, 'meta block: no terms = identity');
 
-const tr = titleRestrictionsFrom({ rowId: 'r', files: [], data: { status: 'Active', bannedTerms: 'cheap => budget\nสูตรลับ', rules: 'ห้ามพูดเกินจริง', productRules: [] } });
+const tr = titleRestrictionsFrom({ rowId: 'r', files: [], data: { status: 'Active', bannedTerms: 'cheap => budget\nสูตรลับ', rules: 'ห้ามพูดเกินจริง', productRules: [], approvedTerms: '', research: [], criticizedSamples: '', strictMode: false } });
 assert(tr.terms.length === 2 && tr.block.includes('cheap') && tr.block.includes('budget') && tr.block.includes('ห้ามพูดเกินจริง'), 'titleRestrictionsFrom: block lists terms + rules');
 assert(titleRestrictionsFrom(null).block === '' && titleRestrictionsFrom(null).terms.length === 0, 'titleRestrictionsFrom: null = none');
 

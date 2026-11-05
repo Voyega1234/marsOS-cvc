@@ -15,7 +15,7 @@ function assert(cond: boolean, msg: string): void {
 
 const product: ProductRule = { id: 'i', product: 'ImplantX', triggers: 'รากฟันเทียม', info: 'อัตราสำเร็จ 97%', fileIds: [], enabled: true };
 const ctxWith = (productRules: ProductRule[]): RestrictionsContext => ({
-  rowId: 'r', files: [], data: { status: 'Active', bannedTerms: '', rules: 'ห้ามวินิจฉัยโรค', productRules },
+  rowId: 'r', files: [], data: { status: 'Active', bannedTerms: '', rules: 'ห้ามวินิจฉัยโรค', productRules, approvedTerms: '', research: [], criticizedSamples: '', strictMode: false },
 });
 const topic = { keyword: 'ถอนฟันนานแล้ว ใส่ฟันถาวรได้ไหม' };
 

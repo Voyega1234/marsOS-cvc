@@ -4,21 +4,29 @@ import { prisma } from "@/lib/prisma";
 import { orChat, OR_MODELS } from "@/lib/openrouter";
 import type { CEScope } from "@/lib/content-engine-resolve";
 import {
+  CE_CLIENT_COMMENTS,
+  parseClientComments,
+  type ClientCommentsContext,
+} from "@/lib/ce-client-comments";
+import {
   CE_RESTRICTIONS,
   CE_RESTRICTION_FILE,
   RESTRICTION_FILES_TOTAL_MAX_CHARS,
   RESTRICTION_FILE_MAX_CHARS,
   applyBannedReplacements,
+  approvedTermList,
   buildProductJudgeMessages,
   collectBannedSegments,
   findBannedTerms,
-  parseBannedTerms,
+  findUnlistedStudyYears,
+  bannedTermsOf,
   parseProductJudge,
   parseRestrictionFileMeta,
   parseRestrictions,
   productJudgeCandidates,
   replaceSegments,
   restrictionsTopicText,
+  studyYearWarnings,
   type BannedHit,
   type BannedTerm,
   type RestrictionFile,
@@ -116,7 +124,23 @@ export async function loadRestrictions(
   const data = parseRestrictions(row.promptText);
   if (data.status === "Draft") return null;
   // files:false = ตัวตั้ง title/meta ต้องการแค่คำต้องห้ามกับกฎ ไม่ต้องดึงไฟล์ข้อความใหญ่
-  const files = opts.files === false ? [] : await loadRestrictionFiles(orgId, projectId);
+  // ไฟล์ของแท็บ Comment อยู่แถวชนิดเดียวกัน แต่มีสถานะแยก — ไม่ส่งเป็นข้อจำกัด
+  const files = opts.files === false ? [] : (await loadRestrictionFiles(orgId, projectId)).filter((f) => f.meta.kind !== "comment");
+  return { rowId: row.id, data, files };
+}
+
+/** Comment ลูกค้าของ scope นี้ — ไม่มีแถว/Draft = null, เปิดปิดแยกจากข้อจำกัด ไม่มี fallback ข้าม scope */
+export async function loadClientComments(orgId: string, scope: CEScope): Promise<ClientCommentsContext | null> {
+  const projectId = scope === "studio" ? null : scope.projectId;
+  const row = await prisma.promptTemplate.findFirst({
+    where: { organizationId: orgId, projectId, type: CE_CLIENT_COMMENTS, isActive: true },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, promptText: true },
+  });
+  if (!row) return null;
+  const data = parseClientComments(row.promptText);
+  if (data.status === "Draft") return null;
+  const files = (await loadRestrictionFiles(orgId, projectId)).filter((f) => f.meta.kind === "comment");
   return { rowId: row.id, data, files };
 }
 
@@ -179,7 +203,12 @@ export interface RestrictionEnforcement {
   rewritten: number;
   /** คำต้องห้ามที่ยังเหลือหลังแก้ทุกขั้น (ว่าง = ผ่าน) */
   remaining: BannedHit[];
+  /** ประโยคอ้างงานวิจัยที่ปีไม่ตรงกับรายการที่ลูกค้าให้ — แค่เตือน */
+  citationWarnings: string[];
 }
+
+/** รอบแรกใช้เวลาเกินนี้ = ไม่แก้รอบสอง กันงานเขียนชนเวลา */
+const SECOND_REWRITE_MAX_ELAPSED_MS = 30_000;
 
 const META_SEGMENT_ID = -1;
 
@@ -195,7 +224,7 @@ function mergeHits(a: BannedHit[], b: BannedHit[]): BannedHit[] {
 async function rewriteSegments(
   items: { id: number; text: string }[],
   terms: BannedTerm[],
-  opts: { trace: string; model?: string; timeoutMs?: number },
+  opts: { trace: string; model?: string; timeoutMs?: number; approved?: string[] },
 ): Promise<Map<number, string>> {
   const termList = terms.map((t) => (t.replacement ? `- "${t.term}" (ใช้ "${t.replacement}" แทนได้)` : `- "${t.term}"`)).join("\n");
   const system = [
@@ -203,6 +232,7 @@ async function rewriteSegments(
     "เขียนแต่ละท่อนใหม่ให้ไม่มีคำต้องห้ามในรูปแบบใดเลย (รวมสะกดต่าง เว้นวรรค หรือเลี่ยงด้วยสัญลักษณ์)",
     "คงความหมายเดิม ภาษาเดิม ความยาวใกล้เดิม ห้ามเพิ่มข้อมูลหรือคำกล่าวอ้างใหม่",
     "ท่อนอาจเป็นเศษประโยคที่ถูกตัดด้วยตัวหนา/ลิงก์ — เขียนใหม่เฉพาะท่อนนั้นให้ต่อกับข้อความรอบข้างได้",
+    ...(opts.approved?.length ? [`ถ้าต้องเลือกคำใหม่ ใช้ถ้อยคำที่ฝ่ายกฎหมายอนุมัติก่อน: ${opts.approved.slice(0, 80).join(", ")}`] : []),
     "ห้ามใส่ HTML tag ส่วน HTML entity เดิม (เช่น &amp;) ให้คงไว้",
     'ตอบเป็น JSON เท่านั้น: {"segments":[{"id":<id เดิม>,"text":"<ข้อความใหม่>"}]}',
   ].join("\n");
@@ -247,8 +277,17 @@ export async function enforceRestrictions(params: {
   rewrite?: boolean;
 }): Promise<RestrictionEnforcement> {
   const meta0 = params.metaDescription ?? "";
-  const terms = params.ctx ? parseBannedTerms(params.ctx.data.bannedTerms) : [];
-  if (!terms.length) return { html: params.html, metaDescription: meta0, replaced: 0, rewritten: 0, remaining: [] };
+  const terms = params.ctx ? bannedTermsOf(params.ctx.data) : [];
+  if (!terms.length) {
+    return {
+      html: params.html,
+      metaDescription: meta0,
+      replaced: 0,
+      rewritten: 0,
+      remaining: [],
+      citationWarnings: studyYearWarnings(findUnlistedStudyYears(params.html, params.ctx)),
+    };
+  }
 
   const r1 = applyBannedReplacements(params.html, terms);
   const r2 = applyBannedReplacements(meta0, terms);
@@ -256,19 +295,26 @@ export async function enforceRestrictions(params: {
   let meta = r2.html;
   let rewritten = 0;
 
-  const segments = collectBannedSegments(html, terms);
-  const metaDirty = meta && findBannedTerms(meta, terms).length > 0;
-  if (params.rewrite !== false && (segments.length || metaDirty)) {
+  const approved = params.ctx ? approvedTermList(params.ctx.data) : [];
+  const startedAt = Date.now();
+  // รอบสองเฉพาะลูกค้าที่เปิดโหมดเข้มงวด — ที่เหลือแก้รอบเดียวเหมือนเดิม
+  const rounds = params.ctx?.data.strictMode ? 2 : 1;
+  for (let round = 0; round < rounds && params.rewrite !== false; round++) {
+    if (round > 0 && Date.now() - startedAt > SECOND_REWRITE_MAX_ELAPSED_MS) break;
+    const segments = collectBannedSegments(html, terms);
+    const metaDirty = meta && findBannedTerms(meta, terms).length > 0;
+    if (!segments.length && !metaDirty) break;
     const items = metaDirty ? [...segments, { id: META_SEGMENT_ID, text: meta }] : segments;
     try {
-      const rewrites = await rewriteSegments(items, terms, params);
+      const rewrites = await rewriteSegments(items, terms, { ...params, approved });
       const metaNext = rewrites.get(META_SEGMENT_ID);
       rewrites.delete(META_SEGMENT_ID);
       html = replaceSegments(html, rewrites);
       if (metaNext !== undefined) meta = metaNext.replace(/<[^>]*>/g, "").trim() || meta;
-      rewritten = rewrites.size + (metaNext !== undefined ? 1 : 0);
+      rewritten += rewrites.size + (metaNext !== undefined ? 1 : 0);
     } catch (e) {
       console.warn(`[restrictions] rewrite failed (${params.trace}):`, e instanceof Error ? e.message : e);
+      break;
     }
   }
 
@@ -276,5 +322,12 @@ export async function enforceRestrictions(params: {
   if (remaining.length) {
     console.warn(`[restrictions] banned terms left (${params.trace}):`, remaining.map((h) => `${h.term}×${h.count}`).join(", "));
   }
-  return { html, metaDescription: meta, replaced: r1.replaced + r2.replaced, rewritten, remaining };
+  return {
+    html,
+    metaDescription: meta,
+    replaced: r1.replaced + r2.replaced,
+    rewritten,
+    remaining,
+    citationWarnings: studyYearWarnings(findUnlistedStudyYears(html, params.ctx)),
+  };
 }

@@ -29,10 +29,15 @@ import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { orChatStream, OR_MODELS } from '@/lib/openrouter'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import {
-  buildRestrictionsBlock, cleanPlainText, cleanSlug, hasRestrictions, hitWarnings, keywordWarnings, parseBannedTerms,
+  bannedTermsOf, buildRestrictionsBlock, cleanPlainText, cleanSlug, hasRestrictions, hitWarnings, keywordWarnings,
   restrictionsValidatorNote,
 } from '@/lib/ce-restrictions'
-import { enforceRestrictions, judgeRelatedProducts, loadRestrictions } from '@/lib/ce-restrictions-server'
+import {
+  buildClientCommentsBlock,
+  clientCommentsValidatorNote,
+  joinPromptBlocks,
+} from '@/lib/ce-client-comments'
+import { enforceRestrictions, judgeRelatedProducts, loadClientComments, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { stripEditorialNotes } from '@/lib/article-human-voice-skill'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
@@ -150,6 +155,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Content Engine > ข้อจำกัด ของ scope เดียวกับ CE (ไม่มี/Draft = null)
     loadRestrictions(orgId, { projectId: effective.ceScopeId }),
   ])
+  // Comment ไม่บังคับ — โหลดพังก็เขียนต่อได้
+  const clientComments = await loadClientComments(orgId, { projectId: effective.ceScopeId }).catch(() => null)
   const staleIds: string[] = []
   for (const a of existingWriting) {
     if (isWritingStale(a.updatedAt)) staleIds.push(a.id)
@@ -194,7 +201,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // คำต้องห้าม (Content Engine > ข้อจำกัด) ในช่อง title / SEO title / slug ที่มาจากแผน keyword — แทนคำที่มีคำแทนไว้, ที่เหลือเตือน
   // keyword หลักห้ามแก้ — มีคำต้องห้ามแค่เตือน
-  const bannedTerms = restrictions ? parseBannedTerms(restrictions.data.bannedTerms) : []
+  const bannedTerms = restrictions ? bannedTermsOf(restrictions.data) : []
   const titleClean = cleanPlainText(keyword.title || keyword.keyword, bannedTerms)
   const slugClean = cleanSlug(keyword.slug || '', bannedTerms)
   const title = titleClean.text
@@ -269,8 +276,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     businessSkill,
     articleBrief,
     validatorPack,
-    restrictions: buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
-    restrictionsNote: restrictionsValidatorNote(restrictions),
+    restrictions: joinPromptBlocks(
+      buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
+      buildClientCommentsBlock(clientComments, restrictionsTopic),
+    ),
+    restrictionsNote: joinPromptBlocks(restrictionsValidatorNote(restrictions), clientCommentsValidatorNote(clientComments)),
   })
   // ภาษาของบทความนี้ตามโหมดภาษาของลูกค้า (ไทย / อังกฤษ / ไทย+อังกฤษ = ดูจาก title ก่อน)
   const language = uploadArticleLanguage(writeClient.language, title, keyword.keyword)
@@ -397,7 +407,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           )
           cleaned = enforced.html
           metaDescription = enforced.metaDescription
-          if (enforced.remaining.length) restrictionWarnings = [...enforced.remaining.map((h) => `${h.term} (${h.count})`), ...fieldWarnings]
+          if (enforced.remaining.length || enforced.citationWarnings.length) {
+            restrictionWarnings = [...enforced.remaining.map((h) => `${h.term} (${h.count})`), ...enforced.citationWarnings, ...fieldWarnings]
+          }
         }
 
         // แทรกกล่อง CTA ลง sourceHtml เลย — Generate ใหม่กี่รอบก็ยังอยู่ (ข้อความ CTA มาจากที่ทีมตั้ง ไม่ใช่ AI)

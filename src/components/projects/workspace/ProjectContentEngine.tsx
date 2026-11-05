@@ -17,9 +17,11 @@ const CE_LAYER_TYPES = new Set([
   "CE_VALIDATOR_PACK",
   "CE_IMAGE_PROMPT",
   "CE_RESTRICTIONS",
+  "CE_CLIENT_COMMENTS",
 ]);
-// ข้อจำกัดไม่คัดลอกจาก Studio — ผูกกับไฟล์ของสโคปตัวเอง (fileIds) คัดลอกไปแล้วลิงก์ไฟล์ขาด
-const STUDIO_COPY_TYPES = new Set(Array.from(CE_LAYER_TYPES).filter((t) => t !== "CE_RESTRICTIONS"));
+// ข้อจำกัดและ Comment ไม่คัดลอกจาก Studio — เป็นของลูกค้ารายนี้ และผูกกับไฟล์ของสโคปตัวเอง
+const OPTIONAL_LAYER_TYPES = new Set(["CE_RESTRICTIONS", "CE_CLIENT_COMMENTS"]);
+const STUDIO_COPY_TYPES = new Set(Array.from(CE_LAYER_TYPES).filter((t) => !OPTIONAL_LAYER_TYPES.has(t)));
 
 function resolveProjectId(explicit?: string): string | null {
   if (explicit) return explicit;
@@ -119,7 +121,7 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
 
   return (
     <div className="space-y-4">
-      {userRole !== "CLIENT" && items.every((i) => i.type === "CE_RESTRICTIONS") && (
+      {userRole !== "CLIENT" && items.every((i) => OPTIONAL_LAYER_TYPES.has(i.type)) && (
         <div className="flex items-center justify-between rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-3">
           <p className="text-sm text-indigo-700">Project นี้ยังไม่มีชุด Content Engine — เริ่มต้นได้เร็วขึ้นด้วยการคัดลอกชุด Active จาก Studio</p>
           <Button size="sm" className="gap-1.5" disabled={copying} onClick={copyFromStudio}>

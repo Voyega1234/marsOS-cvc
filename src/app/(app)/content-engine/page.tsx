@@ -19,6 +19,7 @@ const CE_LAYER_TYPES = [
   CE_TYPES.VALIDATOR_PACK,
   CE_TYPES.IMAGE_PROMPT,
   CE_TYPES.RESTRICTIONS,
+  CE_TYPES.CLIENT_COMMENTS,
 ];
 
 export default async function ContentEngineStudioPage() {
