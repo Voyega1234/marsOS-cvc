@@ -33,6 +33,9 @@ export default function SmeStyleSettings({
   onApplyContext?: (ctx: SmeScanContext) => void;
 }) {
   const [themeDraft, setThemeDraft] = useState<UploadTheme>(() => projectThemeToUpload(themeColors, accentColor));
+  // ค่าที่บันทึกล่าสุด — แก้แล้วยังไม่บันทึก StyleSection โชว์ปุ่มบันทึกลอยมุมจอ (เหมือน Upload)
+  const [savedKey, setSavedKey] = useState(() => JSON.stringify(themeDraft));
+  const dirty = JSON.stringify(themeDraft) !== savedKey;
   const [savingTheme, setSavingTheme] = useState(false);
   const [showFaqEditor, setShowFaqEditor] = useState(false);
   const [scan, setScan] = useState<UploadSiteScan | undefined>(undefined);
@@ -108,6 +111,7 @@ export default function SmeStyleSettings({
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "บันทึกธีมไม่สำเร็จ"); return; }
       toast.success("บันทึกธีมแล้ว");
+      setSavedKey(JSON.stringify(themeDraft));
       onSaved?.(merged);
     } catch (e) {
       toast.error(`บันทึกธีมไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
@@ -132,7 +136,7 @@ export default function SmeStyleSettings({
       <div className="space-y-2">
         <p className="text-xs font-semibold text-gray-500 flex items-center gap-1.5"><Palette size={13} /> สไตล์บทความ</p>
         <StyleSection themeDraft={themeDraft} setThemeDraft={setThemeDraft} setColor={setColor}
-          savingTheme={savingTheme} saveTheme={saveTheme} showFaqEditor={showFaqEditor} setShowFaqEditor={setShowFaqEditor} />
+          savingTheme={savingTheme} saveTheme={saveTheme} showFaqEditor={showFaqEditor} setShowFaqEditor={setShowFaqEditor} dirty={dirty} />
         <a href={`/api/projects/${projectId}/article-css`} download
           className="inline-block text-[11px] font-semibold text-brand-blue hover:underline">⬇ ดาวน์โหลด CSS ของ client</a>
       </div>

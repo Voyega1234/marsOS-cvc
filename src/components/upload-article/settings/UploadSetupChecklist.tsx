@@ -53,7 +53,9 @@ export default function UploadSetupChecklist({ clientId, onNavigate, onStatus }:
   const optionalItems = data.items.filter(i => !i.required);
   const allDone = data.doneCount === data.totalCount;
   const requiredReady = data.missingRequired === 0;
-  const pct = data.totalCount ? Math.round((data.doneCount / data.totalCount) * 100) : 0;
+  // ตัวเลขหัวการ์ด + แถบนับเฉพาะข้อบังคับ — ข้อไม่บังคับมีตัวนับของมันเองในหัวข้อด้านล่าง
+  const requiredDone = requiredItems.filter(i => i.ok).length;
+  const pct = requiredItems.length ? Math.round((requiredDone / requiredItems.length) * 100) : 100;
 
   const ItemRow = ({ item }: { item: UploadChecklistItem }) => {
     // ข้อแนะนำที่ยังไม่ตั้งไม่ใช่ปัญหา — ใช้สีเทา ไม่ใช่สีแดง
@@ -95,11 +97,11 @@ export default function UploadSetupChecklist({ clientId, onNavigate, onStatus }:
                 ? "ตั้งค่าครบทุกข้อแล้ว"
                 : requiredReady
                   ? "ข้อบังคับครบแล้ว — ข้อที่เหลือไม่บังคับ ตั้งเพิ่มได้ถ้าลูกค้าต้องการ"
-                  : `ยังตั้งค่าไม่ครบ ${data.missingRequired} ข้อ — เก็บข้อบังคับให้หมดก่อนเริ่มงาน`}
+                  : `ยังขาดข้อบังคับ ${data.missingRequired} ข้อ — ตั้งให้ครบก่อนเริ่มงาน`}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-sm font-bold tabular-nums ${requiredReady ? "text-brand-navy" : "text-red-600"}`}>{data.doneCount}/{data.totalCount}</span>
+            <span className={`text-sm font-bold tabular-nums ${requiredReady ? "text-brand-navy" : "text-red-600"}`}>{requiredDone}/{requiredItems.length} ข้อบังคับ</span>
             <button onClick={load} disabled={loading} title="ตรวจใหม่"
               className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors disabled:opacity-50">
               <RefreshCw size={12} className={loading ? "animate-spin" : ""} />

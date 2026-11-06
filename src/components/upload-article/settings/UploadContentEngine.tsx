@@ -13,11 +13,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PBN_MAIN_PROFILE, pbnCeScopeId } from "@/lib/upload-article/pbn-sets";
 import { toast } from "sonner";
-import { Loader2, Plus, RefreshCw, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Settings2, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ContentEngineSettingsClient } from "@/components/settings/content-engine/ContentEngineSettingsClient";
+import { ContentEngineSettingsClient, type TabKey } from "@/components/settings/content-engine/ContentEngineSettingsClient";
 import type { PromptRow } from "@/components/settings/content-engine/types";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 import { CE_RESTRICTION_FILE } from "@/lib/ce-restrictions";
@@ -42,6 +42,18 @@ const OPTIONAL_CHIP_STYLE: Record<OptionalLayerStatus["state"], string> = {
 };
 
 const OPTIONAL_CHIP_MARK: Record<OptionalLayerStatus["state"], string> = { on: "✓", off: "–", blocked: "!" };
+
+/** ชื่อไทยของ layer บังคับ — โชว์ก่อนชื่ออังกฤษ ให้คนไม่คุ้นศัพท์อ่านออก */
+const LAYER_THAI: Record<string, string> = {
+  CE_BUSINESS_SKILL: "ข้อมูลธุรกิจ",
+  CE_MASTER_PROMPT: "สไตล์การเขียน",
+  CE_ARTICLE_BRIEF: "โครงบทความ",
+  CE_VALIDATOR_PACK: "ตัวตรวจคุณภาพ",
+};
+
+/** โหมดปกติเห็นแค่แท็บงานประจำ — ที่เหลือ (Master Prompt, Brief, Run Test ฯลฯ) อยู่หลังโหมดขั้นสูง */
+const SIMPLE_TABS: TabKey[] = ["client-comments", "restrictions"];
+const ADVANCED_KEY = "mars_ce_advanced";
 
 const LAYER_LABELS: Record<string, string> = {
   CE_BUSINESS_SKILL: "Business Skill",
@@ -167,6 +179,21 @@ export default function UploadContentEngine({ client, userRole, setId }: {
   const [seeding, setSeeding] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const seedAttemptedRef = useRef(false);
+  // โหมดขั้นสูง: เครื่องมือสร้าง/แก้ Master Prompt, ปุ่มรีเซ็ต, แท็บ CE ครบชุด — จำไว้ต่อเครื่อง
+  const [advanced, setAdvancedState] = useState(false);
+  const [ceTab, setCeTab] = useState<TabKey>("client-comments");
+  useEffect(() => {
+    try { if (localStorage.getItem(ADVANCED_KEY) === "1") setAdvancedState(true); } catch { /* storage ปิด — ใช้โหมดปกติ */ }
+  }, []);
+  function setAdvanced(on: boolean) {
+    setAdvancedState(on);
+    if (!on && !SIMPLE_TABS.includes(ceTab)) setCeTab(SIMPLE_TABS[0]);
+    try { localStorage.setItem(ADVANCED_KEY, on ? "1" : "0"); } catch { /* ไม่จำก็ได้ */ }
+  }
+  function openCeTab(t: TabKey) {
+    setCeTab(t);
+    if (!SIMPLE_TABS.includes(t)) setAdvanced(true);
+  }
 
   useLayoutEffect(() => {
     installCeFetch(client.id, ceSet);
@@ -342,16 +369,38 @@ export default function UploadContentEngine({ client, userRole, setId }: {
   const activeSkillName = items?.find(p => p.type === "CE_BUSINESS_SKILL" && p.isActive)?.name ?? "";
   const templateSkill = isTemplateBusinessSkillName(activeSkillName) ? activeSkillName : null;
 
+  const missingTypes = items ? REQUIRED_TYPES.filter(t => !items.some(p => p.type === t && p.isActive)) : [];
+  // seed เติมได้เฉพาะ type ที่ยังไม่มีแถวเลย — มีแต่ปิดอยู่ต้องเปิดเองในโหมดขั้นสูง
+  const seedable = missingTypes.filter(t => !items?.some(p => p.type === t));
+  const inactiveOnly = missingTypes.filter(t => items?.some(p => p.type === t));
+  const thaiList = (ts: string[]) => ts.map(t => LAYER_THAI[t] ?? LAYER_LABELS[t]).join(", ");
+
   return (
     <div className="space-y-4">
       <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <p className="text-sm font-semibold text-brand-navy mb-2">สถานะ Layer</p>
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+          <div>
+            {!items ? (
+              <p className="text-sm font-semibold text-gray-400">กำลังโหลดสถานะ…</p>
+            ) : missingTypes.length === 0 ? (
+              <p className="text-sm font-semibold text-emerald-700">✓ พร้อมเขียนบทความ — ไม่ต้องตั้งอะไรเพิ่ม</p>
+            ) : (
+              <p className="text-sm font-semibold text-amber-700">ยังเขียนบทความไม่ได้: ขาด {thaiList(missingTypes)}</p>
+            )}
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              งานประจำ: ใส่ Comment ลูกค้าและข้อจำกัด (คำต้องห้าม/ข้อมูลสินค้า) ด้านล่าง ส่วนอื่นระบบตั้งไว้ให้แล้ว
+            </p>
+          </div>
+          <Button size="sm" variant={advanced ? "default" : "outline"} onClick={() => setAdvanced(!advanced)} aria-pressed={advanced}>
+            <Settings2 size={12} className="mr-1.5" /> {advanced ? "ปิดโหมดขั้นสูง" : "โหมดขั้นสูง"}
+          </Button>
+        </div>
         <div className="flex flex-wrap gap-1.5">
           {REQUIRED_TYPES.map(t => {
             const active = !!items?.some(p => p.type === t && p.isActive);
             return (
               <span key={t} className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
-                {active ? "✓" : "✕"} {LAYER_LABELS[t]}
+                {active ? "✓" : "✕"} {LAYER_THAI[t]} <span className="font-normal opacity-60">{LAYER_LABELS[t]}</span>
               </span>
             );
           })}
@@ -361,13 +410,29 @@ export default function UploadContentEngine({ client, userRole, setId }: {
             </span>
           ))}
         </div>
-        <p className="text-[11px] text-gray-500 mt-2">
-          การเขียนบทความต้องมีครบ Business Skill, Master Prompt, Article Brief, Validator Pack — Business Skill ต้องสแกน/เขียนเฉพาะของลูกค้ารายนี้เท่านั้น
-          ส่วนข้อจำกัดและ Comment ไม่บังคับ แต่ถ้าเปิดไว้จะส่งเข้าการเขียนทุกบทความ กด Run Test ในแท็บ Prompt Composer &amp; Test เพื่อดูว่าบทความแต่ละชิ้นใช้อะไรบ้าง
-        </p>
+        {!seeding && seedable.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={runSeed}>
+              <RefreshCw size={12} className="mr-1.5" /> ตั้งค่า {thaiList(seedable)} ให้อัตโนมัติ
+            </Button>
+            <span className="text-[11px] text-gray-500">คัดลอกค่ามาตรฐานจากระบบ ไม่ทับของที่มีอยู่</span>
+          </div>
+        )}
+        {inactiveOnly.length > 0 && (
+          <p className="text-[11px] font-medium text-amber-700 mt-2">
+            {thaiList(inactiveOnly)} มีอยู่แต่ปิดใช้งาน{" "}
+            <button type="button" className="underline" onClick={() => openCeTab("overview")}>เปิดโหมดขั้นสูงเพื่อเปิดใช้</button>
+          </p>
+        )}
         {templateSkill && (
-          <p className="text-[11px] font-medium text-amber-700 mt-1">
-            Business Skill ที่ใช้อยู่ชื่อ &quot;{templateSkill}&quot; ดูเป็นแม่แบบที่ยังไม่ได้กรอกข้อมูลลูกค้า เปิดตรวจก่อนเขียน
+          <p className="text-[11px] font-medium text-amber-700 mt-2">
+            ข้อมูลธุรกิจ (Business Skill) ที่ใช้อยู่ชื่อ &quot;{templateSkill}&quot; ดูเป็นแม่แบบที่ยังไม่ได้กรอกข้อมูลลูกค้า ตรวจก่อนเขียน{" "}
+            <button type="button" className="underline" onClick={() => openCeTab("business-skills")}>เปิดดู</button>
+          </p>
+        )}
+        {advanced && (
+          <p className="text-[11px] text-gray-500 mt-2">
+            โหมดขั้นสูง: ข้อมูลธุรกิจต้องเป็นของลูกค้ารายนี้เท่านั้น กด Run Test เพื่อดูว่าบทความแต่ละชิ้นใช้คำสั่งอะไรบ้าง
           </p>
         )}
       </div>
@@ -377,7 +442,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
           <Loader2 size={14} className="animate-spin" /> กำลังตั้งค่าเริ่มต้นจากระบบล่าสุด…
         </div>
       )}
-      {!seeding && items && (
+      {advanced && !seeding && items && (
         <div className="flex justify-end">
           <Button size="sm" variant="outline" onClick={runSeed}>
             <RefreshCw size={12} className="mr-1.5" /> รีเซ็ต layer ที่ขาดจากระบบล่าสุด
@@ -385,6 +450,8 @@ export default function UploadContentEngine({ client, userRole, setId }: {
         </div>
       )}
 
+      {advanced && (
+      <>
       {/* การ์ด: สร้าง Master Prompt จากบทความตัวอย่าง */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
         <div>
@@ -477,12 +544,14 @@ export default function UploadContentEngine({ client, userRole, setId }: {
           </>
         )}
       </div>
+      </>
+      )}
 
       {!items || !fetchReady ? (
         <div className="p-8 text-sm text-gray-400">กำลังโหลด Content Engine...</div>
       ) : (
         <div className="ua-ce">
-          {/* Content Engine เป็น component กลาง (แก้ไฟล์ไม่ได้) ออกแบบมาให้กินเต็มหน้า — พอมาอยู่ใน Project Setting ที่มีเมนูซ้ายอีกชั้น
+          {/* Content Engine เป็น component กลาง ออกแบบมาให้กินเต็มหน้า — พอมาอยู่ใน Project Setting ที่มีเมนูซ้ายอีกชั้น
               จอเลยถูกบีบ: ปรับเฉพาะในหน้านี้ ① เมนู CE เป็นแถบแนวนอน ② พื้นที่แคบให้ลิสต์กับฟอร์มแก้ไขซ้อนกัน
               ③ ช่องที่สั่ง span 2/4 ใน grid 2 คอลัมน์ทำคอลัมน์งอกจนช่องโดนบีบ → ให้เต็มแถว */}
           <style>{CE_LAYOUT_CSS}</style>
@@ -491,6 +560,10 @@ export default function UploadContentEngine({ client, userRole, setId }: {
             scope={{ projectId: scopeId }}
             userRole={userRole}
             onRefresh={() => setRefreshKey(k => k + 1)}
+            tab={ceTab}
+            onTabChange={openCeTab}
+            visibleTabs={advanced ? undefined : SIMPLE_TABS}
+            hideHeader={!advanced}
           />
         </div>
       )}

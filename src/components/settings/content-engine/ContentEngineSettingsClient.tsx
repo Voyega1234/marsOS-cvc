@@ -43,9 +43,17 @@ interface Props {
   userRole: string;
   /** ดึงรายการใหม่หลังบันทึก — ไม่ส่ง = router.refresh() (หน้าที่ดึงแถวจาก server component) */
   onRefresh?: () => void;
+  /** แท็บที่เปิด (ผู้เรียกคุมเอง) — ไม่ส่ง = คุมในตัว เริ่มที่แท็บแรกที่เห็น */
+  tab?: TabKey;
+  /** ผู้ใช้กดเปลี่ยนแท็บ — รวมกดไปแท็บที่ซ่อนอยู่ (ผู้เรียกเปิดโหมดเต็มให้ได้) */
+  onTabChange?: (tab: TabKey) => void;
+  /** แสดงเฉพาะแท็บเหล่านี้ในเมนู — ไม่ส่ง = ทุกแท็บ */
+  visibleTabs?: TabKey[];
+  /** ซ่อนหัวข้อ + แถบสถานะ layer (ผู้เรียกมีการ์ดสถานะของตัวเอง) */
+  hideHeader?: boolean;
 }
 
-type TabKey =
+export type TabKey =
   | "overview"
   | "business-skills"
   | "master-prompts"
@@ -57,18 +65,28 @@ type TabKey =
   | "prompt-composer"
   | "versions-audit";
 
-const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
-  { key: "overview", label: "Overview", icon: LayoutGrid },
-  { key: "business-skills", label: "Business Skills", icon: BookOpen },
-  { key: "master-prompts", label: "Master Prompts", icon: FileCog },
-  { key: "article-briefs", label: "Article Brief Templates", icon: ClipboardList },
-  { key: "restrictions", label: "ข้อจำกัด (Restrictions)", icon: Ban },
-  { key: "client-comments", label: "Comment ลูกค้า", icon: MessageSquareText },
-  { key: "validator-packs", label: "Validator Packs", icon: ShieldCheck },
-  { key: "image-prompts", label: "Image Prompts", icon: ImageIcon },
-  { key: "prompt-composer", label: "Run Test (ทดสอบการเขียน)", icon: FlaskConical },
-  { key: "versions-audit", label: "Versions & Audit", icon: History },
+/** hint = คำอธิบายภาษาไทยใต้ชื่อแท็บ ให้คนที่ไม่คุ้นศัพท์รู้ว่าแต่ละแท็บคืออะไร */
+const TABS: { key: TabKey; label: string; hint: string; icon: typeof LayoutGrid }[] = [
+  { key: "overview", label: "Overview", hint: "สถานะทุกส่วน", icon: LayoutGrid },
+  { key: "business-skills", label: "Business Skills", hint: "ข้อมูลธุรกิจ", icon: BookOpen },
+  { key: "master-prompts", label: "Master Prompts", hint: "สไตล์การเขียน", icon: FileCog },
+  { key: "article-briefs", label: "Article Brief Templates", hint: "โครงบทความ", icon: ClipboardList },
+  { key: "restrictions", label: "ข้อจำกัด (Restrictions)", hint: "คำต้องห้าม ข้อมูลสินค้า", icon: Ban },
+  { key: "client-comments", label: "Comment ลูกค้า", hint: "ข้อติชมที่ลูกค้าสั่ง", icon: MessageSquareText },
+  { key: "validator-packs", label: "Validator Packs", hint: "ตัวตรวจคุณภาพ", icon: ShieldCheck },
+  { key: "image-prompts", label: "Image Prompts", hint: "แม่แบบรูปภาพ", icon: ImageIcon },
+  { key: "prompt-composer", label: "Run Test (ทดสอบการเขียน)", hint: "ดูคำสั่งจริงก่อนเขียน", icon: FlaskConical },
+  { key: "versions-audit", label: "Versions & Audit", hint: "ประวัติการแก้", icon: History },
 ];
+
+/** ชื่อไทยของ layer บนแถบสถานะ */
+const LAYER_THAI: Record<string, string> = {
+  business: "ข้อมูลธุรกิจ",
+  master: "สไตล์การเขียน",
+  brief: "โครงบทความ",
+  validator: "ตัวตรวจคุณภาพ",
+  image: "แม่แบบรูปภาพ",
+};
 
 /** หมวดของเมนูซ้าย — ทุกแท็บยังอยู่ครบ แค่จัดกลุ่ม */
 const TAB_GROUPS: { label: string; keys: TabKey[] }[] = [
@@ -137,9 +155,22 @@ function countFiles(rows: LayerStatusRow[]): { restrictions: number; comments: n
   return { restrictions, comments };
 }
 
-export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh }: Props) {
+export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh, tab: tabProp, onTabChange, visibleTabs, hideHeader }: Props) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>("overview");
+  const [innerTab, setInnerTab] = useState<TabKey>(() => visibleTabs?.[0] ?? "overview");
+  const wanted = tabProp ?? innerTab;
+  // แท็บที่ถูกซ่อน (เช่นกดจากการ์ดภาพรวม) — โชว์แท็บแรกที่เห็นแทน ผู้เรียกตัดสินเองผ่าน onTabChange
+  const tab: TabKey = visibleTabs && visibleTabs.length && !visibleTabs.includes(wanted) ? visibleTabs[0] : wanted;
+  const setTab = useCallback((t: TabKey) => {
+    setInnerTab(t);
+    onTabChange?.(t);
+  }, [onTabChange]);
+  const tabGroups = useMemo(
+    () => (visibleTabs?.length
+      ? TAB_GROUPS.map((g) => ({ ...g, keys: g.keys.filter((k) => visibleTabs.includes(k)) })).filter((g) => g.keys.length)
+      : TAB_GROUPS),
+    [visibleTabs]
+  );
   const [fileRows, setFileRows] = useState<LayerStatusRow[]>([]);
   const refresh = useCallback(() => {
     if (onRefresh) onRefresh();
@@ -209,15 +240,14 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
   return (
     <CERefreshContext.Provider value={refresh}>
     <div className="space-y-4">
+      {!hideHeader && (
+      <>
       <div>
         <h1 className="text-xl font-semibold text-brand-navy">Content Engine</h1>
         <p className="mt-1 max-w-3xl text-sm text-gray-500">
-          กำหนด Layer ที่ประกอบกันเป็นคำสั่งเขียนบทความและสร้างภาพ — Business Skill (ความรู้ระดับธุรกิจ) + Master Prompt
-          (มาตรฐานระดับเอเจนซี่) + Article Brief (คำสั่งเฉพาะบทความ) + Validator Pack (ชุดตรวจคุณภาพ) + Image Prompt
-          (แม่แบบสร้างภาพประกอบ) + ข้อจำกัด (คำต้องห้าม/ข้อมูลสินค้าที่ละเอียดอ่อน — ไม่บังคับ) + Comment ลูกค้า
-          (ข้อติชมที่ต้องหลีกเลี่ยง — ไม่บังคับ) ={" "}
-          <span className="font-medium text-gray-700">Compiled Writing Instruction</span> ที่ใช้สร้าง Draft, ตรวจสอบ,
-          และอนุมัติก่อน Publish — เฉพาะสโคปนี้เท่านั้น
+          ทุกส่วนด้านล่างรวมกันเป็นคำสั่งที่ AI ใช้เขียนบทความและสร้างรูป ของสโคปนี้เท่านั้น: ข้อมูลธุรกิจ (Business Skill),
+          สไตล์การเขียน (Master Prompt), โครงบทความ (Article Brief), ตัวตรวจคุณภาพ (Validator Pack), แม่แบบรูปภาพ (Image Prompt)
+          ส่วนข้อจำกัดและ Comment ลูกค้าไม่บังคับ กด Run Test เพื่อดูคำสั่งจริงที่ส่งให้ AI
         </p>
       </div>
 
@@ -238,16 +268,21 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
             )}
           >
             <StateIcon state={l.state} className="size-3 text-current" />
-            <span className="shrink-0">{l.label}:</span>
+            <span className="shrink-0">
+              {LAYER_THAI[l.key] ?? l.label}
+              {LAYER_THAI[l.key] && <span className="ml-1 font-normal opacity-60">{l.label}</span>}:
+            </span>
             <span className="truncate">{l.text}</span>
           </button>
         ))}
       </div>
+      </>
+      )}
 
       <div className="flex flex-col gap-4 md:flex-row">
         {/* ── Left rail nav แบ่งหมวด — แถบเลื่อนแนวนอนบนมือถือ (หัวหมวดคั่นอยู่ในแถบ) ── */}
         <nav className="flex shrink-0 items-stretch gap-2 overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5 md:w-56 md:flex-col md:gap-1 md:overflow-visible md:p-2">
-          {TAB_GROUPS.map((g) => (
+          {tabGroups.map((g) => (
             <div
               key={g.label}
               role="group"
@@ -264,12 +299,17 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh 
                     type="button"
                     onClick={() => setTab(t.key)}
                     aria-current={tab === t.key ? "page" : undefined}
+                    title={t.hint}
                     className={cn(
-                      "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors md:w-full",
+                      "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors md:w-full",
                       tab === t.key ? "bg-indigo-600 text-white" : "text-gray-600 hover:bg-gray-100"
                     )}
                   >
-                    <Icon className="size-3.5 shrink-0" /> {t.label}
+                    <Icon className="size-3.5 shrink-0" />
+                    <span className="flex flex-col leading-tight">
+                      {t.label}
+                      <span className={cn("text-[10px] font-normal", tab === t.key ? "text-indigo-100" : "text-gray-400")}>{t.hint}</span>
+                    </span>
                   </button>
                 );
               })}

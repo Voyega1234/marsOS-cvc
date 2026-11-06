@@ -48,6 +48,31 @@ function layoutNotes(layout: UploadSiteLayout, toc: UploadComponentFinding, acti
   return notes;
 }
 
+/** สรุปผลสแกน 3-4 บรรทัดเป็นภาษาคน — รายละเอียดเทคนิคอยู่ใน "ดูรายละเอียดเทคนิค" */
+function plainSummary(scan: UploadSiteScan, canApply: boolean): string[] {
+  const lines: string[] = [];
+  const p = scan.platform;
+  lines.push(`เว็บใช้ ${p.cms}${p.theme ? ` · ธีม ${p.theme}` : ""}${p.builders.length ? ` · สร้างหน้าด้วย ${p.builders.join(", ")}` : ""}`);
+  if (p.seoPlugins) lines.push(`SEO title/description: ${seoPluginNote(p.seoPlugins).text}`);
+  const keys = ["toc", "faq", "cta"] as const;
+  const auto = keys.filter(k => scan.components[k].where === "auto");
+  const native = keys.filter(k => scan.components[k].where === "some-posts" && scan.components[k].native);
+  const ours = keys.filter(k => !auto.includes(k) && !native.includes(k));
+  const parts: string[] = [];
+  if (auto.length) parts.push(`เว็บใส่ ${auto.map(k => COMPONENT_LABEL[k]).join(", ")} ให้เองแล้ว ระบบไม่ใส่ซ้ำ`);
+  if (native.length) parts.push("สารบัญใช้ของ Elementor บนเว็บแทน (ตอน push แบบ Elementor)");
+  if (ours.length) parts.push(`ระบบใส่ ${ours.map(k => COMPONENT_LABEL[k]).join(", ")} ให้ตามปกติ`);
+  lines.push(parts.join(" · "));
+  if (scan.suggestedTheme || scan.detail) {
+    lines.push(canApply
+      ? "สี/ฟอนต์: อ่านจากเว็บได้แล้ว ขั้นต่อไปกด \"ใช้กับบทความ\" แล้วกด \"บันทึกธีม\""
+      : "สี/ฟอนต์: อ่านจากเว็บได้แล้ว");
+  } else {
+    lines.push("สี/ฟอนต์: อ่านไม่ได้ ใส่ลิงก์บทความตัวอย่างแล้วกดสแกนใหม่");
+  }
+  return lines;
+}
+
 export default function SiteScanView({
   initialUrl, initialSampleUrl = "", scan, onRun, onApplyTheme, title = "สแกนเว็บปลายทาง (ละเอียด)", layoutActions = false,
 }: {
@@ -98,39 +123,11 @@ export default function SiteScanView({
 
       {scan && (
         <div className="space-y-3 text-xs">
-          <div className="rounded-lg bg-gray-50 border border-gray-100 p-3 space-y-1.5">
-            <p className="text-[11px] text-gray-400">
-              ผลสแกน {scan.target} · {new Date(scan.scannedAt).toLocaleString("th-TH")} · ดู {scan.checked.join(", ")}
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <div><span className="text-gray-500">ระบบเว็บ:</span> <b>{scan.platform.cms}</b></div>
-              <div>
-                <span className="text-gray-500">ธีม:</span> <b>{scan.platform.theme || "ไม่ทราบ"}</b>
-                {scan.platform.childTheme && <span className="text-gray-500"> (child: {scan.platform.childTheme})</span>}
-              </div>
-              <div><span className="text-gray-500">ตัวสร้างหน้า:</span> <b>{scan.platform.builders.join(", ") || "—"}</b></div>
-            </div>
-            {scan.platform.seoPlugins && (
-              <div>
-                <span className="text-gray-500">ปลั๊กอิน SEO (title/description):</span>{" "}
-                <b>{scan.platform.seoPlugins.map(seoPluginLabel).join(", ") || "ไม่เจอ"}</b>
-                <span className={seoPluginNote(scan.platform.seoPlugins).warn ? "text-amber-600" : "text-gray-500"}> — {seoPluginNote(scan.platform.seoPlugins).text}</span>
-              </div>
-            )}
-            {scan.platform.plugins.length > 0 && (
-              <div>
-                <button onClick={() => setShowPlugins(v => !v)} className="text-gray-500 hover:text-brand-navy flex items-center gap-1">
-                  {showPlugins ? <ChevronDown size={11} /> : <ChevronRight size={11} />} ปลั๊กอินที่เห็นจากหน้าเว็บ ({scan.platform.plugins.length})
-                </button>
-                {showPlugins && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {scan.platform.plugins.map(p => (
-                      <span key={p} className="px-1.5 py-0.5 rounded bg-white border border-gray-200 text-[10px] text-gray-600">{p}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-1">
+            <p className="font-semibold text-brand-navy">สรุปผลสแกน</p>
+            <ul className="space-y-0.5 text-[12px] leading-5 text-gray-700">
+              {plainSummary(scan, !!onApplyTheme).map((l, i) => <li key={i}>• {l}</li>)}
+            </ul>
           </div>
 
           {scan.layout && (
@@ -155,40 +152,6 @@ export default function SiteScanView({
             </div>
           )}
 
-          <div className="space-y-1.5">
-            {(["toc", "faq", "cta"] as const).map(k => {
-              const f = scan.components[k];
-              const st = statusOf(f);
-              return (
-                <div key={k} className="border border-gray-100 rounded-lg">
-                  <button onClick={() => setOpen(o => ({ ...o, [k]: !o[k] }))} className="w-full flex items-center gap-2 px-2.5 py-2 text-left">
-                    {open[k] ? <ChevronDown size={12} className="text-gray-400" /> : <ChevronRight size={12} className="text-gray-400" />}
-                    <span className="font-semibold text-brand-navy w-24 shrink-0">{COMPONENT_LABEL[k]}</span>
-                    <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${st.cls}`}>{st.text}</span>
-                    {f.source && <span className="text-gray-500 truncate">· {f.source}</span>}
-                  </button>
-                  {open[k] && f.evidence.length > 0 && (
-                    <ul className="px-8 pb-2 list-disc text-[11px] text-gray-500 space-y-0.5">
-                      {f.evidence.map((e, i) => <li key={i}>{e}</li>)}
-                    </ul>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {scan.faqSummary && (
-            <div className="rounded-lg border border-brand-blue/20 bg-brand-mist/30 p-3">
-              <p className="font-semibold text-brand-navy mb-1">หน้าตา FAQ / บทความบนเว็บนี้</p>
-              <p className="text-gray-600 leading-relaxed">{scan.faqSummary}</p>
-              {scan.detail?.source && <p className="text-[10px] text-gray-400 mt-1">อ้างอิง: {scan.detail.source}</p>}
-            </div>
-          )}
-
-          {scan.detail && (scan.detail.article || scan.detail.structure || scan.detail.references) && (
-            <ScannedStyleSummary detail={scan.detail} />
-          )}
-
           {scan.warnings.length > 0 && (
             <ul className="text-[11px] text-amber-700 list-disc pl-4 space-y-0.5">
               {scan.warnings.map((w, i) => <li key={i}>{w}</li>)}
@@ -203,6 +166,82 @@ export default function SiteScanView({
               <p className="text-[11px] text-gray-500">ยังไม่บันทึกจนกว่าจะกดบันทึกด้านล่าง บทความเดิมไม่เปลี่ยนจนกว่าจะกด Re-generate</p>
             </div>
           )}
+
+          <details className="rounded-lg border border-gray-100">
+            <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-semibold text-gray-500 hover:text-brand-navy">
+              ดูรายละเอียดเทคนิค (ธีม ปลั๊กอิน ฟอนต์ สี หลักฐานที่เจอ)
+            </summary>
+            <div className="space-y-3 p-3 pt-1">
+              <div className="rounded-lg bg-gray-50 border border-gray-100 p-3 space-y-1.5">
+                <p className="text-[11px] text-gray-400">
+                  ผลสแกน {scan.target} · {new Date(scan.scannedAt).toLocaleString("th-TH")} · ดู {scan.checked.join(", ")}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div><span className="text-gray-500">ระบบเว็บ:</span> <b>{scan.platform.cms}</b></div>
+                  <div>
+                    <span className="text-gray-500">ธีม:</span> <b>{scan.platform.theme || "ไม่ทราบ"}</b>
+                    {scan.platform.childTheme && <span className="text-gray-500"> (child: {scan.platform.childTheme})</span>}
+                  </div>
+                  <div><span className="text-gray-500">ตัวสร้างหน้า:</span> <b>{scan.platform.builders.join(", ") || "—"}</b></div>
+                </div>
+                {scan.platform.seoPlugins && (
+                  <div>
+                    <span className="text-gray-500">ปลั๊กอิน SEO (title/description):</span>{" "}
+                    <b>{scan.platform.seoPlugins.map(seoPluginLabel).join(", ") || "ไม่เจอ"}</b>
+                    <span className={seoPluginNote(scan.platform.seoPlugins).warn ? "text-amber-600" : "text-gray-500"}> — {seoPluginNote(scan.platform.seoPlugins).text}</span>
+                  </div>
+                )}
+                {scan.platform.plugins.length > 0 && (
+                  <div>
+                    <button onClick={() => setShowPlugins(v => !v)} className="text-gray-500 hover:text-brand-navy flex items-center gap-1">
+                      {showPlugins ? <ChevronDown size={11} /> : <ChevronRight size={11} />} ปลั๊กอินที่เห็นจากหน้าเว็บ ({scan.platform.plugins.length})
+                    </button>
+                    {showPlugins && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {scan.platform.plugins.map(p => (
+                          <span key={p} className="px-1.5 py-0.5 rounded bg-white border border-gray-200 text-[10px] text-gray-600">{p}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                {(["toc", "faq", "cta"] as const).map(k => {
+                  const f = scan.components[k];
+                  const st = statusOf(f);
+                  return (
+                    <div key={k} className="border border-gray-100 rounded-lg">
+                      <button onClick={() => setOpen(o => ({ ...o, [k]: !o[k] }))} className="w-full flex items-center gap-2 px-2.5 py-2 text-left">
+                        {open[k] ? <ChevronDown size={12} className="text-gray-400" /> : <ChevronRight size={12} className="text-gray-400" />}
+                        <span className="font-semibold text-brand-navy w-24 shrink-0">{COMPONENT_LABEL[k]}</span>
+                        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${st.cls}`}>{st.text}</span>
+                        {f.source && <span className="text-gray-500 truncate">· {f.source}</span>}
+                      </button>
+                      {open[k] && f.evidence.length > 0 && (
+                        <ul className="px-8 pb-2 list-disc text-[11px] text-gray-500 space-y-0.5">
+                          {f.evidence.map((e, i) => <li key={i}>{e}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {scan.faqSummary && (
+                <div className="rounded-lg border border-brand-blue/20 bg-brand-mist/30 p-3">
+                  <p className="font-semibold text-brand-navy mb-1">หน้าตา FAQ / บทความบนเว็บนี้</p>
+                  <p className="text-gray-600 leading-relaxed">{scan.faqSummary}</p>
+                  {scan.detail?.source && <p className="text-[10px] text-gray-400 mt-1">อ้างอิง: {scan.detail.source}</p>}
+                </div>
+              )}
+
+              {scan.detail && (scan.detail.article || scan.detail.structure || scan.detail.references) && (
+                <ScannedStyleSummary detail={scan.detail} />
+              )}
+            </div>
+          </details>
         </div>
       )}
     </div>

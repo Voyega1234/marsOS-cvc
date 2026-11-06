@@ -80,6 +80,8 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
 
   const requiredItems = data.items.filter(i => i.required);
   const optionalItems = data.items.filter(i => !i.required);
+  const requiredDone = requiredItems.filter(i => i.ok).length;
+  const requiredPct = requiredItems.length ? Math.round((requiredDone / requiredItems.length) * 100) : 100;
 
   const ItemRow = ({ item }: { item: ChecklistItem }) => (
     <div className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${
@@ -113,21 +115,21 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
 
   return (
     <div className="space-y-4">
-      {/* Progress */}
-      <div className={`rounded-2xl border p-4 ${data.progressPct === 100 ? "border-emerald-200 bg-emerald-50/60" : "border-red-200 bg-red-50"}`}>
-        <div className="flex items-center justify-between mb-2">
+      {/* Progress — นับเฉพาะข้อบังคับ ข้อแนะนำมีตัวนับของมันเองในหัวข้อด้านล่าง */}
+      <div className={`rounded-2xl border p-4 ${data.requiredReady ? "border-emerald-200 bg-emerald-50/60" : "border-red-200 bg-red-50"}`}>
+        <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
             {data.progressPct === 100 && <PartyPopper size={16} className="text-emerald-600" />}
-            <span className={`text-sm font-bold ${data.progressPct === 100 ? "text-brand-navy" : "text-red-600"}`}>
+            <span className={`text-sm font-bold ${data.requiredReady ? "text-brand-navy" : "text-red-600"}`}>
               {data.progressPct === 100
                 ? "พร้อม 100% — เริ่มงานกับลูกค้าได้เลย"
                 : data.requiredReady
-                  ? "ข้อบังคับครบแล้ว — เก็บข้อแนะนำให้ครบก่อนเริ่มจะดีที่สุด"
-                  : "ยังตั้งค่าไม่ครบ — เก็บข้อบังคับให้หมดก่อนเริ่มกับลูกค้า"}
+                  ? "ข้อบังคับครบแล้ว — เริ่มงานได้ ข้อแนะนำตั้งเพิ่มทีหลังได้"
+                  : `ยังขาดข้อบังคับ ${requiredItems.length - requiredDone} ข้อ — ตั้งให้ครบก่อนเริ่มกับลูกค้า`}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-sm font-bold tabular-nums ${data.progressPct === 100 ? "text-brand-navy" : "text-red-600"}`}>{data.doneCount}/{data.totalCount} · {data.progressPct}%</span>
+            <span className={`text-sm font-bold tabular-nums ${data.requiredReady ? "text-brand-navy" : "text-red-600"}`}>{requiredDone}/{requiredItems.length} ข้อบังคับ</span>
             <button onClick={load} disabled={loading} title="ตรวจใหม่"
               className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors disabled:opacity-50">
               <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -135,8 +137,8 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
           </div>
         </div>
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full transition-all duration-500 ${data.progressPct === 100 ? "bg-emerald-500" : "bg-red-500"}`}
-            style={{ width: `${data.progressPct}%` }} />
+          <div className={`h-full rounded-full transition-all duration-500 ${data.requiredReady ? "bg-emerald-500" : "bg-red-500"}`}
+            style={{ width: `${requiredPct}%` }} />
         </div>
       </div>
 
