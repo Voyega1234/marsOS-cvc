@@ -280,7 +280,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh,
       )}
 
       <div className="flex flex-col gap-4 md:flex-row">
-        {/* ── Left rail nav แบ่งหมวด — แถบเลื่อนแนวนอนบนมือถือ (หัวหมวดคั่นอยู่ในแถบ) ── */}
+        {/* ── Left rail nav แบ่งหมวดด้วยเส้นคั่น (ชื่อหมวดอยู่ใน aria-label ไม่โชว์ — คำไทยใต้ชื่อแท็บพอแล้ว) — แถบเลื่อนแนวนอนบนมือถือ ── */}
         <nav className="flex shrink-0 items-stretch gap-2 overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5 md:w-56 md:flex-col md:gap-1 md:overflow-visible md:p-2">
           {tabGroups.map((g) => (
             <div
@@ -289,7 +289,6 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh,
               aria-label={g.label}
               className="flex shrink-0 items-center gap-1 border-l border-gray-200 pl-2 first:border-l-0 first:pl-0 md:flex-col md:items-stretch md:border-l-0 md:pl-0 md:[&:not(:first-child)]:border-t md:[&:not(:first-child)]:pt-1.5"
             >
-              <span className="whitespace-nowrap px-1 text-[11px] font-semibold text-gray-500 md:px-3 md:pb-0.5">{g.label}</span>
               {g.keys.map((k) => {
                 const t = TABS.find((x) => x.key === k)!;
                 const Icon = t.icon;
