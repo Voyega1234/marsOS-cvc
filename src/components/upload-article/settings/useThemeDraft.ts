@@ -20,6 +20,8 @@ export function useThemeDraft(client: UploadClientDTO, setClient: (c: UploadClie
   const savedThemeKey = JSON.stringify(client.theme);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setThemeDraft(client.theme); }, [savedThemeKey]);
+  // แก้แล้วยังไม่บันทึก — StyleSection โชว์ปุ่มบันทึกลอยมุมจอ
+  const dirty = JSON.stringify(themeDraft) !== savedThemeKey;
 
   function setColor(key: keyof UploadTheme, val: string) {
     setThemeDraft(prev => ({ ...prev, [key]: val }));
@@ -49,5 +51,5 @@ export function useThemeDraft(client: UploadClientDTO, setClient: (c: UploadClie
     }
   }
 
-  return { themeDraft, setThemeDraft, setColor, savingTheme, saveTheme, applyScannedTheme, showFaqEditor, setShowFaqEditor };
+  return { themeDraft, setThemeDraft, setColor, savingTheme, saveTheme, applyScannedTheme, showFaqEditor, setShowFaqEditor, dirty };
 }

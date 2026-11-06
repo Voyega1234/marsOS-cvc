@@ -41,7 +41,7 @@ import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { readUploadCta, isUploadCtaReady, hasUploadCta } from '@/lib/upload-article/cta'
 import { insertUploadCta } from '@/lib/upload-article/cta-insert'
 import { boxReferencesSection, structureOptionsFromDetail } from '@/lib/upload-article/references'
-import { mergeEvidence, mergeLibrary, searchReferences, withFoundReferences } from '@/lib/upload-article/reference-search'
+import { citableLibrary, mergeEvidence, prepareReferences, withReadReferences } from '@/lib/upload-article/reference-search'
 import { PBN_MAX_VARIANTS, isPbnPrefsRaw, parseWriterSourceName, readPbnSites, writerSourceName } from '@/lib/upload-article/pbn'
 import { buildWriteStampInput, computeWriteStamp } from '@/lib/upload-article/write-stamp'
 import { PBN_MAIN_PROFILE, isPbnProfileId, readPbnProfiles, readPbnArticleTargets } from '@/lib/upload-article/pbn-sets'
@@ -348,13 +348,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const clientSlug = `upload-${slugifyClient(client.name)}`
     const restrictionsTopic = { keyword: keyword.keyword, title, outline: keyword.note }
-    // ค้นแหล่งอ้างอิงเฉพาะโดเมนที่เว็บนี้เคยอ้างอิง — ปิดส่วนอ้างอิงหรือไม่มีคลัง = ไม่เรียก AI
+    // แหล่งอ้างอิง: ค้นเฉพาะโดเมนที่เว็บนี้เคยอ้างอิง + เปิดอ่านแหล่งในคลังที่ตรงหัวข้อ — อ้างได้เฉพาะที่อ่านแล้ว
+    // ปิดส่วนอ้างอิงหรือไม่มีคลัง = ไม่เรียก AI ไม่โหลดเว็บ
     const [relatedProductIds, found] = await Promise.all([
       judgeRelatedProducts(restrictions, restrictionsTopic, {
         trace: 'upload_article_restrictions_match',
         client: clientSlug,
       }),
-      searchReferences({
+      prepareReferences({
         detail: theme.detail,
         title,
         keyword: keyword.keyword,
@@ -387,7 +388,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       language,
       brandNames: [client.name],
       constraintLayers: constraints.layerNames,
-      structure: withFoundReferences(structureOptionsFromDetail(theme.detail, `${title} ${keyword.keyword}`), found.references),
+      structure: withReadReferences(structureOptionsFromDetail(theme.detail, `${title} ${keyword.keyword}`), found),
       variant: variantTotal > 1 ? { index: variant, total: variantTotal } : undefined,
     })
 
@@ -509,6 +510,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
         // คำต้องห้ามของลูกค้า (Content Engine > ข้อจำกัด) — แทนคำ/เขียนท่อนใหม่ก่อนแทรก CTA (CTA เป็นข้อความของทีม ไม่แตะ)
         let metaDescription = parsed.metaDescription
+        // ชื่อบทความตรวจคำต้องห้าม + Comment เหมือนเนื้อหา (เขียนใหม่ก็แก้ชื่อเดิมที่ผิดด้วย slug คงเดิม)
+        const titleBefore = rewriteOf ? rewriteOf.title : title
+        let finalTitle = titleBefore
         let restrictionWarnings: string[] | undefined = fieldWarnings.length ? [...fieldWarnings] : undefined
         if (hasRestrictions(writeRestrictions)) {
           const enforced = await withOrClient(clientSlug, () =>
@@ -516,6 +520,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               ctx: writeRestrictions,
               html: cleaned,
               metaDescription,
+              title: finalTitle,
               trace: 'upload_article_restrictions',
               rewrite: remainingMs() >= EXTRA_ROUND_MIN_MS,
               timeoutMs: Math.max(30_000, Math.min(120_000, remainingMs() - 20_000)),
@@ -523,8 +528,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           )
           cleaned = enforced.html
           metaDescription = enforced.metaDescription
+          if (enforced.title) finalTitle = enforced.title
+          // ชื่อแก้แล้ว = เตือนเรื่องชื่อเดิมไม่ต้องค้าง
+          const liveFieldWarnings = finalTitle !== titleBefore ? fieldWarnings.filter((w) => !w.startsWith('title')) : fieldWarnings
+          restrictionWarnings = liveFieldWarnings.length ? [...liveFieldWarnings] : undefined
           if (enforced.remaining.length || enforced.citationWarnings.length) {
-            restrictionWarnings = [...enforced.remaining.map((h) => `${h.term} (${h.count})`), ...enforced.citationWarnings, ...fieldWarnings]
+            restrictionWarnings = [...enforced.remaining.map((h) => `${h.term} (${h.count})`), ...enforced.citationWarnings, ...liveFieldWarnings]
           }
         }
 
@@ -536,12 +545,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               comments: clientComments,
               rulesText: constraints.restrictions,
               html: cleaned,
+              fields: { title: finalTitle, metaDescription },
               bannedTerms,
               trace: 'upload_article_comment_check',
               client: clientSlug,
               timeoutMs: Math.max(30_000, Math.min(90_000, remainingMs() - 20_000)),
             })
             cleaned = checked.html
+            if (checked.fields?.title) finalTitle = checked.fields.title
+            if (checked.fields?.metaDescription) metaDescription = checked.fields.metaDescription
             commentFixes = checked.fixes
             usage.totalTokens += checked.tokens
             usage.costUsd += checked.costUsd
@@ -554,10 +566,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
         // แทรกกล่อง CTA ลง sourceHtml เลย — Generate ใหม่กี่รอบก็ยังอยู่ (ข้อความ CTA มาจากที่ทีมตั้ง ไม่ใช่ AI)
         const withCtaHtml = withCta ? insertUploadCta(cleaned, cta).html : cleaned
-        // แหล่งที่ค้นเจอไม่อยู่ในคลังของเว็บ ต้องจัดกล่องตอนนี้ ไม่งั้น Re-generate จะตัดทิ้ง
-        const sourceHtml = found.references.length && theme.detail?.structure?.references
+        // จัดกล่องตอนนี้ด้วยแหล่งที่อ่านแล้วเท่านั้น — ลิงก์ที่ไม่ได้อ่าน (หรือแต่งเอง) ถูกตัด และ Re-generate ไม่ตัดแหล่งที่ค้นเจอทิ้ง
+        const sourceHtml = found.enabled && theme.detail?.structure?.references
           ? boxReferencesSection(withCtaHtml, {
-              library: mergeLibrary(theme.detail.references ?? [], found.references),
+              library: citableLibrary(theme.detail.references ?? [], found),
               title: theme.detail.structure.referencesTitle,
               language,
               onlyListed: true,
@@ -568,6 +580,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           if (problem) throw new Error(problem)
         }
 
+        const titleChanged = finalTitle !== titleBefore
+        // SEO title เดิมของบทความที่เขียนใหม่คงไว้ถ้าชื่อไม่ได้แก้
+        const finalSeoTitle = rewriteOf
+          ? (titleChanged ? finalTitle.slice(0, 70) : rewriteOf.seoTitle || seoTitle)
+          : (titleChanged ? finalTitle.slice(0, 70) : seoTitle)
         const built = buildUploadArticleHtml({
           sourceHtml,
           mode: rewriteOf?.outputMode === 'text' ? 'text' : 'html',
@@ -575,8 +592,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           aiSource: true,
           site: { name: client.name, url: writeClient.website, language },
           meta: rewriteOf
-            ? { title: rewriteOf.title, seoTitle: rewriteOf.seoTitle || seoTitle, metaDescription: (metaDescription || rewriteOf.metaDescription) || undefined, slug: rewriteOf.slug || articleSlug || undefined }
-            : { title, seoTitle, metaDescription: metaDescription || undefined, slug: articleSlug || undefined },
+            ? { title: finalTitle, seoTitle: finalSeoTitle, metaDescription: (metaDescription || rewriteOf.metaDescription) || undefined, slug: rewriteOf.slug || articleSlug || undefined }
+            : { title: finalTitle, seoTitle: finalSeoTitle, metaDescription: metaDescription || undefined, slug: articleSlug || undefined },
           cover: rewriteOf?.coverImageUrl ? { url: rewriteOf.coverImageUrl, alt: rewriteOf.coverAlt || rewriteOf.title } : null,
           breadcrumb: true,
           cta: ctaDesign,
@@ -602,6 +619,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
                 organizationId: orgId,
                 clientId: client.id,
                 title: current.title.slice(0, 200),
+                seoTitle: current.seoTitle,
                 sourceType: REWRITE_SOURCE_TYPE,
                 sourceName: rewriteBackupName(rewriteOf.id),
                 sourceHtml: current.sourceHtml,
@@ -618,6 +636,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
                 sourceHtml,
                 htmlContent: built.html,
                 ...(metaDescription ? { metaDescription } : {}),
+                ...(titleChanged ? { title: finalTitle.slice(0, 200), seoTitle: finalSeoTitle } : {}),
                 // PUSHING ที่หมดอายุ = push ไม่จบ: ถือว่าขึ้นเว็บแล้วถ้ามีโพสต์ ไม่งั้น GENERATED
                 status: rows[0].status === 'PUSHED' ? 'PUSHED'
                   : rows[0].status === 'PUSHING' ? (current.wordpressPostId || current.pushedAt ? 'PUSHED' : 'GENERATED')
@@ -634,6 +653,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               sourceHtml,
               htmlContent: built.html,
               metaDescription,
+              ...(titleChanged ? { title: finalTitle.slice(0, 200), seoTitle: finalSeoTitle } : {}),
               status: 'GENERATED',
             },
           })

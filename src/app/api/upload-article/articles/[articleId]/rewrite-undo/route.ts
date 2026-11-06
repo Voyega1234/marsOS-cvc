@@ -30,7 +30,8 @@ export async function POST(_req: NextRequest, { params }: { params: { articleId:
       if (!backup) return null
       const row = await tx.uploadArticle.update({
         where: { id: article.id },
-        data: { sourceHtml: backup.sourceHtml, htmlContent: backup.htmlContent, metaDescription: backup.metaDescription },
+        // ชื่อเดิมคืนด้วย — เขียนใหม่อาจแก้ชื่อที่มีคำต้องห้าม (สำรองรุ่นเก่าไม่มี seoTitle = คงค่าปัจจุบัน)
+        data: { sourceHtml: backup.sourceHtml, htmlContent: backup.htmlContent, metaDescription: backup.metaDescription, title: backup.title, ...(backup.seoTitle ? { seoTitle: backup.seoTitle } : {}) },
       })
       await tx.uploadArticle.delete({ where: { id: backup.id } })
       return row

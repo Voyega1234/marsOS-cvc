@@ -30,8 +30,18 @@ export interface CommentFix {
   after: string;
 }
 
+/** ช่องนอกเนื้อหาที่ตรวจด้วย (id ติดลบ ไม่ชนท่อนในบทความ) */
+export interface CommentFields {
+  title?: string;
+  metaDescription?: string;
+}
+
+export const FIELD_SEGMENT_IDS = { metaDescription: -1, title: -2 } as const;
+
 export interface CommentCheckResult {
   html: string;
+  /** มีเฉพาะเมื่อผู้เรียกส่ง fields มา — ค่าหลังแก้ */
+  fields?: CommentFields;
   fixes: CommentFix[];
   warnings: string[];
   costUsd: number;
@@ -117,7 +127,8 @@ export function applyCommentViolations(params: {
   violations: CommentViolation[];
   rulesText: string;
   bannedTerms: BannedTerm[];
-}): { html: string; fixes: CommentFix[]; warnings: string[] } {
+  fields?: CommentFields;
+}): { html: string; fields?: CommentFields; fixes: CommentFix[]; warnings: string[] } {
   const rules = ruleKey(params.rulesText);
   const byId = new Map(params.segments.map((s) => [s.id, s.text]));
   const rewrites = new Map<number, string>();
@@ -139,7 +150,14 @@ export function applyCommentViolations(params: {
     // AI เขียนประโยคใหม่ให้ คนต้องเห็นก่อน push
     warnings.push(`แก้ตาม Comment แล้ว กรุณาตรวจ: "${short(after, 100)}"`);
   }
-  return { html: rewrites.size ? replaceSegments(params.html, rewrites) : params.html, fixes, warnings };
+  let fields = params.fields ? { ...params.fields } : undefined;
+  for (const [key, id] of Object.entries(FIELD_SEGMENT_IDS) as Array<[keyof CommentFields, number]>) {
+    const next = rewrites.get(id);
+    rewrites.delete(id);
+    if (next !== undefined && fields) fields = { ...fields, [key]: next.replace(/<[^>]*>/g, "").replace(/[<>]/g, "").replace(/\s+/g, " ").trim() };
+  }
+  const html = rewrites.size ? replaceSegments(params.html, rewrites) : params.html;
+  return { html, ...(fields ? { fields } : {}), fixes, warnings };
 }
 
 const SYSTEM_PROMPT = [
@@ -157,15 +175,24 @@ export async function checkAgainstComments(params: {
   /** ข้อความข้อจำกัด + Comment ชุดเดียวกับที่ตัวเขียนได้ */
   rulesText: string;
   html: string;
+  /** ส่งมา = ตรวจ title / meta description ด้วย (ไม่ส่ง = เหมือนเดิม) */
+  fields?: CommentFields;
   bannedTerms: BannedTerm[];
   trace: string;
   client?: string;
   timeoutMs?: number;
   chat?: typeof orChat;
 }): Promise<CommentCheckResult> {
-  const untouched: CommentCheckResult = { html: params.html, fixes: [], warnings: [], costUsd: 0, tokens: 0 };
+  const untouched: CommentCheckResult = {
+    html: params.html,
+    ...(params.fields ? { fields: { ...params.fields } } : {}),
+    fixes: [], warnings: [], costUsd: 0, tokens: 0,
+  };
   if (!hasClientComments(params.comments) || !params.rulesText.trim()) return untouched;
-  const segments = commentCheckSegments(params.html);
+  const fieldSegments: CommentSegment[] = [];
+  if (params.fields?.title?.trim()) fieldSegments.push({ id: FIELD_SEGMENT_IDS.title, text: params.fields.title.trim() });
+  if (params.fields?.metaDescription?.trim()) fieldSegments.push({ id: FIELD_SEGMENT_IDS.metaDescription, text: params.fields.metaDescription.trim() });
+  const segments = [...fieldSegments, ...commentCheckSegments(params.html)];
   if (!segments.length) return untouched;
   let usage: ORUsage | undefined;
   try {
@@ -179,7 +206,7 @@ export async function checkAgainstComments(params: {
       timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `# กฎ\n${params.rulesText}\n\n# ท่อนข้อความในบทความ\n${JSON.stringify(segments)}` },
+        { role: "user", content: `# กฎ\n${params.rulesText}\n\n# ท่อนข้อความในบทความ${fieldSegments.length ? "\n(id -2 = ชื่อบทความ/SEO title, id -1 = meta description)" : ""}\n${JSON.stringify(segments)}` },
       ],
     });
     usage = res.usage;
@@ -189,6 +216,7 @@ export async function checkAgainstComments(params: {
       violations: parseCommentViolations(res.text),
       rulesText: params.rulesText,
       bannedTerms: params.bannedTerms,
+      fields: params.fields,
     });
     return { ...applied, costUsd: usage.costUsd ?? 0, tokens: usage.totalTokens ?? 0 };
   } catch (e) {

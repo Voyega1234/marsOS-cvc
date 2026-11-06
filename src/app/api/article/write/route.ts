@@ -34,7 +34,7 @@ import { pickAuthorForArticle } from '@/lib/upload-article/author'
 import { rankLinksByTopic } from '@/lib/upload-article/internal-links'
 import { buildProjectArticleCss, projectThemeToUpload } from '@/lib/project-theme'
 import { boxReferencesSection, structureOptionsFromDetail } from '@/lib/upload-article/references'
-import { mergeEvidence, mergeLibrary, searchReferences, withFoundReferences } from '@/lib/upload-article/reference-search'
+import { citableLibrary, mergeEvidence, prepareReferences, withReadReferences } from '@/lib/upload-article/reference-search'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
 export const maxDuration = 300
@@ -1086,11 +1086,11 @@ export async function POST(req: NextRequest) {
   const themeDetail = _dbProj
     ? projectThemeToUpload((_dbProj as { themeColors?: string | null }).themeColors, (_dbProj as { accentColor?: string | null }).accentColor).detail
     : undefined
-  // สินค้าไหนเกี่ยวกับบทความนี้ + ค้นแหล่งอ้างอิงจากโดเมนที่เว็บเคยอ้างอิง — ไม่เข้าเงื่อนไข = ไม่เรียก AI
+  // สินค้าไหนเกี่ยวกับบทความนี้ + ค้นแหล่งอ้างอิงจากโดเมนที่เว็บเคยอ้างอิง และเปิดอ่านแหล่งในคลัง (อ้างได้เฉพาะที่อ่านแล้ว) — ไม่เข้าเงื่อนไข = ไม่เรียก AI
   const restrictionsTopic = { keyword, title, outline: typeof adjustNote === 'string' ? adjustNote : '' }
   const [relatedProductIds, found] = await Promise.all([
     judgeRelatedProducts(restrictions, restrictionsTopic, { trace: 'article_write_restrictions_match', client: orClient }),
-    searchReferences({
+    prepareReferences({
       detail: themeDetail,
       title,
       keyword,
@@ -1099,6 +1099,8 @@ export async function POST(req: NextRequest) {
       client: orClient,
       searchTimeoutMs: 20_000,
       verifyTimeoutMs: 6_000,
+      readTimeoutMs: 6_000,
+      pickTimeoutMs: 10_000,
     }),
   ])
   const writeRestrictions = mergeEvidence(restrictions, found.references)
@@ -1108,7 +1110,7 @@ export async function POST(req: NextRequest) {
   )
   const humanVoiceBlock = humanVoiceSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th')
     // Mars Article Structure — กล่องสรุปประเด็นสำคัญ + FAQ (หัว H2 / คำถามเป็น <span> ใน <summary>) ค่าเริ่มต้นทุกบทความ (เจ้าของสั่ง 2026-10-21)
-    + '\n\n' + articleStructureSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th', withFoundReferences(structureOptionsFromDetail(themeDetail, `${title} ${keyword}`), found.references))
+    + '\n\n' + articleStructureSkillBlock(effectiveLanguage === 'en' ? 'en' : 'th', withReadReferences(structureOptionsFromDetail(themeDetail, `${title} ${keyword}`), found))
 
   // ── CTA (หลายชุด — เลือกจำนวนต่อบทความได้) — สุ่ม spots ครั้งเดียวต่อ request แล้วใช้ต่อ
   //    ทั้งตอนสร้าง prompt และตอนแทรกแบนเนอร์หลังบทความเขียนเสร็จ ──
@@ -1183,9 +1185,9 @@ export async function POST(req: NextRequest) {
   const finalizeArticleHtml = (raw: string): string => {
     // FAQ คำถามเป็น <span> ใน <summary> + สรุปประเด็นสำคัญเป็นกล่อง (บทความไทยหัวกล่อง = "สรุปประเด็นสำคัญ") เสมอ แม้ Master Prompt/AI จะเขียนมาแบบอื่น
     const cleanHtml = stripSchemaScripts(sanitizeArticleHtml(stripEditorialNotes(raw)))
-    // เปิดส่วนอ้างอิงไว้เท่านั้น — เหลือเฉพาะลิงก์ในรายการของลูกค้า ห้าม AI แต่งแหล่งเอง
+    // เปิดส่วนอ้างอิงไว้เท่านั้น — เหลือเฉพาะแหล่งที่ระบบเปิดอ่านแล้วในงานนี้ ห้าม AI แต่งแหล่งเอง
     const withReferences = themeDetail?.structure?.references
-      ? boxReferencesSection(cleanHtml, { library: mergeLibrary(themeDetail.references ?? [], found.references), title: themeDetail.structure.referencesTitle, language: effectiveLanguage === 'en' ? 'en' : 'th', onlyListed: true })
+      ? boxReferencesSection(cleanHtml, { library: citableLibrary(themeDetail.references ?? [], found), title: themeDetail.structure.referencesTitle, language: effectiveLanguage === 'en' ? 'en' : 'th', onlyListed: true })
       : cleanHtml
     // เฉพาะเว็บที่สแกนแล้วพบว่าเว้นวรรคสม่ำเสมอ — โปรเจกต์เดิมได้ HTML เท่าเดิม
     const spaced = themeDetail?.structure?.latinThaiSpacing ? spaceLatinThai(withReferences) : withReferences

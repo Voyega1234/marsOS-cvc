@@ -197,6 +197,8 @@ export async function judgeRelatedProducts(
 export interface RestrictionEnforcement {
   html: string;
   metaDescription: string;
+  /** ชื่อบทความหลังแก้ — ไม่ได้ส่ง title มา = ไม่มี */
+  title?: string;
   /** จำนวนคำที่แทนด้วยคำแทนที่ตั้งไว้ */
   replaced: number;
   /** จำนวนท่อนข้อความที่ AI เขียนใหม่ */
@@ -211,6 +213,7 @@ export interface RestrictionEnforcement {
 const SECOND_REWRITE_MAX_ELAPSED_MS = 30_000;
 
 const META_SEGMENT_ID = -1;
+const TITLE_SEGMENT_ID = -2;
 
 function mergeHits(a: BannedHit[], b: BannedHit[]): BannedHit[] {
   const map = new Map<string, BannedHit>();
@@ -224,7 +227,7 @@ function mergeHits(a: BannedHit[], b: BannedHit[]): BannedHit[] {
 async function rewriteSegments(
   items: { id: number; text: string }[],
   terms: BannedTerm[],
-  opts: { trace: string; model?: string; timeoutMs?: number; approved?: string[] },
+  opts: { trace: string; model?: string; timeoutMs?: number; approved?: string[]; chat?: typeof orChat },
 ): Promise<Map<number, string>> {
   const termList = terms.map((t) => (t.replacement ? `- "${t.term}" (ใช้ "${t.replacement}" แทนได้)` : `- "${t.term}"`)).join("\n");
   const system = [
@@ -237,7 +240,7 @@ async function rewriteSegments(
     'ตอบเป็น JSON เท่านั้น: {"segments":[{"id":<id เดิม>,"text":"<ข้อความใหม่>"}]}',
   ].join("\n");
   const user = `คำต้องห้าม:\n${termList}\n\nท่อนที่ต้องแก้:\n${JSON.stringify({ segments: items })}`;
-  const res = await orChat({
+  const res = await (opts.chat ?? orChat)({
     trace: opts.trace,
     model: opts.model || OR_MODELS.writer(),
     jsonMode: true,
@@ -270,11 +273,15 @@ export async function enforceRestrictions(params: {
   ctx: RestrictionsContext | null | undefined;
   html: string;
   metaDescription?: string;
+  /** ส่งมา = ตรวจ/แก้คำต้องห้ามในชื่อบทความด้วย (ไม่ส่ง = เหมือนเดิม) */
+  title?: string;
   trace: string;
   model?: string;
   timeoutMs?: number;
   /** false = แทนคำอย่างเดียว ไม่เรียก AI (เวลาเหลือน้อย) */
   rewrite?: boolean;
+  /** เทสต์ส่งตัวปลอม */
+  chat?: typeof orChat;
 }): Promise<RestrictionEnforcement> {
   const meta0 = params.metaDescription ?? "";
   const terms = params.ctx ? bannedTermsOf(params.ctx.data) : [];
@@ -282,6 +289,7 @@ export async function enforceRestrictions(params: {
     return {
       html: params.html,
       metaDescription: meta0,
+      ...(params.title !== undefined ? { title: params.title } : {}),
       replaced: 0,
       rewritten: 0,
       remaining: [],
@@ -291,8 +299,10 @@ export async function enforceRestrictions(params: {
 
   const r1 = applyBannedReplacements(params.html, terms);
   const r2 = applyBannedReplacements(meta0, terms);
+  const r3 = applyBannedReplacements(params.title ?? "", terms);
   let html = r1.html;
   let meta = r2.html;
+  let title = r3.html;
   let rewritten = 0;
 
   const approved = params.ctx ? approvedTermList(params.ctx.data) : [];
@@ -303,29 +313,38 @@ export async function enforceRestrictions(params: {
     if (round > 0 && Date.now() - startedAt > SECOND_REWRITE_MAX_ELAPSED_MS) break;
     const segments = collectBannedSegments(html, terms);
     const metaDirty = meta && findBannedTerms(meta, terms).length > 0;
-    if (!segments.length && !metaDirty) break;
-    const items = metaDirty ? [...segments, { id: META_SEGMENT_ID, text: meta }] : segments;
+    const titleDirty = title && findBannedTerms(title, terms).length > 0;
+    if (!segments.length && !metaDirty && !titleDirty) break;
+    const items = [
+      ...segments,
+      ...(metaDirty ? [{ id: META_SEGMENT_ID, text: meta }] : []),
+      ...(titleDirty ? [{ id: TITLE_SEGMENT_ID, text: title }] : []),
+    ];
     try {
       const rewrites = await rewriteSegments(items, terms, { ...params, approved });
       const metaNext = rewrites.get(META_SEGMENT_ID);
+      const titleNext = rewrites.get(TITLE_SEGMENT_ID);
       rewrites.delete(META_SEGMENT_ID);
+      rewrites.delete(TITLE_SEGMENT_ID);
       html = replaceSegments(html, rewrites);
       if (metaNext !== undefined) meta = metaNext.replace(/<[^>]*>/g, "").trim() || meta;
-      rewritten += rewrites.size + (metaNext !== undefined ? 1 : 0);
+      if (titleNext !== undefined) title = titleNext.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim() || title;
+      rewritten += rewrites.size + (metaNext !== undefined ? 1 : 0) + (titleNext !== undefined ? 1 : 0);
     } catch (e) {
       console.warn(`[restrictions] rewrite failed (${params.trace}):`, e instanceof Error ? e.message : e);
       break;
     }
   }
 
-  const remaining = mergeHits(findBannedTerms(html, terms), findBannedTerms(meta, terms));
+  const remaining = mergeHits(mergeHits(findBannedTerms(html, terms), findBannedTerms(meta, terms)), findBannedTerms(title, terms));
   if (remaining.length) {
     console.warn(`[restrictions] banned terms left (${params.trace}):`, remaining.map((h) => `${h.term}×${h.count}`).join(", "));
   }
   return {
     html,
     metaDescription: meta,
-    replaced: r1.replaced + r2.replaced,
+    ...(params.title !== undefined ? { title } : {}),
+    replaced: r1.replaced + r2.replaced + r3.replaced,
     rewritten,
     remaining,
     citationWarnings: studyYearWarnings(findUnlistedStudyYears(html, params.ctx)),

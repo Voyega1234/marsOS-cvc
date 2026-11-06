@@ -92,6 +92,25 @@ function main() {
   assert(s?.references?.every((r) => r.from === 'site' && !r.url.includes('utm_')), 'ตัด utm + ระบุที่มา')
   assert(extractReferencesFromHtml('<p>ไม่มีอะไร</p>') === null, 'ไม่มีส่วนอ้างอิง = null')
 
+  // อ้างอิงแบบย่อหน้า (APA) ที่เว็บเขียนเอง — ข้อละ <p> หรือหลายข้อคั่น <br>, ลิงก์ Google ห่อ / utm ถูกแกะ
+  const apa = extractReferencesFromHtml([
+    '<p>ติดต่อ <a href="https://line.me/x">LINE</a></p>',
+    '<p><span>อ้างอิง</span></p>',
+    '<p><span><br /> </span><span>AIMS Press, (2018), Biological properties of mesenchymal stem cells. Retrieved 14 Jul 2026, //////// from </span><a href="https://www.aimspress.com/article/doi/10.3934/celltissue.2018.2.78?viewType=HTML&amp;utm_.com">https://www.aimspress.com/article/doi/10.3934/celltissue.2018.2.78</a> .<br /> <br />ACOG, (2019), Umbilical Cord Blood Banking. Retrieved 14 Jul 2026, //////// from <a href="https://www.acog.org/x?utm_source=chatgpt.com">https://www.acog.org/x</a> .</p>',
+    '<p>&nbsp;</p>',
+    '<p>nccih, Antioxidant Supplements. Retrieved 2026 from <a href="https://www.google.com/search?q=https%3A%2F%2Fwww.nccih.nih.gov%2Fhealth%2Fantioxidant">https://www.nccih.nih.gov/health/antioxidant</a></p>',
+    '<p>ขอบคุณที่อ่าน</p>',
+    '<p><a href="https://not-a-ref.test/">ไม่ใช่อ้างอิง</a></p>',
+  ].join(''))
+  assert(apa?.items.length === 3, `ย่อหน้าอ้างอิง 3 ข้อ: ${apa?.items.length}`)
+  assert(apa?.items[0].title === 'AIMS Press, (2018), Biological properties of mesenchymal stem cells', `ชื่อตัดท่อน Retrieved: ${apa?.items[0].title}`)
+  assert(apa?.items[0].url === 'https://www.aimspress.com/article/doi/10.3934/celltissue.2018.2.78?viewType=HTML', `ตัด utm_ เสีย: ${apa?.items[0].url}`)
+  assert(apa?.items[1].title.startsWith('ACOG, (2019), Umbilical Cord Blood Banking') && apa.items[1].url === 'https://www.acog.org/x', 'ข้อที่คั่น <br> แยกเป็นอีกข้อ')
+  assert(apa?.items[2].url === 'https://www.nccih.nih.gov/health/antioxidant', `แกะลิงก์ Google ห่อ: ${apa?.items[2].url}`)
+  assert(!apa?.items.some((r) => r.url.includes('not-a-ref') || r.url.includes('line.me')), 'ย่อหน้าข้อความไม่มีลิงก์ = จบส่วนอ้างอิง ลิงก์ก่อนหัวข้อไม่นับ')
+  const bare = extractReferencesFromHtml('<p><b>References</b></p><p><a href="https://stemcells.nih.gov/info/basics">https://stemcells.nih.gov/info/basics</a></p>')
+  assert(bare?.items[0].title === 'https://stemcells.nih.gov/info/basics', 'มีแต่ลิงก์ = ใช้ลิงก์เป็นชื่อ')
+
   // ทั้งเส้นทางผ่าน sanitize แล้วยังครบ และ CSS ที่ออกใช้ค่าจริง
   const d = sanitizeThemeDetail({ article: a, structure: s?.structure, references: s?.references, faq: { display: 'open', layout: 'plain' } })
   assert(d?.article?.h3?.ornament?.width === '72px', 'sanitize ไม่ทำเส้นตกแต่งหาย')
@@ -115,6 +134,35 @@ function main() {
   const scanned = { faq: { display: 'open' as const } }
   assert(mergeScannedDetail({ references: [site] }, scanned) === scanned, 'ไม่มีของทีม = ใช้ผลสแกนตรง ๆ')
   assert(mergeScannedDetail({ references: [{ ...team, url: 'https://b.test/' }] }, { references: [{ title: 'ใหม่', url: 'https://b.test/', from: 'site' }] })?.references?.length === 1, 'URL ซ้ำไม่นับสอง')
+
+  // ดึงจากทุกบทความ (import) อยู่ต่อเหมือนของทีม · โดเมนที่บล็อกไม่กลับเข้าคลัง
+  const imported = { title: 'PubMed', url: 'https://pubmed.ncbi.nlm.nih.gov/1/', from: 'import' as const }
+  const rescan = mergeScannedDetail(
+    { references: [imported, site], referencesBlocked: ['bdmswellness.com'] },
+    { references: [{ title: 'คู่แข่ง', url: 'https://www.bdmswellness.com/x', from: 'site' }, { title: 'WHO', url: 'https://who.int/y', from: 'site' }] },
+  )
+  assert(rescan?.references?.length === 2 && rescan.references[0].url === imported.url && rescan.references[1].url === 'https://who.int/y', 'import อยู่ต่อ คู่แข่งจากสแกนใหม่ถูกตัด')
+  assert(rescan?.referencesBlocked?.[0] === 'bdmswellness.com', 'รายการบล็อกอยู่ต่อหลังสแกนใหม่')
+  const onlyBlocked = mergeScannedDetail({ referencesBlocked: ['samitivejhospitals.com'] }, { references: [{ title: 'x', url: 'https://samitivejhospitals.com/a', from: 'site' }] })
+  assert(onlyBlocked && !onlyBlocked.references && onlyBlocked.referencesBlocked?.length === 1, 'บล็อกครบทุกรายการ = ไม่มีคีย์ references')
+  const blockedTeam = mergeScannedDetail({ references: [{ title: 't', url: 'https://nci.go.th/a', from: 'team' }], referencesBlocked: ['nci.go.th'] }, { faq: { display: 'open' } })
+  assert(!blockedTeam?.references, 'ของทีมในโดเมนที่บล็อกก็ถูกตัด')
+
+  // sanitizer: แท็ก import ผ่าน, โดเมนบล็อกปรับเป็นรูปเดียวกัน ตัดซ้ำ ตัดค่าเสีย
+  const clean = sanitizeThemeDetail({
+    references: [{ title: 'PubMed', url: 'https://pubmed.ncbi.nlm.nih.gov/1/', from: 'import' }, { title: 'แปลก', url: 'https://x.test/', from: 'hacker' }],
+    referencesBlocked: ['https://www.BDMSwellness.com/th/', 'bdmswellness.com', 'not a domain', 42, 'samitivejhospitals.com'],
+  })
+  assert(clean?.references?.[0].from === 'import', 'from:import ผ่าน sanitizer')
+  assert(clean?.references?.[1] && clean.references[1].from === undefined, 'from แปลกถูกตัด')
+  assert(JSON.stringify(clean?.referencesBlocked) === JSON.stringify(['bdmswellness.com', 'samitivejhospitals.com']), `โดเมนบล็อก: ${JSON.stringify(clean?.referencesBlocked)}`)
+  assert(sanitizeThemeDetail({ referencesBlocked: ['nope'] })?.referencesBlocked === undefined, 'ไม่มีโดเมนใช้ได้ = ไม่มีคีย์')
+  const healed = sanitizeThemeDetail({ references: [
+    { title: 'NCCIH', url: 'https://www.google.com/search?q=https%3A%2F%2Fwww.nccih.nih.gov%2Fhealth%2Fx' },
+    { title: 'NCCIH ซ้ำ', url: 'https://nccih.nih.gov/health/x/?utm_source=a' },
+    { title: 'Nature', url: 'https://www.nature.com/a?utm.x=1' },
+  ] })?.references
+  assert(healed?.length === 2 && healed[0].url === 'https://www.nccih.nih.gov/health/x' && healed[1].url === 'https://www.nature.com/a', 'บันทึกแล้วแกะ Google ตัด utm และตัดลิงก์ซ้ำ')
 
   console.log(`article-style-scan: ${passed} passed`)
 }

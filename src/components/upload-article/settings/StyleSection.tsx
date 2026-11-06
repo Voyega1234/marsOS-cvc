@@ -19,7 +19,7 @@ import { buildWebflowCustomCss } from "@/lib/upload-article/theme-css";
 import type { UploadClientDTO, UploadTheme } from "@/lib/upload-article/types";
 
 export default function StyleSection({
-  themeDraft, setThemeDraft, setColor, savingTheme, saveTheme, showFaqEditor, setShowFaqEditor, client,
+  themeDraft, setThemeDraft, setColor, savingTheme, saveTheme, showFaqEditor, setShowFaqEditor, client, dirty,
 }: {
   themeDraft: UploadTheme;
   setThemeDraft: React.Dispatch<React.SetStateAction<UploadTheme>>;
@@ -30,6 +30,8 @@ export default function StyleSection({
   setShowFaqEditor: React.Dispatch<React.SetStateAction<boolean>>;
   /** ลูกค้า Upload Article — ใช้สลับหน้าตามแพลตฟอร์ม (ไม่ส่ง = WordPress/เดิม; SEO SME ไม่ส่ง) */
   client?: Pick<UploadClientDTO, "websitePlatform"> & { id?: string };
+  /** แก้แล้วยังไม่บันทึก — โชว์ปุ่มบันทึกลอยมุมล่างขวาของจอ (ไม่ส่ง = มีแค่ปุ่มท้ายหน้าเหมือนเดิม) */
+  dirty?: boolean;
 }) {
   const platform = client ? uploadPlatformOf(client) : "wordpress";
   const [copied, setCopied] = useState(false);
@@ -164,7 +166,8 @@ export default function StyleSection({
       )}
 
       <ArticleFontEditor theme={themeDraft} onChange={d => setThemeDraft(p => ({ ...p, detail: d }))} />
-      <ArticleStructureEditor theme={themeDraft} onChange={d => setThemeDraft(p => ({ ...p, detail: d }))} />
+      <ArticleStructureEditor theme={themeDraft} onChange={d => setThemeDraft(p => ({ ...p, detail: d }))}
+        importUrl={client?.id ? `/api/upload-article/clients/${client.id}/site-references` : undefined} />
 
       <div className="border border-gray-100 rounded-lg">
         <button onClick={() => setShowFaqEditor(v => !v)} className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-brand-navy">
@@ -181,6 +184,15 @@ export default function StyleSection({
       <Button size="sm" disabled={savingTheme} onClick={saveTheme}>
         {savingTheme ? "กำลังบันทึก..." : "บันทึกธีม"}
       </Button>
+      {/* fixed ไม่ใช่ sticky — main ของ layout เป็น overflow-auto ที่ไม่ scroll เอง sticky จึงไม่ติดจอ */}
+      {dirty && (
+        <div className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 shadow-lg">
+          <span className="text-xs text-amber-800">มีการแก้ที่ยังไม่บันทึก</span>
+          <Button size="sm" disabled={savingTheme} onClick={saveTheme}>
+            {savingTheme ? "กำลังบันทึก..." : "บันทึกธีม"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
 } from './types'
 import type { UploadCtaItem, UploadCtaSettings } from './cta'
 import { FONT_FACE_MAX } from './font-faces'
+import { cleanReferenceUrl, isReferenceBlocked, referenceDomain, refKey } from './references'
 
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 const RGB_RE = /^rgba?\(\s*\d{1,3}(?:\.\d+)?%?\s*,\s*\d{1,3}(?:\.\d+)?%?\s*,\s*\d{1,3}(?:\.\d+)?%?\s*(?:,\s*(?:0|1|0?\.\d+|\d{1,3}%)\s*)?\)$/i
@@ -256,13 +257,26 @@ function sanitizeReferences(raw: unknown): UploadReference[] | undefined {
     if (!item || typeof item !== 'object') continue
     const r = item as Record<string, unknown>
     const title = typeof r.title === 'string' ? r.title.replace(/[<>{}]/g, '').replace(/\s+/g, ' ').trim().slice(0, 300) : ''
-    const url = typeof r.url === 'string' ? r.url.trim() : ''
-    if (!title || !/^https?:\/\/[^\s"'<>]+$/i.test(url) || url.length > 800 || seen.has(url)) continue
-    seen.add(url)
-    const from = pickEnum(r.from, ['site', 'team'] as const)
+    // เก็บลิงก์ที่แกะ Google / ตัด utm แล้ว — ข้อมูลเก่าที่ห่อไว้หายเองตอนบันทึกครั้งถัดไป
+    const url = typeof r.url === 'string' ? cleanReferenceUrl(r.url) ?? '' : ''
+    const key = refKey(url)
+    if (!title || !key || !/^https?:\/\/[^\s"'<>]+$/i.test(url) || url.length > 800 || seen.has(key)) continue
+    seen.add(key)
+    const from = pickEnum(r.from, ['site', 'team', 'import'] as const)
     out.push(from ? { title, url, from } : { title, url })
   }
   return out.length ? out : undefined
+}
+
+function sanitizeReferencesBlocked(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out = new Set<string>()
+  for (const item of raw) {
+    if (out.size >= 50) break
+    const domain = typeof item === 'string' && item.length <= 300 ? referenceDomain(item) : null
+    if (domain) out.add(domain)
+  }
+  return out.size ? Array.from(out) : undefined
 }
 
 export function sanitizeThemeDetail(raw: unknown): UploadThemeDetail | undefined {
@@ -276,6 +290,7 @@ export function sanitizeThemeDetail(raw: unknown): UploadThemeDetail | undefined
     article: sanitizeArticleStyle(r.article),
     structure: sanitizeStructure(r.structure),
     references: sanitizeReferences(r.references),
+    referencesBlocked: sanitizeReferencesBlocked(r.referencesBlocked),
   })
 }
 
@@ -591,17 +606,24 @@ function ctaItemScopedCss(item: UploadCtaItem): string {
  * FAQ ตามโหมดของธีม (กดเปิด-ปิด / เปิดตลอด) — ใช้ตอน push และพรีวิวบทความที่ generate ไว้แล้ว
  * บทความที่ generate ก่อนมีโหมดเปิดตลอดไม่มี CSS ของคำถามแบบหัวข้อ → เติมท้าย <style> เดิม (โหมด clean ไม่มี <style> = ธีมเว็บคุมเอง)
  */
-/** ใช้ผลสแกนซ้ำ: หน้าตาตามผลสแกนใหม่ แต่รายการอ้างอิงที่ทีมเพิ่มเองต้องไม่หาย */
+/** ใช้ผลสแกนซ้ำ: หน้าตาตามผลสแกนใหม่ แต่รายการอ้างอิงที่ทีมเพิ่มเอง/ดึงจากทั้งเว็บ และโดเมนที่ทีมบล็อกไว้ต้องไม่หาย */
 export function mergeScannedDetail(prev: UploadThemeDetail | undefined, scanned: UploadThemeDetail | null): UploadThemeDetail | undefined {
   if (!scanned) return prev
-  const team = (prev?.references ?? []).filter((r) => r.from === 'team')
+  const team = (prev?.references ?? []).filter((r) => r.from === 'team' || r.from === 'import')
+  const blocked = prev?.referencesBlocked ?? []
   // ไฟล์ฟอนต์ที่ทีมวางลิงก์เอง (from:'team') ต้องไม่หายตอนสแกนใหม่
   const teamFaces = (prev?.article?.fontFaces ?? []).filter((f) => f.from === 'team')
-  if (!team.length && !(teamFaces.length && scanned.article)) return scanned
+  if (!team.length && !blocked.length && !(teamFaces.length && scanned.article)) return scanned
   let out: UploadThemeDetail = scanned
   if (team.length) {
     const teamUrls = new Set(team.map((r) => r.url))
     out = { ...out, references: [...team, ...(scanned.references ?? []).filter((r) => !teamUrls.has(r.url))] }
+  }
+  if (blocked.length) {
+    // เว็บลูกค้าลิงก์ไปเว็บคู่แข่งอยู่ สแกนใหม่จะเจออีก — ทีมบล็อกแล้วต้องไม่กลับเข้าคลัง
+    const { references, ...rest } = out
+    const kept = (references ?? []).filter((r) => !isReferenceBlocked(r.url, blocked))
+    out = { ...rest, ...(kept.length ? { references: kept } : {}), referencesBlocked: blocked }
   }
   if (teamFaces.length && scanned.article) {
     const keep = new Set(teamFaces.map((f) => `${f.family.toLowerCase()}|${f.url}`))

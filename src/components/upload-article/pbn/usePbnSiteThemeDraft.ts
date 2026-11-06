@@ -56,7 +56,8 @@ export function usePbnSiteThemeDraft(
     }
   }
 
-  return { themeDraft, setThemeDraft, setColor, savingTheme, saveTheme, applyScannedTheme, showFaqEditor, setShowFaqEditor };
+  const dirty = JSON.stringify(themeDraft) !== JSON.stringify(base);
+  return { themeDraft, setThemeDraft, setColor, savingTheme, saveTheme, applyScannedTheme, showFaqEditor, setShowFaqEditor, dirty };
 }
 
 /** โหลดสไตล์บทความตามเว็บ PBN ทั้งหมด (key = siteId) — enabled=false (หน้า Upload Article) = ไม่โหลด */

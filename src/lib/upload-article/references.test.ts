@@ -3,7 +3,11 @@ import {
   REFERENCES_PROMPT_MAX,
   boxReferencesSection,
   cleanReferenceUrl,
+  isOfficialReferenceDomain,
+  isReferenceBlocked,
   pickReferencesForPrompt,
+  refKey,
+  referenceDomain,
   structureOptionsFromDetail,
 } from './references'
 import { articleStructureSkillBlock } from '@/lib/article-structure'
@@ -26,8 +30,35 @@ const BASE = { library: LIB, title: 'อ้างอิง', language: 'th' as c
 function main() {
   // cleanReferenceUrl
   assert(cleanReferenceUrl('https://a.com/x?utm_source=gemini&id=2') === 'https://a.com/x?id=2', 'ตัด utm แต่คงพารามิเตอร์อื่น')
+  assert(cleanReferenceUrl('https://pmc.ncbi.nlm.nih.gov/articles/PMC1/?utm.com') === 'https://pmc.ncbi.nlm.nih.gov/articles/PMC1/', 'ตัด utm.x ที่ติดมาจากลิงก์คัดลอก')
   assert(cleanReferenceUrl('javascript:alert(1)') === null, 'ไม่รับ javascript:')
   assert(cleanReferenceUrl('not a url') === null, 'ลิงก์เสียได้ null')
+
+  // ลิงก์ที่ Google ห่อไว้ (Docs / ผลค้นหา) แกะเป็นลิงก์จริง · คำค้นธรรมดาไม่แตะ
+  assert(cleanReferenceUrl('https://www.google.com/search?q=https%3A%2F%2Fwww.nccih.nih.gov%2Fhealth%2Fx') === 'https://www.nccih.nih.gov/health/x', 'แกะ google search')
+  assert(cleanReferenceUrl('https://www.google.com/url?q=https://who.int/a?utm_source=x&sa=D&ust=1') === 'https://who.int/a', 'แกะ google url (Docs) + ตัด utm')
+  assert(cleanReferenceUrl('https://www.google.co.th/url?q=https://cdc.gov/b') === 'https://cdc.gov/b', 'google.co.th ก็แกะ')
+  assert(cleanReferenceUrl('https://www.google.com/search?q=nk+cell') === 'https://www.google.com/search?q=nk+cell', 'คำค้นธรรมดาไม่แตะ')
+  assert(refKey('https://www.google.com/search?q=https%3A%2F%2Fcdc.gov%2Fb') === refKey('https://cdc.gov/b'), 'refKey เทียบลิงก์ห่อกับลิงก์จริงได้')
+
+  // isOfficialReferenceDomain: ใช้บอกทีมว่าเว็บไหนควรตรวจ
+  for (const u of ['https://pubmed.ncbi.nlm.nih.gov/1/', 'https://www.who.int/x', 'https://www.nci.go.th/a', 'https://med.chula.ac.th/a', 'https://www.acog.org/a', 'https://www.nature.com/articles/x', 'https://link.springer.com/a', 'https://www.nhs.uk/a', 'https://www.gov.uk/a'])
+    assert(isOfficialReferenceDomain(u), `หน่วยงาน/วารสาร: ${u}`)
+  for (const u of ['https://www.bdmswellness.com/a', 'https://shop.samitivejhospitals.com/x', 'https://nature.com.fake.test/a', 'https://mynature.com/a', 'not a url'])
+    assert(!isOfficialReferenceDomain(u), `ควรตรวจ: ${u}`)
+  // referenceDomain / isReferenceBlocked
+  assert(referenceDomain('https://www.BDMSwellness.com/th/x?a=1') === 'bdmswellness.com', 'โดเมนจากลิงก์ ตัด www. ตัวเล็ก')
+  assert(referenceDomain('samitivejhospitals.com') === 'samitivejhospitals.com', 'โดเมนที่พิมพ์เอง')
+  assert(referenceDomain('localhost') === null && referenceDomain('') === null && referenceDomain('a b.com') === null, 'ค่าเสียได้ null')
+  const BLOCKED = ['bdmswellness.com', 'nci.go.th']
+  const wrapped = 'https://www.google.com/search?q=https%3A%2F%2Fwww.nccih.nih.gov%2Fhealth%2Fantioxidant'
+  assert(referenceDomain(wrapped) === 'nccih.nih.gov', 'ลิงก์ Google ห่อ = โดเมนแหล่งจริง')
+  assert(!isReferenceBlocked(wrapped, ['google.com']) && isReferenceBlocked(wrapped, ['nih.gov']), 'บล็อกตามแหล่งจริง ไม่ใช่ google.com')
+  assert(referenceDomain('https://www.google.com/maps') === 'google.com', 'ลิงก์ Google ธรรมดายังเป็น google.com')
+  assert(isReferenceBlocked('https://www.bdmswellness.com/a', BLOCKED), 'บล็อกโดเมนหลัก')
+  assert(isReferenceBlocked('https://shop.bdmswellness.com/a', BLOCKED), 'บล็อกโดเมนย่อยด้วย')
+  assert(!isReferenceBlocked('https://notbdmswellness.com/a', BLOCKED), 'ชื่อคล้ายแต่คนละโดเมน ไม่บล็อก')
+  assert(!isReferenceBlocked('https://www.cancer.gov/x', BLOCKED) && !isReferenceBlocked('https://a.com', undefined), 'โดเมนอื่น/ไม่มีรายการ ไม่บล็อก')
 
   // ตัดลิงก์นอกรายการ ชื่อใช้ตามรายการ ไม่แต่งเพิ่ม
   const ai = `<p>เนื้อหา</p><h2>อ้างอิง</h2><ul><li><a href="https://cancer.gov/immunotherapy/?utm_source=gemini">ชื่อที่ AI แต่ง</a></li><li><a href="https://fake-journal.example/study">งานวิจัยปลอม</a></li></ul><p>ย่อหน้าปิดท้าย</p>`

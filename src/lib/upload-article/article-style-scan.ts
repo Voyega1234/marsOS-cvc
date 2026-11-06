@@ -641,7 +641,39 @@ const ACCORDION_RE = /<details\b|<summary\b|accordion|toggle|collaps|aria-expand
 
 const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
 
-/** แหล่งอ้างอิงจากเนื้อบทความ: หัวข้อ/ย่อหน้า "อ้างอิง" ตามด้วยรายการที่มีลิงก์ */
+/**
+ * ชื่อแหล่งจากย่อหน้าอ้างอิงแบบ APA ที่เว็บเขียนเอง: "nih, (2022), Stem Cell Basics. Retrieved 14 Jul 2026, //// from https://…"
+ * ตัดลิงก์ที่พิมพ์ซ้ำ และท่อน Retrieved/สืบค้น…from ออก เหลือชื่อเรื่อง · ไม่เหลืออะไร = ใช้ลิงก์เป็นชื่อ (ตอนเขียนระบบใช้ชื่อหน้าจริงแทน)
+ */
+function paragraphReferenceTitle(text: string, url: string): string {
+  const t = squash(
+    text
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/\b(?:Retrieved|Accessed)\b[\s\S]*$/i, ' ')
+      .replace(/(?:สืบค้น|เข้าถึง)(?:เมื่อ)?[\s\S]*$/, ' ')
+      .replace(/\/{2,}/g, ' '),
+  ).replace(/(?:\s+(?:from|จาก))?[\s,.;:–-]*$/i, '')
+  return t.length >= 8 ? t.slice(0, 300) : url
+}
+
+/** ย่อหน้าต่อจากหัว "อ้างอิง" ที่เขียนเป็น <p> (ข้อละย่อหน้า หรือหลายข้อคั่น <br>) — จบเมื่อเจอย่อหน้าที่มีข้อความแต่ไม่มีลิงก์ หรือแท็กอื่น */
+function paragraphReferences(first: HTMLElement): UploadReference[] {
+  const items: UploadReference[] = []
+  for (let p: HTMLElement | null = first; p && /^p$/i.test(p.tagName || ''); p = p.nextElementSibling) {
+    if (!p.querySelector('a[href]')) {
+      if (squash(p.text)) break
+      continue
+    }
+    for (const part of p.innerHTML.split(/<br\s*\/?>/i)) {
+      const seg = parseHtml(part)
+      const url = cleanReferenceUrl(seg.querySelector('a[href]')?.getAttribute('href'))
+      if (url) items.push({ title: paragraphReferenceTitle(seg.text, url), url, from: 'site' })
+    }
+  }
+  return items
+}
+
+/** แหล่งอ้างอิงจากเนื้อบทความ: หัวข้อ/ย่อหน้า "อ้างอิง" ตามด้วยรายการที่มีลิงก์ (ul/ol หรือย่อหน้า <p> ที่มีลิงก์) */
 export function extractReferencesFromHtml(html: string): { title: string; items: UploadReference[] } | null {
   const root = parseHtml(html)
   for (const el of root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,div,strong')) {
@@ -653,6 +685,11 @@ export function extractReferencesFromHtml(html: string): { title: string; items:
     if (!list && at.parentNode && at.parentNode instanceof HTMLElement) {
       at = at.parentNode
       list = at.nextElementSibling
+    }
+    if (list && /^p$/i.test(list.tagName || '')) {
+      const items = paragraphReferences(list)
+      if (items.length) return { title: label.replace(/\s*[:：]$/, ''), items }
+      continue
     }
     if (!list || !/^(?:ul|ol)$/i.test(list.tagName || '')) continue
     const items: UploadReference[] = []

@@ -15,13 +15,20 @@ const stripTags = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, '
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const escapeAttr = (s: string) => escapeHtml(s).replace(/"/g, '&quot;')
 
-/** ตัดพารามิเตอร์ติดตาม (utm_, gclid, fbclid) — ลิงก์เสียหรือไม่ใช่ https/http คืน null */
+/** ลิงก์ที่ Google ห่อไว้ (คัดลอกจาก Google Docs / ผลค้นหา) — ชี้ไปหน้าค้นหา ไม่ใช่แหล่งจริง */
+const GOOGLE_HOST_RE = /^(?:www\.)?google\.[a-z]{2,3}(?:\.[a-z]{2})?$/i
+
+/** ตัดพารามิเตอร์ติดตาม (utm_ / utm.x, gclid, fbclid) และแกะลิงก์ที่ Google ห่อไว้ — ลิงก์เสียหรือไม่ใช่ https/http คืน null */
 export function cleanReferenceUrl(raw: string | undefined | null): string | null {
   if (!raw) return null
   try {
     const u = new URL(raw.trim().replace(/&amp;/g, '&'))
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
-    for (const k of Array.from(u.searchParams.keys())) if (/^(?:utm_.+|gclid|fbclid)$/i.test(k)) u.searchParams.delete(k)
+    if (GOOGLE_HOST_RE.test(u.hostname) && (u.pathname === '/url' || u.pathname === '/search')) {
+      const inner = (u.searchParams.get('q') || u.searchParams.get('url') || '').trim()
+      if (/^https?:\/\//i.test(inner)) return cleanReferenceUrl(inner)
+    }
+    for (const k of Array.from(u.searchParams.keys())) if (/^(?:utm[_.].+|gclid|fbclid)$/i.test(k)) u.searchParams.delete(k)
     return u.toString()
   } catch {
     return null
@@ -33,6 +40,42 @@ export function refKey(raw: string | undefined | null): string | null {
   const url = cleanReferenceUrl(raw)
   if (!url) return null
   return url.replace(/^https?:\/\/(?:www\.)?/i, '').replace(/\/$/, '').toLowerCase()
+}
+
+/** โดเมนของลิงก์ (ไม่มี www.) หรือโดเมนที่ทีมพิมพ์เอง เช่น "bdmswellness.com" — ใช้ไม่ได้คืน null
+ *  ลิงก์ที่ Google ห่อไว้นับเป็นโดเมนของแหล่งจริงข้างใน ไม่ใช่ google.com */
+export function referenceDomain(raw: string | undefined | null): string | null {
+  const text = (raw ?? '').trim()
+  if (!text) return null
+  try {
+    const target = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? cleanReferenceUrl(text) ?? text : `https://${text}`
+    const host = new URL(target).hostname.toLowerCase().replace(/^www\./, '')
+    return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host) ? host : null
+  } catch {
+    return null
+  }
+}
+
+/** ลิงก์อยู่ในโดเมนที่ทีมไม่ให้ใช้ (รวมโดเมนย่อย) */
+export function isReferenceBlocked(url: string | undefined | null, blocked: string[] | undefined): boolean {
+  if (!blocked?.length) return false
+  const host = referenceDomain(url)
+  return Boolean(host) && blocked.some((d) => host === d || host!.endsWith(`.${d}`))
+}
+
+// หน่วยงานรัฐ มหาวิทยาลัย องค์กร และสำนักพิมพ์วารสารที่รู้จัก — ใช้แค่บอกทีมว่าเว็บไหนไม่ต้องตรวจ ไม่ได้ตัดอะไรเอง
+const OFFICIAL_SUFFIX_RE = /(?:^|\.)(?:(?:gov|edu|mil|int|org)(?:\.[a-z]{2})?|(?:go|ac|or)\.[a-z]{2}|nhs\.uk)$/
+const KNOWN_PUBLISHERS = [
+  'nature.com', 'sciencedirect.com', 'elsevier.com', 'springer.com', 'biomedcentral.com', 'wiley.com', 'thelancet.com',
+  'bmj.com', 'jamanetwork.com', 'cell.com', 'mdpi.com', 'frontiersin.org', 'tandfonline.com', 'sagepub.com', 'oup.com',
+  'karger.com', 'hindawi.com', 'aimspress.com', 'cochranelibrary.com', 'nejm.org',
+]
+
+/** โดเมนที่น่าเชื่อถือโดยรูปแบบ (รัฐ/มหาวิทยาลัย/องค์กร/วารสาร) — false = ทีมควรดูว่าเป็นเว็บขายหรือคู่แข่งไหม */
+export function isOfficialReferenceDomain(raw: string | undefined | null): boolean {
+  const host = referenceDomain(raw)
+  if (!host) return false
+  return OFFICIAL_SUFFIX_RE.test(host) || KNOWN_PUBLISHERS.some((d) => host === d || host.endsWith(`.${d}`))
 }
 
 /** เลือกแหล่งที่น่าจะตรงเรื่องก่อน — เรียงตามคำที่ตรงกับหัวข้อ ไม่ตรงเลยคงลำดับเดิม */

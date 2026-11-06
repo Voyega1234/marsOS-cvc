@@ -146,8 +146,8 @@ export interface UploadArticleStructure {
 export interface UploadReference {
   title: string
   url: string
-  /** site = เจอในบทความบนเว็บ, team = ทีมเพิ่มเอง */
-  from?: 'site' | 'team'
+  /** site = เจอตอนสแกน (สแกนใหม่แทนที่), team = ทีมเพิ่มเอง, import = ดึงจากบทความทั้งเว็บ (สองอย่างหลังสแกนใหม่ไม่หาย) */
+  from?: 'site' | 'team' | 'import'
 }
 
 export interface UploadThemeDetail {
@@ -158,6 +158,8 @@ export interface UploadThemeDetail {
   article?: UploadArticleStyle
   structure?: UploadArticleStructure
   references?: UploadReference[]
+  /** โดเมนที่ทีมไม่ให้ใช้เป็นแหล่งอ้างอิง เช่น เว็บคู่แข่ง — สแกนใหม่ก็ไม่ดึงกลับ (ไม่มีคีย์ = เหมือนเดิม) */
+  referencesBlocked?: string[]
 }
 
 export type UploadComponentKey = 'toc' | 'faq' | 'cta'
