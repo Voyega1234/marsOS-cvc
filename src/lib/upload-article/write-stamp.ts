@@ -18,6 +18,7 @@ export const WRITE_STAMP_LABELS: Record<string, string> = {
   language: 'ภาษาบทความ',
   structure: 'โครงบทความจากการสแกนเว็บ',
   references: 'แหล่งอ้างอิงที่อนุญาต',
+  outline: 'Outline ที่นำเข้า',
 }
 
 export type WriteStamp = Record<string, string>
@@ -37,6 +38,7 @@ export interface WriteStampInput {
   language?: string | null
   structure?: unknown
   references?: unknown
+  outline?: unknown
 }
 
 /** JSON ที่ลำดับ key คงที่ — hash ต้องไม่เปลี่ยนเพราะลำดับ key */
@@ -114,7 +116,7 @@ export function buildWriteStampInput(p: {
   ce: { businessSkill: { text: string } | null; masterPrompt: { text: string } | null; articleBrief: { text: string } | null; validatorPack: { text: string } | null }
   restrictions: TextFiles | null
   clientComments: TextFiles | null
-  keyword: { keyword: string; note?: string; intent?: string; articleType?: string }
+  keyword: { keyword: string; note?: string; intent?: string; articleType?: string; outline?: { items: Array<{ level: number; text: string; notes?: string }>; notes?: string } }
   detail?: UploadThemeDetail | null
   /** หัวข้อเดียวกับที่ write route ส่งให้ structureOptionsFromDetail (`${title} ${keyword}`) */
   topic?: string
@@ -131,5 +133,7 @@ export function buildWriteStampInput(p: {
     keyword: p.keyword.keyword, note: p.keyword.note,
     intent: p.keyword.intent, articleType: p.keyword.articleType, language: p.language,
     structure: opts ? structure : undefined, references: library,
+    // ไม่มี outline = undefined → ตราเดิมไม่เปลี่ยน (diffWriteStamp ข้าม key ที่ตราเก่าไม่มี)
+    outline: p.keyword.outline?.items.length ? { items: p.keyword.outline.items, notes: p.keyword.outline.notes } : undefined,
   }
 }

@@ -4,6 +4,7 @@
 import type { UploadCtaSummary } from './cta'
 import type { UploadAuthorSummary } from './author'
 import type { SeoPluginKey } from './seo-plugins'
+import type { UploadOutline } from './outline'
 export type UploadOutputMode = 'html' | 'text'
 export type UploadArticleStatus = 'WRITING' | 'IMPORTED' | 'GENERATED' | 'REVIEWED' | 'PUSHING' | 'PUSHED' | 'FAILED'
 
@@ -378,6 +379,8 @@ export interface UploadKeyword {
   articleId?: string
   /** ข้อความผิดพลาดจากการเขียนรอบล่าสุด (ว่าง = ไม่มี) */
   writeError?: string
+  /** outline ที่นำเข้าจากแท็บ Import Outline — มี = เขียนตามหัวข้อนี้ตรงทุกคำ, ไม่มี = เขียนแบบเดิม */
+  outline?: UploadOutline
   createdAt: string
 }
 

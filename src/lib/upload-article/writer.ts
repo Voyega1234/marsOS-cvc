@@ -10,6 +10,7 @@ import { buildRestrictionsBlock, restrictionsValidatorNote, type RestrictionsCon
 import { buildClientCommentsBlock, clientCommentsValidatorNote, joinPromptBlocks, type ClientCommentsContext } from '@/lib/ce-client-comments'
 
 import { WRITER_MAX_DURATION_S, WRITER_STALE_MS } from './writer-timing'
+import { outlineHasFaq, outlineWriterBlock } from './outline'
 export { WRITER_MAX_DURATION_S, WRITER_STALE_MS }
 
 /** เนื้อหาที่ clean แล้วสั้นกว่านี้ถือว่าล้มเหลว (โมเดลตอบว่าง/ตัดกลางทาง) */
@@ -120,7 +121,7 @@ export const VARIANT_ANGLES: readonly string[] = [
 ]
 
 /** บล็อกสั่งให้เขียนเวอร์ชันนี้ให้ต่างจากเวอร์ชันอื่น แต่ยังตอบ intent เดียวกัน — '' ถ้าไม่ได้เขียนหลายเวอร์ชัน */
-export function variantBlock(variant: WriterTask['variant'], factSources = 'Business Skill'): string {
+export function variantBlock(variant: WriterTask['variant'], factSources = 'Business Skill', fixedOutline = false): string {
   if (!variant || variant.total <= 1) return ''
   const index = Math.min(Math.max(1, Math.floor(variant.index)), variant.total)
   const angle = VARIANT_ANGLES[(index - 1) % VARIANT_ANGLES.length]
@@ -128,7 +129,10 @@ export function variantBlock(variant: WriterTask['variant'], factSources = 'Busi
     `# เวอร์ชันที่ ${index} จาก ${variant.total} (บทความชุดนี้จะขึ้นคนละเว็บ ต้องไม่ซ้ำกัน)`,
     `- มุมเล่าของเวอร์ชันนี้: ${angle}`,
     '- ใช้ H1 / หัวข้อ / keyword หลัก / Search Intent เดียวกับที่กำหนดด้านบน — ผู้อ่านต้องได้คำตอบเรื่องเดียวกัน',
-    '- โครงหัวข้อ H2/H3 ลำดับเนื้อหา บทนำ ตัวอย่าง คำถาม FAQ และสำนวน ต้องต่างจากเวอร์ชันอื่นอย่างชัดเจน',
+    fixedOutline
+      // outline ที่ทีมนำเข้าใช้หัวข้อเดิมทุกเวอร์ชัน — ต่างกันได้แค่เนื้อหาใต้หัวข้อ
+      ? '- หัวข้อตาม OUTLINE ด้านล่างต้องเหมือนเดิมทุกเวอร์ชัน แต่บทนำ เนื้อหาใต้หัวข้อ ตัวอย่าง คำถาม FAQ ที่เพิ่มเอง และสำนวน ต้องต่างจากเวอร์ชันอื่นอย่างชัดเจน'
+      : '- โครงหัวข้อ H2/H3 ลำดับเนื้อหา บทนำ ตัวอย่าง คำถาม FAQ และสำนวน ต้องต่างจากเวอร์ชันอื่นอย่างชัดเจน',
     '- ห้ามใช้ประโยคซ้ำหรือเรียบเรียงใหม่จากบทความเวอร์ชันอื่น เขียนใหม่ทั้งหมด',
     `- ข้อเท็จจริง ตัวเลข ราคา ชื่อบริการ ยังต้องมาจาก ${factSources} เท่านั้น ห้ามแต่งเพิ่มเพื่อให้ต่าง`,
   ].join('\n')
@@ -195,10 +199,16 @@ export function buildWriterUserPrompt(task: WriterTask): string {
     lines.push('- วางลิงก์เฉพาะในประโยคที่พูดถึงเรื่องของ anchor นั้นจริง ๆ ถ้าไม่มีจุดที่เข้ากันได้อย่างเป็นธรรมชาติ ให้ข้ามลิงก์นั้นไป ดีกว่ายัดผิดบริบท')
     lines.push(`- ห้ามทำ "${keyword.keyword}" (keyword หลักของบทความนี้) เป็นลิงก์ไปหน้าอื่น`)
   }
-  const variantText = variantBlock(task.variant, factSourcesText(task.constraintLayers))
+  const outline = keyword.outline?.items.length ? keyword.outline : null
+  const variantText = variantBlock(task.variant, factSourcesText(task.constraintLayers), !!outline)
   if (variantText) {
     lines.push('')
     lines.push(variantText)
+  }
+  // Import Outline: outline ของทีมเป็นโครงบทความชุดเดียว (ไม่มี outline = ไม่แนบอะไร ข้อความเดิมทุกตัวอักษร)
+  if (outline) {
+    lines.push('')
+    lines.push(outlineWriterBlock(outline, task.language))
   }
   lines.push('')
   lines.push('# OUTPUT FORMAT CONTRACT (ต้องตอบตามนี้เป๊ะ ๆ)')
@@ -212,7 +222,12 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   if (task.structure?.takeaways !== false) {
     lines.push(`- กล่องสรุปประเด็นสำคัญ ต่อจากย่อหน้าเปิดเรื่อง: <h2>${task.language === 'en' ? 'Key Takeaways' : 'สรุปประเด็นสำคัญ'}</h2> ตามด้วย <ul> 3-5 ข้อ (ระบบแปลงเป็นกล่องเอง)`)
   }
-  lines.push(`- ส่วน FAQ ให้ทำเป็น <h2>${task.language === 'en' ? 'Frequently Asked Questions' : 'คำถามที่พบบ่อย'}</h2> ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>`)
+  if (outline && outlineHasFaq(outline.items)) {
+    lines.push('- ส่วน FAQ ใช้หัวข้อตาม OUTLINE (ข้อความตรงทุกตัวอักษร) แต่ละคำถามเป็น <h3> และคำตอบเป็น <p>')
+  } else {
+    lines.push(`- ส่วน FAQ ให้ทำเป็น <h2>${task.language === 'en' ? 'Frequently Asked Questions' : 'คำถามที่พบบ่อย'}</h2> ตามด้วยแต่ละคำถามเป็น <h3> และคำตอบเป็น <p>`)
+  }
+  if (outline) lines.push('- หัวข้อทุกข้อใน OUTLINE ต้องอยู่ในบทความครบ ข้อความตรงทุกตัวอักษร ระดับและลำดับตามที่กำหนด')
   lines.push('- ห้ามมี <style>, inline style (style="..."), class="...", <html>, <body>, รูปภาพ (<img>) เด็ดขาด')
 
   return lines.join('\n')

@@ -72,7 +72,7 @@ function hasArticle(s: RowStatus | undefined): s is Extract<RowStatus, { article
 }
 
 export default function WriteTab({
-  client, articles, preselectIds, clearPreselect, refreshArticles, applyArticleUpdate, goToReview, onOpenSettings, variantsEnabled = false, setClient,
+  client, articles, preselectIds, clearPreselect, refreshArticles, applyArticleUpdate, goToReview, onOpenSettings, variantsEnabled = false, setClient, outlineOnly = false, reloadKey = 0,
 }: {
   client: UploadClientDTO;
   articles: UploadArticleDTO[];
@@ -85,12 +85,17 @@ export default function WriteTab({
   /** PBN Backlinks: เลือกจำนวนบทความต่อ keyword ได้ (title + keyword เดียวกัน เขียนต่างกัน intent เดิม) */
   variantsEnabled?: boolean;
   setClient?: (fn: (prev: UploadClientDTO | null) => UploadClientDTO | null) => void;
+  /** แท็บ Import Outline: แสดงเฉพาะ keyword ที่มี outline (กางดูหัวข้อได้) */
+  outlineOnly?: boolean;
+  /** เปลี่ยนค่า = โหลดรายการ keyword ใหม่ (หลังนำเข้า outline) */
+  reloadKey?: number;
 }) {
   const [ready, setReady] = useState<boolean | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
   const [keywords, setKeywords] = useState<UploadKeyword[]>([]);
   const [loadingKw, setLoadingKw] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expandedOutline, setExpandedOutline] = useState<string | null>(null);
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
   const [running, setRunning] = useState(false);
   const [stage, setStage] = useState<"writing" | "images" | null>(null);
@@ -143,14 +148,14 @@ export default function WriteTab({
         }
         if (alive && kr.ok) {
           const d = await kr.json();
-          setKeywords(((d.items ?? []) as UploadKeyword[]).filter(k => !!k.title));
+          setKeywords(((d.items ?? []) as UploadKeyword[]).filter(k => !!k.title && (!outlineOnly || !!k.outline?.items?.length)));
         }
       } finally {
         if (alive) setLoadingKw(false);
       }
     })();
     return () => { alive = false; };
-  }, [client.id, pbnSetQs]);
+  }, [client.id, pbnSetQs, outlineOnly, reloadKey]);
 
   // PBN: เติมเว็บให้ช่องที่ยังว่าง/เว็บถูกลบ ด้วยเว็บที่ยังไม่ถูกเลือก (ไม่ซ้ำกัน)
   const pbnSiteKey = pbnSiteIds.join(",");
@@ -455,6 +460,38 @@ export default function WriteTab({
     return extra.length ? [keywordId, ...extra] : [keywordId];
   }
 
+  /** ชื่อบทความ + ป้าย Outline (โหมดปกติ) หรือปุ่มกางหัวข้อ (โหมด outlineOnly) */
+  function renderTitle(k: UploadKeyword) {
+    const items = k.outline?.items;
+    if (!items?.length) return k.title;
+    if (!outlineOnly) {
+      return (
+        <span className="flex items-center gap-1.5">
+          <span>{k.title}</span>
+          <span title={`มี outline ${items.length} หัวข้อ`} className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">Outline</span>
+        </span>
+      );
+    }
+    const open = expandedOutline === k.id;
+    return (
+      <div>
+        <button type="button" onClick={() => setExpandedOutline(open ? null : k.id)} className="text-left hover:underline">
+          {k.title} <span className="text-[10px] font-normal text-gray-400">({items.length} หัวข้อ) {open ? "▲" : "▼"}</span>
+        </button>
+        {open && (
+          <ul className="mt-1.5 space-y-0.5 font-normal text-gray-600">
+            {items.map((it, i) => (
+              <li key={i} style={{ paddingLeft: Math.max(0, it.level - 1) * 12 }}>
+                <span className="text-[10px] text-gray-400 mr-1">H{it.level}</span>{it.text}
+                {it.notes ? <span className="text-gray-400"> — {it.notes}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
   function toggleSelect(id: string) {
     setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
@@ -508,7 +545,7 @@ export default function WriteTab({
       )}
 
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-xs text-gray-500">{keywords.length} keyword ที่มี title{selected.size ? ` · เลือก ${selected.size}` : ""}</p>
+        <p className="text-xs text-gray-500">{keywords.length} keyword ที่{outlineOnly ? "มี outline" : "มี title"}{selected.size ? ` · เลือก ${selected.size}` : ""}</p>
         <div className="flex items-center gap-2">
           <button onClick={toggleSelectAll} className="text-[11px] text-brand-blue hover:underline">
             {selected.size === keywords.length && keywords.length > 0 ? "ยกเลิกเลือกทั้งหมด" : "เลือกทั้งหมด"}
@@ -642,7 +679,7 @@ export default function WriteTab({
                   return (
                     <tr key={k.id} className="border-b border-gray-50 hover:bg-gray-50/60 align-top">
                       <td className="px-3 py-2"><input type="checkbox" checked={selected.has(k.id)} onChange={() => toggleSelect(k.id)} /></td>
-                      <td className="px-2 py-2 text-brand-navy font-medium">{k.title}</td>
+                      <td className="px-2 py-2 text-brand-navy font-medium">{renderTitle(k)}</td>
                       <td className="px-2 py-2 text-gray-500">{k.keyword}</td>
                       <td className="px-2 py-2" colSpan={2}>
                         <div className="space-y-1.5">
@@ -688,7 +725,7 @@ export default function WriteTab({
                 return (
                   <tr key={k.id} className="border-b border-gray-50 hover:bg-gray-50/60">
                     <td className="px-3 py-2"><input type="checkbox" checked={selected.has(k.id)} onChange={() => toggleSelect(k.id)} /></td>
-                    <td className="px-2 py-2 text-brand-navy font-medium">{k.title}</td>
+                    <td className="px-2 py-2 text-brand-navy font-medium">{renderTitle(k)}</td>
                     <td className="px-2 py-2 text-gray-500">{k.keyword}</td>
                     <td className="px-2 py-2">
                       <StatusCell status={st} keyword={k} imageSummary={imageSummary} />

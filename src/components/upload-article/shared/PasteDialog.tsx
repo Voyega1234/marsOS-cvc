@@ -14,11 +14,17 @@ export default function PasteDialog({
   onOpenChange,
   onSubmit,
   busy,
+  placeholder,
+  heading,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSubmit: (data: { title?: string; html?: string; text?: string }) => void;
   busy?: boolean;
+  /** ข้อความตัวอย่างในช่องวาง (ไม่ส่ง = ข้อความเดิม) */
+  placeholder?: string;
+  /** หัว dialog (ไม่ส่ง = ข้อความเดิม) */
+  heading?: string;
 }) {
   const [title, setTitle] = useState("");
   const editorRef = useRef<HTMLDivElement>(null);
@@ -43,7 +49,7 @@ export default function PasteDialog({
     <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) reset(); }}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>วางข้อความบทความ</DialogTitle>
+          <DialogTitle>{heading ?? "วางข้อความบทความ"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div>
@@ -60,8 +66,9 @@ export default function PasteDialog({
               suppressContentEditableWarning
               onInput={() => setHasContent(!!editorRef.current?.innerText.trim())}
               className="min-h-[240px] max-h-[50vh] overflow-y-auto rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-              data-placeholder="วางเนื้อหาบทความที่นี่..."
+              data-placeholder={placeholder ?? "วางเนื้อหาบทความที่นี่..."}
             />
+            {placeholder && <p className="text-[11px] text-gray-400 mt-1 whitespace-pre-wrap">{placeholder}</p>}
           </div>
         </div>
         <DialogFooter>

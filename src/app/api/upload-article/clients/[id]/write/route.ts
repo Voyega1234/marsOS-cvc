@@ -44,6 +44,16 @@ import { boxReferencesSection, structureOptionsFromDetail } from '@/lib/upload-a
 import { citableLibrary, mergeEvidence, prepareReferences, withReadReferences } from '@/lib/upload-article/reference-search'
 import { PBN_MAX_VARIANTS, isPbnPrefsRaw, parseWriterSourceName, readPbnSites, writerSourceName } from '@/lib/upload-article/pbn'
 import { buildWriteStampInput, computeWriteStamp } from '@/lib/upload-article/write-stamp'
+import {
+  buildOutlineFillPrompt,
+  checkOutline,
+  insertOutlineSections,
+  outlineAsText,
+  outlineHasFaq,
+  outlineWarnings,
+  splitOutlineFill,
+  stripMasterOutlineSection,
+} from '@/lib/upload-article/outline'
 import { PBN_MAIN_PROFILE, isPbnProfileId, readPbnProfiles, readPbnArticleTargets } from '@/lib/upload-article/pbn-sets'
 import { pbnEffectiveClient, resolveCeSet } from '@/lib/upload-article/pbn-context'
 import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
@@ -246,7 +256,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   // ผ่านเช็ค missing ด้านบนแล้ว — 4 layer นี้มีจริงแน่นอน
   // กฎภาษามนุษย์ไม่ต้องแนบที่ Master Prompt แล้ว — Mars Human Voice Skill อยู่ใน user prompt ทุกครั้ง (buildWriterUserPrompt)
-  const masterPrompt = ce.masterPrompt!.text
+  // Import Outline: keyword มี outline ที่ทีมนำเข้า = outline นี้เป็นโครงบทความชุดเดียว
+  // ตัดส่วน outline ของ Master Prompt ออก (กฎอื่นใน Master Prompt ใช้ครบ) — ไม่มี outline = ข้อความเดิมทุกตัวอักษร
+  const importedOutline = keyword.outline?.items?.length ? keyword.outline : undefined
+  const masterPrompt = importedOutline ? stripMasterOutlineSection(ce.masterPrompt!.text) : ce.masterPrompt!.text
   const businessSkill = ce.businessSkill!.text
   const articleBrief = ce.articleBrief!.text
   const validatorPack = ce.validatorPack!.text
@@ -347,7 +360,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
 
     const clientSlug = `upload-${slugifyClient(client.name)}`
-    const restrictionsTopic = { keyword: keyword.keyword, title, outline: keyword.note }
+    const restrictionsTopic = { keyword: keyword.keyword, title, outline: importedOutline ? outlineAsText(importedOutline) : keyword.note }
     // แหล่งอ้างอิง: ค้นเฉพาะโดเมนที่เว็บนี้เคยอ้างอิง + เปิดอ่านแหล่งในคลังที่ตรงหัวข้อ — อ้างได้เฉพาะที่อ่านแล้ว
     // ปิดส่วนอ้างอิงหรือไม่มีคลัง = ไม่เรียก AI ไม่โหลดเว็บ
     const [relatedProductIds, found] = await Promise.all([
@@ -485,8 +498,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         }
 
         // FAQ ไม่มีหรือมีแค่ข้อเดียว → เขียนส่วน FAQ ใหม่ทั้งส่วน (ไม่สำเร็จ = เก็บบทความเดิมไว้ ไม่ทิ้งค่าเขียนทั้งบทความ)
+        // outline มี FAQ ของตัวเอง = คำถามตาม outline ห้ามถูกเขียนทับ — ข้ามรอบเติม FAQ
+        const outlineOwnsFaq = !!importedOutline && outlineHasFaq(importedOutline.items)
         let faqItems = countFaqItems(cleaned)
-        for (let attempt = 0; faqItems < WRITER_MIN_FAQ_ITEMS && attempt < 2; attempt++) {
+        for (let attempt = 0; !outlineOwnsFaq && faqItems < WRITER_MIN_FAQ_ITEMS && attempt < 2; attempt++) {
           if (remainingMs() < EXTRA_ROUND_MIN_MS) break
           try {
             await touchWriting()
@@ -506,6 +521,36 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             // รอบเติม FAQ ล้ม — ลองอีกรอบ/ใช้บทความเดิม
             console.warn('[upload-article/write] เติม FAQ ไม่สำเร็จ', e instanceof Error ? e.message : e)
           }
+        }
+
+        // Import Outline: แก้หัวข้อที่ AI เปลี่ยนคำ/ระดับกลับเป็นของ outline แล้วเขียนเติมหัวข้อที่ขาด 1 รอบ
+        // ห่อ try ทั้งก้อน — ตรวจ outline พังต้องไม่ทำให้บทความที่จ่ายเงินแล้วหาย (ใช้บทความเดิมต่อ)
+        if (importedOutline) try {
+          let oc = checkOutline(cleaned, importedOutline.items, { fix: true })
+          cleaned = oc.html
+          if (oc.missing.length && remainingMs() >= EXTRA_ROUND_MIN_MS) {
+            try {
+              await touchWriting()
+              const fill = await runWriter(
+                [...baseMessages, { role: 'assistant', content: rawText }, { role: 'user', content: buildOutlineFillPrompt(importedOutline.items, oc.missing, language) }],
+                Math.max(30_000, remainingMs() - 20_000),
+              )
+              if (!isTruncatedFinish(fill.finishReason)) {
+                const sections = splitOutlineFill(fill.text, importedOutline.items, oc.missing)
+                sections.forEach((sec, i) => sections.set(i, cleanSemanticHtml(sec)))
+                if (sections.size) {
+                  cleaned = stripEditorialNotes(insertOutlineSections(cleaned, importedOutline.items, sections))
+                  oc = checkOutline(cleaned, importedOutline.items, { fix: true })
+                  cleaned = oc.html
+                }
+              }
+            } catch (e) {
+              // รอบเติมล้ม — เก็บบทความไว้ แล้วเตือนหัวข้อที่ขาดตอนตรวจรอบสุดท้าย
+              console.warn('[upload-article/write] เติมหัวข้อ outline ไม่สำเร็จ', e instanceof Error ? e.message : e)
+            }
+          }
+        } catch (e) {
+          console.warn('[upload-article/write] ตรวจ outline ไม่สำเร็จ', e instanceof Error ? e.message : e)
         }
 
         // คำต้องห้ามของลูกค้า (Content Engine > ข้อจำกัด) — แทนคำ/เขียนท่อนใหม่ก่อนแทรก CTA (CTA เป็นข้อความของทีม ไม่แตะ)
@@ -563,6 +608,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           }
         }
         if (found.warning) restrictionWarnings = [...(restrictionWarnings ?? []), found.warning]
+        // ตรวจ outline รอบสุดท้ายหลังแก้คำต้องห้าม/Comment — ไม่แก้ทับ (ข้อจำกัดลูกค้าชนะ) แค่เตือน
+        if (importedOutline) {
+          try {
+            const finalCheck = checkOutline(cleaned, importedOutline.items)
+            const ow = outlineWarnings(finalCheck, importedOutline.items, { renamed: finalCheck.renamed })
+            if (ow.length) restrictionWarnings = [...(restrictionWarnings ?? []), ...ow]
+          } catch (e) {
+            console.warn('[upload-article/write] ตรวจ outline รอบสุดท้ายไม่สำเร็จ', e instanceof Error ? e.message : e)
+            restrictionWarnings = [...(restrictionWarnings ?? []), 'ตรวจหัวข้อตาม outline ไม่สำเร็จ กรุณาตรวจเอง']
+          }
+        }
 
         // แทรกกล่อง CTA ลง sourceHtml เลย — Generate ใหม่กี่รอบก็ยังอยู่ (ข้อความ CTA มาจากที่ทีมตั้ง ไม่ใช่ AI)
         const withCtaHtml = withCta ? insertUploadCta(cleaned, cta).html : cleaned

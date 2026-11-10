@@ -14,6 +14,7 @@ import type { UploadArticleDTO, UploadClientDTO, UploadOwnerTag } from "@/lib/up
 import type { OwnerControls } from "@/components/upload-article/ArticleOwnerSelect";
 import KeywordTab from "@/components/upload-article/tabs/KeywordTab";
 import WriteTab from "@/components/upload-article/tabs/WriteTab";
+import ImportOutlineTab from "@/components/upload-article/tabs/ImportOutlineTab";
 import ImportTab from "@/components/upload-article/tabs/ImportTab";
 import GenerateTab from "@/components/upload-article/tabs/GenerateTab";
 import ReviewTab from "@/components/upload-article/tabs/ReviewTab";
@@ -25,15 +26,16 @@ import PbnReportTab from "@/components/upload-article/pbn/PbnReportTab";
 import UploadGscReportTab from "@/components/upload-article/report/UploadGscReportTab";
 import { useUploadSetupChecklist } from "@/components/upload-article/settings/useUploadSetupChecklist";
 
-export type TabId = "keyword" | "write" | "import" | "generate" | "review" | "push" | "publish" | "index" | "report" | "settings";
+export type TabId = "keyword" | "write" | "import" | "outline" | "generate" | "review" | "push" | "publish" | "index" | "report" | "settings";
 
 // Report = GSC ของเว็บลูกค้า (upload ปกติ) หรือ GSC/GA4 แยกตามเว็บ PBN (mode="pbn") — คนละ component กัน
-const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "generate", "review", "push", "publish", "index", "report"];
+const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "outline", "generate", "review", "push", "publish", "index", "report"];
 
 const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   keyword: "Keyword",
   write: "Write Article",
   import: "Import Article",
+  outline: "Import Outline",
   generate: "Generate",
   review: "Review",
   push: "Push",
@@ -68,7 +70,8 @@ export default function UploadClientWorkspace({
 }) {
   const router = useRouter();
   const isPbn = mode === "pbn";
-  const tabOrder = TAB_ORDER;
+  // Import Outline = Upload เท่านั้น (ซ่อนในโหมด PBN)
+  const tabOrder = useMemo(() => (isPbn ? TAB_ORDER.filter(t => t !== "outline") : TAB_ORDER), [isPbn]);
   const basePath = isPbn ? "/pbn-backlinks" : `/upload-article/${clientId}`;
   const [client, setClient] = useState<UploadClientDTO | null>(null);
   const [loading, setLoading] = useState(true);
@@ -282,6 +285,26 @@ export default function UploadClientWorkspace({
             pbn={isPbn}
           />
         </TabsContent>
+
+        {!isPbn && (
+          <TabsContent value="outline">
+            <ImportOutlineTab
+              clientId={clientId}
+              writeProps={{
+                client,
+                articles,
+                preselectIds: writePreselect,
+                clearPreselect: () => setWritePreselect([]),
+                refreshArticles,
+                applyArticleUpdate,
+                goToReview: id => goTab("review", id),
+                onOpenSettings: openSettings,
+                variantsEnabled: false,
+                setClient,
+              }}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="generate">
           <GenerateTab

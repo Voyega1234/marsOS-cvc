@@ -40,12 +40,15 @@ export default function DriveFolderDialog({
   onOpenChange,
   clientId,
   onImported,
+  target,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   clientId: string;
   /** เรียกหลังนำเข้าเสร็จ (อย่างน้อย 1 บทความ) — ใช้ refresh รายการเหมือนตัวนำเข้าอื่น */
   onImported: () => Promise<void>;
+  /** "outline" = นำเข้าเป็น outline (แท็บ Import Outline) — ไม่ส่ง = นำเข้าเป็นบทความเหมือนเดิม */
+  target?: "outline";
 }) {
   const [url, setUrl] = useState("");
   const [checking, setChecking] = useState(false);
@@ -76,7 +79,7 @@ export default function DriveFolderDialog({
       const result = d as ListResult;
       setListing(result);
       // ค่าเริ่มต้น: เลือกทุกบทความที่ยังไม่เคยนำเข้า
-      setSelected(new Set(result.articles.filter(a => !a.alreadyImported).map(a => a.folderId)));
+      setSelected(new Set(result.articles.filter(a => target === "outline" || !a.alreadyImported).map(a => a.folderId)));
       if (result.articles.length === 0) toast.error("ไม่พบโฟลเดอร์บทความที่มีเอกสาร");
     } catch (e) {
       toast.error(`ตรวจโฟลเดอร์ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
@@ -95,6 +98,7 @@ export default function DriveFolderDialog({
 
   async function runImport() {
     if (!listing) return;
+    const noun = target === "outline" ? "outline" : "บทความ";
     const queue = listing.articles.filter(a => selected.has(a.folderId));
     if (queue.length === 0) return;
     setImporting(true);
@@ -106,7 +110,8 @@ export default function DriveFolderDialog({
       for (const a of queue) {
         setStates(prev => ({ ...prev, [a.folderId]: { status: "running" } }));
         try {
-          const r = await fetch(`/api/upload-article/clients/${clientId}/drive/import`, {
+          // outline ใช้ route แยก (drive/import เดิมสร้างบทความ ไม่แตะ)
+          const r = await fetch(`/api/upload-article/clients/${clientId}/drive/${target === "outline" ? "import-outline" : "import"}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ folderId: a.folderId, name: a.name, resourceKey: a.resourceKey }),
@@ -128,10 +133,10 @@ export default function DriveFolderDialog({
         }
       }
       if (ok) {
-        toast.success(`นำเข้าสำเร็จ ${ok} บทความ`);
+        toast.success(`นำเข้าสำเร็จ ${ok} ${noun}`);
         await onImported();
       }
-      if (failed) toast.error(`นำเข้าไม่สำเร็จ ${failed} บทความ — ดูเหตุผลในรายการ`);
+      if (failed) toast.error(`นำเข้าไม่สำเร็จ ${failed} ${noun} — ดูเหตุผลในรายการ`);
       else if (ok) { onOpenChange(false); reset(); }
     } finally {
       setImporting(false);
@@ -172,12 +177,12 @@ export default function DriveFolderDialog({
             <div className="border border-gray-200 rounded-xl overflow-hidden">
               <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold text-brand-navy truncate">
-                  {listing.folderName || "โฟลเดอร์"} · พบ {listing.articles.length} บทความ
+                  {listing.folderName || "โฟลเดอร์"} · พบ {listing.articles.length} {target === "outline" ? "outline" : "บทความ"}
                   {listing.skipped.length > 0 && ` · ข้าม ${listing.skipped.length}`}
                 </p>
                 {listing.articles.length > 0 && !importing && (() => {
                   // "เลือกทั้งหมด" ต้องข้ามอันที่เคยนำเข้าแล้ว — กันนำเข้าซ้ำโดยไม่ตั้งใจ
-                  const selectableIds = listing.articles.filter(a => !a.alreadyImported).map(a => a.folderId);
+                  const selectableIds = listing.articles.filter(a => target === "outline" || !a.alreadyImported).map(a => a.folderId);
                   return (
                     <button
                       className="text-[11px] text-brand-blue hover:underline shrink-0"
@@ -207,7 +212,7 @@ export default function DriveFolderDialog({
                         <p className="text-xs font-medium text-brand-navy truncate">{a.name}</p>
                         <p className="text-[11px] text-gray-400 truncate">
                           {a.docName} · รูป {a.imageCount} ไฟล์
-                          {a.alreadyImported && <span className="text-amber-600"> · เคยนำเข้าแล้ว</span>}
+                          {a.alreadyImported && target !== "outline" && <span className="text-amber-600"> · เคยนำเข้าแล้ว</span>}
                         </p>
                         {st?.message && (
                           <p className={`text-[11px] ${st.status === "error" ? "text-rose-600" : "text-amber-600"}`}>{st.message}</p>
@@ -241,14 +246,14 @@ export default function DriveFolderDialog({
 
           {importing && (
             <p className="flex items-center gap-1.5 text-xs text-gray-500">
-              <Loader2 size={12} className="animate-spin" /> กำลังนำเข้า {doneCount}/{totalRun} บทความ...
+              <Loader2 size={12} className="animate-spin" /> กำลังนำเข้า {doneCount}/{totalRun} {target === "outline" ? "outline" : "บทความ"}...
             </p>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" disabled={importing} onClick={() => { onOpenChange(false); reset(); }}>ปิด</Button>
           <Button disabled={!listing || selected.size === 0 || importing || checking} onClick={runImport}>
-            {importing ? "กำลังนำเข้า..." : `นำเข้า ${selected.size} บทความ`}
+            {importing ? "กำลังนำเข้า..." : `นำเข้า ${selected.size} ${target === "outline" ? "outline" : "บทความ"}`}
           </Button>
         </DialogFooter>
       </DialogContent>
