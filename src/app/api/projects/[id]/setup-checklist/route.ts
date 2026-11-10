@@ -13,6 +13,7 @@ import { prisma } from '@/lib/prisma'
 import { timelineEntries } from '@/lib/project-timeline'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
 import { readUploadCta, isUploadCtaReady } from '@/lib/upload-article/cta'
+import type { SmeSettingsSection } from '@/components/projects/settings/sme-settings-sections'
 
 export interface ChecklistItem {
   id: string
@@ -21,7 +22,7 @@ export interface ChecklistItem {
   required: boolean
   hint: string
   /** ไปตั้งค่าที่ไหน: drawer = แท็บในฟันเฟือง / main = แท็บหลักของโปรเจกต์ / clients = หน้ารวม client / manual = ติ๊กยืนยันเอง */
-  action: { kind: 'drawer'; tab: 'lab' | 'ce' | 'google' | 'website' } | { kind: 'main'; tab: string } | { kind: 'clients' } | { kind: 'manual' }
+  action: { kind: 'drawer'; tab: 'lab' | 'ce' | 'google' | 'website'; /** หน้าในเมนูซ้ายของ Project Settings (UI เท่านั้น) */ section?: SmeSettingsSection } | { kind: 'main'; tab: string } | { kind: 'clients' } | { kind: 'manual' }
 }
 
 // key ที่รองรับใน pushPrefs.manualChecks — กันใครส่ง key มั่วมาเขียนทับ
@@ -94,32 +95,32 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
     {
       id: 'website', label: 'เชื่อมเว็บไซต์ของลูกค้า', ok: websiteOk, required: true,
       hint: platform ? `แพลตฟอร์ม: ${platform} — ใส่ credentials ให้ครบแล้วกดทดสอบ` : 'ยังไม่ได้เลือกแพลตฟอร์ม',
-      action: { kind: 'drawer', tab: 'website' },
+      action: { kind: 'drawer', tab: 'website', section: 'website' },
     },
     {
       id: 'ce-business-skill', label: 'Content Engine: Business Skill', ok: !!ce.businessSkill, required: true,
       hint: ce.businessSkill ? `ใช้งาน: ${ce.businessSkill.name}` : 'ยังไม่มี Business Skill ที่ Active สำหรับโปรเจกต์นี้',
-      action: { kind: 'drawer', tab: 'ce' },
+      action: { kind: 'drawer', tab: 'ce', section: 'engine' },
     },
     {
       id: 'ce-master-prompt', label: 'Content Engine: Master Prompt', ok: !!ce.masterPrompt, required: true,
       hint: ce.masterPrompt ? `ใช้งาน: ${ce.masterPrompt.name}` : 'ยังไม่มี Master Prompt ที่ Active สำหรับโปรเจกต์นี้',
-      action: { kind: 'drawer', tab: 'ce' },
+      action: { kind: 'drawer', tab: 'ce', section: 'engine' },
     },
     {
       id: 'ce-article-brief', label: 'Content Engine: Article Brief', ok: !!ce.articleBrief, required: true,
       hint: ce.articleBrief ? `ใช้งาน: ${ce.articleBrief.name}` : 'ยังไม่มี Article Brief ที่ Active สำหรับโปรเจกต์นี้',
-      action: { kind: 'drawer', tab: 'ce' },
+      action: { kind: 'drawer', tab: 'ce', section: 'engine' },
     },
     {
       id: 'ce-validator-pack', label: 'Content Engine: Validator Pack', ok: !!ce.validatorPack, required: true,
       hint: ce.validatorPack ? `ใช้งาน: ${ce.validatorPack.name}` : 'ยังไม่มี Validator Pack ที่ Active สำหรับโปรเจกต์นี้',
-      action: { kind: 'drawer', tab: 'ce' },
+      action: { kind: 'drawer', tab: 'ce', section: 'engine' },
     },
     {
       id: 'ce-image-prompt', label: 'Content Engine: Image Prompt', ok: !!ce.imagePrompt, required: true,
       hint: ce.imagePrompt ? `ใช้งาน: ${ce.imagePrompt.name}` : 'ยังไม่มี Image Prompt ที่ Active สำหรับโปรเจกต์นี้',
-      action: { kind: 'drawer', tab: 'ce' },
+      action: { kind: 'drawer', tab: 'ce', section: 'engine' },
     },
     {
       id: 'keywords', label: 'มีแผนคีย์เวิร์ด/Timeline แล้ว', ok: keywordRows.length > 0 || timeline.length > 0, required: true,
@@ -136,52 +137,52 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
       hint: scannedAt
         ? `สแกนล่าสุด ${new Date(scannedAt).toLocaleDateString('th-TH')}`
         : 'ยังไม่เคยสแกน — ระบบยังไม่รู้ว่าเว็บลูกค้ามี TOC/FAQ/CTA อยู่แล้วหรือไม่ (ตัดซ้ำตอน push)',
-      action: { kind: 'drawer', tab: 'lab' },
+      action: { kind: 'drawer', tab: 'lab', section: 'style' },
     },
     {
       id: 'internal-links', label: 'ใส่ Internal Link (Article Lab)', ok: internalLinksCount > 0, required: true,
       hint: internalLinksCount > 0 ? `มีลิงก์ ${internalLinksCount} รายการ` : 'ยังไม่มีลิงก์ — บทความจะไม่มี internal link ไปหน้าอื่นของเว็บลูกค้า',
-      action: { kind: 'drawer', tab: 'lab' },
+      action: { kind: 'drawer', tab: 'lab', section: 'links' },
     },
     {
       id: 'colors', label: 'ตั้งชุดสี/สไตล์บทความ (Article Lab)', ok: colorsOk, required: false,
       hint: 'สีต่อ element + โหมด embed/clean — ไม่ตั้ง = ค่ามาตรฐาน',
-      action: { kind: 'drawer', tab: 'lab' },
+      action: { kind: 'drawer', tab: 'lab', section: 'style' },
     },
     {
       id: 'cta', label: 'ตั้ง CTA ช่องทางติดต่อของลูกค้า', ok: ctaOk, required: false,
       hint: 'เบอร์โทร/LINE/ลิงก์ — บทความจะแทรกกล่อง CTA ให้อัตโนมัติ',
-      action: { kind: 'drawer', tab: 'lab' },
+      action: { kind: 'drawer', tab: 'lab', section: 'cta' },
     },
     {
       id: 'author', label: 'ตั้งผู้เขียนประจำ (E-E-A-T)', ok: authorOk, required: false,
       hint: 'ชื่อ + ตำแหน่ง + รูป — โทนภาษาและกล่องผู้เขียนท้ายบทความ',
-      action: { kind: 'drawer', tab: 'lab' },
+      action: { kind: 'drawer', tab: 'lab', section: 'author' },
     },
     {
       id: 'image-settings', label: 'ตั้งค่ารูปภาพบทความ (Article Lab)', ok: imageSettingsOk, required: false,
       hint: imageSettingsOk ? 'บันทึกค่ารูปภาพแล้ว' : 'ยังใช้ค่าตั้งต้น — ปกมีข้อความ + รูปประกอบตาม Image Prompt',
-      action: { kind: 'drawer', tab: 'lab' },
+      action: { kind: 'drawer', tab: 'lab', section: 'images' },
     },
     {
       id: 'style-guide', label: 'บันทึก Style Guide (Article Lab)', ok: !!p.styleGuide?.trim(), required: false,
       hint: 'แนวการเขียนของลูกค้า — ยังไม่บันทึก = ใช้ Style Guide ตั้งต้นของระบบ',
-      action: { kind: 'drawer', tab: 'lab' },
+      action: { kind: 'drawer', tab: 'lab', section: 'business' },
     },
     {
       id: 'context', label: 'ใส่บริบทธุรกิจ (Project Context)', ok: !!p.projectContext?.trim(), required: false,
       hint: 'ข้อเท็จจริงของธุรกิจ — กัน AI เขียนข้อมูลผิด',
-      action: { kind: 'drawer', tab: 'lab' },
+      action: { kind: 'drawer', tab: 'lab', section: 'business' },
     },
     {
       id: 'gsc', label: 'ผูก Google Search Console (GSC)', ok: !!p.gscSiteUrl, required: true,
       hint: 'เพิ่ม Service Email เข้า GSC ของเว็บลูกค้า แล้วเลือก property — ใช้กับ Report/Content Refresh',
-      action: { kind: 'drawer', tab: 'google' },
+      action: { kind: 'drawer', tab: 'google', section: 'google' },
     },
     {
       id: 'ga4', label: 'ผูก Google Analytics 4 (GA4)', ok: !!p.ga4PropertyId, required: true,
       hint: 'เลือก GA4 property ของเว็บลูกค้า — ใช้กับ Report',
-      action: { kind: 'drawer', tab: 'google' },
+      action: { kind: 'drawer', tab: 'google', section: 'google' },
     },
   ]
 

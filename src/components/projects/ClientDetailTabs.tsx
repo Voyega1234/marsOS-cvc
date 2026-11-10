@@ -22,10 +22,6 @@ import KeywordBankTab, { toKeywordRow as bankRowToKeywordRow, type BankKeyword }
 import WordGodTab from '@/components/projects/WordGodTab'
 import ContentEngineReadyBar, { useContentEngineStatus } from '@/components/projects/ContentEngineReadyBar'
 import { ProjectContentRefresh } from '@/components/projects/workspace/ProjectContentRefresh'
-import { ProjectContentEngine } from '@/components/projects/workspace/ProjectContentEngine'
-import { ReportConnectPanel } from '@/components/report/ReportConnectPanel'
-import { ProjectWebsitePanel } from '@/components/projects/ProjectWebsitePanel'
-import { ProjectSetupChecklist } from '@/components/projects/ProjectSetupChecklist'
 import { useSetupChecklistStatus } from '@/components/projects/useSetupChecklistStatus'
 import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGapTab'
 import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
@@ -41,7 +37,8 @@ import { PAGE_TYPE_LABEL_TH } from '@/lib/wordgod/intent-skill/handoff'
 import type { ProjectData, KeywordRow, TimelineEntry, ArticleJob } from '@/components/projects/sme-types'
 import { useProjectArticleLook } from '@/components/projects/useProjectArticleLook'
 import { SmeReviewTab } from '@/components/projects/sme-review/SmeReviewTab'
-import { SmeLabTab } from '@/components/projects/settings/SmeLabTab'
+import SmeSettingsShell from '@/components/projects/settings/SmeSettingsShell'
+import { legacyTabToSection, type SmeSettingsSection } from '@/components/projects/settings/sme-settings-sections'
 
 export type { ProjectData, KeywordRow }
 
@@ -4447,7 +4444,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
 
   // Project Settings = slide bar ด้านขวา (กดฟันเฟืองเปิด/ปิด — ไม่สลับหน้า)
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false)
-  const [settingsDrawerTab, setSettingsDrawerTab] = useState<'checklist' | 'lab' | 'ce' | 'google' | 'website'>('checklist')
+  const [settingsDrawerTab, setSettingsDrawerTab] = useState<SmeSettingsSection>('checklist')
   // มาจากการสร้างโปรเจกต์ใหม่ (?setup=1) — โชว์แบนเนอร์เตือนให้ตั้งค่าให้ครบในแท็บ checklist
   const [justCreatedSetup, setJustCreatedSetup] = useState(false)
   // สถานะ checklist แบบเบา ๆ ไว้ทำ badge สีแดงบนฟันเฟือง — refetch ใหม่ทุกครั้งที่ drawer เปิด/ปิด
@@ -4459,7 +4456,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
     const t = p.get('tab') as Tab | null
     // lab / proj-ce ย้ายไปอยู่ใน settings drawer แล้ว — ลิงก์เดิมเปิด drawer แทน
     if (t === 'proj-ce' || t === 'lab') {
-      setSettingsDrawerTab(t === 'proj-ce' ? 'ce' : 'lab')
+      setSettingsDrawerTab(legacyTabToSection(t === 'proj-ce' ? 'ce' : 'lab'))
       setSettingsDrawerOpen(true)
       return
     }
@@ -4987,7 +4984,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             scheduleDays={scheduleDays} setScheduleDays={setScheduleDays}
             scheduleSelectedEntries={scheduleSelectedEntries} setScheduleSelectedEntries={setScheduleSelectedEntries}
             stopRequested={stopRequested} setStopRequested={setStopRequested} stopRef={stopRef}
-            onOpenContentEngine={isClient ? undefined : () => { setSettingsDrawerTab('ce'); setSettingsDrawerOpen(true) }}
+            onOpenContentEngine={isClient ? undefined : () => { setSettingsDrawerTab('engine'); setSettingsDrawerOpen(true) }}
           />
         )}
         {/* Article Lab / Content Engine อยู่ใน settings drawer ด้านขวาแล้ว */}
@@ -5059,38 +5056,6 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
                 <p className="text-sm font-bold text-brand-navy">Project Settings</p>
                 <p className="text-xs text-gray-400 truncate">{project.clientName ?? project.name}</p>
               </div>
-              <nav className="flex gap-1 order-last w-full md:order-none md:w-auto overflow-x-auto">
-                <button onClick={() => setSettingsDrawerTab('checklist')}
-                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
-                    settingsDrawerTab === 'checklist' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
-                  }`}>
-                  ✓ Checklist
-                </button>
-                <button onClick={() => setSettingsDrawerTab('lab')}
-                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
-                    settingsDrawerTab === 'lab' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
-                  }`}>
-                  Article Lab
-                </button>
-                <button onClick={() => setSettingsDrawerTab('ce')}
-                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
-                    settingsDrawerTab === 'ce' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
-                  }`}>
-                  Content Engine
-                </button>
-                <button onClick={() => setSettingsDrawerTab('google')}
-                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
-                    settingsDrawerTab === 'google' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
-                  }`}>
-                  GSC · GA4
-                </button>
-                <button onClick={() => setSettingsDrawerTab('website')}
-                  className={`whitespace-nowrap shrink-0 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
-                    settingsDrawerTab === 'website' ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:bg-gray-50 border border-transparent'
-                  }`}>
-                  Website
-                </button>
-              </nav>
               <button onClick={() => setSettingsDrawerOpen(false)} aria-label="ปิด"
                 className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
                 <X size={16} />
@@ -5098,65 +5063,22 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             </div>
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              {settingsDrawerTab === 'lab' && (
-                <SmeLabTab project={project} onSaved={handleStyleSaved} keywordRows={keywords} />
-              )}
-              {settingsDrawerTab === 'checklist' && (
-                <div className="max-w-3xl space-y-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-brand-navy">Setup Checklist</h3>
-                    <p className="mt-0.5 text-xs text-gray-400">
-                      ความพร้อมก่อนเริ่มงานกับลูกค้า — เช็คจากข้อมูลจริงทุกข้อ กดปุ่มเพื่อไปตั้งค่าจุดที่ยังขาด
-                    </p>
-                  </div>
-                  {justCreatedSetup && (
-                    <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-semibold text-red-600">
-                      ตั้งค่าให้ครบก่อนเริ่มใช้งาน — รายการสีแดงคือยังไม่เสร็จ
-                    </div>
-                  )}
-                  <ProjectSetupChecklist
-                    projectId={project.id}
-                    onNavigate={(action) => {
-                      if (action.kind === 'drawer') setSettingsDrawerTab(action.tab)
-                      else if (action.kind === 'main') { setSettingsDrawerOpen(false); setTab(action.tab as Tab) }
-                      else if (action.kind === 'clients') window.location.href = '/projects'
-                    }}
-                    onStatus={() => { void refreshChecklistStatus() }}
-                  />
-                </div>
-              )}
-              {settingsDrawerTab === 'ce' && (
-                <ProjectContentEngine projectId={project.id} userRole={userRole} />
-              )}
-              {settingsDrawerTab === 'website' && (
-                <div className="max-w-3xl space-y-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-brand-navy">Connect Website</h3>
-                    <p className="mt-0.5 text-xs text-gray-400">
-                      ผูกเว็บไซต์ของ client นี้ — แต่ละโปรเจกต์เชื่อมคนละเว็บ รองรับทุกแพลตฟอร์ม (WordPress push อัตโนมัติได้)
-                    </p>
-                  </div>
-                  <ProjectWebsitePanel projectId={project.id} />
-                </div>
-              )}
-              {settingsDrawerTab === 'google' && (
-                <div className="max-w-3xl space-y-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-brand-navy">เชื่อมต่อข้อมูล Google (GSC / GA4)</h3>
-                    <p className="mt-0.5 text-xs text-gray-400">
-                      Service Email ระดับระบบ + ผูก property ของ client นี้ — ใช้กับหน้า Report และ Content Refresh
-                    </p>
-                  </div>
-                  <ReportConnectPanel
-                    projectId={project.id}
-                    gscSiteUrl={project.gscSiteUrl ?? null}
-                    ga4PropertyId={project.ga4PropertyId ?? null}
-                    isAdmin={userRole === 'ADMIN'}
-                    returnTo={`/projects/${project.id}?tab=report`}
-                    onSaved={() => window.location.reload()}
-                  />
-                </div>
-              )}
+              <SmeSettingsShell
+                project={project}
+                userRole={userRole}
+                section={settingsDrawerTab}
+                onSectionChange={setSettingsDrawerTab}
+                checklistMissing={checklistStatus?.missingRequired ?? 0}
+                justCreatedSetup={justCreatedSetup}
+                onChecklistNavigate={(action) => {
+                  if (action.kind === 'drawer') setSettingsDrawerTab(action.section ?? legacyTabToSection(action.tab))
+                  else if (action.kind === 'main') { setSettingsDrawerOpen(false); setTab(action.tab as Tab) }
+                  else if (action.kind === 'clients') window.location.href = '/projects'
+                }}
+                onChecklistStatus={() => { void refreshChecklistStatus() }}
+                onLabSaved={handleStyleSaved}
+                keywordRows={keywords}
+              />
             </div>
           </div>
         </>

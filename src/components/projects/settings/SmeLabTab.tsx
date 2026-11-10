@@ -20,6 +20,7 @@ import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
 import { readLanguagePrefs } from '@/lib/keyword-language'
 import { stripInlineImages } from '@/lib/articleSample'
 import type { ProjectData, KeywordRow } from '@/components/projects/sme-types'
+import type { SmeLabSection } from '@/components/projects/settings/sme-settings-sections'
 
 // ─── Article Lab Tab ──────────────────────────────────────────────────────────
 
@@ -48,7 +49,13 @@ const DEFAULT_STYLE_GUIDE = `## Tone & Voice
 
 interface InternalLink { keyword: string; url: string }
 
-export function SmeLabTab({ project, onSaved, keywordRows = [] }: { project: ProjectData; onSaved: (updated: Partial<ProjectData>) => void; keywordRows?: KeywordRow[] }) {
+export function SmeLabTab({ project, onSaved, keywordRows = [], section }: {
+  project: ProjectData
+  onSaved: (updated: Partial<ProjectData>) => void
+  keywordRows?: KeywordRow[]
+  /** ส่งมาจาก SmeSettingsShell (เมนูซ้าย) — มีค่า = ซ่อนแถบ sub-tab ภายในและแสดงเฉพาะบล็อกของหน้านั้น; ไม่ส่ง = พฤติกรรมเดิม */
+  section?: SmeLabSection
+}) {
   // Style settings
   const [styleGuide, setStyleGuide] = useState(project.styleGuide ?? DEFAULT_STYLE_GUIDE)
   // บริบทธุรกิจ — ข้อเท็จจริงที่บทความห้ามเขียนขัด (จุดแก้เดียวของระบบ ตาม Setup Checklist)
@@ -493,14 +500,33 @@ ${cover}${html}
     return d
   }
   const [labImages, setLabImages] = useState<ArticleImageSettings | null>(null)
+  // ใช้เมนูซ้าย (section) → ดูจาก section; ไม่งั้นดูจาก sub-tab ภายในเหมือนเดิม
+  const showStyleSettings = section ? section === 'style' : labSubTab === 'style'
+  const showBusinessBlock = section ? section === 'business' : labSubTab === 'style'
+  const showTestArticleBlock = section ? section === 'test-article' : labSubTab === 'style'
+  const showImagesBlock = section ? section === 'images' : labSubTab === 'images'
+  const showCtaBlock = section ? section === 'cta' : labSubTab === 'cta'
+  const showAuthorBlock = section ? section === 'author' : labSubTab === 'author'
+  const showLinksBlock = section ? section === 'links' : labSubTab === 'sitelink'
+  const showTestImageBlock = section ? section === 'test-image' : labSubTab === 'image'
+
   useEffect(() => {
-    if (labSubTab !== 'images' || labImages) return
+    if (!showImagesBlock || labImages) return
     let cancelled = false
     loadArticleSettings()
       .then(d => { if (!cancelled) setLabImages(readArticleImageSettings(d.images)) })
       .catch(e => toast.error(e instanceof Error ? e.message : 'โหลดค่ารูปภาพไม่สำเร็จ'))
     return () => { cancelled = true }
-  }, [labSubTab, labImages, loadArticleSettings])
+  }, [showImagesBlock, labImages, loadArticleSettings])
+
+  // เปิดหน้า Internal Link จากเมนูซ้าย → ดึง GSC / Keywords ครั้งแรกเหมือนตอนกดแท็บ sitelink เดิม
+  useEffect(() => {
+    if (section !== 'links' || ilGscFetched) return
+    ilFetchGscProperties()
+    ilFetchGsc()
+    ilFetchKeywords()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section])
 
   const LAB_SUBTABS = [
     { id: 'style' as const,    label: 'Style',    icon: '🎨' },
@@ -511,16 +537,33 @@ ${cover}${html}
     { id: 'image' as const,    label: 'Test Image', icon: '🧪' },
   ]
 
+  // ปุ่ม "บันทึกทั้งหมด" ตัวเดียวกัน (saveAll) — โหมดเมนูซ้ายวางเป็นแถวหัวของหน้า business / links / test-article
+  const saveAllButton = (
+    <button onClick={saveAll} disabled={saving}
+      className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-50 transition-colors">
+      {saving ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
+      {saving ? 'บันทึก...' : saved ? '✅ บันทึกแล้ว!' : 'บันทึกทั้งหมด'}
+    </button>
+  )
+  const sectionHasSaveAll = section === 'business' || section === 'links' || section === 'test-article'
+  const sectionHasLanguage = section === 'business' || section === 'test-article'
+
   return (
     <div className="space-y-0">
-      <LanguageModeSelect
-        projectId={project.id}
-        projectLanguage={project.language}
-        value={langPrefs.keywordMode}
-        ratioThai={langPrefs.ratioThai}
-        onChange={onLangChange}
-      />
-      {/* ── Sub-tab bar ─────────────────────────────── */}
+      {(!section || sectionHasLanguage) && (
+        <LanguageModeSelect
+          projectId={project.id}
+          projectLanguage={project.language}
+          value={langPrefs.keywordMode}
+          ratioThai={langPrefs.ratioThai}
+          onChange={onLangChange}
+        />
+      )}
+      {section && sectionHasSaveAll && (
+        <div className="flex items-center justify-end mb-4">{saveAllButton}</div>
+      )}
+      {/* ── Sub-tab bar (ซ่อนเมื่อใช้เมนูซ้าย) ─────────────── */}
+      {!section && (
       <div className="flex items-center gap-1 mb-5 bg-gray-100 rounded-2xl p-1 w-fit max-w-full overflow-x-auto">
         {LAB_SUBTABS.map(t => (
           <button key={t.id} onClick={() => {
@@ -538,17 +581,13 @@ ${cover}${html}
           </button>
         ))}
         <div className="ml-4 pl-4 border-l border-gray-300">
-          <button onClick={saveAll} disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-50 transition-colors">
-            {saving ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
-            {saving ? 'บันทึก...' : saved ? '✅ บันทึกแล้ว!' : 'บันทึกทั้งหมด'}
-          </button>
+          {saveAllButton}
         </div>
       </div>
+      )}
 
       {/* ══ STYLE sub-tab ══════════════════════════════ */}
-      {labSubTab === 'style' && (
-        <>
+      {showStyleSettings && (
         <SmeStyleSettings
           projectId={project.id}
           website={project.website}
@@ -557,9 +596,12 @@ ${cover}${html}
           onSaved={(tc) => { setThemeColorsRaw(tc); onSaved({ themeColors: tc }) }}
           onApplyContext={applyScanContext}
         />
-        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start">
+      )}
+      {(showBusinessBlock || showTestArticleBlock) && (
+        <div className={section ? 'space-y-4' : 'flex flex-col lg:flex-row gap-4 lg:gap-6 items-start'}>
           {/* Left settings */}
-          <div className="w-full lg:w-72 lg:shrink-0 space-y-4">
+          {showBusinessBlock && (
+          <div className={section ? 'w-full space-y-4' : 'w-full lg:w-72 lg:shrink-0 space-y-4'}>
             {/* อ่านไฟล์ธุรกิจลูกค้า (CSV/PDF) — เติม Project Context + เขียนลง Business Skill ให้อัตโนมัติ */}
             <LabContextFilesCard
               projectId={project.id}
@@ -624,8 +666,10 @@ ${cover}${html}
                 className="w-full text-xs font-mono border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none" />
             </div>
           </div>
+          )}
 
           {/* Right: Article Lab */}
+          {showTestArticleBlock && (
           <div className="flex-1 min-w-0 space-y-4">
             <div className="bg-white border border-gray-200 rounded-2xl p-5">
               <div className="flex items-center justify-between mb-1">
@@ -756,12 +800,12 @@ ${cover}${html}
               </div>
             )}
           </div>
+          )}
         </div>
-        </>
       )}
 
       {/* ══ รูปภาพ sub-tab — หน้าตาเดียวกับ Upload Article ═══ */}
-      {labSubTab === 'images' && (
+      {showImagesBlock && (
         labImages
           ? (
             <ImageSettingsEditor
@@ -780,7 +824,7 @@ ${cover}${html}
       )}
 
       {/* ══ CTA sub-tab — หน้าตาเดียวกับ Upload Article ═══ */}
-      {labSubTab === 'cta' && (
+      {showCtaBlock && (
         <CtaSettingsEditor
           loadKey={project.id}
           load={async () => (await loadArticleSettings()).cta as UploadCtaSettings}
@@ -796,7 +840,7 @@ ${cover}${html}
       )}
 
       {/* ══ AUTHOR sub-tab — หน้าตาเดียวกับ Upload Article (+ เพศ ใช้ปรับสรรพนามในบทความ) ═══ */}
-      {labSubTab === 'author' && (
+      {showAuthorBlock && (
         <AuthorSettingsEditor
           loadKey={project.id}
           withGender
@@ -811,7 +855,7 @@ ${cover}${html}
       )}
 
       {/* ══ SITELINK sub-tab ═══════════════════════════ */}
-      {labSubTab === 'sitelink' && (
+      {showLinksBlock && (
         <div className="space-y-4">
           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
             {/* Header */}
@@ -971,7 +1015,7 @@ ${cover}${html}
       )}
 
       {/* ══ TEST IMAGE sub-tab ═════════════════════════ */}
-      {labSubTab === 'image' && (
+      {showTestImageBlock && (
         <LabTestImageCard projectId={project.id} defaultKeyword={keywordRows[0]?.keyword ?? ''} />
       )}
     </div>

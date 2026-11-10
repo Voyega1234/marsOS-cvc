@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, Loader2 } from "lucide-react";
+import { Copy, Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { ContentEngineSettingsClient } from "@/components/settings/content-engine/ContentEngineSettingsClient";
+import { ContentEngineSettingsClient, type TabKey } from "@/components/settings/content-engine/ContentEngineSettingsClient";
 import type { PromptRow } from "@/components/settings/content-engine/types";
 
 // Content Engine ฝังใน Settings (ฟันเฟือง) ของแต่ละ project — scope = { projectId }
@@ -22,6 +22,19 @@ const CE_LAYER_TYPES = new Set([
 // ข้อจำกัดและ Comment ไม่คัดลอกจาก Studio — เป็นของลูกค้ารายนี้ และผูกกับไฟล์ของสโคปตัวเอง
 const OPTIONAL_LAYER_TYPES = new Set(["CE_RESTRICTIONS", "CE_CLIENT_COMMENTS"]);
 const STUDIO_COPY_TYPES = new Set(Array.from(CE_LAYER_TYPES).filter((t) => !OPTIONAL_LAYER_TYPES.has(t)));
+
+// layer บังคับของ SME — ตรงกับที่ Setup Checklist (setup-checklist/route.ts) ต้องมีให้ครบ
+const REQUIRED_TYPES = ["CE_BUSINESS_SKILL", "CE_MASTER_PROMPT", "CE_ARTICLE_BRIEF", "CE_VALIDATOR_PACK", "CE_IMAGE_PROMPT"];
+const LAYER_LABELS: Record<string, string> = {
+  CE_BUSINESS_SKILL: "Business Skill",
+  CE_MASTER_PROMPT: "Master Prompt",
+  CE_ARTICLE_BRIEF: "Article Brief",
+  CE_VALIDATOR_PACK: "Validator Pack",
+  CE_IMAGE_PROMPT: "Image Prompt",
+};
+/** โหมดปกติเห็นแค่แท็บงานประจำ — ที่เหลืออยู่หลังโหมดขั้นสูง (เหมือน Upload Article) */
+const SIMPLE_TABS: TabKey[] = ["client-comments", "restrictions"];
+const ADVANCED_KEY = "mars_ce_advanced";
 
 function resolveProjectId(explicit?: string): string | null {
   if (explicit) return explicit;
@@ -50,6 +63,21 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
   const [error, setError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // โหมดขั้นสูง: แท็บ CE ครบชุด + ปุ่มคัดลอกจาก Studio — จำไว้ต่อเครื่อง (key เดียวกับ Upload Article)
+  const [advanced, setAdvancedState] = useState(false);
+  const [ceTab, setCeTab] = useState<TabKey>("client-comments");
+  useEffect(() => {
+    try { if (localStorage.getItem(ADVANCED_KEY) === "1") setAdvancedState(true); } catch { /* storage ปิด — ใช้โหมดปกติ */ }
+  }, []);
+  function setAdvanced(on: boolean) {
+    setAdvancedState(on);
+    if (!on && !SIMPLE_TABS.includes(ceTab)) setCeTab(SIMPLE_TABS[0]);
+    try { localStorage.setItem(ADVANCED_KEY, on ? "1" : "0"); } catch { /* ไม่จำก็ได้ */ }
+  }
+  function openCeTab(t: TabKey) {
+    setCeTab(t);
+    if (!SIMPLE_TABS.includes(t)) setAdvanced(true);
+  }
 
   useEffect(() => {
     if (!resolvedProjectId) {
@@ -119,8 +147,33 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
     return <div className="p-8 text-sm text-gray-400">กำลังโหลด Content Engine...</div>;
   }
 
+  const missingTypes = REQUIRED_TYPES.filter((t) => !items.some((p) => p.type === t && p.isActive));
+
   return (
     <div className="space-y-4">
+      <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className={`text-sm font-semibold ${missingTypes.length === 0 ? "text-emerald-700" : "text-amber-700"}`}>
+            {missingTypes.length === 0
+              ? "✓ พร้อมเขียนบทความ — layer บังคับครบ"
+              : `ยังเขียนบทความไม่ได้: ขาด ${missingTypes.map((t) => LAYER_LABELS[t]).join(", ")}`}
+          </p>
+          <Button size="sm" variant={advanced ? "default" : "outline"} onClick={() => setAdvanced(!advanced)} aria-pressed={advanced}>
+            <Settings2 size={12} className="mr-1.5" /> {advanced ? "ปิดโหมดขั้นสูง" : "โหมดขั้นสูง"}
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {REQUIRED_TYPES.map((t) => {
+            const active = items.some((p) => p.type === t && p.isActive);
+            return (
+              <span key={t} className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                {active ? "✓" : "✕"} {LAYER_LABELS[t]}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      {/* โปรเจกต์ใหม่ยังไม่มีชุด CE — โชว์ทั้งสองโหมด (ทางลัดตั้งค่าครั้งแรก ไม่ต้องหาในโหมดขั้นสูง) */}
       {userRole !== "CLIENT" && items.every((i) => OPTIONAL_LAYER_TYPES.has(i.type)) && (
         <div className="flex items-center justify-between rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-3">
           <p className="text-sm text-indigo-700">Project นี้ยังไม่มีชุด Content Engine — เริ่มต้นได้เร็วขึ้นด้วยการคัดลอกชุด Active จาก Studio</p>
@@ -135,6 +188,10 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
         scope={{ projectId: resolvedProjectId }}
         userRole={userRole}
         onRefresh={() => setRefreshKey((k) => k + 1)}
+        tab={ceTab}
+        onTabChange={openCeTab}
+        visibleTabs={advanced ? undefined : SIMPLE_TABS}
+        hideHeader={!advanced}
       />
     </div>
   );

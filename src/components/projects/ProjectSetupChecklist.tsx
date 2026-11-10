@@ -6,6 +6,7 @@
  * ไม่ใช่ให้คนติ๊กเอง (ยกเว้นข้อ manual เช่น ตั้งค่าธีม Elementor) — กดปุ่มแต่ละข้อเพื่อกระโดดไปตั้งค่าจุดนั้นได้เลย
  */
 import { useCallback, useEffect, useState } from "react";
+import type { SmeSettingsSection } from "@/components/projects/settings/sme-settings-sections";
 import { CheckCircle2, Circle, ArrowRight, RefreshCw, PartyPopper } from "lucide-react";
 
 interface ChecklistItem {
@@ -14,7 +15,7 @@ interface ChecklistItem {
   ok: boolean;
   required: boolean;
   hint: string;
-  action: { kind: "drawer"; tab: "lab" | "ce" | "google" | "website" } | { kind: "main"; tab: string } | { kind: "clients" } | { kind: "manual" };
+  action: { kind: "drawer"; tab: "lab" | "ce" | "google" | "website"; section?: SmeSettingsSection } | { kind: "main"; tab: string } | { kind: "clients" } | { kind: "manual" };
 }
 
 interface ChecklistData {
