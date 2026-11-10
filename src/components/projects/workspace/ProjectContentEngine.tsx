@@ -32,6 +32,14 @@ const LAYER_LABELS: Record<string, string> = {
   CE_VALIDATOR_PACK: "Validator Pack",
   CE_IMAGE_PROMPT: "Image Prompt",
 };
+/** กดชิป layer → เปิดแท็บของ layer นั้น (เข้าโหมดขั้นสูงให้เอง) — ทางเข้าจาก Checklist "ขาด Business Skill" ฯลฯ */
+const LAYER_TAB: Record<string, TabKey> = {
+  CE_BUSINESS_SKILL: "business-skills",
+  CE_MASTER_PROMPT: "master-prompts",
+  CE_ARTICLE_BRIEF: "article-briefs",
+  CE_VALIDATOR_PACK: "validator-packs",
+  CE_IMAGE_PROMPT: "image-prompts",
+};
 /** โหมดปกติเห็นแค่แท็บงานประจำ — ที่เหลืออยู่หลังโหมดขั้นสูง (เหมือน Upload Article) */
 const SIMPLE_TABS: TabKey[] = ["client-comments", "restrictions"];
 const ADVANCED_KEY = "mars_ce_advanced";
@@ -166,9 +174,15 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
           {REQUIRED_TYPES.map((t) => {
             const active = items.some((p) => p.type === t && p.isActive);
             return (
-              <span key={t} className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+              <button
+                key={t}
+                type="button"
+                onClick={() => openCeTab(LAYER_TAB[t])}
+                title={`เปิด ${LAYER_LABELS[t]}`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium border hover:underline ${active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}
+              >
                 {active ? "✓" : "✕"} {LAYER_LABELS[t]}
-              </span>
+              </button>
             );
           })}
         </div>

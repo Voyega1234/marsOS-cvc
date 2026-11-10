@@ -77,10 +77,13 @@ export function SmeLabTab({ project, onSaved, keywordRows = [], section }: {
   })
 
   // รับบริบทธุรกิจ/Style Guide/คำต้องห้ามจากผลสแกน — ทีมยังแก้ต่อได้ และต้องกดบันทึกเองถึงจะลง DB
+  // เมนูซ้าย: ช่องพวกนี้อยู่หน้า "ข้อมูลธุรกิจ" ไม่ใช่หน้า Style — จำไว้ว่ายังไม่ได้บันทึก แล้วโชว์ปุ่มบันทึกบนหน้า Style ให้ด้วย
+  const [scanContextPending, setScanContextPending] = useState(false)
   const applyScanContext = (r: SmeScanContext) => {
     if (r.projectContext) setProjectContext(r.projectContext)
     if (r.styleGuide) setStyleGuide(r.styleGuide)
     if (r.forbiddenWords.length) setForbiddenWords(r.forbiddenWords.join('\n'))
+    if (r.projectContext || r.styleGuide || r.forbiddenWords.length) setScanContextPending(true)
   }
   const [internalLinksText, setInternalLinksText] = useState(() => {
     try {
@@ -267,6 +270,7 @@ export function SmeLabTab({ project, onSaved, keywordRows = [], section }: {
     setSaving(true)
     try {
       await persistSettings(true)
+      setScanContextPending(false)
       setSaved(true)
       toast.success('บันทึกค่า Article Lab แล้ว')
       setTimeout(() => setSaved(false), 2500)
@@ -586,6 +590,13 @@ ${cover}${html}
       </div>
       )}
 
+      {/* ผลสแกนที่ใส่ลงช่องหน้า "ข้อมูลธุรกิจ" แล้วแต่ยังไม่บันทึก — บันทึกจากหน้านี้ได้เลยเหมือนแท็บ Style เดิม */}
+      {section === 'style' && scanContextPending && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm text-amber-800">ใส่ผลสแกนลงบริบทธุรกิจ / Style Guide / คำต้องห้ามแล้ว (ดูได้ที่หน้า Business &amp; Style Guide) — ยังไม่ได้บันทึก</p>
+          {saveAllButton}
+        </div>
+      )}
       {/* ══ STYLE sub-tab ══════════════════════════════ */}
       {showStyleSettings && (
         <SmeStyleSettings

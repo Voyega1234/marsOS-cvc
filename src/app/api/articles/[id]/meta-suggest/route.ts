@@ -115,7 +115,8 @@ ${humanBodyRulesBlock(language)}
     organizationId: orgId,
     projectId: article.projectId,
     articleId: article.id,
-    jobType: 'UPLOAD_ARTICLE_META',
+    // ห้ามใช้ UPLOAD_* — ป้ายใน AI Jobs จะขึ้นว่า Upload Article ทั้งที่เป็นงานของ SEO SME
+    jobType: 'SME_ARTICLE_META',
     modelProvider: 'OPENROUTER',
     modelName: OR_MODELS.default(),
     status: result.error ? 'FAILED' : 'SUCCESS',

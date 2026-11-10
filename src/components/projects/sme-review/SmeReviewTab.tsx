@@ -147,7 +147,11 @@ function GoogleSerpPreview({ device, siteHost, siteName, slug, title, descriptio
 
 /** เพดานขนาด body ของ PATCH (Vercel ตัดที่ ~4.5MB) — เกินแล้วเซิร์ฟเวอร์ตอบ 413 เงียบ ๆ */
 const MAX_PATCH_BYTES = 4_000_000
-/** true = body ใหญ่เกิน ได้ toast เตือนแล้ว (ใช้หน้า SME Review ก่อน PATCH ทุกครั้ง) */
+const TOO_BIG_413 = 'ข้อมูลใหญ่เกินที่เซิร์ฟเวอร์รับ (~4.5MB) — รูปในบทความอาจใหญ่ไป ลองย่อหรือลบรูปก่อนบันทึก'
+/**
+ * true = body ใหญ่เกิน ได้ toast เตือนแล้ว — ใช้กับปก + เครื่องมือรูปใหม่เท่านั้น
+ * (บันทึกที่แก้มือ / บันทึก SEO เดิมไม่เคยกัน ห้ามใส่ — ไม่งั้นบทความ 4.0–4.5MB ที่เคยบันทึกได้จะบันทึกไม่ได้)
+ */
 function patchTooBig(body: unknown): boolean {
   if (new Blob([JSON.stringify(body)]).size <= MAX_PATCH_BYTES) return false
   toast.error('ข้อมูลใหญ่เกิน 4MB — รูปอาจใหญ่ไป ลองย่อขนาดก่อนบันทึก')
@@ -376,16 +380,15 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
         if (data?.id) { artId = data.id; setArticleIds(prev => ({ ...prev, [entryIdx]: data.id })) }
       }
       if (!artId) { toast.error('ยังไม่พบบทความนี้ใน DB — ลองกดดูใหม่อีกครั้ง'); return }
-      const patchBody = { htmlContent: newHtml }
-      if (patchTooBig(patchBody)) return
+      // ไม่กันขนาดฝั่งเบราว์เซอร์ (เดิมไม่เคยกัน) — ส่งเหมือนเดิม ถ้า Vercel ตอบ 413 ค่อยบอกให้ชัด
       const r = await fetch(`/api/articles/${artId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patchBody),
+        body: JSON.stringify({ htmlContent: newHtml }),
       })
       if (!r.ok) {
         const err = await r.json().catch(() => ({})) as { error?: string }
-        toast.error(err?.error || 'บันทึกไม่สำเร็จ — ลองอีกครั้ง')
+        toast.error(r.status === 413 ? TOO_BIG_413 : (err?.error || 'บันทึกไม่สำเร็จ — ลองอีกครั้ง'))
         return
       }
       setLocalJobHtml(prev => ({ ...prev, [entryIdx]: newHtml }))
@@ -434,13 +437,12 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
         ...(draftSlug ? { slug: draftSlug } : {}),
         ...(sentHtml ? { htmlContent: draftHtml } : {}),
       }
-      if (patchTooBig(seoBody)) return
       const res = await fetch(`/api/articles/${artId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(seoBody),
       })
-      if (!res.ok) { toast.error('บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง'); return }
+      if (!res.ok) { toast.error(res.status === 413 ? TOO_BIG_413 : 'บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง'); return }
       // server แทนคำต้องห้ามของ Content Engine ให้แล้ว — ใช้ค่าที่บันทึกจริงต่อ (timeline override/Push ต้องตรงกับ DB)
       const saved = await res.json().catch(() => ({})) as { seoTitle?: string | null; metaDescription?: string | null; slug?: string | null; htmlContent?: string | null; restrictionWarnings?: string[] }
       const seoTitle = typeof saved.seoTitle === 'string' ? saved.seoTitle : draftTitle
@@ -1226,7 +1228,8 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                   onUpdated={a => applyArticleUpdate(entryIdx, entry, a)}
                   onBusyChange={b => setImgBusy(prev => b ? entryIdx : (prev === entryIdx ? null : prev))}
                 />
-                {html && (
+                {/* เลขลำดับรูปต้องตรงกับ htmlContent ใน DB (server แก้ alt/ลิงก์ตามเลขนี้) — โชว์เมื่อโหลด HTML จาก DB แล้วเท่านั้น */}
+                {localJobHtml[entryIdx] && (
                   <div className={coverControlsOff ? 'pointer-events-none opacity-50' : ''}>
                     <ArticleImagesPanel
                       html={html}

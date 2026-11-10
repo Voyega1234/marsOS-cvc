@@ -70,6 +70,7 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   UPLOAD_ARTICLE_IMAGE_INLINE: "Upload Article · รูปประกอบ (AI)",
   UPLOAD_ARTICLE_KEYWORDS_AI:  "Upload Article · Keyword + Title (AI)",
   UPLOAD_ARTICLE_META:         "Upload Article · Meta (AI)",
+  SME_ARTICLE_META:            "SEO SME · Meta (AI)",
   UPLOAD_THEME_SCAN:           "Upload Article · สแกนธีมเว็บ",
   UPLOAD_SITE_SCAN:            "Upload Article · สแกนเว็บปลายทาง",
 };
