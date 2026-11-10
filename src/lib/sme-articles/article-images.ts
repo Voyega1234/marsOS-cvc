@@ -3,10 +3,15 @@
 
 import { GEN_FIGURE_ATTR } from '@/lib/upload-article/article-images'
 
+/** รูปที่ผู้ใช้แทรกเองจากหน้า Review — ห้ามถูกลบตอนสร้างรูปประกอบใหม่ */
+export const MANUAL_FIGURE_ATTR = 'data-mars-manual'
+
 const FIGURE_RE = /\s*<figure\b([^>]*)>([\s\S]*?)<\/figure>/gi
 
 /** figure ที่ Mars สร้าง = มี data-ua-gen หรือเป็นรูป writer เก่า (content-figure + img เป็น data:image/ ไม่ใช่กล่องปก) */
 function isMarsFigure(attrs: string, inner: string): boolean {
+  // รูปที่แทรกเอง (data-mars-manual) ไม่ใช่รูปของ Mars เสมอ แม้หน้าตาเหมือน writer เก่า (content-figure + data:image)
+  if (new RegExp(`\\b${MANUAL_FIGURE_ATTR}="1"`, 'i').test(attrs)) return false
   if (new RegExp(`\\b${GEN_FIGURE_ATTR}="1"`, 'i').test(attrs)) return true
   const cls = attrs.match(/\bclass\s*=\s*["']([^"']*)["']/i)?.[1] ?? ''
   const tokens = cls.split(/\s+/)

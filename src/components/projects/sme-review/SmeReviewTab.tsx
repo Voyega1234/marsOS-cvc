@@ -10,7 +10,10 @@ import ScopedEditable from '@/components/shared/ScopedEditable'
 import EditorToolbar from '@/components/shared/EditorToolbar'
 import { googleDocsResultNotice, isDriveExportConfigured, preloadGoogleDocsExport, sendToGoogleDocs } from '@/lib/google-docs-export'
 import SmeAiImagesPanel, { type SmeArticleUpdate } from '@/components/projects/SmeAiImagesPanel'
-import { getCoverAltFromHtml } from '@/lib/sme-articles/article-images'
+import ArticleImagesPanel from '@/components/upload-article/shared/ArticleImagesPanel'
+import { listH2Sections, insertFigureAfterH2 } from '@/components/upload-article/shared/htmlSections'
+import { editBackground, EDIT_READABLE_CSS } from '@/components/shared/editTone'
+import { getCoverAltFromHtml, MANUAL_FIGURE_ATTR } from '@/lib/sme-articles/article-images'
 import { fileToDownscaledDataUrl } from '@/lib/imageDownscale'
 import { boxKeyTakeaways } from '@/lib/article-structure'
 import { applyFaqDisplay } from '@/lib/upload-article/theme-css'
@@ -142,6 +145,15 @@ function GoogleSerpPreview({ device, siteHost, siteName, slug, title, descriptio
   )
 }
 
+/** เพดานขนาด body ของ PATCH (Vercel ตัดที่ ~4.5MB) — เกินแล้วเซิร์ฟเวอร์ตอบ 413 เงียบ ๆ */
+const MAX_PATCH_BYTES = 4_000_000
+/** true = body ใหญ่เกิน ได้ toast เตือนแล้ว (ใช้หน้า SME Review ก่อน PATCH ทุกครั้ง) */
+function patchTooBig(body: unknown): boolean {
+  if (new Blob([JSON.stringify(body)]).size <= MAX_PATCH_BYTES) return false
+  toast.error('ข้อมูลใหญ่เกิน 4MB — รูปอาจใหญ่ไป ลองย่อขนาดก่อนบันทึก')
+  return true
+}
+
 interface ReviewComment { id: string; body: string; createdAt: string; user: { name: string | null; role: string } }
 
 // สถานะในรายการ Review — แยกกันไม่ทับซ้อน ตรงกับป้ายในแถว
@@ -178,6 +190,18 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
   const [viewMode, setViewMode] = useState<'preview' | 'text' | 'edit'>('preview')
   const [editSaving, setEditSaving] = useState(false)
   const reviewEditorRef = useRef<HTMLDivElement>(null)
+  // สีตอนแก้ไข (เฉพาะทีมงาน) — site = พื้นหลังหน้าเว็บของโปรเจกต์, readable = ตัวอักษรเข้มบนพื้นขาว · อยู่นอก editor ไม่ถูกบันทึก
+  const [editTone, setEditTone] = useState<'site' | 'readable'>('site')
+  // แทรกรูปหลัง H2 (เฉพาะทีมงาน)
+  const [insertFile, setInsertFile] = useState<File | null>(null)
+  const [insertAlt, setInsertAlt] = useState('')
+  const [insertPos, setInsertPos] = useState<number | ''>('')
+  const [inserting, setInserting] = useState(false)
+  // ให้ Mars เสนอ Meta + Slug — เก็บ entryIdx ที่กำลังเรียก
+  const [aiMetaBusy, setAiMetaBusy] = useState<number | null>(null)
+  // insertPos เป็น offset ของ HTML ก้อนปัจจุบัน — HTML ถูกแทนที่ (บันทึก/แก้ alt/สลับบทความ) ต้องเคลียร์ทิ้ง ไม่งั้น offset เพี้ยน
+  const expandedHtmlKey = expanded !== null ? (localJobHtml[expanded] ?? '') : ''
+  useEffect(() => { setInsertPos('') }, [expanded, expandedHtmlKey])
   // ดาวน์โหลดบทความไปส่งลูกค้าตรวจ (Word / HTML) — เก็บ entryIdx ที่กำลังสร้างไฟล์ Word
   const [wordBusy, setWordBusy] = useState<number | null>(null)
   const [docsBusy, setDocsBusy] = useState<number | null>(null)
@@ -194,20 +218,39 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
       coverAlt: entry.title,
     }
   }
+  /** สร้างเอกสาร HTML เดี่ยว (CSS/ฟอนต์เดียวกับปุ่มดาวน์โหลด HTML) — ใช้ทั้งดาวน์โหลดและเปิดในแท็บใหม่ */
+  async function buildHtmlBlob(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
+    const m = await import('@/lib/article-export')
+    const o = exportSource(entryIdx, entry, job, html)
+    const fileBase = m.articleFileName(entry.slug || entry.title)
+    const { css: fontCss, skipped: fontsSkipped } = isClient ? { css: '', skipped: 0 } : await exportFontCssDetailed(articleLook.detail?.article)
+    if (fontsSkipped > 0) toast.warning(`ไฟล์นี้ขาดฟอนต์ ${fontsSkipped} ไฟล์ เพราะดึงจากเว็บไม่ได้หรือไฟล์ใหญ่เกิน บทความบนเว็บจริงไม่กระทบ`)
+    const doc = m.buildStandaloneArticleHtml({
+      html: applyFaqDisplay(o.html, articleLook.detail?.faq), title: o.title, lang: project.language === 'en' ? 'en' : 'th',
+      coverSrc: o.coverSrc, coverAlt: o.coverAlt, pageBackground: articleLook.pageBackground, fontCss,
+    })
+    return { m, blob: new Blob([doc], { type: 'text/html;charset=utf-8' }), name: `${fileBase}.html` }
+  }
   async function downloadArticleHtml(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
     try {
-      const m = await import('@/lib/article-export')
-      const o = exportSource(entryIdx, entry, job, html)
-      const fileBase = m.articleFileName(entry.slug || entry.title)
-      const { css: fontCss, skipped: fontsSkipped } = isClient ? { css: '', skipped: 0 } : await exportFontCssDetailed(articleLook.detail?.article)
-      if (fontsSkipped > 0) toast.warning(`ไฟล์นี้ขาดฟอนต์ ${fontsSkipped} ไฟล์ เพราะดึงจากเว็บไม่ได้หรือไฟล์ใหญ่เกิน บทความบนเว็บจริงไม่กระทบ`)
-      const doc = m.buildStandaloneArticleHtml({
-        html: applyFaqDisplay(o.html, articleLook.detail?.faq), title: o.title, lang: project.language === 'en' ? 'en' : 'th',
-        coverSrc: o.coverSrc, coverAlt: o.coverAlt, pageBackground: articleLook.pageBackground, fontCss,
-      })
-      m.downloadBlob(new Blob([doc], { type: 'text/html;charset=utf-8' }), `${fileBase}.html`)
+      const r = await buildHtmlBlob(entryIdx, entry, job, html)
+      r.m.downloadBlob(r.blob, r.name)
     } catch (e) {
       toast.error('สร้างไฟล์ HTML ไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)))
+    }
+  }
+  // เปิดดู HTML ในแท็บใหม่ (เฉพาะทีมงาน) — window.open ต้องเรียกตอนคลิก ก่อน await ไม่งั้นเบราว์เซอร์บล็อก popup
+  async function openHtmlPreview(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
+    const tab = window.open('', '_blank')
+    try {
+      const r = await buildHtmlBlob(entryIdx, entry, job, html)
+      if (!r.m.showBlobInTab(tab, r.blob)) {
+        r.m.downloadBlob(r.blob, r.name)
+        toast.info('เบราว์เซอร์บล็อกแท็บใหม่ — ดาวน์โหลดไฟล์ HTML ให้แทน')
+      }
+    } catch (e) {
+      tab?.close()
+      toast.error('เปิด HTML ไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)))
     }
   }
   async function downloadArticleWord(entryIdx: number, entry: TimelineEntry, job: ArticleJob | undefined, html: string) {
@@ -315,6 +358,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
     } finally {
       setLoadingHtml(null)
       setViewMode('preview')
+      setInsertFile(null); setInsertAlt(''); setInsertPos('')
       setExpanded(entryIdx)
     }
   }
@@ -331,13 +375,19 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
         const data = await fetchArticle(entryIdx, entry)
         if (data?.id) { artId = data.id; setArticleIds(prev => ({ ...prev, [entryIdx]: data.id })) }
       }
-      if (!artId) { alert('ยังไม่พบบทความนี้ใน DB — ลองกดดูใหม่อีกครั้ง'); return }
+      if (!artId) { toast.error('ยังไม่พบบทความนี้ใน DB — ลองกดดูใหม่อีกครั้ง'); return }
+      const patchBody = { htmlContent: newHtml }
+      if (patchTooBig(patchBody)) return
       const r = await fetch(`/api/articles/${artId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ htmlContent: newHtml }),
+        body: JSON.stringify(patchBody),
       })
-      if (!r.ok) { alert('บันทึกไม่สำเร็จ — ลองอีกครั้ง'); return }
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({})) as { error?: string }
+        toast.error(err?.error || 'บันทึกไม่สำเร็จ — ลองอีกครั้ง')
+        return
+      }
       setLocalJobHtml(prev => ({ ...prev, [entryIdx]: newHtml }))
       setViewMode('preview')
     } finally {
@@ -370,7 +420,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
         const data = await fetchArticle(entryIdx, entry)
         if (data?.id) { artId = data.id; setArticleIds(prev => ({ ...prev, [entryIdx]: data.id })) }
       }
-      if (!artId) { alert('ยังไม่พบบทความนี้ใน DB — ลองกด "ดู" ใหม่อีกครั้ง'); return }
+      if (!artId) { toast.error('ยังไม่พบบทความนี้ใน DB — ลองกด "ดู" ใหม่อีกครั้ง'); return }
 
       const draftSlug = slugifyEnSlug(draft.slug)
       const draftTitle = draft.seoTitle.trim()
@@ -379,16 +429,18 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
       const draftHtml = baseHtml ? syncSeoMetaIntoHtml(baseHtml, { metaTitle: draftTitle, metaDescription: draftMeta, slug: draftSlug }) : ''
       const sentHtml = Boolean(draftHtml && draftHtml !== baseHtml)
 
+      const seoBody = {
+        seoTitle: draftTitle, metaDescription: draftMeta,
+        ...(draftSlug ? { slug: draftSlug } : {}),
+        ...(sentHtml ? { htmlContent: draftHtml } : {}),
+      }
+      if (patchTooBig(seoBody)) return
       const res = await fetch(`/api/articles/${artId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          seoTitle: draftTitle, metaDescription: draftMeta,
-          ...(draftSlug ? { slug: draftSlug } : {}),
-          ...(sentHtml ? { htmlContent: draftHtml } : {}),
-        }),
+        body: JSON.stringify(seoBody),
       })
-      if (!res.ok) { alert('บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง'); return }
+      if (!res.ok) { toast.error('บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง'); return }
       // server แทนคำต้องห้ามของ Content Engine ให้แล้ว — ใช้ค่าที่บันทึกจริงต่อ (timeline override/Push ต้องตรงกับ DB)
       const saved = await res.json().catch(() => ({})) as { seoTitle?: string | null; metaDescription?: string | null; slug?: string | null; htmlContent?: string | null; restrictionWarnings?: string[] }
       const seoTitle = typeof saved.seoTitle === 'string' ? saved.seoTitle : draftTitle
@@ -418,7 +470,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
       if (cleanSlug) setJobs(prev => prev.map(j => j.entryIdx === entryIdx ? { ...j, slug: cleanSlug } : j))
       setSeoSavedAt(prev => ({ ...prev, [entryIdx]: Date.now() }))
     } catch {
-      alert('บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง')
+      toast.error('บันทึก SEO ไม่สำเร็จ — ลองอีกครั้ง')
     } finally {
       setSeoSaving(null)
     }
@@ -464,7 +516,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
   async function patchCover(entryIdx: number, entry: TimelineEntry, body: { coverImageUrl?: string | null; coverAlt?: string }): Promise<boolean> {
     const artId = articleIds[entryIdx]
     if (!artId) { toast.error('ยังไม่พบบทความนี้ใน DB — ลองกดดูใหม่อีกครั้ง'); return false }
-    if (JSON.stringify(body).length > 4_000_000) { toast.error('ไฟล์ภาพใหญ่เกินไป (เกิน 4MB) — ลองลดขนาดก่อน'); return false }
+    if (patchTooBig(body)) return false
     setCoverBusy(entryIdx)
     try {
       const r = await fetch(`/api/articles/${artId}`, {
@@ -486,6 +538,84 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
       return false
     } finally {
       setCoverBusy(null)
+    }
+  }
+
+  /**
+   * PATCH งานแก้รูปในเนื้อหา (alt / ลิงก์ / แทรกรูป) แล้วอัปเดต state เหมือนบันทึก SEO — คืน true เมื่อสำเร็จ
+   * server คำนวณ htmlContent ใหม่และแทนคำต้องห้ามของ CE เหมือนแก้มือ → ใช้ HTML ที่ server ส่งกลับ
+   */
+  async function patchContentHtml(entryIdx: number, body: Record<string, unknown>, fallbackHtml?: string): Promise<boolean> {
+    const artId = articleIds[entryIdx]
+    if (!artId) { toast.error('ยังไม่พบบทความนี้ใน DB — ลองกดดูใหม่อีกครั้ง'); return false }
+    if (patchTooBig(body)) return false
+    try {
+      const r = await fetch(`/api/articles/${artId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const d = await r.json().catch(() => ({})) as { error?: string; htmlContent?: string | null; restrictionWarnings?: string[] }
+      if (!r.ok) { toast.error(d?.error || 'บันทึกไม่สำเร็จ — ลองอีกครั้ง'); return false }
+      const nextHtml = typeof d.htmlContent === 'string' && d.htmlContent ? d.htmlContent : (fallbackHtml ?? '')
+      if (nextHtml) {
+        setLocalJobHtml(prev => ({ ...prev, [entryIdx]: nextHtml }))
+        setJobs(prev => prev.map(j => j.entryIdx === entryIdx ? { ...j, html: nextHtml } : j))
+      }
+      if (Array.isArray(d.restrictionWarnings) && d.restrictionWarnings.length) toast.warning(d.restrictionWarnings.join(' · '))
+      return true
+    } catch {
+      toast.error('บันทึกไม่สำเร็จ — ลองอีกครั้ง')
+      return false
+    }
+  }
+
+  /** แทรก <figure> หลังหัวข้อ H2 ที่เลือก — ติดป้าย data-mars-manual กันถูกลบตอนสร้างรูปประกอบใหม่ แล้วบันทึกทางเดียวกับการแก้ htmlContent */
+  async function insertImageAfterH2(entryIdx: number, entry: TimelineEntry) {
+    if (!insertFile || insertPos === '') return
+    const baseHtml = htmlOf(entryIdx)
+    if (!baseHtml) return
+    setInserting(true)
+    try {
+      const dataUrl = await fileToDownscaledDataUrl(insertFile, 1600)
+      const altText = (insertAlt || entry.title).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      const figureHtml = `<figure class="content-figure" ${MANUAL_FIGURE_ATTR}="1"><img src="${dataUrl}" alt="${altText}"></figure>`
+      const newHtml = insertFigureAfterH2(baseHtml, insertPos, figureHtml)
+      if (newHtml === baseHtml) { toast.error('แทรกรูปไม่สำเร็จ — ไม่พบหัวข้อ H2 ที่เลือก'); return }
+      if (await patchContentHtml(entryIdx, { htmlContent: newHtml }, newHtml)) {
+        toast.success('แทรกรูปในเนื้อหาแล้ว')
+        setInsertFile(null); setInsertAlt(''); setInsertPos('')
+      }
+    } catch {
+      toast.error('แทรกรูปไม่สำเร็จ')
+    } finally {
+      setInserting(false)
+    }
+  }
+
+  /** ให้ Mars เสนอ Meta Title / Description / Slug — เสนออย่างเดียว ไม่เขียนลง DB ผู้ใช้ต้องกด "บันทึก SEO" เอง */
+  async function suggestMeta(entryIdx: number) {
+    const artId = articleIds[entryIdx]
+    if (!artId) { toast.error('ยังไม่พบบทความนี้ใน DB — ลองกดดูใหม่อีกครั้ง'); return }
+    setAiMetaBusy(entryIdx)
+    try {
+      const r = await fetch(`/api/articles/${artId}/meta-suggest`, { method: 'POST' })
+      const d = await r.json().catch(() => ({})) as { error?: string; seoTitle?: string; metaDescription?: string; slug?: string; costUsd?: number; warning?: string }
+      if (!r.ok) { toast.error(d?.error || 'Mars เขียน Meta ไม่สำเร็จ'); return }
+      setSeoDraft(prev => {
+        const cur = prev[entryIdx] ?? { seoTitle: '', metaDescription: '', slug: '' }
+        return { ...prev, [entryIdx]: {
+          seoTitle: d.seoTitle ?? cur.seoTitle,
+          metaDescription: d.metaDescription ?? cur.metaDescription,
+          slug: d.slug || cur.slug,
+        } }
+      })
+      if (d.warning) toast.warning(d.warning)
+      toast.success(`Mars เขียน Meta แล้ว — ตรวจแล้วกด "บันทึก SEO"${typeof d.costUsd === 'number' ? ` (ต้นทุน $${d.costUsd.toFixed(4)})` : ''}`)
+    } catch (e) {
+      toast.error(`Mars เขียน Meta ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setAiMetaBusy(null)
     }
   }
 
@@ -600,7 +730,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
         if (data?.comments) setComments(prev => ({ ...prev, [entryIdx]: data.comments }))
       }
       if (!artId) {
-        alert('ไม่พบบทความใน DB — กรุณาสร้างบทความก่อนส่ง Comment')
+        toast.error('ไม่พบบทความใน DB — กรุณาสร้างบทความก่อนส่ง Comment')
         return
       }
       const res = await fetch(`/api/articles/${artId}/comments`, {
@@ -614,10 +744,10 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
         setCommentDraft(prev => ({ ...prev, [entryIdx]: '' }))
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(`บันทึก Comment ไม่สำเร็จ: ${err?.error ?? res.status}`)
+        toast.error(`บันทึก Comment ไม่สำเร็จ: ${err?.error ?? res.status}`)
       }
     } catch (e) {
-      alert(`เกิดข้อผิดพลาด: ${String(e)}`)
+      toast.error(`เกิดข้อผิดพลาด: ${String(e)}`)
     } finally {
       setSavingComment(prev => ({ ...prev, [entryIdx]: false }))
     }
@@ -839,6 +969,20 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
                       <Download size={11} /> HTML
                     </button>
+                    {!isClient && (
+                      <button onClick={() => openHtmlPreview(entryIdx, entry, job, html)}
+                        title="เปิดดู HTML หน้าตาเหมือน Preview ในแท็บใหม่"
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
+                        เปิด HTML ในแท็บใหม่
+                      </button>
+                    )}
+                    {viewMode === 'edit' && !isClient && (
+                      <button onClick={() => setEditTone(t => (t === 'site' ? 'readable' : 'site'))}
+                        title="เปลี่ยนสีเฉพาะตอนแก้ไข ไม่มีผลกับบทความที่บันทึก/push"
+                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${editTone === 'readable' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200'}`}>
+                        {editTone === 'readable' ? 'สีอ่านง่าย ✓' : 'สีอ่านง่าย'}
+                      </button>
+                    )}
                     {viewMode === 'edit' && (
                       <button disabled={editSaving} onClick={() => saveEditedHtml(entryIdx, entry)}
                         className="flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors">
@@ -858,11 +1002,14 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                     <div className="p-5 text-sm text-gray-800 whitespace-pre-wrap leading-7">{htmlToPlainText(html)}</div>
                   )}
                   {viewMode === 'edit' && (
-                    <>
+                    // wrapper + <style> อยู่นอกตัว editable — ไม่ถูกบันทึกลงบทความ
+                    <div className={editTone === 'readable' ? 'ua-edit-readable' : ''}
+                      style={{ background: editTone === 'site' ? editBackground(articleLook.pageBackground) : '#fff' }}>
+                      {editTone === 'readable' && <style>{EDIT_READABLE_CSS}</style>}
                       <EditorToolbar editorRef={reviewEditorRef} className="sticky top-0 z-10 bg-white" />
                       <ScopedEditable html={html} editorRef={reviewEditorRef}
                         className="p-5 outline-none min-h-[200px] focus:ring-2 focus:ring-brand-blue/20" />
-                    </>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1050,6 +1197,14 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       {seoSaving === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
                       {seoSaving === entryIdx ? 'กำลังบันทึก...' : 'บันทึก SEO'}
                     </button>
+                    <button
+                      disabled={aiMetaBusy === entryIdx || seoSaving === entryIdx || imagesRunning}
+                      title="ให้ Mars เสนอ Meta Title / Description / Slug จากเนื้อหาบทความ — ยังไม่บันทึกจนกว่าจะกด บันทึก SEO"
+                      onClick={() => suggestMeta(entryIdx)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      {aiMetaBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : null}
+                      {aiMetaBusy === entryIdx ? 'Mars กำลังเขียน...' : 'ให้ Mars เขียน Meta + Slug'}
+                    </button>
                     {savedRecently && (
                       <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
                         <Check size={12} /> บันทึกแล้ว
@@ -1071,6 +1226,46 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                   onUpdated={a => applyArticleUpdate(entryIdx, entry, a)}
                   onBusyChange={b => setImgBusy(prev => b ? entryIdx : (prev === entryIdx ? null : prev))}
                 />
+                {html && (
+                  <div className={coverControlsOff ? 'pointer-events-none opacity-50' : ''}>
+                    <ArticleImagesPanel
+                      html={html}
+                      coverImageUrl={job?.coverImage ? `data:${job.coverMimeType || 'image/webp'};base64,${job.coverImage}` : (coverUrl[entryIdx] ?? null)}
+                      onSaveAlt={async (index, alt) => {
+                        const ok = await patchContentHtml(entryIdx, { imageAlt: { index, alt } })
+                        if (ok) toast.success('บันทึก alt แล้ว')
+                        return ok
+                      }}
+                      onSaveLink={async (index, href) => {
+                        const ok = await patchContentHtml(entryIdx, { imageLink: { index, href } })
+                        if (ok) toast.success(href ? 'ใส่ลิงก์ให้รูปแล้ว' : 'เอาลิงก์ออกจากรูปแล้ว')
+                        return ok
+                      }}
+                      onSetCover={async (src, alt) => {
+                        const ok = await patchCover(entryIdx, entry, { coverImageUrl: src, coverAlt: alt || entry.title })
+                        if (ok) toast.success('ตั้งเป็นภาพปกแล้ว')
+                        return ok
+                      }}
+                    />
+                  </div>
+                )}
+                {html && (
+                  <div className={`bg-white border border-gray-200 rounded-xl p-4 space-y-3 ${coverControlsOff ? 'pointer-events-none opacity-50' : ''}`}>
+                    <p className="text-xs font-bold text-brand-navy">แทรกรูปในเนื้อหา</p>
+                    <input type="file" accept="image/*" onChange={e => setInsertFile(e.target.files?.[0] ?? null)} className="text-xs" />
+                    <input value={insertAlt} onChange={e => setInsertAlt(e.target.value)} placeholder="Alt text ของรูป"
+                      className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+                    <select value={insertPos} onChange={e => setInsertPos(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white">
+                      <option value="">หลังหัวข้อ H2:</option>
+                      {listH2Sections(html).map((h, i) => <option key={i} value={h.index}>{h.text}</option>)}
+                    </select>
+                    <button disabled={!insertFile || insertPos === '' || inserting} onClick={() => insertImageAfterH2(entryIdx, entry)}
+                      className="w-full px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors">
+                      {inserting ? 'กำลังแทรก...' : 'แทรกรูป'}
+                    </button>
+                  </div>
+                )}
                 {coverCard}
                 </div>
               )

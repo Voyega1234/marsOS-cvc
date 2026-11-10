@@ -11,6 +11,8 @@ import { cleanArticlePatch } from "@/lib/ce-restrictions";
 import { updateProjectPrefs } from "@/lib/project-prefs-store";
 import { pruneArticleFromPrefs } from "@/lib/sme-articles/duplicates";
 import { setCoverAltInHtml } from "@/lib/sme-articles/article-images";
+import { setImageAltAt, setImageLinkAt } from "@/lib/upload-article/image-alt";
+import { sanitizeHref } from "@/lib/upload-article/clean-html";
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession();
@@ -42,7 +44,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // Verify org ownership before mutating
   const existing = await prisma.article.findFirst({
     where: { id: params.id, project: { organizationId: orgId } },
-    select: { id: true, projectId: true, slug: true, wordpressUrl: true, status: true },
+    select: { id: true, projectId: true, slug: true, wordpressUrl: true, status: true, updatedAt: true },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   // CLIENT แก้ได้เฉพาะบทความในโปรเจกต์ที่ตัวเองมีสิทธิ์ (เหมือน GET)
@@ -51,6 +53,50 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const body = await req.json();
+
+  // เช็กชนกันแบบเลือกได้ — ทำเฉพาะเมื่อ client ส่ง expectedUpdatedAt มา (ไม่ส่ง = พฤติกรรมเดิมทุกอย่าง)
+  if (typeof body.expectedUpdatedAt === "string" && body.expectedUpdatedAt) {
+    const expected = new Date(body.expectedUpdatedAt).getTime();
+    if (!Number.isFinite(expected) || expected !== existing.updatedAt.getTime()) {
+      return NextResponse.json({ error: "บทความถูกแก้ไปแล้ว — โหลดใหม่แล้วลองอีกครั้ง" }, { status: 409 });
+    }
+  }
+
+  // แก้ alt / ลิงก์ของรูปในเนื้อหาทีละรูป (เฉพาะทีมงาน) — คำนวณ htmlContent ใหม่แล้วไหลเข้าเส้นทางเดียวกับการแก้ htmlContent
+  // (แทนคำต้องห้ามของ Content Engine เหมือนแก้มือทุกประการ)
+  const wantsImageOp = Boolean(body.imageAlt && typeof body.imageAlt === "object") || Boolean(body.imageLink && typeof body.imageLink === "object");
+  if (wantsImageOp && session.user.role === "CLIENT") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  let imageOpHtml: string | null = null;
+  if (wantsImageOp && typeof body.htmlContent !== "string") {
+    const cur = await prisma.article.findUnique({ where: { id: params.id }, select: { htmlContent: true } });
+    const curHtml = cur?.htmlContent ?? "";
+    if (body.imageAlt && typeof body.imageAlt === "object") {
+      const index = Number(body.imageAlt.index);
+      const alt = typeof body.imageAlt.alt === "string" ? body.imageAlt.alt.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+      if (!Number.isInteger(index) || index < 0 || !curHtml) {
+        return NextResponse.json({ error: "ไม่พบรูปที่จะแก้ alt" }, { status: 400 });
+      }
+      const res = setImageAltAt(curHtml, index, alt);
+      if (!res) return NextResponse.json({ error: "ไม่พบรูปที่จะแก้ alt — โหลดบทความใหม่แล้วลองอีกครั้ง" }, { status: 409 });
+      imageOpHtml = res.html;
+    } else {
+      const index = Number(body.imageLink.index);
+      const raw = typeof body.imageLink.href === "string" ? body.imageLink.href.trim().slice(0, 2000) : "";
+      const href = raw ? sanitizeHref(raw) : "";
+      if (raw && (!href || !/^(https?:\/\/|\/)/i.test(href))) {
+        return NextResponse.json({ error: "ลิงก์ต้องขึ้นต้นด้วย https:// หรือ /" }, { status: 400 });
+      }
+      if (!Number.isInteger(index) || index < 0 || !curHtml) {
+        return NextResponse.json({ error: "ไม่พบรูปที่จะใส่ลิงก์" }, { status: 400 });
+      }
+      const res = setImageLinkAt(curHtml, index, href);
+      if (!res) return NextResponse.json({ error: "ไม่พบรูปที่จะใส่ลิงก์ — โหลดบทความใหม่แล้วลองอีกครั้ง" }, { status: 409 });
+      imageOpHtml = res.html;
+    }
+  }
+
   const allowed = [
     "status", "title", "slug", "brief", "outline", "htmlContent", "seoTitle", "metaDescription",
     "faqSchema", "imagePrompt", "assignedToId", "reviewerId", "wordpressUrl", "wordpressStatus",
@@ -61,6 +107,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   for (const key of allowed) {
     if (key in body) data[key] = body[key];
   }
+  if (imageOpHtml !== null) data.htmlContent = imageOpHtml;
 
   // ปกต้องเป็น data URI หรือ https เท่านั้น ('' = ลบปก)
   if ("coverImageUrl" in data) {

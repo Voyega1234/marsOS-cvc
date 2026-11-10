@@ -25,6 +25,14 @@ assert(out.includes('https://x.com/b.jpg'), 'https figure untouched')
 assert(!out.includes('AAA') && !out.includes('a.webp'), 'legacy + gen gone')
 assert(countSmeGeneratedFigures(cover) === 0, 'cover alone = 0')
 
+// รูปที่แทรกเอง (data-mars-manual) ต้องรอดตอนสร้างรูปใหม่ แม้หน้าตาเหมือน writer เก่า
+const manual = '<figure class="content-figure" data-mars-manual="1"><img src="data:image/webp;base64,CCC" alt="m"></figure>'
+const withManual = `${html}${manual}`
+assert(countSmeGeneratedFigures(withManual) === 2, 'manual figure not counted as Mars')
+const outManual = removeSmeGeneratedFigures(withManual)
+assert(outManual.includes('CCC') && !outManual.includes('AAA'), 'manual kept, Mars figures removed')
+assert(countSmeGeneratedFigures('<figure class="content-figure" data-ua-gen="1" data-mars-manual="1"><img src="https://x.com/a.webp" alt="y"></figure>') === 0, 'manual marker wins over data-ua-gen')
+
 // alt
 assert(getCoverAltFromHtml('<p>x</p>') === '', 'no block = empty alt')
 const withBlock = '<p>x</p>\n<!-- CONVERT_CAKE_SEO_META\nmeta_title: T\ncover_image_alt: old\nen_slug: s\n-->'
