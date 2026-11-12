@@ -56,6 +56,7 @@ import {
 } from '@/lib/upload-article/outline'
 import { PBN_MAIN_PROFILE, isPbnProfileId, readPbnProfiles, readPbnArticleTargets } from '@/lib/upload-article/pbn-sets'
 import { pbnEffectiveClient, resolveCeSet } from '@/lib/upload-article/pbn-context'
+import { enforcePbnBacklink, pbnBacklinkFor } from '@/lib/upload-article/pbn-backlink'
 import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
 import { PUSH_LOCK_MS, REWRITE_SOURCE_TYPE, rewriteBackupName } from '@/lib/upload-article/rewrite-lock'
 import { isNormalStopFinish, rewriteOutputProblem } from '@/lib/upload-article/rewrite-guard'
@@ -228,6 +229,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const plan = readPlan(prefs)
   const keyword = plan.find((k) => k.id === keywordId)
   if (!keyword) return NextResponse.json({ error: 'ไม่พบ keyword นี้' }, { status: 404 })
+  // PBN: บทความลิงก์ออกไป URL ปลายทางของ keyword ลิงก์เดียว (ไม่มี internal link) — ยังไม่ใส่ URL = ไม่เขียน ไม่เสียค่า AI
+  const backlink = isPbn ? pbnBacklinkFor(keyword) : null
+  if (isPbn && !backlink) {
+    return NextResponse.json({ error: 'ใส่ URL ปลายทาง (Backlink) ของ keyword นี้ในแท็บ Keyword ก่อนเขียน' }, { status: 400 })
+  }
 
   // keyword นี้กำลังเขียนอยู่แล้ว (ไม่นับที่ค้างเกิน WRITER_STALE_MS — proc ตายกลางทาง ลบแล้วเขียนใหม่ได้)
   const sourceName = rewriteOf ? `rw:${rewriteOf.id}` : writerSourceName(keywordId, variant)
@@ -286,7 +292,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const links = readLinks(prefs)
-  const linkPairs = pickLinksForKeyword(links, { keyword: keyword.keyword, title: keyword.title, slug: keyword.slug, extra: extraLinks, ...(rewriteOf?.wordpressUrl ? { excludeUrl: rewriteOf.wordpressUrl } : {}) })
+  const linkPairs = isPbn ? [] : pickLinksForKeyword(links, { keyword: keyword.keyword, title: keyword.title, slug: keyword.slug, extra: extraLinks, ...(rewriteOf?.wordpressUrl ? { excludeUrl: rewriteOf.wordpressUrl } : {}) })
 
   // คำต้องห้าม (Content Engine > ข้อจำกัด) ในช่อง title / SEO title / slug ที่มาจากแผน keyword — แทนคำที่มีคำแทนไว้, ที่เหลือเตือน
   // keyword หลักห้ามแก้ — มีคำต้องห้ามแค่เตือน
@@ -398,6 +404,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ? { ...keyword, title: rewriteOf.title, slug: rewriteOf.slug || articleSlug || keyword.slug }
         : { ...keyword, title: keyword.title ? title : keyword.title, slug: keyword.slug ? articleSlug : keyword.slug },
       links: linkPairs,
+      ...(backlink ? { backlink } : {}),
       language,
       brandNames: [client.name],
       constraintLayers: constraints.layerNames,
@@ -623,7 +630,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         // แทรกกล่อง CTA ลง sourceHtml เลย — Generate ใหม่กี่รอบก็ยังอยู่ (ข้อความ CTA มาจากที่ทีมตั้ง ไม่ใช่ AI)
         const withCtaHtml = withCta ? insertUploadCta(cleaned, cta).html : cleaned
         // จัดกล่องตอนนี้ด้วยแหล่งที่อ่านแล้วเท่านั้น — ลิงก์ที่ไม่ได้อ่าน (หรือแต่งเอง) ถูกตัด และ Re-generate ไม่ตัดแหล่งที่ค้นเจอทิ้ง
-        const sourceHtml = found.enabled && theme.detail?.structure?.references
+        let sourceHtml = found.enabled && theme.detail?.structure?.references
           ? boxReferencesSection(withCtaHtml, {
               library: citableLibrary(theme.detail.references ?? [], found),
               title: theme.detail.structure.referencesTitle,
@@ -631,6 +638,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               onlyListed: true,
             })
           : withCtaHtml
+        // PBN: เหลือลิงก์ไป URL ปลายทางลิงก์เดียว — ลิงก์อื่น (internal/อ้างอิง/เว็บอื่น) ถอดเหลือข้อความ, AI ไม่ใส่ = ครอบ keyword ให้
+        if (backlink) {
+          const enforced = enforcePbnBacklink(sourceHtml, backlink)
+          sourceHtml = enforced.html
+          if (!enforced.present) {
+            restrictionWarnings = [...(restrictionWarnings ?? []), `ไม่พบจุดใส่ Backlink "${backlink.keyword}" ในเนื้อหา — ใส่ลิงก์ไป ${backlink.url} เองก่อน push`]
+          }
+        }
         if (rewriteOf) {
           const problem = rewriteOutputProblem(rewriteOf.sourceHtml, sourceHtml)
           if (problem) throw new Error(problem)

@@ -101,6 +101,8 @@ export interface WriterDryRunInput {
   uploadedFiles?: { restrictions: number; comments: number };
   /** PBN: ตอนเขียนจริงเพิ่มมุมเล่าตามเวอร์ชัน */
   pbn?: boolean;
+  /** PBN Backlinks: ลิงก์ออกไป URL ปลายทางของ keyword (แทน Internal Link) */
+  backlink?: UploadLinkPair;
   /** โครงบทความตามเว็บของลูกค้า — ไม่ส่ง = กฎเริ่มต้น */
   structure?: ArticleStructureOptions;
 }
@@ -358,6 +360,7 @@ export function buildWriterDryRun(input: WriterDryRunInput): WriterDryRun {
     userPrompt = buildWriterUserPrompt({
       keyword: { ...keyword, title: keyword.title ? title : keyword.title, slug: keyword.slug ? slugClean.text : keyword.slug },
       links,
+      ...(input.backlink ? { backlink: input.backlink } : {}),
       language,
       brandNames: input.brandNames,
       constraintLayers: constraints.layerNames,
@@ -413,8 +416,9 @@ export function buildWriterDryRun(input: WriterDryRunInput): WriterDryRun {
   };
 
   const linkText = links.map((l) => `- anchor: "${l.keyword}" → url: ${l.url}`).join("\n");
-  const linksLayer: DryRunLayer =
-    target === "upload"
+  const linksLayer: DryRunLayer = input.backlink
+    ? { ...systemBlock("links", "Backlink (PBN)", `- anchor: ${input.backlink.keyword}\n- url: ${input.backlink.url}`, inPrompt, ["ลิงก์เดียวในบทความ ไม่มี Internal Link"]), source: "แท็บ Keyword (URL ปลายทาง)" }
+    : target === "upload"
       ? { ...systemBlock("links", "Internal Link", linkText, inPrompt, [links.length ? `${links.length} ลิงก์ที่ตรงหัวข้อ` : "ไม่มีลิงก์ให้ใช้รอบนี้"]), source: "Project Setting + บทความในระบบ" }
       : { key: "links", label: "Internal Link", required: false, state: "later", source: null, chars: 0, details: ["เลือกตอนเขียนจริงจากแหล่งลิงก์ของโปรเจกต์ ไม่แสดงใน Run Test"], text: "" };
 
@@ -477,6 +481,7 @@ export function buildWriterDryRun(input: WriterDryRunInput): WriterDryRun {
     warnings.push({ level: "warn", text: "เปิดส่วนอ้างอิงไว้แต่ยังไม่มีรายการแหล่ง บทความจะไม่มีส่วนอ้างอิง เพิ่มรายการที่หน้า Article Style หรือสแกนบทความที่มีอ้างอิง" });
   }
   if (input.pbn) warnings.push({ level: "info", text: "PBN: ตอนเขียนจริงเพิ่มมุมเล่าตามเวอร์ชันและสไตล์ตามเว็บปลายทาง" });
+  if (input.pbn && !input.backlink) warnings.push({ level: "warn", text: "PBN: keyword นี้ยังไม่มี URL ปลายทาง (Backlink) — ใส่ในแท็บ Keyword ก่อนเขียนจริง" });
   if (target === "seo") warnings.push({ level: "info", text: "Prompt ด้านล่างเป็นโครงเรียงตามลำดับจริง ตอนเขียนจริงมีข้อมูลเว็บ CTA ตัวอย่างบทความ และผู้เขียนเพิ่ม" });
 
   return {

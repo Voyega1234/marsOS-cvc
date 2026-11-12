@@ -12,9 +12,11 @@ export interface ParsedKeywordRow {
   intent?: string
   articleType?: string
   note?: string
+  /** PBN: URL ปลายทางของ backlink */
+  targetUrl?: string
 }
 
-export type KeywordImportField = 'keyword' | 'title' | 'volume' | 'slug' | 'intent' | 'articleType' | 'note'
+export type KeywordImportField = 'keyword' | 'title' | 'volume' | 'slug' | 'intent' | 'articleType' | 'note' | 'targetUrl'
 
 export interface KeywordTableParse {
   rows: ParsedKeywordRow[]
@@ -30,6 +32,7 @@ const HEADER_PATTERNS: [KeywordImportField, RegExp][] = [
   ['intent', /^(search )?intent$/],
   ['articleType', /^(article type|content type|ประเภท|ประเภทบทความ)$/],
   ['note', /^(notes?|brief|หมายเหตุ|โน้ต|คำแนะนำ)$/],
+  ['targetUrl', /^((target|money|landing|destination|backlink) ?)?(url|link|page)$|^(urls?|links?|ลิงก์|ลิ้งก์|ลิ้งค์|ลิงค์|ยูอาร์แอล)( ?ปลายทาง)?$|^(หน้า|เว็บ) ?ปลายทาง$/],
 ]
 
 /** แถวสรุปท้ายตาราง เช่น ",Total,40" — ไม่ใช่ keyword */
@@ -74,6 +77,12 @@ export function splitDelimited(text: string): string[][] {
   })
 }
 
+/** ช่องที่หน้าตาเป็น URL (มี http(s):// หรือ www.) — ใช้ตอนไม่มีหัวตาราง */
+function looksLikeUrl(s: string): boolean {
+  return /^(https?:\/\/|www\.)\S+$/i.test(s.trim())
+}
+const TRAILING_URL_RE = /\s+((?:https?:\/\/|www\.)\S+)$/i
+
 function parseVolume(raw: string | undefined): number | undefined {
   if (!raw) return undefined
   const m = raw.replace(/,/g, '').trim().match(/^(\d+(?:\.\d+)?)\s*([kKmM])?$/)
@@ -102,9 +111,17 @@ export function parseKeywordTable(grid: string[][]): KeywordTableParse {
     const rows: ParsedKeywordRow[] = []
     for (const r of cells) {
       const parts = r.filter(Boolean)
-      const keyword = parts[0] ?? ''
+      let keyword = parts[0] ?? ''
+      // "keyword https://..." ในช่องเดียว (พิมพ์คั่นด้วยเว้นวรรค) — แยก URL ท้ายบรรทัดออกมา
+      let targetUrl = parts.slice(1).find(looksLikeUrl)
+      if (!targetUrl) {
+        const m = keyword.match(TRAILING_URL_RE)
+        if (m) { targetUrl = m[1]; keyword = keyword.slice(0, m.index).trim() }
+      }
       if (!keyword || fieldOf(keyword) === 'keyword' || TOTAL_CELL_RE.test(keyword)) continue
-      rows.push({ keyword, volume: parseVolume(parts[1]) })
+      const row: ParsedKeywordRow = { keyword, volume: parseVolume(parts.slice(1).find((p) => !looksLikeUrl(p))) }
+      if (targetUrl) row.targetUrl = targetUrl
+      rows.push(row)
     }
     return { rows, columns: [] }
   }
@@ -122,7 +139,7 @@ export function parseKeywordTable(grid: string[][]): KeywordTableParse {
     const row: ParsedKeywordRow = { keyword }
     const volume = parseVolume(pick(r, 'volume'))
     if (volume !== undefined) row.volume = volume
-    for (const f of ['title', 'slug', 'intent', 'articleType', 'note'] as const) {
+    for (const f of ['title', 'slug', 'intent', 'articleType', 'note', 'targetUrl'] as const) {
       const v = pick(r, f)
       if (v) row[f] = v
     }

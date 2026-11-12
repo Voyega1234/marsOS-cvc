@@ -7,6 +7,7 @@ import { uploadArticleLanguage } from "@/lib/upload-article/build-html";
 import { loadArticleLinkPairs } from "@/lib/upload-article/article-links";
 import { pickLinksForKeyword } from "@/lib/upload-article/internal-links";
 import { isPbnPrefsRaw } from "@/lib/upload-article/pbn";
+import { pbnBacklinkFor } from "@/lib/upload-article/pbn-backlink";
 import { resolveCeSet } from "@/lib/upload-article/pbn-context";
 import { readPrefs } from "@/lib/upload-article/prefs-store";
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword } from "@/lib/upload-article/types";
@@ -73,13 +74,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     keyword = { id: "dry-run", keyword: keywordText, title: text(body.title, 300), slug: "", intent: "", articleType: "", note: text(body.note, 2000), createdAt: new Date().toISOString() };
   }
 
-  const extra = await loadArticleLinkPairs(client.id, orgId, prefs);
+  // PBN: ไม่มี internal link — ลิงก์เดียวคือ Backlink ไป URL ปลายทางของ keyword
+  const pbn = isPbnPrefsRaw(client.pushPrefs);
+  const backlink = pbn ? pbnBacklinkFor(keyword) : null;
+  const extra = pbn ? [] : await loadArticleLinkPairs(client.id, orgId, prefs);
   const rawLinks = prefs.internalLinks;
   const linkSettings: UploadInternalLinks = {
     ...DEFAULT_UPLOAD_INTERNAL_LINKS,
     ...(rawLinks && typeof rawLinks === "object" ? (rawLinks as Partial<UploadInternalLinks>) : {}),
   };
-  const links = pickLinksForKeyword(linkSettings, { keyword: keyword.keyword, title: keyword.title, slug: keyword.slug, extra });
+  const links = pbn ? [] : pickLinksForKeyword(linkSettings, { keyword: keyword.keyword, title: keyword.title, slug: keyword.slug, extra });
 
   const result = await runWriterDryRun(orgId, { projectId: ceSet.scopeId }, {
     target: "upload",
@@ -87,7 +91,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     links,
     language: uploadArticleLanguage(ceSet.client.language, keyword.title || keyword.keyword, keyword.keyword),
     brandNames: [client.name],
-    pbn: isPbnPrefsRaw(client.pushPrefs),
+    pbn,
+    ...(backlink ? { backlink } : {}),
     structure: structureOptionsFromDetail(themeDetailOf(client.themeColors), `${keyword.title} ${keyword.keyword}`),
   });
   return NextResponse.json(result);

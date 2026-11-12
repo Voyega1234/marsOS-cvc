@@ -375,6 +375,8 @@ export interface UploadKeyword {
   articleType: string
   /** โน้ตเพิ่มให้คนเขียน (ส่งเข้า prompt ตอนเขียน) */
   note?: string
+  /** PBN Backlinks เท่านั้น: URL ปลายทางที่บทความต้องลิงก์ออกไปหา (anchor = keyword) — ลิงก์เดียวในบทความ */
+  targetUrl?: string
   /** บทความที่เขียนจาก keyword นี้ล่าสุด (UploadArticle.id) */
   articleId?: string
   /** ข้อความผิดพลาดจากการเขียนรอบล่าสุด (ว่าง = ไม่มี) */

@@ -53,7 +53,7 @@ function fontLabel(f?: string): string {
 
 export default function GenerateTab({
   client, articles, selected, selectedId, setSelectedId,
-  loadArticleDetail, articleDetails, applyArticleUpdate, goToReview, onOpenSettings,
+  loadArticleDetail, articleDetails, applyArticleUpdate, goToReview, onOpenSettings, pbn = false,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
@@ -66,6 +66,8 @@ export default function GenerateTab({
   applyArticleUpdate: (a: UploadArticleDTO) => void;
   goToReview: (id: string) => void;
   onOpenSettings?: (section: SettingsSection) => void;
+  /** PBN Backlinks: ไม่มี internal link (ลิงก์เดียวคือ Backlink ไป URL ปลายทาง) */
+  pbn?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -169,7 +171,7 @@ export default function GenerateTab({
       const r = await fetch(`/api/upload-article/articles/${id}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: outputMode, breadcrumb, internalLinks: o.links }),
+        body: JSON.stringify({ mode: outputMode, breadcrumb, internalLinks: !pbn && o.links }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -280,7 +282,7 @@ export default function GenerateTab({
           <div className="space-y-2.5 border-t border-gray-100 pt-3">
             <label className="block text-[11px] font-semibold text-gray-500">เพิ่มเติม</label>
 
-            <div>
+            {!pbn && <div>
               <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                 <input type="checkbox" checked={opts.links} onChange={e => setOpt("links", e.target.checked)} />
                 ใส่ Internal Link
@@ -292,7 +294,7 @@ export default function GenerateTab({
                   {" "}— ไม่แก้ถ้อยคำ ย่อหน้าละไม่เกิน 1 ลิงก์
                 </p>
               )}
-            </div>
+            </div>}
 
             <div>
               <label className="flex items-center gap-1.5 text-xs cursor-pointer">

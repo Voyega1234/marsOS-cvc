@@ -62,13 +62,14 @@ export default function SettingsTab({
   const isPbn = mode === "pbn";
   // Checklist เป็นของ Upload Article เท่านั้น — PBN ไม่มี
   const sections = isPbn
-    ? SECTIONS.filter(s => s.id !== "danger" && s.id !== "checklist").map(s => (s.id === "website" ? { ...s, label: "PBN Sites & Connect" } : s))
+    ? SECTIONS.filter(s => s.id !== "danger" && s.id !== "checklist" && s.id !== "links").map(s => (s.id === "website" ? { ...s, label: "PBN Sites & Connect" } : s))
     : SECTIONS;
   const [internalSection, setInternalSection] = useState<SettingsSection>("website");
   const requested = section ?? internalSection;
   // โหมด PBN ไม่มีเมนูลบ/Checklist — ลิงก์เก่า ?section=danger ตกกลับไปหน้าเว็บ
   const requestedNorm: SettingsSection = requested === "style" ? "scan" : requested; // ลิงก์เก่า "style" = หน้าเดียวกับ scan
-  const active = isPbn && (requestedNorm === "danger" || requestedNorm === "checklist") ? "website" : requestedNorm;
+  // PBN ไม่มี Internal Link — ลิงก์เดียวในบทความคือ Backlink ไป URL ปลายทางที่ตั้งในแท็บ Keyword
+  const active = isPbn && (requestedNorm === "danger" || requestedNorm === "checklist" || requestedNorm === "links") ? "website" : requestedNorm;
 
   function go(s: SettingsSection) {
     setInternalSection(s);

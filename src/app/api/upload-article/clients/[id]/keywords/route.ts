@@ -4,6 +4,8 @@ import { getSession } from '@/lib/auth'
 import { readPrefs, updatePrefs } from '@/lib/upload-article/prefs-store'
 import { normalizeIntent, sanitizeSlugCandidate, uniqueSlug } from '@/lib/upload-article/keywords-ai'
 import type { UploadKeyword, UploadKeywordIntent } from '@/lib/upload-article/types'
+import { isPbnPrefs } from '@/lib/upload-article/pbn'
+import { normalizeTargetUrl } from '@/lib/upload-article/pbn-backlink'
 
 const KEYWORD_MAX = 200
 const PLAN_MAX = 500
@@ -36,9 +38,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const rawItems = Array.isArray(body?.items) ? body.items : []
   if (rawItems.length === 0) return NextResponse.json({ error: 'ไม่พบรายการ keyword' }, { status: 400 })
 
-  type Candidate = { keyword: string; volume: number | null; title: string; slug: string; intent: UploadKeywordIntent | ''; articleType: string; note: string }
+  type Candidate = { keyword: string; volume: number | null; title: string; slug: string; intent: UploadKeywordIntent | ''; articleType: string; note: string; targetUrl: string }
   const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
   const candidates: Candidate[] = []
+  // PBN: URL ปลายทางของ backlink — ช่องที่ใส่มาแต่ไม่ใช่ URL นับไว้แจ้งทีม (keyword ยังเพิ่มได้ ใส่ URL ทีหลังในตาราง)
+  let invalidUrls = 0
   for (const it of rawItems) {
     const keyword = str(it?.keyword, KEYWORD_MAX)
     if (!keyword) continue
@@ -51,13 +55,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       intent: it?.intent ? (normalizeIntent(it.intent) as UploadKeywordIntent | '') : '',
       articleType: str(it?.articleType, 100),
       note: str(it?.note, 2000),
+      targetUrl: (() => {
+        const u = normalizeTargetUrl(it?.targetUrl ?? '')
+        if (u === null) invalidUrls++
+        return u ?? ''
+      })(),
     })
   }
   if (candidates.length === 0) return NextResponse.json({ error: 'keyword ทุกรายการว่าง' }, { status: 400 })
 
-  type PostResult = { items: UploadKeyword[]; added: number; updated: number; skipped: number }
+  type PostResult = { items: UploadKeyword[]; added: number; updated: number; skipped: number; invalidUrls: number }
   const result = await updatePrefs<PostResult | { error: string }>(params.id, session.user.organizationId, (current) => {
     const plan = readPlan(current).map((k) => ({ ...k }))
+    // URL ปลายทางใช้เฉพาะ PBN — Upload Article ไม่เก็บ
+    const pbn = isPbnPrefs(current)
     const byKey = new Map(plan.map((k) => [k.keyword.trim().toLowerCase(), k]))
     const takenSlugs = new Set(plan.map((k) => k.slug).filter(Boolean))
     const seenInBatch = new Set<string>()
@@ -84,6 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         if (!existing.intent && c.intent) { existing.intent = c.intent; changed = true }
         if (!existing.articleType && c.articleType) { existing.articleType = c.articleType; changed = true }
         if (!existing.note && c.note) { existing.note = c.note; changed = true }
+        if (pbn && !existing.targetUrl && c.targetUrl) { existing.targetUrl = c.targetUrl; changed = true }
         if ((existing.volume === null || existing.volume === undefined) && c.volume !== null) { existing.volume = c.volume; changed = true }
         if (changed) updated++; else skipped++
         continue
@@ -97,6 +109,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         intent: c.intent,
         articleType: c.articleType,
         ...(c.note ? { note: c.note } : {}),
+        ...(pbn && c.targetUrl ? { targetUrl: c.targetUrl } : {}),
         createdAt: now,
       })
     }
@@ -104,7 +117,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return { result: { error: `เกินเพดาน ${PLAN_MAX} คำ (มีอยู่ ${plan.length} คำ เพิ่มได้อีก ${Math.max(0, PLAN_MAX - plan.length)} คำ)` } }
     }
     const nextPlan = [...plan, ...toAdd]
-    return { prefs: { ...current, keywordPlan: nextPlan }, result: { items: nextPlan, added: toAdd.length, updated, skipped } }
+    return { prefs: { ...current, keywordPlan: nextPlan }, result: { items: nextPlan, added: toAdd.length, updated, skipped, invalidUrls: pbn ? invalidUrls : 0 } }
   })
 
   if (!result) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
@@ -123,16 +136,29 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const patch = body?.patch && typeof body.patch === 'object' ? (body.patch as Record<string, unknown>) : null
   if (!id || !patch) return NextResponse.json({ error: 'ต้องระบุ id และ patch' }, { status: 400 })
 
-  const result = await updatePrefs<{ item: UploadKeyword } | { error: 'not_found' }>(params.id, session.user.organizationId, (current) => {
+  // PBN: URL ปลายทาง — ว่าง = ลบ, ไม่ใช่ URL = 400
+  let targetUrl: string | undefined
+  if (patch.targetUrl !== undefined) {
+    const u = normalizeTargetUrl(patch.targetUrl)
+    if (u === null) return NextResponse.json({ error: 'URL ปลายทางไม่ถูกต้อง — ต้องเป็นลิงก์เต็ม เช่น https://example.com/page' }, { status: 400 })
+    targetUrl = u
+  }
+
+  const result = await updatePrefs<{ item: UploadKeyword } | { error: 'not_found' | 'not_pbn' }>(params.id, session.user.organizationId, (current) => {
     const plan = readPlan(current)
     const idx = plan.findIndex((k) => k.id === id)
     if (idx === -1) return { result: { error: 'not_found' as const } }
+    if (targetUrl !== undefined && !isPbnPrefs(current)) return { result: { error: 'not_pbn' as const } }
 
     const item = { ...plan[idx] }
     if (typeof patch.keyword === 'string') item.keyword = patch.keyword.trim().slice(0, KEYWORD_MAX)
     if (typeof patch.title === 'string') item.title = patch.title.trim().slice(0, 200)
     if (typeof patch.note === 'string') item.note = patch.note.trim().slice(0, 2000)
     if (typeof patch.articleType === 'string') item.articleType = patch.articleType.trim().slice(0, 100)
+    if (targetUrl !== undefined) {
+      if (targetUrl) item.targetUrl = targetUrl
+      else delete item.targetUrl
+    }
     if (patch.volume === null) item.volume = null
     else if (typeof patch.volume === 'number' && Number.isFinite(patch.volume)) item.volume = patch.volume
     if (patch.intent !== undefined) {
@@ -151,7 +177,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   })
 
   if (!result) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
-  if ('error' in result.result) return NextResponse.json({ error: 'ไม่พบ keyword นี้' }, { status: 404 })
+  if ('error' in result.result) {
+    if (result.result.error === 'not_pbn') return NextResponse.json({ error: 'URL ปลายทางใช้ได้เฉพาะ PBN Backlinks' }, { status: 400 })
+    return NextResponse.json({ error: 'ไม่พบ keyword นี้' }, { status: 404 })
+  }
   return NextResponse.json(result.result)
 }
 

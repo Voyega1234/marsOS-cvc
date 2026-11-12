@@ -24,7 +24,7 @@ function needsFill(k: UploadKeyword): boolean {
 }
 
 const FIELD_LABELS: Record<KeywordImportField, string> = {
-  keyword: "Keyword", title: "Title", volume: "Volume", slug: "Slug", intent: "Intent", articleType: "ประเภทบทความ", note: "Note",
+  keyword: "Keyword", title: "Title", volume: "Volume", slug: "Slug", intent: "Intent", articleType: "ประเภทบทความ", note: "Note", targetUrl: "URL ปลายทาง",
 };
 
 function csvCell(value: string | number | null | undefined): string {
@@ -134,6 +134,7 @@ export default function KeywordTab({
       if (d.updated) parts.push(`เติมข้อมูลคำเดิม ${d.updated}`);
       if (d.skipped) parts.push(`ซ้ำ/ข้าม ${d.skipped}`);
       toast.success(`เพิ่ม keyword แล้ว (${parts.join(" · ")})`);
+      if (isPbn && d.invalidUrls) toast.error(`URL ปลายทาง ${d.invalidUrls} รายการไม่ใช่ลิงก์ที่ใช้ได้ — ใส่ใหม่ในตาราง`);
       return true;
     } catch (e) {
       toast.error(`เพิ่ม keyword ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
@@ -151,7 +152,9 @@ export default function KeywordTab({
     if (fileImport && await addRows(fileImport.parse.rows)) setFileImport(null);
   }
 
-  async function patchItem(id: string, patch: Partial<Pick<UploadKeyword, "title" | "slug" | "intent" | "articleType" | "note">>) {
+  async function patchItem(id: string, patch: Partial<Pick<UploadKeyword, "title" | "slug" | "intent" | "articleType" | "note" | "targetUrl">>) {
+    const before = items.find(it => it.id === id);
+    const revert = () => { if (before) setItems(prev => prev.map(it => (it.id === id ? before : it))); };
     setItems(prev => prev.map(it => (it.id === id ? { ...it, ...patch } : it)));
     try {
       const r = await fetch(`/api/upload-article/clients/${client.id}/keywords`, {
@@ -160,10 +163,11 @@ export default function KeywordTab({
         body: JSON.stringify({ id, patch }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); return; }
+      if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); revert(); return; }
       if (d.item) setItems(prev => prev.map(it => (it.id === id ? d.item : it)));
     } catch (e) {
       toast.error(`บันทึกไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      revert();
     }
   }
 
@@ -238,11 +242,12 @@ export default function KeywordTab({
   function exportCsv() {
     const rows = selected.size ? items.filter(it => selected.has(it.id)) : items;
     if (!rows.length) return;
-    const header = ["Keyword", "Volume", "Title", "Slug", "Intent", "ประเภทบทความ", "Note", "สถานะ"];
+    const header = ["Keyword", ...(isPbn ? ["Target URL"] : []), "Volume", "Title", "Slug", "Intent", "ประเภทบทความ", "Note", "สถานะ"];
     const lines = [header.join(",")];
     for (const it of rows) {
       lines.push([
         csvCell(it.keyword),
+        ...(isPbn ? [csvCell(it.targetUrl ?? "")] : []),
         csvCell(it.volume ?? ""),
         csvCell(it.title),
         csvCell(it.slug),
@@ -268,6 +273,14 @@ export default function KeywordTab({
 
   function goWrite() {
     if (!selected.size) { toast.error("เลือก keyword ก่อน"); return; }
+    if (isPbn) {
+      // PBN: บทความต้องลิงก์ไป URL ปลายทาง — ยังไม่ใส่ URL = ยังเขียนไม่ได้
+      const noUrl = items.filter(it => selected.has(it.id) && !it.targetUrl);
+      if (noUrl.length) {
+        toast.error(`ใส่ URL ปลายทางก่อน ${noUrl.length} keyword: ${noUrl.slice(0, 3).map(it => it.keyword).join(", ")}${noUrl.length > 3 ? " …" : ""}`);
+        return;
+      }
+    }
     onWrite(Array.from(selected));
   }
 
@@ -330,6 +343,7 @@ export default function KeywordTab({
                     <tr className="text-left text-gray-400 border-b border-gray-100">
                       <th className="px-2 py-1.5 w-8">#</th>
                       <th className="px-2 py-1.5">Keyword</th>
+                      {isPbn && <th className="px-2 py-1.5">URL ปลายทาง</th>}
                       <th className="px-2 py-1.5">Title</th>
                       <th className="px-2 py-1.5 w-20">Volume</th>
                     </tr>
@@ -339,6 +353,7 @@ export default function KeywordTab({
                       <tr key={i} className="border-b border-gray-50 last:border-0">
                         <td className="px-2 py-1.5 text-gray-400">{i + 1}</td>
                         <td className="px-2 py-1.5 text-brand-navy font-medium">{r.keyword}</td>
+                        {isPbn && <td className="px-2 py-1.5 text-gray-600 break-all">{r.targetUrl || <span className="text-rose-400">ยังไม่มี</span>}</td>}
                         <td className="px-2 py-1.5 text-gray-600">{r.title || <span className="text-gray-300">—</span>}</td>
                         <td className="px-2 py-1.5 text-gray-500">{r.volume ?? "—"}</td>
                       </tr>
@@ -360,16 +375,24 @@ export default function KeywordTab({
           )}
 
           <div className="mt-3">
-            <label className="block text-[11px] font-medium text-gray-500 mb-1.5">หรือวาง keyword หนึ่งบรรทัดต่อหนึ่งคำ (วางจาก Google Sheets พร้อมหัวตารางได้)</label>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1.5">
+              {isPbn
+                ? "หรือวาง keyword + URL ปลายทาง หนึ่งบรรทัดต่อหนึ่งคำ (วางจาก Google Sheets พร้อมหัวตารางได้)"
+                : "หรือวาง keyword หนึ่งบรรทัดต่อหนึ่งคำ (วางจาก Google Sheets พร้อมหัวตารางได้)"}
+            </label>
             <textarea
               value={pasteText}
               onChange={e => setPasteText(e.target.value)}
-              placeholder={`รับทำ google ads\tรับทำ google ads, 1200\nรับทำ facebook ads, 800\nSEO marketing`}
+              placeholder={isPbn
+                ? `รับทำ google ads\thttps://example.com/google-ads\nรับทำ facebook ads, https://example.com/facebook-ads\nSEO marketing https://example.com/seo`
+                : `รับทำ google ads\tรับทำ google ads, 1200\nรับทำ facebook ads, 800\nSEO marketing`}
               rows={5}
               className="w-full text-[11px] font-mono border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
             />
             <p className="mt-1 text-[10px] text-gray-400">
-              1 บรรทัด = 1 keyword — ใส่ volume ต่อท้ายด้วย tab / comma / | ก็ได้ · มีหัวตาราง Keyword / Title (Topic) / Volume จะดึงตามคอลัมน์
+              {isPbn
+                ? "1 บรรทัด = 1 keyword ตามด้วย URL ที่บทความจะลิงก์ไป (tab / comma / | / เว้นวรรค) · มีหัวตาราง Keyword / URL / Title / Volume จะดึงตามคอลัมน์ · บทความ PBN มีลิงก์เดียวคือ keyword นี้ไป URL นี้ ไม่มี internal link"
+                : "1 บรรทัด = 1 keyword — ใส่ volume ต่อท้ายด้วย tab / comma / | ก็ได้ · มีหัวตาราง Keyword / Title (Topic) / Volume จะดึงตามคอลัมน์"}
             </p>
           </div>
 
@@ -418,13 +441,14 @@ export default function KeywordTab({
         ) : items.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-10">ยังไม่มี keyword — เพิ่มจากด้านบน</p>
         ) : (
-          <table className="w-full text-xs min-w-[1080px]">
+          <table className={`w-full text-xs ${isPbn ? "min-w-[1280px]" : "min-w-[1080px]"}`}>
             <thead>
               <tr className="border-b border-gray-100 text-left text-gray-400">
                 <th className="px-3 py-2 w-8">
                   <input type="checkbox" checked={selected.size === items.length && items.length > 0} onChange={toggleSelectAll} />
                 </th>
                 <th className="px-2 py-2 min-w-[140px]">Keyword</th>
+                {isPbn && <th className="px-2 py-2 min-w-[220px]" title="บทความลิงก์ keyword นี้ออกไป URL นี้ลิงก์เดียว">URL ปลายทาง (Backlink)</th>}
                 <th className="px-2 py-2 w-20">Volume</th>
                 <th className="px-2 py-2 min-w-[160px]">Title</th>
                 <th className="px-2 py-2 min-w-[120px]">Slug</th>
@@ -441,6 +465,17 @@ export default function KeywordTab({
                     <input type="checkbox" checked={selected.has(it.id)} onChange={() => toggleSelect(it.id)} />
                   </td>
                   <td className="px-2 py-2 text-brand-navy font-medium">{it.keyword}</td>
+                  {isPbn && (
+                    <td className="px-2 py-2">
+                      <EditableCell
+                        value={it.targetUrl ?? ""}
+                        placeholder="https://..."
+                        onCommit={v => patchItem(it.id, { targetUrl: v.trim() })}
+                        className={`w-full min-w-[200px] text-xs border rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-blue ${it.targetUrl ? "border-gray-200" : "border-rose-300 bg-rose-50/40"}`}
+                      />
+                      {!it.targetUrl && <p className="mt-0.5 text-[10px] text-rose-500">ต้องใส่ก่อนเขียน</p>}
+                    </td>
+                  )}
                   <td className="px-2 py-2 text-gray-500">{it.volume ?? "—"}</td>
                   <td className="px-2 py-2">
                     <EditableCell value={it.title} placeholder="H1" onCommit={v => patchItem(it.id, { title: v })} />

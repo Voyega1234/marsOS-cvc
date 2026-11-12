@@ -41,7 +41,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // PBN ไม่ทำ — ลิงก์ในบทความ PBN คือ backlink เข้าเว็บหลักโดยตั้งใจ
   const prefs = await readPrefs(client.id, orgId)
   const relink = body.relink === true && article.sourceType === 'ai' && !isPbnPrefs(prefs)
-  const withLinks = body.internalLinks === true || relink
+  // PBN: ห้าม internal link — ลิงก์เดียวในบทความคือ Backlink ไป URL ปลายทาง
+  const withLinks = !isPbnPrefs(prefs) && (body.internalLinks === true || relink)
 
   let theme: UploadTheme
   try {

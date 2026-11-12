@@ -89,6 +89,8 @@ export function composeWriterConstraints(input: {
 export interface WriterTask {
   keyword: UploadKeyword
   links: UploadLinkPair[]
+  /** PBN Backlinks: ลิงก์ออกไป URL ปลายทางของ keyword — ตั้งแล้วแทนส่วน Internal Link ทั้งหมด (ห้ามลิงก์อื่นในบทความ) */
+  backlink?: UploadLinkPair
   /** ภาษาของบทความนี้ (resolve จากโหมดภาษาของลูกค้า + title/keyword แล้ว) — ไม่ส่ง = ไม่กำหนด */
   language?: 'th' | 'en'
   /** ชื่อลูกค้า/แบรนด์ — ใช้ตอนวิเคราะห์ intent เอง (keyword ที่มีชื่อแบรนด์ = navigational) */
@@ -190,6 +192,16 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push('')
   lines.push(articleStructureSkillBlock(task.language === 'en' ? 'en' : 'th', task.structure))
   lines.push('')
+  if (task.backlink) {
+    // PBN Backlinks (เจ้าของสั่ง 2026-11-12): keyword + URL ปลายทาง = external link ลิงก์เดียว ห้าม internal link
+    lines.push('# Backlink ที่ต้องใส่ในบทความ (บทความนี้เป็น PBN — ลิงก์ออกไปเว็บปลายทาง)')
+    lines.push(`- anchor: ${task.backlink.keyword}`)
+    lines.push(`- url: ${task.backlink.url}`)
+    lines.push('กฎ Backlink:')
+    lines.push(`- ใส่ <a href="${task.backlink.url}">${task.backlink.keyword}</a> ในเนื้อหา 1 ครั้งพอดี ในย่อหน้าช่วงต้นถึงกลางบทความที่พูดถึงเรื่องนี้จริง ๆ`)
+    lines.push('- href ต้องเป็น url ข้างบนคำต่อคำ ห้ามแก้ ห้ามตัด ห้ามเติมพารามิเตอร์ ข้อความใน <a> ต้องเป็น anchor ตามที่ให้ไว้')
+    lines.push('- ห้ามมีลิงก์อื่นใดในบทความ: ไม่มี internal link ไม่มีลิงก์ไปเว็บอื่น ไม่มีลิงก์แหล่งอ้างอิง (อ้างแหล่งที่มาเป็นข้อความธรรมดาได้)')
+  } else {
   lines.push('# Internal Link ที่ต้องแทรกในเนื้อหา (ใช้แต่ละลิงก์ไม่เกิน 1 ครั้ง แทรก anchor text ให้เนียนเข้ากับประโยค ห้ามยัดทุกลิงก์ในย่อหน้าเดียว)')
   lines.push(linkLines)
   if (links.length) {
@@ -198,6 +210,7 @@ export function buildWriterUserPrompt(task: WriterTask): string {
     lines.push('- ข้อความใน <a> ต้องเป็น anchor ตามที่ให้ไว้คำต่อคำ ห้ามเปลี่ยน ห้ามย่อ ห้ามเติมคำ และห้ามสลับ url ข้ามคู่')
     lines.push('- วางลิงก์เฉพาะในประโยคที่พูดถึงเรื่องของ anchor นั้นจริง ๆ ถ้าไม่มีจุดที่เข้ากันได้อย่างเป็นธรรมชาติ ให้ข้ามลิงก์นั้นไป ดีกว่ายัดผิดบริบท')
     lines.push(`- ห้ามทำ "${keyword.keyword}" (keyword หลักของบทความนี้) เป็นลิงก์ไปหน้าอื่น`)
+  }
   }
   const outline = keyword.outline?.items.length ? keyword.outline : null
   const variantText = variantBlock(task.variant, factSourcesText(task.constraintLayers), !!outline)

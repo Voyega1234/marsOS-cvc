@@ -308,6 +308,7 @@ export default function UploadClientWorkspace({
 
         <TabsContent value="generate">
           <GenerateTab
+            pbn={isPbn}
             client={client}
             setClient={setClient}
             articles={visibleArticles}
