@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { NOT_REWRITE_SHADOW } from '@/lib/upload-article/rewrite-lock'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
+import { loadUploadArticleListRows } from '@/lib/upload-article/article-list'
 import {
   extractTitleFromHtml,
   fetchGoogleDoc,
@@ -24,13 +25,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.user.role === 'CLIENT') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: session.user.organizationId } })
+  // ใช้แค่ id ยืนยันว่าลูกค้าอยู่ในองค์กรนี้ — ไม่ต้องลาก pushPrefs ทั้งก้อนมาด้วย
+  const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: session.user.organizationId }, select: { id: true } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
   const status = req.nextUrl.searchParams.get('status') || undefined
-  const articles = await prisma.uploadArticle.findMany({
-    where: { clientId: client.id, organizationId: session.user.organizationId, ...NOT_REWRITE_SHADOW, ...(status ? { status } : {}) },
-    orderBy: { updatedAt: 'desc' },
+  // เลือกเฉพาะคอลัมน์ที่ list ใช้ (ไม่ดึง sourceHtml ที่ไม่ได้นับคำ และปก data URI) — ผลลัพธ์เท่าเดิมทุก field
+  const articles = await loadUploadArticleListRows(prisma, {
+    clientId: client.id, organizationId: session.user.organizationId, ...NOT_REWRITE_SHADOW, ...(status ? { status } : {}),
   })
 
   return NextResponse.json(articles.map((a) => toUploadArticleDTO(a, false)))

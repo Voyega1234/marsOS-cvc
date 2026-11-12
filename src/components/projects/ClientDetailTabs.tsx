@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, Fragment } from 'react'
-import * as XLSX from 'xlsx'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import {
@@ -1163,7 +1162,9 @@ function KeywordsTab({
     }).filter(r => r.keyword)
   }
 
-  function parseXlsx(buf: ArrayBuffer): { text: string; rows: CsvRow[] } {
+  async function parseXlsx(buf: ArrayBuffer): Promise<{ text: string; rows: CsvRow[] }> {
+    // โหลดตัวอ่าน Excel เฉพาะตอนมีไฟล์ (ไม่ติดมากับหน้าโปรเจกต์)
+    const XLSX = await import('xlsx')
     const wb = XLSX.read(buf, { type: 'array' })
     const sheetName = wb.SheetNames.find(n => /keyword/i.test(n)) ?? wb.SheetNames[0]
     const ws = wb.Sheets[sheetName]
@@ -1230,11 +1231,16 @@ function KeywordsTab({
     const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
     if (ext === 'xlsx' || ext === 'xls' || ext === 'ods') {
       const reader = new FileReader()
-      reader.onload = ev => {
+      reader.onload = async ev => {
         const buf = ev.target?.result as ArrayBuffer
-        const { text, rows } = parseXlsx(buf)
-        setCsvText(text)
-        setParsedXlsxRows(rows)
+        try {
+          const { text, rows } = await parseXlsx(buf)
+          setCsvText(text)
+          setParsedXlsxRows(rows)
+        } catch {
+          // ตัวอ่าน Excel โหลดไม่ขึ้น (เน็ตหลุด) หรือไฟล์เสีย — บอกผู้ใช้แทนที่จะเงียบ
+          toast.error('อ่านไฟล์ไม่สำเร็จ')
+        }
       }
       reader.readAsArrayBuffer(file)
     } else {

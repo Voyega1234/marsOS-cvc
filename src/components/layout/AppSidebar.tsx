@@ -47,7 +47,7 @@ import { usePathname } from "next/navigation";
 
 type UserRole = "ADMIN" | "USER" | "CLIENT" | string;
 
-function buildRoutes(briefBadge: number, todosBadge: number, role: UserRole): Route[] {
+function buildRoutes(briefBadge: number, role: UserRole): Route[] {
   // CLIENT: only show Clients (projects) — they access specific projects assigned by admin
   if (role === "CLIENT") {
     return [
@@ -161,22 +161,16 @@ function SidebarInner() {
   const orgTeams = [{ id: "1", name: orgName, plan: orgPlan }];
 
   const [briefBadge, setBriefBadge] = useState(0);
-  const [todosBadge, setTodosBadge] = useState(0);
 
   useEffect(() => {
     // badge ใช้ endpoint เบา — ตัวเต็ม (/api/morning-brief) หนัก 6-7 วิ ห้ามเรียกทุกหน้า
     fetch('/api/morning-brief/badge').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.criticalCount != null) setBriefBadge(d.criticalCount);
     }).catch(() => {});
-    fetch('/api/todos').then(r => r.ok ? r.json() : null).then((tasks: any[]) => {
-      if (Array.isArray(tasks)) {
-        setTodosBadge(tasks.filter(t => t.status === 'todo' || t.status === 'in_progress' || t.status === 'blocked').length);
-      }
-    }).catch(() => {});
   }, []);
 
   const userRole = session?.user?.role ?? "USER";
-  const dashboardRoutes = buildRoutes(briefBadge, todosBadge, userRole);
+  const dashboardRoutes = buildRoutes(briefBadge, userRole);
 
   const roleBadgeColor: Record<string, string> = {
     ADMIN: "bg-red-100 text-red-700",

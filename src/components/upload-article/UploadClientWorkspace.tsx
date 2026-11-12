@@ -6,26 +6,38 @@
  * โหลดรายละเอียด client ด้วย fetch (ไม่พึ่ง prisma type ฝั่ง server) ตาม spec — 404 แสดงว่าไม่พบลูกค้า
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Globe, Loader2, Network, Settings } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { UploadArticleDTO, UploadClientDTO, UploadOwnerTag } from "@/lib/upload-article/types";
 import type { OwnerControls } from "@/components/upload-article/ArticleOwnerSelect";
-import KeywordTab from "@/components/upload-article/tabs/KeywordTab";
-import WriteTab from "@/components/upload-article/tabs/WriteTab";
-import ImportOutlineTab from "@/components/upload-article/tabs/ImportOutlineTab";
-import ImportTab from "@/components/upload-article/tabs/ImportTab";
-import GenerateTab from "@/components/upload-article/tabs/GenerateTab";
-import ReviewTab from "@/components/upload-article/tabs/ReviewTab";
-import PushTab from "@/components/upload-article/tabs/PushTab";
-import PublishTab from "@/components/upload-article/tabs/PublishTab";
-import IndexTab from "@/components/upload-article/tabs/IndexTab";
-import SettingsTab, { type SettingsSection } from "@/components/upload-article/settings/SettingsTab";
-import PbnReportTab from "@/components/upload-article/pbn/PbnReportTab";
-import { PbnMonitorTab } from "@/components/upload-article/pbn/PbnMonitorTab";
-import UploadGscReportTab from "@/components/upload-article/report/UploadGscReportTab";
+import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { useUploadSetupChecklist } from "@/components/upload-article/settings/useUploadSetupChecklist";
+
+// แต่ละแท็บโหลดโค้ดของตัวเองตอนถูกเปิดครั้งแรก (Radix แสดงเฉพาะแท็บที่เลือกอยู่แล้ว) — หน้าแรกไม่ต้องแบกโค้ดครบทุกแท็บ
+// ระหว่างรอแสดงตัวหมุนแบบเดียวกับตอนโหลดข้อมูลลูกค้า
+function TabLoading() {
+  return (
+    <div className="flex items-center justify-center py-24 text-gray-400 text-sm gap-2">
+      <Loader2 size={16} className="animate-spin" /> กำลังโหลด...
+    </div>
+  );
+}
+const KeywordTab = dynamic(() => import("@/components/upload-article/tabs/KeywordTab"), { loading: TabLoading });
+const WriteTab = dynamic(() => import("@/components/upload-article/tabs/WriteTab"), { loading: TabLoading });
+const ImportOutlineTab = dynamic(() => import("@/components/upload-article/tabs/ImportOutlineTab"), { loading: TabLoading });
+const ImportTab = dynamic(() => import("@/components/upload-article/tabs/ImportTab"), { loading: TabLoading });
+const GenerateTab = dynamic(() => import("@/components/upload-article/tabs/GenerateTab"), { loading: TabLoading });
+const ReviewTab = dynamic(() => import("@/components/upload-article/tabs/ReviewTab"), { loading: TabLoading });
+const PushTab = dynamic(() => import("@/components/upload-article/tabs/PushTab"), { loading: TabLoading });
+const PublishTab = dynamic(() => import("@/components/upload-article/tabs/PublishTab"), { loading: TabLoading });
+const IndexTab = dynamic(() => import("@/components/upload-article/tabs/IndexTab"), { loading: TabLoading });
+const SettingsTab = dynamic(() => import("@/components/upload-article/settings/SettingsTab"), { loading: TabLoading });
+const PbnReportTab = dynamic(() => import("@/components/upload-article/pbn/PbnReportTab"), { loading: TabLoading });
+const PbnMonitorTab = dynamic(() => import("@/components/upload-article/pbn/PbnMonitorTab").then(m => m.PbnMonitorTab), { loading: TabLoading });
+const UploadGscReportTab = dynamic(() => import("@/components/upload-article/report/UploadGscReportTab"), { loading: TabLoading });
 
 export type TabId = "keyword" | "write" | "import" | "outline" | "generate" | "review" | "push" | "publish" | "index" | "report" | "monitor" | "settings";
 
@@ -112,8 +124,8 @@ export default function UploadClientWorkspace({
     let alive = true;
     (async () => {
       setLoading(true);
-      await refreshClient();
-      await refreshArticles();
+      // สอง request นี้ไม่ขึ้นต่อกัน — ยิงพร้อมกัน แล้วค่อยปิดสถานะโหลดเมื่อครบทั้งคู่ (เหมือนเดิม)
+      await Promise.all([refreshClient(), refreshArticles()]);
       if (alive) setLoading(false);
     })();
     return () => { alive = false; };
