@@ -11,11 +11,14 @@ import {
   isMagazineSite,
   magazineBody,
   magazineConfigPath,
+  magazineSectionColors,
   parseMagazineConfig,
 } from './pbn-magazine'
 import { buildMagazinePush, checkMagazinePush, loadMagazineClusters, magazineImageDir } from './pbn-magazine-push'
 import { mergePbnSiteInput, readPbnPushes, toPbnSiteDTO, type PbnSite } from './pbn'
-import { cleanPbnCluster, readPbnArticleTargets } from './pbn-sets'
+import { cleanPbnCluster, readPbnArticleTargets, readPbnSectionColors, retintPbnTheme } from './pbn-sets'
+import { pbnEffectiveClient } from './pbn-context'
+import { DEFAULT_UPLOAD_THEME, type UploadTheme } from './types'
 
 let n = 0
 async function t(name: string, fn: () => void | Promise<void>) {
@@ -386,6 +389,90 @@ async function main() {
     // ไม่มีหมวดใหญ่เลย = ใช้ทุกหมวดใน clusters เหมือนเดิม
     assert.equal(parseMagazineConfig({ clusters: { a: 'A', b: 'B' }, magazine: { sections: [] } })?.count, 2)
     assert.equal(parseMagazineConfig({ clusters: { a: 'A', b: 'B' } })?.count, 2)
+  })
+
+  // ─── สีประจำหมวด (เว็บ magazine ใช้สไตล์ชุดเดียว ต่างกันที่สีของหมวดใหญ่) ───
+  const COLOR_CONFIG = {
+    clusters: { dogs: 'สุนัข', cats: 'แมว', skincare: 'สกินแคร์', loans: 'สินเชื่อ' },
+    magazine: {
+      sections: [
+        { key: 'pets', label: 'สัตว์เลี้ยง', color: '#4D7C0F', clusters: ['dogs', 'cats'] },
+        { key: 'beauty', label: 'ความงาม', color: '#c26', clusters: ['skincare'] },
+        { key: 'money', label: 'การเงิน', color: 'red', clusters: ['loans'] },
+      ],
+    },
+  }
+  const SCANNED: UploadTheme = {
+    ...DEFAULT_UPLOAD_THEME,
+    theme: '#4d7c0f',
+    accent: '#4D7C0F',
+    text: '#14233a',
+    detail: {
+      article: { h2: { color: '#4d7c0f' }, link: { color: '#4d7c0f' }, p: { color: '#14233a' } },
+      faq: { borderColor: '#4d7c0f80', questionColor: '#14233a' },
+    },
+  } as unknown as UploadTheme
+
+  await t('section colours: parsed lower-case, short hex expanded, bad value dropped', () => {
+    const c = parseMagazineConfig(COLOR_CONFIG)
+    assert.ok(c)
+    assert.deepEqual(c.sections.map((s) => s.color), ['#4d7c0f', '#cc2266', undefined])
+    assert.deepEqual(magazineSectionColors(c), { dogs: '#4d7c0f', cats: '#4d7c0f', skincare: '#cc2266' })
+    // เว็บที่ไม่ตั้งสี = ไม่มี field color (รูปแบบผลลัพธ์เดิม)
+    assert.equal('color' in parseMagazineConfig(CONFIG)!.sections[0], false)
+    assert.deepEqual(magazineSectionColors(parseMagazineConfig(CONFIG)!), {})
+  })
+
+  await t('readPbnSectionColors: keeps only valid site → cluster → #rrggbb', () => {
+    assert.deepEqual(readPbnSectionColors({ pbnSectionColors: { s1: { dogs: '#4d7c0f', 'Bad Slug': '#000000', cats: 'green', loans: '#ABCDEF' }, s2: [], s3: {} } }), { s1: { dogs: '#4d7c0f' } })
+    assert.deepEqual(readPbnSectionColors({}), {})
+    assert.deepEqual(readPbnSectionColors(null), {})
+  })
+
+  await t('retintPbnTheme: swaps the sample section colour for the chosen section colour', () => {
+    const colors = { dogs: '#4d7c0f', cats: '#4d7c0f', skincare: '#cc2266' }
+    const out = retintPbnTheme(SCANNED, colors, 'skincare') as unknown as { theme: string; accent: string; text: string; detail: { article: Record<string, { color: string }>; faq: Record<string, string> } }
+    assert.equal(out.theme, '#cc2266')
+    assert.equal(out.accent, '#cc2266')
+    assert.equal(out.detail.article.h2.color, '#cc2266')
+    assert.equal(out.detail.article.link.color, '#cc2266')
+    // สีอื่นไม่ถูกแตะ และสี 8 หลักที่ขึ้นต้นเหมือนกันไม่ถูกตัดกลาง
+    assert.equal(out.text, '#14233a')
+    assert.equal(out.detail.article.p.color, '#14233a')
+    assert.equal(out.detail.faq.borderColor, '#4d7c0f80')
+    // ต้นฉบับไม่ถูกแก้
+    assert.equal(SCANNED.theme, '#4d7c0f')
+  })
+
+  await t('retintPbnTheme: leaves the theme alone when there is nothing safe to swap', () => {
+    const colors = { dogs: '#4d7c0f', skincare: '#cc2266' }
+    assert.equal(retintPbnTheme(SCANNED, colors, 'dogs'), SCANNED) // หมวดเดียวกับตัวอย่าง
+    assert.equal(retintPbnTheme(SCANNED, colors, undefined), SCANNED) // ไม่ได้เลือกหมวด
+    assert.equal(retintPbnTheme(SCANNED, colors, 'loans'), SCANNED) // หมวดไม่มีสี
+    assert.equal(retintPbnTheme(SCANNED, undefined, 'skincare'), SCANNED) // เว็บไม่มีสีหมวด
+    // สไตล์ที่ตั้งสีเอง (ไม่ใช่สีประจำหมวดของเว็บ) = เคารพค่าที่ตั้ง
+    const manual = { ...DEFAULT_UPLOAD_THEME, theme: '#123456', accent: '#654321' } as UploadTheme
+    assert.equal(retintPbnTheme(manual, colors, 'skincare'), manual)
+  })
+
+  await t('pbnEffectiveClient: article style follows the chosen category; other cases unchanged', () => {
+    const prefs = {
+      kind: 'pbn',
+      pbnSites: [{ ...SITE, id: 's1' }, { ...SITE, id: 's2' }],
+      pbnStyles: { s1: { name: 'khaoduan', theme: SCANNED, updatedAt: '' }, s2: { name: 'other', theme: SCANNED, updatedAt: '' } },
+      pbnSectionColors: { s1: { dogs: '#4d7c0f', skincare: '#cc2266' } },
+    }
+    const client = { id: 'c1', website: '', language: 'th', themeColors: '{}', pushPrefs: JSON.stringify(prefs) }
+    const themeOf = (cluster?: string, siteId = 's1') =>
+      JSON.parse(pbnEffectiveClient(client, { siteId, profileId: 'main', ...(cluster ? { cluster } : {}) }).client.themeColors) as { accent: string }
+    assert.equal(themeOf('skincare').accent, '#cc2266')
+    assert.equal(themeOf('dogs').accent, '#4D7C0F')
+    assert.equal(themeOf().accent, '#4D7C0F')
+    // เว็บที่ไม่มีสีหมวด (ไม่ใช่ magazine) = สไตล์ที่บันทึกไว้ตรงตัว
+    assert.equal(JSON.stringify(themeOf('skincare', 's2')), JSON.stringify(JSON.parse(JSON.stringify(SCANNED))))
+    // ลูกค้า Upload Article (ไม่ใช่แถว PBN) = ไม่ถูกแตะ
+    const upload = { ...client, pushPrefs: JSON.stringify({ ...prefs, kind: undefined }) }
+    assert.equal(pbnEffectiveClient(upload, { siteId: 's1', profileId: 'main', cluster: 'skincare' }).client, upload)
   })
 
   console.log(`\n${n} passed`)

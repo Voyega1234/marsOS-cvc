@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { decrypt } from '@/lib/crypto'
-import { readPrefs } from '@/lib/upload-article/prefs-store'
+import { readPrefs, updatePrefs } from '@/lib/upload-article/prefs-store'
 import { findPbnClientId } from '@/lib/upload-article/pbn-store'
 import { readPbnSites } from '@/lib/upload-article/pbn'
-import { isMagazineSite } from '@/lib/upload-article/pbn-magazine'
+import { isMagazineSite, magazineSectionColors } from '@/lib/upload-article/pbn-magazine'
+import { readPbnSectionColors } from '@/lib/upload-article/pbn-sets'
 import { loadMagazineClusters } from '@/lib/upload-article/pbn-magazine-push'
 
 export const dynamic = 'force-dynamic'
@@ -34,5 +35,25 @@ export async function GET(_req: NextRequest, { params }: { params: { siteId: str
   }
   const r = await loadMagazineClusters(site, { owner: site.ghOwner, repo: site.ghRepo, branch: site.ghBranch, token })
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 })
+  // จำสีประจำหมวดของเว็บไว้ให้ตัวสร้างสไตล์บทความใช้ (ไม่ต้องเรียก GitHub ซ้ำตอน Generate/Review)
+  // เขียนเฉพาะเมื่อสีเปลี่ยน และพลาดก็ไม่ให้รายการหมวดพังตาม
+  if (clientId) {
+    const colors = magazineSectionColors(r.clusters)
+    const same = (a: Record<string, string> | undefined) => JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(colors).sort())
+    if (!same(readPbnSectionColors(prefs)[site.id])) {
+      try {
+        await updatePrefs(clientId, orgId, (current) => {
+          const all = readPbnSectionColors(current)
+          // เว็บถูกลบระหว่างที่รอ GitHub = ไม่เก็บ (ไม่ทิ้งข้อมูลกำพร้า)
+          if (!readPbnSites(current).some((s) => s.id === site.id) || same(all[site.id])) return { result: false }
+          if (Object.keys(colors).length) all[site.id] = colors
+          else delete all[site.id]
+          return { prefs: { ...current, pbnSectionColors: all }, result: true }
+        })
+      } catch (e) {
+        console.error('[pbn] save section colours failed:', e)
+      }
+    }
+  }
   return NextResponse.json(r.clusters)
 }

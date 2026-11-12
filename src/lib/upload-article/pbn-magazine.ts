@@ -28,6 +28,8 @@ export interface MagazineCluster {
 export interface MagazineSection {
   key: string
   label: string
+  /** สีประจำหมวดใหญ่ (#rrggbb ตัวพิมพ์เล็ก) — เว็บใช้สีนี้กับลิงก์ หัวข้อ H2 และเส้นขอบของบทความในหมวด */
+  color?: string
   clusters: MagazineCluster[]
 }
 
@@ -58,6 +60,14 @@ function text(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
 }
 
+/** สี hex จาก site.config.json → #rrggbb ตัวพิมพ์เล็ก (รับ #rgb ด้วย) รูปแบบอื่น = '' */
+function hexColor(v: unknown): string {
+  const s = text(v).toLowerCase()
+  if (/^#[0-9a-f]{6}$/.test(s)) return s
+  if (/^#[0-9a-f]{3}$/.test(s)) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`
+  return ''
+}
+
 /** อ่านรายการหมวดจาก site.config.json — ไม่มีหมวดเลย/รูปแบบไม่ใช่ = null */
 export function parseMagazineConfig(raw: unknown): MagazineClusters | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
@@ -85,7 +95,8 @@ export function parseMagazineConfig(raw: unknown): MagazineClusters | null {
         used.add(c)
         clusters.push({ slug: c, label: labels.get(c) || c })
       }
-      if (clusters.length) sections.push({ key, label: text(sec.navLabel) || text(sec.label) || key, clusters })
+      const color = hexColor(sec.color)
+      if (clusters.length) sections.push({ key, label: text(sec.navLabel) || text(sec.label) || key, ...(color ? { color } : {}), clusters })
     }
   }
   // เว็บที่มีหมวดใหญ่ (magazine.sections): เสนอเฉพาะหมวดที่อยู่ในหมวดใหญ่ — script merge ของ repo หยุดทั้งรอบ
@@ -97,6 +108,16 @@ export function parseMagazineConfig(raw: unknown): MagazineClusters | null {
   }
   const count = sections.reduce((n, s) => n + s.clusters.length, 0)
   return count ? { sections, count } : null
+}
+
+/** หมวดย่อย → สีของหมวดใหญ่ที่มันอยู่ (เฉพาะหมวดใหญ่ที่เว็บตั้งสีไว้) — ใช้ปรับสีสไตล์บทความตามหมวด */
+export function magazineSectionColors(clusters: MagazineClusters): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const s of clusters.sections) {
+    if (!s.color) continue
+    for (const c of s.clusters) out[c.slug] = s.color
+  }
+  return out
 }
 
 export function findMagazineCluster(clusters: MagazineClusters, slug: string): MagazineCluster | null {

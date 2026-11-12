@@ -8,7 +8,9 @@ import {
   pbnCeScopeId,
   readPbnArticleTargets,
   readPbnProfiles,
+  readPbnSectionColors,
   readPbnStyles,
+  retintPbnTheme,
   type PbnArticleTarget,
 } from './pbn-sets'
 
@@ -38,7 +40,9 @@ export function pbnEffectiveClient<T extends ClientLike>(client: T, target: PbnA
   }
   const style = readPbnStyles(prefs)[target.siteId]
   if (style && readPbnSites(prefs).some((s) => s.id === target.siteId)) {
-    next = { ...next, themeColors: JSON.stringify(style.theme) }
+    // เว็บโครง magazine: สีประจำหมวดตามหมวดที่บทความนี้เลือก (เว็บอื่น / ไม่ได้เลือกหมวด = สไตล์เดิมทุกตัวอักษร)
+    const theme = retintPbnTheme(style.theme, readPbnSectionColors(prefs)[target.siteId], target.cluster)
+    next = { ...next, themeColors: JSON.stringify(theme) }
   }
   return { client: next, ceScopeId, target }
 }
