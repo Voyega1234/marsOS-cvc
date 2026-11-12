@@ -12,7 +12,10 @@ import { parseUploadCards, assembleUploadHtml, uploadHtmlVersion } from '@/lib/u
 import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/serialize'
 import { effectiveBodyCover, type UploadPushPrefs, type UploadTheme } from '@/lib/upload-article/types'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
-import { isPbnPrefs, readPbnSites, readPbnPushes, cleanRepoPath, DEFAULT_GH_DIR, type PbnSite } from '@/lib/upload-article/pbn'
+import { isPbnPrefs, readPbnSites, readPbnPushes, cleanRepoPath, parseWriterSourceName, DEFAULT_GH_DIR, type PbnSite } from '@/lib/upload-article/pbn'
+import { isMagazineSite } from '@/lib/upload-article/pbn-magazine'
+import { buildMagazinePush, checkMagazinePush, type MagazinePushCheck } from '@/lib/upload-article/pbn-magazine-push'
+import { pbnBacklinkFor } from '@/lib/upload-article/pbn-backlink'
 import { publishToGithub, safeFileSlug } from '@/lib/upload-article/github-push'
 import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
@@ -169,6 +172,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   let wpUser = client.wpUser || ''
   let ghToken = ''
   let deployHook = ''
+  let magazine: MagazinePushCheck | null = null
+  let magazineDate: string | undefined
   if (pbnSite && pbnSite.platform === 'github') {
     if (!pbnSite.ghOwner || !pbnSite.ghRepo || !pbnSite.ghTokenEnc) {
       return NextResponse.json({ error: `เว็บ ${pbnSite.name} ยังตั้งค่า GitHub repo / Token ไม่ครบ` }, { status: 400 })
@@ -178,6 +183,19 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       deployHook = pbnSite.deployHookEnc ? decrypt(pbnSite.deployHookEnc) : ''
     } catch {
       return NextResponse.json({ error: 'ถอดรหัส GitHub Token ไม่สำเร็จ — ใส่ Token ใหม่ในหน้า Setting' }, { status: 500 })
+    }
+    // เว็บโครง magazine (khaoduan / roothan): ต้องเลือกหมวด + slug อังกฤษ + ไม่ทับบทความเดิมของเว็บ
+    if (isMagazineSite(pbnSite)) {
+      const checked = await checkMagazinePush({
+        site: pbnSite,
+        target: { owner: pbnSite.ghOwner, repo: pbnSite.ghRepo, branch: pbnSite.ghBranch, token: ghToken },
+        articleSlug: article.slug || '',
+        cluster: typeof body.cluster === 'string' && body.cluster.trim() ? body.cluster.trim() : prevPbnPush?.cluster || '',
+        publishMode,
+        prevPush: prevPbnPush,
+      })
+      if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 })
+      magazine = checked.check
     }
   } else if (pbnSite) {
     wpUrl = pbnSite.wpUrl || pbnSite.siteUrl
@@ -257,26 +275,56 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       // slug ซ้ำกับบทความอื่นบนเว็บเดียวกัน = path ไฟล์เดียวกัน → ห้ามทับ (re-push บทความเดิมได้)
       const ghDirClean = cleanRepoPath(pbnSite.ghDir ?? DEFAULT_GH_DIR) ?? ''
       const ghExt = pbnSite.ghFormat === 'html' ? 'html' : pbnSite.ghFormat === 'mdx' ? 'mdx' : 'md'
-      const targetPath = `${ghDirClean ? `${ghDirClean}/` : ''}${safeFileSlug(article.slug || article.title, article.title)}.${ghExt}`
+      const targetPath = magazine
+        ? magazine.articlePath
+        : `${ghDirClean ? `${ghDirClean}/` : ''}${safeFileSlug(article.slug || article.title, article.title)}.${ghExt}`
       const taken = Object.entries(readPbnPushes(prevPrefs as Record<string, unknown>)).some(
         ([aid, bySite]) => aid !== article.id && bySite[pbnSite.id]?.postId === targetPath,
       )
       if (taken) throw new Error('slug นี้ถูกใช้กับบทความอื่นบนเว็บนี้แล้ว เปลี่ยน slug ก่อน')
+      // magazine: ไฟล์ตาม contract ของเว็บ (cluster / date YYYY-MM-DD / format: html / backlink dofollow) + รูป webp ใน commit เดียว
+      let magazineFiles: Awaited<ReturnType<typeof buildMagazinePush>> | null = null
+      if (magazine) {
+        const parsedSource = parseWriterSourceName(article.sourceName)
+        const rawPlan = (prevPrefs as Record<string, unknown>).keywordPlan
+        const planRow = parsedSource && Array.isArray(rawPlan)
+          ? (rawPlan as Array<{ id?: string; keyword?: string; targetUrl?: string }>).find((k) => k && k.id === parsedSource.keywordId)
+          : undefined
+        const backlink = planRow && typeof planRow.keyword === 'string'
+          ? pbnBacklinkFor({ keyword: planRow.keyword, targetUrl: planRow.targetUrl })
+          : null
+        magazineFiles = await buildMagazinePush({
+          check: magazine,
+          title: article.title,
+          seoTitle: article.seoTitle,
+          description: article.metaDescription,
+          html: processedHtml,
+          cover: article.coverImageUrl,
+          keyword: planRow?.keyword,
+          targetUrl: backlink?.url,
+          publishAt,
+          prevPush: prevPbnPush,
+        })
+        magazineDate = magazineFiles.date
+      }
       const result = await publishToGithub({
         owner: pbnSite.ghOwner as string,
         repo: pbnSite.ghRepo as string,
         branch: pbnSite.ghBranch,
         token: ghToken,
         dir: pbnSite.ghDir,
-        format: pbnSite.ghFormat,
-        imageDir: pbnSite.ghImageDir,
+        format: magazine ? 'md' : pbnSite.ghFormat,
+        // magazine: รูปแปลงเป็น webp แล้วส่งผ่าน extraFiles — ไม่ให้ publishToGithub เขียนปกนามสกุลเดิมซ้ำ
+        imageDir: magazine ? undefined : pbnSite.ghImageDir,
         imageUrl: pbnSite.ghImageUrl,
         siteUrl: pbnSite.siteUrl,
         urlPattern: pbnSite.urlPattern,
         deployHook: deployHook || undefined,
         title: article.title,
         html: processedHtml,
-        slug: article.slug || article.title,
+        slug: magazine ? magazine.slug : article.slug || article.title,
+        fileContent: magazineFiles?.fileContent,
+        extraFiles: magazineFiles?.extraFiles,
         metaTitle: article.seoTitle || article.title,
         metaDescription: article.metaDescription || undefined,
         coverBase64: base64,
@@ -290,6 +338,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       postUrl = result.postUrl
       postId = result.postId
       error = result.ok ? result.deployHookError : result.error
+      if (result.ok && magazineFiles) {
+        warning = [
+          'ไฟล์เข้า repo แล้ว — เว็บจะแสดงบทความหลังรัน workflow เผยแพร่ของ repo (GitHub Actions)',
+          ...magazineFiles.warnings,
+        ].join(' · ')
+      }
     } else if (platform === 'webflow' && !pbnSite) {
       // Webflow ของ Upload Article: อัปโหลดรูปเข้า Assets + แก้ item เดิมเมื่อ push ซ้ำ (เทียบเท่า WordPress)
       const wfCfg = (conn.webflow ?? {}) as WebflowUploadConfig
@@ -386,7 +440,15 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       try {
         await updatePrefs(client.id, orgId, (current) => {
           const pushes = readPbnPushes(current)
-          pushes[article.id] = { ...(pushes[article.id] || {}), [site.id]: { url: postUrl, postId, at: new Date().toISOString() } }
+          pushes[article.id] = {
+            ...(pushes[article.id] || {}),
+            [site.id]: {
+              url: postUrl,
+              postId,
+              at: new Date().toISOString(),
+              ...(magazine ? { cluster: magazine.cluster, ...(magazineDate ? { date: magazineDate } : {}) } : {}),
+            },
+          }
           return { prefs: { ...current, pbnPushes: pushes }, result: null }
         })
       } catch (e) {
@@ -449,7 +511,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // PBN GitHub ต้องรอ build — ถ้าหน้ายัง 404 จะจดเป็นไม่สำเร็จ ให้กดซ้ำได้จากหน้า Push / Request Index
   let indexRequest: UploadIndexRequest | undefined
   let clientRow = updatedClientRow
-  const pbnLive = pbnSite ? (pbnSite.platform === 'github' ? effectiveMode === 'publish' : livePublished) : false
+  // เว็บ magazine ยังไม่ขึ้นจนกว่าจะรัน workflow เผยแพร่ — ไม่ขอ index อัตโนมัติ (กดเองได้จากหน้า Push หลังเว็บขึ้น)
+  const pbnLive = pbnSite ? (pbnSite.platform === 'github' ? effectiveMode === 'publish' && !magazine : livePublished) : false
   if (ok && isIndexableUrl(postUrl) && autoRequestIndex && (pbnSite ? pbnLive : livePublished)) {
     const r = pbnSite
       ? await requestIndexForPbn(client.id, orgId, article.id, pbnSite.id, postUrl).catch(() => null)

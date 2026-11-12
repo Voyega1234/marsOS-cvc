@@ -14,6 +14,11 @@ export const PBN_MAX_VARIANTS = 10
 export type PbnPlatform = 'wordpress' | 'github'
 export type PbnHost = 'vercel' | 'cloudflare' | 'other'
 export type PbnFileFormat = 'md' | 'mdx' | 'html'
+/**
+ * โครงไฟล์ที่เว็บอ่าน — generic = frontmatter กลาง ๆ ของเรา (ค่าเดิม),
+ * magazine = เว็บ monorepo PBN (khaoduan.com / roothan.com): บทความต้องมี cluster (หมวด) ตาม site.config.json
+ */
+export type PbnGhLayout = 'generic' | 'magazine'
 
 /** รูปแบบที่เก็บใน DB (มี secret เข้ารหัส) — ห้ามส่งออกนอกเซิร์ฟเวอร์ */
 export interface PbnSite {
@@ -34,6 +39,10 @@ export interface PbnSite {
   ghFormat?: PbnFileFormat
   ghImageDir?: string
   ghImageUrl?: string
+  /** ไม่มี = generic */
+  ghLayout?: PbnGhLayout
+  /** path ของ site.config.json ใน repo (magazine) — ว่าง = เดาจากโฟลเดอร์บทความ */
+  ghConfigPath?: string
   ghTokenEnc?: string
   urlPattern?: string
   deployHookEnc?: string
@@ -61,6 +70,8 @@ export interface PbnSiteDTO {
   ghFormat: PbnFileFormat
   ghImageDir: string
   ghImageUrl: string
+  ghLayout: PbnGhLayout
+  ghConfigPath: string
   hasGhToken: boolean
   urlPattern: string
   hasDeployHook: boolean
@@ -74,6 +85,10 @@ export interface PbnPushRecord {
   url?: string
   postId?: string
   at: string
+  /** หมวด (cluster) ที่เลือกตอน push — เฉพาะเว็บ magazine */
+  cluster?: string
+  /** วันที่ (YYYY-MM-DD) ที่เขียนลงไฟล์ครั้งแรก — push ซ้ำใช้วันเดิม บทความไม่เด้งขึ้นบนสุด */
+  date?: string
 }
 
 /** articleId → siteId → ผล push ล่าสุด */
@@ -114,6 +129,8 @@ export function readPbnPushes(prefs: Record<string, unknown> | null | undefined)
         at: r.at,
         url: typeof r.url === 'string' ? r.url : undefined,
         postId: typeof r.postId === 'string' ? r.postId : undefined,
+        ...(typeof r.cluster === 'string' && r.cluster ? { cluster: r.cluster } : {}),
+        ...(typeof r.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.date) ? { date: r.date } : {}),
       }
     }
     if (Object.keys(sites).length) out[articleId] = sites
@@ -138,6 +155,8 @@ export function toPbnSiteDTO(s: PbnSite): PbnSiteDTO {
     ghFormat: s.ghFormat === 'html' ? 'html' : s.ghFormat === 'mdx' ? 'mdx' : 'md',
     ghImageDir: s.ghImageDir || '',
     ghImageUrl: s.ghImageUrl || '',
+    ghLayout: s.ghLayout === 'magazine' ? 'magazine' : 'generic',
+    ghConfigPath: s.ghConfigPath || '',
     hasGhToken: Boolean(s.ghTokenEnc),
     urlPattern: s.urlPattern || DEFAULT_URL_PATTERN,
     hasDeployHook: Boolean(s.deployHookEnc),
@@ -272,6 +291,15 @@ export function mergePbnSiteInput(
   const ghImageUrl = str(input.ghImageUrl, 300)
   if (ghImageUrl !== undefined) base.ghImageUrl = ghImageUrl.replace(/\/+$/, '')
   if (input.ghFormat === 'md' || input.ghFormat === 'mdx' || input.ghFormat === 'html') base.ghFormat = input.ghFormat
+  if (input.ghLayout === 'magazine') base.ghLayout = 'magazine'
+  else if (input.ghLayout === 'generic') delete base.ghLayout
+  const ghConfigPath = str(input.ghConfigPath, 300)
+  if (ghConfigPath !== undefined) {
+    const c = cleanRepoPath(ghConfigPath)
+    if (c === null || (c && !/\.json$/i.test(c))) return { error: 'path ของ site.config.json ไม่ถูกต้อง (ต้องลงท้าย .json)', cleared }
+    if (c) base.ghConfigPath = c
+    else delete base.ghConfigPath
+  }
   const urlPattern = str(input.urlPattern, 300)
   if (urlPattern !== undefined) base.urlPattern = urlPattern || DEFAULT_URL_PATTERN
 

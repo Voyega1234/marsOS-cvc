@@ -15,7 +15,7 @@ import { CheckCircle2, Github, Globe, Loader2, Pencil, Plug, Plus, Trash2, XCirc
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
-import { DEFAULT_GH_BRANCH, DEFAULT_GH_DIR, DEFAULT_URL_PATTERN, type PbnSiteDTO } from "@/lib/upload-article/pbn";
+import { DEFAULT_GH_BRANCH, DEFAULT_GH_DIR, DEFAULT_URL_PATTERN, type PbnGhLayout, type PbnSiteDTO } from "@/lib/upload-article/pbn";
 import { usePbnSites } from "./usePbnSites";
 import { usePbnProfiles } from "./usePbnProfiles";
 import PbnProjectSets from "./PbnProjectSets";
@@ -36,6 +36,8 @@ type Draft = {
   ghFormat: "md" | "mdx" | "html";
   ghImageDir: string;
   ghImageUrl: string;
+  ghLayout: PbnGhLayout;
+  ghConfigPath: string;
   ghToken: string;
   urlPattern: string;
   deployHook: string;
@@ -47,7 +49,7 @@ const EMPTY: Draft = {
   name: "", siteUrl: "", platform: "github", wpUrl: "", wpUser: "", wpPassword: "",
   host: "vercel", ghOwner: "", ghRepo: "", ghBranch: DEFAULT_GH_BRANCH, ghDir: DEFAULT_GH_DIR, ghFormat: "md",
   ghImageDir: "public/images/blog", ghImageUrl: "", ghToken: "", urlPattern: DEFAULT_URL_PATTERN, deployHook: "",
-  gscSiteUrl: "", ga4PropertyId: "",
+  gscSiteUrl: "", ga4PropertyId: "", ghLayout: "generic", ghConfigPath: "",
 };
 
 function fromSite(s: PbnSiteDTO): Draft {
@@ -55,7 +57,7 @@ function fromSite(s: PbnSiteDTO): Draft {
     name: s.name, siteUrl: s.siteUrl, platform: s.platform, wpUrl: s.wpUrl, wpUser: s.wpUser, wpPassword: "",
     host: s.host, ghOwner: s.ghOwner, ghRepo: s.ghRepo, ghBranch: s.ghBranch, ghDir: s.ghDir, ghFormat: s.ghFormat,
     ghImageDir: s.ghImageDir, ghImageUrl: s.ghImageUrl, ghToken: "", urlPattern: s.urlPattern, deployHook: "",
-    gscSiteUrl: s.gscSiteUrl, ga4PropertyId: s.ga4PropertyId,
+    gscSiteUrl: s.gscSiteUrl, ga4PropertyId: s.ga4PropertyId, ghLayout: s.ghLayout, ghConfigPath: s.ghConfigPath,
   };
 }
 
@@ -90,6 +92,7 @@ function SiteForm({
   const [d, setD] = useState<Draft>(initial);
   const [saving, setSaving] = useState(false);
   const { gscSites, ga4 } = useReportSources();
+  const magazine = d.platform === "github" && d.ghLayout === "magazine";
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD(prev => ({ ...prev, [k]: v }));
 
   // วาง URL ของ repo ทั้งเส้นได้ — แยก owner/repo ให้เอง
@@ -97,6 +100,18 @@ function SiteForm({
     const m = /github\.com[/:]([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/#?].*)?$/i.exec(v.trim());
     if (m) setD(prev => ({ ...prev, ghOwner: m[1], ghRepo: m[2] }));
     else set("ghRepo", v);
+  }
+
+  function onLayoutChange(layout: PbnGhLayout) {
+    if (layout !== "magazine") { set("ghLayout", layout); return; }
+    setD(prev => ({
+      ...prev,
+      ghLayout: "magazine",
+      ghFormat: "md",
+      ghDir: prev.ghDir === EMPTY.ghDir ? "" : prev.ghDir,
+      ghImageDir: prev.ghImageDir === EMPTY.ghImageDir ? "" : prev.ghImageDir,
+      urlPattern: prev.urlPattern === EMPTY.urlPattern ? "{siteUrl}/{slug}/" : prev.urlPattern,
+    }));
   }
 
   async function save() {
@@ -113,6 +128,7 @@ function SiteForm({
         Object.assign(body, {
           host: d.host, ghOwner: d.ghOwner, ghRepo: d.ghRepo, ghBranch: d.ghBranch, ghDir: d.ghDir,
           ghFormat: d.ghFormat, ghImageDir: d.ghImageDir, ghImageUrl: d.ghImageUrl, urlPattern: d.urlPattern,
+          ghLayout: d.ghLayout, ghConfigPath: d.ghLayout === "magazine" ? d.ghConfigPath.trim() : "",
         });
         if (d.ghToken.trim()) body.ghToken = d.ghToken;
         if (d.deployHook.trim()) body.deployHook = d.deployHook;
@@ -203,10 +219,23 @@ function SiteForm({
               <label className={labelCls}>Branch</label>
               <Input value={d.ghBranch} onChange={e => set("ghBranch", e.target.value)} placeholder={DEFAULT_GH_BRANCH} />
             </div>
+            <div className="sm:col-span-3">
+              <label className={labelCls}>โครงเว็บ</label>
+              <select value={d.ghLayout} onChange={e => onLayoutChange(e.target.value as PbnGhLayout)} className={selectCls}>
+                <option value="generic">ทั่วไป (frontmatter มาตรฐาน)</option>
+                <option value="magazine">Magazine — khaoduan.com / roothan.com (เลือกหมวดตอน push)</option>
+              </select>
+              {magazine && (
+                <p className="text-[11px] text-gray-400 leading-relaxed mt-1">
+                  บทความจะถูกเขียนตามรูปแบบของเว็บนี้: มีหมวด (cluster), วันที่แบบ YYYY-MM-DD, เนื้อหา HTML, ปกเป็น &lt;slug&gt;.webp และ backlink เป็น dofollow — เว็บจะแสดงบทความหลังรัน workflow เผยแพร่ของ repo
+                </p>
+              )}
+            </div>
             <div>
               <label className={labelCls}>โฟลเดอร์บทความ</label>
-              <Input value={d.ghDir} onChange={e => set("ghDir", e.target.value)} placeholder={DEFAULT_GH_DIR} />
+              <Input value={d.ghDir} onChange={e => set("ghDir", e.target.value)} placeholder={magazine ? "general-1/content/articles" : DEFAULT_GH_DIR} />
             </div>
+            {!magazine && (
             <div>
               <label className={labelCls}>ชนิดไฟล์</label>
               <select value={d.ghFormat} onChange={e => set("ghFormat", e.target.value as Draft["ghFormat"])} className={selectCls}>
@@ -215,14 +244,24 @@ function SiteForm({
                 <option value="html">HTML (.html)</option>
               </select>
             </div>
+            )}
             <div>
               <label className={labelCls}>โฟลเดอร์รูปปก (ว่าง = ไม่อัปรูป)</label>
-              <Input value={d.ghImageDir} onChange={e => set("ghImageDir", e.target.value)} placeholder="public/images/blog" />
+              <Input value={d.ghImageDir} onChange={e => set("ghImageDir", e.target.value)} placeholder={magazine ? "general-1/public/images" : "public/images/blog"} />
             </div>
+            {!magazine && (
             <div>
               <label className={labelCls}>URL รูป (ว่าง = ตามโฟลเดอร์)</label>
               <Input value={d.ghImageUrl} onChange={e => set("ghImageUrl", e.target.value)} placeholder="/images/blog" />
             </div>
+            )}
+            {magazine && (
+            <div className="sm:col-span-2">
+              <label className={labelCls}>path ของ site.config.json (เว้นว่างได้)</label>
+              <Input value={d.ghConfigPath} onChange={e => set("ghConfigPath", e.target.value)} placeholder="general-1/site.config.json" />
+              <p className="text-[11px] text-gray-400 leading-relaxed mt-1">เว้นว่าง = ใช้ site.config.json ที่อยู่ข้างโฟลเดอร์ content ของเว็บ</p>
+            </div>
+            )}
             <div>
               <label className={labelCls}>รูปแบบ URL บทความ</label>
               <Input value={d.urlPattern} onChange={e => set("urlPattern", e.target.value)} placeholder={DEFAULT_URL_PATTERN} />

@@ -16,6 +16,7 @@ import { formatPublishAt } from "@/components/upload-article/shared/PublishDateP
 import DeleteArticleDialog from "@/components/upload-article/shared/DeleteArticleDialog";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { parseWriterSourceName } from "@/lib/upload-article/pbn";
+import type { MagazineSection } from "@/lib/upload-article/pbn-magazine";
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
 import { uploadPlatformOf, UPLOAD_PLATFORM_LABEL, pushTargetUrl as getPushTargetUrl, pushTargetDetail, missingConnectionFields, pushCapabilities, hostOf } from "@/lib/upload-article/platform-info";
 
@@ -75,6 +76,33 @@ export default function PushTab({
     if (Object.keys(locked).length) setTargetSite(prev => ({ ...prev, ...locked }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pbn, targetsKey]);
+  /** Magazine layout: หมวด (cluster) ที่เลือกต่อบทความ + รายการหมวดของแต่ละเว็บ (โหลดครั้งเดียวต่อเว็บ) */
+  const [clusterSel, setClusterSel] = useState<Record<string, string>>({});
+  const [siteClusters, setSiteClusters] = useState<Record<string, { status: "loading" | "ok" | "error"; sections?: MagazineSection[]; error?: string }>>({});
+  const clusterRequested = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!pbn) return;
+    for (const site of pbnSites) {
+      if (site.ghLayout !== "magazine" || clusterRequested.current.has(site.id)) continue;
+      clusterRequested.current.add(site.id);
+      setSiteClusters(prev => ({ ...prev, [site.id]: { status: "loading" } }));
+      fetch(`/api/pbn-backlinks/sites/${site.id}/clusters`)
+        .then(async r => {
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !Array.isArray(d.sections)) {
+            setSiteClusters(prev => ({ ...prev, [site.id]: { status: "error", error: d?.error || "โหลดรายการหมวดไม่สำเร็จ" } }));
+          } else {
+            setSiteClusters(prev => ({ ...prev, [site.id]: { status: "ok", sections: d.sections as MagazineSection[] } }));
+          }
+        })
+        .catch(e => {
+          setSiteClusters(prev => ({ ...prev, [site.id]: { status: "error", error: e instanceof Error && e.message ? e.message : "โหลดรายการหมวดไม่สำเร็จ" } }));
+        });
+    }
+  }, [pbn, pbnSites]);
+  const isMagazineSite = (siteId: string | undefined) => !!pbn && !!siteId && pbnSites.find(s => s.id === siteId)?.ghLayout === "magazine";
+  const effectiveCluster = (articleId: string, siteId: string | undefined) =>
+    siteId ? (clusterSel[articleId] ?? pbnPushes[articleId]?.[siteId]?.cluster ?? "") : "";
   const pushable = useMemo(() => articles.filter(a => PUSHABLE.has(a.status)), [articles]);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const statusCounts = pushable.reduce<Record<string, number>>((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc; }, {});
@@ -347,6 +375,9 @@ export default function PushTab({
     if (pushBusy[articleId]) return; // กันกดซ้ำ/push ซ้อนของบทความเดียวกัน
     const siteId = pbn ? targetSite[articleId] : undefined;
     if (pbn && !siteId) { toast.error("เลือกเว็บ PBN ปลายทางของบทความนี้ก่อน"); return; }
+    const magazine = isMagazineSite(siteId);
+    const cluster = magazine ? effectiveCluster(articleId, siteId) : "";
+    if (magazine && !cluster) { toast.error(`เลือกหมวดของเว็บ ${siteName(siteId!)} ก่อน push`); return; }
     const detail = articleDetails[articleId] || await loadArticleDetail(articleId, true);
     if (!detail?.htmlContent) { toast.error("บทความนี้ยังไม่มี HTML"); return; }
     setPushBusy(prev => ({ ...prev, [articleId]: true }));
@@ -359,7 +390,7 @@ export default function PushTab({
       const r = await fetch(`/api/upload-article/articles/${articleId}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, bodyCover, autoRequestIndex, ...(siteId ? { siteId } : {}) }),
+        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, bodyCover, autoRequestIndex, ...(siteId ? { siteId } : {}), ...(cluster ? { cluster } : {}) }),
       });
       const d = await r.json().catch(() => ({}));
       // PBN GitHub: push สำเร็จแต่ Deploy Hook พัง = ok + error → นับเป็นสำเร็จแล้วเตือน
@@ -628,9 +659,35 @@ export default function PushTab({
                       ))}
                     </select>
                   )}
+                  {isMagazineSite(targetSite[a.id]) && (() => {
+                    const sid = targetSite[a.id];
+                    const sc = siteClusters[sid];
+                    const cur = effectiveCluster(a.id, sid);
+                    const cls = "h-8 max-w-[200px] rounded-md border border-gray-200 px-2 text-xs bg-white";
+                    if (!sc || sc.status === "loading") {
+                      return <select disabled value="" className={cls}><option value="">กำลังโหลดหมวด…</option></select>;
+                    }
+                    if (sc.status === "error") {
+                      return <select disabled value="" title={sc.error} className={cls}><option value="">โหลดหมวดไม่ได้</option></select>;
+                    }
+                    const sections = sc.sections ?? [];
+                    const known = sections.some(sec => sec.clusters.some(c => c.slug === cur));
+                    return (
+                      <select value={cur} disabled={busy || batchBusy}
+                        onChange={e => setClusterSel(prev => ({ ...prev, [a.id]: e.target.value }))} className={cls}>
+                        <option value="">เลือกหมวด…</option>
+                        {cur && !known && <option value={cur}>{cur}</option>}
+                        {sections.map(sec => (
+                          <optgroup key={sec.key} label={sec.label}>
+                            {sec.clusters.map(c => <option key={c.slug} value={c.slug}>{c.label}</option>)}
+                          </optgroup>
+                        ))}
+                      </select>
+                    );
+                  })()}
                   {/* เคย push แล้ว (มี post id บนเว็บ) = server อัปเดตโพสต์เดิมตาม wordpressPostId ไม่สร้างใหม่ — ป้ายต้องบอกให้ชัด */}
-                  <Button size="sm" variant="outline" disabled={busy || batchBusy || (pbn && (!targetSite[a.id] || !pbnSites.some(s => s.id === targetSite[a.id])))} onClick={() => pushOne(a.id)}
-                    title={!pbn && a.wordpressPostId ? `อัปเดตทับโพสต์เดิมบนเว็บ (ID ${a.wordpressPostId}) ไม่สร้างโพสต์ใหม่` : undefined}>
+                  <Button size="sm" variant="outline" disabled={busy || batchBusy || (pbn && (!targetSite[a.id] || !pbnSites.some(s => s.id === targetSite[a.id]))) || (isMagazineSite(targetSite[a.id]) && !effectiveCluster(a.id, targetSite[a.id]))} onClick={() => pushOne(a.id)}
+                    title={isMagazineSite(targetSite[a.id]) && !effectiveCluster(a.id, targetSite[a.id]) ? "เลือกหมวดก่อน push" : !pbn && a.wordpressPostId ? `อัปเดตทับโพสต์เดิมบนเว็บ (ID ${a.wordpressPostId}) ไม่สร้างโพสต์ใหม่` : undefined}>
                     {busy ? "กำลัง Push..." : pbn ? (pbnPushes[a.id]?.[targetSite[a.id] ?? ""] ? "Push อัปเดต" : "Push") : a.wordpressPostId ? <><RotateCcw size={12} className="mr-1" /> Re-push (ทับของเดิม)</> : "Push"}
                   </Button>
                   {canDeleteArticle(a, pbn) && (

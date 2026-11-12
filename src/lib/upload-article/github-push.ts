@@ -36,6 +36,10 @@ export interface GithubPublishInput extends GithubTarget {
   language?: string
   /** วันที่ในไฟล์ (ISO) — ไม่ส่ง = ตอนนี้ */
   date?: string
+  /** เนื้อไฟล์บทความที่ประกอบมาแล้ว (เว็บโครง magazine) — ส่งมา = ไม่ใช้ buildArticleFile */
+  fileContent?: string
+  /** ไฟล์อื่นที่ต้องเข้า commit เดียวกัน (รูปที่แปลงแล้ว) — path เต็มใน repo, เนื้อหา base64 */
+  extraFiles?: Array<{ path: string; contentBase64: string }>
 }
 
 export interface GithubPublishResult {
@@ -183,6 +187,73 @@ export async function testGithubConnection(t: GithubTarget, fetchFn: FetchFn = f
   }
 }
 
+/**
+ * อ่านไฟล์ JSON จาก repo (เช่น site.config.json ของเว็บโครง magazine) — ขอแบบ raw จึงอ่านไฟล์ใหญ่กว่า 1MB ได้
+ * ใช้ token ของเว็บนั้นเอง ไม่เขียนอะไรลง repo
+ */
+export async function readRepoJson(
+  t: GithubTarget,
+  filePath: string,
+  fetchFn: FetchFn = fetch,
+): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+  const bad = validateTarget(t)
+  if (bad) return { ok: false, error: bad }
+  const clean = cleanRepoPath(filePath)
+  if (!clean) return { ok: false, error: 'path ของไฟล์ใน repo ไม่ถูกต้อง' }
+  const branch = t.branch || DEFAULT_GH_BRANCH
+  const url = `${GH_API}${repoPath(t)}/contents/${clean.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(branch)}`
+  try {
+    const res = await fetchFn(url, {
+      method: 'GET',
+      headers: { ...ghHeaders(t.token), Accept: 'application/vnd.github.raw+json' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      redirect: 'error',
+    })
+    const body = await res.text()
+    if (!res.ok) {
+      let message = ''
+      try {
+        const j = JSON.parse(body) as { message?: unknown }
+        if (typeof j.message === 'string') message = j.message
+      } catch {
+        message = ''
+      }
+      return { ok: false, error: ghError(res.status, message, `ไฟล์ ${clean}`) }
+    }
+    try {
+      return { ok: true, data: JSON.parse(body) }
+    } catch {
+      return { ok: false, error: `ไฟล์ ${clean} ไม่ใช่ JSON ที่อ่านได้` }
+    }
+  } catch (e) {
+    return { ok: false, error: `อ่านไฟล์จาก GitHub ไม่ได้: ${e instanceof Error ? e.message : String(e)}` }
+  }
+}
+
+/** มีไฟล์นี้ใน repo อยู่แล้วหรือยัง — ใช้กันเขียนทับไฟล์ที่ระบบอื่นสร้างไว้ */
+export async function repoFileExists(
+  t: GithubTarget,
+  filePath: string,
+  fetchFn: FetchFn = fetch,
+): Promise<{ ok: true; exists: boolean } | { ok: false; error: string }> {
+  const bad = validateTarget(t)
+  if (bad) return { ok: false, error: bad }
+  const clean = cleanRepoPath(filePath)
+  if (!clean) return { ok: false, error: 'path ของไฟล์ใน repo ไม่ถูกต้อง' }
+  const branch = t.branch || DEFAULT_GH_BRANCH
+  try {
+    const r = await gh<unknown>(
+      fetchFn, t.token, 'GET',
+      `${repoPath(t)}/contents/${clean.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(branch)}`,
+    )
+    if (r.status === 200) return { ok: true, exists: true }
+    if (r.status === 404) return { ok: true, exists: false }
+    return { ok: false, error: ghError(r.status, r.message, `ไฟล์ ${clean}`) }
+  } catch (e) {
+    return { ok: false, error: `ตรวจไฟล์บน GitHub ไม่ได้: ${e instanceof Error ? e.message : String(e)}` }
+  }
+}
+
 /** ยิง Deploy Hook (Vercel / Cloudflare Pages) — ใช้เฉพาะเว็บที่ไม่ได้ผูก auto-deploy กับ git */
 export async function triggerDeployHook(url: string): Promise<string | null> {
   const bad = await checkCredentialUrl(url)
@@ -221,7 +292,14 @@ export async function publishToGithub(input: GithubPublishInput, fetchFn: FetchF
       : `/${publicPath}`
   }
 
-  const content = buildArticleFile({
+  const extraFiles: Array<{ path: string; content: string }> = []
+  for (const f of input.extraFiles || []) {
+    const clean = cleanRepoPath(f.path)
+    if (!clean || !f.contentBase64) return { ok: false, error: 'path ของไฟล์แนบใน repo ไม่ถูกต้อง' }
+    extraFiles.push({ path: clean, content: f.contentBase64 })
+  }
+
+  const content = input.fileContent ?? buildArticleFile({
     format,
     title: input.title,
     html: input.html,
@@ -244,6 +322,7 @@ export async function publishToGithub(input: GithubPublishInput, fetchFn: FetchF
     // blob ไม่ขึ้นกับ commit ล่าสุด — สร้างครั้งเดียวพอ แม้ต้องลองใหม่
     const files: Array<{ path: string; content: string }> = [{ path: articlePath, content: Buffer.from(content, 'utf8').toString('base64') }]
     if (imagePath && input.coverBase64) files.push({ path: imagePath, content: input.coverBase64 })
+    for (const f of extraFiles) if (!files.some((x) => x.path === f.path)) files.push(f)
     const blobs: Array<{ path: string; sha: string }> = []
     for (const f of files) {
       const blob = await gh<{ sha: string }>(fetchFn, token, 'POST', `${base}/git/blobs`, { content: f.content, encoding: 'base64' })
