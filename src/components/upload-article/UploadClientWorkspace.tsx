@@ -70,8 +70,7 @@ export default function UploadClientWorkspace({
 }) {
   const router = useRouter();
   const isPbn = mode === "pbn";
-  // Import Outline = Upload เท่านั้น (ซ่อนในโหมด PBN)
-  const tabOrder = useMemo(() => (isPbn ? TAB_ORDER.filter(t => t !== "outline") : TAB_ORDER), [isPbn]);
+  const tabOrder = TAB_ORDER;
   const basePath = isPbn ? "/pbn-backlinks" : `/upload-article/${clientId}`;
   const [client, setClient] = useState<UploadClientDTO | null>(null);
   const [loading, setLoading] = useState(true);
@@ -286,25 +285,24 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        {!isPbn && (
-          <TabsContent value="outline">
-            <ImportOutlineTab
-              clientId={clientId}
-              writeProps={{
-                client,
-                articles,
-                preselectIds: writePreselect,
-                clearPreselect: () => setWritePreselect([]),
-                refreshArticles,
-                applyArticleUpdate,
-                goToReview: id => goTab("review", id),
-                onOpenSettings: openSettings,
-                variantsEnabled: false,
-                setClient,
-              }}
-            />
-          </TabsContent>
-        )}
+        <TabsContent value="outline">
+          <ImportOutlineTab
+            clientId={clientId}
+            writeProps={{
+              client,
+              articles,
+              preselectIds: writePreselect,
+              clearPreselect: () => setWritePreselect([]),
+              refreshArticles,
+              applyArticleUpdate,
+              goToReview: id => goTab("review", id),
+              onOpenSettings: openSettings,
+              variantsEnabled: isPbn,
+              setClient,
+            }}
+            pbn={isPbn}
+          />
+        </TabsContent>
 
         <TabsContent value="generate">
           <GenerateTab

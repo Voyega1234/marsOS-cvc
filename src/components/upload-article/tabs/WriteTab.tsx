@@ -419,6 +419,14 @@ export default function WriteTab({
     if (!ids.length) return;
     // เรียงเวอร์ชันแบบสลับ keyword (kw1v1, kw2v1, ..., kw1v2) — ถ้าหยุดกลางทางแต่ละ keyword ยังได้อย่างน้อย 1 บทความ
     if (!pbnTargetsOk) return;
+    if (variantsEnabled) {
+      // PBN: บทความต้องลิงก์ไป URL ปลายทาง — ยังไม่ใส่ = ไม่ยิงเขียน (เซิร์ฟเวอร์ตอบ 400 เหมือนกัน)
+      const noUrl = keywords.filter(k => ids.includes(k.id) && !k.targetUrl);
+      if (noUrl.length) {
+        toast.error(`ใส่ URL ปลายทางที่แท็บ Keyword ก่อน ${noUrl.length} keyword: ${noUrl.slice(0, 3).map(k => k.keyword).join(", ")}${noUrl.length > 3 ? " …" : ""}`);
+        return;
+      }
+    }
     const jobs: WriteJob[] = [];
     for (let v = 1; v <= perKeyword; v++) {
       const target = variantsEnabled ? { siteId: chosenSites[v - 1], profileId: activePbnSet } : undefined;
