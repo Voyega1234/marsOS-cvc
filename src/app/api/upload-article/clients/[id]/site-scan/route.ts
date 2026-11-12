@@ -9,6 +9,7 @@ import { scanUploadSite } from '@/lib/upload-article/site-scan'
 import type { UploadPushPrefs } from '@/lib/upload-article/types'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import { NOT_REWRITE_SHADOW } from '@/lib/upload-article/rewrite-lock'
+import { isPbnPrefsRaw } from '@/lib/upload-article/pbn'
 
 export const maxDuration = 300
 
@@ -59,6 +60,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     result = await scanUploadSite(url, sampleUrl || undefined, {
       platform,
       collectionSlug: platform === 'webflow' ? connStr('webflow', 'collectionSlug') || undefined : undefined,
+      // อ่านสไตล์แบบละเอียดเฉพาะ PBN Backlinks — Upload Article สแกนแบบเดิม
+      precise: isPbnPrefsRaw(client.pushPrefs),
     })
   } catch (err) {
     return NextResponse.json({ error: `สแกนไม่สำเร็จ: ${(err as Error).message}` }, { status: 502 })

@@ -852,10 +852,10 @@ const describe = (el: CssEl) => `${el.tag}${el.id ? `#${el.id}` : ''}${Array.fro
  * สี/ฟอนต์ที่ผู้อ่านเห็นจริงในกล่องเนื้อหาบทความ — cascade จาก CSS ของหน้า (ไม่ใช้ AI)
  * พื้นหลัง: element ระหว่างย่อหน้าถึงกล่องเนื้อหามีพื้นของตัวเอง = พื้นบทความ, ไม่มี = โปร่งใส (ใช้พื้นของ section/หน้าเว็บ)
  */
-function computeArticleStyle(page: string, rules: CssRule[]): ComputedArticleStyle | null {
+function computeArticleStyle(page: string, rules: CssRule[], precise = false): ComputedArticleStyle | null {
   const region = postContentRegion(page)
   if (!region) return null
-  const cascade = new CssCascade(rules)
+  const cascade = new CssCascade(rules, { attrs: precise })
   const contentChain = chainFor(page, region.start, region.openTag)
   const virtual = (tag: string): CssEl => ({ tag, id: '', classes: new Set() })
 
@@ -1384,6 +1384,11 @@ export interface ScanUploadSiteOptions {
   platform?: 'wordpress' | 'webflow' | 'shopify' | 'wix' | 'custom'
   /** Webflow collection slug (ใช้เลือก URL บทความจาก sitemap) */
   collectionSlug?: string
+  /**
+   * อ่านสไตล์แบบละเอียด: กฎ [attribute], ตัวแปรสีใน style="" ของ <html>/<body>, วัดหน้าตา FAQ จาก CSS จริง
+   * เปิดเฉพาะ PBN Backlinks — ไม่ส่ง = สแกนแบบเดิมทุกอย่าง (Upload Article, Article Lab)
+   */
+  precise?: boolean
 }
 
 /** หา URL บทความจาก sitemap (เว็บที่ไม่ใช่ WordPress) — เลือกตามรูปแบบ path ของแพลตฟอร์มก่อน */
@@ -1627,12 +1632,12 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
     const rawCss = await collectCss(cssPage, cssEntry?.link || target)
     const themeRules = parseRules(rawCss)
     // กฎที่ผูกกับ attribute ของ <html>/<body> หน้าอื่น (ธีมเดียวใช้หลายเว็บ) ไม่ส่งให้ AI — ไม่งั้น AI เดาหน้าตาของเว็บพี่น้องมาแทน
-    const top = pageTop(cssPage)
+    const top = options.precise ? pageTop(cssPage) : undefined
     const articleCss = articleOwnCss(parseRules(bodyStyleCss(cssPage)), themeRules, top)
     const { faqCss, contentCss } = relevantCss(themeRules, snippet ? classTokens(snippet.html) : [], snippet ? faqTags(snippet.html) : [], top)
     const region = postContentRegion(cssPage)
     const contentClassCss = region ? relevantCss(themeRules, classTokens(region.html.slice(region.openTag.length)).slice(0, 25), [], top).faqCss.slice(0, 6000) : ''
-    const computed = computeArticleStyle(cssPage, themeRules)
+    const computed = computeArticleStyle(cssPage, themeRules, options.precise === true)
     if (articleCss) checked.push('CSS ที่บทความฝังมาเอง')
     if (computed) {
       checked.push(
@@ -1691,7 +1696,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
       detail = { ...(detail || { source: `${snippet.label} บน ${target}` }), faq: { ...(detail?.faq || {}), display } }
       checked.push(display === 'open' ? 'FAQ บนเว็บแสดงคำตอบตลอด (คำถามเป็นหัวข้อ ไม่ต้องกดเปิด)' : 'FAQ บนเว็บเป็นแบบกดเปิด-ปิด')
       // FAQ แบบ <details>/<summary>: วัดกล่อง ระยะ สีตอนปิด-ตอนเปิด จาก CSS จริง ทับค่าที่ AI อ่าน (วัดไม่ได้ = คงค่า AI)
-      if (/<details\b/i.test(snippet.html) && /<summary\b/i.test(snippet.html)) {
+      if (options.precise && /<details\b/i.test(snippet.html) && /<summary\b/i.test(snippet.html)) {
         const faqPage = snippet.pageIndex >= 0 ? postEntries[snippet.pageIndex]?.page : home
         const measured = faqPage ? scanFaqStyle({ page: faqPage, rules: themeRules }) : null
         if (measured) {
@@ -1717,7 +1722,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
     }
     // หน้าตาละเอียดและโครงบทความวัดจากของจริง ไม่ใช้ AI — AI ล้มก็ยังได้ค่าชุดนี้
     const canReadArticle = region && (sampleEntry || looksLikeArticle(cssPage))
-    const article = canReadArticle ? scanArticleStyle({ page: cssPage, region, rules: themeRules, rawCss, sourceUrl: cssEntry?.link, pageBackground: computed?.outerBackdrop || computed?.backdrop }) : null
+    const article = canReadArticle ? scanArticleStyle({ page: cssPage, region, rules: themeRules, rawCss, sourceUrl: cssEntry?.link, pageBackground: computed?.outerBackdrop || computed?.backdrop, precise: options.precise === true }) : null
     if (!article) warnings.push('ยังอ่านหน้าตาบทความไม่ได้ เพราะหน้าที่เปิดได้ไม่ใช่หน้าบทความ — ใส่ลิงก์บทความตัวอย่างแล้วสแกนใหม่ เพื่อให้ได้ฟอนต์ ขนาด และกรอบตรงกับเว็บ')
     // ฟอนต์ที่เว็บไม่ได้ประกาศไฟล์ใน CSS ที่อ่านได้ (Google Fonts, @import) — หาไฟล์ให้พรีวิว ไม่ใช้ AI
     if (article) {

@@ -548,13 +548,16 @@ export function scanArticleStyle(input: {
   rawCss: string
   sourceUrl?: string
   pageBackground?: string | null
+  /** อ่านกฎแบบ [attribute] และตัวแปรใน style="" ด้วย — ไม่ส่ง = อ่านแบบเดิม */
+  precise?: boolean
 }): UploadArticleStyle | null {
   const { page, region, rules, rawCss, sourceUrl } = input
-  const base = new CssCascade(rules, { watch: ARTICLE_WATCHED })
+  const attrs = input.precise === true
+  const base = new CssCascade(rules, { watch: ARTICLE_WATCHED, attrs })
   const cx: Cascades = {
     base,
-    before: new CssCascade(pseudoRules(rules, /::?before\s*$/i), { watch: ARTICLE_WATCHED }),
-    marker: new CssCascade(pseudoRules(rules, /::marker\s*$/i), { watch: ARTICLE_WATCHED }),
+    before: new CssCascade(pseudoRules(rules, /::?before\s*$/i), { watch: ARTICLE_WATCHED, attrs }),
+    marker: new CssCascade(pseudoRules(rules, /::marker\s*$/i), { watch: ARTICLE_WATCHED, attrs }),
     rootPx: 16,
   }
   const html = parseOpenTag(/<html\b[^>]*>/i.exec(page)?.[0] || '<html>')
@@ -741,11 +744,11 @@ export function scanFaqStyle(input: { page: string; rules: CssRule[] }): Partial
   }
   const pick = found.reduce((best, c) => (groupScore(c) > groupScore(best) ? c : best), found[0])
 
-  const base = new CssCascade(rules, { watch: FAQ_WATCHED })
+  const base = new CssCascade(rules, { watch: FAQ_WATCHED, attrs: true })
   const cx: Cascades = {
     base,
     before: base,
-    marker: new CssCascade(pseudoRules(rules, /::(?:-webkit-details-)?marker\s*$/i), { watch: /^(?:display$|content$|color$)/ }),
+    marker: new CssCascade(pseudoRules(rules, /::(?:-webkit-details-)?marker\s*$/i), { watch: /^(?:display$|content$|color$)/, attrs: true }),
     rootPx: 16,
   }
   cx.rootPx = fontSizePx(cx, [parseOpenTag(/<html\b[^>]*>/i.exec(page)?.[0] || '<html>')]) || 16

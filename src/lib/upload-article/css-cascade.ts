@@ -417,13 +417,21 @@ export class CssCascade {
   /** กฎแยกตาม property — ค้นเฉพาะกฎที่ประกาศ property นั้นจริง */
   private byProp = new Map<string, Array<{ selectors: ParsedSelector[]; decl: Decl; order: number }>>()
 
-  /** watch = property ที่เก็บ — ไม่ส่งมา = ชุดเดิม (สี + ฟอนต์) */
-  constructor(rules: CssRule[], opts?: { watch?: RegExp }) {
+  /** อ่านกฎแบบ [attribute] และตัวแปรใน style="" ด้วยหรือไม่ */
+  private readonly attrs: boolean
+
+  /**
+   * watch = property ที่เก็บ — ไม่ส่งมา = ชุดเดิม (สี + ฟอนต์)
+   * attrs = อ่านกฎแบบ [attribute] และตัวแปรใน style="" ด้วย — ไม่ส่งมา = ข้ามเหมือนเดิม (ผลสแกนของระบบที่ไม่ได้เปิดใช้ไม่เปลี่ยน)
+   */
+  constructor(rules: CssRule[], opts?: { watch?: RegExp; attrs?: boolean }) {
     const watch = opts?.watch ?? WATCHED
+    this.attrs = opts?.attrs === true
     rules.forEach((r, order) => {
       const decls = parseDecls(r.body).filter((d) => watch.test(d.prop))
       if (!decls.length) return
       const selectors = splitTop(r.selector, ',')
+        .filter((part) => this.attrs || !part.includes('['))
         .map(parseSelector)
         .filter((s): s is ParsedSelector => !!s)
       if (!selectors.length) return
@@ -479,7 +487,7 @@ export class CssCascade {
   variable(chain: CssEl[], name: string, depth = 0): string | null {
     for (let i = chain.length; i > 0; i--) {
       // ค่าใน style="" ของ element ชนะกฎในไฟล์ CSS (ยกเว้นกฎ !important)
-      const inline = inlineVars(chain[i - 1]).get(name)
+      const inline = this.attrs ? inlineVars(chain[i - 1]).get(name) : undefined
       const win = inline === undefined ? null : this.winner(chain.slice(0, i), name)
       const v = inline !== undefined && !win?.imp ? inline : this.declared(chain.slice(0, i), name)
       if (v !== null) return depth > 6 ? v : this.resolve(v, chain.slice(0, i), depth + 1)

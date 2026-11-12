@@ -40,7 +40,11 @@ const rules = parseCssRules(CSS)
 {
   const at = PAGE.indexOf('<details')
   const chain = [...openChainAt(PAGE, at), parseOpenTag('<details>')]
-  const cx = new CssCascade(rules, { watch: /^(?:background|border|box-shadow|color$|--)/ })
+  const cx = new CssCascade(rules, { watch: /^(?:background|border|box-shadow|color$|--)/, attrs: true })
+  // ไม่เปิด attrs = อ่านแบบเดิม: ข้ามกฎ [attribute] และไม่อ่านตัวแปรใน style="" (ระบบอื่นที่ใช้ตัวอ่านเดียวกันได้ผลเท่าเดิม)
+  const legacy = new CssCascade(rules, { watch: /^(?:background|border|box-shadow|color$|--)/ })
+  assert(legacy.cascaded(chain, ['border-radius'])?.value === '10px', 'แบบเดิม: ไม่ใช้กฎ [data-site=health]')
+  assert(legacy.cascaded(chain, ['background-color', 'background']) === null || legacy.cascaded(chain, ['background-color', 'background'])?.value.toLowerCase() !== '#ffffff', 'แบบเดิม: ไม่อ่านตัวแปรใน style=""')
   assert(cx.cascaded(chain, ['background-color', 'background'])?.value.toLowerCase() === '#ffffff', 'ตัวแปรใน style="" ของ <html> ชนะ :root และกฎ [data-site=health] ชนะกฎทั่วไป')
   assert(cx.cascaded(chain, ['border-radius'])?.value === '14px', 'radius จากกฎของเว็บนี้')
   assert(cx.cascaded(chain, ['box-shadow'])?.value === 'none', 'เงาถูกปิดโดยกฎของเว็บนี้')
