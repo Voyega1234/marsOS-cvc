@@ -246,7 +246,7 @@ function SiteForm({
             </div>
             )}
             <div>
-              <label className={labelCls}>โฟลเดอร์รูปปก (ว่าง = ไม่อัปรูป)</label>
+              <label className={labelCls}>{magazine ? "โฟลเดอร์รูป (ต้องใส่ — เว็บนี้ไม่รับบทความที่ไม่มีปก)" : "โฟลเดอร์รูปปก (ว่าง = ไม่อัปรูป)"}</label>
               <Input value={d.ghImageDir} onChange={e => set("ghImageDir", e.target.value)} placeholder={magazine ? "general-1/public/images" : "public/images/blog"} />
             </div>
             {!magazine && (

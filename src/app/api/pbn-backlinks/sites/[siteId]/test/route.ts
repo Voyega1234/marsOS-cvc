@@ -8,7 +8,7 @@ import { testWordPressConnection } from '@/lib/upload-article/wp-push'
 import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 import { testGithubConnection } from '@/lib/upload-article/github-push'
 import { isMagazineSite } from '@/lib/upload-article/pbn-magazine'
-import { loadMagazineClusters } from '@/lib/upload-article/pbn-magazine-push'
+import { loadMagazineClusters, magazineImageDir } from '@/lib/upload-article/pbn-magazine-push'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,8 +37,10 @@ export async function POST(_req: NextRequest, { params }: { params: { siteId: st
     if (isMagazineSite(site)) {
       const c = await loadMagazineClusters(site, { owner: site.ghOwner || '', repo: site.ghRepo || '', branch: site.ghBranch, token })
       if (!c.ok) return NextResponse.json({ error: c.error }, { status: 400 })
-      const noImages = site.ghImageDir ? '' : ' · ยังไม่ได้ตั้งโฟลเดอร์รูป บทความจะไม่มีปกและรูปประกอบ'
-      return NextResponse.json({ ok: true, message: `${r.name} · ${c.clusters.count} หมวด (${c.configPath})${noImages}` })
+      // เว็บ magazine ไม่รับบทความที่ไม่มีปก — ไม่มีโฟลเดอร์รูป = push ไม่ได้ทุกบทความ บอกตั้งแต่ตอนทดสอบ
+      const images = magazineImageDir(site)
+      if (!images.ok) return NextResponse.json({ error: `เชื่อมต่อ repo ได้ (${c.clusters.count} หมวด) แต่ยัง push ไม่ได้: ${images.error}` }, { status: 400 })
+      return NextResponse.json({ ok: true, message: `${r.name} · ${c.clusters.count} หมวด (${c.configPath})` })
     }
     return NextResponse.json({ ok: true, message: r.name })
   }

@@ -13,8 +13,9 @@ import {
   magazineConfigPath,
   parseMagazineConfig,
 } from './pbn-magazine'
-import { buildMagazinePush, checkMagazinePush, loadMagazineClusters } from './pbn-magazine-push'
+import { buildMagazinePush, checkMagazinePush, loadMagazineClusters, magazineImageDir } from './pbn-magazine-push'
 import { mergePbnSiteInput, readPbnPushes, toPbnSiteDTO, type PbnSite } from './pbn'
+import { cleanPbnCluster, readPbnArticleTargets } from './pbn-sets'
 
 let n = 0
 async function t(name: string, fn: () => void | Promise<void>) {
@@ -47,6 +48,8 @@ const SITE: PbnSite = {
 } as PbnSite
 
 const TARGET = { owner: 'acme', repo: 'pbn', branch: 'main', token: 'ghp_test' }
+/** ปกแบบ data URI — checkMagazinePush ดูแค่รูปแบบ ไม่ถอดรูป */
+const COVER = 'data:image/png;base64,QUJD'
 
 /** GitHub ปลอม: site.config.json + รายชื่อไฟล์ที่มีอยู่แล้วใน repo */
 function fakeGithub(existing: string[] = [], config: unknown = CONFIG): typeof fetch {
@@ -80,18 +83,19 @@ async function main() {
     assert.equal(magazineConfigPath({ ghDir: 'posts', ghConfigPath: '../secret.json' }), null)
   })
 
-  await t('parseMagazineConfig: sections, labels, leftovers, dedupe', () => {
+  await t('parseMagazineConfig: sections, labels, dedupe; clusters outside sections are not offered', () => {
     const c = parseMagazineConfig(CONFIG)
     assert.ok(c)
-    assert.equal(c.count, 5)
-    assert.deepEqual(c.sections.map((s) => [s.key, s.label]), [['life', 'ไลฟ์สไตล์'], ['go', 'เดินทาง'], ['_other', 'อื่น ๆ']])
+    assert.equal(c.count, 4)
+    assert.deepEqual(c.sections.map((s) => [s.key, s.label]), [['life', 'ไลฟ์สไตล์'], ['go', 'เดินทาง']])
     assert.deepEqual(c.sections[0].clusters, [
       { slug: 'coffee-guide', label: 'คู่มือกาแฟ' },
       { slug: 'home-care', label: 'ดูแลบ้าน' },
       { slug: 'not-in-map', label: 'not-in-map' },
     ])
     assert.deepEqual(c.sections[1].clusters, [{ slug: 'travel', label: 'ท่องเที่ยว' }])
-    assert.deepEqual(c.sections[2].clusters, [{ slug: 'orphan', label: 'หมวดลอย' }])
+    // หมวดที่ไม่อยู่ในหมวดใหญ่ใดเลย: script merge ของ repo ไม่รับ จึงไม่ให้เลือก
+    assert.equal(findMagazineCluster(c, 'orphan'), null)
     assert.equal(findMagazineCluster(c, 'travel')?.label, 'ท่องเที่ยว')
     assert.equal(findMagazineCluster(c, 'nope'), null)
   })
@@ -216,14 +220,16 @@ async function main() {
     assert.ok(r.ok)
     if (!r.ok) return
     assert.equal(r.configPath, 'general-1/site.config.json')
-    assert.equal(r.clusters.count, 5)
+    assert.equal(r.clusters.count, 4)
     const bad = await loadMagazineClusters({ ...SITE, ghDir: 'posts' }, TARGET, fakeGithub())
     assert.equal(bad.ok, false)
   })
 
   await t('checkMagazinePush: rejects draft, bad slug, missing/unknown cluster, bad image dir', async () => {
-    const base = { site: SITE, target: TARGET, articleSlug: 'drip-coffee', cluster: 'travel', publishMode: 'publish' as const }
+    const base = { site: SITE, target: TARGET, articleSlug: 'drip-coffee', cluster: 'travel', publishMode: 'publish' as const, cover: COVER }
     const fx = fakeGithub()
+    // หมวดที่อยู่ใน clusters แต่ไม่อยู่ในหมวดใหญ่ = เลือกไม่ได้
+    assert.equal((await checkMagazinePush({ ...base, cluster: 'orphan' }, fx)).ok, false)
     assert.equal((await checkMagazinePush({ ...base, publishMode: 'draft' }, fx)).ok, false)
     assert.equal((await checkMagazinePush({ ...base, articleSlug: 'กาแฟดริป' }, fx)).ok, false)
     assert.equal((await checkMagazinePush({ ...base, articleSlug: '' }, fx)).ok, false)
@@ -242,8 +248,41 @@ async function main() {
     })
   })
 
+  await t('checkMagazinePush: rejects what the site repo checks reject (home- slug, no image folder, no cover)', async () => {
+    const base = { site: SITE, target: TARGET, articleSlug: 'drip-coffee', cluster: 'travel', publishMode: 'publish' as const, cover: COVER }
+    const fx = fakeGithub()
+    const err = async (over: Partial<Parameters<typeof checkMagazinePush>[0]>) => {
+      const r = await checkMagazinePush({ ...base, ...over }, fx)
+      return r.ok ? '' : r.error
+    }
+    assert.match(await err({ articleSlug: 'home-decor-ideas' }), /home-/)
+    // "home" กลางคำ/ไม่มีขีด ไม่โดนห้าม
+    assert.equal(await err({ articleSlug: 'homemade-coffee' }), '')
+    assert.equal(await err({ articleSlug: 'my-home-cafe' }), '')
+    assert.match(await err({ site: { ...SITE, ghImageDir: '' } }), /โฟลเดอร์รูป/)
+    assert.match(await err({ site: { ...SITE, ghImageDir: undefined } }), /โฟลเดอร์รูป/)
+    assert.match(await err({ cover: null }), /ยังไม่มีรูปปก/)
+    assert.match(await err({ cover: '' }), /ยังไม่มีรูปปก/)
+    assert.match(await err({ cover: 'https://cdn.example.com/cover.jpg' }), /ลิงก์ภายนอก/)
+    // ไม่ผ่าน = ยังไม่แตะ GitHub (ตรวจก่อนอ่าน repo)
+    let calls = 0
+    const counting = (async (...a: Parameters<typeof fetch>) => { calls++; return fx(...a) }) as typeof fetch
+    await checkMagazinePush({ ...base, cover: null }, counting)
+    await checkMagazinePush({ ...base, articleSlug: 'home-x' }, counting)
+    assert.equal(calls, 0)
+  })
+
+  await t('magazineImageDir: required, must end with public/images', () => {
+    assert.deepEqual(magazineImageDir(SITE), { ok: true, dir: 'general-1/public/images' })
+    assert.deepEqual(magazineImageDir({ name: 'x', ghImageDir: '/public/images/' }), { ok: true, dir: 'public/images' })
+    assert.equal(magazineImageDir({ name: 'x', ghImageDir: '' }).ok, false)
+    assert.equal(magazineImageDir({ name: 'x' }).ok, false)
+    assert.equal(magazineImageDir({ name: 'x', ghImageDir: 'public/images/blog' }).ok, false)
+    assert.equal(magazineImageDir({ name: 'x', ghImageDir: '../public/images' }).ok, false)
+  })
+
   await t('checkMagazinePush: never overwrites an article it did not push', async () => {
-    const base = { site: SITE, target: TARGET, articleSlug: 'drip-coffee', cluster: 'travel', publishMode: 'publish' as const }
+    const base = { site: SITE, target: TARGET, articleSlug: 'drip-coffee', cluster: 'travel', publishMode: 'publish' as const, cover: COVER }
     const taken = fakeGithub(['general-1/content/articles/drip-coffee.md'])
     const r = await checkMagazinePush(base, taken)
     assert.equal(r.ok, false)
@@ -289,20 +328,64 @@ async function main() {
     assert.ok(!/data:|<style|<h1/.test(r.fileContent))
   })
 
-  await t('buildMagazinePush: re-push keeps first date, adds updated; warns on missing bits', async () => {
-    const check = { slug: 'x', cluster: 'travel', clusterLabel: 'ท่องเที่ยว', articlePath: 'general-1/content/articles/x.md', imageDir: '' }
+  await t('buildMagazinePush: re-push keeps first date, adds updated; warns when there is no backlink', async () => {
+    const check = { slug: 'x', cluster: 'travel', clusterLabel: 'ท่องเที่ยว', articlePath: 'general-1/content/articles/x.md', imageDir: 'general-1/public/images' }
     const r = await buildMagazinePush({
       check,
       title: 'หัวข้อ',
-      html: '<p>ไม่มีลิงก์</p><p><img src="data:image/png;base64,QUJD"></p>',
+      html: '<p>ไม่มีลิงก์</p>',
+      cover: await png(),
       prevPush: { postId: check.articlePath, at: '2026-01-05T10:00:00Z', date: '2026-01-05' },
     })
     assert.equal(r.date, '2026-01-05')
     assert.ok(r.fileContent.includes('date: "2026-01-05"\nupdated: "'))
     assert.ok(r.fileContent.includes('description: "หัวข้อ"\nkeyword: "หัวข้อ"'))
-    assert.equal(r.extraFiles.length, 0)
-    assert.equal(r.warnings.length, 3)
+    assert.deepEqual(r.extraFiles.map((f) => f.path), ['general-1/public/images/x.webp', 'general-1/public/images/x-640.webp'])
+    assert.equal(r.warnings.length, 1)
     assert.ok(!r.fileContent.includes('data:'))
+  })
+
+  await t('buildMagazinePush: never builds an article without a usable cover', async () => {
+    const check = { slug: 'x', cluster: 'travel', clusterLabel: 'ท่องเที่ยว', articlePath: 'general-1/content/articles/x.md', imageDir: 'general-1/public/images' }
+    const base = { check, title: 'หัวข้อ', html: '<p>เนื้อหา</p>' }
+    await assert.rejects(buildMagazinePush(base), /ยังไม่มีรูปปก/)
+    await assert.rejects(buildMagazinePush({ ...base, cover: 'https://cdn.example.com/cover.jpg' }), /ยังไม่มีรูปปก/)
+    // ปกเป็น data URI แต่ไม่ใช่รูปจริง = แปลงไม่ได้ ต้องหยุด ไม่ push บทความไร้ปก
+    await assert.rejects(buildMagazinePush({ ...base, cover: COVER }), /แปลงรูปปก/)
+    await assert.rejects(buildMagazinePush({ ...base, check: { ...check, imageDir: '' }, cover: await png() }), /โฟลเดอร์รูป/)
+    // รูปในเนื้อหาเสีย = หยุดเหมือนเดิม
+    await assert.rejects(
+      buildMagazinePush({ ...base, cover: await png(), html: '<p><img src="data:image/png;base64,QUJD"></p>' }),
+      /แปลงรูปในเนื้อหา/,
+    )
+  })
+
+  await t('article target: category chosen at write time is kept, bad values are dropped', () => {
+    assert.equal(cleanPbnCluster(' acne-blemishes '), 'acne-blemishes')
+    assert.equal(cleanPbnCluster('Acne Blemishes'), '')
+    assert.equal(cleanPbnCluster('../etc'), '')
+    assert.equal(cleanPbnCluster(undefined), '')
+    const targets = readPbnArticleTargets({
+      pbnArticleTargets: {
+        a1: { siteId: 's1', profileId: 'main', cluster: 'used-cars' },
+        a2: { siteId: 's1', profileId: 'main' },
+        a3: { siteId: 's1', profileId: 'main', cluster: '<script>' },
+        a4: { siteId: '', cluster: 'used-cars' },
+      },
+    })
+    assert.deepEqual(targets.a1, { siteId: 's1', profileId: 'main', cluster: 'used-cars' })
+    // ไม่ได้เลือกหมวด / หมวดรูปแบบผิด = ไม่มี field cluster (ไปเลือกตอน push เหมือนเดิม)
+    assert.deepEqual(targets.a2, { siteId: 's1', profileId: 'main' })
+    assert.deepEqual(targets.a3, { siteId: 's1', profileId: 'main' })
+    assert.equal(targets.a4, undefined)
+  })
+
+  await t('parseMagazineConfig: sections declared but unusable never falls back to every cluster', () => {
+    // หมวดใหญ่ประกาศไว้แต่อ่านไม่ได้ = ไม่เสนอหมวดเลย (push ถูกกันไว้) ดีกว่าเสนอหมวดที่ script merge ของเว็บปฏิเสธ
+    assert.equal(parseMagazineConfig({ clusters: { a: 'A', b: 'B' }, magazine: { sections: [{ key: 'x', clusters: ['Not Valid'] }] } }), null)
+    // ไม่มีหมวดใหญ่เลย = ใช้ทุกหมวดใน clusters เหมือนเดิม
+    assert.equal(parseMagazineConfig({ clusters: { a: 'A', b: 'B' }, magazine: { sections: [] } })?.count, 2)
+    assert.equal(parseMagazineConfig({ clusters: { a: 'A', b: 'B' } })?.count, 2)
   })
 
   console.log(`\n${n} passed`)

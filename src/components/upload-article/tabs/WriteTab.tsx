@@ -15,6 +15,7 @@ import { PBN_MAX_VARIANTS, parseWriterSourceName, writerSourceName } from "@/lib
 import { PBN_MAIN_PROFILE } from "@/lib/upload-article/pbn-sets";
 import UploadLanguageSelect from "@/components/upload-article/shared/UploadLanguageSelect";
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
+import { useMagazineClusters } from "@/components/upload-article/pbn/useMagazineClusters";
 import { usePbnProfiles } from "@/components/upload-article/pbn/usePbnProfiles";
 
 const MAX_CONCURRENCY = 10;
@@ -54,7 +55,7 @@ function describeWriteError(raw: string): { message: string; transient: boolean 
 }
 
 /** เว็บ PBN ปลายทาง (สไตล์ตามเว็บ + push ได้เฉพาะเว็บนี้) + set ข้อมูลโปรเจกต์ — PBN เท่านั้น */
-type PbnJobTarget = { siteId: string; profileId: string };
+type PbnJobTarget = { siteId: string; profileId: string; cluster?: string };
 
 /** งานเขียน 1 ชิ้น — เวอร์ชัน 1 ใช้ key = keywordId (เหมือนเดิม), เวอร์ชันอื่น = keywordId#v<k> */
 type WriteJob = { key: string; keywordId: string; variant: number; total: number; target?: PbnJobTarget };
@@ -116,6 +117,20 @@ export default function WriteTab({
   const pbnSetQs = variantsEnabled && activePbnSet !== PBN_MAIN_PROFILE ? `?set=${encodeURIComponent(activePbnSet)}` : "";
   const pbnSiteIds = pbnSites.sites.map(s => s.id);
   const chosenSites = variantSites.slice(0, perKeyword);
+  // เว็บโครง magazine (khaoduan / roothan): เลือกหมวดไว้ตั้งแต่ตอนสั่งเขียนได้ (จำต่อเว็บ) — ไม่เลือก = ไปเลือกตอน push
+  const magazineClusters = useMagazineClusters(variantsEnabled, pbnSites.sites);
+  const [siteCluster, setSiteCluster] = useState<Record<string, string>>({});
+  const isMagazineSite = (siteId: string) => pbnSites.sites.find(s => s.id === siteId)?.ghLayout === "magazine";
+  /** หมวดที่จะส่งไปกับงานเขียน — ส่งเฉพาะหมวดที่ยังมีอยู่ในรายการของเว็บ */
+  const clusterForSite = (siteId: string): string | undefined => {
+    const slug = siteCluster[siteId];
+    if (!slug || !isMagazineSite(siteId)) return undefined;
+    return magazineClusters[siteId]?.sections?.some(sec => sec.clusters.some(c => c.slug === slug)) ? slug : undefined;
+  };
+  const pbnTargetOf = (siteId: string): PbnJobTarget => {
+    const cluster = clusterForSite(siteId);
+    return { siteId, profileId: activePbnSet, ...(cluster ? { cluster } : {}) };
+  };
   const pbnTargetsOk = !variantsEnabled || (
     chosenSites.length === perKeyword
     && chosenSites.every(id => pbnSiteIds.includes(id))
@@ -240,7 +255,7 @@ export default function WriteTab({
           keywordId,
           withCta: ctaRunRef.current,
           ...(job.total > 1 ? { variant: job.variant, variantTotal: job.total } : {}),
-          ...(job.target ? { siteId: job.target.siteId, profileId: job.target.profileId } : {}),
+          ...(job.target ? { siteId: job.target.siteId, profileId: job.target.profileId, ...(job.target.cluster ? { cluster: job.target.cluster } : {}) } : {}),
         }),
         signal: controller.signal,
       });
@@ -429,7 +444,7 @@ export default function WriteTab({
     }
     const jobs: WriteJob[] = [];
     for (let v = 1; v <= perKeyword; v++) {
-      const target = variantsEnabled ? { siteId: chosenSites[v - 1], profileId: activePbnSet } : undefined;
+      const target = variantsEnabled ? pbnTargetOf(chosenSites[v - 1]) : undefined;
       for (const id of ids) jobs.push(makeJob(id, v, perKeyword, target));
     }
     await runBatch(jobs);
@@ -444,7 +459,7 @@ export default function WriteTab({
     let target: PbnJobTarget | undefined;
     if (variantsEnabled) {
       const prev = jobTargetsRef.current[key];
-      target = prev && pbnSiteIds.includes(prev.siteId) ? prev : (variantSites[variant - 1] ? { siteId: variantSites[variant - 1], profileId: activePbnSet } : undefined);
+      target = prev && pbnSiteIds.includes(prev.siteId) ? prev : (variantSites[variant - 1] ? pbnTargetOf(variantSites[variant - 1]) : undefined);
       if (!target) { toast.error("เลือกเว็บ PBN ของบทความนี้ก่อนเขียนใหม่"); return; }
     }
     await runBatch([makeJob(keywordId, variant, Math.max(variant, variantTotalOf(keywordId)), target)]);
@@ -603,6 +618,27 @@ export default function WriteTab({
                         สไตล์: {pbnSites.styleNames[siteId] || "สไตล์หลัก"}
                       </span>
                     )}
+                    {siteId && isMagazineSite(siteId) && (() => {
+                      const sc = magazineClusters[siteId];
+                      const cls = "h-8 max-w-[220px] rounded-md border border-gray-200 px-2 text-sm bg-white";
+                      if (!sc || sc.status === "loading") {
+                        return <select disabled value="" className={cls} aria-label="หมวดของเว็บ"><option value="">กำลังโหลดหมวด…</option></select>;
+                      }
+                      if (sc.status === "error") {
+                        return <select disabled value="" title={sc.error} className={cls} aria-label="หมวดของเว็บ"><option value="">โหลดหมวดไม่ได้ — เลือกตอน push</option></select>;
+                      }
+                      return (
+                        <select id={`pbn-variant-cluster-${i}`} aria-label="หมวดของเว็บ" value={clusterForSite(siteId) ?? ""} disabled={running}
+                          onChange={e => setSiteCluster(prev => ({ ...prev, [siteId]: e.target.value }))} className={cls}>
+                          <option value="">หมวด: เลือกตอน push</option>
+                          {(sc.sections ?? []).map(sec => (
+                            <optgroup key={sec.key} label={sec.label}>
+                              {sec.clusters.map(c => <option key={c.slug} value={c.slug}>{c.label}</option>)}
+                            </optgroup>
+                          ))}
+                        </select>
+                      );
+                    })()}
                     {dup && <span className="text-[11px] text-red-600">เว็บซ้ำกับบทความอื่น</span>}
                   </div>
                 </div>
@@ -617,6 +653,7 @@ export default function WriteTab({
           )}
           <p className="w-full text-[11px] text-gray-400">
             แต่ละบทความเขียนตามสไตล์ของเว็บที่เลือก และ push ได้เฉพาะเว็บนั้น — ตั้งสไตล์ตามเว็บได้ที่ Project Setting &gt; สไตล์บทความ
+            {chosenSites.some(id => isMagazineSite(id)) && " · เว็บที่มีหลายหมวด: เลือกหมวดไว้ตรงนี้ได้เลย ทุกบทความในรอบนี้จะลงหมวดนั้น (เปลี่ยนได้อีกครั้งในหน้า Push)"}
           </p>
         </div>
       )}
@@ -698,8 +735,9 @@ export default function WriteTab({
                               <div key={key} className="flex items-start gap-2">
                                 <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-mist text-brand-blue">v{v}</span>
                                 {variantsEnabled && jobTargetsRef.current[key] && (
-                                  <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 max-w-[120px] truncate">
+                                  <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 max-w-[200px] truncate">
                                     {pbnSites.sites.find(s => s.id === jobTargetsRef.current[key].siteId)?.name || "เว็บที่ถูกลบ"}
+                                    {jobTargetsRef.current[key].cluster ? ` · ${jobTargetsRef.current[key].cluster}` : ""}
                                   </span>
                                 )}
                                 <div className="flex-1 min-w-0">

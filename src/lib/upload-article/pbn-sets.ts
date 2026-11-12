@@ -3,7 +3,8 @@
 //   pbnProfiles       — set ข้อมูลโปรเจกต์เพิ่มเติม (เว็บหลัก + ภาษา) แต่ละ set มี Content Engine ของตัวเอง
 //                       set "main" = ค่าเดิมของแถว (client.website / client.language / CE projectId = client.id)
 //   pbnStyles         — สไตล์บทความต่อเว็บ PBN (siteId → ธีม) ไม่มี = ใช้สไตล์หลัก (client.themeColors)
-//   pbnArticleTargets — บทความไหนเขียนเพื่อขึ้นเว็บไหน ด้วย set ไหน (articleId → { siteId, profileId })
+//   pbnArticleTargets — บทความไหนเขียนเพื่อขึ้นเว็บไหน ด้วย set ไหน (articleId → { siteId, profileId, cluster? })
+//                       cluster = หมวดที่เลือกไว้ตอนสั่งเขียน (เว็บโครง magazine) ใช้เป็นค่าเริ่มต้นตอน push
 // ไฟล์นี้ใช้ได้ทั้งฝั่งเซิร์ฟเวอร์และหน้าเว็บ — ห้าม import โมดูลของ Node ที่นี่
 
 import type { UploadTheme } from './types'
@@ -11,6 +12,8 @@ import type { UploadTheme } from './types'
 export const PBN_MAIN_PROFILE = 'main'
 export const PBN_MAX_PROFILES = 50
 const PROFILE_ID_RE = /^[A-Za-z0-9-]{6,64}$/
+/** รูปแบบ slug หมวดของเว็บโครง magazine (ตรงกับ key ใน site.config.json ของเว็บ) */
+export const PBN_CLUSTER_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/
 
 export type PbnLanguage = 'th' | 'en' | 'both'
 
@@ -34,6 +37,14 @@ export interface PbnStyle {
 export interface PbnArticleTarget {
   siteId: string
   profileId: string
+  /** หมวดที่เลือกตอนสั่งเขียน — เฉพาะเว็บโครง magazine, ไม่เลือก = เลือกตอน push */
+  cluster?: string
+}
+
+/** หมวดที่รับมาจากหน้าเว็บ/ที่เก็บไว้ — รูปแบบไม่ถูก = ถือว่าไม่ได้เลือก */
+export function cleanPbnCluster(v: unknown): string {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return PBN_CLUSTER_SLUG_RE.test(s) ? s : ''
 }
 
 export type PbnArticleTargets = Record<string, PbnArticleTarget>
@@ -92,7 +103,8 @@ export function readPbnArticleTargets(prefs: Record<string, unknown> | null | un
     if (!v || typeof v !== 'object') continue
     const r = v as Record<string, unknown>
     if (typeof r.siteId !== 'string' || !r.siteId) continue
-    out[articleId] = { siteId: r.siteId, profileId: isPbnProfileId(r.profileId) ? r.profileId : PBN_MAIN_PROFILE }
+    const cluster = cleanPbnCluster(r.cluster)
+    out[articleId] = { siteId: r.siteId, profileId: isPbnProfileId(r.profileId) ? r.profileId : PBN_MAIN_PROFILE, ...(cluster ? { cluster } : {}) }
   }
   return out
 }

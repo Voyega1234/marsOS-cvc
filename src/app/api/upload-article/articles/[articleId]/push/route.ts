@@ -184,14 +184,16 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     } catch {
       return NextResponse.json({ error: 'ถอดรหัส GitHub Token ไม่สำเร็จ — ใส่ Token ใหม่ในหน้า Setting' }, { status: 500 })
     }
-    // เว็บโครง magazine (khaoduan / roothan): ต้องเลือกหมวด + slug อังกฤษ + ไม่ทับบทความเดิมของเว็บ
+    // เว็บโครง magazine (khaoduan / roothan): ต้องเลือกหมวด + slug อังกฤษ + มีปก + ไม่ทับบทความเดิมของเว็บ
     if (isMagazineSite(pbnSite)) {
       const checked = await checkMagazinePush({
         site: pbnSite,
         target: { owner: pbnSite.ghOwner, repo: pbnSite.ghRepo, branch: pbnSite.ghBranch, token: ghToken },
         articleSlug: article.slug || '',
-        cluster: typeof body.cluster === 'string' && body.cluster.trim() ? body.cluster.trim() : prevPbnPush?.cluster || '',
+        // หมวด: ที่เลือกในหน้า Push > หมวดที่ push ไว้รอบก่อน > หมวดที่เลือกไว้ตอนสั่งเขียน
+        cluster: typeof body.cluster === 'string' && body.cluster.trim() ? body.cluster.trim() : prevPbnPush?.cluster || eff.target?.cluster || '',
         publishMode,
+        cover: article.coverImageUrl,
         prevPush: prevPbnPush,
       })
       if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 })

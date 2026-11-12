@@ -54,7 +54,8 @@ import {
   splitOutlineFill,
   stripMasterOutlineSection,
 } from '@/lib/upload-article/outline'
-import { PBN_MAIN_PROFILE, isPbnProfileId, readPbnProfiles, readPbnArticleTargets } from '@/lib/upload-article/pbn-sets'
+import { PBN_MAIN_PROFILE, cleanPbnCluster, isPbnProfileId, readPbnProfiles, readPbnArticleTargets, type PbnArticleTarget } from '@/lib/upload-article/pbn-sets'
+import { isMagazineSite } from '@/lib/upload-article/pbn-magazine'
 import { pbnEffectiveClient, resolveCeSet } from '@/lib/upload-article/pbn-context'
 import { enforcePbnBacklink, pbnBacklinkFor } from '@/lib/upload-article/pbn-backlink'
 import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
@@ -176,7 +177,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // PBN Backlinks: ต้องบอกว่าบทความนี้เขียนเพื่อขึ้นเว็บ PBN ไหน (สไตล์ตามเว็บนั้น + push ได้แค่เว็บนั้น) และใช้ set ข้อมูลโปรเจกต์ไหน
   const isPbn = isPbnPrefsRaw(client.pushPrefs)
-  let target: { siteId: string; profileId: string } | null = null
+  let target: PbnArticleTarget | null = null
   const rewriteOf = rewriteArticleId
     ? await prisma.uploadArticle.findFirst({ where: { id: rewriteArticleId, clientId: client.id, organizationId: orgId } })
     : null
@@ -214,14 +215,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     target = saved
   } else if (isPbn) {
     const siteId = typeof body?.siteId === 'string' ? body.siteId : ''
-    if (!siteId || !readPbnSites(prefs).some((s) => s.id === siteId)) {
+    const site = siteId ? readPbnSites(prefs).find((s) => s.id === siteId) : undefined
+    if (!site) {
       return NextResponse.json({ error: 'เลือกเว็บ PBN ที่จะ push บทความนี้ก่อนเขียน (เว็บนี้อาจถูกลบไปแล้ว)' }, { status: 400 })
     }
     const profileId = isPbnProfileId(body?.profileId) ? body.profileId : PBN_MAIN_PROFILE
     if (profileId !== PBN_MAIN_PROFILE && !readPbnProfiles(prefs).some((p) => p.id === profileId)) {
       return NextResponse.json({ error: 'ไม่พบ set ข้อมูลโปรเจกต์ที่เลือก (อาจถูกลบไปแล้ว)' }, { status: 400 })
     }
-    target = { siteId, profileId }
+    // หมวดที่เลือกตอนสั่งเขียน (เว็บโครง magazine เท่านั้น) — เก็บไว้เป็นค่าเริ่มต้นตอน push, ตอน push ยังเช็คกับรายการหมวดจริงของเว็บอีกรอบ
+    const cluster = isMagazineSite(site) ? cleanPbnCluster(body?.cluster) : ''
+    target = { siteId, profileId, ...(cluster ? { cluster } : {}) }
   }
   // client ที่ใช้เขียนจริง — PBN: เว็บหลัก/ภาษาตาม set + สไตล์ตามเว็บปลายทาง, Upload Article: ค่าเดิม
   const effective = pbnEffectiveClient({ ...client, pushPrefs: JSON.stringify(prefs) }, target)

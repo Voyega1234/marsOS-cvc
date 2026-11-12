@@ -16,8 +16,8 @@ import { formatPublishAt } from "@/components/upload-article/shared/PublishDateP
 import DeleteArticleDialog from "@/components/upload-article/shared/DeleteArticleDialog";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { parseWriterSourceName } from "@/lib/upload-article/pbn";
-import type { MagazineSection } from "@/lib/upload-article/pbn-magazine";
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
+import { useMagazineClusters } from "@/components/upload-article/pbn/useMagazineClusters";
 import { uploadPlatformOf, UPLOAD_PLATFORM_LABEL, pushTargetUrl as getPushTargetUrl, pushTargetDetail, missingConnectionFields, pushCapabilities, hostOf } from "@/lib/upload-article/platform-info";
 
 const PUSHABLE = new Set(["GENERATED", "REVIEWED", "PUSHING", "PUSHED", "FAILED"]);
@@ -78,31 +78,14 @@ export default function PushTab({
   }, [pbn, targetsKey]);
   /** Magazine layout: หมวด (cluster) ที่เลือกต่อบทความ + รายการหมวดของแต่ละเว็บ (โหลดครั้งเดียวต่อเว็บ) */
   const [clusterSel, setClusterSel] = useState<Record<string, string>>({});
-  const [siteClusters, setSiteClusters] = useState<Record<string, { status: "loading" | "ok" | "error"; sections?: MagazineSection[]; error?: string }>>({});
-  const clusterRequested = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!pbn) return;
-    for (const site of pbnSites) {
-      if (site.ghLayout !== "magazine" || clusterRequested.current.has(site.id)) continue;
-      clusterRequested.current.add(site.id);
-      setSiteClusters(prev => ({ ...prev, [site.id]: { status: "loading" } }));
-      fetch(`/api/pbn-backlinks/sites/${site.id}/clusters`)
-        .then(async r => {
-          const d = await r.json().catch(() => ({}));
-          if (!r.ok || !Array.isArray(d.sections)) {
-            setSiteClusters(prev => ({ ...prev, [site.id]: { status: "error", error: d?.error || "โหลดรายการหมวดไม่สำเร็จ" } }));
-          } else {
-            setSiteClusters(prev => ({ ...prev, [site.id]: { status: "ok", sections: d.sections as MagazineSection[] } }));
-          }
-        })
-        .catch(e => {
-          setSiteClusters(prev => ({ ...prev, [site.id]: { status: "error", error: e instanceof Error && e.message ? e.message : "โหลดรายการหมวดไม่สำเร็จ" } }));
-        });
-    }
-  }, [pbn, pbnSites]);
+  const siteClusters = useMagazineClusters(pbn, pbnSites);
   const isMagazineSite = (siteId: string | undefined) => !!pbn && !!siteId && pbnSites.find(s => s.id === siteId)?.ghLayout === "magazine";
-  const effectiveCluster = (articleId: string, siteId: string | undefined) =>
-    siteId ? (clusterSel[articleId] ?? pbnPushes[articleId]?.[siteId]?.cluster ?? "") : "";
+  /** หมวดที่ใช้ push: ที่เลือกในหน้านี้ > หมวดที่ push ไว้รอบก่อน > หมวดที่เลือกไว้ตอนสั่งเขียน */
+  const effectiveCluster = (articleId: string, siteId: string | undefined) => {
+    if (!siteId) return "";
+    const written = pbnData.targets[articleId];
+    return clusterSel[articleId] ?? pbnPushes[articleId]?.[siteId]?.cluster ?? (written?.siteId === siteId ? written.cluster : undefined) ?? "";
+  };
   const pushable = useMemo(() => articles.filter(a => PUSHABLE.has(a.status)), [articles]);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const statusCounts = pushable.reduce<Record<string, number>>((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc; }, {});

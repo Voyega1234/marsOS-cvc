@@ -11,10 +11,11 @@ import { parse, HTMLElement, Node, NodeType } from 'node-html-parser'
 import { normalizeUrl } from './internal-links'
 import { removeCoverFromHtml } from './article-images'
 import { cleanRepoPath, DEFAULT_GH_DIR, type PbnSite } from './pbn'
+import { PBN_CLUSTER_SLUG_RE } from './pbn-sets'
 
 const PARSE_OPTIONS = { blockTextElements: {} }
 const SYSTEM_BLOCK_RE = /\bcontent-(?:cta|author|toc|breadcrumb)\b/
-const CLUSTER_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/
+const CLUSTER_SLUG_RE = PBN_CLUSTER_SLUG_RE
 /** slug ของเว็บ magazine = ชื่อไฟล์ + URL + ชื่อไฟล์รูป — ตัวพิมพ์เล็กอังกฤษ ตัวเลข ขีดกลางเท่านั้น */
 export const MAGAZINE_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 export const MAGAZINE_OTHER_SECTION = '_other'
@@ -70,6 +71,8 @@ export function parseMagazineConfig(raw: unknown): MagazineClusters | null {
   const sections: MagazineSection[] = []
   const used = new Set<string>()
   const mag = cfg.magazine && typeof cfg.magazine === 'object' ? (cfg.magazine as Record<string, unknown>) : null
+  // เว็บประกาศหมวดใหญ่ไว้ (แม้อ่านแล้วใช้ไม่ได้สักหมวด) = ห้ามถอยไปเสนอทุกหมวดใน clusters
+  const declaresSections = !!mag && Array.isArray(mag.sections) && mag.sections.length > 0
   if (mag && Array.isArray(mag.sections)) {
     for (const s of mag.sections as unknown[]) {
       if (!s || typeof s !== 'object') continue
@@ -85,9 +88,13 @@ export function parseMagazineConfig(raw: unknown): MagazineClusters | null {
       if (clusters.length) sections.push({ key, label: text(sec.navLabel) || text(sec.label) || key, clusters })
     }
   }
-  const rest: MagazineCluster[] = []
-  for (const [slug, label] of Array.from(labels)) if (!used.has(slug)) rest.push({ slug, label })
-  if (rest.length) sections.push({ key: MAGAZINE_OTHER_SECTION, label: sections.length ? 'อื่น ๆ' : 'หมวดทั้งหมด', clusters: rest })
+  // เว็บที่มีหมวดใหญ่ (magazine.sections): เสนอเฉพาะหมวดที่อยู่ในหมวดใหญ่ — script merge ของ repo หยุดทั้งรอบ
+  // เมื่อเจอบทความที่ cluster ไม่อยู่ในหมวดใหญ่ใดเลย. เว็บที่ไม่มีหมวดใหญ่ = ใช้ทุกหมวดใน clusters
+  if (!sections.length && !declaresSections) {
+    const all: MagazineCluster[] = []
+    for (const [slug, label] of Array.from(labels)) all.push({ slug, label })
+    if (all.length) sections.push({ key: MAGAZINE_OTHER_SECTION, label: 'หมวดทั้งหมด', clusters: all })
+  }
   const count = sections.reduce((n, s) => n + s.clusters.length, 0)
   return count ? { sections, count } : null
 }
