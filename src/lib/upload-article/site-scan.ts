@@ -13,8 +13,8 @@ import { askJson } from '@/lib/competitor-gap/ai'
 import type { ORUsage } from '@/lib/openrouter'
 import { safeColor, sanitizeThemeDetail } from './theme-css'
 import { detectSeoPluginsFromHtml, detectSeoPluginsFromNamespaces, seoPluginLabel, seoPluginNote, type SeoPluginKey } from './seo-plugins'
-import { contrast, CssCascade, luminance, mediaApplies, openChainAt, parseCssRules, parseOpenTag, toHex, type CssEl, type CssRule } from './css-cascade'
-import { absolutizeFontUrls, scanArticleStructure, scanArticleStyle } from './article-style-scan'
+import { attrGatedOut, contrast, CssCascade, inlineVars, luminance, mediaApplies, openChainAt, parseCssRules, parseOpenTag, splitTop, toHex, type CssEl, type CssRule } from './css-cascade'
+import { absolutizeFontUrls, scanArticleStructure, scanArticleStyle, scanFaqStyle } from './article-style-scan'
 import { findMissingFontFaces } from './font-lookup'
 import { articleFontStacks, primaryFontFamilies } from './font-faces'
 import { SITE_TOC_ID_TOKEN, UPLOAD_LAYOUT_LABEL } from './types'
@@ -993,27 +993,61 @@ function resolveVars(body: string, vars: Map<string, string>): string {
 
 const CONTENT_SEL = /(?:entry-content|post-content|single-content|article-content|the-content|elementor-widget-theme-post-content|wp-block-post-content|et_pb_post_content|w-richtext|gh-content|article-template__content|article__content|blog-item-content|post-body|post_content|article-body|article__body|\.prose\b|\.rte\b|\barticle)[^,{]*\b(?:h2|h3|a|table|th|td|p|blockquote)\b|^(?:body|h2|h3|a|table|th|td)$/i
 
-function cssVars(rules: CssRule[]): Map<string, string> {
+/** <html> และ <body> ของหน้า — ใช้ตัดกฎที่ผูกกับ attribute ของหน้าอื่น และอ่านตัวแปรที่ตั้งใน style="" */
+interface PageTop {
+  html?: CssEl
+  body?: CssEl
+}
+
+function pageTop(page: string): PageTop {
+  const html = /<html\b[^>]*>/i.exec(page)?.[0]
+  const body = /<body\b[^>]*>/i.exec(page)?.[0]
+  return { html: html ? parseOpenTag(html) : undefined, body: body ? parseOpenTag(body) : undefined }
+}
+
+/**
+ * selector ที่ยังใช้กับหน้านี้ได้ — ตัดส่วนที่ผูกกับ attribute ของ <html>/<body> ที่หน้านี้ไม่มี
+ * (ธีมเดียวใช้หลายเว็บ: [data-site=a] … , [data-site=b] …) · คืน null = ทั้งกฎไม่ใช้กับหน้านี้
+ */
+function liveSelector(selector: string, top: PageTop | undefined): string | null {
+  if (!top || !selector.includes('[')) return selector
+  const parts = splitTop(selector, ',')
+  const live = parts.filter((part) => !attrGatedOut(part.trim(), top))
+  if (live.length === parts.length) return selector
+  return live.length ? live.map((part) => part.trim()).join(',') : null
+}
+
+function cssVars(rules: CssRule[], top?: PageTop): Map<string, string> {
   const vars = new Map<string, string>()
+  // ตัวแปรที่ตั้งใน style="" ของ <html>/<body> ชนะตัวแปรในไฟล์ CSS (body อยู่ใกล้เนื้อหากว่า html)
+  for (const el of [top?.body, top?.html]) {
+    if (!el) continue
+    inlineVars(el).forEach((value, name) => {
+      if (!vars.has(name)) vars.set(name, value)
+    })
+  }
   for (const r of rules) {
     if (!/(?::root|^html|^body|\.editor-styles-wrapper)/i.test(r.selector)) continue
+    if (liveSelector(r.selector, top) === null) continue
     for (const m of Array.from(r.body.matchAll(/(--[\w-]+)\s*:\s*([^;]+)/g))) if (!vars.has(m[1])) vars.set(m[1], m[2].trim())
   }
   return vars
 }
 
-function ruleLine(r: CssRule, vars: Map<string, string>): string | null {
+function ruleLine(r: CssRule, vars: Map<string, string>, top?: PageTop): string | null {
+  const selector = liveSelector(r.selector, top)
+  if (selector === null) return null
   const body = resolveVars(r.body.replace(/(?:^|;)\s*--[\w-]+\s*:[^;]*/g, ''), vars).trim()
-  return body ? `${r.selector.replace(/\s+/g, ' ')}{${body.replace(/\s+/g, ' ')}}` : null
+  return body ? `${selector.replace(/\s+/g, ' ')}{${body.replace(/\s+/g, ' ')}}` : null
 }
 
 /** CSS ที่บทความฝังมาเองทั้งก้อน (≤14KB) — ตัวแปรหาจากทั้ง CSS ของบทความและธีม */
-function articleOwnCss(articleRules: CssRule[], themeRules: CssRule[]): string {
-  const vars = cssVars([...articleRules, ...themeRules])
+function articleOwnCss(articleRules: CssRule[], themeRules: CssRule[], top?: PageTop): string {
+  const vars = cssVars([...articleRules, ...themeRules], top)
   const out: string[] = []
   let len = 0
   for (const r of articleRules) {
-    const line = ruleLine(r, vars)
+    const line = ruleLine(r, vars, top)
     if (!line || len >= 14_000) continue
     out.push(line)
     len += line.length
@@ -1021,8 +1055,8 @@ function articleOwnCss(articleRules: CssRule[], themeRules: CssRule[]): string {
   return out.join('\n')
 }
 
-function relevantCss(rules: CssRule[], tokens: string[], tags: string[] = []): { faqCss: string; contentCss: string } {
-  const vars = cssVars(rules)
+function relevantCss(rules: CssRule[], tokens: string[], tags: string[] = [], top?: PageTop): { faqCss: string; contentCss: string } {
+  const vars = cssVars(rules, top)
   const tokenRe = tokens.length ? new RegExp(`\\.(?:${tokens.map((t) => t.replace(/[-]/g, '\\-')).join('|')})(?![\\w-])`) : null
   const tagRe = tags.length ? new RegExp(`(?:^|[\\s>+~,(])(?:${tags.join('|')})(?![\\w-])`, 'i') : null
   const faq: string[] = []
@@ -1030,7 +1064,7 @@ function relevantCss(rules: CssRule[], tokens: string[], tags: string[] = []): {
   let faqLen = 0
   let contentLen = 0
   for (const r of rules) {
-    const line = ruleLine(r, vars)
+    const line = ruleLine(r, vars, top)
     if (!line) continue
     if (((tokenRe && tokenRe.test(r.selector)) || (tagRe && tagRe.test(r.selector))) && faqLen < 14_000) {
       faq.push(line)
@@ -1592,10 +1626,12 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
   if (cssPage) {
     const rawCss = await collectCss(cssPage, cssEntry?.link || target)
     const themeRules = parseRules(rawCss)
-    const articleCss = articleOwnCss(parseRules(bodyStyleCss(cssPage)), themeRules)
-    const { faqCss, contentCss } = relevantCss(themeRules, snippet ? classTokens(snippet.html) : [], snippet ? faqTags(snippet.html) : [])
+    // กฎที่ผูกกับ attribute ของ <html>/<body> หน้าอื่น (ธีมเดียวใช้หลายเว็บ) ไม่ส่งให้ AI — ไม่งั้น AI เดาหน้าตาของเว็บพี่น้องมาแทน
+    const top = pageTop(cssPage)
+    const articleCss = articleOwnCss(parseRules(bodyStyleCss(cssPage)), themeRules, top)
+    const { faqCss, contentCss } = relevantCss(themeRules, snippet ? classTokens(snippet.html) : [], snippet ? faqTags(snippet.html) : [], top)
     const region = postContentRegion(cssPage)
-    const contentClassCss = region ? relevantCss(themeRules, classTokens(region.html.slice(region.openTag.length)).slice(0, 25)).faqCss.slice(0, 6000) : ''
+    const contentClassCss = region ? relevantCss(themeRules, classTokens(region.html.slice(region.openTag.length)).slice(0, 25), [], top).faqCss.slice(0, 6000) : ''
     const computed = computeArticleStyle(cssPage, themeRules)
     if (articleCss) checked.push('CSS ที่บทความฝังมาเอง')
     if (computed) {
@@ -1654,6 +1690,15 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
       const display = detectFaqDisplay(snippet.html)
       detail = { ...(detail || { source: `${snippet.label} บน ${target}` }), faq: { ...(detail?.faq || {}), display } }
       checked.push(display === 'open' ? 'FAQ บนเว็บแสดงคำตอบตลอด (คำถามเป็นหัวข้อ ไม่ต้องกดเปิด)' : 'FAQ บนเว็บเป็นแบบกดเปิด-ปิด')
+      // FAQ แบบ <details>/<summary>: วัดกล่อง ระยะ สีตอนปิด-ตอนเปิด จาก CSS จริง ทับค่าที่ AI อ่าน (วัดไม่ได้ = คงค่า AI)
+      if (/<details\b/i.test(snippet.html) && /<summary\b/i.test(snippet.html)) {
+        const faqPage = snippet.pageIndex >= 0 ? postEntries[snippet.pageIndex]?.page : home
+        const measured = faqPage ? scanFaqStyle({ page: faqPage, rules: themeRules }) : null
+        if (measured) {
+          detail = sanitizeThemeDetail({ ...detail, faq: { ...(detail.faq || {}), ...measured } }) || detail
+          checked.push('หน้าตา FAQ วัดจาก CSS จริงของเว็บ (กล่อง ระยะ สีตอนปิดและตอนเปิด)')
+        }
+      }
     }
     // ค่าที่คำนวณจาก CSS จริงชนะค่าที่ AI อ่าน — รวมถึงพื้นหลังโปร่งใส ('' = ไม่ใส่พื้น ใช้พื้นของเว็บ)
     if (computed) {

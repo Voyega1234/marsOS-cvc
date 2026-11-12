@@ -1,8 +1,11 @@
 // ─── คำนวณสีจริงของบทความจาก HTML + CSS ของเว็บ (cascade แบบย่อ ไม่ต้องเปิดเบราว์เซอร์) ─────────────
 // ใช้ตอนสแกนเว็บปลายทาง: หาว่าผู้อ่านเห็นตัวอักษร/หัวข้อ/ลิงก์สีอะไร และบทความมีพื้นหลังของตัวเองไหม
-// รองรับ: selector แบบ tag/.class/#id, descendant/child, :root/:not()/:where()/:is(), ตัวแปร CSS (var()),
-// การสืบทอดสี, !important, specificity, ลำดับกฎ และตัด @media ที่ใช้เฉพาะมือถือ/พิมพ์/dark mode
-// ข้อจำกัด: ไม่รองรับ selector แบบ attribute/sibling/สถานะ (:hover, :nth-child) — กฎพวกนั้นถูกข้าม
+// รองรับ: selector แบบ tag/.class/#id/[attribute], descendant/child, :root/:not()/:where()/:is(), ตัวแปร CSS (var())
+// รวมตัวแปรที่ตั้งใน style="" ของ element, การสืบทอดสี, !important, specificity, ลำดับกฎ
+// และตัด @media ที่ใช้เฉพาะมือถือ/พิมพ์/dark mode
+// attribute อ่านจากแท็กจริงในหน้า (เช่น <body data-site="health">, <details open>) — เว็บที่ใช้ CSS ไฟล์เดียวหลายธีม
+// แยกธีมด้วย attribute แบบนี้ ถ้าข้ามกฎพวกนี้จะได้ค่าของธีมกลางแทนค่าที่ผู้อ่านเห็น
+// ข้อจำกัด: ไม่รองรับ selector แบบ sibling/สถานะ (:hover, :nth-child) และ pseudo-element — กฎพวกนั้นถูกข้าม
 
 export interface CssRule {
   selector: string
@@ -72,6 +75,8 @@ export interface CssEl {
   tag: string
   id: string
   classes: Set<string>
+  /** แท็กเปิดต้นฉบับ — ใช้อ่าน attribute และตัวแปรใน style="" เมื่อมีกฎที่ต้องใช้ (element จำลองไม่มีก็ได้) */
+  html?: string
 }
 
 const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
@@ -80,7 +85,42 @@ export function parseOpenTag(tagHtml: string): CssEl {
   const tag = (/^<([a-zA-Z][\w-]*)/.exec(tagHtml)?.[1] || 'div').toLowerCase()
   const id = /\sid=["']([^"']*)["']/i.exec(tagHtml)?.[1] || ''
   const cls = /\sclass=["']([^"']*)["']/i.exec(tagHtml)?.[1] || ''
-  return { tag, id, classes: new Set(cls.split(/\s+/).filter(Boolean)) }
+  return { tag, id, classes: new Set(cls.split(/\s+/).filter(Boolean)), html: tagHtml }
+}
+
+const ATTRS = new WeakMap<CssEl, Map<string, string>>()
+const INLINE_VARS = new WeakMap<CssEl, Map<string, string>>()
+const NO_VARS = new Map<string, string>()
+
+const decodeAttr = (v: string) =>
+  v.includes('&') ? v.replace(/&quot;/g, '"').replace(/&#0*39;|&#x0*27;|&apos;/gi, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&') : v
+
+/** attribute ของ element (ชื่อเป็นตัวพิมพ์เล็ก) — แยกจากแท็กเปิดครั้งแรกที่ถูกถาม แล้วจำไว้ */
+export function attrsOf(el: CssEl): Map<string, string> {
+  let out = ATTRS.get(el)
+  if (out) return out
+  out = new Map()
+  const src = (el.html || '').replace(/^<[a-zA-Z][\w-]*/, '').replace(/\/?>\s*$/, '')
+  for (const m of Array.from(src.matchAll(/([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g))) {
+    const name = m[1].toLowerCase()
+    // attribute ซ้ำ เบราว์เซอร์ใช้ตัวแรก
+    if (!out.has(name)) out.set(name, decodeAttr(m[2] ?? m[3] ?? m[4] ?? ''))
+  }
+  if (!out.has('id') && el.id) out.set('id', el.id)
+  if (!out.has('class') && el.classes.size) out.set('class', Array.from(el.classes).join(' '))
+  ATTRS.set(el, out)
+  return out
+}
+
+/** ตัวแปร CSS ที่ตั้งใน style="" ของ element — เว็บที่ให้ตั้งสีจากหลังบ้านมักใส่ไว้ที่ <html style="--c-primary:..."> */
+export function inlineVars(el: CssEl): Map<string, string> {
+  if (!el.html || !el.html.includes('--')) return NO_VARS
+  let out = INLINE_VARS.get(el)
+  if (out) return out
+  out = new Map()
+  for (const d of parseDecls(attrsOf(el).get('style') || '')) if (d.prop.startsWith('--')) out.set(d.prop, d.value)
+  INLINE_VARS.set(el, out)
+  return out
 }
 
 /** element ที่ยังเปิดอยู่ ณ ตำแหน่ง index ของหน้า (html → body → ... → element ที่ครอบ index) */
@@ -115,10 +155,20 @@ export function openChainAt(html: string, index: number): CssEl[] {
 
 // ── selector matching ───────────────────────────────────────────────────────
 
+interface AttrTest {
+  name: string
+  /** '' = มี attribute ก็พอ, ที่เหลือตาม CSS: = ~= |= ^= $= *= */
+  op: string
+  value: string
+  /** flag i — เทียบไม่สนตัวพิมพ์ */
+  ci: boolean
+}
+
 interface Compound {
   tag: string | null
   ids: string[]
   classes: string[]
+  attrs: AttrTest[]
   /** :not(...) — เก็บไว้ตรวจว่าไม่ match */
   nots: Compound[][]
   /** :where()/:is() — ต้อง match อย่างน้อยหนึ่งตัว */
@@ -152,7 +202,7 @@ export function splitTop(s: string, sep: string): string[] {
 const ALWAYS_PSEUDO = new Set(['link', 'any-link'])
 
 function parseCompound(src: string): { c: Compound; spec: number } | null {
-  const c: Compound = { tag: null, ids: [], classes: [], nots: [], anyOf: [], root: false }
+  const c: Compound = { tag: null, ids: [], classes: [], attrs: [], nots: [], anyOf: [], root: false }
   let spec = 0
   let i = 0
   const tm = /^(\*|[a-zA-Z][\w-]*)/.exec(src)
@@ -172,6 +222,9 @@ function parseCompound(src: string): { c: Compound; spec: number } | null {
     } else if ((m = /^#(-?[_a-zA-Z][\w-]*)/.exec(rest))) {
       c.ids.push(m[1])
       spec += 10000
+    } else if ((m = /^\[\s*([a-zA-Z_][\w-]*)\s*(?:([~|^$*]?=)\s*(?:"([^"]*)"|'([^']*)'|([^\]\s"']+))\s*([iIsS])?\s*)?\]/.exec(rest))) {
+      c.attrs.push({ name: m[1].toLowerCase(), op: m[2] || '', value: m[3] ?? m[4] ?? m[5] ?? '', ci: /i/i.test(m[6] || '') })
+      spec += 100
     } else if ((m = /^:(not|where|is)\(/i.exec(rest))) {
       // หา ) คู่
       let depth = 1
@@ -206,7 +259,7 @@ function parseCompound(src: string): { c: Compound; spec: number } | null {
     } else if ((m = /^:([\w-]+)/.exec(rest)) && ALWAYS_PSEUDO.has(m[1].toLowerCase())) {
       spec += 100
     } else {
-      // attribute / pseudo-class สถานะ / pseudo-element — ไม่รองรับ
+      // pseudo-class สถานะ / pseudo-element / attribute ที่มี namespace — ไม่รองรับ
       return null
     }
     i += m[0].length
@@ -214,11 +267,8 @@ function parseCompound(src: string): { c: Compound; spec: number } | null {
   return { c, spec }
 }
 
-export function parseSelector(sel: string): ParsedSelector | null {
-  const parts: Compound[] = []
-  const combs: Array<' ' | '>'> = []
-  let spec = 0
-  // แยก compound ด้วยช่องว่าง/> ที่ไม่อยู่ในวงเล็บ
+/** แยก selector เป็น compound กับตัวเชื่อม (> + ~) ตามช่องว่างที่ไม่อยู่ในวงเล็บ */
+function selectorTokens(sel: string): string[] {
   const tokens: string[] = []
   let depth = 0
   let cur = ''
@@ -234,6 +284,14 @@ export function parseSelector(sel: string): ParsedSelector | null {
     cur += ch
   }
   if (cur) tokens.push(cur)
+  return tokens
+}
+
+export function parseSelector(sel: string): ParsedSelector | null {
+  const parts: Compound[] = []
+  const combs: Array<' ' | '>'> = []
+  let spec = 0
+  const tokens = selectorTokens(sel)
   let pending: ' ' | '>' | null = null
   for (const t of tokens) {
     if (t === '+' || t === '~') return null
@@ -251,11 +309,61 @@ export function parseSelector(sel: string): ParsedSelector | null {
   return parts.length ? { parts, combs, spec } : null
 }
 
+function attrMatches(t: AttrTest, el: CssEl): boolean {
+  const raw = attrsOf(el).get(t.name)
+  if (raw === undefined) return false
+  if (!t.op) return true
+  const have = t.ci ? raw.toLowerCase() : raw
+  const want = t.ci ? t.value.toLowerCase() : t.value
+  switch (t.op) {
+    case '=':
+      return have === want
+    case '~=':
+      return !!want && !/\s/.test(want) && have.split(/\s+/).includes(want)
+    case '|=':
+      return have === want || have.startsWith(`${want}-`)
+    case '^=':
+      return !!want && have.startsWith(want)
+    case '$=':
+      return !!want && have.endsWith(want)
+    case '*=':
+      return !!want && have.includes(want)
+    default:
+      return false
+  }
+}
+
+/**
+ * selector นี้ถูกปิดด้วย attribute ของ <html>/<body> ที่หน้านี้ไม่ได้ใช้หรือเปล่า
+ * เช่น หน้ามี <body data-site="health"> กฎ [data-site=finance] .faq เป็นของเว็บพี่น้องที่ใช้ CSS ไฟล์เดียวกัน
+ * ตรวจเฉพาะ attribute — class บน <html>/<body> มักถูก JavaScript เติมทีหลัง จึงไม่ใช้ตัดสิน
+ * attribute ที่หน้านี้ไม่มีเลย (เช่น data-theme ที่สคริปต์ใส่ตอนสลับโหมด) ก็ไม่ตัดสินเช่นกัน
+ */
+export function attrGatedOut(selector: string, top: { html?: CssEl; body?: CssEl }): boolean {
+  const tokens = selectorTokens(selector).filter((t) => t !== '>' && t !== '+' && t !== '~')
+  for (let i = 0; i < tokens.length && i < 2; i++) {
+    const c = parseCompound(tokens[i].replace(/::?[\w-]+(?:\([^)]*\))?$/, ''))?.c
+    if (!c || !c.attrs.length) continue
+    const fails = (el: CssEl | undefined) => !!el && !c.attrs.every((a) => attrMatches(a, el))
+    if (c.tag === 'html' || c.root) {
+      if (fails(top.html)) return true
+    } else if (c.tag === 'body') {
+      if (fails(top.body)) return true
+    } else if (i === 0 && !c.tag && !c.ids.length && !c.classes.length) {
+      // [data-site=x] .faq — ไม่ระบุแท็ก: ถือเป็นสวิตช์ระดับหน้าเมื่อ <html>/<body> มี attribute ชื่อนั้นครบ
+      const owner = [top.html, top.body].find((el) => !!el && c.attrs.every((a) => attrsOf(el).has(a.name)))
+      if (owner && fails(owner)) return true
+    }
+  }
+  return false
+}
+
 function compoundMatches(c: Compound, el: CssEl, isRoot: boolean): boolean {
   if (c.root && !isRoot) return false
   if (c.tag && c.tag !== el.tag) return false
   for (const id of c.ids) if (el.id !== id) return false
   for (const cl of c.classes) if (!el.classes.has(cl)) return false
+  for (const a of c.attrs) if (!attrMatches(a, el)) return false
   for (const list of c.nots) if (list.some((n) => compoundMatches(n, el, isRoot))) return false
   for (const a of c.anyOf) if (!a.list.some((n) => compoundMatches(n, el, isRoot))) return false
   return true
@@ -370,7 +478,10 @@ export class CssCascade {
   /** ค่าตัวแปร CSS ที่ element เห็น (ตัวแปรสืบทอดจากบรรพบุรุษ) */
   variable(chain: CssEl[], name: string, depth = 0): string | null {
     for (let i = chain.length; i > 0; i--) {
-      const v = this.declared(chain.slice(0, i), name)
+      // ค่าใน style="" ของ element ชนะกฎในไฟล์ CSS (ยกเว้นกฎ !important)
+      const inline = inlineVars(chain[i - 1]).get(name)
+      const win = inline === undefined ? null : this.winner(chain.slice(0, i), name)
+      const v = inline !== undefined && !win?.imp ? inline : this.declared(chain.slice(0, i), name)
       if (v !== null) return depth > 6 ? v : this.resolve(v, chain.slice(0, i), depth + 1)
     }
     return null

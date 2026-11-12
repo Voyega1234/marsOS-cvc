@@ -87,6 +87,7 @@ export function sanitizeFaqStyle(raw: unknown): UploadFaqStyle | undefined {
     icon: pickEnum(r.icon, ICONS),
     iconPosition: pickEnum(r.iconPosition, ['left', 'right'] as const),
     iconColor: safeColor(r.iconColor),
+    measured: r.measured === true ? true : undefined,
   })
 }
 
@@ -389,6 +390,8 @@ export function themeDetailCss(detail: UploadThemeDetail | undefined): string {
     if (f.icon || f.iconColor || f.iconPosition) {
       lines.push(...iconCss(f.icon || 'plus', f.iconColor, f.iconPosition === 'left'))
     }
+    // ค่าที่วัดจาก CSS จริง: เว็บไม่ได้ตั้งสีไอคอน = ไอคอนสีเดียวกับคำถาม (ตอนเปิดพื้นเข้มก็ยังเห็น)
+    if (f.measured && !f.iconColor) lines.push(`${Q}::after{color:inherit;}`)
 
     const a: string[] = []
     if (f.answerBackground) a.push(`background:${f.answerBackground};`)
@@ -397,6 +400,15 @@ export function themeDetailCss(detail: UploadThemeDetail | undefined): string {
     else if (f.answerBackground) a.push('padding-top:.9em;')
     if (layout !== 'card' && !f.answerPadding) a.push('padding-left:0;padding-right:0;')
     if (a.length) lines.push(`.content-article .content-faq__answer{${a.join('')}}`)
+    // ค่าที่วัดจาก CSS จริง: สีและระยะของคำตอบต้องถึงย่อหน้าข้างใน ไม่ถูกสีตัวอักษรของบทความทับ
+    // (โปรเจกต์ที่ไม่มี measured ได้ CSS เท่าเดิมทุกไบต์)
+    if (f.measured) {
+      const ANSWER = `${ITEM} .content-faq__answer`
+      if (f.answerColor) lines.push(`${ANSWER} :is(p,li,strong,b){color:inherit;}`)
+      const link = d.article?.link?.color
+      if (f.answerBackground && link && lowContrast(f.answerBackground, link)) lines.push(`${ANSWER} a{color:inherit;}`)
+      if (f.answerPadding) lines.push(`${ANSWER} > :last-child{margin-bottom:0;}`)
+    }
   }
   const t = d.table
   if (t) {

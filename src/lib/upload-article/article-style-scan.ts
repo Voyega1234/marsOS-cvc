@@ -2,7 +2,8 @@
 // ขนาด/น้ำหนัก/ระยะบรรทัด/ระยะห่าง, กรอบรายการ, เส้นเหนือหัวข้อ, สี marker, กล่องเนื้อหา, ไฟล์ฟอนต์,
 // โครงบทความ (สารบัญ/กล่องสรุป/FAQ/สรุปก่อน FAQ) และรายการแหล่งอ้างอิงที่เว็บเคยใช้
 // ค่าที่ยืดตามจอ (clamp/vw) เก็บตามจริงให้บทความย่อขยายเหมือนเว็บ ส่วน em/rem/% แปลงเป็น px เพราะฐานต่างกันบนหน้าเรา
-// ข้อจำกัดเดียวกับ css-cascade: กฎแบบ sibling/attribute/สถานะถูกข้าม, ค่ามือถือใน @media ไม่ถูกเก็บ
+// FAQ แบบ <details>/<summary> วัดทั้งตอนปิดและตอนเปิด (scanFaqStyle) — กล่อง ระยะ สี ไอคอน
+// ข้อจำกัดเดียวกับ css-cascade: กฎแบบ sibling/สถานะ (:hover, :nth-child) ถูกข้าม, ค่ามือถือใน @media ไม่ถูกเก็บ
 
 import { HTMLElement, parse as parseHtml } from 'node-html-parser'
 import { TAKEAWAYS_HEADING_RE, countLatinThaiBoundaries } from '@/lib/article-structure'
@@ -12,6 +13,7 @@ import type {
   UploadArticleStructure,
   UploadArticleStyle,
   UploadBoxStyle,
+  UploadFaqStyle,
   UploadFontFace,
   UploadHeadingOrnament,
   UploadReference,
@@ -315,13 +317,14 @@ function sides(cx: Cascades, chain: CssEl[], name: 'margin' | 'padding', em: num
   return v.join(' ')
 }
 
-function borderOf(cx: Cascades, chain: CssEl[], em: number): { width?: string; color?: string } {
-  const widthWin = cx.base.cascaded(chain, ['border-top-width', 'border-width', 'border-top', 'border'])
-  const colorWin = cx.base.cascaded(chain, ['border-top-color', 'border-color', 'border-top', 'border'])
-  const styleWin = cx.base.cascaded(chain, ['border-top-style', 'border-style', 'border-top', 'border'])
+function borderOf(cx: Cascades, chain: CssEl[], em: number, which: 'top' | 'bottom' = 'top'): { width?: string; color?: string } {
+  const edge = `border-${which}`
+  const widthWin = cx.base.cascaded(chain, [`${edge}-width`, 'border-width', edge, 'border'])
+  const colorWin = cx.base.cascaded(chain, [`${edge}-color`, 'border-color', edge, 'border'])
+  const styleWin = cx.base.cascaded(chain, [`${edge}-style`, 'border-style', edge, 'border'])
   if (!widthWin && !colorWin && !styleWin) return {}
   const shorthand = (v: string) => splitSpace(v)
-  const isShort = (p: string) => p === 'border' || p === 'border-top'
+  const isShort = (p: string) => p === 'border' || p === edge
   const STYLE = /^(?:none|hidden|solid|dashed|dotted|double|groove|ridge|inset|outset)$/i
   const style = styleWin ? (isShort(styleWin.prop) ? shorthand(styleWin.value).find((t) => STYLE.test(t)) : splitSpace(styleWin.value)[0]) : undefined
   if (!style || /^(?:none|hidden)$/i.test(style)) {
@@ -630,6 +633,238 @@ export function scanArticleStyle(input: {
     pageBackground: firstColorRaw(input.pageBackground || undefined),
     fontFaces: fontFaces.length ? fontFaces : undefined,
   })
+}
+
+// ── FAQ แบบ <details>/<summary> ─────────────────────────────────────────────
+
+const FAQ_WATCHED = /^(?:color$|background|font|line-height$|margin|padding|border|list-style|display$|box-shadow$|gap$|row-gap$|content$|--)/
+const FAQ_HINT = /faq|accordion|question/i
+
+interface FaqBox {
+  background?: string
+  borderTop: number
+  borderBottom: number
+  borderColor?: string
+  radius: number
+  shadow: boolean
+  /** top right bottom left (px) */
+  pad: [number, number, number, number]
+  marginTop: number
+  marginBottom: number
+  /** มีหน้าตากล่องจริง (พื้น/เส้น/เงา/ระยะใน) ไม่ใช่แค่กฎล้างค่า */
+  has: boolean
+}
+
+function faqBox(cx: Cascades, chain: CssEl[]): FaqBox {
+  const em = fontSizePx(cx, chain)
+  const px = (v: string | undefined) => (v === undefined ? 0 : evalLength(v, { em, rem: cx.rootPx }) ?? 0)
+  const top = borderOf(cx, chain, em, 'top')
+  const bottom = borderOf(cx, chain, em, 'bottom')
+  const bg = firstColorRaw(cx.base.cascaded(chain, ['background-color', 'background'])?.value)
+  const background = bg && bg !== 'transparent' ? bg : undefined
+  const radiusRaw = cx.base.cascaded(chain, ['border-radius'])?.value
+  const radius = radiusRaw ? px(normLen(splitSpace(radiusRaw.split('/')[0])[0], em, cx.rootPx)) : 0
+  const shadowRaw = cx.base.cascaded(chain, ['box-shadow'])?.value.trim()
+  const shadow = !!shadowRaw && !/^(?:none|initial|unset|inherit|revert)$/i.test(shadowRaw)
+  const pad = (['top', 'right', 'bottom', 'left'] as const).map((w) => Math.max(0, px(side(cx, chain, 'padding', w, em)))) as FaqBox['pad']
+  const borderTop = Math.max(0, px(top.width))
+  const borderBottom = Math.max(0, px(bottom.width))
+  return {
+    background,
+    borderTop,
+    borderBottom,
+    borderColor: borderBottom > 0 ? bottom.color : borderTop > 0 ? top.color : undefined,
+    radius: Math.max(0, radius),
+    shadow,
+    pad,
+    marginTop: Math.max(0, px(side(cx, chain, 'margin', 'top', em))),
+    marginBottom: Math.max(0, px(side(cx, chain, 'margin', 'bottom', em))),
+    has: !!background || borderTop > 0 || borderBottom > 0 || shadow || pad.some((n) => n > 0),
+  }
+}
+
+/** ระยะ 4 ด้านเป็น px แบบย่อ — 16px 20px */
+function padCss(v: number[]): string {
+  const s = v.map((n) => (n > 0 ? `${round(n)}px` : '0'))
+  if (s[1] === s[3]) {
+    if (s[0] === s[2]) return s[0] === s[1] ? s[0] : `${s[0]} ${s[1]}`
+    return `${s[0]} ${s[1]} ${s[2]}`
+  }
+  return s.join(' ')
+}
+
+/**
+ * หน้าตา FAQ แบบ <details>/<summary> วัดจาก CSS จริง ทั้งตอนปิดและตอนเปิด (details[open])
+ * คืน null = วัดไม่ได้ (หน้าไม่มี FAQ แบบนี้ หรือกล่องไม่ได้ตั้งหน้าตาไว้ที่ details/summary) ให้ใช้ค่าที่ AI อ่าน
+ * key ที่มีแต่ค่าเป็น undefined = วัดแล้วว่าเว็บไม่ได้ตั้ง ต้องล้างค่าที่ AI เดา · key ที่ไม่มีเลย = ไม่ได้วัด คงค่าเดิม
+ */
+export function scanFaqStyle(input: { page: string; rules: CssRule[] }): Partial<UploadFaqStyle> | null {
+  const { page, rules } = input
+  interface Candidate {
+    at: number
+    end: number
+    ancestors: CssEl[]
+    detailsTag: string
+    summaryTag: string
+    sig: string
+    hinted: boolean
+    headed: boolean
+  }
+  const found: Candidate[] = []
+  const re = /(<details\b[^>]*>)\s*(<summary\b[^>]*>)/gi
+  let m: RegExpExecArray | null
+  for (let tries = 0; tries < 40 && found.length < 12 && (m = re.exec(page)); tries++) {
+    const at = m.index
+    const ancestors = openChainAt(page, at)
+    // html + body เป็นอย่างน้อย — สั้นกว่านี้คือ <details> ในสคริปต์/เทมเพลตที่อ่านโครงไม่ได้
+    if (ancestors.length < 2) continue
+    const local = [...ancestors.slice(2), parseOpenTag(m[1])]
+    if (local.some((el) => el.tag === 'nav' || el.tag === 'footer' || el.tag === 'template' || Array.from(el.classes).some((c) => NAV_LIKE.test(c)))) continue
+    const heads = Array.from(page.slice(Math.max(0, at - 4000), at).matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi))
+    const lastHead = heads.length ? heads[heads.length - 1][1].replace(/<[^>]+>/g, ' ') : ''
+    found.push({
+      at,
+      end: at + m[0].length,
+      ancestors,
+      detailsTag: m[1],
+      summaryTag: m[2],
+      sig: local.map((el) => `${el.tag}.${Array.from(el.classes).sort().join('.')}`).join('>'),
+      hinted: local.some((el) => FAQ_HINT.test(el.id) || Array.from(el.classes).some((c) => FAQ_HINT.test(c))),
+      headed: FAQ_RE.test(lastHead),
+    })
+  }
+  if (!found.length) return null
+  // เลือกกลุ่มที่เป็น FAQ ชัดที่สุด: class/id บอกว่าเป็น FAQ → อยู่ใต้หัวข้อคำถามที่พบบ่อย → มีหลายข้อหน้าตาเดียวกัน
+  const groupScore = (c: Candidate) => {
+    const group = found.filter((o) => o.sig === c.sig)
+    return (group.some((o) => o.hinted) ? 4 : 0) + (group.some((o) => o.headed) ? 2 : 0) + (group.length > 1 ? 1 : 0)
+  }
+  const pick = found.reduce((best, c) => (groupScore(c) > groupScore(best) ? c : best), found[0])
+
+  const base = new CssCascade(rules, { watch: FAQ_WATCHED })
+  const cx: Cascades = {
+    base,
+    before: base,
+    marker: new CssCascade(pseudoRules(rules, /::(?:-webkit-details-)?marker\s*$/i), { watch: /^(?:display$|content$|color$)/ }),
+    rootPx: 16,
+  }
+  cx.rootPx = fontSizePx(cx, [parseOpenTag(/<html\b[^>]*>/i.exec(page)?.[0] || '<html>')]) || 16
+
+  const { ancestors } = pick
+  const closedTag = pick.detailsTag.replace(/\sopen(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?(?=[\s/>])/i, '')
+  const closed = [...ancestors, parseOpenTag(closedTag)]
+  const opened = [...ancestors, parseOpenTag(closedTag.replace(/\s*\/?>$/, ' open>'))]
+  const summary = parseOpenTag(pick.summaryTag)
+  // คำถามที่ห่อด้วยหัวข้อ/ตัวหนาใน summary — ขนาด น้ำหนัก สี ของคำถามอยู่ที่ตัวนี้
+  const innerTag = /^\s*(<(h[1-6]|strong|b|span)\b[^>]*>)/i.exec(page.slice(pick.end, pick.end + 600))
+  const inner = innerTag ? [parseOpenTag(innerTag[1])] : []
+  const boldInner = !!innerTag && innerTag[2].toLowerCase() !== 'span'
+  const question = (item: CssEl[]) => [...item, summary, ...inner]
+
+  const tail = page.slice(pick.end, pick.end + 30_000)
+  const summaryClose = /<\/summary\s*>/i.exec(tail)
+  const bodyStart = summaryClose ? summaryClose.index + summaryClose[0].length : 0
+  const detailsClose = /<\/details\s*>/i.exec(tail.slice(bodyStart))
+  const body = summaryClose ? tail.slice(bodyStart, detailsClose ? bodyStart + detailsClose.index : bodyStart + 6000) : ''
+  const wrapTag = /^\s*(<(?:div|section|article)\b[^>]*>)/i.exec(body)
+  const wrap = wrapTag ? [parseOpenTag(wrapTag[1])] : []
+  const pTag = /<p\b[^>]*>/i.exec(body)
+  const answer = (item: CssEl[]) => [...item, ...wrap, ...(pTag ? [parseOpenTag(pTag[0])] : [])]
+
+  // กล่องของแต่ละข้อ: ปกติคือ <details> เอง — บางธีมห่อ <div> ข้อละใบแล้วตั้งกรอบที่ <div>
+  const own = faqBox(cx, closed)
+  const parent = ancestors[ancestors.length - 1]
+  const after = detailsClose ? tail.slice(bodyStart + detailsClose.index + detailsClose[0].length, bodyStart + detailsClose.index + detailsClose[0].length + 200) : ''
+  const soleChild =
+    !own.has &&
+    ancestors.length > 2 &&
+    (parent.tag === 'div' || parent.tag === 'li') &&
+    !!parent.html &&
+    page.slice(Math.max(0, pick.at - parent.html.length - 200), pick.at).trimEnd().endsWith(parent.html) &&
+    new RegExp(`^\\s*</${parent.tag}\\s*>`, 'i').test(after)
+  const outer = soleChild ? faqBox(cx, ancestors) : null
+  const item = outer?.has ? outer : own
+  const q = faqBox(cx, question(closed))
+  const sum = inner.length ? faqBox(cx, [...closed, summary]) : q
+  if (!item.has && !sum.has && !q.has) return null
+
+  const layout: UploadFaqStyle['layout'] =
+    item.borderTop > 0 && item.borderBottom > 0 ? 'card' : item.borderTop > 0 || item.borderBottom > 0 ? 'divider' : item.background || item.shadow ? 'card' : 'plain'
+  const borderWidth = Math.max(item.borderTop, item.borderBottom)
+
+  // ระยะห่างระหว่างข้อ: margin บน-ล่างซ้อนทับกัน (ใช้ค่ามากสุด) ยกเว้นพ่อเป็น flex/grid ที่บวกกับ gap
+  const listChain = item === outer ? ancestors.slice(0, -1) : ancestors
+  const listDisplay = cx.base.cascaded(listChain, ['display'])?.value || ''
+  let gap = Math.max(item.marginTop, item.marginBottom)
+  if (/flex|grid/i.test(listDisplay)) {
+    const gapRaw = cx.base.cascaded(listChain, ['row-gap', 'gap'])?.value
+    const em = fontSizePx(cx, listChain)
+    gap = item.marginTop + item.marginBottom + Math.max(0, (gapRaw && evalLength(splitSpace(gapRaw)[0] || '', { em, rem: cx.rootPx })) || 0)
+  }
+
+  // สีและขนาดที่ FAQ ตั้งเอง — ค่าที่สืบทอดมาจากทั้งหน้า (body) เป็นของบทความ ไม่ใช่ของ FAQ
+  const floor = Math.max(2, ancestors.length - 1)
+  const localColor = (chain: CssEl[]) => {
+    const win = inheritedAny(cx, chain, ['color'])
+    return win && win.at >= floor ? cssColor(win.value) : undefined
+  }
+  const sizeWin = inheritedAny(cx, question(closed), ['font-size', 'font'])
+  const questionColor = localColor(question(closed))
+  const openColor = localColor(question(opened))
+  const weight = boldInner ? fontWeightOf(cx, question(closed), true) ?? 700 : fontWeightOf(cx, question(closed), false) ?? 400
+
+  // ตอนเปิด: พื้นของ details[open] ที่ต่างจากตอนปิดคลุมทั้งแถบคำถามและคำตอบ
+  const openItem = item === own ? faqBox(cx, opened) : null
+  const openItemBg = openItem?.background && openItem.background !== own.background ? openItem.background : undefined
+  const openSummaryBg = faqBox(cx, [...opened, summary]).background
+  const wrapBg = wrap.length ? faqBox(cx, [...opened, ...wrap]).background : undefined
+
+  const a = wrap.length ? faqBox(cx, [...opened, ...wrap]) : null
+  const p = pTag ? faqBox(cx, answer(opened)) : null
+  const side4 = (i: number) => item.pad[i] + (item === outer ? own.pad[i] : 0)
+  const questionPad = [0, 1, 2, 3].map((i) => side4(i) + sum.pad[i] + (inner.length ? q.pad[i] : 0))
+  const answerPad = [
+    Math.max(0, (a?.pad[0] || 0) + (p?.marginTop || 0) - side4(2)),
+    side4(1) + (a?.pad[1] || 0),
+    side4(2) + (a?.pad[2] || 0),
+    side4(3) + (a?.pad[3] || 0),
+  ]
+
+  // ไอคอน: สามเหลี่ยมของเบราว์เซอร์ยังอยู่ = caret ด้านซ้าย สีตามตัวอักษร — ถูกซ่อน (ใช้ไอคอนของธีมเอง) ให้คงค่าที่ AI อ่าน
+  const sumChain = [...closed, summary]
+  const listStyle = cx.base.cascaded(sumChain, ['list-style-type', 'list-style'])?.value || ''
+  const sumDisplay = cx.base.cascaded(sumChain, ['display'])?.value || ''
+  const markerDisplay = cx.marker.declared(sumChain, 'display') || ''
+  const markerContent = (cx.marker.declared(sumChain, 'content') || '').trim()
+  const nativeMarker =
+    !/\bnone\b/i.test(listStyle) && (!sumDisplay || /^list-item$/i.test(sumDisplay.trim())) && !/none/i.test(markerDisplay) && !/^(?:""|''|none)$/i.test(markerContent)
+
+  const out: Partial<UploadFaqStyle> = {
+    measured: true,
+    layout,
+    itemBackground: item.background,
+    itemBorderColor: layout === 'plain' ? undefined : item.borderColor,
+    itemBorderWidth: layout === 'plain' ? undefined : Math.min(6, Math.round(borderWidth * 10) / 10),
+    itemRadius: layout === 'card' ? Math.min(40, Math.round(item.radius * 10) / 10) : undefined,
+    itemShadow: layout === 'card' ? item.shadow : undefined,
+    questionBackground: q.background || (inner.length ? sum.background : undefined),
+    questionColor,
+    questionFontSize: sizeWin && sizeWin.at >= floor ? `${round(fontSizePx(cx, question(closed)))}px` : undefined,
+    questionWeight: weight,
+    openQuestionBackground: openSummaryBg && openSummaryBg !== sum.background ? openSummaryBg : openItemBg,
+    openQuestionColor: openColor && openColor !== questionColor ? openColor : undefined,
+    answerBackground: wrapBg || openItemBg,
+    answerColor: localColor(answer(opened)),
+  }
+  if (gap > 0) out.itemGap = Math.min(48, Math.round(gap * 10) / 10)
+  if (questionPad.some((n) => n > 0)) out.questionPadding = padCss(questionPad)
+  if (answerPad.some((n) => n > 0)) out.answerPadding = padCss(answerPad)
+  if (nativeMarker) {
+    out.icon = 'caret'
+    out.iconPosition = 'left'
+    out.iconColor = cssColor(cx.marker.declared(sumChain, 'color') ? cx.marker.cascaded(sumChain, ['color'])?.value : undefined)
+  }
+  return out
 }
 
 // ── โครงบทความ + แหล่งอ้างอิง ───────────────────────────────────────────────

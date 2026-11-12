@@ -53,6 +53,8 @@ export interface UploadFaqStyle {
   icon?: UploadFaqIcon
   iconPosition?: 'left' | 'right'
   iconColor?: string
+  /** ค่าชุดนี้วัดจาก CSS จริงของเว็บ (ไม่ใช่ค่าที่ AI อ่าน) — ไอคอนและตัวอักษรในคำตอบใช้สีตามกล่อง FAQ */
+  measured?: boolean
 }
 
 export interface UploadTableStyle {
