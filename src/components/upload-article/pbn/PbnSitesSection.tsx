@@ -222,12 +222,16 @@ function SiteForm({
             <div className="sm:col-span-3">
               <label className={labelCls}>โครงเว็บ</label>
               <select value={d.ghLayout} onChange={e => onLayoutChange(e.target.value as PbnGhLayout)} className={selectCls}>
-                <option value="generic">ทั่วไป (frontmatter มาตรฐาน)</option>
-                <option value="magazine">Magazine — khaoduan.com / roothan.com (เลือกหมวดตอน push)</option>
+                <option value="generic">เว็บอื่นที่ไม่ได้อยู่ใน repo PBN (frontmatter มาตรฐาน)</option>
+                <option value="magazine">เว็บใน repo PBN — ทุกเว็บ ทั้งหมวดเดียวและหลายหมวด (ต้องเลือกหมวดของบทความ)</option>
               </select>
-              {magazine && (
+              {magazine ? (
                 <p className="text-[11px] text-gray-400 leading-relaxed mt-1">
-                  บทความจะถูกเขียนตามรูปแบบของเว็บนี้: มีหมวด (cluster), วันที่แบบ YYYY-MM-DD, เนื้อหา HTML, ปกเป็น &lt;slug&gt;.webp และ backlink เป็น dofollow — เว็บจะแสดงบทความหลังรัน workflow เผยแพร่ของ repo
+                  ใช้กับทุกเว็บใน repo PBN เช่น healthy-thai.com, longtoon.com, khaoduan.com, roothan.com — บทความจะถูกเขียนตามรูปแบบของเว็บ: มีหมวด (cluster), วันที่แบบ YYYY-MM-DD, เนื้อหา HTML, ปกเป็น &lt;slug&gt;.webp และ backlink เป็น dofollow. หลัง push repo จะ build แล้วขึ้นเว็บเอง (ประมาณ 3–7 นาที) ถ้าไม่ขึ้นให้ดูแท็บ Actions ของ repo
+                </p>
+              ) : (
+                <p className="text-[11px] text-gray-400 leading-relaxed mt-1">
+                  ใช้กับเว็บที่มี repo ของตัวเอง ถ้าเว็บอยู่ใน repo PBN ให้เลือกอีกตัวเลือก ไม่อย่างนั้นบทความจะไม่มีหมวดและขึ้นเว็บผิดที่
                 </p>
               )}
             </div>
