@@ -91,6 +91,8 @@ export interface WriterTask {
   links: UploadLinkPair[]
   /** PBN Backlinks: ลิงก์ออกไป URL ปลายทางของ keyword — ตั้งแล้วแทนส่วน Internal Link ทั้งหมด (ห้ามลิงก์อื่นในบทความ) */
   backlink?: UploadLinkPair
+  /** PBN Backlinks: จำนวนลิงก์ไป URL ปลายทางในบทความ (ไม่ส่ง = 1) — ทุกลิงก์ชี้ URL เดียวกัน */
+  backlinkCount?: number
   /** ภาษาของบทความนี้ (resolve จากโหมดภาษาของลูกค้า + title/keyword แล้ว) — ไม่ส่ง = ไม่กำหนด */
   language?: 'th' | 'en'
   /** ชื่อลูกค้า/แบรนด์ — ใช้ตอนวิเคราะห์ intent เอง (keyword ที่มีชื่อแบรนด์ = navigational) */
@@ -193,13 +195,21 @@ export function buildWriterUserPrompt(task: WriterTask): string {
   lines.push(articleStructureSkillBlock(task.language === 'en' ? 'en' : 'th', task.structure))
   lines.push('')
   if (task.backlink) {
-    // PBN Backlinks (เจ้าของสั่ง 2026-11-12): keyword + URL ปลายทาง = external link ลิงก์เดียว ห้าม internal link
+    // PBN Backlinks (เจ้าของสั่ง 2026-11-12): keyword + URL ปลายทาง = external link ไป URL เดียว ห้าม internal link
     lines.push('# Backlink ที่ต้องใส่ในบทความ (บทความนี้เป็น PBN — ลิงก์ออกไปเว็บปลายทาง)')
     lines.push(`- anchor: ${task.backlink.keyword}`)
     lines.push(`- url: ${task.backlink.url}`)
     lines.push('กฎ Backlink:')
-    lines.push(`- ใส่ <a href="${task.backlink.url}">${task.backlink.keyword}</a> ในเนื้อหา 1 ครั้งพอดี ในย่อหน้าช่วงต้นถึงกลางบทความที่พูดถึงเรื่องนี้จริง ๆ`)
-    lines.push('- href ต้องเป็น url ข้างบนคำต่อคำ ห้ามแก้ ห้ามตัด ห้ามเติมพารามิเตอร์ ข้อความใน <a> ต้องเป็น anchor ตามที่ให้ไว้')
+    const backlinkCount = Math.max(1, Math.floor(task.backlinkCount ?? 1))
+    if (backlinkCount > 1) {
+      // เจ้าของสั่ง 2026-11-12: เลือกจำนวน Backlink ต่อบทความได้ตอนสั่งเขียน — ทุกลิงก์ชี้ URL เดียวกัน
+      lines.push(`- ใส่ลิงก์ไป url ข้างบนรวม ${backlinkCount} ลิงก์พอดี (ไม่ขาด ไม่เกิน) กระจายตั้งแต่ช่วงต้นถึงท้ายบทความ คนละย่อหน้า คนละหัวข้อ H2 ในจุดที่พูดถึงเรื่องนี้จริง ๆ ห้ามกองไว้ติดกัน`)
+      lines.push(`- ลิงก์แรกต้องเป็น <a href="${task.backlink.url}">${task.backlink.keyword}</a> (ข้อความใน <a> ตรง anchor คำต่อคำ) — ลิงก์ที่เหลือใช้ anchor เดิม หรือวลีที่มีคำนี้อยู่และอ่านลื่นในประโยค ห้ามใช้คำกว้าง ๆ อย่าง "คลิกที่นี่" / "อ่านต่อ"`)
+      lines.push('- href ของทุกลิงก์ต้องเป็น url ข้างบนคำต่อคำ ห้ามแก้ ห้ามตัด ห้ามเติมพารามิเตอร์')
+    } else {
+      lines.push(`- ใส่ <a href="${task.backlink.url}">${task.backlink.keyword}</a> ในเนื้อหา 1 ครั้งพอดี ในย่อหน้าช่วงต้นถึงกลางบทความที่พูดถึงเรื่องนี้จริง ๆ`)
+      lines.push('- href ต้องเป็น url ข้างบนคำต่อคำ ห้ามแก้ ห้ามตัด ห้ามเติมพารามิเตอร์ ข้อความใน <a> ต้องเป็น anchor ตามที่ให้ไว้')
+    }
     lines.push('- ห้ามมีลิงก์อื่นใดในบทความ: ไม่มี internal link ไม่มีลิงก์ไปเว็บอื่น ไม่มีลิงก์แหล่งอ้างอิง (อ้างแหล่งที่มาเป็นข้อความธรรมดาได้)')
   } else {
   lines.push('# Internal Link ที่ต้องแทรกในเนื้อหา (ใช้แต่ละลิงก์ไม่เกิน 1 ครั้ง แทรก anchor text ให้เนียนเข้ากับประโยค ห้ามยัดทุกลิงก์ในย่อหน้าเดียว)')

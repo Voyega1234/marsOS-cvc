@@ -5,6 +5,8 @@
 import assert from 'node:assert/strict'
 import { enforcePbnBacklink, normalizeTargetUrl, pbnBacklinkFor } from './pbn-backlink'
 import { parseKeywordTable, parseKeywordText } from './keyword-import'
+import { PBN_BACKLINKS_MAX, cleanPbnBacklinkCount, readPbnArticleTargets } from './pbn-sets'
+import { buildWriterUserPrompt } from './writer'
 
 let n = 0
 function t(name: string, fn: () => void) {
@@ -69,6 +71,95 @@ t('system blocks untouched', () => {
   assert.ok(r.html.includes('<a href="https://line.me/x">ติดต่อ</a>'))
   assert.ok(r.html.includes(`href="${URL_}"`))
   assert.equal(r.removed, 0)
+})
+
+// ── จำนวน Backlink ต่อบทความ (เลือกตอนสั่งเขียน) ──
+const targetLinks = (html: string) => (html.match(new RegExp(`<a href="${URL_.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'g')) || []).length
+
+t('count: default result carries count 1', () => {
+  const r = enforcePbnBacklink(`<p><a href="${URL_}">รับทำ google ads</a></p><p>อีกที <a href="${URL_}">รับทำ google ads</a></p>`, backlink)
+  assert.equal(r.count, 1)
+  assert.equal(r.removed, 1)
+  assert.equal(targetLinks(r.html), 1)
+})
+
+t('count: keeps the first N target links, unwraps the rest', () => {
+  const html = [1, 2, 3, 4].map((i) => `<p>ย่อหน้า ${i} <a href="${URL_}">รับทำ google ads</a></p>`).join('')
+    + '<p><a href="https://other.example.org/">เว็บอื่น</a></p>'
+  const r = enforcePbnBacklink(html, backlink, 3)
+  assert.equal(r.count, 3)
+  assert.equal(r.inserted, false)
+  assert.equal(r.removed, 2) // ลิงก์ที่ 4 + เว็บอื่น
+  assert.equal(targetLinks(r.html), 3)
+  assert.equal(countLinks(r.html), 3)
+  assert.ok(r.html.includes('ย่อหน้า 4 รับทำ google ads'))
+})
+
+t('count: tops up missing links from keyword text, one per paragraph', () => {
+  const html = `<h2>รับทำ google ads คืออะไร</h2><p>เปิด <a href="${URL_}">รับทำ google ads</a> และ รับทำ google ads อีกครั้ง</p>`
+    + '<p>ย่อหน้าสอง รับทำ google ads ซ้ำ รับทำ google ads</p><ul><li>ข้อ รับทำ google ads</li></ul><p>ไม่มีคำ</p>'
+  const r = enforcePbnBacklink(html, backlink, 3)
+  assert.equal(r.count, 3)
+  assert.equal(r.inserted, true)
+  assert.equal(targetLinks(r.html), 3)
+  assert.ok(r.html.includes('<h2>รับทำ google ads คืออะไร</h2>')) // หัวข้อไม่ถูกใส่ลิงก์
+  assert.ok(r.html.includes('และ รับทำ google ads อีกครั้ง')) // ย่อหน้าที่มีลิงก์แล้วไม่ใส่เพิ่ม
+  assert.ok(r.html.includes('ซ้ำ รับทำ google ads</p>')) // ย่อหน้าละ 1 ลิงก์
+})
+
+t('count: not enough keyword text = reports the real count', () => {
+  const r = enforcePbnBacklink('<p>เรา รับทำ google ads</p><p>ไม่มีคำ</p>', backlink, 4)
+  assert.equal(r.count, 1)
+  assert.equal(r.present, true)
+  assert.equal(targetLinks(r.html), 1)
+  const none = enforcePbnBacklink('<p>ไม่มีคำ</p>', backlink, 4)
+  assert.equal(none.count, 0)
+  assert.equal(none.present, false)
+})
+
+t('count: keyword split by a removed link is found again', () => {
+  const r = enforcePbnBacklink('<p>ก่อน</p><p>บริการ รับทำ <a href="https://x.example.com/">google ads</a> ดี</p>', backlink, 2)
+  assert.equal(r.count, 1)
+  assert.ok(r.html.includes(`<a href="${URL_}" data-ua-link="1">รับทำ google ads</a>`))
+})
+
+t('count: out-of-range values are clamped', () => {
+  assert.equal(cleanPbnBacklinkCount(undefined), 1)
+  assert.equal(cleanPbnBacklinkCount('abc'), 1)
+  assert.equal(cleanPbnBacklinkCount(0), 1)
+  assert.equal(cleanPbnBacklinkCount(-3), 1)
+  assert.equal(cleanPbnBacklinkCount(2.9), 2)
+  assert.equal(cleanPbnBacklinkCount('3'), 3)
+  assert.equal(cleanPbnBacklinkCount(99), PBN_BACKLINKS_MAX)
+  const html = Array.from({ length: 8 }, (_, i) => `<p>${i} <a href="${URL_}">รับทำ google ads</a></p>`).join('')
+  assert.equal(enforcePbnBacklink(html, backlink, 99).count, PBN_BACKLINKS_MAX)
+  assert.equal(enforcePbnBacklink(html, backlink, 0).count, 1)
+})
+
+t('count: stored with the article target only when above 1', () => {
+  const targets = readPbnArticleTargets({ pbnArticleTargets: {
+    a: { siteId: 's1', profileId: 'main' },
+    b: { siteId: 's1', profileId: 'main', backlinks: 3, cluster: 'investing-basics' },
+    c: { siteId: 's1', profileId: 'main', backlinks: 1 },
+    d: { siteId: 's1', profileId: 'main', backlinks: 'x' },
+    e: { siteId: 's1', profileId: 'main', backlinks: 50 },
+  } })
+  assert.deepEqual(targets.a, { siteId: 's1', profileId: 'main' })
+  assert.deepEqual(targets.b, { siteId: 's1', profileId: 'main', cluster: 'investing-basics', backlinks: 3 })
+  assert.deepEqual(targets.c, { siteId: 's1', profileId: 'main' })
+  assert.deepEqual(targets.d, { siteId: 's1', profileId: 'main' })
+  assert.equal(targets.e.backlinks, PBN_BACKLINKS_MAX)
+})
+
+t('count: writer prompt is unchanged for 1 link and asks for N otherwise', () => {
+  const task = { keyword: { id: 'k', keyword: 'รับทำ google ads' }, links: [], backlink } as unknown as Parameters<typeof buildWriterUserPrompt>[0]
+  const one = buildWriterUserPrompt(task)
+  assert.equal(buildWriterUserPrompt({ ...task, backlinkCount: 1 }), one)
+  assert.ok(one.includes('ในเนื้อหา 1 ครั้งพอดี'))
+  const three = buildWriterUserPrompt({ ...task, backlinkCount: 3 })
+  assert.ok(three.includes('รวม 3 ลิงก์พอดี'))
+  assert.ok(!three.includes('1 ครั้งพอดี'))
+  assert.ok(three.includes('ห้ามมีลิงก์อื่นใดในบทความ'))
 })
 
 t('import: header URL column', () => {

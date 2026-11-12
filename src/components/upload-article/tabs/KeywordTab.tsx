@@ -448,7 +448,7 @@ export default function KeywordTab({
                   <input type="checkbox" checked={selected.size === items.length && items.length > 0} onChange={toggleSelectAll} />
                 </th>
                 <th className="px-2 py-2 min-w-[140px]">Keyword</th>
-                {isPbn && <th className="px-2 py-2 min-w-[220px]" title="บทความลิงก์ keyword นี้ออกไป URL นี้ลิงก์เดียว">URL ปลายทาง (Backlink)</th>}
+                {isPbn && <th className="px-2 py-2 min-w-[220px]" title="บทความลิงก์ keyword นี้ออกไป URL นี้ (จำนวนลิงก์เลือกในหน้า Write Article ค่าเริ่มต้น 1)">URL ปลายทาง (Backlink)</th>}
                 <th className="px-2 py-2 w-20">Volume</th>
                 <th className="px-2 py-2 min-w-[160px]">Title</th>
                 <th className="px-2 py-2 min-w-[120px]">Slug</th>

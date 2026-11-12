@@ -1,11 +1,13 @@
 // ─── PBN Backlinks — keyword + URL ปลายทาง (backlink) ───────────────────────────
-// บทความ PBN ทุกชิ้นต้องมีลิงก์ออก (external link) ไป URL ปลายทางของ keyword นั้น 1 ลิงก์ และห้ามมีลิงก์อื่นในเนื้อหา
+// บทความ PBN ทุกชิ้นต้องมีลิงก์ออก (external link) ไป URL ปลายทางของ keyword นั้น และห้ามมีลิงก์อื่นในเนื้อหา
+// จำนวนลิงก์เลือกตอนสั่งเขียน (ค่าเริ่มต้น 1, สูงสุด PBN_BACKLINKS_MAX) — ทุกลิงก์ชี้ URL เดียวกัน
 // (ไม่มี internal link ของเว็บ PBN, ไม่มีลิงก์ออกไปที่อื่น) — กล่องของระบบ (CTA/Author/TOC/Breadcrumb) ไม่แตะ
 // Upload Article ไม่ใช้ไฟล์นี้
 
 import { parse, HTMLElement, Node, NodeType } from 'node-html-parser'
-import { insertInternalLinks } from './link-insert'
+import { INSERTED_LINK_ATTR, blockedOrContainer, escapeAttr, escapeHtml, findWholeWord, textNodes } from './link-insert'
 import { normalizeUrl } from './internal-links'
+import { cleanPbnBacklinkCount } from './pbn-sets'
 import type { UploadKeyword, UploadLinkPair } from './types'
 
 const PARSE_OPTIONS = { blockTextElements: {} }
@@ -44,8 +46,10 @@ export interface EnforceBacklinkResult {
   removed: number
   /** ลิงก์ไป URL ปลายทางมีอยู่ในบทความหลังจัดการแล้ว */
   present: boolean
-  /** ระบบครอบลิงก์ให้เอง (AI ไม่ได้ใส่มา) */
+  /** ระบบครอบลิงก์ให้เอง (AI ไม่ได้ใส่มา หรือใส่มาไม่ครบจำนวน) */
   inserted: boolean
+  /** จำนวนลิงก์ไป URL ปลายทางที่มีในบทความหลังจัดการแล้ว */
+  count: number
 }
 
 function inSystemBlock(a: HTMLElement): boolean {
@@ -68,32 +72,71 @@ function unwrap(a: HTMLElement): boolean {
 }
 
 /**
- * บังคับให้บทความ PBN มีลิงก์ไป URL ปลายทางลิงก์เดียว:
- * - ลิงก์อื่นทุกตัวในเนื้อหา (ยกเว้น #anchor ในหน้าและกล่องของระบบ) ถูกถอดเหลือแต่ข้อความ
- * - ลิงก์ไป URL ปลายทางเก็บไว้ตัวแรกตัวเดียว (href ตั้งเป็น URL ที่ทีมใส่คำต่อคำ)
- * - AI ไม่ได้ใส่มา = ครอบ keyword ครั้งแรกที่เจอในย่อหน้า/รายการ (ไม่แก้ถ้อยคำ)
+ * ครอบลิงก์ให้ keyword ที่มีอยู่แล้วในเนื้อหา (ไม่แก้ถ้อยคำ) ไล่จากต้นบทความ ย่อหน้า/รายการละ 1 ลิงก์
+ * ข้ามย่อหน้าที่มีลิงก์อยู่แล้ว หัวข้อ และกล่องของระบบ — คืนจำนวนที่ครอบได้จริง (ไม่เกิน need)
  */
-export function enforcePbnBacklink(html: string, backlink: UploadLinkPair): EnforceBacklinkResult {
-  if (!html) return { html, removed: 0, present: false, inserted: false }
+function wrapKeyword(html: string, backlink: UploadLinkPair, need: number): { html: string; added: number } {
+  const keyword = backlink.keyword.trim()
+  if (need <= 0 || keyword.length < 2) return { html, added: 0 }
+  const root = parse(html, { comment: true, ...PARSE_OPTIONS })
+  const taken = new Set<HTMLElement>()
+  for (const a of root.querySelectorAll('a')) {
+    const container = blockedOrContainer(a)
+    if (container) taken.add(container)
+  }
+  const needle = escapeHtml(keyword)
+  let added = 0
+  for (const tn of textNodes(root)) {
+    if (added >= need) break
+    const container = blockedOrContainer(tn)
+    if (!container || taken.has(container)) continue
+    const raw = tn.rawText
+    const at = findWholeWord(raw, needle)
+    if (at < 0) continue
+    const parent = tn.parentNode as HTMLElement
+    const idx = parent.childNodes.indexOf(tn)
+    if (idx < 0) continue
+    const matched = raw.slice(at, at + needle.length)
+    const fragment = parse(
+      `${raw.slice(0, at)}<a href="${escapeAttr(backlink.url)}" ${INSERTED_LINK_ATTR}="1">${matched}</a>${raw.slice(at + needle.length)}`,
+      PARSE_OPTIONS,
+    ).childNodes
+    for (const n of fragment) n.parentNode = parent
+    parent.childNodes.splice(idx, 1, ...fragment)
+    taken.add(container)
+    added++
+  }
+  return { html: added ? root.toString() : html, added }
+}
+
+/**
+ * บังคับให้บทความ PBN มีลิงก์ไป URL ปลายทางตามจำนวนที่เลือก (ค่าเริ่มต้น 1) และไม่มีลิงก์อื่น:
+ * - ลิงก์อื่นทุกตัวในเนื้อหา (ยกเว้น #anchor ในหน้าและกล่องของระบบ) ถูกถอดเหลือแต่ข้อความ
+ * - ลิงก์ไป URL ปลายทางเก็บไว้ count ตัวแรก (href ตั้งเป็น URL ที่ทีมใส่คำต่อคำ) ตัวที่เกินถอดเหลือข้อความ
+ * - AI ใส่มาไม่ครบ = ครอบ keyword ที่เจอในย่อหน้า/รายการที่ยังไม่มีลิงก์ จนครบหรือจนคำหมด (ไม่แก้ถ้อยคำ)
+ */
+export function enforcePbnBacklink(html: string, backlink: UploadLinkPair, count = 1): EnforceBacklinkResult {
+  if (!html) return { html, removed: 0, present: false, inserted: false, count: 0 }
+  const want = cleanPbnBacklinkCount(count)
   const root = parse(html, { comment: true, ...PARSE_OPTIONS })
   const target = normalizeUrl(backlink.url)
   let removed = 0
-  let kept = false
+  let kept = 0
   for (const a of root.querySelectorAll('a')) {
     if (inSystemBlock(a)) continue
     const href = (a.getAttribute('href') || '').trim()
     if (href.startsWith('#')) continue
     const isTarget = /^https?:\/\//i.test(href) && normalizeUrl(href) === target
-    if (isTarget && !kept) {
-      kept = true
+    if (isTarget && kept < want) {
+      kept++
       a.setAttribute('href', backlink.url)
       continue
     }
     if (unwrap(a)) removed++
   }
-  let out = removed || kept ? root.toString() : html
-  if (kept) return { html: out, removed, present: true, inserted: false }
-  const ins = insertInternalLinks(out, [backlink], 1)
-  out = ins.html
-  return { html: out, removed, present: ins.inserted.length > 0, inserted: ins.inserted.length > 0 }
+  const out = removed || kept ? root.toString() : html
+  if (kept >= want) return { html: out, removed, present: true, inserted: false, count: kept }
+  // parse ใหม่จากข้อความที่ถอดลิงก์แล้ว — คำที่เคยถูกลิงก์คั่นกลางกลับมาเป็นข้อความก้อนเดียว
+  const ins = wrapKeyword(out, backlink, want - kept)
+  return { html: ins.html, removed, present: kept + ins.added > 0, inserted: ins.added > 0, count: kept + ins.added }
 }

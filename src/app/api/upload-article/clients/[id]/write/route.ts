@@ -54,7 +54,7 @@ import {
   splitOutlineFill,
   stripMasterOutlineSection,
 } from '@/lib/upload-article/outline'
-import { PBN_MAIN_PROFILE, cleanPbnCluster, isPbnProfileId, readPbnProfiles, readPbnArticleTargets, type PbnArticleTarget } from '@/lib/upload-article/pbn-sets'
+import { PBN_MAIN_PROFILE, cleanPbnBacklinkCount, cleanPbnCluster, isPbnProfileId, readPbnProfiles, readPbnArticleTargets, type PbnArticleTarget } from '@/lib/upload-article/pbn-sets'
 import { isMagazineSite } from '@/lib/upload-article/pbn-magazine'
 import { pbnEffectiveClient, resolveCeSet } from '@/lib/upload-article/pbn-context'
 import { enforcePbnBacklink, pbnBacklinkFor } from '@/lib/upload-article/pbn-backlink'
@@ -225,7 +225,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     // หมวดที่เลือกตอนสั่งเขียน (เว็บโครง magazine เท่านั้น) — เก็บไว้เป็นค่าเริ่มต้นตอน push, ตอน push ยังเช็คกับรายการหมวดจริงของเว็บอีกรอบ
     const cluster = isMagazineSite(site) ? cleanPbnCluster(body?.cluster) : ''
-    target = { siteId, profileId, ...(cluster ? { cluster } : {}) }
+    // จำนวน Backlink ในบทความ (เลือกตอนสั่งเขียน, ไม่ส่ง = 1) — เก็บกับบทความ เขียนใหม่ใช้จำนวนเดิม
+    const backlinks = cleanPbnBacklinkCount(body?.backlinks)
+    target = { siteId, profileId, ...(cluster ? { cluster } : {}), ...(backlinks > 1 ? { backlinks } : {}) }
   }
   // client ที่ใช้เขียนจริง — PBN: เว็บหลัก/ภาษาตาม set + สไตล์ตามเว็บปลายทาง, Upload Article: ค่าเดิม
   const effective = pbnEffectiveClient({ ...client, pushPrefs: JSON.stringify(prefs) }, target)
@@ -233,8 +235,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const plan = readPlan(prefs)
   const keyword = plan.find((k) => k.id === keywordId)
   if (!keyword) return NextResponse.json({ error: 'ไม่พบ keyword นี้' }, { status: 404 })
-  // PBN: บทความลิงก์ออกไป URL ปลายทางของ keyword ลิงก์เดียว (ไม่มี internal link) — ยังไม่ใส่ URL = ไม่เขียน ไม่เสียค่า AI
+  // PBN: บทความลิงก์ออกไป URL ปลายทางของ keyword เท่านั้น (ไม่มี internal link) — ยังไม่ใส่ URL = ไม่เขียน ไม่เสียค่า AI
   const backlink = isPbn ? pbnBacklinkFor(keyword) : null
+  const backlinkCount = target?.backlinks ?? 1
   if (isPbn && !backlink) {
     return NextResponse.json({ error: 'ใส่ URL ปลายทาง (Backlink) ของ keyword นี้ในแท็บ Keyword ก่อนเขียน' }, { status: 400 })
   }
@@ -408,7 +411,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ? { ...keyword, title: rewriteOf.title, slug: rewriteOf.slug || articleSlug || keyword.slug }
         : { ...keyword, title: keyword.title ? title : keyword.title, slug: keyword.slug ? articleSlug : keyword.slug },
       links: linkPairs,
-      ...(backlink ? { backlink } : {}),
+      ...(backlink ? { backlink, backlinkCount } : {}),
       language,
       brandNames: [client.name],
       constraintLayers: constraints.layerNames,
@@ -642,12 +645,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               onlyListed: true,
             })
           : withCtaHtml
-        // PBN: เหลือลิงก์ไป URL ปลายทางลิงก์เดียว — ลิงก์อื่น (internal/อ้างอิง/เว็บอื่น) ถอดเหลือข้อความ, AI ไม่ใส่ = ครอบ keyword ให้
+        // PBN: เหลือลิงก์ไป URL ปลายทางตามจำนวนที่เลือก — ลิงก์อื่น (internal/อ้างอิง/เว็บอื่น) ถอดเหลือข้อความ, AI ใส่ไม่ครบ = ครอบ keyword ให้
         if (backlink) {
-          const enforced = enforcePbnBacklink(sourceHtml, backlink)
+          const enforced = enforcePbnBacklink(sourceHtml, backlink, backlinkCount)
           sourceHtml = enforced.html
           if (!enforced.present) {
             restrictionWarnings = [...(restrictionWarnings ?? []), `ไม่พบจุดใส่ Backlink "${backlink.keyword}" ในเนื้อหา — ใส่ลิงก์ไป ${backlink.url} เองก่อน push`]
+          } else if (enforced.count < backlinkCount) {
+            restrictionWarnings = [...(restrictionWarnings ?? []), `ใส่ Backlink ได้ ${enforced.count} จาก ${backlinkCount} ลิงก์ (คำ "${backlink.keyword}" ในเนื้อหามีไม่พอ) — เพิ่มลิงก์ไป ${backlink.url} เองก่อน push ถ้าต้องการครบ`]
           }
         }
         if (rewriteOf) {

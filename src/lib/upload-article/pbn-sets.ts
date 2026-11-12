@@ -3,8 +3,9 @@
 //   pbnProfiles       — set ข้อมูลโปรเจกต์เพิ่มเติม (เว็บหลัก + ภาษา) แต่ละ set มี Content Engine ของตัวเอง
 //                       set "main" = ค่าเดิมของแถว (client.website / client.language / CE projectId = client.id)
 //   pbnStyles         — สไตล์บทความต่อเว็บ PBN (siteId → ธีม) ไม่มี = ใช้สไตล์หลัก (client.themeColors)
-//   pbnArticleTargets — บทความไหนเขียนเพื่อขึ้นเว็บไหน ด้วย set ไหน (articleId → { siteId, profileId, cluster? })
+//   pbnArticleTargets — บทความไหนเขียนเพื่อขึ้นเว็บไหน ด้วย set ไหน (articleId → { siteId, profileId, cluster?, backlinks? })
 //                       cluster = หมวดที่เลือกไว้ตอนสั่งเขียน (เว็บโครง magazine) ใช้เป็นค่าเริ่มต้นตอน push
+//                       backlinks = จำนวนลิงก์ไป URL ปลายทางที่เลือกตอนสั่งเขียน (ไม่มี = 1) เขียนใหม่ใช้จำนวนเดิม
 //   pbnSectionColors  — สีประจำหมวดของเว็บโครง magazine (siteId → หมวดย่อย → #rrggbb) ระบบเก็บเองทุกครั้งที่โหลด
 //                       รายการหมวดจาก repo ของเว็บ ใช้ปรับสีสไตล์บทความให้ตรงหมวดที่เลือก (retintPbnTheme)
 // ไฟล์นี้ใช้ได้ทั้งฝั่งเซิร์ฟเวอร์และหน้าเว็บ — ห้าม import โมดูลของ Node ที่นี่
@@ -41,6 +42,18 @@ export interface PbnArticleTarget {
   profileId: string
   /** หมวดที่เลือกตอนสั่งเขียน — เฉพาะเว็บโครง magazine, ไม่เลือก = เลือกตอน push */
   cluster?: string
+  /** จำนวนลิงก์ไป URL ปลายทางของ keyword ในบทความนี้ (2..PBN_BACKLINKS_MAX) — ไม่มี = 1 ลิงก์ */
+  backlinks?: number
+}
+
+/** จำนวน Backlink สูงสุดต่อ 1 บทความ (ทุกลิงก์ชี้ URL ปลายทางเดียวกันของ keyword) */
+export const PBN_BACKLINKS_MAX = 5
+
+/** จำนวน Backlink ที่รับมาจากหน้าเว็บ/ที่เก็บไว้ — ไม่ใช่ตัวเลข = 1, เกินช่วง = ปัดเข้า 1..PBN_BACKLINKS_MAX */
+export function cleanPbnBacklinkCount(v: unknown): number {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN
+  if (!Number.isFinite(n)) return 1
+  return Math.min(PBN_BACKLINKS_MAX, Math.max(1, Math.floor(n)))
 }
 
 /** หมวดที่รับมาจากหน้าเว็บ/ที่เก็บไว้ — รูปแบบไม่ถูก = ถือว่าไม่ได้เลือก */
@@ -106,7 +119,13 @@ export function readPbnArticleTargets(prefs: Record<string, unknown> | null | un
     const r = v as Record<string, unknown>
     if (typeof r.siteId !== 'string' || !r.siteId) continue
     const cluster = cleanPbnCluster(r.cluster)
-    out[articleId] = { siteId: r.siteId, profileId: isPbnProfileId(r.profileId) ? r.profileId : PBN_MAIN_PROFILE, ...(cluster ? { cluster } : {}) }
+    const backlinks = cleanPbnBacklinkCount(r.backlinks)
+    out[articleId] = {
+      siteId: r.siteId,
+      profileId: isPbnProfileId(r.profileId) ? r.profileId : PBN_MAIN_PROFILE,
+      ...(cluster ? { cluster } : {}),
+      ...(backlinks > 1 ? { backlinks } : {}),
+    }
   }
   return out
 }

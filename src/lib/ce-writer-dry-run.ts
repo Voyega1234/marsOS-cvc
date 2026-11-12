@@ -417,7 +417,7 @@ export function buildWriterDryRun(input: WriterDryRunInput): WriterDryRun {
 
   const linkText = links.map((l) => `- anchor: "${l.keyword}" → url: ${l.url}`).join("\n");
   const linksLayer: DryRunLayer = input.backlink
-    ? { ...systemBlock("links", "Backlink (PBN)", `- anchor: ${input.backlink.keyword}\n- url: ${input.backlink.url}`, inPrompt, ["ลิงก์เดียวในบทความ ไม่มี Internal Link"]), source: "แท็บ Keyword (URL ปลายทาง)" }
+    ? { ...systemBlock("links", "Backlink (PBN)", `- anchor: ${input.backlink.keyword}\n- url: ${input.backlink.url}`, inPrompt, ["ลิงก์ไป URL ปลายทางเท่านั้น (จำนวนลิงก์เลือกตอนสั่งเขียน ค่าเริ่มต้น 1) ไม่มี Internal Link"]), source: "แท็บ Keyword (URL ปลายทาง)" }
     : target === "upload"
       ? { ...systemBlock("links", "Internal Link", linkText, inPrompt, [links.length ? `${links.length} ลิงก์ที่ตรงหัวข้อ` : "ไม่มีลิงก์ให้ใช้รอบนี้"]), source: "Project Setting + บทความในระบบ" }
       : { key: "links", label: "Internal Link", required: false, state: "later", source: null, chars: 0, details: ["เลือกตอนเขียนจริงจากแหล่งลิงก์ของโปรเจกต์ ไม่แสดงใน Run Test"], text: "" };

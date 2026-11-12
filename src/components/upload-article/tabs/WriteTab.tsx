@@ -12,7 +12,7 @@ import { DEFAULT_UPLOAD_IMAGE_DEFAULTS, type UploadArticleDTO, type UploadClient
 import { requestArticleImages } from "@/components/upload-article/shared/AiImagesPanel";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { PBN_MAX_VARIANTS, parseWriterSourceName, writerSourceName } from "@/lib/upload-article/pbn";
-import { PBN_MAIN_PROFILE } from "@/lib/upload-article/pbn-sets";
+import { PBN_BACKLINKS_MAX, PBN_MAIN_PROFILE } from "@/lib/upload-article/pbn-sets";
 import UploadLanguageSelect from "@/components/upload-article/shared/UploadLanguageSelect";
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
 import { useMagazineClusters } from "@/components/upload-article/pbn/useMagazineClusters";
@@ -55,7 +55,7 @@ function describeWriteError(raw: string): { message: string; transient: boolean 
 }
 
 /** เว็บ PBN ปลายทาง (สไตล์ตามเว็บ + push ได้เฉพาะเว็บนี้) + set ข้อมูลโปรเจกต์ — PBN เท่านั้น */
-type PbnJobTarget = { siteId: string; profileId: string; cluster?: string };
+type PbnJobTarget = { siteId: string; profileId: string; cluster?: string; backlinks?: number };
 
 /** งานเขียน 1 ชิ้น — เวอร์ชัน 1 ใช้ key = keywordId (เหมือนเดิม), เวอร์ชันอื่น = keywordId#v<k> */
 type WriteJob = { key: string; keywordId: string; variant: number; total: number; target?: PbnJobTarget };
@@ -127,9 +127,13 @@ export default function WriteTab({
     if (!slug || !isMagazineSite(siteId)) return undefined;
     return magazineClusters[siteId]?.sections?.some(sec => sec.clusters.some(c => c.slug === slug)) ? slug : undefined;
   };
+  /** จำนวน Backlink ในบทความ (จำต่อเว็บ เหมือนหมวด) — ไม่เลือก = 1 ลิงก์ */
+  const [siteBacklinks, setSiteBacklinks] = useState<Record<string, number>>({});
+  const backlinksForSite = (siteId: string): number => Math.min(PBN_BACKLINKS_MAX, Math.max(1, siteBacklinks[siteId] ?? 1));
   const pbnTargetOf = (siteId: string): PbnJobTarget => {
     const cluster = clusterForSite(siteId);
-    return { siteId, profileId: activePbnSet, ...(cluster ? { cluster } : {}) };
+    const backlinks = backlinksForSite(siteId);
+    return { siteId, profileId: activePbnSet, ...(cluster ? { cluster } : {}), ...(backlinks > 1 ? { backlinks } : {}) };
   };
   const pbnTargetsOk = !variantsEnabled || (
     chosenSites.length === perKeyword
@@ -255,7 +259,7 @@ export default function WriteTab({
           keywordId,
           withCta: ctaRunRef.current,
           ...(job.total > 1 ? { variant: job.variant, variantTotal: job.total } : {}),
-          ...(job.target ? { siteId: job.target.siteId, profileId: job.target.profileId, ...(job.target.cluster ? { cluster: job.target.cluster } : {}) } : {}),
+          ...(job.target ? { siteId: job.target.siteId, profileId: job.target.profileId, ...(job.target.cluster ? { cluster: job.target.cluster } : {}), ...(job.target.backlinks ? { backlinks: job.target.backlinks } : {}) } : {}),
         }),
         signal: controller.signal,
       });
@@ -639,6 +643,14 @@ export default function WriteTab({
                         </select>
                       );
                     })()}
+                    {siteId && (
+                      <select id={`pbn-variant-backlinks-${i}`} aria-label="จำนวน Backlink ในบทความ" value={backlinksForSite(siteId)} disabled={running}
+                        title="จำนวนลิงก์ในบทความนี้ที่ชี้ไป URL ปลายทางของ keyword (ทุกลิงก์ไป URL เดียวกัน)"
+                        onChange={e => setSiteBacklinks(prev => ({ ...prev, [siteId]: Number(e.target.value) }))}
+                        className="h-8 rounded-md border border-gray-200 px-2 text-sm bg-white">
+                        {Array.from({ length: PBN_BACKLINKS_MAX }, (_, n) => n + 1).map(n => <option key={n} value={n}>Backlink: {n} ลิงก์</option>)}
+                      </select>
+                    )}
                     {dup && <span className="text-[11px] text-red-600">เว็บซ้ำกับบทความอื่น</span>}
                   </div>
                 </div>
@@ -654,6 +666,7 @@ export default function WriteTab({
           <p className="w-full text-[11px] text-gray-400">
             แต่ละบทความเขียนตามสไตล์ของเว็บที่เลือก และ push ได้เฉพาะเว็บนั้น — ตั้งสไตล์ตามเว็บได้ที่ Project Setting &gt; สไตล์บทความ
             {chosenSites.some(id => isMagazineSite(id)) && " · เว็บที่มีหลายหมวด: เลือกหมวดไว้ตรงนี้ได้เลย ทุกบทความในรอบนี้จะลงหมวดนั้น (เปลี่ยนได้อีกครั้งในหน้า Push)"}
+            {" · Backlink: จำนวนลิงก์ในบทความที่ชี้ไป URL ปลายทางของ keyword (ทุกลิงก์ไป URL เดียวกัน) — ค่าเริ่มต้น 1 ลิงก์"}
           </p>
         </div>
       )}
@@ -738,6 +751,7 @@ export default function WriteTab({
                                   <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 max-w-[200px] truncate">
                                     {pbnSites.sites.find(s => s.id === jobTargetsRef.current[key].siteId)?.name || "เว็บที่ถูกลบ"}
                                     {jobTargetsRef.current[key].cluster ? ` · ${jobTargetsRef.current[key].cluster}` : ""}
+                                    {(jobTargetsRef.current[key].backlinks ?? 1) > 1 ? ` · ${jobTargetsRef.current[key].backlinks} ลิงก์` : ""}
                                   </span>
                                 )}
                                 <div className="flex-1 min-w-0">

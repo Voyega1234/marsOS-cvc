@@ -20,11 +20,11 @@ const MIN_KEYWORD_LEN = 2
 
 const SYSTEM_BLOCK_RE = /\bcontent-(?:cta|author|toc|breadcrumb)\b/
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function escapeAttr(s: string): string {
+export function escapeAttr(s: string): string {
   return escapeHtml(s).replace(/"/g, '&quot;')
 }
 
@@ -51,7 +51,7 @@ const LATIN_WORD_CHAR = /[A-Za-z0-9]/
 const WORD_CHAR = /[A-Za-z0-9\u0E00-\u0E7F]/
 
 /** ตำแหน่งแรกที่ keyword โผล่แบบตรงขอบคำ — ไม่เจอ = -1 */
-function findWholeWord(text: string, keyword: string): number {
+export function findWholeWord(text: string, keyword: string): number {
   const hay = text.toLowerCase()
   const needle = keyword.toLowerCase()
   let bounds: Set<number> | null | undefined
@@ -76,7 +76,7 @@ function findWholeWord(text: string, keyword: string): number {
   return -1
 }
 
-function blockedOrContainer(node: Node): HTMLElement | null {
+export function blockedOrContainer(node: Node): HTMLElement | null {
   let container: HTMLElement | null = null
   let cur: Node | null = node.parentNode
   while (cur && cur.nodeType === NodeType.ELEMENT_NODE) {
@@ -91,7 +91,7 @@ function blockedOrContainer(node: Node): HTMLElement | null {
   return container
 }
 
-function textNodes(root: HTMLElement): TextNode[] {
+export function textNodes(root: HTMLElement): TextNode[] {
   const out: TextNode[] = []
   const walk = (n: Node) => {
     for (const c of n.childNodes) {
