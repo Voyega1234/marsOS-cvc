@@ -92,7 +92,7 @@ export async function checkMagazinePush(
 ): Promise<{ ok: true; check: MagazinePushCheck } | { ok: false; error: string }> {
   const { site } = args
   if (args.publishMode === 'draft') {
-    return { ok: false, error: `เว็บ ${site.name} ไม่มีโหมด Draft — เลือก Publish (บทความจะขึ้นเว็บเมื่อรัน workflow เผยแพร่ของ repo, ตั้งวันเผยแพร่ล่วงหน้าได้)` }
+    return { ok: false, error: `เว็บ ${site.name} ไม่มีโหมด Draft — เลือก Publish (หลัง push repo จะ build แล้วบทความขึ้นเว็บเองในไม่กี่นาที, ตั้งวันเผยแพร่ล่วงหน้าได้)` }
   }
   const slug = (args.articleSlug || '').trim().toLowerCase()
   if (!MAGAZINE_SLUG_RE.test(slug) || slug.length > 120) {

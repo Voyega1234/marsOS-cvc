@@ -13,7 +13,7 @@ import { computeClientCounts, toUploadClientDTO } from '@/lib/upload-article/ser
 import { effectiveBodyCover, type UploadPushPrefs, type UploadTheme } from '@/lib/upload-article/types'
 import { updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import { isPbnPrefs, readPbnSites, readPbnPushes, cleanRepoPath, parseWriterSourceName, DEFAULT_GH_DIR, type PbnSite } from '@/lib/upload-article/pbn'
-import { isMagazineSite } from '@/lib/upload-article/pbn-magazine'
+import { bangkokDate, isMagazineSite } from '@/lib/upload-article/pbn-magazine'
 import { buildMagazinePush, checkMagazinePush, type MagazinePushCheck } from '@/lib/upload-article/pbn-magazine-push'
 import { pbnBacklinkFor } from '@/lib/upload-article/pbn-backlink'
 import { publishToGithub, safeFileSlug } from '@/lib/upload-article/github-push'
@@ -342,7 +342,9 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       error = result.ok ? result.deployHookError : result.error
       if (result.ok && magazineFiles) {
         warning = [
-          'ไฟล์เข้า repo แล้ว — เว็บจะแสดงบทความหลังรัน workflow เผยแพร่ของ repo (GitHub Actions)',
+          magazineFiles.date > bangkokDate()
+            ? `ไฟล์เข้า repo แล้ว — ตั้งวันเผยแพร่ไว้ ${magazineFiles.date} วันนี้เว็บยังไม่แสดง บทความจะขึ้นเมื่อเว็บนี้ถูก build อีกครั้งตั้งแต่วันนั้น (เช่น ตอน push บทความถัดไปของเว็บนี้)`
+            : 'ไฟล์เข้า repo แล้ว — repo กำลัง build แล้วบทความจะขึ้นเว็บเองในประมาณ 3–7 นาที (ถ้าไม่ขึ้น ดูแท็บ Actions ของ repo)',
           ...magazineFiles.warnings,
         ].join(' · ')
       }
@@ -513,7 +515,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // PBN GitHub ต้องรอ build — ถ้าหน้ายัง 404 จะจดเป็นไม่สำเร็จ ให้กดซ้ำได้จากหน้า Push / Request Index
   let indexRequest: UploadIndexRequest | undefined
   let clientRow = updatedClientRow
-  // เว็บ magazine ยังไม่ขึ้นจนกว่าจะรัน workflow เผยแพร่ — ไม่ขอ index อัตโนมัติ (กดเองได้จากหน้า Push หลังเว็บขึ้น)
+  // เว็บโครง repo PBN ขึ้นหลัง workflow ของ repo build เสร็จ (ไม่กี่นาทีหลัง push) ตอนนี้หน้ายังไม่มี — ไม่ขอ index อัตโนมัติ (กดเองได้จากหน้า Push หลังเว็บขึ้น)
   const pbnLive = pbnSite ? (pbnSite.platform === 'github' ? effectiveMode === 'publish' && !magazine : livePublished) : false
   if (ok && isIndexableUrl(postUrl) && autoRequestIndex && (pbnSite ? pbnLive : livePublished)) {
     const r = pbnSite

@@ -290,8 +290,10 @@ function SiteForm({
             </div>
           </div>
           <p className="text-[11px] text-gray-400 leading-relaxed">
-            push = commit ไฟล์บทความ (+ รูปปก) ลง repo เป็น commit เดียว — {HOST_LABEL[d.host]} ที่ผูก repo ไว้จะ build ใหม่เอง.
-            ใส่ Deploy Hook เฉพาะเว็บที่ไม่ได้เปิด auto-deploy จาก git. รูปแบบ URL ใช้ {"{siteUrl}"} และ {"{slug}"}
+            {magazine
+              ? "push = commit ไฟล์บทความ (+ รูปปก) ลง repo เป็น commit เดียว — GitHub Actions ของ repo PBN จะ build เว็บนั้นแล้วขึ้นเว็บเอง (ประมาณ 3–7 นาที). ไม่ต้องใส่ Deploy Hook. "
+              : `push = commit ไฟล์บทความ (+ รูปปก) ลง repo เป็น commit เดียว — ${HOST_LABEL[d.host]} ที่ผูก repo ไว้จะ build ใหม่เอง. ใส่ Deploy Hook เฉพาะเว็บที่ไม่ได้เปิด auto-deploy จาก git. `}
+            รูปแบบ URL ใช้ {"{siteUrl}"} และ {"{slug}"}
           </p>
         </div>
       )}
