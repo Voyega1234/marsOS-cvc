@@ -2,7 +2,9 @@
 
 import { useSession } from "@/components/layout/SessionProvider";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
-import { LogOut } from "lucide-react";
+import { ChevronsUpDown, LogOut } from "lucide-react";
+import { UserMenu } from "./UserMenu";
+import NextImage from "next/image";
 import {
   Sidebar,
   SidebarContent,
@@ -34,6 +36,8 @@ import {
   Upload,
   Network,
   SearchCheck,
+  Link2,
+  ShieldCheck,
 } from "lucide-react";
 import type { Route } from "./nav-main";
 import DashboardNavigation from "./nav-main";
@@ -87,6 +91,19 @@ function buildRoutes(briefBadge: number, role: UserRole): Route[] {
       title: "PBN Backlinks",
       icon: <Network className="size-4" />,
       link: "/pbn-backlinks",
+    },
+    // โมดูลเสริม (แยกตาราง/แยก API ของตัวเอง ไม่แตะระบบเดิม)
+    {
+      id: "backlink-management",
+      title: "Backlink Management",
+      icon: <Link2 className="size-4" />,
+      link: "/backlink-management",
+    },
+    {
+      id: "compliance",
+      title: "Compliance Checker",
+      icon: <ShieldCheck className="size-4" />,
+      link: "/compliance",
     },
     {
       id: "keyword-research",
@@ -178,24 +195,41 @@ function SidebarInner() {
     CLIENT: "bg-teal-100 text-teal-700",
   };
   const roleBadge = roleBadgeColor[userRole] ?? "bg-gray-100 text-gray-600";
+  const userName = session?.user?.name ?? session?.user?.email ?? "User";
+  const userDetail = session?.user?.name && session?.user?.email ? session.user.email : undefined;
+
+  async function logout() {
+    // จด "ออกจากระบบ" ลง Activity Log ก่อน session หาย
+    await fetch("/api/activity-logs/track", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "logout" }) }).catch(() => {});
+    try { await createSupabaseBrowser().auth.signOut(); } catch { /* env ไม่ครบ (dev) */ }
+    window.location.href = "/login";
+  }
 
   return (
     <>
       <CommandMenu open={cmdOpen} onOpenChange={setCmdOpen} />
-      <Sidebar variant="inset" collapsible="icon">
+      <Sidebar variant="floating" collapsible="icon">
         <SidebarHeader
           className={cn(
-            "flex md:pt-3.5",
+            "flex md:pt-3",
             isCollapsed
-              ? "flex-row items-center justify-between gap-y-4 md:flex-col md:items-start md:justify-start"
-              : "flex-row items-center justify-between"
+              ? "flex-col items-center gap-3"
+              : "flex-row items-center justify-between px-3"
           )}
         >
           {/* CVC Brand logo + name */}
-          <a href="/morning-brief" className="flex items-center gap-2">
-            {/* โลโก้รูปถูกถอดตามคำสั่งเจ้าของ 2026-08-19 — ใช้ชื่อ MarsOS อย่างเดียว */}
+          <a href="/morning-brief" className="flex min-w-0 items-center gap-2.5" title="MarsOS">
+            {/* โลโก้ Convert Cake (เจ้าของสั่งใส่กลับ 2026-11-13) — ชื่อระบบคงเป็น MarsOS ตามกฎ brand lock */}
+            <NextImage
+              src="/logos/convertcake-mark-96.png"
+              alt="Convert Cake"
+              width={36}
+              height={36}
+              unoptimized
+              className="h-9 w-9 shrink-0 object-contain"
+            />
             {!isCollapsed && (
-              <span className="font-bold text-brand-navy text-base tracking-tight">MarsOS</span>
+              <span className="truncate font-semibold text-brand-navy text-[17px] tracking-tight">MarsOS</span>
             )}
           </a>
 
@@ -204,45 +238,56 @@ function SidebarInner() {
             key={isCollapsed ? "collapsed" : "expanded"}
             className={cn(
               "flex items-center gap-1",
-              isCollapsed ? "flex-row md:flex-col-reverse" : "flex-row"
+              isCollapsed ? "flex-col-reverse" : "flex-row"
             )}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
           >
             <NotificationsPopover notifications={[]} />
-            <SidebarTrigger className="h-8 w-8 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md" />
+            <SidebarTrigger className="h-8 w-8 text-gray-500 hover:text-brand-navy hover:bg-white/80 rounded-full" />
           </motion.div>
         </SidebarHeader>
 
-        <SidebarContent className="gap-0 px-2 py-3">
+        <SidebarContent className={cn("gap-0 py-3", isCollapsed ? "px-2" : "px-3")}>
           <DashboardNavigation routes={dashboardRoutes} />
         </SidebarContent>
 
-        <SidebarFooter className="px-2 pb-3 space-y-1">
-          {/* User info */}
+        <SidebarFooter className={cn("pb-3 space-y-1", isCollapsed ? "px-2 items-center" : "px-3")}>
+          {/* พับอยู่: โชว์แค่วงกลมชื่อย่อ — กดเปิดเมนูผู้ใช้ (โหมดแสดงผล + ออกจากระบบ) */}
+          {isCollapsed && (
+            <UserMenu name={userName} detail={userDetail} onLogout={logout} side="right" align="end">
+              <button
+                type="button"
+                title={userName}
+                aria-label="เมนูผู้ใช้"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-navy text-[12px] font-semibold text-white transition-shadow hover:ring-2 hover:ring-brand-blue/40"
+              >
+                {userName[0]?.toUpperCase()}
+              </button>
+            </UserMenu>
+          )}
+          {/* User info — กดที่การ์ดเปิดเมนูผู้ใช้, ปุ่มออกจากระบบแบบ hover ยังอยู่เหมือนเดิม */}
           {!isCollapsed && (
-            <div className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-100 group">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-800 text-[11px] font-bold text-white">
-                {(session?.user?.name ?? session?.user?.email ?? "U")[0]?.toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-medium text-brand-navy truncate">
-                  {session?.user?.name ?? session?.user?.email ?? "User"}
-                </p>
-                <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded", roleBadge)}>
-                  {userRole}
-                </span>
-              </div>
+            <div className="flex items-center gap-1 pr-1.5 rounded-2xl bg-white/60 hover:bg-white/90 transition-colors group">
+              <UserMenu name={userName} detail={userDetail} onLogout={logout}>
+                <button type="button" aria-label="เมนูผู้ใช้" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-2xl px-2 py-2 text-left">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-navy text-[12px] font-semibold text-white">
+                    {userName[0]?.toUpperCase()}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[12px] font-medium text-brand-navy truncate">{userName}</span>
+                    <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", roleBadge)}>
+                      {userRole}
+                    </span>
+                  </span>
+                  <ChevronsUpDown size={13} className="shrink-0 text-gray-400" />
+                </button>
+              </UserMenu>
               <button
                 title="ออกจากระบบ"
-                onClick={async () => {
-                  // จด "ออกจากระบบ" ลง Activity Log ก่อน session หาย
-                  await fetch("/api/activity-logs/track", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "logout" }) }).catch(() => {});
-                  try { await createSupabaseBrowser().auth.signOut(); } catch { /* env ไม่ครบ (dev) */ }
-                  window.location.href = "/login";
-                }}
-                className="md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                onClick={logout}
+                className="md:opacity-0 md:group-hover:opacity-100 p-1.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
               >
                 <LogOut size={13} />
               </button>

@@ -9,6 +9,7 @@ import {
   ChevronDown, ChevronUp, Info,
 } from "lucide-react";
 import { useState } from "react";
+import { KpiTile, MeterBar } from "@/components/ds";
 import type {
   GSCData, GA4Data, PSIData, GscAiData, SEOInsight, ExecutiveSummary, RecommendationGroup,
 } from "@/lib/report/seo-insights";
@@ -24,12 +25,12 @@ function Collapsible({ title, icon, children, defaultOpen = true, badge }:
   { title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean; badge?: string }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white">
+    <div className="glass rounded-2xl overflow-hidden">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors text-left">
+        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-white/60 transition-colors text-left">
         <div className="flex items-center gap-2.5 font-semibold text-brand-navy text-sm">
           {icon}{title}
-          {badge && <span className="ml-1 px-2 py-0.5 bg-gray-100 text-gray-500 text-[10px] rounded-full font-normal">{badge}</span>}
+          {badge && <span className="chip chip-muted ml-1">{badge}</span>}
         </div>
         {open ? <ChevronUp size={14} className="text-gray-400 shrink-0" /> : <ChevronDown size={14} className="text-gray-400 shrink-0" />}
       </button>
@@ -74,26 +75,20 @@ function InsightCard({ insight }: { insight: SEOInsight }) {
 
 function MetricCard({ label, value, delta, suffix = "", inverse = false }:
   { label: string; value: string | number; delta?: number; suffix?: string; inverse?: boolean }) {
-  const n = typeof delta === "number" ? delta : 0;
-  const good = inverse ? n < 0 : n > 0;
-  const neutral = n === 0 || delta === undefined;
   return (
-    <div className="bg-gray-50 rounded-xl p-3.5 border border-gray-100">
-      <p className="text-[10px] text-gray-500 font-medium mb-1">{label}</p>
-      <p className="text-xl font-black text-brand-navy">{typeof value === "number" ? value.toLocaleString() : value}{suffix}</p>
-      {delta !== undefined && (
-        <div className={`flex items-center gap-0.5 text-[10px] mt-1 font-semibold ${neutral ? "text-gray-400" : good ? "text-emerald-600" : "text-red-500"}`}>
-          {neutral ? <Minus size={9} /> : good ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
-          {Math.abs(n)}{suffix === "%" ? "" : "%"} vs prev
-        </div>
-      )}
-    </div>
+    <KpiTile
+      label={label}
+      value={<>{typeof value === "number" ? value.toLocaleString() : value}{suffix}</>}
+      delta={delta}
+      invertDelta={inverse}
+      hint={delta !== undefined ? "vs prev" : undefined}
+    />
   );
 }
 
 function MissingDataNotice({ source, message }: { source: string; message?: string }) {
   return (
-    <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-500">
+    <div className="glass flex items-center gap-2 rounded-2xl px-4 py-3 text-sm text-gray-500">
       <Info size={13} className="shrink-0" />
       <span><b>{source}</b> — {message ?? "Data not available for this period."}</span>
     </div>
@@ -125,7 +120,7 @@ function ScoreRing({ score, label }: { score: number | null; label: string }) {
     : score >= 50 ? "bg-amber-50"
     : "bg-red-50";
   return (
-    <div className={`flex flex-col items-center justify-center rounded-xl p-3 ${bg} min-w-[70px]`}>
+    <div className={`flex flex-col items-center justify-center rounded-2xl p-3 ${bg} min-w-[80px]`}>
       <span className={`text-2xl font-black ${color}`}>{score ?? "—"}</span>
       <span className="text-[10px] text-gray-500 mt-0.5 text-center leading-tight">{label}</span>
     </div>
@@ -164,7 +159,7 @@ function ExecutiveSummarySection({ summary }: { summary: ExecutiveSummary }) {
       <p className="text-sm text-gray-700 leading-relaxed">{summary.summary}</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {summary.mainStrengths.length > 0 && (
-          <div className="bg-white/70 rounded-xl p-3">
+          <div className="bg-white/70 border border-white/80 rounded-2xl p-3">
             <p className="text-[10px] font-bold text-emerald-700 mb-2 uppercase tracking-wide">Strengths</p>
             <ul className="space-y-1">
               {summary.mainStrengths.map((s, i) => (
@@ -176,7 +171,7 @@ function ExecutiveSummarySection({ summary }: { summary: ExecutiveSummary }) {
           </div>
         )}
         {summary.mainOpportunities.length > 0 && (
-          <div className="bg-white/70 rounded-xl p-3">
+          <div className="bg-white/70 border border-white/80 rounded-2xl p-3">
             <p className="text-[10px] font-bold text-blue-700 mb-2 uppercase tracking-wide">Opportunities</p>
             <ul className="space-y-1">
               {summary.mainOpportunities.map((o, i) => (
@@ -188,7 +183,7 @@ function ExecutiveSummarySection({ summary }: { summary: ExecutiveSummary }) {
           </div>
         )}
         {summary.mainRisks.length > 0 && (
-          <div className="bg-white/70 rounded-xl p-3">
+          <div className="bg-white/70 border border-white/80 rounded-2xl p-3">
             <p className="text-[10px] font-bold text-red-700 mb-2 uppercase tracking-wide">Risks & Warnings</p>
             <ul className="space-y-1">
               {summary.mainRisks.map((r, i) => (
@@ -307,13 +302,13 @@ export function SEOPerformanceReport({
     <div className="space-y-4">
 
       {/* Report header */}
-      <div className="bg-brand-blue rounded-2xl px-5 py-4 text-white">
+      <div className="glass rounded-2xl px-5 py-4">
         <div className="flex items-center gap-2 mb-1">
           <FileText size={14} className="text-gray-400" />
-          <span className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">SEO Performance Report</span>
+          <span className="page-eyebrow">SEO Performance Report</span>
         </div>
-        <p className="font-bold text-lg">{projectName}</p>
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className="font-bold text-lg text-brand-navy">{projectName}</p>
+        <p className="text-xs text-gray-500 mt-0.5">
           Period: last {period.days} days
           {gsc?.period && ` · ${gsc.period.start} → ${gsc.period.end}`}
         </p>
@@ -554,8 +549,8 @@ export function SEOPerformanceReport({
                   return (
                     <div key={i} className="flex items-center gap-2 text-xs py-1.5">
                       <span className="w-28 text-gray-700 truncate shrink-0">{c.channel}</span>
-                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                        <div className="h-full bg-blue-400 rounded-full" style={{ width: `${pct}%` }} />
+                      <div className="flex-1 min-w-0">
+                        <MeterBar value={pct} max={100} tone="blue" />
                       </div>
                       <span className="text-brand-navy font-semibold w-16 text-right">{c.sessions.toLocaleString()}</span>
                       <span className="text-gray-400 w-10 text-right">{pct}%</span>

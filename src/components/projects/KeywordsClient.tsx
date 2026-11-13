@@ -254,7 +254,7 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
             <button
               onClick={generateContentMap}
               disabled={generatingMap || activeKeywords.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-brand-navy hover:bg-brand-deep text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
             >
               {generatingMap ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
               {generatingMap ? "กำลังสร้าง..." : "Generate Content Map"}
@@ -264,7 +264,7 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
       </div>
 
       {/* ── Single keyword research ── */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-5">
+      <div className="bg-white/75 rounded-2xl border border-white/80 shadow-sm backdrop-blur p-5">
         <h2 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
           <Search className="h-4 w-4 text-green-600" />
           วิจัย Keyword ใหม่
@@ -280,7 +280,7 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
           <button
             type="submit"
             disabled={singleAdding || !singleInput.trim()}
-            className="flex items-center gap-2 px-5 py-2.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2.5 bg-brand-navy hover:bg-brand-deep text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
           >
             {singleAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {singleAdding ? "วิจัย..." : "Research"}
@@ -312,7 +312,7 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
               <button
                 onClick={runBulkResearch}
                 disabled={bulkRunning || !bulkText.trim()}
-                className="flex items-center gap-2 px-5 py-2.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2.5 bg-brand-navy hover:bg-brand-deep text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
               >
                 {bulkRunning
                   ? <><Loader2 className="h-4 w-4 animate-spin" />วิจัย {bulkProgress.current}/{bulkProgress.total}...</>
@@ -366,10 +366,10 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
             <div className="space-y-2">
               {clusters.map((c, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
-                  <span className="font-semibold text-amber-800 bg-amber-100 px-2 py-1 rounded-lg">{c.seed}</span>
+                  <span className="font-semibold text-amber-800 bg-amber-100 px-2 py-1 rounded-xl">{c.seed}</span>
                   <span className="text-amber-500">←→</span>
                   {c.members.map((m) => (
-                    <span key={m} className="text-amber-700 bg-white border border-amber-200 px-2 py-1 rounded-lg">{m}</span>
+                    <span key={m} className="text-amber-700 bg-white border border-amber-200 px-2 py-1 rounded-xl">{m}</span>
                   ))}
                 </div>
               ))}
@@ -380,21 +380,21 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
 
       {/* ── Keywords table ── */}
       {activeKeywords.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+        <div className="bg-white/75 rounded-2xl border border-white/80 shadow-sm backdrop-blur p-12 text-center">
           <div className="text-4xl mb-3">🔑</div>
           <p className="text-gray-500 font-medium">ยังไม่มี keyword</p>
           <p className="text-sm text-gray-400 mt-1">เพิ่ม seed keyword ด้านบนเพื่อเริ่มต้น</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="bg-white/75 rounded-2xl border border-white/80 shadow-sm backdrop-blur overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-700">{groups.length} Keyword Groups · {activeKeywords.length} Keywords</span>
             <span className="text-xs text-gray-400">{researchedCount} researched · {activeKeywords.length - researchedCount} pending</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="tbl w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
+                <tr>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-6"></th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Page Title (H1)</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Intent</th>
@@ -413,7 +413,7 @@ export default function KeywordsClient({ project, keywords: initialKeywords, use
                       {/* ── Group row ── */}
                       <tr
                         key={group.seed}
-                        className="hover:bg-gray-50/60 transition-colors cursor-pointer group"
+                        className="hover:bg-brand-mist/70 transition-colors cursor-pointer group"
                         onClick={() => toggleGroup(group.seed)}
                       >
                         <td className="px-5 py-3.5 text-gray-400">

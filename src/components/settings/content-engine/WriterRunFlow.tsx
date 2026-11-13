@@ -26,7 +26,7 @@ function fmt(n: number): string {
 function AiBadge({ ai }: { ai: DryRunStep["ai"] }) {
   const Icon = ai === "no" ? Wrench : ai === "yes" ? Sparkles : Zap;
   return (
-    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap text-[11px]", ai === "no" ? "text-gray-500" : "font-medium text-indigo-700")}>
+    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap text-[11px]", ai === "no" ? "text-gray-500" : "font-medium text-brand-blue")}>
       <Icon className="size-3 shrink-0" aria-hidden /> {AI_LABEL[ai]}
     </span>
   );
@@ -46,14 +46,14 @@ export function RunStepLine({ steps }: { steps: DryRunStep[] }) {
             {!last && (
               <span
                 aria-hidden
-                className={cn("absolute bottom-0 left-[13px] top-7 border-l-2", nextInTest ? "border-indigo-300" : "border-dashed border-gray-300")}
+                className={cn("absolute bottom-0 left-[13px] top-7 border-l-2", nextInTest ? "border-brand-blue/40" : "border-dashed border-gray-300")}
               />
             )}
             <span
               aria-hidden
               className={cn(
                 "absolute left-0 top-0.5 flex size-[28px] items-center justify-center rounded-full border-2 text-[11px] font-semibold",
-                s.inTest ? "border-indigo-600 bg-indigo-600 text-white" : "border-dashed border-gray-300 bg-white text-gray-500"
+                s.inTest ? "border-brand-blue bg-brand-blue text-white" : "border-dashed border-gray-300 bg-white text-gray-500"
               )}
             >
               {s.index + 1}
@@ -71,7 +71,7 @@ export function RunStepLine({ steps }: { steps: DryRunStep[] }) {
               </div>
               <p className="mt-0.5 break-words text-xs text-gray-500">{s.detail}</p>
               {s.isLastInTest && (
-                <p className="mt-2 rounded-md border border-indigo-100 bg-indigo-50 px-2.5 py-1.5 text-center text-[11px] font-medium text-indigo-800">
+                <p className="mt-2 rounded-2xl border border-brand-blue/15 bg-brand-blue/10 px-2.5 py-1.5 text-center text-[11px] font-medium text-brand-blue">
                   Run Test หยุดตรงนี้ ด้านล่างเกิดตอนเขียนจริงเท่านั้น
                 </p>
               )}
@@ -99,7 +99,7 @@ export function LayerBarChart({ layers }: { layers: DryRunLayer[] }) {
       ) : (
         <ul className="space-y-1">
           {bars.map((b) => (
-            <li key={b.key} className="group relative rounded-md px-1 py-1.5 outline-none hover:bg-gray-50 focus-visible:bg-gray-50" tabIndex={0} title={`${b.label}: ${fmt(b.chars)} ตัวอักษร`}>
+            <li key={b.key} className="group relative rounded-xl px-1 py-1.5 outline-none hover:bg-brand-mist focus-visible:bg-brand-mist" tabIndex={0} title={`${b.label}: ${fmt(b.chars)} ตัวอักษร`}>
               <p className="break-words text-xs text-gray-700">{b.label}</p>
               <div className="mt-0.5 flex items-center gap-2">
                 <div
@@ -112,7 +112,7 @@ export function LayerBarChart({ layers }: { layers: DryRunLayer[] }) {
               </div>
               <span
                 role="tooltip"
-                className="pointer-events-none absolute right-1 top-1 z-10 hidden rounded-md bg-gray-900 px-2 py-1 text-[11px] text-white shadow group-hover:block group-focus-visible:block"
+                className="pointer-events-none absolute right-1 top-1 z-10 hidden rounded-xl bg-brand-navy px-2 py-1 text-[11px] text-white shadow group-hover:block group-focus-visible:block"
               >
                 {b.label}: {fmt(b.chars)} ตัวอักษร ({total > 0 ? Math.round((b.chars / total) * 100) : 0}% ของทั้งหมด)
               </span>
@@ -157,7 +157,7 @@ export function FileFunnel({ files }: { files: DryRunFileReport[] }) {
       </p>
       <ul className="space-y-2">
         {funnel.stages.map((s) => (
-          <li key={s.key} className="group relative rounded-md px-1 py-1 outline-none hover:bg-gray-50 focus-visible:bg-gray-50" tabIndex={0} title={`${s.label}: ${fmt(s.value)} ตัวอักษร`}>
+          <li key={s.key} className="group relative rounded-xl px-1 py-1 outline-none hover:bg-brand-mist focus-visible:bg-brand-mist" tabIndex={0} title={`${s.label}: ${fmt(s.value)} ตัวอักษร`}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-2">
               <span className="min-w-0 break-words text-xs text-gray-700">{s.label}</span>
               <span className="shrink-0 text-xs tabular-nums text-gray-700">{fmt(s.value)}</span>
@@ -173,7 +173,7 @@ export function FileFunnel({ files }: { files: DryRunFileReport[] }) {
             {s.note && <p className="mt-0.5 break-words text-[11px] text-gray-500">{s.note}</p>}
             <span
               role="tooltip"
-              className="pointer-events-none absolute right-1 top-1 z-10 hidden rounded-md bg-gray-900 px-2 py-1 text-[11px] text-white shadow group-hover:block group-focus-visible:block"
+              className="pointer-events-none absolute right-1 top-1 z-10 hidden rounded-xl bg-brand-navy px-2 py-1 text-[11px] text-white shadow group-hover:block group-focus-visible:block"
             >
               {s.label}: {fmt(s.value)} ตัวอักษร ({Math.round((s.value / funnel.totalChars) * 100)}% ของข้อความในไฟล์ทั้งหมด)
             </span>

@@ -54,7 +54,7 @@ export function OverviewTab({ rows, onOpenWizard, onGoTo }: Props) {
         {cards.map((c) => {
           const Icon = c.icon;
           return (
-            <div key={c.label} className="bg-white rounded-2xl border border-gray-200 p-4">
+            <div key={c.label} className="glass rounded-3xl p-4">
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${toneClasses[c.tone]}`}>
                 <Icon className="h-4 w-4" />
               </div>
@@ -74,9 +74,9 @@ export function OverviewTab({ rows, onOpenWizard, onGoTo }: Props) {
               <button
                 key={a.label}
                 onClick={a.run}
-                className="flex flex-col items-center justify-center gap-2 rounded-xl border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50 px-3 py-4 text-center transition-colors"
+                className="flex flex-col items-center justify-center gap-2 rounded-xl border border-gray-200 hover:border-brand-blue/40 hover:bg-brand-blue/10 px-3 py-4 text-center transition-colors"
               >
-                <Icon className="h-5 w-5 text-indigo-600" />
+                <Icon className="h-5 w-5 text-brand-blue" />
                 <span className="text-xs font-medium text-gray-700 leading-tight">{a.label}</span>
               </button>
             );
@@ -99,7 +99,7 @@ export function OverviewTab({ rows, onOpenWizard, onGoTo }: Props) {
             "เชื่อมบทความกับ Published URL และ Version",
           ].map((t) => (
             <li key={t} className="flex items-start gap-2">
-              <CheckCircle2 className="h-4 w-4 text-indigo-500 flex-shrink-0 mt-0.5" />
+              <CheckCircle2 className="h-4 w-4 text-brand-blue flex-shrink-0 mt-0.5" />
               {t}
             </li>
           ))}

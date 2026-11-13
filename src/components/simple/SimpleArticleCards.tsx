@@ -90,7 +90,7 @@ function getNextAction(status: string): NextAction {
     OUTLINE_APPROVED: {
       label: "เขียนบทความ", emoji: "✍️", type: "ai",
       endpoint: "/api/ai/article",
-      color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]", textColor: "text-white",
+      color: "bg-brand-blue hover:bg-brand-deep", textColor: "text-white",
       hint: "โครงร่างอนุมัติแล้ว AI พร้อมเขียนบทความ",
     },
     ARTICLE_GENERATING: {
@@ -113,7 +113,7 @@ function getNextAction(status: string): NextAction {
     SEO_REVIEW: {
       label: "อนุมัติบทความ", emoji: "✅", type: "approve",
       approveStatus: "APPROVED",
-      color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]", textColor: "text-white",
+      color: "bg-brand-blue hover:bg-brand-deep", textColor: "text-white",
       hint: "ตรวจสอบผล SEO และอนุมัติบทความ",
     },
     REVISION_REQUIRED: {
@@ -124,7 +124,7 @@ function getNextAction(status: string): NextAction {
     APPROVED: {
       label: "ส่ง WordPress", emoji: "🌐", type: "ai",
       endpoint: "/api/wordpress/draft",
-      color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]", textColor: "text-white",
+      color: "bg-brand-blue hover:bg-brand-deep", textColor: "text-white",
       hint: "บทความอนุมัติแล้ว ส่งเข้า WordPress ได้",
     },
     WORDPRESS_DRAFTED: {
@@ -246,7 +246,7 @@ export function SimpleArticleCards({ articles, projects, users }: Props) {
   return (
     <div className="space-y-6">
       {/* Filter Bar */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+      <div className="glass rounded-3xl p-4 shadow-sm">
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-52">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -319,7 +319,7 @@ export function SimpleArticleCards({ articles, projects, users }: Props) {
               onClick={() => setStatusFilter(s.value)}
               className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all ${
                 statusFilter === s.value
-                  ? "bg-green-600 text-white shadow-sm"
+                  ? "bg-brand-blue text-white shadow-sm"
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
@@ -331,7 +331,7 @@ export function SimpleArticleCards({ articles, projects, users }: Props) {
 
       {/* Empty State */}
       {filtered.length === 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
+        <div className="glass rounded-3xl p-16 text-center">
           <div className="w-20 h-20 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
             <FileText className="h-10 w-10 text-gray-300" />
           </div>
@@ -341,7 +341,7 @@ export function SimpleArticleCards({ articles, projects, users }: Props) {
           </p>
           <Link
             href="/articles/new"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-brand-blue text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors shadow-sm"
           >
             <Plus className="h-4 w-4" />
             สร้างบทความใหม่
@@ -361,7 +361,7 @@ export function SimpleArticleCards({ articles, projects, users }: Props) {
             return (
               <div
                 key={article.id}
-                className="bg-white rounded-2xl border border-gray-100 hover:border-green-200 hover:shadow-md transition-all flex flex-col overflow-hidden group"
+                className="glass rounded-3xl  hover:shadow-md transition-all flex flex-col overflow-hidden group"
               >
                 {/* Card Top: Title */}
                 <Link href={`/articles/${article.id}`} className="p-5 pb-3 flex-1 block">
@@ -375,7 +375,7 @@ export function SimpleArticleCards({ articles, projects, users }: Props) {
                       </span>
                     )}
                   </div>
-                  <h3 className="font-semibold text-brand-navy group-hover:text-green-700 transition-colors leading-snug line-clamp-3 text-base">
+                  <h3 className="font-semibold text-brand-navy group-hover:text-brand-blue transition-colors leading-snug line-clamp-3 text-base">
                     {article.title}
                   </h3>
                 </Link>

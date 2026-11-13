@@ -63,7 +63,7 @@ export default function PublishDatePanel({ client, setClient, articleId }: {
   const dirty = value !== toLocalInput(saved);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+    <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-2">
       <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><CalendarClock size={12} /> วันที่เผยแพร่</p>
       <input type="datetime-local" value={value} onChange={e => setValue(e.target.value)}
         className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white" />

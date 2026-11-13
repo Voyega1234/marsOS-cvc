@@ -145,17 +145,17 @@ export default function IntentPlanView({ result, rows, researchId, onApprovalsCh
     <div className="space-y-4 p-4">
       {/* Stats chips */}
       <div className="flex flex-wrap gap-2 text-[11px]">
-        <span className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1.5 font-semibold text-[#17233a]">กลุ่ม {result.stats.groups.toLocaleString('th-TH')}</span>
-        <span className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1.5 font-semibold text-[#17233a]">Cluster {result.stats.clusters.toLocaleString('th-TH')}</span>
-        <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 font-semibold text-emerald-700">FIT {result.stats.fit.toLocaleString('th-TH')}</span>
-        <span className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 font-semibold text-amber-700">บทความเท่านั้น {result.stats.articleOnly.toLocaleString('th-TH')}</span>
-        <span className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 font-semibold text-red-700">ไม่แนะนำ {result.stats.notRecommended.toLocaleString('th-TH')}</span>
-        <span className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 font-semibold text-blue-700">ให้คนตรวจ {result.stats.needsReview.toLocaleString('th-TH')}</span>
-        <span className="rounded-lg border border-[#17233a]/20 bg-[#17233a] px-2.5 py-1.5 font-semibold text-white">
+        <span className="rounded-full border border-white/80 bg-white/75 px-3 py-1.5 font-semibold text-brand-navy">กลุ่ม {result.stats.groups.toLocaleString('th-TH')}</span>
+        <span className="rounded-full border border-white/80 bg-white/75 px-3 py-1.5 font-semibold text-brand-navy">Cluster {result.stats.clusters.toLocaleString('th-TH')}</span>
+        <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 font-semibold text-emerald-700">FIT {result.stats.fit.toLocaleString('th-TH')}</span>
+        <span className="rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1.5 font-semibold text-amber-700">บทความเท่านั้น {result.stats.articleOnly.toLocaleString('th-TH')}</span>
+        <span className="rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 font-semibold text-red-700">ไม่แนะนำ {result.stats.notRecommended.toLocaleString('th-TH')}</span>
+        <span className="rounded-xl border border-blue-200 bg-blue-50 px-2.5 py-1.5 font-semibold text-blue-700">ให้คนตรวจ {result.stats.needsReview.toLocaleString('th-TH')}</span>
+        <span className="rounded-xl border border-brand-navy/20 bg-brand-navy px-2.5 py-1.5 font-semibold text-white">
           อนุมัติแล้ว {approvedCount.toLocaleString('th-TH')}/{result.groups.length.toLocaleString('th-TH')}
         </span>
         {taggedRows !== null ? (
-          <span className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1.5 font-semibold text-[#71809c]">คำที่ผ่าน skill {taggedRows.toLocaleString('th-TH')}</span>
+          <span className="rounded-full border border-white/80 bg-white/75 px-3 py-1.5 font-semibold text-gray-500">คำที่ผ่าน skill {taggedRows.toLocaleString('th-TH')}</span>
         ) : null}
       </div>
 
@@ -176,28 +176,28 @@ export default function IntentPlanView({ result, rows, researchId, onApprovalsCh
           const open = expandedClusters.has(cluster.id);
           const pillar = groupsById.get(cluster.pillarGroupId);
           return (
-            <div key={cluster.id} className="rounded-xl border border-[#dbe1ee] bg-white">
+            <div key={cluster.id} className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur">
               <button
                 type="button"
                 onClick={() => toggleCluster(cluster.id)}
                 className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left"
               >
-                <span className="text-[11px] font-bold text-[#155eef]">{open ? '▾' : '▸'}</span>
-                <span className="text-sm font-bold text-[#17233a]">{cluster.name}</span>
-                <span className="text-[11px] text-[#91a0b8]">/{cluster.section}</span>
-                <span className="text-[11px] text-[#495975]">{groups.length.toLocaleString('th-TH')} กลุ่ม</span>
-                {pillar ? <span className="text-[11px] text-[#71809c]">Pillar: <span className="font-semibold text-[#17233a]">{pillar.head}</span></span> : null}
-                <span className="text-[11px] text-[#71809c]">Pillar Intent: <IntentBadge mix={cluster.pillarIntent} /></span>
+                <span className="text-[11px] font-bold text-brand-blue">{open ? '▾' : '▸'}</span>
+                <span className="text-sm font-bold text-brand-navy">{cluster.name}</span>
+                <span className="text-[11px] text-gray-400">/{cluster.section}</span>
+                <span className="text-[11px] text-gray-600">{groups.length.toLocaleString('th-TH')} กลุ่ม</span>
+                {pillar ? <span className="text-[11px] text-gray-500">Pillar: <span className="font-semibold text-brand-navy">{pillar.head}</span></span> : null}
+                <span className="text-[11px] text-gray-500">Pillar Intent: <IntentBadge mix={cluster.pillarIntent} /></span>
 
                 {/* intent mix bar */}
                 <span className="ml-auto flex items-center gap-2">
-                  <span className="flex h-2 w-32 overflow-hidden rounded-full bg-[#eef1f7]">
+                  <span className="flex h-2 w-32 overflow-hidden rounded-full bg-gray-100">
                     <span className="h-full bg-blue-400" style={{ width: `${cluster.mix.I}%` }} title={`Informational ${cluster.mix.I}%`} />
                     <span className="h-full bg-amber-400" style={{ width: `${cluster.mix.C}%` }} title={`Commercial ${cluster.mix.C}%`} />
                     <span className="h-full bg-emerald-400" style={{ width: `${cluster.mix.T}%` }} title={`Transactional ${cluster.mix.T}%`} />
                     <span className="h-full bg-slate-300" style={{ width: `${cluster.mix.N}%` }} title={`Navigational ${cluster.mix.N}%`} />
                   </span>
-                  <span className="text-[10px] text-[#91a0b8]">{cluster.mix.I}%I · {cluster.mix.C}%C · {cluster.mix.T}%T · {cluster.mix.N}%N</span>
+                  <span className="text-[10px] text-gray-400">{cluster.mix.I}%I · {cluster.mix.C}%C · {cluster.mix.T}%T · {cluster.mix.N}%N</span>
                 </span>
               </button>
 
@@ -208,10 +208,10 @@ export default function IntentPlanView({ result, rows, researchId, onApprovalsCh
               ) : null}
 
               {open ? (
-                <div className="overflow-x-auto border-t border-[#eef1f7]">
-                  <table className="w-full min-w-[1100px] text-left text-xs">
+                <div className="overflow-x-auto border-t border-gray-100">
+                  <table className="tbl w-full min-w-[1100px] text-left text-xs">
                     <thead>
-                      <tr className="border-b border-[#eef1f7] text-[10px] uppercase tracking-wide text-[#91a0b8]">
+                      <tr className="border-b border-gray-100 text-[10px] uppercase tracking-wide text-gray-400">
                         <th className="px-3 py-2">อนุมัติ</th>
                         <th className="px-3 py-2">Keyword Group</th>
                         <th className="px-3 py-2">Highest SV</th>
@@ -229,7 +229,7 @@ export default function IntentPlanView({ result, rows, researchId, onApprovalsCh
                         const approved = approvals[group.id] ?? group.approved;
                         const kwOpen = expandedGroups.has(group.id);
                         return (
-                          <tr key={group.id} className="border-b border-[#f4f6fb] align-top">
+                          <tr key={group.id} className="border-b border-gray-100 align-top">
                             <td className="px-3 py-2.5">
                               <input
                                 type="checkbox"
@@ -239,30 +239,30 @@ export default function IntentPlanView({ result, rows, researchId, onApprovalsCh
                               />
                             </td>
                             <td className="max-w-[200px] px-3 py-2.5">
-                              <p className="truncate font-semibold text-[#17233a]" title={group.head}>{group.head}</p>
+                              <p className="truncate font-semibold text-brand-navy" title={group.head}>{group.head}</p>
                               {group.needsReview ? (
                                 <span className="mt-1 inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">ให้คนตรวจ</span>
                               ) : null}
                             </td>
                             <td className="px-3 py-2.5 tabular-nums">{fmtInt(group.highestSv)}</td>
                             <td className="max-w-[220px] px-3 py-2.5">
-                              <button type="button" onClick={() => toggleGroupKeywords(group.id)} className="text-[11px] font-semibold text-[#155eef]">
+                              <button type="button" onClick={() => toggleGroupKeywords(group.id)} className="text-[11px] font-semibold text-brand-blue">
                                 {group.keywords.length.toLocaleString('th-TH')} คำ {kwOpen ? '▾' : '▸'}
                               </button>
                               {kwOpen ? (
-                                <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto text-[10px] text-[#495975]">
+                                <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto text-[10px] text-gray-600">
                                   {group.keywords.map(k => <li key={k} className="truncate" title={k}>{k}</li>)}
                                 </ul>
                               ) : null}
                             </td>
                             <td className="px-3 py-2.5"><IntentBadge mix={group.intent} /></td>
-                            <td className="px-3 py-2.5 text-[#495975]">{PAGE_TYPE_LABEL_TH[group.pageType] ?? group.pageType}</td>
-                            <td className="px-3 py-2.5 text-[#495975]">{group.tier}</td>
-                            <td className="max-w-[160px] truncate px-3 py-2.5 font-mono text-[11px] text-[#495975]" title={group.nestedSlug}>/{group.nestedSlug}</td>
-                            <td className="max-w-[220px] truncate px-3 py-2.5 text-[#374763]" title={group.pageTitle}>{group.pageTitle}</td>
+                            <td className="px-3 py-2.5 text-gray-600">{PAGE_TYPE_LABEL_TH[group.pageType] ?? group.pageType}</td>
+                            <td className="px-3 py-2.5 text-gray-600">{group.tier}</td>
+                            <td className="max-w-[160px] truncate px-3 py-2.5 font-mono text-[11px] text-gray-600" title={group.nestedSlug}>/{group.nestedSlug}</td>
+                            <td className="max-w-[220px] truncate px-3 py-2.5 text-gray-700" title={group.pageTitle}>{group.pageTitle}</td>
                             <td className="max-w-[220px] px-3 py-2.5">
                               <FitBadge fit={group.fit} remark={group.remark} />
-                              <p className="mt-1 truncate text-[10px] text-[#91a0b8]" title={group.remark}>{group.remark}</p>
+                              <p className="mt-1 truncate text-[10px] text-gray-400" title={group.remark}>{group.remark}</p>
                             </td>
                           </tr>
                         );

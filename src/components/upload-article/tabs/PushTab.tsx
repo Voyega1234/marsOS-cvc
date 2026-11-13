@@ -461,7 +461,7 @@ export default function PushTab({
         <Settings size={12} /> ตั้งค่าสแกนเว็บปลายทางใน Project Setting
       </button>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
             {pbn ? (
@@ -558,7 +558,7 @@ export default function PushTab({
               <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectVisible} /> เลือกทั้งหมดที่แสดง
             </label>
             <select value={statusFilter} onChange={e => changeStatusFilter(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+              className="text-xs border border-gray-200 rounded-xl px-2 py-1.5 bg-white">
               <option value="">ทุกสถานะ ({pushable.length})</option>
               {UPLOAD_STATUS_OPTIONS.filter(o => statusCounts[o.value] || o.value === statusFilter).map(o => (
                 <option key={o.value} value={o.value}>{o.label} ({statusCounts[o.value] || 0})</option>
@@ -568,17 +568,17 @@ export default function PushTab({
           </div>
         )}
         {pushable.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-10 bg-white border border-gray-200 rounded-xl">ยังไม่มีบทความที่พร้อม Push (ต้อง Generate ก่อน)</p>
+          <p className="text-sm text-gray-400 text-center py-10 bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl">ยังไม่มีบทความที่พร้อม Push (ต้อง Generate ก่อน)</p>
         )}
         {pushable.length > 0 && visible.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-10 bg-white border border-gray-200 rounded-xl">ไม่มีบทความในสถานะนี้</p>
+          <p className="text-sm text-gray-400 text-center py-10 bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl">ไม่มีบทความในสถานะนี้</p>
         )}
         {visible.map(a => {
           const parsed = parsedMap.get(a.id);
           const result = pushResult[a.id];
           const busy = !!pushBusy[a.id] || (a.status === "PUSHING" && Date.now() - new Date(a.updatedAt).getTime() < 6 * 60 * 1000);
           return (
-            <div key={a.id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-2.5">
+            <div key={a.id} className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-2.5">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <label className="flex items-start gap-2 min-w-0">
                   <input type="checkbox" checked={selectedIds.has(a.id)} onChange={() => toggleSelect(a.id)} className="mt-1" />
@@ -632,7 +632,7 @@ export default function PushTab({
                     <select value={targetSite[a.id] ?? ""} disabled={busy || batchBusy || !!lockedSite(a.id)}
                       title={lockedSite(a.id) ? "บทความนี้เขียนตามสไตล์ของเว็บนี้ — push ได้เฉพาะเว็บนี้" : undefined}
                       onChange={e => setTargetSite(prev => ({ ...prev, [a.id]: e.target.value }))}
-                      className="h-8 max-w-[200px] rounded-md border border-gray-200 px-2 text-xs bg-white">
+                      className="h-8 max-w-[200px] rounded-xl border border-gray-200 px-2 text-xs bg-white">
                       <option value="">— เลือกเว็บ PBN —</option>
                       {lockedSite(a.id) && !pbnSites.some(s => s.id === lockedSite(a.id)) && (
                         <option value={lockedSite(a.id)}>เว็บที่ถูกลบ</option>
@@ -646,7 +646,7 @@ export default function PushTab({
                     const sid = targetSite[a.id];
                     const sc = siteClusters[sid];
                     const cur = effectiveCluster(a.id, sid);
-                    const cls = "h-8 max-w-[200px] rounded-md border border-gray-200 px-2 text-xs bg-white";
+                    const cls = "h-8 max-w-[200px] rounded-xl border border-gray-200 px-2 text-xs bg-white";
                     if (!sc || sc.status === "loading") {
                       return <select disabled value="" className={cls}><option value="">กำลังโหลดหมวด…</option></select>;
                     }
@@ -796,7 +796,7 @@ export default function PushTab({
                 return (
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <button type="button" onClick={() => requestIndex(a.id)} disabled={!!indexBusy[a.id]}
-                      className="flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                      className="flex items-center gap-1 px-2 py-1 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50">
                       {indexBusy[a.id] ? <Loader2 size={11} className="animate-spin" /> : <SearchCheck size={11} />}
                       {ir?.ok ? "Request Index อีกครั้ง" : "Request Index"}
                     </button>

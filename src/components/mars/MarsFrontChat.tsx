@@ -93,7 +93,7 @@ function Composer({ onSubmit, disabled }: { onSubmit: (v: string) => void; disab
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-black/8 focus-within:border-gray-300 transition-all">
+    <div className="glass-strong rounded-3xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-blue/30 transition-all">
       <textarea
         ref={ref}
         value={value}
@@ -109,10 +109,10 @@ function Composer({ onSubmit, disabled }: { onSubmit: (v: string) => void; disab
       />
       <div className="flex items-center justify-between px-3 pb-3 pt-1">
         <div className="flex items-center gap-1">
-          <button className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+          <button className="h-8 w-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
             <Paperclip className="h-4 w-4" />
           </button>
-          <button className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+          <button className="h-8 w-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
             <Mic className="h-4 w-4" />
           </button>
         </div>
@@ -216,11 +216,11 @@ export function MarsFrontChat() {
   }
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden">
+    <div className="flex h-screen overflow-hidden">
 
       {/* ── Sidebar ── */}
       <div className={cn(
-        "flex flex-col border-r border-gray-100 bg-[#f7f7f6] transition-all duration-200 shrink-0",
+        "flex flex-col border-r border-white/80 bg-white/50 backdrop-blur transition-all duration-200 shrink-0",
         sidebarOpen ? "w-60" : "w-0 overflow-hidden"
       )}>
         {/* Header: brand name + new chat icon */}
@@ -321,7 +321,7 @@ export function MarsFrontChat() {
                   <button
                     key={p}
                     onClick={() => handleSubmit(p)}
-                    className="text-xs px-3 py-1.5 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300 transition-colors"
+                    className="text-xs px-3 py-1.5 rounded-full border border-white/80 bg-white/70 text-gray-600 hover:bg-white hover:border-gray-200 transition-colors"
                   >
                     {p}
                   </button>
@@ -344,7 +344,7 @@ export function MarsFrontChat() {
                           {msg.agent.name} Agent
                         </div>
                       )}
-                      <div className="bg-gray-50 rounded-2xl rounded-tl-sm px-4 py-3.5">
+                      <div className="bg-white/80 backdrop-blur border border-white/80 shadow-sm rounded-2xl rounded-tl-sm px-4 py-3.5">
                         {renderContent(msg.content)}
                       </div>
                     </div>

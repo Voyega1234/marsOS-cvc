@@ -1,5 +1,8 @@
 "use client";
 
+import { AreaChart, KpiTile, Panel, Segmented, StackedBar } from "@/components/ds";
+import type { GscOverview, PositionBuckets } from "@/lib/upload-article/gsc-report";
+
 /**
  * กราฟของแท็บ Report — SVG มือเขียนล้วน (ไม่มี chart lib ในโปรเจกต์นี้) อ้างอิงแนวทางจาก
  * SKLineChart/SimpleBarChart ใน src/components/report/ClientReportClient.tsx
@@ -97,16 +100,90 @@ export function GscBarChart({ data }: { data: GscBarDatum[] }) {
             <span>{d.label}</span>
             <span className="font-semibold text-brand-navy">{d.value.toLocaleString()}{d.prevValue !== undefined ? <span className="text-gray-400 font-normal"> (ก่อนหน้า {d.prevValue.toLocaleString()})</span> : null}</span>
           </div>
-          <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden relative">
+          <div className="h-2.5 bg-brand-mist rounded-full overflow-hidden relative">
             <div className="h-full bg-brand-blue rounded-full transition-all" style={{ width: `${(d.value / max) * 100}%` }} />
           </div>
           {d.prevValue !== undefined && (
-            <div className="h-1.5 bg-gray-50 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-gray-100/70 rounded-full overflow-hidden">
               <div className="h-full bg-gray-300 rounded-full transition-all" style={{ width: `${(d.prevValue / max) * 100}%` }} />
             </div>
           )}
         </div>
       ))}
     </div>
+  );
+}
+
+function fmtNumK(n: number): string { return Math.round(n).toLocaleString(); }
+function fmtDm(raw: string): string {
+  const p = raw.split("-");
+  return p.length === 3 ? `${p[2]}/${p[1]}` : raw;
+}
+
+/** แถว KPI 4 ช่อง (คลิก / การแสดงผล / CTR / อันดับเฉลี่ย) พร้อม delta เทียบช่วงก่อนหน้า */
+export function GscKpiRow({ overview }: { overview: GscOverview }) {
+  const c = overview.current;
+  const d = overview.deltaPct;
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <KpiTile tone="blue" label="คลิก" value={fmtNumK(c.clicks)} delta={d.clicks} hint="vs ก่อนหน้า" />
+      <KpiTile tone="sky" label="การแสดงผล" value={fmtNumK(c.impressions)} delta={d.impressions} hint="vs ก่อนหน้า" />
+      <KpiTile tone="mist" label="CTR" value={`${(c.ctr * 100).toFixed(2)}%`} delta={d.ctr} hint="vs ก่อนหน้า" />
+      <KpiTile tone="warm" label="อันดับเฉลี่ย" value={c.position ? c.position.toFixed(1) : "—"} delta={d.position} invertDelta hint="vs ก่อนหน้า" />
+    </div>
+  );
+}
+
+/** กราฟรายวัน (ปัจจุบัน + เส้นประช่วงเทียบ) พร้อมสวิตช์ คลิก/การแสดงผล */
+export function GscTrendPanel({ current, previous, metric, onMetricChange }: {
+  current: GscLinePoint[];
+  previous: GscLinePoint[];
+  metric: "clicks" | "impressions";
+  onMetricChange: (m: "clicks" | "impressions") => void;
+}) {
+  const name = metric === "clicks" ? "คลิก" : "การแสดงผล";
+  return (
+    <Panel
+      title="แนวโน้มรายวัน"
+      actions={
+        <Segmented
+          size="sm"
+          ariaLabel="เลือกตัวชี้วัด"
+          value={metric}
+          onChange={onMetricChange}
+          options={[{ value: "clicks", label: "คลิก" }, { value: "impressions", label: "การแสดงผล" }]}
+        />
+      }
+    >
+      <AreaChart
+        height={260}
+        showLegend
+        formatValue={fmtNumK}
+        series={[
+          { name: `${name} (ช่วงปัจจุบัน)`, points: current.map((d) => ({ label: fmtDm(d.date), value: d.value })) },
+          ...(previous.length >= 2
+            ? [{ name: `${name} (ช่วงเทียบ)`, dashed: true, fill: false, points: previous.map((d) => ({ label: fmtDm(d.date), value: d.value })) }]
+            : []),
+        ]}
+      />
+      <p className="mt-2 text-[11px] text-gray-400">เส้นทึบ = ช่วงปัจจุบัน, เส้นประ = ช่วงเทียบ</p>
+    </Panel>
+  );
+}
+
+/** สัดส่วนอันดับคำค้นหา: แถบรวมคลิกปัจจุบัน + แท่งเทียบก่อนหน้า (ตัวเลขชุดเดิม) */
+export function GscBucketPanel({ buckets }: { buckets: PositionBuckets }) {
+  return (
+    <Panel title="สัดส่วนอันดับคำค้นหา (ปัจจุบันเทียบก่อนหน้า)">
+      <div className="space-y-4">
+        <StackedBar
+          legendColumns={2}
+          formatValue={fmtNumK}
+          segments={buckets.current.map((b) => ({ label: `อันดับ ${b.bucket} (${b.count} คำ)`, value: b.clicks }))}
+        />
+        <GscBarChart data={buckets.current.map((b, i) => ({ label: `อันดับ ${b.bucket} (${b.count} คำ)`, value: b.clicks, prevValue: buckets.previous[i]?.clicks ?? 0 }))} />
+        <p className="text-[11px] text-gray-400">แถบเข้ม = คลิกช่วงปัจจุบัน, แถบเทา = คลิกช่วงก่อนหน้า</p>
+      </div>
+    </Panel>
   );
 }

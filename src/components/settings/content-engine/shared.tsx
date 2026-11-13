@@ -24,7 +24,7 @@ import type { CEMode, CEStatus, RiskLevel } from "./types";
 export function StatusBadge({ status }: { status: CEStatus | string }) {
   const cls = STATUS_COLORS[status as CEStatus] ?? "bg-gray-100 text-gray-700 border-gray-200";
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold", cls)}>
+    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold", cls)}>
       {status}
     </span>
   );
@@ -53,12 +53,12 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-2xl border border-gray-200 bg-white p-4", className)}>
+    <div className={cn("rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5", className)}>
       {(title || action) && (
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
-            {title && <h3 className="text-sm font-semibold text-brand-navy">{title}</h3>}
-            {description && <p className="mt-0.5 text-xs text-gray-500">{description}</p>}
+            {title && <h3 className="section-label">{title}</h3>}
+            {description && <p className="mt-1 text-xs text-gray-500">{description}</p>}
           </div>
           {action}
         </div>
@@ -71,7 +71,7 @@ export function SectionCard({
 export function ErrorBanner({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{message}</div>
+    <div className="rounded-2xl border border-red-200 bg-red-50/80 px-4 py-2.5 text-sm text-red-700">{message}</div>
   );
 }
 
@@ -86,14 +86,14 @@ export function ModeToggle({
   disabled?: boolean;
 }) {
   return (
-    <div className="inline-flex shrink-0 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+    <div className="seg shrink-0">
       <button
         type="button"
         disabled={disabled}
         onClick={() => onChange("form")}
         className={cn(
-          "rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-          mode === "form" ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-700"
+          "seg-item disabled:cursor-not-allowed disabled:opacity-60",
+          mode === "form" && "is-active"
         )}
       >
         กรอกฟอร์ม
@@ -103,8 +103,8 @@ export function ModeToggle({
         disabled={disabled}
         onClick={() => onChange("raw")}
         className={cn(
-          "rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-          mode === "raw" ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-700"
+          "seg-item disabled:cursor-not-allowed disabled:opacity-60",
+          mode === "raw" && "is-active"
         )}
       >
         วาง Prompt ดิบ
@@ -116,12 +116,12 @@ export function ModeToggle({
 /** แจ้งเตือนตอนกด "กรอกฟอร์ม" ขณะอยู่โหมดดิบ แต่เนื้อหาปัจจุบันไม่ใช่ JSON ที่แปลงเป็นฟอร์มได้ */
 export function RawToFormNotice({ onStartFresh }: { onStartFresh: () => void }) {
   return (
-    <div className="mb-3 space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+    <div className="mb-3 space-y-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs text-amber-700">
       <p>เนื้อหาปัจจุบันเป็นข้อความดิบ — แก้ในโหมดดิบ หรือเริ่มฟอร์มใหม่ (ทับของเดิมเมื่อบันทึก)</p>
       <button
         type="button"
         onClick={onStartFresh}
-        className="rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+        className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
       >
         เริ่มฟอร์มใหม่
       </button>
@@ -131,7 +131,7 @@ export function RawToFormNotice({ onStartFresh }: { onStartFresh: () => void }) 
 
 export function EmptyRow({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-lg border border-dashed border-gray-200 px-3 py-8 text-center text-sm text-gray-400">
+    <p className="rounded-2xl border border-dashed border-gray-200 bg-white/50 px-3 py-8 text-center text-sm text-gray-400">
       {children}
     </p>
   );
@@ -158,7 +158,7 @@ export function Drawer({
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div
         className={cn(
-          "relative flex h-full w-full flex-col border-l border-gray-200 bg-white shadow-xl",
+          "relative flex h-full w-full flex-col border-l border-white/80 bg-white/95 shadow-xl backdrop-blur",
           wide ? "max-w-lg" : "max-w-md"
         )}
       >
@@ -167,7 +167,7 @@ export function Drawer({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
             aria-label="ปิด"
           >
             <X className="size-4" />
@@ -245,10 +245,10 @@ export function CompiledPromptPanel({
   }
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
+    <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-brand-navy">Prompt ที่ใช้จริงตอนเขียนบทความ</h3>
+          <h3 className="section-label">Prompt ที่ใช้จริงตอนเขียนบทความ</h3>
           <p className="mt-0.5 text-xs text-gray-500">
             {compiled
               ? stale

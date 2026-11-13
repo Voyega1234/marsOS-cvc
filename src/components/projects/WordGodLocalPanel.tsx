@@ -80,9 +80,9 @@ const ISK_INTENT_TO_BANK: Record<string, string> = {
   N: 'NAVIGATIONAL',
 };
 
-const fieldClass = 'w-full rounded-xl border border-[#cfd9ea] bg-white px-3.5 py-3 text-sm text-[#17233a] placeholder:text-[#91a0b8] shadow-sm outline-none transition focus:border-[#155eef] focus:ring-4 focus:ring-[#155eef]/10';
-const labelClass = 'mb-1.5 block text-xs font-semibold text-[#495975]';
-const cardClass = 'rounded-2xl border border-[#dbe1ee] bg-white shadow-[0_8px_30px_rgba(28,73,52,0.05)]';
+const fieldClass = 'w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm text-brand-navy placeholder:text-gray-400 shadow-sm outline-none transition focus:border-brand-blue focus:ring-4 focus:ring-brand-blue/10';
+const labelClass = 'mb-1.5 block text-xs font-semibold text-gray-600';
+const cardClass = 'rounded-2xl border border-white/80 bg-white/75 backdrop-blur shadow-[0_8px_30px_rgba(28,73,52,0.05)]';
 
 const AREA_TYPE_OPTIONS: Array<{ value: LocalAreaType; label: string }> = [
   { value: 'district', label: 'เขต / อำเภอ' },
@@ -217,7 +217,7 @@ function metricStatusText(status: string | undefined, value: number | null | und
 // ── ชิ้นส่วนแสดงผลย่อย ────────────────────────────────────────────────────────
 
 function ConfidenceBadge({ confidence }: { confidence?: string }) {
-  if (!confidence) return <span className="text-[#c7cfde]">—</span>;
+  if (!confidence) return <span className="text-gray-300">—</span>;
   const label = confidence === 'NO_VOLUME' ? 'NO VOLUME' : confidence;
   return (
     <span
@@ -236,7 +236,7 @@ function ConfidenceBadge({ confidence }: { confidence?: string }) {
 function ReferenceVolumeCell({ row }: { row: KeywordResearchResult }) {
   const i = row.intel;
   if (!i) {
-    if (row.volume === null || row.volume === undefined) return <span className="text-[#c7cfde]">—</span>;
+    if (row.volume === null || row.volume === undefined) return <span className="text-gray-300">—</span>;
     return <span className="tabular-nums">{fmtInt(row.volume)}</span>;
   }
   const tooltip = [
@@ -250,12 +250,12 @@ function ReferenceVolumeCell({ row }: { row: KeywordResearchResult }) {
   return (
     <span className="inline-flex cursor-help items-center gap-1.5" title={tooltip}>
       {i.referenceVolume === null
-        ? <span className="text-[#c7cfde]">—</span>
+        ? <span className="text-gray-300">—</span>
         : <span className="tabular-nums font-semibold">{fmtInt(i.referenceVolume)}</span>}
       <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${
-        i.referenceSource === 'google_keyword_planner' ? 'bg-[#e7f0ff] text-[#0d4fd8]'
+        i.referenceSource === 'google_keyword_planner' ? 'bg-brand-mist text-brand-blue'
           : i.referenceSource === 'dataforseo' ? 'bg-[#fdf0e7] text-[#c46a12]'
-            : 'bg-[#f1f3f8] text-[#91a0b8]'
+            : 'bg-gray-100 text-gray-400'
       }`}>
         {referenceSourceLabel(i.referenceSource)}
       </span>
@@ -268,14 +268,14 @@ function ReferenceVolumeCell({ row }: { row: KeywordResearchResult }) {
 
 function SingleSourceVolumeCell({ status, value }: { status?: string; value: number | null | undefined }) {
   if (status === 'ok' || status === 'zero') {
-    return <span className={`tabular-nums ${(value ?? 0) === 0 ? 'text-[#71809c]' : ''}`}>{fmtInt(value ?? 0)}</span>;
+    return <span className={`tabular-nums ${(value ?? 0) === 0 ? 'text-gray-500' : ''}`}>{fmtInt(value ?? 0)}</span>;
   }
   if (status === 'api_error') return <span title="เรียก API ไม่สำเร็จ (ไม่ใช่ศูนย์)" className="cursor-help text-[10px] font-semibold text-red-500">ERR</span>;
-  return <span title={status === 'no_data' ? 'แหล่งนี้ไม่มีข้อมูลสำหรับคำนี้' : 'ไม่ได้ดึงข้อมูลจากแหล่งนี้'} className="cursor-help text-[#c7cfde]">—</span>;
+  return <span title={status === 'no_data' ? 'แหล่งนี้ไม่มีข้อมูลสำหรับคำนี้' : 'ไม่ได้ดึงข้อมูลจากแหล่งนี้'} className="cursor-help text-gray-300">—</span>;
 }
 
 function TrendSpark({ trend }: { trend?: number[] }) {
-  if (!trend || trend.length < 2) return <span className="text-[#c7cfde]">—</span>;
+  if (!trend || trend.length < 2) return <span className="text-gray-300">—</span>;
   const w = 72, h = 22, max = Math.max(...trend, 1);
   const pts = trend.map((v, i) => `${(i / (trend.length - 1)) * w},${h - (v / max) * (h - 2) - 1}`).join(' ');
   const rising = trend[trend.length - 1] >= (trend[0] || 0);
@@ -288,10 +288,10 @@ function TrendSpark({ trend }: { trend?: number[] }) {
 
 function KpiCard({ label, value, sub, tooltip }: { label: string; value: string; sub?: string; tooltip?: string }) {
   return (
-    <div title={tooltip} className={`${tooltip ? 'cursor-help ' : ''}rounded-xl border border-[#e3e8f1] bg-white px-4 py-3`}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#91a0b8]">{label}</p>
-      <p className="mt-1 text-xl font-bold tabular-nums text-[#17233a]">{value}</p>
-      {sub ? <p className="mt-0.5 text-[10px] leading-4 text-[#71809c]">{sub}</p> : null}
+    <div title={tooltip} className={`${tooltip ? 'cursor-help ' : ''}rounded-xl border border-gray-200 bg-white px-4 py-3`}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 text-xl font-bold tabular-nums text-brand-navy">{value}</p>
+      {sub ? <p className="mt-0.5 text-[10px] leading-4 text-gray-500">{sub}</p> : null}
     </div>
   );
 }
@@ -306,10 +306,10 @@ const SOURCE_STATUS_STYLE: Record<string, string> = {
 
 function SourcePill({ name, status, detail }: { name: string; status: string; detail: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e3e8f1] bg-white px-2.5 py-1.5 text-[11px] text-[#495975]" title={detail}>
+    <span className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-600" title={detail}>
       <span className={`h-2 w-2 rounded-full ${SOURCE_STATUS_STYLE[status] ?? 'bg-slate-300'}`} />
-      <span className="font-semibold text-[#17233a]">{name}</span>
-      <span className="text-[#91a0b8]">{detail}</span>
+      <span className="font-semibold text-brand-navy">{name}</span>
+      <span className="text-gray-400">{detail}</span>
     </span>
   );
 }
@@ -343,7 +343,7 @@ const GUARD_BAND_LABEL: Record<string, string> = {
 
 /** ความเสี่ยงกินกันเอง 0–100 — ยังไม่ได้ตรวจ = "—" */
 function GuardRiskCell({ guard }: { guard?: KeywordResearchResult['guard'] }) {
-  if (!guard) return <span className="text-[#c7cfde]">—</span>;
+  if (!guard) return <span className="text-gray-300">—</span>;
   return (
     <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${GUARD_BAND_STYLE[guard.band] ?? ''}`} title={guard.reasons.join(' · ')}>
       {guard.risk} {GUARD_BAND_LABEL[guard.band] ?? guard.band}
@@ -896,26 +896,26 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
   // ── ตารางคีย์เวิร์ดหลัก (ใช้ทั้งแท็บ All Keywords และ Wave 1) ──
   const keywordTable = (
     <>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[#eef1f7] px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5">
         <input
-          className="w-52 rounded-xl border border-[#cfd9ea] bg-white px-3 py-2 text-xs outline-none focus:border-[#155eef]"
+          className="w-52 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-brand-blue"
           value={queryInput}
           onChange={event => setQueryInput(event.target.value)}
           placeholder="ค้นหาคีย์เวิร์ด / title"
         />
         {hasIntel ? (
           <>
-            <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={confidenceFilter} onChange={e => setConfidenceFilter(e.target.value)}>
+            <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={confidenceFilter} onChange={e => setConfidenceFilter(e.target.value)}>
               <option value="all">ทุก Confidence</option>
               {['HIGH', 'MEDIUM', 'LOW', 'LOCAL', 'NO_VOLUME'].map(c => <option key={c} value={c}>{c === 'NO_VOLUME' ? 'NO VOLUME' : c}</option>)}
             </select>
-            <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={objectiveFilter} onChange={e => setObjectiveFilter(e.target.value)}>
+            <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={objectiveFilter} onChange={e => setObjectiveFilter(e.target.value)}>
               <option value="all">Sales + Traffic</option>
               <option value="Sales">เฉพาะ Sales</option>
               <option value="Traffic">เฉพาะ Traffic</option>
             </select>
             {tab !== 'wave1' ? (
-              <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={waveFilter} onChange={e => setWaveFilter(e.target.value)}>
+              <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={waveFilter} onChange={e => setWaveFilter(e.target.value)}>
                 <option value="all">ทุก Wave</option>
                 <option value="1">Wave 1</option>
                 <option value="2">Wave 2</option>
@@ -924,27 +924,27 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
             ) : null}
           </>
         ) : null}
-        <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={clusterFilter} onChange={e => setClusterFilter(e.target.value)}>
+        <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={clusterFilter} onChange={e => setClusterFilter(e.target.value)}>
           <option value="all">ทุกคลัสเตอร์</option>
           {clusterNames.map(name => <option key={name} value={name}>{name}</option>)}
         </select>
-        <span className="ml-auto text-[11px] text-[#91a0b8]">{filtered.length.toLocaleString('th-TH')} คำ</span>
+        <span className="ml-auto text-[11px] text-gray-400">{filtered.length.toLocaleString('th-TH')} คำ</span>
       </div>
 
       {data?.meta?.guardSummary ? (
-        <div className="border-t border-[#eef1f7] bg-[#f9fbff] px-3 py-2.5 text-[11px] text-[#495975]">
-          <span className="font-semibold text-[#17233a]">กันคำกินกันเอง:</span>{' '}
+        <div className="border-t border-gray-100 bg-white/60 px-3 py-2.5 text-[11px] text-gray-600">
+          <span className="font-semibold text-brand-navy">กันคำกินกันเอง:</span>{' '}
           เทียบกับของเดิม {data.meta.guardSummary.existingCount.toLocaleString('th-TH')} รายการ · ตรวจ {data.meta.guardSummary.checked.toLocaleString('th-TH')} คำ ·
           คำใหม่ {data.meta.guardSummary.createNew.toLocaleString('th-TH')} · รวมกับของเดิม {data.meta.guardSummary.merged.toLocaleString('th-TH')} ·
           ใช้เป็นคำรอง {data.meta.guardSummary.secondary.toLocaleString('th-TH')} · ชี้ไปหน้าเดิม {data.meta.guardSummary.mappedExisting.toLocaleString('th-TH')} ·
           ต้องตรวจเอง {data.meta.guardSummary.needsReview.toLocaleString('th-TH')} · ตัดออก {data.meta.guardSummary.excluded.toLocaleString('th-TH')}
           {data.meta.excludedKeywords && data.meta.excludedKeywords.length > 0 ? (
             <details className="mt-1">
-              <summary className="cursor-pointer text-[#0d4fd8]">ดูคำที่ตัดออกพร้อมเหตุผล ({data.meta.excludedKeywords.length.toLocaleString('th-TH')})</summary>
+              <summary className="cursor-pointer text-brand-blue">ดูคำที่ตัดออกพร้อมเหตุผล ({data.meta.excludedKeywords.length.toLocaleString('th-TH')})</summary>
               <ul className="mt-1 max-h-48 space-y-0.5 overflow-y-auto">
                 {data.meta.excludedKeywords.map(x => (
                   <li key={x.keyword} className="text-[10px]">
-                    <span className="font-semibold text-[#17233a]">{x.keyword}</span> — {x.reason}
+                    <span className="font-semibold text-brand-navy">{x.keyword}</span> — {x.reason}
                     {x.matchedKeyword ? ` (ชนกับ “${x.matchedKeyword}”)` : ''}
                     {x.matchedUrl ? ` ${x.matchedUrl}` : ''} · เสี่ยง {x.risk}
                   </li>
@@ -957,11 +957,11 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1620px] border-collapse text-xs">
-          <thead className="bg-[#f7f9fd] text-left text-[11px] uppercase tracking-wide text-[#71809c]">
+          <thead className="bg-white/60 text-left text-[11px] uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-3 py-2.5 font-semibold">#</th>
               <th className="px-3 py-2.5 font-semibold">คีย์เวิร์ด</th>
-              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-[#0d4fd8]" onClick={() => toggleSort('ref')}
+              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-brand-blue" onClick={() => toggleSort('ref')}
                 title="Reference Volume = Google ถ้ามี → DataForSEO → ไม่มีทั้งคู่ = — (ไม่มีการเฉลี่ยรวม)">
                 Ref. Volume{sortIndicator('ref')}
               </th>
@@ -969,14 +969,14 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               <th className="px-3 py-2.5 text-right font-semibold" title="DataForSEO (แหล่ง cross-check)">DFS</th>
               <th className="px-3 py-2.5 font-semibold" title="ระดับความเชื่อมั่นของตัวเลข — เทียบสองแหล่ง">Conf.</th>
               <th className="px-3 py-2.5 font-semibold" title="Search intent จาก DataForSEO (ไม่ใช่ AI เดา)">Intent</th>
-              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-[#0d4fd8]" onClick={() => toggleSort('kd')}
+              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-brand-blue" onClick={() => toggleSort('kd')}
                 title="Keyword Difficulty 0–100 (DataForSEO) — ความยาก SEO จริง">KD{sortIndicator('kd')}</th>
-              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-[#0d4fd8]" onClick={() => toggleSort('cpc')}>CPC ฿{sortIndicator('cpc')}</th>
-              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-[#0d4fd8]" onClick={() => toggleSort('sales')}
+              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-brand-blue" onClick={() => toggleSort('cpc')}>CPC ฿{sortIndicator('cpc')}</th>
+              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-brand-blue" onClick={() => toggleSort('sales')}
                 title="โอกาสได้ลูกค้า 0–100">Sales{sortIndicator('sales')}</th>
-              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-[#0d4fd8]" onClick={() => toggleSort('traffic')}
+              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-brand-blue" onClick={() => toggleSort('traffic')}
                 title="โอกาสได้ผู้เข้าชม 0–100">Traffic{sortIndicator('traffic')}</th>
-              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-[#0d4fd8]" onClick={() => toggleSort('final')}
+              <th className="cursor-pointer select-none px-3 py-2.5 text-right font-semibold hover:text-brand-blue" onClick={() => toggleSort('final')}
                 title={`Final = Sales×${meta?.opportunityWeights ? Math.round(meta.opportunityWeights.sales * 100) : 60}% + Traffic×${meta?.opportunityWeights ? Math.round(meta.opportunityWeights.traffic * 100) : 40}% − โทษความไม่แน่นอนของข้อมูล`}>
                 Final{sortIndicator('final')}
               </th>
@@ -1001,18 +1001,18 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                 <tr
                   key={row.keyword}
                   onClick={() => setDrawerKeyword(row.keyword)}
-                  className="cursor-pointer border-t border-[#eef1f7] align-top transition hover:bg-[#f4f8fe]"
+                  className="cursor-pointer border-t border-gray-100 align-top transition hover:bg-brand-mist"
                 >
-                  <td className="px-3 py-2.5 tabular-nums text-[#91a0b8]">{rankByKeyword.get(row.keyword)}</td>
+                  <td className="px-3 py-2.5 tabular-nums text-gray-400">{rankByKeyword.get(row.keyword)}</td>
                   <td className="max-w-[320px] px-3 py-2.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-semibold text-[#17233a]">{row.keyword}</span>
+                      <span className="font-semibold text-brand-navy">{row.keyword}</span>
                     </div>
                     {row.suggestedTitle ? (
-                      <div className="mt-0.5 truncate text-[10px] leading-4 text-[#0d4fd8]" title={row.suggestedTitle}>✍ {row.suggestedTitle}</div>
+                      <div className="mt-0.5 truncate text-[10px] leading-4 text-brand-blue" title={row.suggestedTitle}>✍ {row.suggestedTitle}</div>
                     ) : null}
                     {i?.secondaryKeywords.length ? (
-                      <div className="mt-0.5 text-[10px] text-[#91a0b8]" title={`คำรองที่ถูกรวมเข้าคำนี้ (เจตนาซ้ำกัน): ${i.secondaryKeywords.join(', ')}`}>
+                      <div className="mt-0.5 text-[10px] text-gray-400" title={`คำรองที่ถูกรวมเข้าคำนี้ (เจตนาซ้ำกัน): ${i.secondaryKeywords.join(', ')}`}>
                         +{i.secondaryKeywords.length} คำรอง
                       </div>
                     ) : null}
@@ -1023,51 +1023,51 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   <td className="px-3 py-2.5"><ConfidenceBadge confidence={i?.confidence} /></td>
                   <td className="px-3 py-2.5">
                     {i?.searchIntent.intent ? (
-                      <span title={`จาก DataForSEO · ความน่าจะเป็น ${i.searchIntent.probability !== null ? Math.round(i.searchIntent.probability * 100) + '%' : '—'}`} className="cursor-help text-[#495975]">
+                      <span title={`จาก DataForSEO · ความน่าจะเป็น ${i.searchIntent.probability !== null ? Math.round(i.searchIntent.probability * 100) + '%' : '—'}`} className="cursor-help text-gray-600">
                         {INTENT_LABEL_TH[i.searchIntent.intent] ?? i.searchIntent.intent}
                       </span>
                     ) : (
-                      <span className="text-[10px] text-[#91a0b8]">{row.intents.slice(0, 2).map(t => INTENT_TAG_LABELS[t]).join(' · ') || '—'}</span>
+                      <span className="text-[10px] text-gray-400">{row.intents.slice(0, 2).map(t => INTENT_TAG_LABELS[t]).join(' · ') || '—'}</span>
                     )}
                   </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{i?.dfs.keywordDifficulty ?? <span className="text-[#c7cfde]">—</span>}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{i?.dfs.keywordDifficulty ?? <span className="text-gray-300">—</span>}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{formatBaht(i?.dfs.cpc ?? i?.google.bidHighMicros ?? row.bidHigh)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{i ? Math.round(i.salesScore.total) : '—'}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{i ? Math.round(i.trafficScore.total) : '—'}</td>
                   <td className="px-3 py-2.5 text-right">
-                    <span className="rounded-lg bg-[#eff4fe] px-2 py-0.5 font-bold tabular-nums text-[#0d4fd8]">
+                    <span className="rounded-lg bg-brand-mist px-2 py-0.5 font-bold tabular-nums text-brand-blue">
                       {i ? (Math.round(i.finalScore * 10) / 10).toFixed(1) : row.score.total}
                     </span>
                   </td>
                   <td className="px-3 py-2.5"><TrendSpark trend={row.trend} /></td>
-                  <td className="max-w-[150px] px-3 py-2.5 text-[#495975]">
+                  <td className="max-w-[150px] px-3 py-2.5 text-gray-600">
                     {row.guard?.existingMatch || row.guard?.existingUrl
                       ? <span className="block truncate text-[11px]" title={`${row.guard.existingMatch ?? ''} ${row.guard.existingUrl ?? ''} (${row.guard.matchSource ? MATCH_SOURCE_LABEL_TH[row.guard.matchSource] : ''})`}>
                           {row.guard.existingMatch || row.guard.existingUrl}
                         </span>
-                      : <span className="text-[#c7cfde]">—</span>}
+                      : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-3 py-2.5"><GuardRiskCell guard={row.guard} /></td>
-                  <td className="max-w-[130px] px-3 py-2.5 text-[11px] text-[#495975]">
+                  <td className="max-w-[130px] px-3 py-2.5 text-[11px] text-gray-600">
                     {row.guard
                       ? <span className="block truncate" title={row.guard.reasons.join(' · ')}>{DECISION_LABEL_TH[row.guard.decision]}</span>
-                      : <span className="text-[#c7cfde]">—</span>}
+                      : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="px-3 py-2.5 text-[#495975]">{row.suggestedPage ? SUGGESTED_PAGE_LABELS[row.suggestedPage] : '—'}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{row.suggestedPage ? SUGGESTED_PAGE_LABELS[row.suggestedPage] : '—'}</td>
                   <td className="px-3 py-2.5">
                     {i?.wave ? (
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${i.wave === 1 ? 'bg-[#155eef] text-white' : i.wave === 2 ? 'bg-[#dbe7fd] text-[#0d4fd8]' : 'bg-[#eef1f7] text-[#606f8c]'}`}>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${i.wave === 1 ? 'bg-brand-blue text-white' : i.wave === 2 ? 'bg-brand-blue/10 text-brand-blue' : 'bg-gray-100 text-gray-500'}`}>
                         W{i.wave}
                       </span>
-                    ) : <span className="text-[#c7cfde]">—</span>}
+                    ) : <span className="text-gray-300">—</span>}
                   </td>
                   {hasIsk ? (
                     <>
                       <td className="px-3 py-2.5">
-                        {row.isk ? <IntentBadge mix={row.isk.intent.mix} /> : <span className="text-[#c7cfde]">—</span>}
+                        {row.isk ? <IntentBadge mix={row.isk.intent.mix} /> : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-3 py-2.5">
-                        {row.isk ? <FitBadge fit={row.isk.fit.verdict} remark={row.isk.remark} /> : <span className="text-[#c7cfde]">—</span>}
+                        {row.isk ? <FitBadge fit={row.isk.fit.verdict} remark={row.isk.remark} /> : <span className="text-gray-300">—</span>}
                       </td>
                     </>
                   ) : null}
@@ -1075,24 +1075,24 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               );
             })}
             {pageRows.length === 0 ? (
-              <tr><td colSpan={hasIsk ? 17 : 15} className="px-4 py-10 text-center text-[#91a0b8]">ไม่มีคีย์เวิร์ดที่ตรงกับตัวกรองนี้</td></tr>
+              <tr><td colSpan={hasIsk ? 17 : 15} className="px-4 py-10 text-center text-gray-400">ไม่มีคีย์เวิร์ดที่ตรงกับตัวกรองนี้</td></tr>
             ) : null}
           </tbody>
         </table>
       </div>
 
       {filtered.length > pageSize || pageSize !== 50 ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-[#eef1f7] px-4 py-2.5 text-[11px] text-[#495975]">
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-4 py-2.5 text-[11px] text-gray-600">
           <span>
             แสดง {((page - 1) * pageSize + 1).toLocaleString('th-TH')}–{Math.min(page * pageSize, filtered.length).toLocaleString('th-TH')} จาก {filtered.length.toLocaleString('th-TH')} คำ
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            <select className="rounded-lg border border-[#dbe1ee] bg-white px-1.5 py-1" value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
+            <select className="rounded-xl border border-gray-200 bg-white px-1.5 py-1" value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
               {[25, 50, 100].map(n => <option key={n} value={n}>{n}/หน้า</option>)}
             </select>
-            <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1 font-semibold disabled:opacity-40">←</button>
+            <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="rounded-xl border border-gray-200 bg-white px-2.5 py-1 font-semibold disabled:opacity-40">←</button>
             <span className="tabular-nums">หน้า {page}/{totalPages}</span>
-            <button disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1 font-semibold disabled:opacity-40">→</button>
+            <button disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} className="rounded-xl border border-gray-200 bg-white px-2.5 py-1 font-semibold disabled:opacity-40">→</button>
           </div>
         </div>
       ) : null}
@@ -1105,7 +1105,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
         <section className={`${cardClass} p-5`}>
           <div className="mb-4">
             <h1 className="text-xl font-bold tracking-tight">หาคีย์เวิร์ดลูกค้าในพื้นที่</h1>
-            <p className="mt-1 text-xs leading-5 text-[#71809c]">
+            <p className="mt-1 text-xs leading-5 text-gray-500">
               โหมดมีหน้าร้าน — Local SEO Intelligence: ดึงตัวเลขจริงจาก Google Keyword Planner + DataForSEO
               ให้คะแนนโอกาสขาย/โอกาส traffic ต่อคำ แล้วคัดเฉพาะคำที่ควรทำจริง
             </p>
@@ -1120,7 +1120,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                 onChange={event => setServiceText(event.target.value)}
                 placeholder={'หนึ่งบริการต่อบรรทัด\nล้างแอร์\nซ่อมแอร์\nติดตั้งแอร์'}
               />
-              <p className="mt-1 text-[10px] leading-4 text-[#71809c]">ใส่ได้หลายบริการ ระบบจะแยกคีย์เวิร์ดให้แต่ละบริการ</p>
+              <p className="mt-1 text-[10px] leading-4 text-gray-500">ใส่ได้หลายบริการ ระบบจะแยกคีย์เวิร์ดให้แต่ละบริการ</p>
             </div>
 
             <div>
@@ -1136,7 +1136,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   รู้จักพื้นที่นี้ · {areaMatch.matchedVia === 'subdistrict' ? `อยู่ในเขต${areaMatch.name}` : `เขต${areaMatch.name}`} จ.{areaMatch.province} — เลือกทำเลรองจากรายการด้านล่างได้เลย
                 </p>
               ) : primaryLocation.trim() ? (
-                <p className="mt-1 text-[10px] leading-4 text-[#71809c]">
+                <p className="mt-1 text-[10px] leading-4 text-gray-500">
                   ยังไม่พบพื้นที่นี้ในฐานข้อมูล (ครอบคลุมทุกจังหวัด/อำเภอ/ตำบลทั่วประเทศ) — เช็คตัวสะกด หรือกรอกทำเลรองเองด้านล่างได้
                 </p>
               ) : null}
@@ -1152,17 +1152,17 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               />
 
               {areaMatch ? (
-                <div className="mt-2 space-y-3 rounded-2xl border border-[#cfdefa] bg-[#f4f8fe] p-3">
+                <div className="mt-2 space-y-3 rounded-2xl border border-brand-blue/20 bg-brand-mist p-3">
                   {SUGGESTION_GROUPS.map(group => {
                     const items = areaMatch.suggestions.filter(s => s.relation === group.relation);
                     if (items.length === 0) return null;
                     return (
                       <div key={group.relation}>
                         <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-semibold text-[#495975]">{group.label}</span>
+                          <span className="text-[11px] font-semibold text-gray-600">{group.label}</span>
                           <button
                             onClick={() => addSuggestionGroup(group.relation)}
-                            className="shrink-0 text-[10px] font-semibold text-[#0d4fd8] hover:underline"
+                            className="shrink-0 text-[10px] font-semibold text-brand-blue hover:underline"
                           >
                             + เพิ่มทั้งหมด
                           </button>
@@ -1176,8 +1176,8 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                                 onClick={() => toggleNearby(item.name)}
                                 className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
                                   picked
-                                    ? 'border-[#155eef] bg-[#155eef] text-white'
-                                    : 'border-[#cfd9ea] bg-white text-[#495975] hover:border-[#155eef] hover:text-[#0d4fd8]'
+                                    ? 'border-brand-blue bg-brand-blue text-white'
+                                    : 'border-gray-200 bg-white text-gray-600 hover:border-brand-blue hover:text-brand-blue'
                                 }`}
                               >
                                 {picked ? '✓ ' : '+ '}{item.name}
@@ -1185,7 +1185,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                             );
                           })}
                         </div>
-                        <p className="mt-1 text-[10px] leading-4 text-[#71809c]">{group.hint}</p>
+                        <p className="mt-1 text-[10px] leading-4 text-gray-500">{group.hint}</p>
                       </div>
                     );
                   })}
@@ -1202,8 +1202,8 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                     onClick={() => setTargetCount(n)}
                     className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
                       targetCount === n
-                        ? 'border-[#155eef] bg-[#155eef] text-white'
-                        : 'border-[#cfd9ea] bg-white text-[#495975] hover:border-[#155eef] hover:text-[#0d4fd8]'
+                        ? 'border-brand-blue bg-brand-blue text-white'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-brand-blue hover:text-brand-blue'
                     }`}
                   >
                     {n}
@@ -1215,9 +1215,9 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   onChange={e => setTargetCount(Number(e.target.value))} className="flex-1 accent-brand-blue" />
                 <input type="number" min={10} max={1000} step={1} value={targetCount}
                   onChange={e => setTargetCount(Math.min(1000, Math.max(10, Math.round(Number(e.target.value) || 50))))}
-                  className="h-8 w-16 rounded-lg border border-[#bcc9e2] bg-white px-2 text-center text-xs font-bold" />
+                  className="h-8 w-16 rounded-xl border border-gray-300 bg-white px-2 text-center text-xs font-bold" />
               </div>
-              <p className="mb-3 mt-1 text-[10px] leading-4 text-[#71809c]">
+              <p className="mb-3 mt-1 text-[10px] leading-4 text-gray-500">
                 นี่คือจำนวน "คำที่ผ่านการคัดแล้ว" ที่จะได้ — ระบบจะวิเคราะห์ candidate มากกว่านี้หลายเท่า
                 แล้วคัด รวมคำซ้ำ และตัดคำไม่เกี่ยวข้องออกก่อนถึงมือคุณ
               </p>
@@ -1225,7 +1225,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               <select className={fieldClass} value={businessType} onChange={event => setBusinessType(event.target.value as LocalBusinessType)}>
                 {BUSINESS_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
-              <p className="mt-1 text-[10px] leading-4 text-[#71809c]">
+              <p className="mt-1 text-[10px] leading-4 text-gray-500">
                 {BUSINESS_TYPE_OPTIONS.find(option => option.value === businessType)?.hint}
               </p>
             </div>
@@ -1245,19 +1245,19 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   <option value="en">อังกฤษ</option>
                   <option value="th_en">ไทย + อังกฤษ</option>
                 </select>
-                <p className="mt-1 text-[10px] leading-4 text-[#71809c]">มีลูกค้าต่างชาติให้เลือกไทย + อังกฤษ</p>
+                <p className="mt-1 text-[10px] leading-4 text-gray-500">มีลูกค้าต่างชาติให้เลือกไทย + อังกฤษ</p>
               </div>
             </div>
 
             <button
               onClick={() => setShowAdvanced(previous => !previous)}
-              className="text-[11px] font-semibold text-[#0d4fd8]"
+              className="text-[11px] font-semibold text-brand-blue"
             >
               {showAdvanced ? 'ซ่อนตัวเลือกขั้นสูง' : 'ตัวเลือกขั้นสูง (น้ำหนัก Sales/Traffic, ประเภทพื้นที่, จังหวัด)'}
             </button>
 
             {showAdvanced ? (
-              <div className="space-y-4 rounded-2xl border border-[#cfdefa] bg-[#f4f8fe] p-4">
+              <div className="space-y-4 rounded-2xl border border-brand-blue/20 bg-brand-mist p-4">
                 <div>
                   <label className={labelClass}>น้ำหนักเป้าหมาย: ยอดขาย vs Traffic</label>
                   <div className="flex flex-wrap gap-1.5">
@@ -1267,15 +1267,15 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                         onClick={() => setSalesWeightPct(pct)}
                         className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
                           salesWeightPct === pct
-                            ? 'border-[#155eef] bg-[#155eef] text-white'
-                            : 'border-[#cfd9ea] bg-white text-[#495975] hover:border-[#155eef]'
+                            ? 'border-brand-blue bg-brand-blue text-white'
+                            : 'border-gray-200 bg-white text-gray-600 hover:border-brand-blue'
                         }`}
                       >
                         {pct}/{100 - pct}{pct === 60 ? ' (แนะนำ)' : ''}
                       </button>
                     ))}
                   </div>
-                  <p className="mt-1 text-[10px] leading-4 text-[#71809c]">
+                  <p className="mt-1 text-[10px] leading-4 text-gray-500">
                     Sales {salesWeightPct}% / Traffic {100 - salesWeightPct}% — เอียงซ้ายเน้นคำที่ปิดลูกค้า
                     เอียงขวาเน้นคำที่ดึงผู้เข้าชม (มีผลต่อ Final Score และลำดับคำ)
                   </p>
@@ -1299,16 +1299,16 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   </div>
                 </div>
 
-                <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-4 text-[#495975]">
-                  <input type="checkbox" className="mt-0.5 accent-[#155eef]" checked={expandWithKP} onChange={event => setExpandWithKP(event.target.checked)} />
+                <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-4 text-gray-600">
+                  <input type="checkbox" className="mt-0.5 accent-brand-blue" checked={expandWithKP} onChange={event => setExpandWithKP(event.target.checked)} />
                   <span>ดึงคำแนะนำเพิ่มจาก Keyword Planner (ช้าลง แต่ได้คำที่คนค้นจริงเพิ่ม)</span>
                 </label>
               </div>
             ) : null}
 
             {!standalone ? (
-              <div className="space-y-3 rounded-2xl border border-[#cfdefa] bg-[#f4f8fe] p-4">
-                <p className="text-[11px] font-bold text-[#17233a]">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
+              <div className="space-y-3 rounded-2xl border border-brand-blue/20 bg-brand-mist p-4">
+                <p className="text-[11px] font-bold text-brand-navy">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
                 <KeywordMemoryFields
                   projectId={project.id}
                   existingText={existingKwText}
@@ -1333,7 +1333,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
             <button
               disabled={status === 'running'}
               onClick={runResearch}
-              className="w-full rounded-xl bg-[#155eef] px-4 py-3.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(21,94,239,0.22)] transition hover:bg-[#0d4fd8] disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-xl bg-brand-blue px-4 py-3.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(21,94,239,0.22)] transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-60"
             >
               {status === 'running' ? 'กำลังวิเคราะห์...' : 'หาคีย์เวิร์ดในพื้นที่'}
             </button>
@@ -1347,7 +1347,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               <span className="leading-5">{statusMessage}</span>
             </div>
             {meta?.locationTarget ? (
-              <p className="mt-3 border-t border-[#eef1f7] pt-2 text-[10px] leading-4 text-[#71809c]">
+              <p className="mt-3 border-t border-gray-100 pt-2 text-[10px] leading-4 text-gray-500">
                 ข้อมูลยอดค้นหาอิงพื้นที่: <strong>{meta.locationTarget.resolved}</strong>
                 {meta.locationTarget.level === 'country' ? ' (ระดับประเทศ)' : ''}
                 {' '}· ขอ "{meta.locationTarget.requested}"
@@ -1378,8 +1378,8 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
             <section className={`${cardClass} px-5 py-4`}>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0">
-                  <h2 className="text-base font-bold text-[#17233a]">Keyword Intelligence Workspace</h2>
-                  <p className="mt-0.5 text-[11px] text-[#71809c]">
+                  <h2 className="text-base font-bold text-brand-navy">Keyword Intelligence Workspace</h2>
+                  <p className="mt-0.5 text-[11px] text-gray-500">
                     {parseLines(serviceText).join(', ') || 'ผลการวิจัย'} @ {meta?.locationTarget.requested ?? primaryLocation}
                     {' '}· Sales {Math.round((meta?.opportunityWeights?.sales ?? 0.6) * 100)}% / Traffic {Math.round((meta?.opportunityWeights?.traffic ?? 0.4) * 100)}%
                     {' '}· {fmtDate(meta?.generatedAt)}
@@ -1398,7 +1398,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   <button
                     disabled={exporting}
                     onClick={exportExcel}
-                    className="rounded-xl border border-[#bcc9e2] bg-[#eff4fe] px-3 py-2 text-xs font-bold text-[#0d4fd8] disabled:opacity-60"
+                    className="rounded-xl border border-gray-300 bg-brand-mist px-3 py-2 text-xs font-bold text-brand-blue disabled:opacity-60"
                     title={meta?.researchId ? 'Excel 7 ชีต จาก research run ที่บันทึกไว้ (ชุดเดียวกับตารางนี้)' : 'run นี้ไม่ได้ถูกบันทึก — จะได้ CSV จากข้อมูลบนหน้านี้แทน'}
                   >
                     {exporting ? 'กำลังสร้างไฟล์…' : 'Export Excel'}
@@ -1406,7 +1406,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   {data.intentSkill ? (
                     <button
                       onClick={exportKeywordPlanCsv}
-                      className="rounded-xl border border-[#bcc9e2] bg-white px-3 py-2 text-xs font-bold text-[#0d4fd8] disabled:opacity-60"
+                      className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-brand-blue disabled:opacity-60"
                       title="Export ตาราง Keyword Plan (กลุ่ม/Cluster/Intent) เป็น CSV"
                     >
                       Export Keyword Plan (CSV)
@@ -1415,7 +1415,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   <button
                     disabled={saving || filtered.length === 0}
                     onClick={saveToKeywordBank}
-                    className="rounded-xl bg-[#155eef] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+                    className="rounded-xl bg-brand-blue px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
                   >
                     {saving ? 'กำลังบันทึก...' : (sendLabel ?? 'ส่งเข้า Keyword Bank')}
                   </button>
@@ -1456,7 +1456,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                     status={sourceStatus.localSerp.status}
                     detail={`ตรวจ ${sourceStatus.localSerp.checkedCount} คำ${sourceStatus.localSerp.message ? ` · ${sourceStatus.localSerp.message}` : ''}`}
                   />
-                  <span className="inline-flex items-center rounded-lg border border-[#e3e8f1] bg-[#f8fafd] px-2.5 py-1.5 text-[10px] text-[#71809c]">
+                  <span className="inline-flex items-center rounded-lg border border-gray-200 bg-white/60 px-2.5 py-1.5 text-[10px] text-gray-500">
                     AI ใช้แค่เสนอคำ/ตั้งชื่อ/เขียน title — ตัวเลขทุกตัวมาจาก API จริง
                   </span>
                 </div>
@@ -1465,7 +1465,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
 
             {/* ── Tabs ── */}
             <section className={`${cardClass} overflow-hidden`}>
-              <div className="flex flex-wrap items-center gap-1 border-b border-[#e3e8f1] px-3 py-2">
+              <div className="flex flex-wrap items-center gap-1 border-b border-gray-200 px-3 py-2">
                 {([
                   ['overview', 'Overview'],
                   ['keywords', `All Keywords (${results.length})`],
@@ -1479,7 +1479,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   <button
                     key={key}
                     onClick={() => setTab(key)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${tab === key ? 'bg-[#155eef] text-white shadow-sm' : 'text-[#606f8c] hover:bg-[#eef1f7]'}`}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${tab === key ? 'bg-brand-blue text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
                   >
                     {label}
                   </button>
@@ -1501,18 +1501,18 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               {tab === 'overview' ? (
                 <div className="space-y-5 px-5 py-5">
                   <div>
-                    <h3 className="mb-2 text-sm font-bold text-[#17233a]">Top 10 โอกาสสูงสุด</h3>
+                    <h3 className="mb-2 text-sm font-bold text-brand-navy">Top 10 โอกาสสูงสุด</h3>
                     <ol className="grid gap-1.5 lg:grid-cols-2">
                       {[...results]
                         .sort((a, b) => (b.intel?.finalScore ?? b.score.total) - (a.intel?.finalScore ?? a.score.total))
                         .slice(0, 10)
                         .map((r, idx) => (
                           <li key={r.keyword}>
-                            <button onClick={() => { setDrawerKeyword(r.keyword); }} className="flex w-full items-center gap-2 rounded-xl border border-[#eef1f7] bg-white px-3 py-2 text-left text-xs transition hover:border-[#155eef]/40 hover:bg-[#f4f8fe]">
-                              <span className="w-5 shrink-0 text-right font-bold tabular-nums text-[#91a0b8]">{idx + 1}</span>
-                              <span className="min-w-0 flex-1 truncate font-semibold text-[#17233a]">{r.keyword}</span>
+                            <button onClick={() => { setDrawerKeyword(r.keyword); }} className="flex w-full items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2 text-left text-xs transition hover:border-brand-blue/40 hover:bg-brand-mist">
+                              <span className="w-5 shrink-0 text-right font-bold tabular-nums text-gray-400">{idx + 1}</span>
+                              <span className="min-w-0 flex-1 truncate font-semibold text-brand-navy">{r.keyword}</span>
                               <ConfidenceBadge confidence={r.intel?.confidence} />
-                              <span className="rounded-lg bg-[#eff4fe] px-2 py-0.5 font-bold tabular-nums text-[#0d4fd8]">
+                              <span className="rounded-lg bg-brand-mist px-2 py-0.5 font-bold tabular-nums text-brand-blue">
                                 {r.intel ? (Math.round(r.intel.finalScore * 10) / 10).toFixed(1) : r.score.total}
                               </span>
                             </button>
@@ -1523,45 +1523,45 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
 
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div>
-                      <h3 className="mb-2 text-sm font-bold text-[#17233a]">สัดส่วน Objective</h3>
+                      <h3 className="mb-2 text-sm font-bold text-brand-navy">สัดส่วน Objective</h3>
                       {(['Sales', 'Traffic'] as const).map(obj => {
                         const count = results.filter(r => objectiveOf(r) === obj).length;
                         const pct = results.length ? Math.round((count / results.length) * 100) : 0;
                         return (
                           <div key={obj} className="mb-2">
-                            <div className="mb-1 flex justify-between text-[11px] text-[#495975]">
+                            <div className="mb-1 flex justify-between text-[11px] text-gray-600">
                               <span className="font-semibold">{obj === 'Sales' ? 'คำโอกาสขาย (Sales)' : 'คำดึงผู้เข้าชม (Traffic)'}</span>
                               <span className="tabular-nums">{count} คำ · {pct}%</span>
                             </div>
-                            <div className="h-2 overflow-hidden rounded-full bg-[#eef1f7]">
-                              <div className={`h-full rounded-full ${obj === 'Sales' ? 'bg-[#155eef]' : 'bg-[#7ba3f7]'}`} style={{ width: `${pct}%` }} />
+                            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                              <div className={`h-full rounded-full ${obj === 'Sales' ? 'bg-brand-blue' : 'bg-[#7ba3f7]'}`} style={{ width: `${pct}%` }} />
                             </div>
                           </div>
                         );
                       })}
-                      <h3 className="mb-2 mt-4 text-sm font-bold text-[#17233a]">Publish Waves</h3>
+                      <h3 className="mb-2 mt-4 text-sm font-bold text-brand-navy">Publish Waves</h3>
                       {[1, 2, 3].map(w => {
                         const count = results.filter(r => r.intel?.wave === w).length;
                         const pct = results.length ? Math.round((count / results.length) * 100) : 0;
                         return (
-                          <div key={w} className="mb-1.5 flex items-center gap-2 text-[11px] text-[#495975]">
-                            <span className={`w-8 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-bold ${w === 1 ? 'bg-[#155eef] text-white' : w === 2 ? 'bg-[#dbe7fd] text-[#0d4fd8]' : 'bg-[#eef1f7] text-[#606f8c]'}`}>W{w}</span>
-                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#eef1f7]">
-                              <div className="h-full rounded-full bg-[#155eef]/70" style={{ width: `${pct}%` }} />
+                          <div key={w} className="mb-1.5 flex items-center gap-2 text-[11px] text-gray-600">
+                            <span className={`w-8 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-bold ${w === 1 ? 'bg-brand-blue text-white' : w === 2 ? 'bg-brand-blue/10 text-brand-blue' : 'bg-gray-100 text-gray-500'}`}>W{w}</span>
+                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+                              <div className="h-full rounded-full bg-brand-blue/70" style={{ width: `${pct}%` }} />
                             </div>
                             <span className="w-20 shrink-0 text-right tabular-nums">{count} คำ · {pct}%</span>
                           </div>
                         );
                       })}
-                      <p className="mt-1 text-[10px] leading-4 text-[#71809c]">Wave 1 = ชุดแรกที่ควรเผยแพร่ (คะแนนสูงสุด กระจายทุกคลัสเตอร์) → Wave 2 → Wave 3</p>
+                      <p className="mt-1 text-[10px] leading-4 text-gray-500">Wave 1 = ชุดแรกที่ควรเผยแพร่ (คะแนนสูงสุด กระจายทุกคลัสเตอร์) → Wave 2 → Wave 3</p>
                     </div>
                     <div>
-                      <h3 className="mb-2 text-sm font-bold text-[#17233a]">คลัสเตอร์ใหญ่สุด</h3>
+                      <h3 className="mb-2 text-sm font-bold text-brand-navy">คลัสเตอร์ใหญ่สุด</h3>
                       {clusters.slice(0, 8).map(c => (
-                        <button key={c.name} onClick={() => { setTab('keywords'); setClusterFilter(c.name); }} className="mb-1.5 flex w-full items-center gap-2 rounded-xl border border-[#eef1f7] px-3 py-2 text-left text-[11px] transition hover:border-[#155eef]/40 hover:bg-[#f4f8fe]">
-                          <span className="min-w-0 flex-1 truncate font-semibold text-[#17233a]">{c.name}</span>
-                          <span className="tabular-nums text-[#71809c]">{c.keywordCount} คำ</span>
-                          <span className="tabular-nums text-[#91a0b8]">{c.searchDemand === null ? '—' : fmtInt(c.searchDemand)}/ด.</span>
+                        <button key={c.name} onClick={() => { setTab('keywords'); setClusterFilter(c.name); }} className="mb-1.5 flex w-full items-center gap-2 rounded-xl border border-gray-100 px-3 py-2 text-left text-[11px] transition hover:border-brand-blue/40 hover:bg-brand-mist">
+                          <span className="min-w-0 flex-1 truncate font-semibold text-brand-navy">{c.name}</span>
+                          <span className="tabular-nums text-gray-500">{c.keywordCount} คำ</span>
+                          <span className="tabular-nums text-gray-400">{c.searchDemand === null ? '—' : fmtInt(c.searchDemand)}/ด.</span>
                         </button>
                       ))}
                     </div>
@@ -1570,73 +1570,73 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               ) : null}
 
               {tab === 'clusters' ? (
-                <div className="divide-y divide-[#eef1f7]">
+                <div className="divide-y divide-gray-100">
                   {clusters.map(cluster => (
                     <div key={cluster.name} className="px-4 py-4">
                       <div className="flex flex-wrap items-center gap-3">
-                        <h3 className="text-sm font-bold text-[#17233a]">{cluster.name}</h3>
+                        <h3 className="text-sm font-bold text-brand-navy">{cluster.name}</h3>
                         <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-800">
                           คะแนนสูงสุด {cluster.maxPriority}
                         </span>
-                        <span className="text-[11px] text-[#71809c]">เฉลี่ย {cluster.avgPriority} · {cluster.keywordCount} คำ</span>
-                        <span className="text-[11px] text-[#71809c]">
+                        <span className="text-[11px] text-gray-500">เฉลี่ย {cluster.avgPriority} · {cluster.keywordCount} คำ</span>
+                        <span className="text-[11px] text-gray-500">
                           ยอดค้นหารวม: {cluster.searchDemand === null
                             ? <span title="ทั้งคลัสเตอร์ยังไม่มีข้อมูล volume" className="cursor-help">—</span>
                             : fmtInt(cluster.searchDemand)}
                         </span>
-                        <span className="ml-auto rounded-lg bg-[#eef1f7] px-2 py-1 text-[11px] font-semibold text-[#495975]">
+                        <span className="ml-auto rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">
                           {SUGGESTED_PAGE_LABELS[cluster.suggestedPage]}
                         </span>
                       </div>
-                      <p className="mt-1.5 text-[11px] text-[#606f8c]">
-                        คำหลักของกลุ่ม: <strong className="text-[#17233a]">{cluster.mainKeyword}</strong>
+                      <p className="mt-1.5 text-[11px] text-gray-500">
+                        คำหลักของกลุ่ม: <strong className="text-brand-navy">{cluster.mainKeyword}</strong>
                       </p>
                       {cluster.locationPageAdvice ? (
                         <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">{cluster.locationPageAdvice}</p>
                       ) : null}
-                      <ul className="mt-2 grid gap-1 text-[11px] leading-5 text-[#495975] sm:grid-cols-2">
+                      <ul className="mt-2 grid gap-1 text-[11px] leading-5 text-gray-600 sm:grid-cols-2">
                         {cluster.contentRecommendations.map(item => <li key={item}>• {item}</li>)}
                       </ul>
                     </div>
                   ))}
-                  {clusters.length === 0 ? <div className="px-4 py-10 text-center text-[#91a0b8]">ยังไม่มีคลัสเตอร์</div> : null}
+                  {clusters.length === 0 ? <div className="px-4 py-10 text-center text-gray-400">ยังไม่มีคลัสเตอร์</div> : null}
                 </div>
               ) : null}
 
               {tab === 'sitemap' ? (
-                <div className="divide-y divide-[#eef1f7]">
+                <div className="divide-y divide-gray-100">
                   {(data.topicClusters ?? []).length > 0 ? (
-                    <div className="bg-[#f8fafd] px-4 py-3">
-                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-[#71809c]">โครงสร้างเว็บ · {data.topicClusters!.length} กลุ่มหัวข้อ (pillar + บทความสนับสนุน)</p>
+                    <div className="bg-white/60 px-4 py-3">
+                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-gray-500">โครงสร้างเว็บ · {data.topicClusters!.length} กลุ่มหัวข้อ (pillar + บทความสนับสนุน)</p>
                       <div className="flex flex-wrap gap-2">
                         {data.topicClusters!.map(tc => (
-                          <span key={tc.clusterId} className="inline-flex items-center gap-1.5 rounded-lg border border-[#e3e8f2] bg-white px-2.5 py-1 text-[11px] text-[#495975]" title={`pillar: /${tc.pillarSlug}`}>
-                            <span className="font-semibold text-[#17233a]">{tc.name}</span>
-                            <span className="text-[#91a0b8]">· {tc.memberSlugs.length} หน้า</span>
-                            {tc.totalVolume > 0 ? <span className="tabular-nums text-[#0d4fd8]">· {tc.totalVolume.toLocaleString('th-TH')}/ด.</span> : null}
+                          <span key={tc.clusterId} className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600" title={`pillar: /${tc.pillarSlug}`}>
+                            <span className="font-semibold text-brand-navy">{tc.name}</span>
+                            <span className="text-gray-400">· {tc.memberSlugs.length} หน้า</span>
+                            {tc.totalVolume > 0 ? <span className="tabular-nums text-brand-blue">· {tc.totalVolume.toLocaleString('th-TH')}/ด.</span> : null}
                           </span>
                         ))}
                       </div>
                     </div>
                   ) : null}
                   {(data.sitemap ?? []).length === 0 ? (
-                    <div className="px-4 py-10 text-center text-[#91a0b8]">ยังไม่มีข้อมูล sitemap — รันการค้นหาก่อน</div>
+                    <div className="px-4 py-10 text-center text-gray-400">ยังไม่มีข้อมูล sitemap — รันการค้นหาก่อน</div>
                   ) : (data.sitemap ?? []).map(pg => (
                     <div key={`${pg.pageType}-${pg.slug}-${pg.page}`} className="px-4 py-4">
                       <div className="flex flex-wrap items-center gap-3">
-                        <h3 className="text-sm font-bold text-[#17233a]">{pg.page}</h3>
-                        <code className="rounded bg-[#f4f6fb] border border-[#e3e8f2] px-1.5 py-0.5 font-mono text-[10px] text-[#0d4fd8]">/{pg.slug}</code>
-                        <span className="rounded-lg bg-[#eef1f7] px-2 py-1 text-[11px] font-semibold text-[#495975]">{pg.pageType}</span>
+                        <h3 className="text-sm font-bold text-brand-navy">{pg.page}</h3>
+                        <code className="rounded bg-white/60 border border-gray-200 px-1.5 py-0.5 font-mono text-[10px] text-brand-blue">/{pg.slug}</code>
+                        <span className="rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">{pg.pageType}</span>
                         {pg.role === 'pillar' ? <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">PILLAR</span> : null}
                         {pg.category ? <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800">{pg.category}</span> : null}
-                        <span className="ml-auto text-[11px] text-[#71809c]">1 บทความ</span>
+                        <span className="ml-auto text-[11px] text-gray-500">1 บทความ</span>
                       </div>
-                      <ul className="mt-2 grid gap-1 text-[11px] leading-5 text-[#495975] sm:grid-cols-2">
+                      <ul className="mt-2 grid gap-1 text-[11px] leading-5 text-gray-600 sm:grid-cols-2">
                         {pg.keywords.map(k => (
                           <li key={k.keyword} className="flex items-baseline gap-1.5">
-                            <span className="font-semibold text-[#17233a]">{k.keyword}</span>
-                            <span className="tabular-nums text-[#91a0b8]">{k.volume?.toLocaleString('th-TH') ?? '—'}/ด.</span>
-                            {k.title ? <span className="truncate text-[10px] text-[#606f8c]" title={k.title}>— {k.title}</span> : null}
+                            <span className="font-semibold text-brand-navy">{k.keyword}</span>
+                            <span className="tabular-nums text-gray-400">{k.volume?.toLocaleString('th-TH') ?? '—'}/ด.</span>
+                            {k.title ? <span className="truncate text-[10px] text-gray-500" title={k.title}>— {k.title}</span> : null}
                           </li>
                         ))}
                       </ul>
@@ -1646,14 +1646,14 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
               ) : null}
 
               {tab === 'sources' ? (
-                <div className="space-y-4 px-5 py-5 text-xs leading-5 text-[#495975]">
-                  <p className="rounded-xl bg-[#f4f8fe] px-4 py-3 text-[11px] leading-5">
+                <div className="space-y-4 px-5 py-5 text-xs leading-5 text-gray-600">
+                  <p className="rounded-xl bg-brand-mist px-4 py-3 text-[11px] leading-5">
                     ตัวเลขทุกตัวในผลชุดนี้ (volume / CPC / KD / competition / SERP) มาจาก API ของแหล่งข้อมูลจริงเท่านั้น
                     — AI ถูกใช้แค่เสนอคำ ตั้งชื่อคลัสเตอร์ และเขียน SEO title ตัวเลขสองแหล่งเก็บแยกกันเสมอ ไม่มีการเฉลี่ยรวม
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[720px] border-collapse text-xs">
-                      <thead className="bg-[#f7f9fd] text-left text-[11px] uppercase tracking-wide text-[#71809c]">
+                      <thead className="bg-white/60 text-left text-[11px] uppercase tracking-wide text-gray-500">
                         <tr>
                           <th className="px-3 py-2.5 font-semibold">แหล่งข้อมูล</th>
                           <th className="px-3 py-2.5 font-semibold">สถานะ</th>
@@ -1664,52 +1664,52 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                         </tr>
                       </thead>
                       <tbody className="align-top">
-                        <tr className="border-t border-[#eef1f7]">
-                          <td className="px-3 py-2.5 font-semibold text-[#17233a]">Google Keyword Planner<div className="text-[10px] font-normal text-[#91a0b8]">Primary Reference Volume</div></td>
+                        <tr className="border-t border-gray-100">
+                          <td className="px-3 py-2.5 font-semibold text-brand-navy">Google Keyword Planner<div className="text-[10px] font-normal text-gray-400">Primary Reference Volume</div></td>
                           <td className="px-3 py-2.5"><span className={`inline-block h-2 w-2 rounded-full ${SOURCE_STATUS_STYLE[sourceStatus?.googleKeywordPlanner.status ?? ''] ?? 'bg-slate-300'}`} /> {sourceStatus?.googleKeywordPlanner.status ?? meta?.keywordPlannerStatus}</td>
                           <td className="px-3 py-2.5 tabular-nums">{sourceStatus ? `${Math.round(sourceStatus.googleKeywordPlanner.coverage * 100)}%` : '—'}</td>
                           <td className="px-3 py-2.5">{sourceStatus?.googleKeywordPlanner.geo ?? '—'}</td>
                           <td className="px-3 py-2.5">{fmtDate(sourceStatus?.googleKeywordPlanner.fetchedAt)}</td>
-                          <td className="px-3 py-2.5 text-[#71809c]">{sourceStatus?.googleKeywordPlanner.message ?? meta?.keywordPlannerMessage ?? '—'}</td>
+                          <td className="px-3 py-2.5 text-gray-500">{sourceStatus?.googleKeywordPlanner.message ?? meta?.keywordPlannerMessage ?? '—'}</td>
                         </tr>
-                        <tr className="border-t border-[#eef1f7]">
-                          <td className="px-3 py-2.5 font-semibold text-[#17233a]">DataForSEO<div className="text-[10px] font-normal text-[#91a0b8]">Cross-check + Intent + KD</div></td>
+                        <tr className="border-t border-gray-100">
+                          <td className="px-3 py-2.5 font-semibold text-brand-navy">DataForSEO<div className="text-[10px] font-normal text-gray-400">Cross-check + Intent + KD</div></td>
                           <td className="px-3 py-2.5"><span className={`inline-block h-2 w-2 rounded-full ${SOURCE_STATUS_STYLE[sourceStatus?.dataForSeo.status ?? ''] ?? 'bg-slate-300'}`} /> {sourceStatus?.dataForSeo.status ?? '—'}</td>
                           <td className="px-3 py-2.5 tabular-nums">{sourceStatus ? `${Math.round(sourceStatus.dataForSeo.coverage * 100)}%` : '—'}</td>
                           <td className="px-3 py-2.5">Thailand (2764)</td>
                           <td className="px-3 py-2.5">{fmtDate(sourceStatus?.dataForSeo.fetchedAt)}</td>
-                          <td className="px-3 py-2.5 text-[#71809c]">{sourceStatus?.dataForSeo.message ?? '—'}</td>
+                          <td className="px-3 py-2.5 text-gray-500">{sourceStatus?.dataForSeo.message ?? '—'}</td>
                         </tr>
-                        <tr className="border-t border-[#eef1f7]">
-                          <td className="px-3 py-2.5 font-semibold text-[#17233a]">DataForSEO Local SERP<div className="text-[10px] font-normal text-[#91a0b8]">Local pack + ประเภทหน้าใน top 10</div></td>
+                        <tr className="border-t border-gray-100">
+                          <td className="px-3 py-2.5 font-semibold text-brand-navy">DataForSEO Local SERP<div className="text-[10px] font-normal text-gray-400">Local pack + ประเภทหน้าใน top 10</div></td>
                           <td className="px-3 py-2.5"><span className={`inline-block h-2 w-2 rounded-full ${SOURCE_STATUS_STYLE[sourceStatus?.localSerp.status ?? ''] ?? 'bg-slate-300'}`} /> {sourceStatus?.localSerp.status ?? '—'}</td>
                           <td className="px-3 py-2.5 tabular-nums">ตรวจ {sourceStatus?.localSerp.checkedCount ?? 0} คำ</td>
                           <td className="px-3 py-2.5">Thailand (2764)</td>
                           <td className="px-3 py-2.5">{fmtDate(sourceStatus?.localSerp.fetchedAt)}</td>
-                          <td className="px-3 py-2.5 text-[#71809c]">{sourceStatus?.localSerp.message ?? 'ตรวจแบบ tiered เฉพาะคำ local/commercial เด่นสุด เพื่อคุมค่าใช้จ่าย'}</td>
+                          <td className="px-3 py-2.5 text-gray-500">{sourceStatus?.localSerp.message ?? 'ตรวจแบบ tiered เฉพาะคำ local/commercial เด่นสุด เพื่อคุมค่าใช้จ่าย'}</td>
                         </tr>
-                        <tr className="border-t border-[#eef1f7]">
-                          <td className="px-3 py-2.5 font-semibold text-[#17233a]">OpenRouter AI<div className="text-[10px] font-normal text-[#91a0b8]">ภาษาเท่านั้น — ไม่ใช่ตัวเลข</div></td>
+                        <tr className="border-t border-gray-100">
+                          <td className="px-3 py-2.5 font-semibold text-brand-navy">OpenRouter AI<div className="text-[10px] font-normal text-gray-400">ภาษาเท่านั้น — ไม่ใช่ตัวเลข</div></td>
                           <td className="px-3 py-2.5"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> ok</td>
                           <td className="px-3 py-2.5">—</td>
                           <td className="px-3 py-2.5">เสนอ candidate · ตั้งชื่อคลัสเตอร์ · SEO title</td>
                           <td className="px-3 py-2.5">{fmtDate(meta?.generatedAt)}</td>
-                          <td className="px-3 py-2.5 text-[#71809c]">ห้ามเป็นแหล่งของ volume/CPC/KD/competition โดยการออกแบบ</td>
+                          <td className="px-3 py-2.5 text-gray-500">ห้ามเป็นแหล่งของ volume/CPC/KD/competition โดยการออกแบบ</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
                   <div className="text-[11px]">
-                    <p className="font-semibold text-[#17233a]">Verified Volume Coverage: {Math.round((meta?.verifiedVolumeCoverage ?? 0) * 100)}% (เกณฑ์ Client Ready ≥90%)</p>
-                    <p className="mt-1 text-[#71809c]">คำที่นับว่า "ตรวจสอบแล้ว" = มีตัวเลขจากแหล่งจริง (รวมศูนย์จริง) หรือเป็น LOCAL opportunity ที่มีหลักฐานใน SERP</p>
+                    <p className="font-semibold text-brand-navy">Verified Volume Coverage: {Math.round((meta?.verifiedVolumeCoverage ?? 0) * 100)}% (เกณฑ์ Client Ready ≥90%)</p>
+                    <p className="mt-1 text-gray-500">คำที่นับว่า "ตรวจสอบแล้ว" = มีตัวเลขจากแหล่งจริง (รวมศูนย์จริง) หรือเป็น LOCAL opportunity ที่มีหลักฐานใน SERP</p>
                   </div>
                 </div>
               ) : null}
 
               {tab === 'method' ? (
-                <div className="space-y-4 px-5 py-5 text-xs leading-6 text-[#495975]">
+                <div className="space-y-4 px-5 py-5 text-xs leading-6 text-gray-600">
                   <div>
-                    <h3 className="mb-1 text-sm font-bold text-[#17233a]">ระบบทำงานอย่างไร (DATA → AI)</h3>
+                    <h3 className="mb-1 text-sm font-bold text-brand-navy">ระบบทำงานอย่างไร (DATA → AI)</h3>
                     <ol className="list-decimal space-y-1 pl-5">
                       <li>สร้าง candidate จากโครงสร้างบริการ × พื้นที่ × คำขยาย (ใกล้ฉัน/ราคา/ด่วน ฯลฯ) + ปัญหาจริงของลูกค้า + AI ขยาย pool + ฐานข้อมูล DataForSEO</li>
                       <li>ดึงตัวเลขจริง: Google Keyword Planner (แหล่งอ้างอิงหลัก ระดับพื้นที่ที่ resolve ได้จริง) และ DataForSEO (แหล่ง cross-check) — เก็บแยกกัน ไม่เฉลี่ย</li>
@@ -1721,8 +1721,8 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                     </ol>
                   </div>
                   <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-xl border border-[#eef1f7] p-4">
-                      <h4 className="mb-2 font-bold text-[#17233a]">Sales Score (โอกาสได้ลูกค้า)</h4>
+                    <div className="rounded-xl border border-gray-100 p-4">
+                      <h4 className="mb-2 font-bold text-brand-navy">Sales Score (โอกาสได้ลูกค้า)</h4>
                       <ul className="space-y-1">
                         <li>• Local Relevance <strong>25%</strong> — ผูกกับพื้นที่เป้าหมาย</li>
                         <li>• Search Intent <strong>20%</strong> — พร้อมจ้าง &gt; กำลังเลือก &gt; หาความรู้</li>
@@ -1732,8 +1732,8 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                         <li>• Paid Competition <strong>10%</strong> — ระดับการแข่งขันโฆษณา</li>
                       </ul>
                     </div>
-                    <div className="rounded-xl border border-[#eef1f7] p-4">
-                      <h4 className="mb-2 font-bold text-[#17233a]">Traffic Score (โอกาสได้ผู้เข้าชม)</h4>
+                    <div className="rounded-xl border border-gray-100 p-4">
+                      <h4 className="mb-2 font-bold text-brand-navy">Traffic Score (โอกาสได้ผู้เข้าชม)</h4>
                       <ul className="space-y-1">
                         <li>• Demand <strong>40%</strong> — reference volume (log scale)</li>
                         <li>• Low Difficulty <strong>20%</strong> — 100 − KD</li>
@@ -1743,11 +1743,11 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                       </ul>
                     </div>
                   </div>
-                  <div className="rounded-xl bg-[#f8fafd] px-4 py-3 text-[11px]">
-                    <p className="font-semibold text-[#17233a]">Confidence ของตัวเลข volume</p>
+                  <div className="rounded-xl bg-white/60 px-4 py-3 text-[11px]">
+                    <p className="font-semibold text-brand-navy">Confidence ของตัวเลข volume</p>
                     <p className="mt-1">HIGH = สองแหล่งตรงกัน (≤1.5 เท่า) · MEDIUM = แหล่งเดียวหรือต่างกัน ≤3 เท่า · LOW = ต่างกัน &gt;3 เท่า ·
                     LOCAL = volume ศูนย์แต่มีหลักฐานธุรกิจท้องถิ่นใน SERP · NO VOLUME = ไม่มีข้อมูลจากแหล่งใด</p>
-                    <p className="mt-1 text-[#71809c]">ZERO (API ตอบ 0 จริง) ≠ NULL (ไม่มีข้อมูล) ≠ API ERROR (เรียกไม่สำเร็จ) — สามสถานะนี้แสดงต่างกันเสมอ</p>
+                    <p className="mt-1 text-gray-500">ZERO (API ตอบ 0 จริง) ≠ NULL (ไม่มีข้อมูล) ≠ API ERROR (เรียกไม่สำเร็จ) — สามสถานะนี้แสดงต่างกันเสมอ</p>
                   </div>
                 </div>
               ) : null}
@@ -1757,8 +1757,8 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
           <KeywordResearchProgress title="กำลังหาคีย์เวิร์ดในพื้นที่" logs={progressLogs} />
         ) : (
           <section className={`${cardClass} px-6 py-16 text-center`}>
-            <p className="text-sm font-semibold text-[#495975]">ยังไม่มีผลลัพธ์</p>
-            <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-[#71809c]">
+            <p className="text-sm font-semibold text-gray-600">ยังไม่มีผลลัพธ์</p>
+            <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-gray-500">
               กรอกบริการที่ทำและพื้นที่หลัก แล้วกด "หาคีย์เวิร์ดในพื้นที่"
               ระบบจะดึงตัวเลขจริงจาก Google Keyword Planner + DataForSEO
               ให้คะแนนโอกาสขายต่อคำ แล้วคัดเฉพาะคำที่ควรทำจริง
@@ -1772,37 +1772,37 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
         <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/20" onClick={() => setDrawerKeyword(null)} />
           <div className="absolute inset-y-0 right-0 flex w-full max-w-[520px] flex-col overflow-y-auto bg-white shadow-2xl">
-            <div className="sticky top-0 flex items-start gap-3 border-b border-[#e3e8f1] bg-white px-5 py-4">
+            <div className="sticky top-0 flex items-start gap-3 border-b border-gray-200 bg-white px-5 py-4">
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-[#91a0b8]">อันดับ {rankByKeyword.get(drawerRow.keyword)} · {drawerRow.cluster ?? drawerRow.service}</p>
-                <h3 className="mt-0.5 break-words text-base font-bold text-[#17233a]">{drawerRow.keyword}</h3>
-                {drawerRow.suggestedTitle ? <p className="mt-1 text-[11px] leading-5 text-[#0d4fd8]">✍ {drawerRow.suggestedTitle}</p> : null}
-                {drawerRow.slug ? <p className="mt-0.5 font-mono text-[10px] text-[#91a0b8]">/{drawerRow.slug}</p> : null}
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">อันดับ {rankByKeyword.get(drawerRow.keyword)} · {drawerRow.cluster ?? drawerRow.service}</p>
+                <h3 className="mt-0.5 break-words text-base font-bold text-brand-navy">{drawerRow.keyword}</h3>
+                {drawerRow.suggestedTitle ? <p className="mt-1 text-[11px] leading-5 text-brand-blue">✍ {drawerRow.suggestedTitle}</p> : null}
+                {drawerRow.slug ? <p className="mt-0.5 font-mono text-[10px] text-gray-400">/{drawerRow.slug}</p> : null}
               </div>
-              <button onClick={() => setDrawerKeyword(null)} className="rounded-lg border border-[#dbe1ee] px-2.5 py-1.5 text-xs font-bold text-[#606f8c] hover:bg-[#f4f6fb]">✕</button>
+              <button onClick={() => setDrawerKeyword(null)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-bold text-gray-500 hover:bg-white/60">✕</button>
             </div>
 
-            <div className="space-y-5 px-5 py-5 text-xs text-[#495975]">
+            <div className="space-y-5 px-5 py-5 text-xs text-gray-600">
               {drawerRow.intel ? (
                 <>
                   <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-xl bg-[#eff4fe] px-3 py-2.5 text-center">
-                      <p className="text-[10px] font-semibold text-[#71809c]">Final</p>
-                      <p className="text-lg font-bold tabular-nums text-[#0d4fd8]">{(Math.round(drawerRow.intel.finalScore * 10) / 10).toFixed(1)}</p>
-                      {drawerRow.intel.wave ? <p className="text-[10px] font-bold text-[#155eef]">Wave {drawerRow.intel.wave}</p> : null}
+                    <div className="rounded-xl bg-brand-mist px-3 py-2.5 text-center">
+                      <p className="text-[10px] font-semibold text-gray-500">Final</p>
+                      <p className="text-lg font-bold tabular-nums text-brand-blue">{(Math.round(drawerRow.intel.finalScore * 10) / 10).toFixed(1)}</p>
+                      {drawerRow.intel.wave ? <p className="text-[10px] font-bold text-brand-blue">Wave {drawerRow.intel.wave}</p> : null}
                     </div>
-                    <div className="rounded-xl bg-[#f7f9fd] px-3 py-2.5 text-center">
-                      <p className="text-[10px] font-semibold text-[#71809c]">Sales</p>
-                      <p className="text-lg font-bold tabular-nums text-[#17233a]">{Math.round(drawerRow.intel.salesScore.total)}</p>
+                    <div className="rounded-xl bg-white/60 px-3 py-2.5 text-center">
+                      <p className="text-[10px] font-semibold text-gray-500">Sales</p>
+                      <p className="text-lg font-bold tabular-nums text-brand-navy">{Math.round(drawerRow.intel.salesScore.total)}</p>
                     </div>
-                    <div className="rounded-xl bg-[#f7f9fd] px-3 py-2.5 text-center">
-                      <p className="text-[10px] font-semibold text-[#71809c]">Traffic</p>
-                      <p className="text-lg font-bold tabular-nums text-[#17233a]">{Math.round(drawerRow.intel.trafficScore.total)}</p>
+                    <div className="rounded-xl bg-white/60 px-3 py-2.5 text-center">
+                      <p className="text-[10px] font-semibold text-gray-500">Traffic</p>
+                      <p className="text-lg font-bold tabular-nums text-brand-navy">{Math.round(drawerRow.intel.trafficScore.total)}</p>
                     </div>
                   </div>
 
                   <div>
-                    <h4 className="mb-2 text-sm font-bold text-[#17233a]">ทำไมคำนี้? (Why this keyword)</h4>
+                    <h4 className="mb-2 text-sm font-bold text-brand-navy">ทำไมคำนี้? (Why this keyword)</h4>
                     <ul className="space-y-1.5 leading-5">
                       <li>• Objective: <strong>{objectiveOf(drawerRow)}</strong> — {objectiveOf(drawerRow) === 'Sales' ? 'คำที่มีโอกาสเปลี่ยนเป็นลูกค้า' : 'คำดึงผู้เข้าชม/สร้างความน่าเชื่อถือ'}</li>
                       {drawerRow.intel.searchIntent.intent ? (
@@ -1819,70 +1819,70 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                   </div>
 
                   <div>
-                    <h4 className="mb-2 text-sm font-bold text-[#17233a]">Volume แยกตามแหล่ง (ไม่เฉลี่ยรวม)</h4>
-                    <div className="overflow-x-auto rounded-xl border border-[#eef1f7]">
+                    <h4 className="mb-2 text-sm font-bold text-brand-navy">Volume แยกตามแหล่ง (ไม่เฉลี่ยรวม)</h4>
+                    <div className="overflow-x-auto rounded-xl border border-gray-100">
                       <table className="w-full text-[11px]">
                         <tbody>
-                          <tr className="border-b border-[#eef1f7] bg-[#f8fafd]">
-                            <td className="px-3 py-2 font-semibold text-[#17233a]">Reference</td>
+                          <tr className="border-b border-gray-100 bg-white/60">
+                            <td className="px-3 py-2 font-semibold text-brand-navy">Reference</td>
                             <td className="px-3 py-2 text-right font-bold tabular-nums">{drawerRow.intel.referenceVolume === null ? 'N/A' : fmtInt(drawerRow.intel.referenceVolume)}</td>
-                            <td className="px-3 py-2 text-[#71809c]">ที่มา: {referenceSourceLabel(drawerRow.intel.referenceSource)}</td>
+                            <td className="px-3 py-2 text-gray-500">ที่มา: {referenceSourceLabel(drawerRow.intel.referenceSource)}</td>
                           </tr>
-                          <tr className="border-b border-[#eef1f7]">
+                          <tr className="border-b border-gray-100">
                             <td className="px-3 py-2 font-semibold">Google KP</td>
                             <td className="px-3 py-2 text-right tabular-nums">{metricStatusText(drawerRow.intel.google.status, drawerRow.intel.google.avgMonthlySearches)}</td>
-                            <td className="px-3 py-2 text-[#71809c]">{drawerRow.intel.google.geoTarget ? `${drawerRow.intel.google.geoTarget} (${drawerRow.intel.google.geoLevel})` : '—'} · {fmtDate(drawerRow.intel.google.retrievedAt)}</td>
+                            <td className="px-3 py-2 text-gray-500">{drawerRow.intel.google.geoTarget ? `${drawerRow.intel.google.geoTarget} (${drawerRow.intel.google.geoLevel})` : '—'} · {fmtDate(drawerRow.intel.google.retrievedAt)}</td>
                           </tr>
                           <tr>
                             <td className="px-3 py-2 font-semibold">DataForSEO</td>
                             <td className="px-3 py-2 text-right tabular-nums">{metricStatusText(drawerRow.intel.dfs.status, drawerRow.intel.dfs.searchVolume)}</td>
-                            <td className="px-3 py-2 text-[#71809c]">Thailand · {fmtDate(drawerRow.intel.dfs.retrievedAt)}</td>
+                            <td className="px-3 py-2 text-gray-500">Thailand · {fmtDate(drawerRow.intel.dfs.retrievedAt)}</td>
                           </tr>
                         </tbody>
                       </table>
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                       <ConfidenceBadge confidence={drawerRow.intel.confidence} />
-                      <span className="text-[10px] text-[#71809c]">{CONFIDENCE_TOOLTIP[drawerRow.intel.confidence]}</span>
+                      <span className="text-[10px] text-gray-500">{CONFIDENCE_TOOLTIP[drawerRow.intel.confidence]}</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-[#eef1f7] px-3 py-2.5">
-                      <p className="text-[10px] font-semibold text-[#71809c]">CPC (฿)</p>
+                    <div className="rounded-xl border border-gray-100 px-3 py-2.5">
+                      <p className="text-[10px] font-semibold text-gray-500">CPC (฿)</p>
                       <p className="font-bold tabular-nums">{formatBaht(drawerRow.intel.dfs.cpc ?? drawerRow.intel.google.bidHighMicros)}</p>
                     </div>
-                    <div className="rounded-xl border border-[#eef1f7] px-3 py-2.5">
-                      <p className="text-[10px] font-semibold text-[#71809c]">Ads Competition</p>
+                    <div className="rounded-xl border border-gray-100 px-3 py-2.5">
+                      <p className="text-[10px] font-semibold text-gray-500">Ads Competition</p>
                       <p className="font-bold">{drawerRow.intel.google.competition ?? drawerRow.intel.dfs.competition ?? '—'}{typeof (drawerRow.intel.google.competitionIndex ?? drawerRow.intel.dfs.competitionIndex) === 'number' ? ` (${drawerRow.intel.google.competitionIndex ?? drawerRow.intel.dfs.competitionIndex})` : ''}</p>
                     </div>
                   </div>
 
                   {drawerRow.intel.serp.status === 'ok' ? (
                     <div>
-                      <h4 className="mb-2 text-sm font-bold text-[#17233a]">Local SERP จริง ({fmtDate(drawerRow.intel.serp.serpCheckedAt)})</h4>
+                      <h4 className="mb-2 text-sm font-bold text-brand-navy">Local SERP จริง ({fmtDate(drawerRow.intel.serp.serpCheckedAt)})</h4>
                       <ul className="space-y-1 leading-5">
                         <li>• Local Pack (แผนที่ร้าน): <strong>{drawerRow.intel.serp.hasLocalPack ? `มี (ตำแหน่ง ${drawerRow.intel.serp.localPackPosition ?? '—'})` : 'ไม่มี'}</strong></li>
                         <li>• Top 10: หน้า service คู่แข่ง {drawerRow.intel.serp.servicePageCount} · บทความ {drawerRow.intel.serp.articleCount} · directory {drawerRow.intel.serp.directoryCount}</li>
                         <li>• โอกาสแทรกหน้าใหม่ (SERP Opportunity): <strong>{drawerRow.intel.serp.serpOpportunityScore ?? '—'}</strong>/100</li>
                       </ul>
                       {drawerRow.intel.serp.topDomains.length > 0 ? (
-                        <p className="mt-1.5 text-[10px] leading-4 text-[#91a0b8]">โดเมนใน SERP: {drawerRow.intel.serp.topDomains.slice(0, 6).join(', ')}</p>
+                        <p className="mt-1.5 text-[10px] leading-4 text-gray-400">โดเมนใน SERP: {drawerRow.intel.serp.topDomains.slice(0, 6).join(', ')}</p>
                       ) : null}
                     </div>
                   ) : (
-                    <p className="rounded-lg bg-[#f8fafd] px-3 py-2 text-[10px] text-[#91a0b8]">
+                    <p className="rounded-lg bg-white/60 px-3 py-2 text-[10px] text-gray-400">
                       คำนี้ไม่ได้ตรวจ Local SERP ({drawerRow.intel.serp.status === 'api_error' ? 'เรียก API ไม่สำเร็จ' : 'อยู่นอกงบตรวจ SERP ของรอบนี้'}) — คะแนน SERP ใช้ค่ากลาง ไม่แต่งข้อมูล
                     </p>
                   )}
 
                   {drawerRow.intel.secondaryKeywords.length > 0 ? (
                     <div>
-                      <h4 className="mb-2 text-sm font-bold text-[#17233a]">คำรองที่ถูกรวมเข้าคำนี้ ({drawerRow.intel.secondaryKeywords.length})</h4>
-                      <p className="mb-1.5 text-[10px] text-[#71809c]">เจตนาซ้ำกับคำหลัก — ใช้ในเนื้อหาเดียวกัน ไม่แยกทำคนละหน้า (กันหน้ากินกันเอง)</p>
+                      <h4 className="mb-2 text-sm font-bold text-brand-navy">คำรองที่ถูกรวมเข้าคำนี้ ({drawerRow.intel.secondaryKeywords.length})</h4>
+                      <p className="mb-1.5 text-[10px] text-gray-500">เจตนาซ้ำกับคำหลัก — ใช้ในเนื้อหาเดียวกัน ไม่แยกทำคนละหน้า (กันหน้ากินกันเอง)</p>
                       <div className="flex flex-wrap gap-1.5">
                         {drawerRow.intel.secondaryKeywords.map(kw => (
-                          <span key={kw} className="rounded-full bg-[#eef1f7] px-2.5 py-1 text-[11px] text-[#495975]">{kw}</span>
+                          <span key={kw} className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] text-gray-600">{kw}</span>
                         ))}
                       </div>
                     </div>
@@ -1896,19 +1896,19 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
                 </>
               ) : (
                 <div>
-                  <h4 className="mb-2 text-sm font-bold text-[#17233a]">คะแนนโอกาส (รุ่นเดิม)</h4>
+                  <h4 className="mb-2 text-sm font-bold text-brand-navy">คะแนนโอกาส (รุ่นเดิม)</h4>
                   <ul className="space-y-1">
                     {scoreBreakdown(drawerRow.score).map(part => (
                       <li key={part.label} className="flex justify-between"><span>{part.label}</span><span className="tabular-nums">{part.earned}/{part.max}</span></li>
                     ))}
                   </ul>
-                  <p className="mt-2 text-[10px] text-[#91a0b8]">ผลชุดนี้มาจากระบบรุ่นเดิม — รันใหม่เพื่อได้ข้อมูล intelligence เต็มรูปแบบ</p>
+                  <p className="mt-2 text-[10px] text-gray-400">ผลชุดนี้มาจากระบบรุ่นเดิม — รันใหม่เพื่อได้ข้อมูล intelligence เต็มรูปแบบ</p>
                 </div>
               )}
 
               <div>
-                <p className="text-[10px] text-[#91a0b8]">ที่มา candidate: {(drawerRow.intel?.candidateSources ?? drawerRow.sources).map(s => SOURCE_LABELS[s] ?? s).join(' · ')}</p>
-                <p className="mt-0.5 text-[10px] text-[#91a0b8]">ระดับความสำคัญเดิม: {PRIORITY_LABELS[drawerRow.priority]} ({drawerRow.score.total}/100)</p>
+                <p className="text-[10px] text-gray-400">ที่มา candidate: {(drawerRow.intel?.candidateSources ?? drawerRow.sources).map(s => SOURCE_LABELS[s] ?? s).join(' · ')}</p>
+                <p className="mt-0.5 text-[10px] text-gray-400">ระดับความสำคัญเดิม: {PRIORITY_LABELS[drawerRow.priority]} ({drawerRow.score.total}/100)</p>
               </div>
             </div>
           </div>

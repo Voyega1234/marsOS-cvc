@@ -2,39 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Jarvis OS — Design tokens (Mercy-style oklch) ─────────────────────────── */
+/* ── MarsOS — Design tokens ─────────────────────────────────────────────────────
+ * โหมดสว่างเป็นค่าตั้งต้น · โหมดมืด = class "dark" บน <html> (ดู src/lib/theme-script.ts)
+ * .force-light / .article-preview = พื้นที่ที่ต้องสว่างเสมอ (กระดาษบทความ, ตัวอย่างหน้าเว็บลูกค้า)
+ * ตัวแปรสีของ Tailwind (เทา, พื้นขาว, สีสถานะ) อยู่ใน tailwind.config.ts
+ */
 @layer base {
-  :root {
+  :root, .force-light, .article-preview {
     --background:          oklch(1 0 0);
-    --foreground:          oklch(0.145 0 0);
-    --card:                oklch(1 0 0);
-    --card-foreground:     oklch(0.145 0 0);
+    --foreground:          #0e1833;
+    --card:                rgba(255, 255, 255, 0.78);
+    --card-foreground:     #0e1833;
     --popover:             oklch(1 0 0);
-    --popover-foreground:  oklch(0.145 0 0);
+    --popover-foreground:  #0e1833;
     /* CVC Brand — Convert Blue #1d48f3 */
     --primary:             oklch(0.47 0.26 268);
     --primary-foreground:  oklch(0.985 0 0);
-    --secondary:           oklch(0.97 0 0);
-    --secondary-foreground:oklch(0.205 0 0);
-    --muted:               oklch(0.97 0 0);
-    --muted-foreground:    oklch(0.556 0 0);
-    --accent:              oklch(0.97 0 0);
-    --accent-foreground:   oklch(0.205 0 0);
+    --secondary:           #eef2f7;
+    --secondary-foreground:#0e1833;
+    --muted:               #eef2f7;
+    --muted-foreground:    #68748a;
+    --accent:              #eef2f7;
+    --accent-foreground:   #0e1833;
     --destructive:         oklch(0.577 0.245 27.325);
     --destructive-foreground: oklch(0.985 0 0);
-    --border:              oklch(0.945 0 0);
-    --input:               oklch(0.922 0 0);
+    --border:              #e6ebf2;
+    --input:               #dbe2ec;
     --ring:                oklch(0.47 0.26 268);
-    --radius:              0.625rem;
+    --radius:              0.875rem;
 
     /* Sidebar — light, matches reference screenshots */
-    --sidebar:                     oklch(0.985 0 0);
-    --sidebar-foreground:          oklch(0.145 0 0);
+    --sidebar:                     rgba(255, 255, 255, 0.66);
+    --sidebar-foreground:          #0e1833;
     --sidebar-primary:             oklch(0.205 0 0);
     --sidebar-primary-foreground:  oklch(0.985 0 0);
-    --sidebar-accent:              oklch(0.93 0 0);
+    --sidebar-accent:              #eef2f7;
     --sidebar-accent-foreground:   oklch(0.205 0 0);
-    --sidebar-border:              oklch(0.91 0 0);
+    --sidebar-border:              rgba(255, 255, 255, 0.75);
     --sidebar-ring:                oklch(0.708 0 0);
 
     /* Charts — Convert Blue เป็นหลัก + สีเสริมตามกติกา CVC (ใช้น้อย) */
@@ -43,20 +47,147 @@
     --chart-3: #000E3F;  /* Secure Navy */
     --chart-4: #ffb95c;  /* Mustard (additional) */
     --chart-5: #769a6d;  /* Sage Olive (additional) */
+
+    /* พื้นหลังหน้า + ผิวกระจก/การ์ด (ค่าที่เคยเขียนตายตัวในคลาสด้านล่าง) */
+    --page-bg: #eef3f9;
+    --page-gradient:
+      radial-gradient(58% 46% at 8% 0%, rgba(29, 72, 243, 0.13), transparent 62%),
+      radial-gradient(44% 40% at 96% 6%, rgba(23, 124, 254, 0.13), transparent 62%),
+      radial-gradient(52% 46% at 82% 100%, rgba(107, 140, 239, 0.16), transparent 62%),
+      linear-gradient(180deg, #f4f7fb 0%, #e9eff7 100%);
+    --glass-bg: rgba(255, 255, 255, 0.62);
+    --glass-border: rgba(255, 255, 255, 0.75);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 18px 44px -18px rgba(0, 14, 63, 0.18);
+    --glass-strong-bg: rgba(255, 255, 255, 0.86);
+    --glass-strong-border: rgba(255, 255, 255, 0.85);
+    --glass-strong-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 18px 44px -18px rgba(0, 14, 63, 0.18);
+    --glass-fallback-bg: rgba(255, 255, 255, 0.94);
+    --card-bg: rgba(255, 255, 255, 0.78);
+    --card-border: rgba(255, 255, 255, 0.85);
+    --card-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 14px 36px -18px rgba(0, 14, 63, 0.16);
+    --card-hover-bg: rgba(255, 255, 255, 0.94);
+    --card-hover-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 22px 48px -20px rgba(0, 14, 63, 0.24);
+    --seg-bg: rgba(255, 255, 255, 0.7);
+    --seg-border: rgba(255, 255, 255, 0.85);
+    --seg-shadow: 0 8px 20px -14px rgba(0, 14, 63, 0.25);
+    --kpi-shadow: 0 14px 36px -20px rgba(0, 14, 63, 0.18);
+    --kpi-mist-bg: linear-gradient(160deg, rgba(218, 225, 231, 0.75), rgba(239, 245, 249, 0.6));
+    --kpi-mist-border: rgba(218, 225, 231, 0.6);
+    --kpi-navy-bg: linear-gradient(160deg, #000E3F, #0a1f6b);
+
+    /* กราฟ (src/components/ds/charts.tsx) */
+    --chart-grid: #dbe2ec;
+    --chart-axis: #68748a;
+    --chart-track: #e8edf3;
+    --chart-ink: #000E3F;
+    --chart-surface: #ffffff;
+    --chart-cursor: #98a3b6;
+    --chart-navy: #000E3F;
+  }
+
+  /* ── โหมดมืด: โทน Secure Navy เข้ม ตัวอักษรสว่าง ปุ่มหลักยังเป็น Convert Blue ── */
+  .dark {
+    color-scheme: dark;
+    --background:          #0f1731;
+    --foreground:          #e9eefb;
+    --card:                rgba(17, 26, 56, 0.72);
+    --card-foreground:     #e9eefb;
+    --popover:             #141d3f;
+    --popover-foreground:  #e9eefb;
+    --secondary:           #1b264a;
+    --secondary-foreground:#e9eefb;
+    --muted:               #1b264a;
+    --muted-foreground:    #8e9aba;
+    --accent:              #1f2b55;
+    --accent-foreground:   #e9eefb;
+    --border:              #243058;
+    --input:               #2c3964;
+    --ring:                oklch(0.62 0.2 268);
+
+    --sidebar:                     rgba(14, 22, 48, 0.66);
+    --sidebar-foreground:          #e9eefb;
+    --sidebar-primary:             #e9eefb;
+    --sidebar-primary-foreground:  #0e1833;
+    --sidebar-accent:              #1b264a;
+    --sidebar-accent-foreground:   #e9eefb;
+    --sidebar-border:              rgba(255, 255, 255, 0.08);
+    --sidebar-ring:                oklch(0.55 0.05 268);
+
+    --chart-3: #8ea6ff;
+
+    --page-bg: #060b1d;
+    --page-gradient:
+      radial-gradient(58% 46% at 8% 0%, rgba(29, 72, 243, 0.26), transparent 62%),
+      radial-gradient(44% 40% at 96% 6%, rgba(23, 124, 254, 0.16), transparent 62%),
+      radial-gradient(52% 46% at 82% 100%, rgba(29, 72, 243, 0.18), transparent 62%),
+      linear-gradient(180deg, #070d22 0%, #050a1a 100%);
+    --glass-bg: rgba(16, 25, 54, 0.62);
+    --glass-border: rgba(255, 255, 255, 0.07);
+    --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 18px 44px -18px rgba(0, 0, 0, 0.55);
+    --glass-strong-bg: rgba(18, 27, 58, 0.92);
+    --glass-strong-border: rgba(255, 255, 255, 0.09);
+    --glass-strong-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 18px 44px -18px rgba(0, 0, 0, 0.6);
+    --glass-fallback-bg: rgba(16, 25, 54, 0.96);
+    --card-bg: rgba(17, 26, 56, 0.72);
+    --card-border: rgba(255, 255, 255, 0.07);
+    --card-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 14px 36px -18px rgba(0, 0, 0, 0.5);
+    --card-hover-bg: rgba(24, 35, 72, 0.92);
+    --card-hover-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 22px 48px -20px rgba(0, 0, 0, 0.6);
+    --seg-bg: rgba(17, 26, 56, 0.72);
+    --seg-border: rgba(255, 255, 255, 0.08);
+    --seg-shadow: 0 8px 20px -14px rgba(0, 0, 0, 0.5);
+    --kpi-shadow: 0 14px 36px -20px rgba(0, 0, 0, 0.5);
+    --kpi-mist-bg: linear-gradient(160deg, rgba(39, 51, 92, 0.75), rgba(22, 32, 66, 0.6));
+    --kpi-mist-border: rgba(255, 255, 255, 0.06);
+    --kpi-navy-bg: linear-gradient(160deg, #1a2f8a, #0f1d5c);
+
+    --chart-grid: #232f57;
+    --chart-axis: #8e9aba;
+    --chart-track: #1f2a50;
+    --chart-ink: #e9eefb;
+    --chart-surface: #0f1731;
+    --chart-cursor: #68769c;
+    --chart-navy: #8ea6ff;
+  }
+
+  /* พื้นที่ที่ต้องสว่างเสมอ: ในโหมดมืดให้เป็นกระดาษขาว (โหมดสว่างไม่แตะ จึงหน้าตาเหมือนเดิมทุกจุด) */
+  .dark .force-light, .dark .article-preview {
+    color-scheme: light;
+    background-color: #ffffff;
+    color: #0e1833;
+  }
+
+  /* ช่องกรอกที่ไม่ได้กำหนดสีพื้นเอง: โหมดมืดเบราว์เซอร์จะใส่เทากลาง ๆ ให้ ซึ่งหลุดโทนกรมท่า
+     — ใช้ :where() ให้น้ำหนักเป็น 0 คลาสสีพื้นของแต่ละช่อง (bg-*) จึงชนะเสมอ */
+  :where(.dark) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), textarea, select) {
+    background-color: rgb(255 255 255 / 0.045);
+  }
+  :where(.dark .force-light, .dark .article-preview) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), textarea, select) {
+    background-color: #ffffff;
   }
 }
 
 @layer base {
   * { @apply border-border; }
+  /* พื้นหลังทั้งระบบ: ไล่สี Easy Gray + แสง Convert Blue จาง ๆ (อยู่กับที่ ไม่เลื่อนตามเนื้อหา) */
+  html { background-color: var(--page-bg); }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     font-size: 14px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
   /* Global heading scale — size/weight only, no color lock (components set their own color) */
-  h1 { @apply text-xl font-bold leading-tight; }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--page-gradient);
+  }
+  h1 { @apply text-2xl font-semibold leading-tight tracking-tight; }
   h2 { @apply text-base font-semibold; }
   h3 { @apply text-sm font-semibold; }
 
@@ -70,51 +201,185 @@
   }
 }
 
-/* ── Jarvis Design System — component utilities ──────────────────────────────── */
+/* ── MarsOS Design System — component utilities (Convert Cake colours) ────────── */
 @layer components {
-  /* Primary action button — dark, used everywhere */
+  /* ── Glass surfaces (ใช้กับโครง: sidebar, top bar, แผงหลัก) ── */
+  .glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: blur(22px) saturate(130%);
+    backdrop-filter: blur(22px) saturate(130%);
+  }
+  .glass-strong {
+    background: var(--glass-strong-bg);
+    border: 1px solid var(--glass-strong-border);
+    box-shadow: var(--glass-strong-shadow);
+    -webkit-backdrop-filter: blur(22px) saturate(130%);
+    backdrop-filter: blur(22px) saturate(130%);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass, .glass-strong { background: var(--glass-fallback-bg); }
+  }
+
+  /* Primary action button — Convert Blue pill */
   .btn-primary {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-brand-blue hover:bg-brand-deep
-           text-white text-sm font-semibold rounded-xl transition-colors
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-brand-blue hover:bg-brand-deep
+           text-white text-sm font-semibold rounded-full transition-colors
+           shadow-[0_8px_20px_-10px_rgba(29,72,243,0.7)]
            disabled:opacity-40 disabled:cursor-not-allowed;
   }
   /* Secondary outlined button */
   .btn-secondary {
-    @apply inline-flex items-center gap-2 px-4 py-2 border border-gray-200
-           text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 bg-white/70
+           text-gray-700 text-sm font-medium rounded-full hover:bg-white hover:text-brand-navy
            transition-colors disabled:opacity-40;
   }
   /* Danger button */
   .btn-danger {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500
-           text-white text-sm font-semibold rounded-xl transition-colors
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500
+           text-white text-sm font-semibold rounded-full transition-colors
            disabled:opacity-40;
   }
-  /* Standard card */
+  /* Standard card — ขาวโปร่ง ขอบสว่าง เงายาวนุ่ม (ไม่ blur เพื่อให้หน้าที่มีการ์ดเยอะยังลื่น) */
   .card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-sm;
+    @apply rounded-2xl;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    box-shadow: var(--card-shadow);
   }
-  /* Page header consistent */
+  /* การ์ดที่กดได้ */
+  .card-hover {
+    @apply transition-all duration-200;
+  }
+  .card-hover:hover {
+    background: var(--card-hover-bg);
+    box-shadow: var(--card-hover-shadow);
+    transform: translateY(-1px);
+  }
+
+  /* Page header: บรรทัดเล็กด้านบน + หัวข้อใหญ่ + คำอธิบาย */
   .page-header {
-    @apply flex items-center justify-between gap-4 mb-5;
+    @apply flex flex-wrap items-end justify-between gap-4 mb-6;
+  }
+  .page-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-blue mb-1.5;
   }
   .page-title {
-    @apply text-xl font-bold text-gray-900;
+    @apply text-[26px] md:text-[32px] leading-[1.15] font-semibold tracking-tight text-brand-navy;
   }
   .page-subtitle {
-    @apply text-sm text-gray-500 mt-0.5;
+    @apply text-sm text-gray-500 mt-1.5;
   }
   /* Section label */
   .section-label {
-    @apply text-xs font-semibold text-gray-500 uppercase tracking-wide;
+    @apply text-[11px] font-semibold text-gray-500 uppercase tracking-[0.12em];
   }
   /* Standard form field */
   .field-input {
-    @apply w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm
-           text-gray-900 placeholder-gray-400 bg-white
-           focus:outline-none focus:ring-2 focus:ring-gray-900/8
-           focus:border-gray-400 transition-colors;
+    @apply w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm
+           text-gray-900 placeholder-gray-400 bg-white/90
+           focus:outline-none focus:ring-2 focus:ring-brand-blue/15
+           focus:border-brand-blue/50 transition-colors;
   }
+
+  /* ── Segmented toggle (เลือกช่วงเวลา / มุมมอง / เรียงตาม) ── */
+  .seg {
+    @apply inline-flex items-center gap-0.5 rounded-full p-1 max-w-full overflow-x-auto;
+    background: var(--seg-bg);
+    border: 1px solid var(--seg-border);
+    box-shadow: var(--seg-shadow);
+  }
+  .seg-item {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-full px-3.5 py-1.5
+           text-[13px] font-medium text-gray-500 transition-colors hover:text-brand-navy;
+  }
+  .seg-item.is-active, .seg-item[data-active="true"], .seg-item[aria-pressed="true"] {
+    @apply bg-brand-navy text-white shadow-sm hover:text-white;
+  }
+
+  /* ── Chips: ตัวกรอง + สถานะ ── */
+  .chip {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-gray-200 bg-white/70
+           px-3 py-1 text-xs font-medium text-gray-600 transition-colors;
+  }
+  button.chip:hover, a.chip:hover { @apply border-gray-300 text-brand-navy bg-white; }
+  .chip.is-active, .chip[data-active="true"], .chip[aria-pressed="true"] {
+    @apply bg-brand-navy border-brand-navy text-white;
+  }
+  .chip-ok    { @apply border-transparent bg-emerald-50 text-emerald-700; }
+  .chip-warn  { @apply border-transparent bg-amber-50 text-amber-700; }
+  .chip-bad   { @apply border-transparent bg-red-50 text-red-700; }
+  .chip-info  { @apply border-transparent bg-brand-blue/10 text-brand-blue; }
+  .chip-muted { @apply border-transparent bg-gray-100 text-gray-600; }
+  .chip-dot   { @apply h-1.5 w-1.5 rounded-full bg-current shrink-0; }
+
+  /* ── Underline tabs พร้อมตัวนับ ── */
+  .utabs {
+    @apply flex items-center gap-6 border-b border-gray-200/80 overflow-x-auto;
+  }
+  .utab {
+    @apply relative inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 pb-3 pt-1
+           text-sm font-medium text-gray-500 transition-colors hover:text-brand-navy;
+  }
+  .utab.is-active, .utab[data-active="true"], .utab[aria-selected="true"] {
+    @apply text-brand-navy font-semibold;
+  }
+  .utab.is-active::after, .utab[data-active="true"]::after, .utab[aria-selected="true"]::after {
+    content: "";
+    @apply absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-brand-blue;
+  }
+  .utab-count {
+    @apply rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-gray-500 tabular-nums;
+  }
+  .utab.is-active .utab-count, .utab[data-active="true"] .utab-count, .utab[aria-selected="true"] .utab-count {
+    @apply bg-brand-blue/10 text-brand-blue;
+  }
+
+  /* ── KPI tiles (กล่องตัวเลขสีอ่อน) ── */
+  .kpi {
+    @apply relative flex flex-col gap-1 rounded-2xl p-4 md:p-5 overflow-hidden;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    box-shadow: var(--kpi-shadow);
+  }
+  .kpi-label { @apply text-xs font-medium text-gray-500; }
+  .kpi-value { @apply text-[26px] md:text-[30px] leading-none font-semibold tracking-tight text-brand-navy tabular-nums; }
+  .kpi-hint  { @apply text-xs text-gray-500; }
+  .kpi-blue  { background: linear-gradient(160deg, rgba(29, 72, 243, 0.12), rgba(29, 72, 243, 0.04)); border-color: rgba(29, 72, 243, 0.10); }
+  .kpi-sky   { background: linear-gradient(160deg, rgba(23, 124, 254, 0.14), rgba(23, 124, 254, 0.04)); border-color: rgba(23, 124, 254, 0.10); }
+  .kpi-mist  { background: var(--kpi-mist-bg); border-color: var(--kpi-mist-border); }
+  .kpi-navy  { background: var(--kpi-navy-bg); border-color: rgba(255, 255, 255, 0.08); }
+  .kpi-navy .kpi-label, .kpi-navy .kpi-hint { @apply text-white/70; }
+  .kpi-navy .kpi-value { @apply text-white; }
+  .kpi-warm  { background: linear-gradient(160deg, rgba(255, 185, 92, 0.22), rgba(252, 223, 200, 0.25)); border-color: rgba(255, 185, 92, 0.18); }
+  .delta-up   { @apply inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 tabular-nums; }
+  .delta-down { @apply inline-flex items-center gap-0.5 rounded-full bg-red-50 px-1.5 py-0.5 text-[11px] font-semibold text-red-700 tabular-nums; }
+  .delta-flat { @apply inline-flex items-center gap-0.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-600 tabular-nums; }
+
+  /* ── ตารางแบบรายงาน ── */
+  .tbl { @apply w-full text-sm; }
+  .tbl thead th {
+    @apply px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 whitespace-nowrap
+           border-b border-gray-200/80;
+  }
+  .tbl tbody td { @apply px-4 py-3 border-b border-gray-100 align-middle; }
+  .tbl tbody tr:last-child td { @apply border-b-0; }
+  .tbl tbody tr { @apply transition-colors; }
+  .tbl tbody tr:hover { @apply bg-brand-mist/70; }
+  .tbl .num { @apply text-right tabular-nums; }
+
+  /* ── แถบวัดในแถว (meter) ── */
+  .meter { @apply relative h-1.5 w-full rounded-full bg-gray-200/80 overflow-visible; }
+  .meter-fill { @apply absolute inset-y-0 left-0 rounded-full bg-brand-blue; }
+  .meter-mark { @apply absolute -top-1 h-3.5 w-0.5 rounded-full bg-brand-navy/60; }
+
+  /* ช่องค้นหาแบบเม็ดยา */
+  .search-pill {
+    @apply flex items-center gap-2 rounded-full border border-gray-200 bg-white/80 px-3.5 py-2 text-sm text-gray-700
+           focus-within:border-brand-blue/50 focus-within:ring-2 focus-within:ring-brand-blue/15 transition-colors;
+  }
+  .search-pill input { @apply w-full min-w-0 bg-transparent outline-none placeholder-gray-400; box-shadow: none !important; }
 }
 
 /* ── Pinterest-style status badge utilities ──────────────────────────────────── */
@@ -123,6 +388,11 @@
 .badge-error    { background:#FFF0F0; color:#9B2525; border:1px solid #F5B8B8; }
 .badge-draft    { background:#F0F4FF; color:#2840A0; border:1px solid #BAC8F5; }
 .badge-neutral  { background:#F5F5F5; color:#555555; border:1px solid #E0E0E0; }
+.dark .badge-done     { background:rgba(16,185,129,0.14); color:#6ee7b7; border-color:rgba(16,185,129,0.3); }
+.dark .badge-review   { background:rgba(245,158,11,0.14); color:#fcd34d; border-color:rgba(245,158,11,0.3); }
+.dark .badge-error    { background:rgba(239,68,68,0.14); color:#fca5a5; border-color:rgba(239,68,68,0.3); }
+.dark .badge-draft    { background:rgba(99,132,255,0.16); color:#a9bcff; border-color:rgba(99,132,255,0.3); }
+.dark .badge-neutral  { background:rgba(255,255,255,0.07); color:#c8d0e4; border-color:rgba(255,255,255,0.12); }
 
 /* ── Animations ──────────────────────────────────────────────────────────────── */
 @keyframes pulse-ring {
@@ -155,6 +425,14 @@
 .jarvis-prose th { background: oklch(0.96 0 0); padding: 7px 12px; text-align: left; font-weight: 600; border: 1px solid oklch(0.91 0 0); }
 .jarvis-prose td { padding: 7px 12px; border: 1px solid oklch(0.91 0 0); }
 .jarvis-prose tr:nth-child(even) td { background: oklch(0.985 0 0); }
+.dark .jarvis-prose { color: #dfe5f5; }
+.dark .jarvis-prose h3, .dark .jarvis-prose blockquote { color: #8e9aba; }
+.dark .jarvis-prose ul li::before { color: #68769c; }
+.dark .jarvis-prose code { background: #1b264a; }
+.dark .jarvis-prose blockquote { border-left-color: #364471; }
+.dark .jarvis-prose th { background: #1b264a; border-color: #2c3964; }
+.dark .jarvis-prose td { border-color: #2c3964; }
+.dark .jarvis-prose tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
 
 /* ── Article preview ─────────────────────────────────────────────────────────── */
 .article-preview { font-family: var(--font-sarabun), 'Sarabun', sans-serif; line-height: 1.8; }

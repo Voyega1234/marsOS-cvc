@@ -68,12 +68,12 @@ export function VersionHistoryClient({ promptId, promptName, currentVersion, ver
       <div className="flex items-center gap-3">
         <Link
           href={`/prompts/${promptId}`}
-          className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+          className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
         >
           <ChevronLeft className="h-5 w-5" />
         </Link>
         <div>
-          <h1 className="text-xl font-bold text-brand-navy flex items-center gap-2">
+          <h1 className="page-title !text-xl flex items-center gap-2">
             <History className="h-5 w-5 text-gray-500" />
             Version History
           </h1>
@@ -87,14 +87,14 @@ export function VersionHistoryClient({ promptId, promptName, currentVersion, ver
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap gap-4 text-xs text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-3">
+      <div className="flex flex-wrap gap-4 text-xs text-gray-500 glass rounded-3xl px-4 py-3">
         <span className="flex items-center gap-1.5"><GitBranch className="h-3.5 w-3.5 text-blue-500" /> Each save auto-creates a snapshot</span>
         <span className="flex items-center gap-1.5"><RotateCcw className="h-3.5 w-3.5 text-green-500" /> Restoring auto-snapshots the current state first</span>
         <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5 text-gray-400" /> Snapshot stores the state BEFORE the save</span>
       </div>
 
       {versions.length === 0 ? (
-        <div className="bg-white border border-gray-100 rounded-xl p-16 text-center">
+        <div className="glass rounded-3xl p-16 text-center">
           <History className="h-12 w-12 mx-auto mb-3 text-gray-200" />
           <p className="text-sm font-medium text-gray-500">No snapshots yet</p>
           <p className="text-xs text-gray-400 mt-1">Edit and save the prompt to create the first snapshot.</p>
@@ -113,7 +113,7 @@ export function VersionHistoryClient({ promptId, promptName, currentVersion, ver
                 <div key={v.id} className="relative pl-12">
                   {/* Dot */}
                   <div className={`absolute left-3.5 top-4 w-3 h-3 rounded-full border-2 ${isLatest
-                    ? "bg-blue-500 border-b border-gray-100lue-500"
+                    ? "bg-blue-500 border-b border-blue-500"
                     : "bg-white border-gray-300"
                     }`} />
 
@@ -248,7 +248,7 @@ export function VersionHistoryClient({ promptId, promptName, currentVersion, ver
             <Button
               onClick={handleRestore}
               disabled={restoring}
-              className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-xl gap-2"
+              className="bg-brand-blue hover:bg-brand-deep text-white rounded-full gap-2"
             >
               <RotateCcw className="h-4 w-4" />
               {restoring ? "Restoring…" : "Restore"}

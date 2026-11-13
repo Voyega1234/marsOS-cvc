@@ -16,6 +16,8 @@ export interface WorkspaceProject {
   notes: string | null;
   projectContext: string | null;
   accentColor?: string;
+  /** โลโก้ลูกค้า (data URL) — มีก็แสดงแทนตัวอักษรย่อ */
+  logoUrl?: string | null;
   gscSiteUrl?: string | null;
   ga4PropertyId?: string | null;
   _count: { articles: number; keywords: number };

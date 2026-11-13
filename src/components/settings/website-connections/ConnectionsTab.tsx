@@ -77,7 +77,7 @@ export function ConnectionsTab({ rows, setRows, onOpenWizard, onGoTo }: Props) {
         <p className="text-sm text-gray-500">{rows.length} connections ทั้งหมด</p>
         <button
           onClick={onOpenWizard}
-          className="text-sm font-semibold text-indigo-600 hover:text-indigo-700"
+          className="text-sm font-semibold text-brand-blue hover:text-brand-deep"
         >
           + Connect Website ใหม่
         </button>
@@ -85,7 +85,7 @@ export function ConnectionsTab({ rows, setRows, onOpenWizard, onGoTo }: Props) {
 
       <div className="space-y-4">
         {rows.map((row) => (
-          <div key={row.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div key={row.id} className="glass rounded-3xl overflow-hidden">
             <div className="flex flex-wrap items-start justify-between gap-3 px-6 py-4 border-b border-gray-100">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -212,7 +212,7 @@ function ConfigureDrawer({ row, onClose }: { row: ConnectionRow | null; onClose:
       widthClassName="max-w-xl"
       footer={
         <>
-          <button onClick={handleSave} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold">
+          <button onClick={handleSave} className="px-4 py-2 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold">
             บันทึก Mapping
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-500 hover:text-gray-700 text-sm">
@@ -233,7 +233,7 @@ function ConfigureDrawer({ row, onClose }: { row: ConnectionRow | null; onClose:
             <input
               value={m.sourceField}
               onChange={(e) => updateSource(idx, e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-mono text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              className="w-full rounded-xl border border-gray-200 px-2.5 py-1.5 text-xs font-mono text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
             />
           </div>
         ))}
@@ -261,7 +261,7 @@ function RotateCredentialModal({ row, onClose }: { row: ConnectionRow | null; on
           หลังยืนยัน ระบบจะสร้าง Application Password / Token ใหม่ฝั่ง Server และแจ้งผู้ดูแลให้ตั้งค่าใหม่ในแหล่งข้อมูลปลายทาง
         </p>
         <div className="flex items-center gap-2 pt-2">
-          <button onClick={handleConfirm} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold">
+          <button onClick={handleConfirm} className="px-4 py-2 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold">
             ยืนยัน Rotate
           </button>
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-500 hover:text-gray-700 text-sm">

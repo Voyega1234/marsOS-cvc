@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
 import { loadAIJobsView } from "@/lib/ai-jobs-view";
+import { PageHeader } from "@/components/ds";
 import { AIJobsClient } from "@/components/professional/AIJobsClient";
 
 export const metadata: Metadata = { title: "AI Cost · Settings" };
@@ -19,12 +20,11 @@ export default async function SettingsAiCostPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-brand-navy">AI Cost</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          ค่าใช้จ่าย AI ทั้งหมด — แยกตาม client project, ลูกค้า Upload Article และงาน Studio · {view.jobs.length} jobs
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Settings"
+        title="AI Cost"
+        subtitle={`ค่าใช้จ่าย AI ทั้งหมด — แยกตาม client project, ลูกค้า Upload Article และงาน Studio · ${view.jobs.length} jobs`}
+      />
       <AIJobsClient {...view} />
     </div>
   );

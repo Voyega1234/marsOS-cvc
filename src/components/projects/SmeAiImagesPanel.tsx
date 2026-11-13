@@ -125,7 +125,7 @@ export default function SmeAiImagesPanel({ articleId, themeColors, html, hasCove
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="bg-white/70 border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
       <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><Sparkles size={12} /> สร้างรูปด้วย Mars</p>
       <p className="text-[11px] text-gray-500">ใช้ Image Prompt + ภาพตัวอย่างจาก Content Engine ของลูกค้านี้ · ใช้เวลาประมาณ 1-2 นาที</p>
       {disabledReason && <p className="text-[11px] text-amber-600">{disabledReason}</p>}

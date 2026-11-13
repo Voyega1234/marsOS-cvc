@@ -159,7 +159,7 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 space-y-2">
+      <div className="rounded-2xl border border-white/80 bg-white/70 px-4 py-3 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className={`text-sm font-semibold ${missingTypes.length === 0 ? "text-emerald-700" : "text-amber-700"}`}>
             {missingTypes.length === 0
@@ -189,8 +189,8 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
       </div>
       {/* โปรเจกต์ใหม่ยังไม่มีชุด CE — โชว์ทั้งสองโหมด (ทางลัดตั้งค่าครั้งแรก ไม่ต้องหาในโหมดขั้นสูง) */}
       {userRole !== "CLIENT" && items.every((i) => OPTIONAL_LAYER_TYPES.has(i.type)) && (
-        <div className="flex items-center justify-between rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-3">
-          <p className="text-sm text-indigo-700">Project นี้ยังไม่มีชุด Content Engine — เริ่มต้นได้เร็วขึ้นด้วยการคัดลอกชุด Active จาก Studio</p>
+        <div className="flex items-center justify-between rounded-2xl border border-dashed border-brand-blue/30 bg-brand-blue/10 px-4 py-3">
+          <p className="text-sm text-brand-blue">Project นี้ยังไม่มีชุด Content Engine — เริ่มต้นได้เร็วขึ้นด้วยการคัดลอกชุด Active จาก Studio</p>
           <Button size="sm" className="gap-1.5" disabled={copying} onClick={copyFromStudio}>
             {copying ? <Loader2 className="size-3.5 animate-spin" /> : <Copy className="size-3.5" />}
             คัดลอกชุดเริ่มต้นจาก Studio

@@ -15,6 +15,7 @@ import type { UploadArticleDTO, UploadClientDTO, UploadOwnerTag } from "@/lib/up
 import type { OwnerControls } from "@/components/upload-article/ArticleOwnerSelect";
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { useUploadSetupChecklist } from "@/components/upload-article/settings/useUploadSetupChecklist";
+import ClientAvatar from "@/components/upload-article/ClientAvatar";
 
 // แต่ละแท็บโหลดโค้ดของตัวเองตอนถูกเปิดครั้งแรก (Radix แสดงเฉพาะแท็บที่เลือกอยู่แล้ว) — หน้าแรกไม่ต้องแบกโค้ดครบทุกแท็บ
 // ระหว่างรอแสดงตัวหมุนแบบเดียวกับตอนโหลดข้อมูลลูกค้า
@@ -220,29 +221,41 @@ export default function UploadClientWorkspace({
   };
 
   return (
-    <div className="px-4 py-6 sm:px-6 w-full space-y-5">
-      <div className="flex items-center gap-3 flex-wrap">
+    <div className="w-full space-y-5">
+      <div className="page-header !mb-0">
         {!isPbn && (
-          <Link href="/upload-article" className="text-gray-400 hover:text-gray-600">
-            <ArrowLeft size={18} />
+          <Link href="/upload-article" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/80 bg-white/70 text-gray-500 hover:text-brand-navy hover:bg-white">
+            <ArrowLeft size={16} />
           </Link>
         )}
+        {/* โลโก้ลูกค้า — กดเพื่ออัปโหลด/เปลี่ยน (PBN ไม่ใช่ลูกค้ารายเดียว จึงไม่แสดง) */}
+        {!isPbn && (
+          <ClientAvatar
+            clientId={client.id}
+            name={client.name}
+            theme={client.theme.theme}
+            logo={client.logo ?? null}
+            size={48}
+            onChange={logo => setClient(prev => prev ? { ...prev, logo } : prev)}
+          />
+        )}
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-bold text-brand-navy truncate">{client.name}</h1>
-          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+          <p className="page-eyebrow">{isPbn ? "PBN Backlinks" : "Upload Article"}</p>
+          <h1 className="page-title truncate">{client.name}</h1>
+          <p className="page-subtitle flex items-center gap-1.5">
             {isPbn
-              ? <><Network size={11} /> เขียนบทความหลายเวอร์ชันต่อ keyword แล้ว push ไปเว็บ PBN คนละเว็บ</>
-              : <><Globe size={11} /> {host || "ยังไม่ตั้งเว็บไซต์"}</>}
+              ? <><Network size={13} /> เขียนบทความหลายเวอร์ชันต่อ keyword แล้ว push ไปเว็บ PBN คนละเว็บ</>
+              : <><Globe size={13} /> {host || "ยังไม่ตั้งเว็บไซต์"}</>}
           </p>
         </div>
         <button
           // ยังตั้งค่าไม่ครบ = เปิดหน้า Checklist ให้เห็นว่าขาดอะไร
           onClick={() => goTab("settings", undefined, checklistMissing > 0 && tab !== "settings" ? "checklist" : undefined)}
           title={checklistMissing > 0 ? `Project Setting — ยังตั้งค่าไม่ครบ ${checklistMissing} ข้อ` : "Project Setting"}
-          className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-            tab === "settings" ? "bg-brand-mist text-brand-blue border-brand-soft/60"
+          className={`relative flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold border transition-colors ${
+            tab === "settings" ? "bg-brand-blue/10 text-brand-blue border-brand-blue/20"
               : checklistMissing > 0 ? "bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
-              : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+              : "bg-white/80 text-gray-600 border-gray-200 hover:bg-white hover:text-brand-navy"
           }`}
         >
           <Settings size={13} /> Project Setting
@@ -255,13 +268,13 @@ export default function UploadClientWorkspace({
       </div>
 
       <Tabs value={tab === "settings" ? "" : tab} onValueChange={v => goTab(v as TabId)}>
-        <TabsList className="flex-wrap h-auto">
+        <TabsList className="utabs !inline-flex !h-auto !w-full !justify-start !rounded-none !border-0 !border-b !border-gray-200/80 !bg-transparent !p-0">
           {tabOrder.map(t => (
-            <TabsTrigger key={t} value={t}>{TAB_LABELS[t]}</TabsTrigger>
+            <TabsTrigger key={t} value={t} className="utab !rounded-none !bg-transparent !px-0 !pb-3 !pt-1 data-[state=active]:!bg-transparent data-[state=active]:!shadow-none data-[state=active]:!text-brand-navy">{TAB_LABELS[t]}</TabsTrigger>
           ))}
         </TabsList>
 
-        <TabsContent value="keyword">
+        <TabsContent value="keyword" className="mt-5">
           <KeywordTab
             client={client}
             onWrite={ids => { setWritePreselect(ids); goTab("write"); }}
@@ -271,7 +284,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="write">
+        <TabsContent value="write" className="mt-5">
           <WriteTab
             client={client}
             articles={articles}
@@ -286,7 +299,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="import">
+        <TabsContent value="import" className="mt-5">
           <ImportTab
             client={client}
             articles={visibleArticles}
@@ -301,7 +314,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="outline">
+        <TabsContent value="outline" className="mt-5">
           <ImportOutlineTab
             clientId={clientId}
             writeProps={{
@@ -320,7 +333,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="generate">
+        <TabsContent value="generate" className="mt-5">
           <GenerateTab
             pbn={isPbn}
             client={client}
@@ -337,7 +350,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="review">
+        <TabsContent value="review" className="mt-5">
           <ReviewTab
             client={client}
             setClient={setClient}
@@ -354,7 +367,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="push">
+        <TabsContent value="push" className="mt-5">
           <PushTab
             client={client}
             setClient={setClient}
@@ -372,7 +385,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="publish">
+        <TabsContent value="publish" className="mt-5">
           <PublishTab
             articles={visibleArticles}
             goToPush={id => goTab("push", id)}
@@ -380,7 +393,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="index">
+        <TabsContent value="index" className="mt-5">
           <IndexTab
             client={client}
             setClient={setClient}
@@ -392,7 +405,7 @@ export default function UploadClientWorkspace({
           />
         </TabsContent>
 
-        <TabsContent value="report">
+        <TabsContent value="report" className="mt-5">
           {isPbn ? (
             <PbnReportTab onOpenSettings={() => openSettings("website")} />
           ) : (
@@ -407,7 +420,7 @@ export default function UploadClientWorkspace({
         </TabsContent>
 
         {isPbn && (
-          <TabsContent value="monitor">
+          <TabsContent value="monitor" className="mt-5">
             <PbnMonitorTab onOpenSettings={() => openSettings("website")} />
           </TabsContent>
         )}

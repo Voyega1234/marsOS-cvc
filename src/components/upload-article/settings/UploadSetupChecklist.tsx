@@ -61,8 +61,8 @@ export default function UploadSetupChecklist({ clientId, onNavigate, onStatus }:
     // ข้อแนะนำที่ยังไม่ตั้งไม่ใช่ปัญหา — ใช้สีเทา ไม่ใช่สีแดง
     const warn = !item.ok && item.required;
     return (
-      <div className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${
-        item.ok ? "border-emerald-100 bg-emerald-50/40" : warn ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"
+      <div className={`flex items-start gap-3 rounded-2xl border p-3.5 transition-colors shadow-sm ${
+        item.ok ? "border-emerald-100 bg-emerald-50/40" : warn ? "border-red-200 bg-red-50" : "border-white/80 bg-white/75"
       }`}>
         {item.ok
           ? <CheckCircle2 size={17} className="text-emerald-500 shrink-0 mt-0.5" />
@@ -76,8 +76,8 @@ export default function UploadSetupChecklist({ clientId, onNavigate, onStatus }:
         </div>
         {!item.ok && (
           <button onClick={() => onNavigate(item.section)}
-            className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-90 ${
-              warn ? "bg-red-600 text-white" : "bg-gray-100 text-gray-600"
+            className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-90 ${
+              warn ? "bg-red-600 text-white" : "bg-white text-gray-600 border border-gray-200"
             }`}>
             ไปตั้งค่า <ArrowRight size={11} />
           </button>
@@ -88,7 +88,7 @@ export default function UploadSetupChecklist({ clientId, onNavigate, onStatus }:
 
   return (
     <div className="space-y-4">
-      <div className={`rounded-2xl border p-4 ${requiredReady ? "border-emerald-200 bg-emerald-50/60" : "border-red-200 bg-red-50"}`}>
+      <div className={`rounded-3xl border p-4 shadow-sm ${requiredReady ? "border-emerald-200 bg-emerald-50/60" : "border-red-200 bg-red-50"}`}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
             {allDone && <PartyPopper size={16} className="text-emerald-600" />}
@@ -103,7 +103,7 @@ export default function UploadSetupChecklist({ clientId, onNavigate, onStatus }:
           <div className="flex items-center gap-2">
             <span className={`text-sm font-bold tabular-nums ${requiredReady ? "text-brand-navy" : "text-red-600"}`}>{requiredDone}/{requiredItems.length} ข้อบังคับ</span>
             <button onClick={load} disabled={loading} title="ตรวจใหม่"
-              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors disabled:opacity-50">
+              className="p-1.5 rounded-full text-gray-400 hover:bg-gray-100 transition-colors disabled:opacity-50">
               <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
             </button>
           </div>
@@ -115,14 +115,14 @@ export default function UploadSetupChecklist({ clientId, onNavigate, onStatus }:
       </div>
 
       <div>
-        <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">
+        <h3 className="section-label mb-2">
           ต้องตั้งก่อนเริ่มงาน ({requiredItems.filter(i => i.ok).length}/{requiredItems.length})
         </h3>
         <div className="space-y-2">{requiredItems.map(item => <ItemRow key={item.id} item={item} />)}</div>
       </div>
 
       <div>
-        <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">
+        <h3 className="section-label mb-2">
           ไม่บังคับ ({optionalItems.filter(i => i.ok).length}/{optionalItems.length})
         </h3>
         <div className="space-y-2">{optionalItems.map(item => <ItemRow key={item.id} item={item} />)}</div>

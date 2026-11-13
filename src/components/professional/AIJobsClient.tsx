@@ -3,6 +3,7 @@
 import { useState, useMemo, Fragment } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { th } from "date-fns/locale";
+import { KpiTile, Panel, DonutChart, MeterBar, EmptyState } from "@/components/ds";
 import {
   Zap, DollarSign, Cpu, AlertCircle, CheckCircle2,
   XCircle, Clock, ChevronDown, ChevronUp, Filter,
@@ -139,119 +140,111 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
   const allSources  = Array.from(new Map(jobs.map(j => [sourceKey(j), sourceText(j)])).entries())
     .sort((a, b) => a[1].localeCompare(b[1], "th"));
 
+  const typeSegments = [...jobCountByType].sort((x, y) => y.cost - x.cost)
+    .map(t => ({ label: JOB_TYPE_LABEL[t.jobType] ?? t.jobType, value: t.cost }));
+
   return (
     <div className="space-y-5 max-w-6xl">
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white border border-gray-200 rounded-2xl p-4">
-          <div className="flex items-center gap-2 mb-2"><DollarSign size={16} className="text-amber-500" /><span className="text-xs text-gray-500">ค่าใช้จ่ายเดือนนี้</span></div>
-          <div className="text-xl font-bold text-amber-600">{fmt(totalCostMonth)}</div>
-          <div className="text-sm font-semibold text-red-500 mt-0.5">{fmtTHB(totalCostMonth)}</div>
-          <div className="text-[11px] text-gray-400 mt-0.5">AI + API รวมกัน</div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-4">
-          <div className="flex items-center gap-2 mb-2"><DollarSign size={16} className="text-gray-400" /><span className="text-xs text-gray-500">ค่าใช้จ่ายทั้งหมด</span></div>
-          <div className="text-xl font-bold text-gray-700">{fmt(totalCostAll)}</div>
-          <div className="text-sm font-semibold text-red-500 mt-0.5">{fmtTHB(totalCostAll)}</div>
-          <div className="text-[11px] text-gray-400 mt-0.5">all time</div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-4">
-          <div className="flex items-center gap-2 mb-2"><Cpu size={16} className="text-purple-500" /><span className="text-xs text-gray-500">Tokens เดือนนี้</span></div>
-          <div className="text-xl font-bold text-purple-600">{totalTokensMonth.toLocaleString()}</div>
-          <div className="text-[11px] text-gray-400 mt-0.5">tokens</div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-4">
-          <div className="flex items-center gap-2 mb-2"><AlertCircle size={16} className="text-red-400" /><span className="text-xs text-gray-500">ล้มเหลว</span></div>
-          <div className={`text-xl font-bold ${totalFailed > 0 ? "text-red-500" : "text-gray-400"}`}>{totalFailed}</div>
-          <div className="text-[11px] text-gray-400 mt-0.5">need attention</div>
-        </div>
+        <KpiTile tone="blue" icon={<DollarSign size={16} />} label="ค่าใช้จ่ายเดือนนี้" value={fmt(totalCostMonth)}
+          hint={`${fmtTHB(totalCostMonth)} · AI + API รวมกัน`} />
+        <KpiTile tone="sky" icon={<DollarSign size={16} />} label="ค่าใช้จ่ายทั้งหมด" value={fmt(totalCostAll)}
+          hint={`${fmtTHB(totalCostAll)} · all time`} />
+        <KpiTile tone="mist" icon={<Cpu size={16} />} label="Tokens เดือนนี้" value={totalTokensMonth.toLocaleString()} hint="tokens" />
+        <KpiTile tone={totalFailed > 0 ? "warm" : "plain"} icon={<AlertCircle size={16} />} label="ล้มเหลว" value={totalFailed} hint="need attention" />
       </div>
 
-      {/* Cost by project */}
-      {costByProject.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">ค่าใช้จ่ายตาม Client (เดือนนี้)</h3>
-          <div className="space-y-2">
-            {[...costByProject].sort((a, b) => b.cost - a.cost).map(p => {
-              const maxCost = Math.max(...costByProject.map(x => x.cost), 0.0001);
-              return (
-                <div key={p.projectId} className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-24 sm:w-40 shrink-0 min-w-0">
-                    <div className="text-xs text-gray-600 truncate" title={p.projectName}>{p.projectName}</div>
-                    {p.page && (
-                      <span className={`inline-flex items-center px-1.5 rounded-full text-[9px] font-semibold mt-0.5 ${PAGE_BADGE[p.page] ?? PAGE_BADGE.Studio}`}>{p.page}</span>
-                    )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Cost by project */}
+        {costByProject.length > 0 && (
+          <Panel title="ค่าใช้จ่ายตาม Client (เดือนนี้)">
+            <div className="space-y-2.5">
+              {[...costByProject].sort((a, b) => b.cost - a.cost).map(p => {
+                const maxCost = Math.max(...costByProject.map(x => x.cost), 0.0001);
+                return (
+                  <div key={p.projectId} className="flex items-center gap-2 sm:gap-3">
+                    <div className="w-24 sm:w-40 shrink-0 min-w-0">
+                      <div className="text-xs text-gray-600 truncate" title={p.projectName}>{p.projectName}</div>
+                      {p.page && (
+                        <span className={`inline-flex items-center px-1.5 rounded-full text-[9px] font-semibold mt-0.5 ${PAGE_BADGE[p.page] ?? PAGE_BADGE.Studio}`}>{p.page}</span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <MeterBar value={(p.cost / maxCost) * 100} max={100} tone="blue" />
+                    </div>
+                    <div className="text-right shrink-0 w-20 sm:w-28">
+                      <div className="text-xs font-mono text-brand-navy">{fmt(p.cost)}</div>
+                      <div className="text-[10px] font-semibold text-red-500">{fmtTHB(p.cost)}</div>
+                    </div>
+                    <span className="text-[10px] text-gray-400 w-12 sm:w-14 text-right shrink-0">{p.jobs} jobs</span>
                   </div>
-                  <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-amber-400 rounded-full" style={{ width: `${(p.cost / maxCost) * 100}%` }} />
-                  </div>
-                  <div className="text-right shrink-0 w-20 sm:w-28">
-                    <div className="text-xs font-mono text-amber-600">{fmt(p.cost)}</div>
-                    <div className="text-[10px] font-semibold text-red-500">{fmtTHB(p.cost)}</div>
-                  </div>
-                  <span className="text-[10px] text-gray-400 w-12 sm:w-14 text-right shrink-0">{p.jobs} jobs</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                );
+              })}
+            </div>
+          </Panel>
+        )}
 
-      {/* Cost by type */}
-      {jobCountByType.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">ค่าใช้จ่ายตามประเภท</h3>
-          <div className="flex flex-wrap gap-2">
-            {[...jobCountByType].sort((a, b) => b.cost - a.cost).map(t => (
-              <div key={t.jobType} className="flex flex-wrap max-w-full items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-xl border border-gray-100">
-                <span className="text-xs text-gray-600">{JOB_TYPE_LABEL[t.jobType] ?? t.jobType}</span>
-                <span className="text-xs font-semibold text-amber-600">{fmt(t.cost)}</span>
-                <span className="text-[10px] font-semibold text-red-500">{fmtTHB(t.cost)}</span>
-                <span className="text-[10px] text-gray-400">{t.count}x</span>
+        {/* Cost by type */}
+        {jobCountByType.length > 0 && (
+          <Panel title="ค่าใช้จ่ายตามประเภท">
+            {typeSegments.some(t => t.value > 0) && (
+              <div className="mb-4 flex justify-center">
+                <DonutChart segments={typeSegments} size={160} showLegend={false} formatValue={(v) => fmt(v)} />
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            )}
+            <div className="flex flex-wrap gap-2">
+              {[...jobCountByType].sort((a, b) => b.cost - a.cost).map(t => (
+                <div key={t.jobType} className="flex flex-wrap max-w-full items-center gap-2 px-3 py-1.5 bg-white/70 rounded-xl border border-white/80">
+                  <span className="text-xs text-gray-600">{JOB_TYPE_LABEL[t.jobType] ?? t.jobType}</span>
+                  <span className="text-xs font-semibold text-brand-navy">{fmt(t.cost)}</span>
+                  <span className="text-[10px] font-semibold text-red-500">{fmtTHB(t.cost)}</span>
+                  <span className="text-[10px] text-gray-400">{t.count}x</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        )}
+      </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap rounded-2xl border border-white/80 bg-white/70 px-4 py-2.5 shadow-sm">
         <Filter size={13} className="text-gray-400" />
         <select value={filterType} onChange={e => setFilterType(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white">
+          className="field-input !w-auto !py-1.5 text-xs">
           <option value="all">ทุกประเภท</option>
           {allTypes.map(t => <option key={t} value={t}>{JOB_TYPE_LABEL[t] ?? t}</option>)}
         </select>
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white">
+          className="field-input !w-auto !py-1.5 text-xs">
           <option value="all">ทุก Status</option>
           {allStatuses.map(s => <option key={s} value={s}>{STATUS_CONFIG[s]?.label ?? s}</option>)}
         </select>
         <select value={filterSource} onChange={e => setFilterSource(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white max-w-[240px]">
+          className="field-input !w-auto !py-1.5 text-xs max-w-[240px]">
           <option value="all">ทุกโปรเจกต์ / หน้า</option>
           {allSources.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
         <span className="text-xs text-gray-400">{filtered.length} jobs</span>
-        <span className="text-xs font-mono text-amber-600">{fmt(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
+        <span className="text-xs font-mono text-brand-navy">{fmt(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
         <span className="text-xs font-semibold text-red-500">{fmtTHB(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
         <span className="text-xs text-purple-500">{filtered.reduce((s, j) => s + (j.tokenUsed ?? 0), 0).toLocaleString()} tokens</span>
       </div>
 
       {/* Jobs table */}
       {filtered.length > 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="glass rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left">
+            <table className="tbl w-full text-left">
               <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
+                <tr>
                   {["ประเภท", "โปรเจกต์", "Model", "Status", "Tokens", "ค่าใช้จ่าย", "โดย", "เวลา"].map(h => (
                     <th key={h} className="px-4 py-2.5 text-[11px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody>
                 {filtered.map(j => {
                   const sc = STATUS_CONFIG[j.status] ?? STATUS_CONFIG.PENDING;
                   const provColor = PROVIDER_COLOR[j.modelProvider] ?? "bg-gray-100 text-gray-500";
@@ -260,7 +253,7 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
                     <Fragment key={j.id}>
                       <tr
                         key={j.id}
-                        className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                        className="transition-colors cursor-pointer"
                         onClick={() => setExpandedId(isExpanded ? null : j.id)}
                       >
                         <td className="px-4 py-3">
@@ -292,7 +285,7 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-xs font-mono text-purple-600">
+                          <span className="text-xs font-mono text-brand-navy">
                             {j.tokenUsed ? j.tokenUsed.toLocaleString() : "—"}
                           </span>
                           {j.externalCalls != null && j.externalCalls > 0 && (
@@ -300,7 +293,7 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="text-xs font-mono text-amber-600">
+                          <div className="text-xs font-mono text-brand-navy">
                             {jobTotalCost(j) > 0 ? fmt(jobTotalCost(j)) : "—"}
                           </div>
                           {jobTotalCost(j) > 0 && (
@@ -345,11 +338,7 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
           </div>
         </div>
       ) : (
-        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
-          <Zap size={32} className="text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">ยังไม่มี AI Jobs</p>
-          <p className="text-gray-400 text-sm mt-1">เมื่อเขียนบทความหรือสร้างรูป จะแสดง cost ที่นี่อัตโนมัติ</p>
-        </div>
+        <EmptyState icon={<Zap size={22} />} title="ยังไม่มี AI Jobs" description="เมื่อเขียนบทความหรือสร้างรูป จะแสดง cost ที่นี่อัตโนมัติ" />
       )}
     </div>
   );

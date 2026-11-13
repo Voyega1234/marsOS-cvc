@@ -215,7 +215,7 @@ export function ClientCommentsTab({ items, scope, canEdit }: Props) {
           </>
         }
       >
-        {uploading && <p className="mb-2 text-xs text-indigo-600">{uploading}</p>}
+        {uploading && <p className="mb-2 text-xs text-brand-blue">{uploading}</p>}
         <RestrictionFileList files={files} canEdit={canEdit} deleting={deleting} onDelete={(g) => void deleteGroup(g)} />
       </SectionCard>
       {confirmDialog}

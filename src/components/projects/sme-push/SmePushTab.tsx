@@ -448,7 +448,7 @@ export default function SmePushTab({
   return (
     <div className="space-y-4 w-full">
       {/* ─── Settings card ─── */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-5 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5">
@@ -465,7 +465,7 @@ export default function SmePushTab({
         {connections.length > 0 ? (
           <div className="flex items-center gap-2 flex-wrap">
             <select value={selectedConnId} onChange={e => setSelectedConnId(e.target.value)}
-              className="h-8 flex-1 min-w-[220px] rounded-md border border-gray-200 px-2 text-xs bg-white">
+              className="h-8 flex-1 min-w-[220px] rounded-xl border border-gray-200 px-2.5 text-xs bg-white">
               <option value="">— ไม่เลือก (ใช้ Project Settings หรือ .env) —</option>
               {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.siteUrl})</option>)}
             </select>
@@ -530,7 +530,7 @@ export default function SmePushTab({
         {publishMode === 'draft' && <p className="text-[11px] text-gray-400">Re-push บทความที่ Live อยู่แล้ว = อัปเดตเนื้อหาและคง Live ไว้ (ไม่ดึงลงเป็น Draft)</p>}
 
         {/* ผลสแกนเว็บปลายทาง (อ่านอย่างเดียว) */}
-        <div className="border border-gray-100 rounded-lg px-3 py-2 space-y-1">
+        <div className="border border-white/80 bg-white/60 rounded-xl px-3 py-2 space-y-1">
           <p className="text-[11px] font-semibold text-gray-600">ผลสแกนเว็บปลายทาง (ตั้งค่าที่แท็บ Article Lab &gt; Style)</p>
           {siteScan ? (
             <div className="flex flex-wrap gap-2">
@@ -565,7 +565,7 @@ export default function SmePushTab({
       {/* ─── Article cards ─── */}
       <div className="space-y-3">
         {readyArticles.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-10 bg-white border border-gray-200 rounded-xl">ยังไม่มีบทความพร้อม Push — ไปที่แท็บ Article แล้ว Generate ก่อน</p>
+          <p className="text-sm text-gray-400 text-center py-10 bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl">ยังไม่มีบทความพร้อม Push — ไปที่แท็บ Article แล้ว Generate ก่อน</p>
         )}
         {readyArticles.map(job => {
           const entry = timeline[job.entryIdx]
@@ -582,7 +582,7 @@ export default function SmePushTab({
           const offCount = parsed ? parsed.cards.filter(c => !c.derived && !isCardOn(job.entryIdx, c.id)).length : 0
           const featureCards = parsed ? parsed.cards.filter(c => c.type === 'toc' || c.type === 'faq' || c.type === 'cta') : []
           return (
-            <div key={job.entryIdx} className="bg-white border border-gray-200 rounded-xl p-4 space-y-2.5">
+            <div key={job.entryIdx} className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-5 space-y-2.5">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <label className="flex items-start gap-2 min-w-0">
                   <input type="checkbox" checked={selectedIdx.has(job.entryIdx)} onChange={() => toggleSelect(job.entryIdx)} className="mt-1" />
@@ -590,19 +590,19 @@ export default function SmePushTab({
                     <p className="text-sm font-semibold text-brand-navy truncate">{entry?.title ?? job.title}</p>
                     <p className="text-[11px] text-gray-400 truncate">{entry?.keyword ?? job.keyword}</p>
                     <div className="mt-1 flex items-center gap-2 flex-wrap">
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                        pushing ? 'bg-blue-100 text-blue-700'
-                        : pj?.status === 'error' ? 'bg-rose-50 text-rose-600'
-                        : pushed ? (isDraft ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700')
-                        : 'bg-gray-100 text-gray-500'}`}>
+                      <span className={`chip ${
+                        pushing ? 'chip-info'
+                        : pj?.status === 'error' ? 'chip-bad'
+                        : pushed ? (isDraft ? 'chip-warn' : 'chip-ok')
+                        : 'chip-muted'}`}>
                         {pushing ? 'กำลัง Push...' : pj?.status === 'error' ? 'Push ไม่สำเร็จ' : pushed ? (isDraft ? 'Draft' : 'Push แล้ว') : 'ยังไม่ push'}
                       </span>
                       {dbA?.status === 'REVIEW' && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">ยังไม่ Approve</span>
+                        <span className="chip chip-warn">ยังไม่ Approve</span>
                       )}
                       {liveUrl && (
                         <a href={liveUrl} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 hover:underline">
+                          className="inline-flex items-center gap-1 chip chip-ok hover:underline">
                           <ExternalLink size={9} /> เปิดโพสต์
                         </a>
                       )}
@@ -624,14 +624,14 @@ export default function SmePushTab({
                 <div className="flex items-center gap-2 flex-wrap">
                   {dupCount > 0 && (
                     <span title={`มีแถวในระบบที่ซ้ำกับบทความนี้ ${dupCount} แถว`}
-                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">
+                      className="chip chip-warn">
                       ซ้ำ
                     </span>
                   )}
                   <select value={wpTypeOverride[job.entryIdx] ?? 'auto'}
                     onChange={e => setWpTypeOverride(prev => ({ ...prev, [job.entryIdx]: e.target.value as 'auto' | 'post' | 'page' }))}
                     title={`ประเภทที่จะ push: ${getWpPostType(job.entryIdx)}`}
-                    className="h-8 rounded-md border border-gray-200 px-2 text-xs bg-white">
+                    className="h-8 rounded-xl border border-gray-200 px-2.5 text-xs bg-white">
                     <option value="auto">ตามค่าด้านบน → {getWpPostType(job.entryIdx)}</option>
                     <option value="post">Post</option>
                     <option value="page">Page</option>
@@ -666,7 +666,7 @@ export default function SmePushTab({
                 ? <p className="text-[11px] text-rose-500">โหลดเนื้อหาไม่สำเร็จ — กด Push จะลองโหลดใหม่</p>
                 : <p className="text-[11px] text-gray-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> กำลังโหลดเนื้อหา…</p>)}
               {parsed && (
-                <div className="border border-gray-100 rounded-lg">
+                <div className="border border-white/80 bg-white/60 rounded-xl">
                   <div className="flex items-center gap-1.5 flex-wrap px-2.5 py-1.5">
                     <button type="button" onClick={() => setOpenCardsIdx(prev => { const n = new Set(prev); if (n.has(job.entryIdx)) n.delete(job.entryIdx); else n.add(job.entryIdx); return n })}
                       className="flex items-center gap-1 text-[11px] font-semibold text-gray-600 hover:text-brand-navy">

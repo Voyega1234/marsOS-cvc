@@ -64,31 +64,31 @@ export function KeywordResearchProgress({
   if (progressMeta) {
     const m = progressMeta;
     return (
-      <section className="rounded-2xl border border-[#e3e8f1] bg-white px-6 py-6 shadow-sm">
+      <section className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur px-6 py-6 shadow-sm">
         {/* หัว: กำลังทำอะไร + เวลา */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative h-9 w-9 shrink-0" aria-hidden>
-            <span className="absolute inset-0 rounded-full border-[3px] border-[#e6ecfa]" />
-            <span className="absolute inset-0 animate-spin rounded-full border-[3px] border-transparent border-t-[#155eef]" />
+            <span className="absolute inset-0 rounded-full border-[3px] border-gray-100" />
+            <span className="absolute inset-0 animate-spin rounded-full border-[3px] border-transparent border-t-brand-blue" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-[#17233a]">
+            <p className="truncate text-sm font-bold text-brand-navy">
               กำลังทำ: {m.stepLabel}
             </p>
-            <p className="mt-0.5 text-[11px] text-[#71809c]">
+            <p className="mt-0.5 text-[11px] text-gray-500">
               ขั้นที่ {m.stepIndex}/{m.stepTotal} · ผ่านไปแล้ว {m.elapsedLabel} · เหลืออีกประมาณ{' '}
-              <span className="font-bold text-[#0d4fd8]">{m.remainingLabel}</span> — อย่าปิดหน้านี้
+              <span className="font-bold text-brand-blue">{m.remainingLabel}</span> — อย่าปิดหน้านี้
             </p>
           </div>
-          <span className="rounded-lg bg-[#f0f5ff] px-2.5 py-1.5 text-sm font-bold tabular-nums text-[#0d4fd8]">
+          <span className="rounded-xl bg-brand-mist px-2.5 py-1.5 text-sm font-bold tabular-nums text-brand-blue">
             {m.percent}%
           </span>
         </div>
 
         {/* progress bar รวม */}
-        <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-[#eef1f7]">
+        <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[#155eef] to-[#3b82f6] transition-all duration-700"
+            className="h-full rounded-full bg-gradient-to-r from-brand-blue to-[#3b82f6] transition-all duration-700"
             style={{ width: `${Math.max(2, m.percent)}%` }}
           />
         </div>
@@ -100,10 +100,10 @@ export function KeywordResearchProgress({
               key={`${i}-${ph.label}`}
               className={`flex items-start gap-3 rounded-xl border px-3.5 py-2.5 transition ${
                 ph.state === 'active'
-                  ? 'border-[#b9cdfb] bg-[#f0f5ff]'
+                  ? 'border-brand-blue/20 bg-brand-mist'
                   : ph.state === 'done'
-                    ? 'border-transparent bg-[#f7faf8]'
-                    : 'border-transparent bg-[#fafbfd]'
+                    ? 'border-transparent bg-emerald-50/60'
+                    : 'border-transparent bg-white/60'
               }`}
             >
               <span
@@ -111,24 +111,24 @@ export function KeywordResearchProgress({
                   ph.state === 'done'
                     ? 'bg-[#157347] text-white'
                     : ph.state === 'active'
-                      ? 'border-2 border-[#155eef] text-[#155eef]'
-                      : 'border border-[#dbe1ee] text-[#a7b1c4]'
+                      ? 'border-2 border-brand-blue text-brand-blue'
+                      : 'border border-gray-200 text-gray-400'
                 }`}
               >
                 {ph.state === 'done' ? '✓' : i + 1}
               </span>
               <span className="min-w-0 flex-1">
                 <span className={`block text-xs leading-5 ${
-                  ph.state === 'active' ? 'font-bold text-[#0d4fd8]' : ph.state === 'done' ? 'font-semibold text-[#157347]' : 'font-medium text-[#a7b1c4]'
+                  ph.state === 'active' ? 'font-bold text-brand-blue' : ph.state === 'done' ? 'font-semibold text-[#157347]' : 'font-medium text-gray-400'
                 }`}>
                   {ph.label}
                 </span>
                 {ph.state === 'active' ? (
-                  <span className="mt-0.5 block text-[11px] leading-4 text-[#495975]">{ph.desc}</span>
+                  <span className="mt-0.5 block text-[11px] leading-4 text-gray-600">{ph.desc}</span>
                 ) : null}
               </span>
               <span className={`mt-0.5 shrink-0 text-[11px] tabular-nums ${
-                ph.state === 'done' ? 'text-[#157347]' : ph.state === 'active' ? 'font-bold text-[#0d4fd8]' : 'text-[#a7b1c4]'
+                ph.state === 'done' ? 'text-[#157347]' : ph.state === 'active' ? 'font-bold text-brand-blue' : 'text-gray-400'
               }`}>
                 {ph.state === 'done'
                   ? (ph.actualLabel ? `เสร็จใน ${ph.actualLabel}` : 'เสร็จแล้ว')
@@ -142,19 +142,19 @@ export function KeywordResearchProgress({
 
         {/* log จริงจากเซิร์ฟเวอร์ — บรรทัดล่าสุดเด่นสุด */}
         <div className="mt-4">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#91a0b8]">รายละเอียดจากระบบ (real-time)</p>
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">รายละเอียดจากระบบ (real-time)</p>
           {(logs?.length ?? 0) === 0 ? (
-            <p className="text-xs text-[#a7b1c4]">กำลังเชื่อมต่อเซิร์ฟเวอร์…</p>
+            <p className="text-xs text-gray-400">กำลังเชื่อมต่อเซิร์ฟเวอร์…</p>
           ) : (
-            <ol className="max-h-40 space-y-1.5 overflow-y-auto rounded-xl bg-[#f7f9fd] px-4 py-3 text-left">
+            <ol className="max-h-40 space-y-1.5 overflow-y-auto rounded-xl bg-white/60 px-4 py-3 text-left">
               {logs!.map((line, i) => {
                 const last = i === logs!.length - 1;
                 return (
                   <li
                     key={`${i}-${line}`}
-                    className={`flex items-start gap-2 text-xs leading-5 ${last ? 'font-bold text-[#17233a]' : 'text-[#8b98af]'}`}
+                    className={`flex items-start gap-2 text-xs leading-5 ${last ? 'font-bold text-brand-navy' : 'text-gray-400'}`}
                   >
-                    <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${last ? 'animate-pulse bg-[#155eef]' : 'bg-[#cdd6e6]'}`} />
+                    <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${last ? 'animate-pulse bg-brand-blue' : 'bg-gray-300'}`} />
                     <span>{line}</span>
                   </li>
                 );
@@ -168,28 +168,28 @@ export function KeywordResearchProgress({
   }
 
   return (
-    <section className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-[#e3e8f1] bg-white px-6 py-12 text-center shadow-sm">
+    <section className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-white/80 bg-white/75 backdrop-blur px-6 py-12 text-center shadow-sm">
       <div className="relative mb-5 h-12 w-12" aria-hidden>
-        <span className="absolute inset-0 rounded-full border-[3px] border-[#e6ecfa]" />
-        <span className="absolute inset-0 animate-spin rounded-full border-[3px] border-transparent border-t-[#155eef]" />
+        <span className="absolute inset-0 rounded-full border-[3px] border-gray-100" />
+        <span className="absolute inset-0 animate-spin rounded-full border-[3px] border-transparent border-t-brand-blue" />
       </div>
-      <p className="text-sm font-bold text-[#17233a]">{title}…</p>
-      <p className="mt-1 text-[11px] text-[#91a0b8]">ใช้เวลาสักครู่ ระบบกำลังไล่ทำทีละขั้น — อย่าปิดหน้านี้</p>
+      <p className="text-sm font-bold text-brand-navy">{title}…</p>
+      <p className="mt-1 text-[11px] text-gray-400">ใช้เวลาสักครู่ ระบบกำลังไล่ทำทีละขั้น — อย่าปิดหน้านี้</p>
 
       {useLogs ? (
         <div className="mt-6 w-full max-w-lg">
           {logs!.length === 0 ? (
-            <p className="text-xs text-[#a7b1c4]">กำลังเชื่อมต่อเซิร์ฟเวอร์…</p>
+            <p className="text-xs text-gray-400">กำลังเชื่อมต่อเซิร์ฟเวอร์…</p>
           ) : (
-            <ol className="max-h-56 space-y-1.5 overflow-y-auto rounded-xl bg-[#f7f9fd] px-4 py-3 text-left">
+            <ol className="max-h-56 space-y-1.5 overflow-y-auto rounded-xl bg-white/60 px-4 py-3 text-left">
               {logs!.map((line, i) => {
                 const last = i === logs!.length - 1;
                 return (
                   <li
                     key={`${i}-${line}`}
-                    className={`flex items-start gap-2 text-xs leading-5 ${last ? 'font-bold text-[#17233a]' : 'text-[#8b98af]'}`}
+                    className={`flex items-start gap-2 text-xs leading-5 ${last ? 'font-bold text-brand-navy' : 'text-gray-400'}`}
                   >
-                    <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${last ? 'animate-pulse bg-[#155eef]' : 'bg-[#cdd6e6]'}`} />
+                    <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${last ? 'animate-pulse bg-brand-blue' : 'bg-gray-300'}`} />
                     <span>{line}</span>
                   </li>
                 );
@@ -207,21 +207,21 @@ export function KeywordResearchProgress({
                 <span
                   className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
                     state === 'done'
-                      ? 'bg-[#155eef] text-white'
+                      ? 'bg-brand-blue text-white'
                       : state === 'active'
-                        ? 'border-2 border-[#155eef]'
-                        : 'border border-[#dbe1ee]'
+                        ? 'border-2 border-brand-blue'
+                        : 'border border-gray-200'
                   }`}
                 >
-                  {state === 'done' ? '✓' : state === 'active' ? <span className="h-2 w-2 animate-ping rounded-full bg-[#155eef]" /> : null}
+                  {state === 'done' ? '✓' : state === 'active' ? <span className="h-2 w-2 animate-ping rounded-full bg-brand-blue" /> : null}
                 </span>
                 <span
                   className={`text-xs leading-5 ${
                     state === 'done'
-                      ? 'font-medium text-[#495975]'
+                      ? 'font-medium text-gray-600'
                       : state === 'active'
-                        ? 'font-bold text-[#17233a]'
-                        : 'text-[#a7b1c4]'
+                        ? 'font-bold text-brand-navy'
+                        : 'text-gray-400'
                   }`}
                 >
                   {label}

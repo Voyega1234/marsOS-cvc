@@ -107,7 +107,7 @@ function ClientRevisionCard({ article, onDone }: { article: ArticleItem; onDone:
   }
 
   return (
-    <div className="bg-white border border-rose-200 rounded-2xl overflow-hidden">
+    <div className="glass rounded-3xl overflow-hidden border-rose-200">
       <div className="flex items-start gap-3 p-4">
         <div className="mt-0.5 shrink-0">
           <AlertCircle size={16} className="text-rose-500" />
@@ -115,7 +115,7 @@ function ClientRevisionCard({ article, onDone }: { article: ArticleItem; onDone:
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-brand-navy truncate">{article.title}</span>
-            <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-semibold shrink-0">Client ขอแก้ไข</span>
+            <span className="chip chip-bad shrink-0">Client ขอแก้ไข</span>
           </div>
           <p className="text-[11px] text-gray-400 mt-0.5">{article.project.name} {article.keyword ? `· ${article.keyword}` : ''} · {timeAgo(article.updatedAt)}</p>
         </div>
@@ -125,14 +125,14 @@ function ClientRevisionCard({ article, onDone }: { article: ArticleItem; onDone:
             <Eye size={12} /> ดูบทความ
           </a>
           <button onClick={() => setExpanded(p => !p)}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+            className="p-1.5 rounded-full hover:bg-brand-mist text-gray-400">
             <ChevronDown size={14} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
           </button>
         </div>
       </div>
 
       {expanded && (
-        <div className="px-4 pb-4 border-t border-gray-50 pt-3 space-y-3">
+        <div className="px-4 pb-4 border-t border-gray-100/70 pt-3 space-y-3">
           {/* Client comments */}
           {clientComments.length > 0 && (
             <div className="space-y-2">
@@ -165,13 +165,13 @@ function ClientRevisionCard({ article, onDone }: { article: ArticleItem; onDone:
             placeholder="แจ้งให้ client ทราบว่าแก้ไขอะไรไปบ้าง (optional)..."
             value={comment}
             onChange={e => setComment(e.target.value)}
-            className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200 resize-none"
+            className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 resize-none"
           />
           <div className="flex gap-2">
             <button
               onClick={sendForClientReview}
               disabled={!!loading}
-              className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue hover:bg-brand-deep disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
             >
               <CheckCircle size={13} />
               {loading === 'approve' ? 'กำลังส่ง...' : 'แก้แล้ว — ส่ง Client Approve ใหม่'}
@@ -179,7 +179,7 @@ function ClientRevisionCard({ article, onDone }: { article: ArticleItem; onDone:
             <button
               onClick={approveDirectly}
               disabled={!!loading}
-              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue hover:bg-brand-deep disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
             >
               <CheckCircle size={13} />
               {loading === 'revision' ? 'กำลัง...' : 'Approve เลย'}
@@ -214,7 +214,7 @@ function ClientReviewCard({ article, isClient, onDone }: { article: ArticleItem;
   }
 
   return (
-    <div className="bg-white border border-violet-200 rounded-2xl overflow-hidden">
+    <div className="glass rounded-3xl overflow-hidden">
       <div className="flex items-start gap-3 p-4">
         <div className="mt-0.5 shrink-0">
           <Clock size={16} className="text-violet-500" />
@@ -222,7 +222,7 @@ function ClientReviewCard({ article, isClient, onDone }: { article: ArticleItem;
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-brand-navy truncate">{article.title}</span>
-            <span className="text-[10px] bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full font-semibold shrink-0">รอ Approve</span>
+            <span className="chip chip-info shrink-0">รอ Approve</span>
           </div>
           <p className="text-[11px] text-gray-400 mt-0.5">{article.project.name} {article.keyword ? `· ${article.keyword}` : ''} · {timeAgo(article.updatedAt)}</p>
         </div>
@@ -235,7 +235,7 @@ function ClientReviewCard({ article, isClient, onDone }: { article: ArticleItem;
           )}
           {isClient && (
             <button onClick={() => setExpanded(p => !p)}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+              className="p-1.5 rounded-full hover:bg-brand-mist text-gray-400">
               <ChevronDown size={14} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
             </button>
           )}
@@ -243,19 +243,19 @@ function ClientReviewCard({ article, isClient, onDone }: { article: ArticleItem;
       </div>
 
       {isClient && expanded && (
-        <div className="px-4 pb-4 border-t border-gray-50 pt-3 space-y-3">
+        <div className="px-4 pb-4 border-t border-gray-100/70 pt-3 space-y-3">
           <textarea
             rows={3}
             placeholder="มีความคิดเห็นหรือต้องการแก้ไขตรงไหน? (optional สำหรับ approve, จำเป็นสำหรับขอแก้ไข)"
             value={comment}
             onChange={e => setComment(e.target.value)}
-            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none"
+            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 resize-none"
           />
           <div className="flex gap-2">
             <button
               onClick={() => doAction('approve')}
               disabled={!!loading}
-              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-50 text-white text-sm font-semibold rounded-full transition-colors"
             >
               <CheckCircle size={15} />
               {loading === 'approve' ? 'กำลัง Approve...' : '✅ Approve บทความ'}
@@ -263,7 +263,7 @@ function ClientReviewCard({ article, isClient, onDone }: { article: ArticleItem;
             <button
               onClick={() => doAction('revision')}
               disabled={!!loading || !comment.trim()}
-              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-rose-50 hover:bg-rose-100 disabled:opacity-40 text-rose-600 text-sm font-semibold rounded-xl border border-rose-200 transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-rose-50 hover:bg-rose-100 disabled:opacity-40 text-rose-600 text-sm font-semibold rounded-full border border-rose-200 transition-colors"
             >
               <XCircle size={15} />
               {loading === 'revision' ? 'กำลังส่ง...' : '✏️ ขอแก้ไข'}
@@ -293,8 +293,8 @@ function QueueGroupCard({ group, tone }: { group: QueueGroup; tone: 'review' | '
   const items = showAll ? group.items : group.items.slice(0, GROUP_PREVIEW)
   const border = tone === 'failed' ? 'border-rose-200' : 'border-amber-200'
   return (
-    <div className={`bg-white border ${border} rounded-2xl overflow-hidden`} data-testid="review-queue-group" data-source={group.source}>
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-50 flex-wrap">
+    <div className={`glass rounded-3xl overflow-hidden border ${border}`} data-testid="review-queue-group" data-source={group.source}>
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100/70 flex-wrap">
         <span className="text-sm font-semibold text-brand-navy">{group.clientName}</span>
         <SourceBadge source={group.source} />
         <span className="text-xs text-gray-400">{group.items.length} บทความ</span>
@@ -304,7 +304,7 @@ function QueueGroupCard({ group, tone }: { group: QueueGroup; tone: 'review' | '
       </div>
       <div className="divide-y divide-gray-50">
         {items.map(a => (
-          <Link key={a.id} href={a.href} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors" data-testid="review-queue-item">
+          <Link key={a.id} href={a.href} className="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-mist/50 transition-colors" data-testid="review-queue-item">
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-gray-800 truncate">{a.title || a.keyword}</p>
               {(a.keyword && a.keyword !== a.title) || a.updatedAt ? (
@@ -323,7 +323,7 @@ function QueueGroupCard({ group, tone }: { group: QueueGroup; tone: 'review' | '
         <button
           type="button"
           onClick={() => setShowAll(v => !v)}
-          className="w-full text-[11px] text-gray-500 hover:text-gray-800 py-2 border-t border-gray-50"
+          className="w-full text-[11px] text-gray-500 hover:text-gray-800 py-2 border-t border-gray-100/70"
         >
           {showAll ? 'ย่อ' : `ดูทั้งหมด ${group.items.length} บทความ`}
         </button>
@@ -385,8 +385,8 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
     return (
       <div className="space-y-5 max-w-3xl">
         <div>
-          <h1 className="text-xl font-bold text-brand-navy">บทความรอ Approve</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h1 className="page-title">บทความรอ Approve</h1>
+          <p className="page-subtitle">
             {clientReviewArticles.length > 0
               ? `${clientReviewArticles.length} บทความรอการอนุมัติจากคุณ`
               : 'ไม่มีบทความรอ Approve'}
@@ -394,7 +394,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
         </div>
 
         {clientReviewArticles.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+          <div className="text-center py-16 glass rounded-3xl">
             <CheckCircle size={36} className="text-emerald-400 mx-auto mb-3" />
             <p className="text-gray-600 font-medium">ไม่มีบทความรอการอนุมัติ</p>
             <p className="text-gray-400 text-sm mt-1">เมื่อทีมส่งบทความมาให้ Approve จะแสดงที่นี่</p>
@@ -414,8 +414,8 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-xl font-bold text-brand-navy">Review Queue</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
+        <h1 className="page-title">Review Queue</h1>
+        <p className="page-subtitle">
           {totalAdmin > 0 ? `${totalAdmin} รายการรอดำเนินการ — ทั้งระบบ (SEO SME, Upload Article, PBN)` : 'ไม่มีรายการรอ'}
         </p>
       </div>
@@ -437,7 +437,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
           <div className="flex items-center gap-2">
             <AlertCircle size={16} className="text-rose-500" />
             <h2 className="text-sm font-bold text-brand-navy">Client ขอแก้ไข</h2>
-            <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-semibold">{revisionShown.length}</span>
+            <span className="chip chip-bad">{revisionShown.length}</span>
             <span className="text-[11px] text-gray-400">— แก้ไขแล้วส่ง Approve ใหม่</span>
           </div>
           {revisionShown.map(a => (
@@ -452,7 +452,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
           <div className="flex items-center gap-2 flex-wrap">
             <Eye size={16} className="text-amber-500" />
             <h2 className="text-sm font-bold text-brand-navy">รอทีม Review</h2>
-            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">{reviewCount}</span>
+            <span className="chip chip-warn">{reviewCount}</span>
             <span className="text-[11px] text-gray-400">— เขียนเสร็จแล้ว รอทีมตรวจก่อน Approve / Push</span>
           </div>
           {reviewGroups.map(g => <QueueGroupCard key={g.key} group={g} tone="review" />)}
@@ -465,7 +465,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
           <div className="flex items-center gap-2 flex-wrap">
             <XCircle size={16} className="text-rose-500" />
             <h2 className="text-sm font-bold text-brand-navy">Push ไม่สำเร็จ</h2>
-            <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-semibold">{failedCount}</span>
+            <span className="chip chip-bad">{failedCount}</span>
             <span className="text-[11px] text-gray-400">— ดู error แล้ว Push ใหม่ที่หน้า Push ของลูกค้า</span>
           </div>
           {failedGroups.map(g => <QueueGroupCard key={g.key} group={g} tone="failed" />)}
@@ -478,7 +478,7 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
           <div className="flex items-center gap-2">
             <Clock size={16} className="text-violet-500" />
             <h2 className="text-sm font-bold text-brand-navy">รอ Client Approve</h2>
-            <span className="text-xs bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full font-semibold">{clientReviewShown.length}</span>
+            <span className="chip chip-info">{clientReviewShown.length}</span>
             <span className="text-[11px] text-gray-400">— ส่งให้ client แล้ว รอการตอบกลับ</span>
           </div>
           {clientReviewShown.map(a => (
@@ -488,13 +488,13 @@ export function ReviewPageClient({ role, clientRevisionArticles, clientReviewArt
       )}
 
       {totalAdmin > 0 && shownAdmin === 0 && (
-        <div className="text-center py-12 bg-white rounded-2xl border border-gray-100">
+        <div className="text-center py-12 glass rounded-3xl">
           <p className="text-gray-500 font-medium">ไม่มีรายการตาม filter ที่เลือก</p>
         </div>
       )}
 
       {totalAdmin === 0 && (
-        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+        <div className="text-center py-16 glass rounded-3xl">
           <CheckCircle size={36} className="text-emerald-400 mx-auto mb-3" />
           <p className="text-gray-600 font-medium">ไม่มีงานค้าง</p>
           <p className="text-gray-400 text-sm mt-1">บทความที่เขียนเสร็จรอตรวจ (SEO SME, Upload Article, PBN) และบทความที่ส่งให้ client approve จะแสดงที่นี่</p>

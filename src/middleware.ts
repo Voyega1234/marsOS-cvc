@@ -45,7 +45,10 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isPublic = pathname === "/login" || pathname.startsWith("/share/") || pathname.startsWith("/auth/");
+  // Asana webhook ของ Backlink Management: เปิดเฉพาะ POST + token 43 ตัวอักษรใน path (route ตรวจลายเซ็น HMAC เองอีกชั้น)
+  const isAsanaHook =
+    request.method === "POST" && /^\/api\/backlink-management\/asana\/webhook\/[A-Za-z0-9_-]{43}\/?$/.test(pathname);
+  const isPublic = pathname === "/login" || pathname.startsWith("/share/") || pathname.startsWith("/auth/") || isAsanaHook;
   const isApi = pathname.startsWith("/api/");
 
   // idle logout — เว้น /auth/* (กำลัง login อยู่ ห้ามลบ code verifier) และ /share/* (ลิงก์สาธารณะ)

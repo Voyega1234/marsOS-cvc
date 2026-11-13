@@ -224,7 +224,7 @@ export default function ConnectTab({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,42rem)_minmax(0,1fr)] gap-4 items-start">
     <div className="space-y-4 min-w-0">
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-2">
         <p className="text-sm font-semibold text-brand-navy">ตอนนี้เชื่อมต่อกับ</p>
         <div className="flex flex-wrap items-center gap-2">
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-brand-mist text-brand-blue border border-brand-soft/60">{savedLabel}</span>
@@ -271,7 +271,7 @@ export default function ConnectTab({
         )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3">
         <p className="text-sm font-semibold text-brand-navy">ข้อมูลลูกค้า</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
@@ -281,7 +281,7 @@ export default function ConnectTab({
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">ภาษา</label>
             <select value={language} onChange={e => setLanguage(e.target.value as "th" | "en" | "both")}
-              className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+              className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white">
               <option value="th">ไทยเท่านั้น</option>
               <option value="en">อังกฤษเท่านั้น</option>
               <option value="both">ไทย+อังกฤษ</option>
@@ -294,13 +294,13 @@ export default function ConnectTab({
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-4">
         <p className="text-sm font-semibold text-brand-navy">เชื่อมต่อเว็บไซต์</p>
         <div className="flex flex-wrap gap-1.5">
           {PLATFORMS.map(p => (
             <button key={p.id} onClick={() => { setPlatform(p.id); setTestResult(null); }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                platform === p.id ? "bg-brand-mist text-brand-blue border-brand-soft/60" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+                platform === p.id ? "bg-brand-blue/10 text-brand-blue border-brand-blue/20" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
               }`}>
               {p.label}
             </button>
@@ -358,7 +358,7 @@ export default function ConnectTab({
                       setConnField("shopify", "blogId", e.target.value);
                       setConnField("shopify", "blogHandle", b?.handle ?? "");
                     }}
-                    className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                    className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white">
                     <option value="">บล็อกแรกของร้าน (อัตโนมัติ)</option>
                     {bid && !shBlogs.some(b => b.id === bid) && <option value={bid}>{sh.blogHandle || bid}</option>}
                     {shBlogs.map(b => <option key={b.id} value={b.id}>{b.title} ({b.handle})</option>)}
@@ -379,7 +379,7 @@ export default function ConnectTab({
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
               <select value={wf[key] || "none"} onChange={e => setConnField("webflow", key, e.target.value)}
-                className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white">
                 <option value="none">{emptyLabel}</option>
                 {/* ค่าที่บันทึกไว้แต่ยังโหลดรายการฟิลด์ไม่ได้ (token หมดอายุ/ยังไม่กดทดสอบ) — ยังแสดงค่าเดิม */}
                 {wf[key] && wf[key] !== "none" && !wfFields.some(f => f.slug === wf[key]) && <option value={wf[key]}>{wf[key]}</option>}
@@ -408,7 +408,7 @@ export default function ConnectTab({
                     setConnField("webflow", "collectionSlug", c?.slug ?? "");
                     void loadWfFields(e.target.value);
                   }}
-                  className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                  className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white">
                   <option value="">— เลือก Collection —</option>
                   {colOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -458,7 +458,7 @@ export default function ConnectTab({
                 const mid = siteConn.wix?.memberId ?? "";
                 return wixMembers.length > 0 ? (
                   <select value={mid} onChange={e => setConnField("wix", "memberId", e.target.value)}
-                    className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                    className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white">
                     <option value="">— เลือกผู้เขียน —</option>
                     {mid && !wixMembers.some(m => m.id === mid) && <option value={mid}>{mid}</option>}
                     {wixMembers.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
@@ -524,7 +524,7 @@ export default function ConnectTab({
         )}
       </div>
     </div>
-    <div className="lg:sticky lg:top-4 min-w-0">
+    <div className="lg:sticky lg:top-[4.5rem] min-w-0">
       <ConnectHowTo platform={platform} ctx={connectGuideCtx({
         wpUrl,
         storeDomain: siteConn.shopify?.storeDomain,

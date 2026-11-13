@@ -293,7 +293,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                 <div key={label} className="flex items-center gap-1 flex-shrink-0">
                   <div
                     className={`w-6 h-6 rounded-full text-[11px] font-bold flex items-center justify-center flex-shrink-0 ${
-                      active ? "bg-indigo-600 text-white" : done ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"
+                      active ? "bg-brand-blue text-white" : done ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"
                     }`}
                   >
                     {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : n}
@@ -313,7 +313,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                 <select
                   value={projectId}
                   onChange={(e) => selectProject(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                 >
                   <option value="">— เลือก Client —</option>
                   {projects.map((p) => (
@@ -327,7 +327,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                   value={businessSkill}
                   onChange={(e) => setBusinessSkill(e.target.value)}
                   placeholder="เช่น Aesthetic Clinic Skill v1.4"
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                 />
               </div>
               <div className="space-y-1.5">
@@ -336,7 +336,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                   value={websiteUrl}
                   onChange={(e) => setWebsiteUrl(e.target.value)}
                   placeholder="https://yoursite.com"
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                 />
               </div>
               <div className="space-y-1.5">
@@ -345,7 +345,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                   value={connectionName}
                   onChange={(e) => setConnectionName(e.target.value)}
                   placeholder="เช่น ABC Clinic WordPress"
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                 />
               </div>
             </div>
@@ -362,7 +362,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                     !a.available
                       ? "border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed"
                       : platformId === a.id
-                      ? "border-indigo-300 bg-indigo-50/50"
+                      ? "border-brand-blue/40 bg-brand-blue/10"
                       : "border-gray-200 hover:border-gray-300"
                   }`}
                 >
@@ -381,7 +381,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                   key={env}
                   onClick={() => setEnvironment(env)}
                   className={`rounded-xl border px-4 py-3 text-sm font-medium text-left transition-colors ${
-                    environment === env ? "border-indigo-300 bg-indigo-50/50 text-indigo-700" : "border-gray-200 hover:border-gray-300 text-gray-700"
+                    environment === env ? "border-brand-blue/40 bg-brand-blue/10 text-brand-blue" : "border-gray-200 hover:border-gray-300 text-gray-700"
                   }`}
                 >
                   {env}
@@ -397,7 +397,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                 <select
                   value={authMethod}
                   onChange={(e) => setAuthMethod(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                 >
                   {(AUTH_METHODS[platformId] ?? ["Application Password"]).map((m) => (
                     <option key={m} value={m}>{m}</option>
@@ -411,7 +411,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                     <input
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -421,7 +421,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                       value={appPassword}
                       onChange={(e) => setAppPassword(e.target.value)}
                       autoComplete="new-password"
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                     />
                   </div>
                 </>
@@ -459,7 +459,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
               <button
                 onClick={runTest}
                 disabled={testing}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold disabled:opacity-50"
               >
                 {testing && <Loader2 className="h-4 w-4 animate-spin" />}
                 {testing ? "กำลังทดสอบ..." : "Run Test Connection"}
@@ -468,7 +468,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                 {checks.map((c) => (
                   <div key={c.id} className="flex items-center gap-2 text-sm">
                     {c.state === "pass" && <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />}
-                    {c.state === "running" && <Loader2 className="h-4 w-4 text-indigo-500 animate-spin flex-shrink-0" />}
+                    {c.state === "running" && <Loader2 className="h-4 w-4 text-brand-blue animate-spin flex-shrink-0" />}
                     {c.state === "pending" && <Circle className="h-4 w-4 text-gray-200 flex-shrink-0" />}
                     {c.state === "fail" && <XCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />}
                     <span className={c.state === "pending" ? "text-gray-400" : "text-gray-700"}>{c.label}</span>
@@ -495,7 +495,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
                   <input
                     value={m.sourceField}
                     onChange={(e) => updateMappingSource(idx, e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-mono text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                    className="w-full rounded-xl border border-gray-200 px-2.5 py-1.5 text-xs font-mono text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                   />
                 </div>
               ))}
@@ -507,24 +507,24 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   onClick={() => setSyncMode("full")}
-                  className={`rounded-xl border px-4 py-3 text-sm font-medium text-left ${syncMode === "full" ? "border-indigo-300 bg-indigo-50/50 text-indigo-700" : "border-gray-200 text-gray-700"}`}
+                  className={`rounded-xl border px-4 py-3 text-sm font-medium text-left ${syncMode === "full" ? "border-brand-blue/40 bg-brand-blue/10 text-brand-blue" : "border-gray-200 text-gray-700"}`}
                 >
                   Full Initial Sync
                 </button>
                 <button
                   onClick={() => setSyncMode("incremental")}
-                  className={`rounded-xl border px-4 py-3 text-sm font-medium text-left ${syncMode === "incremental" ? "border-indigo-300 bg-indigo-50/50 text-indigo-700" : "border-gray-200 text-gray-700"}`}
+                  className={`rounded-xl border px-4 py-3 text-sm font-medium text-left ${syncMode === "incremental" ? "border-brand-blue/40 bg-brand-blue/10 text-brand-blue" : "border-gray-200 text-gray-700"}`}
                 >
                   Incremental Sync
                 </button>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Content Scope</label>
-                <input value={contentScope} onChange={(e) => setContentScope(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                <input value={contentScope} onChange={(e) => setContentScope(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Exclude Patterns</label>
-                <input value={excludePatterns} onChange={(e) => setExcludePatterns(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                <input value={excludePatterns} onChange={(e) => setExcludePatterns(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
               </div>
 
               <div className="rounded-xl border border-gray-200 p-4 space-y-1.5 text-sm">
@@ -558,7 +558,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
               <button
                 onClick={() => setStep((s) => s + 1)}
                 disabled={!canGoNext()}
-                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50"
+                className="px-4 py-2 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold disabled:opacity-50"
               >
                 ถัดไป
               </button>
@@ -567,7 +567,7 @@ export function ConnectWizard({ open, onClose, projects, onCreated }: Props) {
               <button
                 onClick={handleActivate}
                 disabled={activating}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold disabled:opacity-50"
               >
                 {activating && <Loader2 className="h-4 w-4 animate-spin" />}
                 Activate

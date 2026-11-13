@@ -64,7 +64,7 @@ export default function ScannedStyleSummary({ detail }: { detail: UploadThemeDet
   const refCount = detail.references?.length ?? 0;
   const source = a?.source && /^https?:\/\//i.test(a.source) ? a.source : "";
   return (
-    <div className="rounded-lg border border-brand-blue/20 bg-white p-3 space-y-2.5">
+    <div className="rounded-2xl border border-brand-blue/20 bg-white/75 p-3 space-y-2.5">
       <p className="font-semibold text-brand-navy">สิ่งที่สแกนเจอจากบทความจริง</p>
 
       {a && (

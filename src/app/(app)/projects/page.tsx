@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { timelineEntries } from "@/lib/project-timeline";
 import { CreateProjectButton } from "@/components/projects/CreateProjectButton";
 import ProjectsTable from "@/components/projects/ProjectsTable";
+import { EmptyState, PageHeader, Panel } from "@/components/ds";
+import { FolderOpen } from "lucide-react";
 
 export const metadata: Metadata = { title: "Clients" };
 
@@ -186,23 +188,24 @@ export default async function ProjectsPage() {
   });
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="text-xl font-bold text-brand-navy">Clients</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{projects.length} clients · คลิกเพื่อดู pipeline</p>
-        </div>
-        {userRole !== "CLIENT" && orgId && (
+    <div>
+      <PageHeader
+        eyebrow="SEO SME"
+        title="Clients"
+        subtitle={`${projects.length} clients · คลิกเพื่อดู pipeline`}
+        actions={userRole !== "CLIENT" && orgId ? (
           <CreateProjectButton orgId={orgId} userId={session.user.id} />
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {projects.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl border">
-          <div className="text-5xl mb-4">📁</div>
-          <h3 className="text-lg font-semibold text-brand-navy">ยังไม่มี project</h3>
-          <p className="text-gray-500 text-sm mt-1">สร้าง project แรกเพื่อเริ่มเขียนบทความ</p>
-        </div>
+        <Panel>
+          <EmptyState
+            icon={<FolderOpen className="h-6 w-6" />}
+            title="ยังไม่มี project"
+            description="สร้าง project แรกเพื่อเริ่มเขียนบทความ"
+          />
+        </Panel>
       ) : (
         <ProjectsTable projects={projects.map(p => ({ ...p, userRole }))} userRole={userRole} />
       )}

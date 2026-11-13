@@ -4,8 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import type { AppSession } from "@/lib/session-types";
 import type { Role } from "@/types";
-import { isClientApiAllowed } from "@/lib/client-access";
+import { isClientApiAllowed, isClientPageAllowed } from "@/lib/client-access";
 import { recordApiRequest } from "@/lib/logActivity";
+import { checkLoginPolicy } from "@/lib/login-policy";
 
 export type { AppSession };
 
@@ -18,6 +19,15 @@ export type { AppSession };
  *    (เจ้าของสั่ง: ให้เฉพาะรายชื่อนี้ก่อน ยังไม่เปิดทั้งโดเมน @convertcake.com)
  * 3. User ที่ INACTIVE หรือ email นอกเหนือจากนี้ → ปฏิเสธ (คืน null)
  * เพิ่มคนทีหลังได้สองทาง: ADMIN เพิ่มในหน้า Users (เข้าเกณฑ์ข้อ 1) หรือเติมรายชื่อในไฟล์นี้
+ *
+ * ด่านเพิ่ม (คำสั่งเจ้าของ 2026-11-13: "เข้าผ่าน Google ได้ แต่ต้องเป็นเมล @convertcake.com เท่านั้น")
+ * ใช้กับข้อ 1 และ 2 ทุกครั้ง — ตัวกติกาอยู่ที่ src/lib/login-policy.ts:
+ * - session ต้องมาจากการ login ด้วย Google (รหัสผ่าน / OTP / magic link ถูกปฏิเสธ)
+ * - บัญชีต้องไม่มีทางเข้าอื่นผูกอยู่ (OAuth เจ้าอื่น หรือ Google อีกบัญชี)
+ * - อีเมลต้องเป็น @convertcake.com — ยกเว้น role CLIENT (ลูกค้า) ที่ใช้อีเมลของตัวเองได้
+ *   ผลคือ User ของทีมที่แอดมินเพิ่มด้วยอีเมลโดเมนอื่นจะเข้าไม่ได้
+ * - ข้อยกเว้นเดียวของ "ต้อง Google": role CLIENT ที่ทีมสร้างในหน้า "จัดการ Users" เข้าด้วยชื่อผู้ใช้ + รหัสผ่านได้
+ *   เฉพาะบัญชี Supabase ที่ MarsOS สร้างให้ User คนนั้นเอง (src/lib/supabase/admin.ts) — ทีมยังต้องใช้ Google เสมอ
  *
  * ถ้า env Supabase ไม่ครบ (local dev) → fallback โหมดไม่มี login แบบเดิม
  * (คืน ADMIN ที่ active คนแรก) — middleware ก็ผ่านหมดในโหมดนี้เช่นกัน
@@ -79,7 +89,14 @@ const resolveSession = cache(async (): Promise<AppSession | null> => {
     return user ? toSession(user) : null;
   }
 
-  const { data: { user: authUser } } = await supabase.auth.getUser();
+  // access token ของ session — ใช้อ่าน claim `amr` (วิธี login) เท่านั้น
+  // ห้ามใช้ session.user จาก getSession() (มาจาก cookie ตรง ๆ ยังไม่ผ่านการยืนยัน)
+  const { data: { session: authSession } } = await supabase.auth.getSession();
+  const accessToken = authSession?.access_token;
+  if (!accessToken) return null;
+
+  // ยืนยัน token ตัวนี้กับ Supabase — authUser คือเจ้าของ token ตัวเดียวกับที่ด่าน login-policy จะอ่าน
+  const { data: { user: authUser } } = await supabase.auth.getUser(accessToken);
   if (!authUser?.email) return null;
   const email = authUser.email.toLowerCase();
 
@@ -89,12 +106,29 @@ const resolveSession = cache(async (): Promise<AppSession | null> => {
 
   if (existing) {
     // INACTIVE = ถูกปิดสิทธิ์ (เช่น adminseo/userseo เก่า) — ห้ามเข้าแม้ login ผ่าน
-    if (existing.status !== "ACTIVE") return null;
+    if (existing.status !== "ACTIVE") {
+      // จดไว้ใน log ของเซิร์ฟเวอร์ — ใช้ไล่ดูว่ามีใครพยายามเข้าด้วยบัญชีที่ถูกปิด
+      console.warn(`[auth] denied: account not ACTIVE (${existing.status}) — ${email}`);
+      return null;
+    }
+    // ต้องเข้าด้วย Google + ทีมต้องเป็น @convertcake.com (CLIENT ใช้อีเมลของตัวเองได้)
+    // userId ใช้กับทางรหัสผ่านของ CLIENT — บัญชี Supabase ต้องถูกสร้างมาเพื่อ User คนนี้เท่านั้น
+    const decision = checkLoginPolicy({ email, role: existing.role, accessToken, authUser, userId: existing.id });
+    if (!decision.ok) {
+      console.warn(`[auth] denied: ${decision.reason} (role ${existing.role}) — ${email}`);
+      return null;
+    }
     return toSession(existing);
   }
 
   // ── auto-provision: เฉพาะรายชื่อที่เจ้าของอนุมัติ เข้าครั้งแรก สร้าง User ให้เอง ──
   if (ALLOWED_EMAILS.has(email) || ADMIN_EMAILS.has(email)) {
+    // ด่านเดียวกันก่อนสร้างบัญชี — role null = นับเป็นทีม ต้องเป็น Google @convertcake.com
+    const decision = checkLoginPolicy({ email, role: null, accessToken, authUser });
+    if (!decision.ok) {
+      console.warn(`[auth] denied: ${decision.reason} (auto-provision) — ${email}`);
+      return null;
+    }
     const org = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" } });
     if (!org) return null;
     const created = await prisma.user.create({
@@ -111,6 +145,8 @@ const resolveSession = cache(async (): Promise<AppSession | null> => {
     return toSession(created);
   }
 
+  // login Google ผ่านแต่ไม่มีชื่อในระบบ — จดไว้ใน log ของเซิร์ฟเวอร์ (ไม่มี user ให้ผูก Activity Log)
+  console.warn(`[auth] denied: no MarsOS user for ${email}`);
   return null;
 });
 
@@ -132,8 +168,11 @@ export async function getSessionRaw(): Promise<AppSession | null> {
  * (deny by default โดยไม่ต้องแก้ route ทั้ง 127 ไฟล์)
  *
  * role อื่นไม่ถูกแตะเลย — คืนค่าเท่ากับ getSessionRaw ทุกกรณี
- * หน้าเว็บ (non-/api) ไม่กรองที่นี่ ใช้ด่านฝั่ง layout ของกลุ่ม (app) แทน
- * เพื่อให้ redirect ได้สวย ๆ แทนที่จะ render หน้าเปล่า
+ *
+ * หน้าเว็บ (non-/api): ด่านหลักคือ layout ของกลุ่ม (app) ซึ่ง redirect กลับ /projects
+ * แต่ Next ไม่รัน layout ซ้ำเมื่อเปลี่ยนหน้าแบบ client-side (RSC request) ด่านนั้นจึงข้ามได้
+ * ที่นี่จึงกันซ้ำอีกชั้น: CLIENT ที่ขอหน้านอก allowlist ได้ session = null เหมือน API
+ * (หน้าในลิสต์ของ CLIENT ได้ session ตามเดิม)
  */
 export async function getSession(): Promise<AppSession | null> {
   const session = await getSessionRaw();
@@ -150,6 +189,6 @@ export async function getSession(): Promise<AppSession | null> {
   }
   // ไม่มี x-pathname = request ไม่ผ่าน middleware (ค่า header อาจมาจากผู้ใช้) — CLIENT ไม่ได้ session
   if (!pathname) return null;
-  if (!pathname.startsWith("/api/")) return session;
+  if (!pathname.startsWith("/api/")) return isClientPageAllowed(pathname) ? session : null;
   return isClientApiAllowed(pathname, method) ? session : null;
 }

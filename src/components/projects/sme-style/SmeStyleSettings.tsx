@@ -128,7 +128,7 @@ export default function SmeStyleSettings({
           title="สแกนเว็บปลายทาง — ธีม, ปลั๊กอิน, หน้าตา FAQ (ละเอียด)" />
         {onApplyContext && scanCtx && (scanCtx.projectContext || scanCtx.styleGuide || scanCtx.forbiddenWords.length > 0) && (
           <button type="button" onClick={() => { onApplyContext(scanCtx); toast.success("ใส่บริบทธุรกิจ/Style Guide/คำต้องห้ามลงฟอร์มแล้ว — ตรวจแล้วกดบันทึกทั้งหมด"); }}
-            className="h-8 px-3 rounded-lg border border-brand-blue text-brand-blue text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-gray-50">
+            className="h-8 px-3 rounded-full border border-brand-blue bg-white text-brand-blue text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-gray-50">
             <Check size={12} /> นำบริบทธุรกิจ / Style Guide / คำต้องห้ามจากสแกนไปใส่ในฟอร์ม
           </button>
         )}

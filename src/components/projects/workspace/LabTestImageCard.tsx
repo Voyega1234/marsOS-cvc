@@ -88,7 +88,7 @@ export function LabTestImageCard({ projectId, defaultKeyword = '' }: { projectId
 
   return (
     <div className="space-y-5">
-      <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+      <div className="bg-white/70 rounded-2xl border border-white/80 shadow-sm p-5 space-y-4">
         <div className="flex items-start gap-3">
           <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
             <ImageIcon size={18} className="text-purple-600" />
@@ -155,7 +155,7 @@ export function LabTestImageCard({ projectId, defaultKeyword = '' }: { projectId
       </div>
 
       {results.map((r, i) => (
-        <div key={`${r.at.getTime()}-${i}`} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div key={`${r.at.getTime()}-${i}`} className="bg-white/70 rounded-2xl border border-white/80 shadow-sm overflow-hidden">
           <div className="flex flex-col lg:flex-row">
             <div className="lg:w-2/3 bg-gray-50 flex items-center justify-center p-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -348,7 +348,7 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
         <button
           type="button"
           onClick={() => fetchTasks()}
-          className="flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+          className="flex items-center gap-1.5 rounded-full border border-red-300 bg-white px-3.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           ลองใหม่
@@ -448,14 +448,14 @@ function RailItem({ label, active, badge, onClick }: { label: string; active: bo
       type="button"
       onClick={onClick}
       className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
-        active ? "bg-indigo-50 font-semibold text-indigo-700" : "text-gray-600 hover:bg-gray-50"
+        active ? "bg-brand-blue/10 font-semibold text-brand-blue" : "text-gray-600 hover:bg-gray-50"
       }`}
     >
       <span className="truncate">{label}</span>
       {badge > 0 && (
         <span
           className={`ml-2 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-            active ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-500"
+            active ? "bg-brand-blue/10 text-brand-blue" : "bg-gray-100 text-gray-500"
           }`}
         >
           {badge}
@@ -501,7 +501,7 @@ function OverviewSection({
 
   if (stats.total === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 bg-white p-12 text-center">
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 bg-white/60 p-12 text-center">
         <ListChecks className="mb-3 h-10 w-10 text-gray-300" />
         <p className="text-sm font-medium text-gray-700">ยังไม่มีงานในรายการนี้</p>
         <p className="mt-1 text-xs text-gray-400">เริ่มต้นได้เร็วขึ้นด้วย checklist ต้นแบบที่เตรียมไว้ให้</p>
@@ -510,7 +510,7 @@ function OverviewSection({
             type="button"
             onClick={onSeedAll}
             disabled={seedingTemplates}
-            className="mt-4 flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="mt-4 flex items-center gap-1.5 rounded-lg bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-blue disabled:opacity-60"
           >
             {seedingTemplates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             เริ่มต้นจาก Template Checklist
@@ -523,7 +523,7 @@ function OverviewSection({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-1">
+        <div className="flex items-center gap-4 rounded-2xl border border-white/80 bg-white/70 p-5 shadow-sm md:col-span-1">
           <ProgressRing pct={pct} />
           <div>
             <p className="text-2xl font-bold text-brand-navy">{pct}%</p>
@@ -532,7 +532,7 @@ function OverviewSection({
         </div>
         <div className="grid grid-cols-2 gap-3 md:col-span-2 md:grid-cols-5">
           {STATUS_ORDER.map((s) => (
-            <div key={s} className="rounded-2xl border border-gray-200 bg-white p-3 text-center shadow-sm">
+            <div key={s} className="rounded-2xl border border-white/80 bg-white/70 p-3 text-center shadow-sm">
               <p className="text-lg font-bold text-brand-navy">{statusCounts[s] ?? 0}</p>
               <p className="mt-0.5 text-[11px] text-gray-500">{STATUS_META[s].label}</p>
             </div>
@@ -540,8 +540,8 @@ function OverviewSection({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-        <p className="mb-3 text-sm font-semibold text-brand-navy">ความคืบหน้าตามหมวด</p>
+      <div className="rounded-2xl border border-white/80 bg-white/70 p-5 shadow-sm">
+        <p className="section-label mb-3">ความคืบหน้าตามหมวด</p>
         <div className="space-y-2">
           {categories.map((cat) => {
             const t = categoryTotals[cat.id] ?? { total: 0, done: 0 };
@@ -555,7 +555,7 @@ function OverviewSection({
               >
                 <span className="w-36 shrink-0 truncate text-xs text-gray-600">{cat.label}</span>
                 <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
-                  <span className="block h-full rounded-full bg-indigo-500" style={{ width: `${catPct}%` }} />
+                  <span className="block h-full rounded-full bg-brand-blue" style={{ width: `${catPct}%` }} />
                 </span>
                 <span className="w-14 shrink-0 text-right text-xs text-gray-500">{t.done}/{t.total}</span>
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-300" />
@@ -565,7 +565,7 @@ function OverviewSection({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-white/80 bg-white/70 p-5 shadow-sm">
         <p className="mb-3 text-sm font-semibold text-brand-navy">งานสำคัญที่ยังไม่เสร็จ (สูง/วิกฤต)</p>
         {urgentTasks.length === 0 ? (
           <p className="text-xs text-gray-400">ไม่มีงานสำคัญค้างอยู่ในตอนนี้</p>
@@ -616,7 +616,7 @@ function ProgressRing({ pct }: { pct: number }) {
         cy="32"
         r={r}
         fill="none"
-        stroke="#4f46e5"
+        stroke="#1d48f3"
         strokeWidth="6"
         strokeDasharray={c}
         strokeDashoffset={offset}
@@ -674,7 +674,7 @@ function CategorySection({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-white/80 bg-white/70 p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-brand-navy">{category.label}</p>
@@ -686,7 +686,7 @@ function CategorySection({
                 <button
                   type="button"
                   onClick={onSeedTemplates}
-                  className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   เพิ่มจาก template
@@ -695,7 +695,7 @@ function CategorySection({
               <button
                 type="button"
                 onClick={() => setShowAddForm((v) => !v)}
-                className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                className="flex items-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-blue"
               >
                 <Plus className="h-3.5 w-3.5" />
                 เพิ่มงาน
@@ -711,14 +711,14 @@ function CategorySection({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="ชื่องาน"
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none"
             />
             <textarea
               value={detail}
               onChange={(e) => setDetail(e.target.value)}
               placeholder="รายละเอียด (ไม่บังคับ)"
               rows={2}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none"
             />
             <div className="flex items-center gap-2">
               <input
@@ -726,12 +726,12 @@ function CategorySection({
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="URL (ไม่บังคับ)"
-                className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+                className="flex-1 rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none"
               />
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as SeoTaskPriority)}
-                className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+                className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:border-brand-blue focus:outline-none"
               >
                 {PRIORITY_ORDER.map((p) => (
                   <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -742,14 +742,14 @@ function CategorySection({
               <button
                 type="button"
                 onClick={submitAddForm}
-                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                className="rounded-lg bg-brand-blue px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-blue"
               >
                 บันทึก
               </button>
               <button
                 type="button"
                 onClick={() => setShowAddForm(false)}
-                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
               >
                 ยกเลิก
               </button>
@@ -758,7 +758,7 @@ function CategorySection({
         )}
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm">
         {tasks.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-400">
             ยังไม่มีงานในหมวดนี้
@@ -766,7 +766,7 @@ function CategorySection({
               <button
                 type="button"
                 onClick={onSeedTemplates}
-                className="mx-auto mt-3 flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 เพิ่มจาก template
@@ -780,7 +780,7 @@ function CategorySection({
                 <button
                   type="button"
                   onClick={() => onOpenTask(t.id)}
-                  className="min-w-[180px] flex-1 text-left text-sm text-gray-800 hover:text-indigo-600"
+                  className="min-w-[180px] flex-1 text-left text-sm text-gray-800 hover:text-brand-blue"
                 >
                   {t.title}
                   {t.url && (
@@ -789,7 +789,7 @@ function CategorySection({
                       target="_blank"
                       rel="noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="ml-2 inline-flex items-center text-gray-400 hover:text-indigo-600"
+                      className="ml-2 inline-flex items-center text-gray-400 hover:text-brand-blue"
                     >
                       <ExternalLink className="h-3 w-3" />
                     </a>
@@ -940,7 +940,7 @@ function TaskDrawer({
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} aria-hidden="true" />
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto bg-white shadow-xl">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto glass-strong rounded-l-3xl shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-200 p-4">
           <h3 className="text-base font-semibold text-brand-navy">รายละเอียดงาน</h3>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100">
@@ -954,7 +954,7 @@ function TaskDrawer({
               href={task.url}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand-blue px-3 py-2 text-sm font-semibold text-white hover:bg-brand-blue"
             >
               <ExternalLink className="h-4 w-4" />
               ไปแก้ไขหน้านี้
@@ -968,7 +968,7 @@ function TaskDrawer({
               value={title}
               disabled={readOnly}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
             />
           </div>
 
@@ -1020,7 +1020,7 @@ function TaskDrawer({
                     <li
                       key={i}
                       className={`rounded-lg border p-2 text-xs ${
-                        isChosen ? "border-indigo-400 bg-indigo-50" : "border-gray-200"
+                        isChosen ? "border-brand-blue bg-brand-blue/10" : "border-gray-200"
                       }`}
                     >
                       <p className="text-gray-700">{option}</p>
@@ -1040,8 +1040,8 @@ function TaskDrawer({
                             disabled={saving}
                             className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium disabled:opacity-60 ${
                               isChosen
-                                ? "bg-indigo-600 text-white"
-                                : "border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                ? "bg-brand-blue text-white"
+                                : "border border-brand-blue/30 text-brand-blue hover:bg-brand-blue/10"
                             }`}
                           >
                             {isChosen ? "ใช้อันนี้แล้ว" : "ใช้อันนี้"}
@@ -1070,7 +1070,7 @@ function TaskDrawer({
                 disabled={readOnly}
                 onChange={(e) => setDetail(e.target.value)}
                 rows={hasParsedSections ? 6 : 3}
-                className="mt-1.5 w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+                className="mt-1.5 w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
               />
             )}
           </div>
@@ -1082,7 +1082,7 @@ function TaskDrawer({
               value={url}
               disabled={readOnly}
               onChange={(e) => setUrl(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
             />
           </div>
 
@@ -1093,7 +1093,7 @@ function TaskDrawer({
                 value={status}
                 disabled={readOnly}
                 onChange={(e) => setStatus(e.target.value as SeoTaskStatus)}
-                className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+                className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
               >
                 {STATUS_ORDER.map((s) => (
                   <option key={s} value={s}>{STATUS_META[s].label}</option>
@@ -1106,7 +1106,7 @@ function TaskDrawer({
                 value={priority}
                 disabled={readOnly}
                 onChange={(e) => setPriority(e.target.value as SeoTaskPriority)}
-                className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+                className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
               >
                 {PRIORITY_ORDER.map((p) => (
                   <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -1124,7 +1124,7 @@ function TaskDrawer({
               min={plan.startDate ?? undefined}
               max={plan.endDate ?? undefined}
               onChange={(e) => setDueDate(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
             />
             {(plan.startDate || plan.endDate) && (
               <p className="mt-1 text-[11px] text-gray-400">
@@ -1141,7 +1141,7 @@ function TaskDrawer({
               onChange={(e) => setEvidence(e.target.value)}
               rows={2}
               placeholder="ลิงก์หรือบันทึกหลักฐานการแก้ไข"
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
             />
           </div>
 
@@ -1158,14 +1158,14 @@ function TaskDrawer({
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+                className="rounded-lg bg-brand-blue px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-blue disabled:opacity-60"
               >
                 {saving ? "กำลังบันทึก..." : "บันทึก"}
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
               >
                 ยกเลิก
               </button>
@@ -1185,7 +1185,7 @@ function EvidencePromptModal({ onCancel, onSubmit }: { onCancel: () => void; onS
   const [value, setValue] = useState("");
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl">
+      <div className="w-full max-w-sm rounded-3xl glass-strong p-5 shadow-xl">
         <p className="text-sm font-semibold text-brand-navy">ทำเครื่องหมายว่าเสร็จแล้ว</p>
         <p className="mt-1 text-xs text-gray-500">แนบลิงก์หรือบันทึกหลักฐาน (ไม่บังคับ)</p>
         <input
@@ -1193,20 +1193,20 @@ function EvidencePromptModal({ onCancel, onSubmit }: { onCancel: () => void; onS
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="URL หรือบันทึกหลักฐาน"
-          className="mt-3 w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+          className="mt-3 w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none"
         />
         <div className="mt-3 flex items-center gap-2">
           <button
             type="button"
             onClick={() => onSubmit(value.trim())}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+            className="rounded-lg bg-brand-blue px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-blue"
           >
             บันทึก
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
           >
             ยกเลิก
           </button>
@@ -1219,7 +1219,7 @@ function EvidencePromptModal({ onCancel, onSubmit }: { onCancel: () => void; onS
 function ConfirmDeleteModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl">
+      <div className="w-full max-w-sm rounded-3xl glass-strong p-5 shadow-xl">
         <p className="text-sm font-semibold text-brand-navy">ลบงานนี้?</p>
         <p className="mt-1 text-xs text-gray-500">การลบไม่สามารถย้อนกลับได้</p>
         <div className="mt-3 flex items-center gap-2">
@@ -1233,7 +1233,7 @@ function ConfirmDeleteModal({ onCancel, onConfirm }: { onCancel: () => void; onC
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
           >
             ยกเลิก
           </button>

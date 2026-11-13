@@ -66,7 +66,7 @@ function WarningRow({ warning }: { warning: DryRunWarning }) {
 function LayerRow({ layer }: { layer: DryRunLayer }) {
   const Icon = layer.state === "sent" ? CheckCircle2 : layer.state === "missing" ? XCircle : MinusCircle;
   return (
-    <details className="group rounded-md border border-gray-100">
+    <details className="group rounded-2xl border border-white/80 bg-white/60">
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-xs">
         <Icon
           className={cn(
@@ -92,7 +92,7 @@ function LayerRow({ layer }: { layer: DryRunLayer }) {
           </ul>
         )}
         {layer.text ? (
-          <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-gray-50 p-3 text-xs text-gray-700">{layer.text}</pre>
+          <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-brand-mist p-3 text-xs text-gray-700">{layer.text}</pre>
         ) : (
           layer.details.length === 0 && <p className="text-xs text-gray-400">ไม่มีข้อความส่งเข้า AI</p>
         )}
@@ -214,7 +214,7 @@ export function PromptComposerTab({ scope, businessSkills, masterPrompts, briefT
         <SectionCard title="Layer ของสโคปนี้" description="สิ่งที่ตั้งค่าไว้ กด Run Test เพื่อดูว่าบทความแต่ละชิ้นได้อะไรจริง">
           <div className="space-y-2">
             {required.map((l) => (
-              <div key={l.label} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-md border border-gray-100 px-3 py-2 text-xs">
+              <div key={l.label} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-2xl border border-white/80 bg-white/60 px-3 py-2 text-xs">
                 <span className="text-gray-600">{l.label}</span>
                 {l.row ? (
                   <span className="inline-flex min-w-0 items-center gap-1 font-medium text-green-700">
@@ -228,7 +228,7 @@ export function PromptComposerTab({ scope, businessSkills, masterPrompts, briefT
               </div>
             ))}
             {[optional.restrictions, optional.comments].map((s) => (
-              <div key={s.label} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-md border border-gray-100 px-3 py-2 text-xs">
+              <div key={s.label} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-2xl border border-white/80 bg-white/60 px-3 py-2 text-xs">
                 <span className="text-gray-600">{s.label}</span>
                 <span
                   className={cn(
@@ -255,7 +255,7 @@ export function PromptComposerTab({ scope, businessSkills, masterPrompts, briefT
                   id="dry-run-keyword-plan"
                   value={keywordId}
                   onChange={(e) => setKeywordId(e.target.value)}
-                  className="mt-1 h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm"
+                  className="mt-1 h-9 w-full rounded-xl border border-gray-200 bg-white px-2.5 text-sm"
                 >
                   <option value="">พิมพ์เอง</option>
                   {keywords.map((k) => (
@@ -297,7 +297,7 @@ export function PromptComposerTab({ scope, businessSkills, masterPrompts, briefT
       </aside>
 
       <section className="min-w-0 space-y-3">
-        {error && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
+        {error && <p className="rounded-2xl border border-red-200 bg-red-50/80 px-3 py-2 text-xs text-red-700">{error}</p>}
         {!result && !error && (
           <SectionCard title="ผล Run Test">
             <p className="text-xs text-gray-500">เลือก keyword แล้วกด Run Test เพื่อดูว่าการเขียนใช้อะไรบ้าง มีขั้นตอนอะไร และ prompt ที่ส่งจริงคืออะไร</p>
@@ -340,7 +340,7 @@ export function PromptComposerTab({ scope, businessSkills, masterPrompts, briefT
               <SectionCard title="ไฟล์ที่อัปโหลด" description="ไฟล์ใหญ่ไม่ถูกส่งทั้งไฟล์ ส่งตามหัวข้อของบทความนี้เท่านั้น">
                 <div className="space-y-1.5">
                   {result.files.map((f) => (
-                    <div key={`${f.layer}-${f.id}`} className="rounded-md border border-gray-100 px-3 py-2 text-xs">
+                    <div key={`${f.layer}-${f.id}`} className="rounded-2xl border border-white/80 bg-white/60 px-3 py-2 text-xs">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         <span className="min-w-0 break-words font-medium text-gray-700">{f.name}</span>
                         <span className="text-gray-400">{f.layer}</span>
@@ -382,9 +382,9 @@ export function PromptComposerTab({ scope, businessSkills, masterPrompts, briefT
                   { label: "System prompt", text: result.systemPrompt },
                   { label: "User prompt", text: result.userPrompt },
                 ].map((p) => (
-                  <details key={p.label} className="rounded-md border border-gray-100">
+                  <details key={p.label} className="rounded-2xl border border-white/80 bg-white/60">
                     <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">{p.label}</summary>
-                    <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-words border-t border-gray-100 bg-gray-50 p-3 text-xs text-gray-700">{p.text}</pre>
+                    <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-words border-t border-gray-100 bg-brand-mist p-3 text-xs text-gray-700">{p.text}</pre>
                   </details>
                 ))}
               </div>

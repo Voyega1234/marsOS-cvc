@@ -118,8 +118,8 @@ export default function SettingsTab({
         <div className="flex gap-1.5 pb-1 w-max">
           {sections.map(s => (
             <button key={s.id} onClick={() => go(s.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-colors ${
-                active === s.id ? "bg-brand-mist text-brand-blue border-brand-soft/60" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border whitespace-nowrap transition-colors ${
+                active === s.id ? "bg-brand-navy text-white border-brand-navy" : "bg-white/70 text-gray-500 border-white/80 hover:bg-white"
               }`}>
               <s.icon size={13} /> {s.label}
               {s.id === "checklist" && checklistMissing > 0 && <MissingBadge n={checklistMissing} />}
@@ -130,11 +130,11 @@ export default function SettingsTab({
 
       {/* จอใหญ่: เมนูแนวตั้งด้านซ้าย */}
       <div className="hidden md:block w-52 shrink-0">
-        <div className="space-y-1 sticky top-4">
+        <div className="space-y-1 sticky top-[4.5rem] glass rounded-3xl p-2">
           {sections.map(s => (
             <button key={s.id} onClick={() => go(s.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
-                active === s.id ? "bg-brand-mist text-brand-blue" : "text-gray-500 hover:bg-gray-50 hover:text-brand-navy"
+              className={`w-full flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-medium text-left transition-colors ${
+                active === s.id ? "bg-brand-blue text-white shadow-sm" : "text-gray-500 hover:bg-white/80 hover:text-brand-navy"
               }`}>
               <s.icon size={15} /> <span className="flex-1">{s.label}</span>
               {s.id === "checklist" && checklistMissing > 0 && <MissingBadge n={checklistMissing} />}
@@ -172,10 +172,10 @@ export default function SettingsTab({
         {active === "test-image" && <TestImageSection client={client} />}
         {active === "engine" && (isPbn ? (
           <div className="space-y-4">
-            <div className="bg-white border border-violet-200 rounded-xl p-4 space-y-2">
+            <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-2">
               <p className="text-sm font-semibold text-brand-navy">Content Engine ของ set</p>
               <select value={activeCeSet} onChange={e => setCeSetId(e.target.value)}
-                className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+                className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white">
                 <option value={PBN_MAIN_PROFILE}>set หลัก{client.website ? ` — ${client.website}` : ""}</option>
                 {pbnProfiles.profiles.map(p => (
                   <option key={p.id} value={p.id}>{p.name}{p.website ? ` — ${p.website}` : ""}</option>

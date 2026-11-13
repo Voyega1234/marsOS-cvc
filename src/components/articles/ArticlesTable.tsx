@@ -55,7 +55,7 @@ export function ArticlesTable({ articles, projects, users = [] }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1 bg-white border border-gray-100 rounded-lg p-1 w-fit">
+      <div className="seg">
         {[
           { key: "table",  label: "Table",  icon: TableIcon },
           { key: "kanban", label: "Kanban", icon: Kanban },
@@ -64,8 +64,8 @@ export function ArticlesTable({ articles, projects, users = [] }: Props) {
           <button
             key={key}
             onClick={() => setProView(key as ProView)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-              proView === key ? "bg-green-600 text-white shadow-sm" : "text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            className={`seg-item flex items-center gap-1.5 ${
+              proView === key ? "is-active" : ""
             }`}
           >
             <Icon className="h-3.5 w-3.5" />
@@ -159,7 +159,7 @@ function ProfessionalTable({
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100">
+    <div className="glass rounded-3xl">
       {/* Filters */}
       <div className="p-4 border-b border-gray-100 flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-48">
@@ -194,7 +194,7 @@ function ProfessionalTable({
 
       {/* Bulk action bar */}
       {someChecked && (
-        <div className="px-4 py-2.5 bg-brand-blue flex items-center gap-3 flex-wrap">
+        <div className="px-4 py-2.5 bg-brand-navy flex items-center gap-3 flex-wrap">
           <span className="text-sm font-medium text-white">{selected.size} บทความที่เลือก</span>
           <div className="flex items-center gap-2 ml-auto flex-wrap">
             {/* Auto Run ใช้ตัวเขียนแบบเก่าที่ปิดแล้ว (ไม่ใช้ข้อจำกัดของ Content Engine) — ซ่อนตามสวิตช์ */}
@@ -202,7 +202,7 @@ function ProfessionalTable({
               <button
                 onClick={() => bulkAction("auto-run")}
                 disabled={bulkLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
               >
                 {bulkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
                 Auto Run ทั้งหมด
@@ -211,7 +211,7 @@ function ProfessionalTable({
             <button
               onClick={() => bulkAction("approve-outline")}
               disabled={bulkLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
             >
               <CheckCircle className="h-3.5 w-3.5" />
               Approve Outline
@@ -219,7 +219,7 @@ function ProfessionalTable({
             <button
               onClick={() => bulkAction("approve-article")}
               disabled={bulkLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
             >
               <CheckCircle className="h-3.5 w-3.5" />
               Approve บทความ
@@ -230,13 +230,13 @@ function ProfessionalTable({
               <button
                 onClick={() => setShowAssignPicker((v) => !v)}
                 disabled={bulkLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
               >
                 <UserCheck className="h-3.5 w-3.5" />
                 Assign
               </button>
               {showAssignPicker && (
-                <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                <div className="absolute right-0 top-full mt-1 w-48 glass rounded-3xl shadow-xl z-50 overflow-hidden">
                   <div className="px-3 py-2 border-b border-gray-100">
                     <p className="text-xs font-semibold text-gray-500">เลือกผู้รับผิดชอบ</p>
                   </div>
@@ -256,7 +256,7 @@ function ProfessionalTable({
             <button
               onClick={() => { if (confirm(`ลบ ${selected.size} บทความ?`)) bulkAction("delete"); }}
               disabled={bulkLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" />
               ลบ
@@ -277,7 +277,7 @@ function ProfessionalTable({
                 type="checkbox"
                 checked={allChecked}
                 onChange={toggleAll}
-                className="rounded border-gray-300 text-green-600 focus:ring-green-500 cursor-pointer"
+                className="rounded border-gray-300 text-brand-blue focus:ring-brand-blue cursor-pointer"
               />
             </TableHead>
             <TableHead>ชื่อบทความ</TableHead>
@@ -300,18 +300,18 @@ function ProfessionalTable({
           {filtered.map((article) => (
             <TableRow
               key={article.id}
-              className={`group ${selected.has(article.id) ? "bg-green-50" : ""}`}
+              className={`group ${selected.has(article.id) ? "bg-brand-blue/5" : ""}`}
             >
               <TableCell>
                 <input
                   type="checkbox"
                   checked={selected.has(article.id)}
                   onChange={() => toggleOne(article.id)}
-                  className="rounded border-gray-300 text-green-600 focus:ring-green-500 cursor-pointer"
+                  className="rounded border-gray-300 text-brand-blue focus:ring-brand-blue cursor-pointer"
                 />
               </TableCell>
               <TableCell>
-                <Link href={`/articles/${article.id}`} className="flex items-center gap-1.5 font-medium text-brand-navy hover:text-green-700 group-hover:underline max-w-xs">
+                <Link href={`/articles/${article.id}`} className="flex items-center gap-1.5 font-medium text-brand-navy hover:text-brand-blue group-hover:underline max-w-xs">
                   <span className="truncate">{article.title}</span>
                   <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 group-hover:opacity-100" />
                 </Link>

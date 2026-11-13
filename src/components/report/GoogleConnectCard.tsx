@@ -33,7 +33,7 @@ export function GoogleConnectCard({ isAdmin }: { isAdmin: boolean }) {
 
   if (status.connected) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+      <div className="flex items-center gap-2 rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-4 py-2.5 shadow-sm text-xs text-emerald-700">
         <CheckCircle2 className="size-3.5 shrink-0" />
         <span>ข้อมูล GSC/GA4 เชื่อมผ่าน Google: <b>{status.email}</b></span>
         {isAdmin && (
@@ -46,7 +46,7 @@ export function GoogleConnectCard({ isAdmin }: { isAdmin: boolean }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200/80 bg-amber-50/80 px-4 py-2.5 shadow-sm text-xs text-amber-700">
       <span>
         ยังไม่ได้เชื่อม Google สำหรับข้อมูล Report —
         {status.configured
@@ -55,7 +55,7 @@ export function GoogleConnectCard({ isAdmin }: { isAdmin: boolean }) {
       </span>
       {isAdmin && status.configured && (
         <a href="/api/google-connect/start"
-          className="ml-auto flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 transition-colors">
+          className="ml-auto flex items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1 font-medium text-amber-700 hover:bg-amber-100 transition-colors">
           <Link2 className="size-3" /> เชื่อมต่อ Google
         </a>
       )}

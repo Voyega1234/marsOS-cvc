@@ -41,7 +41,7 @@ interface Props {
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   REQUESTED:   { label: "Requested",      color: "text-gray-600",    bg: "bg-gray-100",    icon: <Clock size={11} /> },
-  NEGOTIATING: { label: "Negotiating",    color: "text-blue-700",    bg: "bg-blue-100",    icon: <AlertCircle size={11} /> },
+  NEGOTIATING: { label: "Negotiating",    color: "text-brand-blue",    bg: "bg-blue-100",    icon: <AlertCircle size={11} /> },
   AGREED:      { label: "Agreed",         color: "text-amber-700",   bg: "bg-amber-100",   icon: <FileText size={11} /> },
   PUBLISHED:   { label: "Live",           color: "text-emerald-700", bg: "bg-emerald-100", icon: <CheckCircle2 size={11} /> },
   REJECTED:    { label: "Rejected",       color: "text-red-500",     bg: "bg-red-100",     icon: <XCircle size={11} /> },
@@ -77,9 +77,9 @@ function Section({ title, icon, children, defaultOpen = true, accent }:
   { title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean; accent?: string }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+    <div className="glass rounded-2xl overflow-hidden">
       <button onClick={() => setOpen(o => !o)}
-        className={`w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left ${accent ?? ""}`}>
+        className={`w-full flex items-center justify-between px-5 py-4 hover:bg-white/50 transition-colors text-left ${accent ?? ""}`}>
         <div className="flex items-center gap-2.5 font-bold text-brand-navy text-sm">{icon}{title}</div>
         {open ? <ChevronUp size={14} className="text-gray-400 shrink-0" /> : <ChevronDown size={14} className="text-gray-400 shrink-0" />}
       </button>
@@ -93,7 +93,7 @@ function Section({ title, icon, children, defaultOpen = true, accent }:
 function KPICard({ label, value, sub, trend, color = "text-brand-navy" }:
   { label: string; value: string | number; sub?: string; trend?: "up" | "down" | "neutral"; color?: string }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-1">
+    <div className="glass rounded-2xl p-4 space-y-1">
       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{label}</p>
       <p className={`text-2xl font-black ${color}`}>{value}</p>
       {sub && (
@@ -112,7 +112,7 @@ function KPICard({ label, value, sub, trend, color = "text-brand-navy" }:
 function SourceCard({ icon, name, badge, badgeColor, use, limit }:
   { icon: React.ReactNode; name: string; badge: string; badgeColor: string; use: string; limit: string }) {
   return (
-    <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-2">
+    <div className="bg-white/50 border border-gray-100 rounded-xl p-4 space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 font-semibold text-brand-navy text-sm">{icon}{name}</div>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeColor}`}>{badge}</span>
@@ -146,7 +146,7 @@ function TaskCard({ title, assignee, priority, reason, action }:
   { title: string; assignee: string; priority: "High" | "Medium" | "Low"; reason: string; action: string }) {
   const pColor = { High: "bg-red-100 text-red-700", Medium: "bg-amber-100 text-amber-700", Low: "bg-gray-100 text-gray-500" }[priority];
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2.5">
+    <div className="glass rounded-2xl p-4 space-y-2.5">
       <div className="flex items-start justify-between gap-2">
         <p className="font-semibold text-brand-navy text-sm">{title}</p>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${pColor}`}>{priority}</span>
@@ -156,7 +156,7 @@ function TaskCard({ title, assignee, priority, reason, action }:
         <span>{assignee}</span>
       </div>
       <p className="text-xs text-gray-600"><b>เหตุผล:</b> {reason}</p>
-      <p className="text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-1.5"><b>Action:</b> {action}</p>
+      <p className="text-xs text-brand-blue bg-brand-blue/10 rounded-full px-3 py-1.5"><b>Action:</b> {action}</p>
     </div>
   );
 }
@@ -190,17 +190,17 @@ function AddBacklinkForm({ projects, onAdd }: { projects: Project[]; onAdd: (ent
     finally { setSaving(false); }
   }
 
-  const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900";
+  const inputCls = "w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900";
 
   if (!open) return (
     <button onClick={() => setOpen(true)}
-      className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep transition-colors">
+      className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-brand-deep transition-colors">
       <Plus size={14} /> เพิ่ม Backlink
     </button>
   );
 
   return (
-    <form onSubmit={submit} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
+    <form onSubmit={submit} className="glass rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-brand-navy text-sm">เพิ่ม Backlink ใหม่</h3>
         <button type="button" onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
@@ -236,7 +236,7 @@ function AddBacklinkForm({ projects, onAdd }: { projects: Project[]; onAdd: (ent
       <div className="flex justify-end gap-2">
         <button type="button" onClick={() => setOpen(false)} className="px-4 py-2 text-sm text-gray-500 hover:text-brand-navy">ยกเลิก</button>
         <button type="submit" disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-50 transition-colors">
+          className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-brand-deep disabled:opacity-50 transition-colors">
           {saving ? "กำลังบันทึก..." : "บันทึก"}
         </button>
       </div>
@@ -284,7 +284,7 @@ function BacklinkRow({ entry, onUpdate, onDelete }: {
   const inputCls = "w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900";
 
   if (editing) return (
-    <tr className="bg-blue-50/30">
+    <tr className="bg-brand-blue/10">
       <td className={`${cellCls} text-xs text-gray-500`}>{entry.project.name}</td>
       <td className={cellCls}><a href={entry.targetUrl} target="_blank" rel="noopener" className="text-xs text-brand-blue hover:underline flex items-center gap-1 truncate max-w-[140px]"><Link2 size={10} />{entry.targetUrl}</a></td>
       <td className={cellCls}><input value={form.sourceUrl} onChange={e => setForm(f => ({ ...f, sourceUrl: e.target.value }))} className={inputCls} placeholder="https://..." /></td>
@@ -306,7 +306,7 @@ function BacklinkRow({ entry, onUpdate, onDelete }: {
   );
 
   return (
-    <tr className="hover:bg-gray-50/50 transition-colors group">
+    <tr className="hover:bg-white/30 transition-colors group">
       <td className={`${cellCls} text-xs text-gray-500 whitespace-nowrap`}>{entry.project.name}</td>
       <td className={`${cellCls} max-w-[140px]`}><a href={entry.targetUrl} target="_blank" rel="noopener" className="text-xs text-brand-blue hover:underline flex items-center gap-1 truncate"><Link2 size={10} className="shrink-0" />{entry.targetUrl}</a></td>
       <td className={`${cellCls} max-w-[140px]`}>{entry.sourceUrl ? <a href={entry.sourceUrl} target="_blank" rel="noopener" className="text-xs text-brand-blue hover:underline flex items-center gap-1 truncate"><Globe size={10} className="shrink-0" />{entry.sourceUrl}</a> : <span className="text-gray-300 text-xs">—</span>}</td>
@@ -365,7 +365,7 @@ function CSVImportModal({ projects, onImported, onClose }: {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
         </div>
 
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-[11px] text-gray-500 space-y-1">
+        <div className="bg-white/50 border border-gray-200 rounded-xl p-3 text-[11px] text-gray-500 space-y-1">
           <p className="font-semibold text-gray-700">รองรับ format จาก:</p>
           <p>• <b>Ahrefs</b> — Referring Pages export (CSV)</p>
           <p>• <b>Semrush</b> — Backlinks report (CSV)</p>
@@ -385,7 +385,7 @@ function CSVImportModal({ projects, onImported, onClose }: {
           <label className="block text-xs font-medium text-gray-500 mb-1">ไฟล์ CSV</label>
           <input type="file" accept=".csv,.tsv,.txt"
             onChange={e => { setFile(e.target.files?.[0] ?? null); setResult(null); setError(null); }}
-            className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-brand-blue file:text-white file:text-xs file:font-semibold hover:file:bg-gray-700" />
+            className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-brand-blue file:text-white file:text-xs file:font-semibold hover:file:bg-gray-700" />
         </div>
 
         {error && (
@@ -403,7 +403,7 @@ function CSVImportModal({ projects, onImported, onClose }: {
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-xs text-gray-500 hover:text-brand-navy">ปิด</button>
           <button onClick={upload} disabled={!file || !projectId || uploading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-40 transition-colors">
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-semibold rounded-full hover:bg-brand-deep disabled:opacity-40 transition-colors">
             {uploading ? <><RefreshCw size={11} className="animate-spin" /> กำลัง import...</> : <><Upload size={11} /> Import</>}
           </button>
         </div>
@@ -466,7 +466,7 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
         </div>
 
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 space-y-1">
+        <div className="bg-brand-blue/10 border border-brand-blue/30 rounded-xl p-3 text-xs text-brand-blue space-y-1">
           <p className="font-semibold">ระบบจะตรวจสอบ:</p>
           <p>• Target URL ยังมีอยู่มั้ย (404/410 = Broken Target)</p>
           <p>• Source page ยังลิงก์มาอยู่มั้ย (ถ้าไม่มี = Lost)</p>
@@ -476,11 +476,11 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-center">
-          <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+          <div className="bg-white/50 border border-gray-100 rounded-xl p-3">
             <p className="text-2xl font-black text-brand-navy">{entries.length}</p>
             <p className="text-gray-500">Total backlinks</p>
           </div>
-          <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+          <div className="bg-white/50 border border-gray-100 rounded-xl p-3">
             <p className="text-2xl font-black text-brand-navy">{Math.min(entries.length, 50)}</p>
             <p className="text-gray-500">จะตรวจสอบ</p>
           </div>
@@ -491,7 +491,7 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
             <p className="font-bold text-emerald-800">ผลลัพธ์:</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 text-center">
               {Object.entries(summary).map(([k, v]) => (
-                <div key={k} className="bg-white rounded-lg px-2 py-1.5 border border-emerald-100">
+                <div key={k} className="bg-white rounded-xl px-2 py-1.5 border border-emerald-100">
                   <p className="font-bold text-brand-navy">{v as number}</p>
                   <p className="text-gray-500 capitalize">{k}</p>
                 </div>
@@ -508,7 +508,7 @@ function LinkCheckerPanel({ entries, onChecked, onClose }: {
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-xs text-gray-500 hover:text-brand-navy">ปิด</button>
           <button onClick={() => runCheck()} disabled={checking || entries.length === 0}
-            className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-40 transition-colors">
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-semibold rounded-full hover:bg-brand-deep disabled:opacity-40 transition-colors">
             {checking
               ? <><RefreshCw size={11} className="animate-spin" /> กำลังตรวจสอบ...</>
               : <><ScanLine size={11} /> ตรวจสอบ {Math.min(entries.length, 50)} links</>}
@@ -577,25 +577,26 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
           <div className="flex flex-wrap gap-1.5">
             {[
               { label: "Free-first",        bg: "bg-emerald-100 text-emerald-700" },
-              { label: "Automated",         bg: "bg-blue-100 text-blue-700" },
+              { label: "Automated",         bg: "bg-blue-100 text-brand-blue" },
               { label: "AI-assisted",   bg: "bg-purple-100 text-purple-700" },
               { label: "SEO Team Workflow", bg: "bg-amber-100 text-amber-700" },
             ].map(b => (
               <span key={b.label} className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${b.bg}`}>{b.label}</span>
             ))}
           </div>
-          <h1 className="text-xl font-bold text-brand-navy">Backlink Automation Lite</h1>
+          <p className="page-eyebrow">Backlink Assistant</p>
+          <h1 className="page-title">Backlink Automation Lite</h1>
           <p className="text-sm text-gray-500 max-w-2xl">
             Free-first backlink monitoring and action system for SEO teams. Detect new links, lost links, risky links, broken backlinks, competitor gaps, and generate recommended SEO actions.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowCSV(true)}
-            className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-50 transition-colors">
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-semibold rounded-full hover:bg-white/50 transition-colors">
             <Upload size={13} /> Import CSV
           </button>
           <button onClick={() => setShowChecker(true)}
-            className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-50 transition-colors">
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-semibold rounded-full hover:bg-white/50 transition-colors">
             <ScanLine size={13} /> Check Links
           </button>
           <AddBacklinkForm projects={projects} onAdd={e => setEntries(prev => [e, ...prev])} />
@@ -606,7 +607,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
       {statsLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 space-y-2 animate-pulse">
+            <div key={i} className="glass rounded-2xl p-4 space-y-2 animate-pulse">
               <div className="h-2 bg-gray-100 rounded w-3/4" />
               <div className="h-7 bg-gray-100 rounded w-1/2" />
               <div className="h-2 bg-gray-100 rounded w-2/3" />
@@ -655,13 +656,13 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
         <p className="text-xs text-gray-500 mb-5">ขั้นตอนการทำงานอัตโนมัติตั้งแต่ collect จนถึง report</p>
         <div className="flex flex-wrap gap-2 items-center">
           {[
-            { step: "1", label: "Collect",      desc: "Common Crawl + GSC + Bing + CSV",              color: "bg-blue-50 border-blue-200 text-blue-800" },
+            { step: "1", label: "Collect",      desc: "Common Crawl + GSC + Bing + CSV",              color: "bg-brand-blue/10 border-brand-blue/30 text-blue-800" },
             { step: "2", label: "Normalize",     desc: "Domain, URL, anchor text standardization",     color: "bg-indigo-50 border-indigo-200 text-indigo-800" },
             { step: "3", label: "Verify",        desc: "Live / Lost / Nofollow / Redirect / 404",     color: "bg-amber-50 border-amber-200 text-amber-800" },
             { step: "4", label: "Score",         desc: "Quality + Risk — rule-based logic",           color: "bg-emerald-50 border-emerald-200 text-emerald-800" },
             { step: "5", label: "AI Enrich", desc: "Only high-value / uncertain links",           color: "bg-purple-50 border-purple-200 text-purple-800" },
             { step: "6", label: "Create Tasks",  desc: "Auto SEO action items by category",          color: "bg-orange-50 border-orange-200 text-orange-800" },
-            { step: "7", label: "Report",        desc: "Dashboard + CSV export to team",             color: "bg-gray-50 border-gray-200 text-gray-800" },
+            { step: "7", label: "Report",        desc: "Dashboard + CSV export to team",             color: "bg-white/50 border-gray-200 text-gray-800" },
           ].map((s, i, arr) => (
             <div key={s.step} className="flex items-center gap-2">
               <div className={`border rounded-xl px-3 py-2.5 text-xs font-semibold min-w-[110px] ${s.color}`}>
@@ -703,7 +704,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             </ul>
           </div>
         </div>
-        <div className="mt-3 bg-brand-blue rounded-xl px-4 py-3 text-xs text-gray-300 flex items-start gap-2">
+        <div className="mt-3 bg-brand-blue rounded-full px-4 py-3 text-xs text-gray-300 flex items-start gap-2">
           <Sparkles size={12} className="text-purple-400 mt-0.5 shrink-0" />
           <span><b className="text-white">Cost Control:</b> AI enrichment is gated to avoid unnecessary API usage. Only ~5–10% of backlinks are sent to AI. The rest are scored by rule-based logic.</span>
         </div>
@@ -712,7 +713,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
       {/* ── 6. Backlink Review Table — real data ── */}
       <Section title="Backlink Review Table" icon={<Eye size={15} />} defaultOpen>
         {!stats?.hasData ? (
-          <div className="text-center py-10 bg-gray-50 rounded-xl border border-gray-100">
+          <div className="text-center py-10 bg-white/50 rounded-xl border border-gray-100">
             <Eye size={24} className="text-gray-200 mx-auto mb-2" />
             <p className="text-sm font-medium text-gray-500">ยังไม่มีข้อมูล</p>
             <p className="text-xs text-gray-400 mt-1">เพิ่ม backlink หรือ Import CSV เพื่อดู analysis</p>
@@ -721,7 +722,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
           <div className="overflow-x-auto rounded-xl border border-gray-100">
             <table className="w-full text-left min-w-[800px]">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
+                <tr className="bg-white/50 border-b border-gray-100">
                   {["Source Domain", "Target URL", "Anchor", "Status", "Quality", "Risk", "AI Recommendation", "Suggested Task"].map(h => (
                     <th key={h} className="px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
@@ -729,7 +730,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {(stats?.reviewTable ?? []).map((row, i) => (
-                  <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                  <tr key={i} className="hover:bg-white/30 transition-colors">
                     <td className="px-3 py-2.5 text-xs font-semibold text-gray-700 whitespace-nowrap">{row.domain}</td>
                     <td className="px-3 py-2.5 text-[11px] text-brand-blue truncate max-w-[120px]">{row.target}</td>
                     <td className="px-3 py-2.5 text-xs text-gray-600 max-w-[100px] truncate">{row.anchor}</td>
@@ -754,7 +755,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
                     </td>
                     <td className="px-3 py-2.5 text-[11px] text-gray-600 max-w-[160px]">{row.ai}</td>
                     <td className="px-3 py-2.5">
-                      <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg whitespace-nowrap">{row.task}</span>
+                      <span className="text-[10px] font-semibold text-brand-blue bg-brand-blue/10 px-2 py-0.5 rounded-full whitespace-nowrap">{row.task}</span>
                     </td>
                   </tr>
                 ))}
@@ -767,7 +768,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
       {/* ── 7. Auto Task Board — real data ── */}
       <Section title={`Auto Task Board${stats?.tasks.length ? ` (${stats.tasks.length})` : ""}`} icon={<Target size={15} />} defaultOpen={false}>
         {!stats?.hasData ? (
-          <div className="text-center py-8 bg-gray-50 rounded-xl border border-gray-100">
+          <div className="text-center py-8 bg-white/50 rounded-xl border border-gray-100">
             <Target size={22} className="text-gray-200 mx-auto mb-2" />
             <p className="text-sm font-medium text-gray-500">Tasks จะ generate อัตโนมัติหลังเพิ่มข้อมูล</p>
           </div>
@@ -843,7 +844,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
         <div className="flex items-center gap-3 mb-4">
           <Filter size={13} className="text-gray-400" />
           <select value={filterProject} onChange={e => setFilterProject(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gray-900">
+            className="border border-gray-200 rounded-xl px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gray-900">
             <option value="all">ทุก Client</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -854,7 +855,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
           <div className="overflow-x-auto rounded-xl border border-gray-100">
             <table className="w-full text-left min-w-[700px]">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
+                <tr className="bg-white/50 border-b border-gray-100">
                   {["Client", "Target URL", "Source URL", "Anchor", "DR", "Status", "หมายเหตุ", ""].map(h => (
                     <th key={h} className="px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
@@ -870,7 +871,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             </table>
           </div>
         ) : (
-          <div className="text-center py-12 bg-gray-50 rounded-2xl border border-gray-100">
+          <div className="text-center py-12 bg-white/50 rounded-2xl border border-gray-100">
             <Link2 size={28} className="text-gray-200 mx-auto mb-2" />
             <p className="text-gray-500 font-medium text-sm">ยังไม่มี backlink</p>
             <p className="text-gray-400 text-xs mt-1">กด "+ เพิ่ม Backlink" ที่ด้านบนเพื่อเริ่มติดตาม</p>
@@ -889,7 +890,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             { icon: <CheckCircle2 size={13} className="text-emerald-500 shrink-0 mt-0.5" />, text: "Best MVP approach: เริ่มด้วย automation + prioritization — ไม่ต้องรอ perfect data coverage" },
             { icon: <CheckCircle2 size={13} className="text-emerald-500 shrink-0 mt-0.5" />, text: "ระบบนี้ช่วยทีม SEO ทำงานได้ faster โดยไม่จ่ายค่า tool subscription ตั้งแต่วันแรก" },
           ].map((item, i) => (
-            <div key={i} className="flex gap-2 text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+            <div key={i} className="flex gap-2 text-xs text-gray-600 bg-white/50 border border-gray-100 rounded-xl px-4 py-3">
               {item.icon}{item.text}
             </div>
           ))}
@@ -900,10 +901,10 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
       <Section title="Suggested Tech Stack" icon={<Wrench size={15} />} defaultOpen={false}>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { label: "Frontend",   value: "Next.js (this project)",       color: "bg-gray-50  border-gray-200" },
+            { label: "Frontend",   value: "Next.js (this project)",       color: "bg-white/50  border-gray-200" },
             { label: "Database",   value: "Supabase Free / PostgreSQL",    color: "bg-green-50 border-green-200" },
-            { label: "Scheduler",  value: "GitHub Actions / cron",         color: "bg-gray-50  border-gray-200" },
-            { label: "Link Check", value: "Python / Node worker",          color: "bg-blue-50  border-blue-200" },
+            { label: "Scheduler",  value: "GitHub Actions / cron",         color: "bg-white/50  border-gray-200" },
+            { label: "Link Check", value: "Python / Node worker",          color: "bg-brand-blue/10  border-brand-blue/30" },
             { label: "AI Layer",   value: "AI Analysis (optional)",   color: "bg-purple-50 border-purple-200" },
             { label: "Reporting",  value: "Dashboard + CSV export",        color: "bg-amber-50 border-amber-200" },
           ].map(s => (

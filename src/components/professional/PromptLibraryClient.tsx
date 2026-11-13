@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { SearchPill } from "@/components/ds";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import {
   Search, Plus, CheckCircle2, XCircle, Copy, Play, Eye,
@@ -48,20 +49,20 @@ interface Props {
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const PROMPT_TYPE_META: Record<string, { label: string; color: string; bg: string }> = {
-  KEYWORD_RESEARCH_PROMPT:  { label: "Keyword Research",  color: "text-blue-700",   bg: "bg-blue-100" },
-  CONTENT_MAP_PROMPT:       { label: "Content Map",       color: "text-violet-700", bg: "bg-violet-100" },
-  OUTLINE_PROMPT:           { label: "Outline",           color: "text-orange-700", bg: "bg-orange-100" },
-  ARTICLE_WRITER_PROMPT:    { label: "Article Writer",    color: "text-green-700",  bg: "bg-green-100" },
-  SEO_CHECK_PROMPT:         { label: "SEO Check",         color: "text-teal-700",   bg: "bg-teal-100" },
-  IMAGE_PROMPT_GENERATOR:   { label: "Image Prompt",      color: "text-pink-700",   bg: "bg-pink-100" },
-  WORDPRESS_PUBLISH_PROMPT: { label: "WordPress",         color: "text-indigo-700", bg: "bg-indigo-100" },
-  TEMPLATE_SPECIFIC_PROMPT: { label: "Template Specific", color: "text-gray-700",   bg: "bg-gray-100" },
+  KEYWORD_RESEARCH_PROMPT:  { label: "Keyword Research",  color: "text-brand-blue", bg: "bg-brand-blue/10" },
+  CONTENT_MAP_PROMPT:       { label: "Content Map",       color: "text-brand-navy", bg: "bg-brand-mist" },
+  OUTLINE_PROMPT:           { label: "Outline",           color: "text-brand-navy", bg: "bg-brand-mist" },
+  ARTICLE_WRITER_PROMPT:    { label: "Article Writer",    color: "text-brand-blue", bg: "bg-brand-blue/10" },
+  SEO_CHECK_PROMPT:         { label: "SEO Check",         color: "text-brand-blue", bg: "bg-brand-blue/10" },
+  IMAGE_PROMPT_GENERATOR:   { label: "Image Prompt",      color: "text-brand-navy", bg: "bg-brand-mist" },
+  WORDPRESS_PUBLISH_PROMPT: { label: "WordPress",         color: "text-brand-blue", bg: "bg-brand-blue/10" },
+  TEMPLATE_SPECIFIC_PROMPT: { label: "Template Specific", color: "text-brand-navy", bg: "bg-brand-mist" },
 };
 
 const MODEL_BADGE: Record<string, string> = {
-  CLAUDE: "bg-orange-50 text-orange-600 border border-orange-200",
-  OPENAI: "bg-green-50 text-green-600 border border-green-200",
-  GEMINI: "bg-blue-50 text-brand-blue border border-blue-200",
+  CLAUDE: "bg-brand-mist text-brand-navy border border-gray-200",
+  OPENAI: "bg-brand-mist text-brand-navy border border-gray-200",
+  GEMINI: "bg-brand-blue/10 text-brand-blue border border-brand-blue/20",
   CUSTOM: "bg-gray-50 text-gray-600 border border-gray-100",
 };
 
@@ -178,15 +179,15 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
             <button
               key={type}
               onClick={() => setTypeFilter(typeFilter === type ? "ALL" : type)}
-              className={`text-left p-3 rounded-xl border transition-all ${typeFilter === type
+              className={`text-left p-3 rounded-2xl border transition-all ${typeFilter === type
                 ? `${meta.bg} border-current ring-2 ring-offset-1 ring-current`
-                : "bg-white border-gray-100 hover:border-gray-300 hover:shadow-sm"
+                : "glass border-white/80 hover:shadow-md"
                 }`}
             >
               <div className="flex items-start justify-between">
                 <span className={`text-lg font-bold ${meta.color}`}>{stats.total}</span>
                 {hasActive && (
-                  <span className="flex items-center gap-0.5 text-xs font-medium text-green-600">
+                  <span className="flex items-center gap-0.5 text-xs font-medium text-emerald-600">
                     <CheckCircle2 className="h-3 w-3" /> {stats.active}
                   </span>
                 )}
@@ -201,17 +202,14 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
       </div>
 
       {/* Filter bar */}
-      <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
+      <div className="glass rounded-3xl p-4 space-y-3">
         <div className="flex flex-wrap gap-3 items-center">
-          <div className="relative flex-1 min-w-48">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Search prompts…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="pl-9 text-sm rounded-xl"
-            />
-          </div>
+          <SearchPill
+            placeholder="Search prompts…"
+            value={q}
+            onChange={setQ}
+            className="flex-1 min-w-48"
+          />
           <Select value={modelFilter} onValueChange={setModelFilter}>
             <SelectTrigger className="w-32 text-sm rounded-xl"><SelectValue placeholder="Model" /></SelectTrigger>
             <SelectContent>
@@ -233,7 +231,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
           {isAdmin && (
             <Link
               href="/prompts/new"
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl transition-colors ml-auto"
+              className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold rounded-full transition-colors ml-auto"
             >
               <Plus className="h-4 w-4" /> New Prompt
             </Link>
@@ -244,7 +242,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
         <div className="flex gap-1.5 flex-wrap">
           <button
             onClick={() => setTypeFilter("ALL")}
-            className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${typeFilter === "ALL" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${typeFilter === "ALL" ? "bg-brand-navy text-white" : "bg-white/70 border border-gray-200 text-gray-600 hover:bg-white"}`}
           >
             All ({prompts.length})
           </button>
@@ -257,7 +255,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
                 onClick={() => setTypeFilter(typeFilter === k ? "ALL" : k)}
                 className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all ${typeFilter === k
                   ? `${meta.bg} ${meta.color} ring-2 ring-offset-1 ring-current`
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  : "bg-white/70 border border-gray-200 text-gray-600 hover:bg-white"
                   }`}
               >
                 {meta.label} ({cnt})
@@ -268,10 +266,10 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-gray-100 rounded-xl overflow-x-auto">
-        <table className="w-full min-w-[800px] text-sm">
+      <div className="glass rounded-3xl overflow-x-auto">
+        <table className="tbl w-full min-w-[800px] text-sm">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
+            <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Model</th>
@@ -281,7 +279,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody>
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={7} className="text-center py-14 text-gray-400">
@@ -294,10 +292,10 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
               const typeMeta = PROMPT_TYPE_META[prompt.type];
               const isLoading = loadingId === prompt.id;
               return (
-                <tr key={prompt.id} className="hover:bg-gray-50/50 transition-colors group">
+                <tr key={prompt.id} className="transition-colors group">
                   {/* Name */}
                   <td className="px-4 py-3 max-w-xs">
-                    <Link href={`/prompts/${prompt.id}`} className="text-sm font-semibold text-brand-navy hover:text-green-700 transition-colors block truncate">
+                    <Link href={`/prompts/${prompt.id}`} className="text-sm font-semibold text-brand-navy hover:text-brand-blue transition-colors block truncate">
                       {prompt.name}
                     </Link>
                     {prompt.description && (
@@ -307,7 +305,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
 
                   {/* Type */}
                   <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-1 rounded-lg font-medium whitespace-nowrap ${typeMeta?.bg ?? "bg-gray-100"} ${typeMeta?.color ?? "text-gray-600"}`}>
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${typeMeta?.bg ?? "bg-gray-100"} ${typeMeta?.color ?? "text-gray-600"}`}>
                       {typeMeta?.label ?? prompt.type}
                     </span>
                   </td>
@@ -337,11 +335,11 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
                   {/* Status */}
                   <td className="px-4 py-3 text-center">
                     {prompt.isActive ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 border border-green-200 px-2 py-1 rounded-full">
+                      <span className="chip chip-ok">
                         <CheckCircle2 className="h-3 w-3" /> Active
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-50 border border-gray-100 px-2 py-1 rounded-full">
+                      <span className="chip chip-muted">
                         <Circle className="h-3 w-3" /> Inactive
                       </span>
                     )}
@@ -355,11 +353,11 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
 
                   {/* Actions */}
                   <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-end gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       {/* Preview */}
                       <button
                         onClick={() => setPreviewPrompt(prompt)}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                        className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
                         title="Preview compiled"
                       >
                         <Eye className="h-3.5 w-3.5" />
@@ -367,7 +365,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
                       {/* Test */}
                       <Link
                         href={`/prompts/${prompt.id}/test`}
-                        className="p-1.5 rounded-lg hover:bg-teal-50 text-gray-400 hover:text-teal-700 transition-colors"
+                        className="p-1.5 rounded-full hover:bg-brand-blue/10 text-gray-400 hover:text-brand-blue transition-colors"
                         title="Test prompt"
                       >
                         <FlaskConical className="h-3.5 w-3.5" />
@@ -375,7 +373,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
                       {/* Edit */}
                       <Link
                         href={`/prompts/${prompt.id}`}
-                        className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-700 transition-colors"
+                        className="p-1.5 rounded-full hover:bg-brand-blue/10 text-gray-400 hover:text-brand-blue transition-colors"
                         title="Edit"
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -384,7 +382,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
                       {isAdmin && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <button className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors">
+                            <button className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors">
                               <MoreHorizontal className="h-3.5 w-3.5" />
                             </button>
                           </DropdownMenuTrigger>
@@ -442,7 +440,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
 
       {/* Preview Modal */}
       <Dialog open={!!previewPrompt} onOpenChange={() => setPreviewPrompt(null)}>
-        <DialogContent className="max-w-2xl rounded-2xl max-h-[85vh] flex flex-col">
+        <DialogContent className="max-w-2xl rounded-3xl glass-strong max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Eye className="h-4 w-4 text-gray-400" />
@@ -466,14 +464,14 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setPreviewPrompt(null)} className="rounded-xl">Close</Button>
+            <Button variant="outline" onClick={() => setPreviewPrompt(null)} className="rounded-full">Close</Button>
             <Link href={`/prompts/${previewPrompt?.id}/test`}>
-              <Button variant="outline" className="rounded-xl gap-2">
+              <Button variant="outline" className="rounded-full gap-2">
                 <FlaskConical className="h-4 w-4" /> Test
               </Button>
             </Link>
             <Link href={`/prompts/${previewPrompt?.id}`}>
-              <Button className="bg-[#1A1A1A] hover:bg-[#2D2D2D] rounded-xl gap-2">
+              <Button className="bg-brand-blue hover:bg-brand-deep rounded-full gap-2">
                 <Pencil className="h-4 w-4" /> Edit
               </Button>
             </Link>
@@ -483,7 +481,7 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
 
       {/* Delete confirm */}
       <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
-        <DialogContent className="sm:max-w-sm rounded-2xl">
+        <DialogContent className="sm:max-w-sm rounded-3xl glass-strong">
           <DialogHeader>
             <DialogTitle className="text-red-600">Delete Prompt?</DialogTitle>
             <DialogDescription>
@@ -491,8 +489,8 @@ export function PromptLibraryClient({ prompts: initialPrompts, userRole }: Props
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} className="rounded-xl">Cancel</Button>
-            <Button onClick={doDelete} disabled={deleting} className="bg-red-600 hover:bg-red-700 text-white rounded-xl">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} className="rounded-full">Cancel</Button>
+            <Button onClick={doDelete} disabled={deleting} className="bg-red-600 hover:bg-red-700 text-white rounded-full">
               {deleting ? "Deleting…" : "Delete Permanently"}
             </Button>
           </DialogFooter>

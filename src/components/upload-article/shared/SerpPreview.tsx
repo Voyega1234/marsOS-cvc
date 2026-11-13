@@ -24,13 +24,13 @@ export default function SerpPreview({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 w-fit">
+      <div className="flex items-center gap-0.5 bg-gray-100 rounded-full p-0.5 w-fit">
         {(["mobile", "desktop"] as const).map(d => (
           <button
             key={d}
             type="button"
             onClick={() => setDevice(d)}
-            className={`px-2 py-1 text-[10px] font-semibold rounded-md transition-colors ${
+            className={`px-2 py-1 text-[10px] font-semibold rounded-full transition-colors ${
               device === d ? "bg-white shadow-sm text-brand-navy" : "text-gray-500"
             }`}
           >

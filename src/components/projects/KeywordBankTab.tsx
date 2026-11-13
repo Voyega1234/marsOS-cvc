@@ -375,7 +375,7 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
         </p>
         {!isReadOnly && (
           <button onClick={() => setShowAddForm(v => !v)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-brand-blue hover:bg-brand-deep px-3 py-1.5 rounded-lg transition-colors shrink-0">
+            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-brand-blue hover:bg-brand-deep px-3 py-1.5 rounded-xl transition-colors shrink-0">
             <Plus size={12} /> เพิ่ม keyword
           </button>
         )}
@@ -383,28 +383,28 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
 
       {/* Manual add form */}
       {showAddForm && !isReadOnly && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 flex flex-wrap items-end gap-3">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-4 flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[160px]">
             <label className="block text-[10px] font-semibold text-gray-500 mb-1">Keyword *</label>
             <input value={addKeyword} onChange={e => setAddKeyword(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && addKeyword.trim() && !addLoading) submitAdd() }}
               placeholder="เช่น รับทำ SEO"
-              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+              className="w-full text-xs border border-gray-200 rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200" />
           </div>
           <div className="flex-1 min-w-[200px]">
             <label className="block text-[10px] font-semibold text-gray-500 mb-1">Title (H1)</label>
             <input value={addTitle} onChange={e => setAddTitle(e.target.value)}
               placeholder="ไม่บังคับ"
-              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+              className="w-full text-xs border border-gray-200 rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200" />
           </div>
           <div className="w-28">
             <label className="block text-[10px] font-semibold text-gray-500 mb-1">Volume</label>
             <input type="number" value={addVolume} onChange={e => setAddVolume(e.target.value)}
               placeholder="0"
-              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+              className="w-full text-xs border border-gray-200 rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200" />
           </div>
           <button onClick={submitAdd} disabled={addLoading || !addKeyword.trim()}
-            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors">
+            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-brand-blue hover:bg-brand-deep disabled:opacity-40 px-3.5 py-1.5 rounded-full transition-colors">
             {addLoading ? <RefreshCw size={12} className="animate-spin" /> : <Plus size={12} />} เพิ่ม
           </button>
           <button onClick={() => setShowAddForm(false)}
@@ -425,26 +425,26 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
           <RefreshCw size={20} className="animate-spin" />
         </div>
       ) : rows.length === 0 ? (
-        <div className="flex flex-col items-center justify-center text-center text-gray-300 select-none py-24 bg-white border border-gray-200 rounded-2xl">
+        <div className="flex flex-col items-center justify-center text-center text-gray-300 select-none py-24 bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur">
           <Sparkles size={28} className="mb-3 opacity-30" />
           <p className="text-sm text-gray-400">ยังไม่มี keyword ในคลัง — เพิ่มจากหน้า Keyword Research หรือ Keywords Input</p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur overflow-hidden">
           {/* Toolbar */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 flex-wrap">
             <div className="relative">
               <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300" />
               <input value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="ค้นหา keyword หรือ title..."
-                className="text-xs border border-gray-200 rounded-lg pl-7 pr-2.5 py-1.5 w-56 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+                className="text-xs border border-gray-200 rounded-xl pl-7 pr-2.5 py-1.5 w-56 focus:outline-none focus:ring-2 focus:ring-gray-200" />
             </div>
             <select value={filterIntent} onChange={e => setFilterIntent(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200">
+              className="text-xs border border-gray-200 rounded-xl px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200">
               {intentFilterOptions.map(o => <option key={o} value={o}>{o === 'All' ? 'ทุก Intent' : o}</option>)}
             </select>
             <select value={filterFunnel} onChange={e => setFilterFunnel(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200">
+              className="text-xs border border-gray-200 rounded-xl px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200">
               {funnelFilterOptions.map(o => <option key={o} value={o}>{o === 'All' ? 'ทุก Funnel' : o}</option>)}
             </select>
 
@@ -460,14 +460,14 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
               )}
               {!isReadOnly && dfsConfigured && (
                 <button onClick={fillVolume} disabled={dfsLoading || !selectedIds.size}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors">
+                  className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 px-3 py-1.5 rounded-xl border border-blue-200 transition-colors">
                   {dfsLoading ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
                   เติม Volume จริง (DataForSEO)
                 </button>
               )}
               {!isReadOnly && selectedIds.size > 0 && (
                 <button onClick={bulkDelete}
-                  className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 border border-red-200 rounded-lg transition-colors">
+                  className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 border border-red-200 rounded-xl transition-colors">
                   <Trash2 size={12} /> ลบที่เลือก
                 </button>
               )}
@@ -476,21 +476,21 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                   onChange={e => setSendCount(e.target.value === 'all' ? Infinity : Number(e.target.value))}
                   disabled={selectedIds.size > 0}
                   title={selectedIds.size > 0 ? 'มีการติ๊กเลือกไว้แล้ว — จะส่งเฉพาะที่เลือก' : 'จำนวน keyword ที่จะส่ง (เรียงตามลำดับที่แสดง)'}
-                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-40">
+                  className="text-xs border border-gray-200 rounded-xl px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-40">
                   {[10, 20, 30, 50, 100].map(n => <option key={n} value={n}>ส่ง {n} อันดับแรก</option>)}
                   <option value="all">ส่งทั้งหมด</option>
                 </select>
               )}
               <button onClick={sendToContentMap} disabled={filtered.length === 0 && selectedIds.size === 0}
-                className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors">
+                className="flex items-center gap-1.5 text-xs font-semibold text-white bg-brand-blue hover:bg-brand-deep disabled:opacity-40 px-3.5 py-1.5 rounded-full transition-colors">
                 {selectedIds.size > 0 ? `ส่งที่เลือก ${selectedIds.size} เข้า Content Map` : 'ส่งเข้า Content Map'} <ArrowRight size={12} />
               </button>
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-gray-50 border-b border-gray-100">
+            <table className="tbl w-full text-xs">
+              <thead>
                 <tr>
                   <th className="px-3 py-3 w-8">
                     <input type="checkbox" checked={allSelected} ref={el => { if (el) el.indeterminate = someSelected }}
@@ -521,7 +521,7 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                   const metaPageTypeUnified = metaOneOf(meta.page_type_unified, PAGE_TYPE_UNIFIED_OPTIONS)
                   const metaRemark = metaStr(meta.remark)
                   return (
-                    <tr key={row.id} className={selectedIds.has(row.id) ? 'bg-blue-50/60' : 'hover:bg-gray-50/80'}>
+                    <tr key={row.id} className={selectedIds.has(row.id) ? 'bg-brand-mist' : ''}>
                       <td className="px-3 py-2.5 w-8">
                         <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleOne(row.id)}
                           disabled={isReadOnly}
@@ -535,7 +535,7 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                             onKeyDown={e => { if (e.key === 'Enter') commitEdit(row); if (e.key === 'Escape') setEditingCell(null) }}
                             className="w-full text-xs font-semibold border border-blue-300 rounded px-1.5 py-1 focus:outline-none" />
                         ) : (
-                          <span className={isReadOnly ? '' : 'cursor-text hover:bg-gray-50 rounded px-1 -mx-1'}>{row.keyword}</span>
+                          <span className={isReadOnly ? '' : 'cursor-text hover:bg-brand-mist rounded px-1 -mx-1'}>{row.keyword}</span>
                         )}
                       </td>
 
@@ -547,7 +547,7 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                             onKeyDown={e => { if (e.key === 'Enter') commitEdit(row); if (e.key === 'Escape') setEditingCell(null) }}
                             className="w-full text-xs border border-blue-300 rounded px-1.5 py-1 focus:outline-none" />
                         ) : (
-                          <span className={isReadOnly ? '' : 'cursor-text hover:bg-gray-50 rounded px-1 -mx-1'}>{row.title || row.keyword}</span>
+                          <span className={isReadOnly ? '' : 'cursor-text hover:bg-brand-mist rounded px-1 -mx-1'}>{row.title || row.keyword}</span>
                         )}
                       </td>
 
@@ -559,7 +559,7 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                             onKeyDown={e => { if (e.key === 'Enter') commitEdit(row); if (e.key === 'Escape') setEditingCell(null) }}
                             className="w-20 text-xs border border-blue-300 rounded px-1.5 py-1 focus:outline-none" />
                         ) : (
-                          <span className={isReadOnly ? '' : 'cursor-text hover:bg-gray-50 rounded px-1 -mx-1'}>
+                          <span className={isReadOnly ? '' : 'cursor-text hover:bg-brand-mist rounded px-1 -mx-1'}>
                             {row.volume != null && row.volume > 0 ? row.volume.toLocaleString() : <span className="text-gray-300">—</span>}
                           </span>
                         )}
@@ -569,7 +569,7 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                       <td className="px-3 py-2.5">
                         <select value={row.intent} disabled={isReadOnly}
                           onChange={e => patchRow(row.id, { intent: e.target.value })}
-                          className="text-[10px] font-semibold border border-gray-200 rounded-lg px-1.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:bg-transparent disabled:border-transparent">
+                          className="text-[10px] font-semibold border border-gray-200 rounded-xl px-1.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:bg-transparent disabled:border-transparent">
                           {intentOpts.map(o => <option key={o} value={o}>{o}</option>)}
                         </select>
                         {(metaIntentCode || metaFit || metaPageTypeUnified) && (
@@ -604,18 +604,18 @@ export default function KeywordBankTab({ project, onSendToContentMap, userRole =
                             onKeyDown={e => { if (e.key === 'Enter') commitEdit(row); if (e.key === 'Escape') setEditingCell(null) }}
                             className="w-16 text-xs border border-blue-300 rounded px-1.5 py-1 focus:outline-none" />
                         ) : (
-                          <span className={isReadOnly ? '' : 'cursor-text hover:bg-gray-50 rounded px-1 -mx-1'}>{row.priority}</span>
+                          <span className={isReadOnly ? '' : 'cursor-text hover:bg-brand-mist rounded px-1 -mx-1'}>{row.priority}</span>
                         )}
                       </td>
 
                       {/* Status badge */}
                       <td className="px-3 py-2.5">
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-gray-100 text-gray-600 whitespace-nowrap">{row.status}</span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-xl bg-gray-100 text-gray-600 whitespace-nowrap">{row.status}</span>
                       </td>
 
                       {/* ที่มา */}
                       <td className="px-3 py-2.5">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border whitespace-nowrap ${SOURCE_COLOR[src] ?? 'bg-gray-50 text-gray-500 border-gray-200'}`}>{src}</span>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap ${SOURCE_COLOR[src] ?? 'bg-gray-50 text-gray-500 border-gray-200'}`}>{src}</span>
                       </td>
 
                       <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap">

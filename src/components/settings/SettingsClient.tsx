@@ -10,10 +10,13 @@ import { Label } from "@/components/ui/label";
 import { UserRoleBadge } from "@/components/shared/UserRoleBadge";
 import { useUIMode } from "@/contexts/UIModeContext";
 import {
-  Monitor, Zap, Globe, Users,
+  Monitor, Zap, Globe, Users, UserRound,
   CheckCircle2, XCircle, Eye, EyeOff, ChevronDown, ChevronUp,
   ExternalLink, AlertTriangle, Loader2, Plus, Trash2, Key,
 } from "lucide-react";
+import { PageHeader } from "@/components/ds";
+import { useSession } from "@/components/layout/SessionProvider";
+import { ThemeModeSegmented } from "@/components/layout/theme";
 import type { UIMode, Role } from "@/types";
 
 interface Props {
@@ -115,7 +118,7 @@ function WordPressConnectionManager({
   return (
     <div className="space-y-5">
       {/* Connected sites */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      <div className="glass rounded-3xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-base font-bold text-brand-navy">WordPress Connections</h2>
@@ -123,7 +126,7 @@ function WordPressConnectionManager({
           </div>
           <button
             onClick={() => { setShowForm((v) => !v); setTestResult(null); }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold transition-colors"
           >
             <Plus className="h-4 w-4" />เพิ่ม Connection
           </button>
@@ -159,7 +162,7 @@ function WordPressConnectionManager({
                 </div>
                 <button
                   onClick={() => handleRemove(wp.id)}
-                  className="p-2 rounded-lg text-gray-300 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                  className="p-2 rounded-full text-gray-300 hover:text-rose-500 hover:bg-rose-50 transition-colors"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -171,8 +174,8 @@ function WordPressConnectionManager({
 
       {/* New connection form */}
       {showForm && (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+        <div className="glass rounded-3xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
             <h3 className="text-sm font-bold text-brand-navy">เชื่อมต่อ WordPress ใหม่</h3>
             <p className="text-xs text-gray-400 mt-0.5">ทำตามขั้นตอนด้านล่างแล้วกรอกข้อมูลในฟอร์ม</p>
           </div>
@@ -181,7 +184,7 @@ function WordPressConnectionManager({
           <div className="border-b border-gray-100">
             <button
               onClick={() => setStepsOpen((v) => !v)}
-              className="w-full flex items-center justify-between px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              className="w-full flex items-center justify-between px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-white/60 transition-colors"
             >
               <span className="flex items-center gap-2">
                 <Key className="h-4 w-4 text-amber-500" />
@@ -303,14 +306,14 @@ function WordPressConnectionManager({
               <button
                 onClick={handleTest}
                 disabled={testing || !siteUrl || !username || !appPass}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-100 bg-white hover:bg-gray-50 text-gray-700 text-sm font-semibold transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-sm font-semibold transition-colors disabled:opacity-50"
               >
                 {testing ? <><Loader2 className="h-4 w-4 animate-spin" />กำลัง Test...</> : <><ExternalLink className="h-4 w-4" />Test Connection</>}
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving || testResult !== "success"}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold transition-colors disabled:opacity-50"
               >
                 {saving ? <><Loader2 className="h-4 w-4 animate-spin" />กำลังบันทึก...</> : <>บันทึก Connection</>}
               </button>
@@ -337,26 +340,66 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
   const { mode, setMode } = useUIMode();
   const isAdmin = currentUser.role === "ADMIN";
   const searchParams = useSearchParams();
-  const defaultTab = searchParams.get("tab") ?? "interface";
+  const defaultTab = searchParams.get("tab") ?? "profile";
+  const { data: session } = useSession();
+  const email = session?.user?.email ?? "";
+  const displayName = currentUser.name?.trim() || email || "ผู้ใช้";
+  const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "U";
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-brand-navy">ตั้งค่า</h1>
-        <p className="text-gray-500 text-sm mt-1">{org?.name}</p>
-      </div>
+      <PageHeader eyebrow="Settings" title="ตั้งค่า" subtitle={org?.name} />
 
       <Tabs defaultValue={defaultTab}>
         <TabsList className="w-full justify-start h-auto flex-wrap">
+          <TabsTrigger value="profile" className="gap-2"><UserRound className="h-4 w-4" />โปรไฟล์</TabsTrigger>
           <TabsTrigger value="interface" className="gap-2"><Monitor className="h-4 w-4" />Interface Mode</TabsTrigger>
           {isAdmin && <TabsTrigger value="users" className="gap-2"><Users className="h-4 w-4" />Users</TabsTrigger>}
           {isAdmin && <TabsTrigger value="wordpress" className="gap-2"><Globe className="h-4 w-4" />WordPress</TabsTrigger>}
           {isAdmin && <TabsTrigger value="ai-cost" className="gap-2"><Zap className="h-4 w-4" />AI Cost</TabsTrigger>}
         </TabsList>
 
+        {/* โปรไฟล์ + การแสดงผล — ข้อมูลบัญชีมาจาก Google จึงแก้ที่นี่ไม่ได้ (อ่านอย่างเดียว) */}
+        <TabsContent value="profile" className="mt-6">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="glass rounded-3xl p-6">
+              <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-brand-blue text-2xl font-semibold text-white">{initials}</div>
+              <h2 className="mt-5 truncate text-xl font-semibold text-brand-navy">{displayName}</h2>
+              <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sm text-gray-500">
+                <UserRoleBadge role={currentUser.role as Role} />
+                {org?.name && <span className="truncate">· {org.name}</span>}
+              </p>
+              <dl className="mt-6 space-y-3 border-t border-gray-100 pt-5 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="shrink-0 text-gray-500">อีเมล</dt>
+                  <dd className="min-w-0 truncate font-medium text-brand-navy">{email || "—"}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="shrink-0 text-gray-500">เข้าสู่ระบบด้วย</dt>
+                  <dd className="font-medium text-brand-navy">Google</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div className="glass rounded-3xl p-6">
+              <h2 className="text-lg font-semibold text-brand-navy">การแสดงผล</h2>
+              <p className="mt-1 text-sm text-gray-500">เลือกโหมดที่อ่านสบายตา ระบบจำไว้ในเบราว์เซอร์เครื่องนี้</p>
+              <div className="mt-6 space-y-2">
+                <Label className="text-sm text-gray-600">โหมดแสดงผล</Label>
+                <div><ThemeModeSegmented /></div>
+                <p className="text-xs text-gray-400">“ตามระบบ” จะสลับสว่าง/มืดตามการตั้งค่าของเครื่องโดยอัตโนมัติ · ตัวอย่างบทความแสดงบนพื้นขาวเสมอ เหมือนหน้าเว็บจริง</p>
+              </div>
+              <div className="mt-6 border-t border-gray-100 pt-5">
+                <p className="text-sm font-medium text-brand-navy">ชื่อและอีเมล</p>
+                <p className="mt-1 text-sm text-gray-500">ดึงจากบัญชี Google ที่ใช้เข้าสู่ระบบ ถ้าต้องการเปลี่ยนให้แก้ที่บัญชี Google · สิทธิ์การใช้งานให้ผู้ดูแลระบบปรับให้</p>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
         {/* Interface Mode / Role */}
         <TabsContent value="interface" className="mt-6">
-          <div className="bg-white rounded-xl border p-6">
+          <div className="glass rounded-3xl p-6">
             <h2 className="text-lg font-semibold text-brand-navy mb-1">โหมดการใช้งาน</h2>
             <p className="text-sm text-gray-500 mb-6">กำหนดสิทธิ์การมองเห็นเมนูสำหรับผู้ใช้งานแต่ละคน</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -418,7 +461,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
         {/* Users */}
         {isAdmin && (
           <TabsContent value="users" className="mt-6">
-            <div className="bg-white rounded-xl border">
+            <div className="glass rounded-3xl">
               <div className="p-5 border-b border-gray-100 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-brand-navy">ผู้ใช้งาน ({users.length} คน)</h2>
                 <Button size="sm" className="gap-2">+ เชิญผู้ใช้ใหม่</Button>
@@ -454,7 +497,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
         {/* AI Cost */}
         {isAdmin && (
           <TabsContent value="ai-cost" className="mt-6">
-            <div className="bg-white rounded-xl border p-6">
+            <div className="glass rounded-3xl p-6">
               <h2 className="text-lg font-semibold text-brand-navy mb-4">AI Cost Tracking</h2>
               {aiStats.length === 0 ? (
                 <p className="text-gray-400 text-sm">ยังไม่มีข้อมูล AI jobs</p>

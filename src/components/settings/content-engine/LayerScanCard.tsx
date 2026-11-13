@@ -79,9 +79,9 @@ export function LayerScanCard({
   const filledCount = result ? Object.keys(result.fields).length : 0;
 
   return (
-    <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
+    <div className="rounded-3xl border border-brand-blue/20 bg-brand-blue/5 p-4">
       <div className="flex items-center gap-2">
-        <ScanSearch className="size-3.5 text-indigo-500" />
+        <ScanSearch className="size-3.5 text-brand-blue" />
         <span className="text-sm font-semibold text-brand-navy">{title}</span>
       </div>
       <p className="mt-1 text-xs leading-relaxed text-gray-500">
@@ -98,7 +98,7 @@ export function LayerScanCard({
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !busy && scan()}
             placeholder={urlPlaceholder}
-            className="h-9 w-full rounded-md border border-gray-200 bg-white pl-8 pr-2 text-sm focus:border-indigo-300 focus:outline-none disabled:opacity-60"
+            className="h-9 w-full rounded-xl border border-gray-200 bg-white pl-8 pr-2 text-sm focus:border-brand-blue/50 focus:outline-none disabled:opacity-60"
           />
         </div>
         <Button size="sm" className="h-9 gap-1.5" disabled={busy || disabled} onClick={scan}>
@@ -117,14 +117,14 @@ export function LayerScanCard({
       {busy && <p className="mt-2 text-xs text-gray-400">กำลังอ่านและร่างข้อมูล ใช้เวลาประมาณ 1-3 นาที</p>}
 
       {result && (
-        <div className="mt-3 space-y-2 border-t border-indigo-100 pt-3">
+        <div className="mt-3 space-y-2 border-t border-brand-blue/15 pt-3">
           <p className="text-xs text-gray-500">
             ร่างได้ {filledCount} ช่อง · หลักฐานจาก{" "}
             {result.evidence.source === "text" ? "ข้อความที่วางมา" : result.evidence.source === "web_search" ? "ผลค้นหาเว็บ" : "เว็บไซต์"}
           </p>
 
           {result.warnings.length > 0 && (
-            <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700">ข้อควรทราบ: {result.warnings.join(" · ")}</p>
+            <p className="rounded-xl bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">ข้อควรทราบ: {result.warnings.join(" · ")}</p>
           )}
 
           <div className="flex flex-wrap items-center gap-2">
@@ -139,7 +139,7 @@ export function LayerScanCard({
           </div>
 
           {showDetail && (
-            <div className="space-y-1 rounded-md bg-white p-2 text-xs text-gray-600">
+            <div className="space-y-1 rounded-2xl bg-white/80 p-2.5 text-xs text-gray-600">
               <ul className="space-y-0.5">
                 {result.evidence.pages.map((p) => (
                   <li key={p.url} className="truncate">

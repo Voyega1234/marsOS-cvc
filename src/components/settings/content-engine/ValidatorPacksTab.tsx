@@ -252,8 +252,8 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                 type="button"
                 onClick={() => selectItem(item)}
                 className={cn(
-                  "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
-                  selectedId === item.id ? "border-indigo-300 bg-indigo-50/60" : "border-gray-200 bg-white hover:bg-gray-50"
+                  "w-full rounded-2xl border px-3 py-2.5 text-left transition-colors",
+                  selectedId === item.id ? "border-brand-blue/40 bg-brand-blue/10" : "border-white/80 bg-white/70 hover:bg-brand-mist"
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -274,7 +274,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
         </aside>
 
         <section className="space-y-3">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-brand-navy">{selectedId ? "แก้ไข Validator Pack" : "สร้าง Validator Pack ใหม่"}</h2>
@@ -329,7 +329,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                   value={draft.data.riskScope}
                   disabled={disabled}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, riskScope: e.target.value as any } })}
-                  className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
+                  className="h-9 w-full rounded-xl border border-gray-200 bg-white px-2.5 text-sm disabled:opacity-60"
                 >
                   {RISK_OPTIONS.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -342,7 +342,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                   value={draft.data.status}
                   disabled={disabled}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, status: e.target.value as any } })}
-                  className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
+                  className="h-9 w-full rounded-xl border border-gray-200 bg-white px-2.5 text-sm disabled:opacity-60"
                 >
                   {STATUS_OPTIONS.map((s) => (
                     <option key={s} value={s}>{s}</option>
@@ -367,7 +367,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
             />
           )}
           {canEdit && draft.mode === "raw" && (
-            <p className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs text-gray-400">
+            <p className="rounded-2xl border border-dashed border-gray-200 bg-white/50 px-4 py-3 text-xs text-gray-400">
               สลับเป็นโหมดฟอร์มก่อน ถึงจะใช้ “ปรับ Validator Pack ให้ตรงบริบทธุรกิจ” ได้
             </p>
           )}
@@ -383,7 +383,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
           )}
 
           {draft.mode === "raw" ? (
-            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+            <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
               {rawToFormNotice && <RawToFormNotice onStartFresh={startFreshForm} />}
               <Textarea
                 value={draft.rawText}
@@ -413,11 +413,11 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                       }
                     >
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2">
+                        <div className="flex items-center justify-between rounded-2xl border border-white/80 bg-white/60 px-3 py-2">
                           <span className="text-xs text-gray-600">Blocking{v.blockingLocked && " (locked)"}</span>
                           <Switch checked={v.blocking} disabled={disabled || v.blockingLocked} onCheckedChange={(checked) => updateValidator(v.id, { blocking: checked })} />
                         </div>
-                        <div className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2">
+                        <div className="flex items-center justify-between rounded-2xl border border-white/80 bg-white/60 px-3 py-2">
                           <span className="text-xs text-gray-600">Auto-fix{v.autoFixLocked && " (locked)"}</span>
                           <Switch
                             checked={v.autoFixAllowed}
@@ -425,7 +425,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                             onCheckedChange={(checked) => updateValidator(v.id, { autoFixAllowed: checked })}
                           />
                         </div>
-                        <div className="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2">
+                        <div className="flex items-center justify-between rounded-2xl border border-white/80 bg-white/60 px-3 py-2">
                           <span className="text-xs text-gray-600">Human Review</span>
                           <Switch
                             checked={v.humanReviewRequired}
@@ -476,7 +476,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
               </div>
 
               <SectionCard title="Common Output Schema (read-only — ใช้ร่วมกันทุก Validator)">
-                <pre className="overflow-x-auto rounded-md bg-gray-50 p-3 text-xs text-gray-600">{VALIDATOR_OUTPUT_SCHEMA}</pre>
+                <pre className="overflow-x-auto rounded-2xl bg-brand-mist p-3 text-xs text-gray-600">{VALIDATOR_OUTPUT_SCHEMA}</pre>
               </SectionCard>
             </>
           )}

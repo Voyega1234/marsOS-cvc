@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { clientCanAccessProject } from "@/lib/client-access";
 import { prisma } from "@/lib/prisma";
+import { NOT_PROPOSAL_WHERE } from "@/lib/client-proposal/store";
 import { notifyArticleStatusChange } from "@/services/notify";
 import { logActivity } from "@/lib/logActivity";
 import { maskProjectSecrets, stripUserSecrets } from "@/lib/secret-mask";
@@ -20,7 +21,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 
   const article = await prisma.article.findFirst({
     where: { id: params.id, project: { organizationId: session.user.organizationId } },
-    include: { project: true, keyword: true, assignedTo: true, reviewer: true, versions: true, reviews: true },
+    include: { project: true, keyword: true, assignedTo: true, reviewer: true, versions: { where: NOT_PROPOSAL_WHERE }, reviews: true },
   });
   if (!article) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!(await clientCanAccessProject(session, article.projectId))) {

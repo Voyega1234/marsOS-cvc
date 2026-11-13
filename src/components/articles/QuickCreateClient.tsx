@@ -210,7 +210,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
       )}
 
       {/* Form */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
+      <div className="glass rounded-3xl p-5 space-y-4">
 
         {/* Project */}
         <div>
@@ -342,7 +342,7 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
 
       {/* Progress */}
       {step && (
-        <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
+        <div className="glass rounded-3xl p-5 space-y-3">
           <p className="text-sm font-semibold text-brand-navy">
             {step === "creating" && "กำลังสร้างบทความ..."}
             {step === "running"  && "AI กำลังทำงาน..."}

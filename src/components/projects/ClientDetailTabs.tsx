@@ -24,6 +24,7 @@ import { ProjectContentRefresh } from '@/components/projects/workspace/ProjectCo
 import { useSetupChecklistStatus } from '@/components/projects/useSetupChecklistStatus'
 import CompetitorGapTab from '@/components/projects/competitor-gap/CompetitorGapTab'
 import LanguageModeSelect from '@/components/projects/LanguageModeSelect'
+import ClientAvatar from '@/components/upload-article/ClientAvatar'
 import RequestIndexTab from '@/components/projects/RequestIndexTab'
 import SmePushTab from '@/components/projects/sme-push/SmePushTab'
 import type { OwnerControls } from '@/components/upload-article/ArticleOwnerSelect'
@@ -4137,8 +4138,8 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
     WORDPRESS_DRAFTED: 'Draft (WP)',
   }
   const STATUS_COLOR: Record<string, string> = {
-    POSTED: 'bg-emerald-100 text-emerald-700',
-    WORDPRESS_DRAFTED: 'bg-blue-100 text-brand-blue',
+    POSTED: 'chip chip-ok',
+    WORDPRESS_DRAFTED: 'chip chip-info',
   }
 
   // CLIENT view — only published links
@@ -4164,7 +4165,7 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
             <p className="text-gray-400 text-sm">ยังไม่มีบทความที่เผยแพร่</p>
           </div>
         ) : (
-          <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-50 overflow-hidden">
+          <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm divide-y divide-gray-100 overflow-hidden">
             {published.map((a, i) => (
               <div key={a.id} className="flex items-center gap-4 px-5 py-3.5">
                 <span className="text-xs text-gray-300 w-6 shrink-0">{i + 1}</span>
@@ -4173,7 +4174,7 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
                   {a.keyword?.keyword && <div className="text-xs text-gray-400 mt-0.5">{a.keyword.keyword}</div>}
                 </div>
                 <a href={a.wordpressUrl!} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-800 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors shrink-0">
+                  className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-800 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-full transition-colors shrink-0">
                   <Globe size={11} /> เปิดดู
                 </a>
               </div>
@@ -4195,7 +4196,7 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
         <button
           onClick={() => load(true)}
           disabled={refreshing}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1.5 text-xs px-3.5 py-1.5 border border-gray-200 bg-white rounded-full text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
         >
           <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
           {refreshing ? 'กำลังโหลด...' : 'รีเฟรช'}
@@ -4213,10 +4214,10 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
           <p className="text-gray-300 text-xs">Push บทความจาก tab Push แล้วกลับมาดูที่นี่</p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+        <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm overflow-x-auto">
+          <table className="tbl w-full min-w-[720px] text-sm">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
+              <tr className="border-b border-gray-100">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">#</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">ชื่อบทความ</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Keyword</th>
@@ -4235,7 +4236,7 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">{a.keyword?.keyword ?? '—'}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${STATUS_COLOR[a.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                    <span className={STATUS_COLOR[a.status] ?? 'chip chip-muted'}>
                       {STATUS_LABEL[a.status] ?? a.status}
                     </span>
                   </td>
@@ -4248,7 +4249,7 @@ function PublishTab({ project, pushJobs, isClient = false }: { project: ProjectD
                         href={a.wordpressUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-brand-blue hover:text-blue-800 text-xs font-medium hover:underline"
+                        className="inline-flex items-center gap-1 text-brand-blue hover:text-brand-deep text-xs font-medium hover:underline"
                       >
                         <Globe size={11} />
                         เปิดดู
@@ -4758,6 +4759,19 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
     }
   }
 
+  // โลโก้ลูกค้า — เก็บที่ Project.logoUrl ผ่าน route เดียวกับหน้ารายการโปรเจกต์
+  async function saveProjectLogo(logo: string | null) {
+    const r = await fetch(`/api/projects/${project.id}/logo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logo }),
+    })
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      throw new Error(d?.error || `HTTP ${r.status}`)
+    }
+  }
+
   function handleStyleSaved(updated: Partial<ProjectData>) {
     setProject(prev => ({ ...prev, ...updated }))
   }
@@ -4765,9 +4779,9 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
   const reviewCount = jobs.filter(j => j.status === 'review' && timeline[j.entryIdx]?.articleStatus !== 'approved').length
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div>
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-8 pt-6 pb-0">
+      <div className="px-4 sm:px-6 md:px-8 pt-2 pb-0">
         {!isClient && (
           <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
             <Link href="/projects" className="hover:text-gray-600">Clients</Link>
@@ -4777,18 +4791,31 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
         )}
         {!isClient && (
           <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-bold text-brand-navy">{project.clientName ?? project.name}</h1>
-              <p className="text-sm text-gray-500 mt-0.5">{project.industry ?? project.businessType} · {project.website}</p>
+            <div className="flex min-w-0 items-center gap-3">
+              {/* โลโก้ลูกค้า — กดเพื่ออัปโหลด/เปลี่ยน จะได้เห็นว่าหน้านี้เป็นของเจ้าไหน */}
+              <ClientAvatar
+                clientId={project.id}
+                name={project.clientName ?? project.name}
+                theme={project.accentColor ?? '#2563eb'}
+                logo={project.logoUrl ?? null}
+                size={48}
+                onChange={logo => setProject(prev => ({ ...prev, logoUrl: logo }))}
+                save={saveProjectLogo}
+              />
+              <div className="min-w-0">
+                <p className="page-eyebrow">SEO SME</p>
+                <h1 className="page-title">{project.clientName ?? project.name}</h1>
+                <p className="page-subtitle">{project.industry ?? project.businessType} · {project.website}</p>
+              </div>
             </div>
             {/* Settings ของ project — ฟันเฟืองเปิด slide bar ด้านขวา (Article Lab + Content Engine) */}
             <button
               onClick={() => setSettingsDrawerOpen(o => !o)}
               title="Project Settings"
-              className={`relative p-2 rounded-xl border transition-colors ${
+              className={`relative p-2.5 rounded-full border transition-colors ${
                 settingsDrawerOpen
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
-                  : 'border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300'
+                  ? 'bg-brand-blue/10 border-brand-blue/30 text-brand-blue'
+                  : 'border-white/80 bg-white/70 text-gray-500 hover:text-brand-navy hover:bg-white'
               }`}
             >
               <SettingsIcon size={16} />
@@ -4808,23 +4835,21 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
           // ── มุมมองลูกค้า: หัวโปรเจกต์ + เมนู 4 อย่าง จบในหน้าเดียว ────────────
           <>
             <div className="pb-4">
-              <h1 className="text-2xl font-bold text-brand-navy">{project.clientName ?? project.name}</h1>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="page-eyebrow">SEO SME</p>
+              <h1 className="page-title">{project.clientName ?? project.name}</h1>
+              <p className="page-subtitle">
                 {project.website}
                 {project.industry ? <span className="text-gray-300"> · </span> : null}
                 {project.industry}
               </p>
             </div>
-            <nav className="flex gap-1.5 -mb-px overflow-x-auto pb-0">
+            <nav className="utabs overflow-x-auto">
               {CLIENT_NAV.map(t => {
                 const active = tab === t.id
                 return (
                   <button key={t.id} onClick={() => setTab(t.id)}
-                    className={`group relative text-left px-4 py-2.5 rounded-t-xl border border-b-0 transition-colors whitespace-nowrap ${
-                      active
-                        ? 'bg-white border-gray-200 text-brand-blue shadow-[0_-1px_0_0_rgba(0,0,0,0.02)]'
-                        : 'bg-gray-50 border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                    }`}>
+                    data-active={active ? 'true' : undefined}
+                    className="utab group text-left whitespace-nowrap shrink-0">
                     <span className="flex items-center gap-1.5 text-sm font-semibold">
                       {t.label}
                       {t.id === 'review' && reviewCount > 0 && (
@@ -4841,12 +4866,11 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
           <>
             {/* Content Studio subtabs — ย้ายขึ้นมาไว้บนสุด (เมนูหลักลงไปอยู่ sidebar ซ้ายแล้ว) */}
             {STUDIO_TAB_IDS.includes(tab) && (
-              <nav className="flex gap-1 pb-3 overflow-x-auto">
+              <nav className="utabs overflow-x-auto mb-3">
                 {STUDIO_TABS.map(t => (
                   <button key={t.id} onClick={() => setTab(t.id)}
-                    className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors whitespace-nowrap ${
-                      tab === t.id ? 'bg-brand-mist text-brand-blue border border-brand-soft/40' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
-                    }`}>
+                    data-active={tab === t.id ? 'true' : undefined}
+                    className="utab whitespace-nowrap shrink-0">
                     {t.label}
                     {t.id === 'keywords' && keywords.length > 0 && (
                       <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">{keywords.length}</span>
@@ -4863,7 +4887,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
             )}
 
             {/* จอแคบไม่มีที่ให้ sidebar — เมนูหลักกลับมาเป็นแถบเลื่อนแนวนอนแทน */}
-            <nav className="flex gap-0 -mb-px overflow-x-auto md:hidden">
+            <nav className="utabs overflow-x-auto md:hidden">
               {PRIMARY_TABS.map(t => {
                 const active =
                   t.id === 'studio' ? STUDIO_TAB_IDS.includes(tab)
@@ -4874,9 +4898,8 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
                       t.id === 'studio' ? lastStudioTabRef.current
                       : t.id as Tab
                     )}
-                    className={`relative px-5 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                      active ? 'border-brand-blue text-brand-blue' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}>
+                    data-active={active ? 'true' : undefined}
+                    className="utab whitespace-nowrap shrink-0">
                     {t.label}
                     {t.id === 'studio' && reviewCount > 0 && (
                       <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">{reviewCount}</span>
@@ -4896,8 +4919,8 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       <div className="flex min-h-[70vh]">
         {/* เมนูหลักของโปรเจกต์ — แนวตั้งบนลงล่าง ซ่อนบนจอแคบ (จอแคบใช้แถบแนวนอนใน header) */}
         {!isClient && (
-          <aside className="hidden md:block w-56 shrink-0 border-r border-gray-200 bg-white px-3 py-4">
-            <nav className="sticky top-4 space-y-5">
+          <aside className="hidden md:block w-56 shrink-0 pl-3 py-4">
+            <nav className="sticky top-[4.5rem] space-y-5 rounded-2xl border border-white/80 bg-white/70 backdrop-blur shadow-sm p-3">
               {SIDEBAR_GROUPS.map((group, gi) => (
                 <div key={group.label ?? `g${gi}`}>
                   {group.label && (
@@ -4916,8 +4939,8 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
                             t.id === 'studio' ? lastStudioTabRef.current
                             : t.id as Tab
                           )}
-                          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors ${
-                            active ? 'bg-brand-mist text-brand-blue' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                          className={`flex w-full items-center gap-2 rounded-full px-3 py-2 text-left text-[13px] font-medium transition-colors ${
+                            active ? 'bg-brand-navy text-white' : 'text-gray-600 hover:bg-white hover:text-brand-navy'
                           }`}>
                           <span className="flex-1 truncate">{t.label}</span>
                           {t.id === 'studio' && reviewCount > 0 && (
@@ -4976,7 +4999,7 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
         )}
         {tab === 'content-map' && (
           loadingBankForMap && wgContentMapKws.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center text-sm text-gray-400">
+            <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm p-12 text-center text-sm text-gray-400">
               กำลังโหลด keyword จากคลัง...
             </div>
           ) : (
@@ -5053,17 +5076,17 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
       {/* ── Project Settings — slide bar ด้านขวา (Apollo style) ──────────────── */}
       {!isClient && settingsDrawerOpen && (
         <>
-          <div className="fixed inset-0 bg-black/20 z-40" onClick={() => setSettingsDrawerOpen(false)} />
-          <div className="fixed inset-y-0 right-0 z-50 w-full lg:w-[94vw] lg:max-w-[1560px] bg-white shadow-2xl flex flex-col">
+          <div className="fixed inset-0 bg-brand-navy/20 backdrop-blur-[2px] z-40" onClick={() => setSettingsDrawerOpen(false)} />
+          <div className="fixed inset-y-0 right-0 z-50 w-full lg:w-[94vw] lg:max-w-[1560px] glass-strong lg:rounded-l-3xl shadow-2xl flex flex-col">
             {/* Header */}
-            <div className="flex flex-wrap items-center gap-3 px-5 py-3.5 border-b border-gray-100 shrink-0">
+            <div className="flex flex-wrap items-center gap-3 px-5 py-3.5 border-b border-white/80 shrink-0">
               <SettingsIcon size={16} className="text-gray-400" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-brand-navy">Project Settings</p>
                 <p className="text-xs text-gray-400 truncate">{project.clientName ?? project.name}</p>
               </div>
               <button onClick={() => setSettingsDrawerOpen(false)} aria-label="ปิด"
-                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                className="p-2 rounded-full text-gray-400 hover:text-brand-navy hover:bg-white transition-colors">
                 <X size={16} />
               </button>
             </div>

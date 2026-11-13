@@ -664,13 +664,13 @@ export default function ReviewTab({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_340px] gap-4 items-start">
       {/* รายการบทความ */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl overflow-hidden">
         <div className="px-3 py-2.5 border-b border-gray-100 space-y-1.5">
           <p className="text-xs font-semibold text-gray-500">
             บทความ ({statusFilter ? `${visibleArticles.length}/${articles.length}` : articles.length})
           </p>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+            className="w-full text-xs border border-gray-200 rounded-xl px-2 py-1.5 bg-white">
             <option value="">ทุกสถานะ ({articles.length})</option>
             {UPLOAD_STATUS_OPTIONS.filter(o => statusCounts[o.value] || o.value === statusFilter).map(o => (
               <option key={o.value} value={o.value}>{o.label} ({statusCounts[o.value] || 0})</option>
@@ -709,7 +709,7 @@ export default function ReviewTab({
       </div>
 
       {/* พรีวิว/แก้ไข */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3 min-w-0">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3 min-w-0">
         {!detail ? (
           <p className="text-sm text-gray-400 text-center py-10">เลือกบทความจากรายการด้านซ้าย</p>
         ) : !html ? (
@@ -720,45 +720,45 @@ export default function ReviewTab({
               <p className="text-sm font-semibold text-brand-navy truncate">{detail.title}</p>
               <div className="flex flex-wrap items-center gap-1.5">
                 <button onClick={() => setViewMode("preview")}
-                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${viewMode === "preview" ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-500 border-gray-200"}`}>
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-colors ${viewMode === "preview" ? "bg-brand-navy text-white border-brand-navy" : "bg-white text-gray-500 border-gray-200"}`}>
                   Preview
                 </button>
                 <button onClick={() => setViewMode("edit")}
-                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${viewMode === "edit" ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-500 border-gray-200"}`}>
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-colors ${viewMode === "edit" ? "bg-brand-navy text-white border-brand-navy" : "bg-white text-gray-500 border-gray-200"}`}>
                   แก้ไข
                 </button>
                 <button onClick={onRegenerateClick} disabled={regenBusy || editSaving || rewriteBusy}
                   title="สร้าง HTML ใหม่จากต้นฉบับเดิม ไม่เรียก AI และไม่ใช้ Comment / ข้อจำกัดที่เพิ่มทีหลัง — ที่แก้มือจะหาย (ให้ AI เขียนใหม่ใช้ปุ่ม ให้ AI เขียนใหม่ทั้งบทความ)"
-                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
                   <RefreshCw size={11} className={regenBusy || rewriteBusy ? "animate-spin" : ""} /> {regenBusy ? "กำลัง Generate..." : rewriteBusy ? "AI กำลังทำงาน..." : "Re-generate"}
                 </button>
                 {detail.sourceType === "ai" && (detail.sourceName || "").startsWith("kw:") && (
                   <button onClick={onForceRewriteClick} disabled={regenBusy || editSaving || rewriteBusy}
                     title="ให้ AI เขียนบทความนี้ใหม่ทั้งบทความ (เสียค่าใช้จ่าย AI) แม้ไม่พบว่าของที่ใช้เขียนเปลี่ยน"
-                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50">
+                    className="px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50">
                     ให้ AI เขียนใหม่ทั้งบทความ
                   </button>
                 )}
                 {detail.sourceType === "ai" && backupIds[detail.id] && (
                   <button onClick={undoRewrite} disabled={undoBusy || regenBusy || editSaving || rewriteBusy}
                     title="ย้อนเนื้อหากลับไปก่อน AI เขียนใหม่รอบล่าสุด"
-                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50">
+                    className="px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50">
                     {undoBusy ? "กำลังย้อนกลับ..." : "ย้อนกลับก่อนเขียนใหม่"}
                   </button>
                 )}
                 <span className="w-px h-4 bg-gray-200 mx-0.5" aria-hidden />
                 <button onClick={openHtmlPreview}
                   title="เปิดบทความเป็นหน้า HTML ในแท็บใหม่ — ดูได้ทันที ส่งลิงก์/ไฟล์ให้ลูกค้าตรวจได้"
-                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue flex items-center gap-1">
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue flex items-center gap-1">
                   <ExternalLink size={11} /> HTML
                 </button>
                 <button onClick={downloadHtml} title="ดาวน์โหลดไฟล์ .html (เปิดได้ทุกเบราว์เซอร์)"
-                  className="px-1.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue flex items-center"
+                  className="px-1.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue flex items-center"
                   aria-label="ดาวน์โหลด HTML">
                   <Download size={11} />
                 </button>
                 <button onClick={downloadWord} disabled={wordBusy} title="ดาวน์โหลดไฟล์ Word (.docx)"
-                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
                   {wordBusy ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Word
                 </button>
                 <button onClick={exportGoogleDocs} disabled={docsBusy}
@@ -766,13 +766,13 @@ export default function ReviewTab({
                   title={isDriveExportConfigured()
                     ? "สร้างเป็น Google Doc ใน Drive ของคุณ แล้วเปิดให้ทันที"
                     : "คัดลอกบทความ แล้วเปิด Google Docs ใหม่ให้กดวาง (⌘V / Ctrl+V)"}
-                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
                   {docsBusy ? <Loader2 size={11} className="animate-spin" /> : <FileText size={11} />} Google Docs
                 </button>
                 {viewMode === "edit" && (
                   <button onClick={() => setEditTone(t => (t === "site" ? "readable" : "site"))}
                     title="เปลี่ยนสีเฉพาะตอนแก้ไข ไม่มีผลกับบทความที่บันทึก/push"
-                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${editTone === "readable" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-500 border-gray-200"}`}>
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-colors ${editTone === "readable" ? "bg-brand-navy text-white border-brand-navy" : "bg-white text-gray-500 border-gray-200"}`}>
                     {editTone === "readable" ? "สีอ่านง่าย ✓" : "สีอ่านง่าย"}
                   </button>
                 )}
@@ -806,7 +806,7 @@ export default function ReviewTab({
       {/* แผง SEO + ภาพ */}
       {detail && (
         <div className="space-y-4">
-          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+          <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-xs font-bold text-brand-navy">Search appearance</p>
               <Button size="sm" variant="outline" disabled={aiBusy} onClick={aiMeta}>
@@ -845,7 +845,7 @@ export default function ReviewTab({
 
           <AiImagesPanel client={client} detail={detail} applyArticleUpdate={applyArticleUpdate} />
 
-          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+          <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3">
             <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><ImageIcon size={12} /> ภาพปกบทความ</p>
             {detail.coverImageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -891,12 +891,12 @@ export default function ReviewTab({
             />
           )}
 
-          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+          <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3">
             <p className="text-xs font-bold text-brand-navy">แทรกรูปในเนื้อหา</p>
             <input type="file" accept="image/*" onChange={e => setInsertFile(e.target.files?.[0] ?? null)} className="text-xs" />
             <Input value={insertAlt} onChange={e => setInsertAlt(e.target.value)} placeholder="Alt text ของรูป" className="text-xs" />
             <select value={insertPos} onChange={e => setInsertPos(e.target.value === "" ? "" : Number(e.target.value))}
-              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white">
+              className="w-full text-xs border border-gray-200 rounded-xl px-2.5 py-2 bg-white">
               <option value="">หลังหัวข้อ H2:</option>
               {h2List.map((h, i) => <option key={i} value={h.index}>{h.text}</option>)}
             </select>

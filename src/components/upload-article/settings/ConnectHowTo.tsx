@@ -11,13 +11,13 @@ import { CONNECT_GUIDE, resolveGuideLink, type ConnectGuideCtx } from "@/lib/upl
 export default function ConnectHowTo({ platform, ctx = {} }: { platform: UploadPlatformId; ctx?: ConnectGuideCtx }) {
   const items = CONNECT_GUIDE[platform];
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
       <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5">
         <BookOpen size={14} className="text-brand-blue" /> วิธีเอาค่ามาใส่ — {UPLOAD_PLATFORM_LABEL[platform]}
       </p>
       <div className="space-y-2 max-h-[calc(100vh-8rem)] overflow-y-auto pr-1">
         {items.map(it => (
-          <details key={`${platform}-${it.field}`} open className="group rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+          <details key={`${platform}-${it.field}`} open className="group rounded-xl border border-gray-100 bg-white/60 px-3 py-2">
             <summary className="cursor-pointer text-xs font-semibold text-brand-navy select-none">{it.field}</summary>
             <div className="mt-2 space-y-2 text-xs text-gray-600">
               <div>

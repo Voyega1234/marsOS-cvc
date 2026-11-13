@@ -9,8 +9,8 @@ export function LoadingState({ message = "กำลังโหลด...", class
   return (
     <div className={cn("flex flex-col items-center justify-center py-16 gap-3", className)}>
       <div className="relative h-10 w-10">
-        <div className="absolute inset-0 rounded-full border-4 border-gray-100" />
-        <div className="absolute inset-0 rounded-full border-4 border-green-600 border-t-transparent animate-spin" />
+        <div className="absolute inset-0 rounded-full border-4 border-white/80" />
+        <div className="absolute inset-0 rounded-full border-4 border-brand-blue border-t-transparent animate-spin" />
       </div>
       <p className="text-sm text-gray-500">{message}</p>
     </div>

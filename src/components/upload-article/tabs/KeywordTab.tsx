@@ -48,7 +48,7 @@ function EditableCell({
       onChange={e => setLocal(e.target.value)}
       onBlur={() => { if (local !== value) onCommit(local); }}
       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-      className={className ?? "w-full min-w-[120px] text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-blue"}
+      className={className ?? "w-full min-w-[120px] text-xs border border-gray-200 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand-blue"}
     />
   );
 }
@@ -288,7 +288,7 @@ export default function KeywordTab({
   return (
     <div className="space-y-4">
       {!isPbn && setClient && (
-        <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 space-y-1">
+        <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl px-4 py-3 space-y-1">
           <p className="text-xs font-semibold text-gray-600">ภาษาที่ใช้เขียน</p>
           <UploadLanguageSelect
             value={client.language}
@@ -298,7 +298,7 @@ export default function KeywordTab({
           />
         </div>
       )}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
           <Upload size={14} className="text-gray-400" />
           <span className="text-sm font-bold text-brand-navy">เพิ่ม Keyword</span>
@@ -313,8 +313,8 @@ export default function KeywordTab({
               const f = e.dataTransfer.files[0];
               if (f) handleFile(f);
             }}
-            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
-              dragOver ? "border-gray-400 bg-gray-50" : "border-gray-200 hover:border-gray-300"
+            className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors ${
+              dragOver ? "border-brand-blue/50 bg-brand-blue/5" : "border-gray-200 hover:border-brand-blue/40 hover:bg-brand-blue/5"
             }`}
           >
             <Upload size={22} className="mx-auto mb-2 text-gray-300" />
@@ -339,7 +339,7 @@ export default function KeywordTab({
                 <button onClick={() => setFileImport(null)} className="text-gray-400 hover:text-gray-600 shrink-0" title="ยกเลิก"><X size={14} /></button>
               </div>
               <div className="overflow-x-auto rounded-lg border border-gray-100 bg-white">
-                <table className="w-full text-[11px]">
+                <table className="tbl w-full text-[11px]">
                   <thead>
                     <tr className="text-left text-gray-400 border-b border-gray-100">
                       <th className="px-2 py-1.5 w-8">#</th>
@@ -436,13 +436,13 @@ export default function KeywordTab({
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl overflow-x-auto">
         {loading ? (
           <p className="text-sm text-gray-400 text-center py-10">กำลังโหลด...</p>
         ) : items.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-10">ยังไม่มี keyword — เพิ่มจากด้านบน</p>
         ) : (
-          <table className={`w-full text-xs ${isPbn ? "min-w-[1280px]" : "min-w-[1080px]"}`}>
+          <table className={`tbl w-full text-xs ${isPbn ? "min-w-[1280px]" : "min-w-[1080px]"}`}>
             <thead>
               <tr className="border-b border-gray-100 text-left text-gray-400">
                 <th className="px-3 py-2 w-8">
@@ -461,7 +461,7 @@ export default function KeywordTab({
             </thead>
             <tbody>
               {items.map(it => (
-                <tr key={it.id} className="border-b border-gray-50 align-top hover:bg-gray-50/60">
+                <tr key={it.id} className="border-b border-gray-50 align-top hover:bg-brand-mist/60">
                   <td className="px-3 py-2">
                     <input type="checkbox" checked={selected.has(it.id)} onChange={() => toggleSelect(it.id)} />
                   </td>
@@ -488,7 +488,7 @@ export default function KeywordTab({
                     <select
                       value={it.intent}
                       onChange={e => patchItem(it.id, { intent: e.target.value as UploadKeywordIntent | "" })}
-                      className="w-full min-w-[130px] text-xs border border-gray-200 rounded px-1.5 py-1 bg-white"
+                      className="w-full min-w-[130px] text-xs border border-gray-200 rounded-lg px-1.5 py-1 bg-white"
                     >
                       <option value="">—</option>
                       {(Object.keys(UPLOAD_INTENT_LABELS) as UploadKeywordIntent[]).map(k => (

@@ -94,22 +94,22 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-xl border p-5">
-        <div className="text-sm text-gray-500 mb-2">
-          <Link href="/dashboard" className="hover:text-green-600">Projects</Link>
+      <div className="rounded-2xl border border-white/80 bg-white/70 p-5 shadow-sm">
+        <div className="page-eyebrow mb-2 normal-case">
+          <Link href="/dashboard" className="hover:text-brand-blue">Projects</Link>
           {" / "}
-          <Link href={`/projects/${project.id}`} className="hover:text-green-600">{project.name}</Link>
+          <Link href={`/projects/${project.id}`} className="hover:text-brand-blue">{project.name}</Link>
           {" / "}
           <span className="text-brand-navy">Articles</span>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-brand-navy">Articles</h1>
+            <h1 className="page-title">Articles</h1>
             <p className="text-sm text-gray-500 mt-1">{articles.length} article{articles.length !== 1 ? "s" : ""}</p>
           </div>
           <Link
             href={`/articles/new?projectId=${project.id}`}
-            className="flex items-center gap-2 px-4 py-2 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-medium rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-sm font-medium rounded-lg transition-colors"
           >
             <Plus className="h-4 w-4" />
             New Article
@@ -122,7 +122,7 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+          className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 bg-white"
         >
           {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</option>
@@ -131,7 +131,7 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
         <select
           value={funnelFilter}
           onChange={(e) => setFunnelFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+          className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 bg-white"
         >
           {FUNNEL_OPTIONS.map((f) => (
             <option key={f} value={f}>{f === "ALL" ? "All Funnels" : f}</option>
@@ -142,7 +142,7 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
           placeholder="Search articles..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 px-3 py-2 border border-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
         />
       </div>
 
@@ -154,11 +154,11 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
           description="Create your first article or adjust filters."
         />
       ) : (
-        <div className="bg-white rounded-xl border overflow-hidden">
+        <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="tbl w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
+                <tr className="border-b border-gray-100">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keyword</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Funnel</th>
@@ -174,7 +174,7 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
                     <td className="px-4 py-3">
                       <Link
                         href={`/projects/${project.id}/articles/${article.id}`}
-                        className="font-medium text-brand-navy hover:text-green-700 line-clamp-2 max-w-xs"
+                        className="font-medium text-brand-navy hover:text-brand-blue line-clamp-2 max-w-xs"
                       >
                         {article.title}
                       </Link>
@@ -204,14 +204,14 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
                       <div className="flex items-center gap-2">
                         <Link
                           href={`/projects/${project.id}/articles/${article.id}`}
-                          className="text-xs text-green-600 hover:text-green-700 font-medium"
+                          className="text-xs text-brand-blue hover:text-brand-deep font-medium"
                         >
                           Open
                         </Link>
                         <button
                           onClick={() => generateOutline(article.id)}
                           disabled={generatingOutline === article.id}
-                          className="text-xs text-brand-blue hover:text-blue-700 font-medium disabled:opacity-50"
+                          className="text-xs text-brand-blue hover:text-brand-deep font-medium disabled:opacity-50"
                         >
                           {generatingOutline === article.id ? "..." : "Outline"}
                         </button>
@@ -219,7 +219,7 @@ export default function ProjectArticlesClient({ project, articles: initialArticl
                           <button
                             onClick={() => generateArticle(article.id)}
                             disabled={generatingArticle === article.id}
-                            className="text-xs text-purple-600 hover:text-purple-700 font-medium disabled:opacity-50"
+                            className="text-xs text-brand-navy hover:text-brand-blue font-medium disabled:opacity-50"
                           >
                             {generatingArticle === article.id ? "..." : "Article"}
                           </button>

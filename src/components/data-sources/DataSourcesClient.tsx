@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/utils";
+import { PageHeader, UnderlineTabs } from "@/components/ds";
 import {
   Link2, Upload, CheckCircle2, AlertCircle, Clock, Plus, X,
   FileText, Trash2, Loader2, Globe, BarChart2, Brain, Cpu,
@@ -27,7 +28,7 @@ interface Props {
 const SOURCE_DEFS = [
   {
     type: "GSC", label: "Google Search Console", icon: Globe,
-    color: "bg-blue-50 border-blue-200", iconColor: "text-brand-blue",
+    color: "bg-white/70 border-white/80", iconColor: "text-brand-blue",
     desc: "Position, clicks, impressions ต่อ keyword — ใช้สำหรับ Rank Tracking และ Refresh Score",
     fields: [
       { key: "siteUrl",       label: "Site URL",            placeholder: "https://example.com" },
@@ -37,7 +38,7 @@ const SOURCE_DEFS = [
   },
   {
     type: "GA4", label: "Google Analytics 4", icon: BarChart2,
-    color: "bg-orange-50 border-orange-200", iconColor: "text-orange-600",
+    color: "bg-white/70 border-white/80", iconColor: "text-brand-blue",
     desc: "Sessions, conversions, bounce rate — ใช้สำหรับ Client Report และ content performance",
     fields: [
       { key: "propertyId",    label: "GA4 Property ID",     placeholder: "123456789" },
@@ -47,7 +48,7 @@ const SOURCE_DEFS = [
   },
   {
     type: "AHREFS", label: "Ahrefs", icon: Link2,
-    color: "bg-violet-50 border-violet-200", iconColor: "text-violet-600",
+    color: "bg-white/70 border-white/80", iconColor: "text-brand-blue",
     desc: "DR, backlinks, keyword rankings — ใช้สำหรับ Competitor Analysis และ Backlink Tracking",
     fields: [
       { key: "apiKey", label: "API Key", placeholder: "ahrefs_api_key_...", type: "password" },
@@ -56,7 +57,7 @@ const SOURCE_DEFS = [
   },
   {
     type: "SERPAPI", label: "SerpAPI / DataForSEO", icon: Globe,
-    color: "bg-emerald-50 border-emerald-200", iconColor: "text-emerald-600",
+    color: "bg-white/70 border-white/80", iconColor: "text-brand-blue",
     desc: "SERP results สำหรับ Competitor Analysis — AI อ่าน Top 10 ก่อนเขียนบทความ",
     fields: [
       { key: "apiKey", label: "API Key", placeholder: "serpapi_key_...", type: "password" },
@@ -66,10 +67,10 @@ const SOURCE_DEFS = [
 ];
 
 const STATUS_STYLE: Record<string, string> = {
-  CONNECTED:    "bg-green-100 text-green-700",
-  PENDING:      "bg-gray-100 text-gray-500",
-  ERROR:        "bg-red-100 text-red-700",
-  DISCONNECTED: "bg-gray-100 text-gray-400",
+  CONNECTED:    "chip chip-ok",
+  PENDING:      "chip chip-muted",
+  ERROR:        "chip chip-bad",
+  DISCONNECTED: "chip chip-muted",
 };
 
 export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Props) {
@@ -122,52 +123,46 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold text-brand-navy">Data Sources</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          เชื่อมต่อ AI, Analytics tools และ Data Brain files — ข้อมูลเหล่านี้จะถูก inject เข้า AI prompt ทุกครั้งที่สร้างบทความ
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Data"
+        title="Data Sources"
+        subtitle="เชื่อมต่อ AI, Analytics tools และ Data Brain files — ข้อมูลเหล่านี้จะถูก inject เข้า AI prompt ทุกครั้งที่สร้างบทความ"
+      />
 
       {/* Data flow diagram */}
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-100 rounded-xl px-5 py-4">
-        <p className="text-xs font-semibold text-blue-800 mb-2">วิธีที่ Data ไหลเข้า AI</p>
+      <div className="glass rounded-3xl px-5 py-4">
+        <p className="text-xs font-semibold text-brand-navy mb-2">วิธีที่ Data ไหลเข้า AI</p>
         <div className="flex items-center gap-2 text-xs text-gray-600 flex-wrap">
           {[
-            { icon: Globe,    label: "GSC / GA4", color: "bg-blue-100 text-blue-700" },
-            { icon: Link2,    label: "Ahrefs",    color: "bg-violet-100 text-violet-700" },
-            { icon: Brain,    label: "Data Brain Files", color: "bg-amber-100 text-amber-700" },
+            { icon: Globe,    label: "GSC / GA4", color: "bg-brand-blue/10 text-brand-blue" },
+            { icon: Link2,    label: "Ahrefs",    color: "bg-brand-blue/10 text-brand-blue" },
+            { icon: Brain,    label: "Data Brain Files", color: "bg-brand-mist text-brand-navy" },
           ].map((s) => (
             <span key={s.label} className={`flex items-center gap-1 px-2.5 py-1 rounded-full font-medium ${s.color}`}>
               <s.icon className="h-3 w-3" />{s.label}
             </span>
           ))}
           <span className="text-gray-400">→</span>
-          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full font-medium bg-brand-blue text-white">
+          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full font-medium bg-brand-navy text-white">
             <Cpu className="h-3 w-3" /> AI Prompt Context
           </span>
           <span className="text-gray-400">→</span>
-          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full font-medium bg-green-100 text-green-700">
+          <span className="flex items-center gap-1 px-2.5 py-1 rounded-full chip chip-ok">
             <FileText className="h-3 w-3" /> บทความที่ดีกว่าคู่แข่ง
           </span>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit max-w-full overflow-x-auto">
-        {[
-          { key: "analytics", label: "Analytics & SEO Tools", count: dataSources.length },
-          { key: "databrain", label: "Data Brain Files",      count: dataBrainFiles.length },
-          { key: "ai",        label: "AI Configuration",      count: null },
-        ].map((t) => (
-          <button key={t.key} onClick={() => setActiveTab(t.key as typeof activeTab)}
-            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0",
-              activeTab === t.key ? "bg-white text-brand-navy shadow-sm" : "text-gray-500 hover:text-gray-700")}>
-            {t.label}
-            {t.count !== null && <span className="text-xs bg-gray-200 text-gray-600 rounded-full px-1.5">{t.count}</span>}
-          </button>
-        ))}
-      </div>
+      <UnderlineTabs
+        tabs={[
+          { id: "analytics" as const, label: "Analytics & SEO Tools", count: dataSources.length },
+          { id: "databrain" as const, label: "Data Brain Files", count: dataBrainFiles.length },
+          { id: "ai" as const, label: "AI Configuration" },
+        ]}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
 
       {/* Analytics Tab */}
       {activeTab === "analytics" && (
@@ -175,7 +170,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
           {SOURCE_DEFS.map((def) => {
             const existing = dataSources.find((s) => s.type === def.type);
             return (
-              <div key={def.type} className={cn("rounded-xl border p-5", def.color)}>
+              <div key={def.type} className={cn("rounded-3xl border p-5 backdrop-blur", def.color)}>
                 <div className="flex items-start justify-between gap-4 mb-3">
                   <div className="flex items-center gap-3">
                     <def.icon className={cn("h-5 w-5", def.iconColor)} />
@@ -186,7 +181,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {existing && (
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLE[existing.status] ?? "bg-gray-100 text-gray-500"}`}>
+                      <span className={STATUS_STYLE[existing.status] ?? "chip chip-muted"}>
                         {existing.status}
                       </span>
                     )}
@@ -203,7 +198,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
                         placeholder={f.placeholder}
                         value={formData[def.type]?.[f.key] ?? ""}
                         onChange={(e) => updateField(def.type, f.key, e.target.value)}
-                        className="w-full border border-white/80 bg-white/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30"
+                        className="w-full border border-white/80 bg-white/80 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
                       />
                     </div>
                   ))}
@@ -212,7 +207,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
                   <button
                     onClick={() => connect(def.type)}
                     disabled={connecting === def.type}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-xs font-semibold rounded-full disabled:opacity-50 transition-colors"
                   >
                     {connecting === def.type ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
                     {existing ? "Update Connection" : "Connect"}
@@ -230,13 +225,13 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
       {/* Data Brain Tab */}
       {activeTab === "databrain" && (
         <div className="space-y-4">
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <p className="text-sm font-semibold text-amber-800 mb-1">Data Brain คืออะไร?</p>
-            <p className="text-xs text-amber-700">อัปโหลดไฟล์ที่มีอยู่แล้ว เช่น Brand Guidelines, Competitor Reports, Industry Research, ข้อมูลลูกค้า — Mars จะดึง context จากไฟล์เหล่านี้ inject เข้า AI prompt ทุกครั้งที่เขียนบทความ</p>
+          <div className="glass rounded-3xl p-4">
+            <p className="text-sm font-semibold text-brand-navy mb-1">Data Brain คืออะไร?</p>
+            <p className="text-xs text-gray-600">อัปโหลดไฟล์ที่มีอยู่แล้ว เช่น Brand Guidelines, Competitor Reports, Industry Research, ข้อมูลลูกค้า — Mars จะดึง context จากไฟล์เหล่านี้ inject เข้า AI prompt ทุกครั้งที่เขียนบทความ</p>
           </div>
 
           {/* Upload area */}
-          <div className="bg-white border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-blue-300 transition-colors">
+          <div className="bg-white/70 border-2 border-dashed border-gray-200 rounded-3xl p-6 text-center hover:border-brand-blue/40 transition-colors">
             <Brain className="h-8 w-8 text-gray-300 mx-auto mb-3" />
             <p className="text-sm font-medium text-gray-700 mb-1">อัปโหลดไฟล์ Data Brain</p>
             <p className="text-xs text-gray-400 mb-4">รองรับ TXT, CSV, HTML · PDF/DOCX รองรับเมื่อต่อ extraction service</p>
@@ -244,7 +239,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
               <select
                 value={uploadProjectId}
                 onChange={(e) => setUploadProjectId(e.target.value)}
-                className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400/30"
+                className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
               >
                 <option value="">ทุก Project (Global)</option>
                 {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -252,7 +247,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
               <button
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
-                className="flex items-center gap-2 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold rounded-full disabled:opacity-50"
               >
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 {uploading ? "กำลังอัปโหลด..." : "เลือกไฟล์"}
@@ -263,23 +258,23 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
 
           {/* File list */}
           {dataBrainFiles.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="glass rounded-3xl overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">
                 {dataBrainFiles.length} ไฟล์
               </div>
               {dataBrainFiles.map((f) => (
-                <div key={f.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                  <FileText className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                <div key={f.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-100/70 last:border-0 hover:bg-white/60">
+                  <FileText className="h-4 w-4 text-brand-blue shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800">{f.name}</p>
+                    <p className="text-sm font-medium text-brand-navy">{f.name}</p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {(f.sizeBytes / 1024).toFixed(1)} KB · {f.mimeType} · {formatDate(f.createdAt)}
                     </p>
                     {f.summary && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{f.summary}</p>}
-                    {f.projectId && <p className="text-xs text-blue-500 mt-0.5">Project: {projects.find((p) => p.id === f.projectId)?.name ?? f.projectId}</p>}
+                    {f.projectId && <p className="text-xs text-brand-blue mt-0.5">Project: {projects.find((p) => p.id === f.projectId)?.name ?? f.projectId}</p>}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-green-400" aria-label="Active" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" aria-label="Active" />
                   </div>
                 </div>
               ))}
@@ -293,10 +288,10 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
         <div className="space-y-4">
           <a
             href="/ai-connect"
-            className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 hover:shadow-sm transition-all group"
+            className="flex items-center justify-between glass rounded-3xl p-5 hover:shadow-md transition-all group"
           >
             <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-brand-blue flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-full bg-brand-blue flex items-center justify-center shrink-0">
                 <Cpu className="h-5 w-5 text-white" />
               </div>
               <div>
@@ -307,7 +302,7 @@ export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Pro
             <span className="text-xs font-semibold text-brand-blue group-hover:underline shrink-0">เปิด AI Connect →</span>
           </a>
 
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-xs text-blue-700">
+          <div className="glass rounded-3xl p-4 text-xs text-gray-600">
             <p className="font-semibold mb-1">เมื่อต่อ Data Sources ครบ — AI จะทำงานอย่างนี้:</p>
             <ol className="list-decimal list-inside space-y-1 text-brand-blue">
               <li>ดึง Top 10 SERP จาก SerpAPI สำหรับ keyword นั้น</li>

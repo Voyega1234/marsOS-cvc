@@ -377,7 +377,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
           <div>
             {!items ? (
@@ -453,7 +453,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
       {advanced && (
       <>
       {/* การ์ด: สร้าง Master Prompt จากบทความตัวอย่าง */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
         <div>
           <p className="text-sm font-semibold text-brand-navy">สร้าง Master Prompt จากบทความตัวอย่าง</p>
           <p className="text-xs text-gray-500 mt-0.5">ใส่ลิงก์หรือวางข้อความบทความตัวอย่าง 1-5 ชิ้น ยิ่งใส่เยอะยิ่งแม่น ระบบจะวัดโครงสร้าง outline ของบทความจริง แล้วให้ Mars สรุปเป็น Master Prompt พร้อมโทนน้ำเสียงของแบรนด์จากตัวอย่าง (อาจใช้เวลาถึง 5 นาที)</p>
@@ -500,7 +500,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
       </div>
 
       {/* การ์ด: แก้ Master Prompt ด้วยคำสั่ง */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
         <div>
           <p className="text-sm font-semibold text-brand-navy">แก้ Master Prompt ด้วยคำสั่ง</p>
           <p className="text-xs text-gray-500 mt-0.5">บอก Mars ว่าอยากแก้อะไรในภาษาคน แล้วตรวจร่างก่อนบันทึกจริง</p>

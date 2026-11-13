@@ -46,7 +46,7 @@ ${css}
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 overflow-hidden">
+    <div className="force-light rounded-xl border border-gray-200 overflow-hidden">
       <p className="text-[11px] text-gray-400 px-3 py-1.5 bg-white border-b border-gray-100">
         ตัวอย่างท้ายบทความ{author?.name?.trim() ? "" : " (ข้อมูลสมมติ — เพิ่มผู้เขียนแล้วจะเห็นข้อมูลจริง)"} · สีจริงตามธีมของเว็บ
       </p>

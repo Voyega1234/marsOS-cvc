@@ -81,9 +81,9 @@ export function VersionsAuditTab({ items }: Props) {
   return (
     <div className="space-y-3">
       <ErrorBanner message={error && !openId ? error : null} />
-      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+      <div className="overflow-x-auto rounded-3xl border border-white/80 bg-white/70 shadow-sm backdrop-blur">
         <table className="w-full min-w-[900px] text-left text-sm">
-          <thead className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <thead className="border-b border-gray-100 bg-brand-mist/60 text-xs font-semibold uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Layer</th>
@@ -135,7 +135,7 @@ export function VersionsAuditTab({ items }: Props) {
         ) : (
           <div className="space-y-2">
             {versions.map((v) => (
-              <div key={v.id} className="rounded-lg border border-gray-100 p-3">
+              <div key={v.id} className="rounded-2xl border border-white/80 bg-white/60 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold text-brand-navy">v{v.versionNumber}</span>
                   <Button

@@ -9,6 +9,7 @@ import {
   AlertTriangle, Zap, ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader, Chip } from "@/components/ds";
 
 type AIProviderKeyRow = {
   id: string;
@@ -56,10 +57,10 @@ const PROVIDERS = [
 ];
 
 const PROVIDER_COLOR: Record<string, string> = {
-  claude:  "bg-orange-50 text-orange-700 border-orange-200",
-  openai:  "bg-emerald-50 text-emerald-700 border-emerald-200",
-  gemini:  "bg-blue-50 text-blue-700 border-blue-200",
-  groq:    "bg-purple-50 text-purple-700 border-purple-200",
+  claude:  "bg-brand-blue/10 text-brand-blue border-brand-blue/20",
+  openai:  "bg-brand-mist text-brand-navy border-gray-200",
+  gemini:  "bg-brand-blue/10 text-brand-blue border-brand-blue/20",
+  groq:    "bg-brand-mist text-brand-navy border-gray-200",
 };
 
 export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow[] }) {
@@ -132,18 +133,15 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
     <div className="max-w-xl mx-auto space-y-5">
 
       {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 mb-0.5">
-          <h1 className="text-xl font-bold text-brand-navy">เชื่อมต่อ AI</h1>
-          <span className="flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
-            <Lock className="h-3 w-3" />Admin
-          </span>
-        </div>
-        <p className="text-sm text-gray-500">เพิ่ม API key ครั้งเดียว — ระบบใช้ key นี้กับทุกหน้าโดยอัตโนมัติ</p>
-      </div>
+      <PageHeader
+        eyebrow="Admin"
+        title="เชื่อมต่อ AI"
+        subtitle="เพิ่ม API key ครั้งเดียว — ระบบใช้ key นี้กับทุกหน้าโดยอัตโนมัติ"
+        actions={<Chip tone="bad"><Lock className="h-3 w-3" />Admin</Chip>}
+      />
 
       {/* Add key form */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div className="glass rounded-3xl p-5 space-y-4">
 
         {/* Provider picker */}
         <div>
@@ -152,14 +150,14 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
             <button
               type="button"
               onClick={() => setProviderOpen((v) => !v)}
-              className="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white hover:border-gray-300 transition-colors"
+              className="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white/80 hover:border-gray-300 transition-colors"
             >
               <div className="flex items-center gap-2">
-                <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-lg border", PROVIDER_COLOR[selectedProvider] ?? "bg-gray-100 text-gray-600")}>
+                <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full border", PROVIDER_COLOR[selectedProvider] ?? "bg-gray-100 text-gray-600")}>
                   {provider.label}
                 </span>
                 {provider.recommended && (
-                  <span className="text-xs text-green-600 font-medium">แนะนำ</span>
+                  <span className="text-xs text-emerald-600 font-medium">แนะนำ</span>
                 )}
               </div>
               <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
@@ -168,7 +166,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
             {providerOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setProviderOpen(false)} />
-                <div className="absolute z-20 top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                <div className="absolute z-20 top-full mt-1 w-full glass-strong rounded-2xl shadow-lg overflow-hidden">
                   {PROVIDERS.map((p) => {
                     const connected = keys.some((k) => k.provider === p.id);
                     return (
@@ -178,15 +176,15 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
                         onClick={() => { setSelectedProvider(p.id); setProviderOpen(false); setApiKey(""); }}
                         className={cn(
                           "w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0",
-                          selectedProvider === p.id && "bg-blue-50"
+                          selectedProvider === p.id && "bg-brand-blue/10"
                         )}
                       >
-                        <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-lg border shrink-0", PROVIDER_COLOR[p.id] ?? "bg-gray-100 text-gray-600")}>
+                        <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0", PROVIDER_COLOR[p.id] ?? "bg-gray-100 text-gray-600")}>
                           {p.label}
                         </span>
                         <span className="flex-1 text-xs text-gray-500">{p.note}</span>
                         {connected && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />}
-                        {p.recommended && !connected && <span className="text-xs text-green-600 font-medium shrink-0">แนะนำ</span>}
+                        {p.recommended && !connected && <span className="text-xs text-emerald-600 font-medium shrink-0">แนะนำ</span>}
                       </button>
                     );
                   })}
@@ -223,7 +221,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
               onChange={(e) => setApiKey(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
               placeholder={provider.placeholder}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm font-mono placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/8 focus:border-gray-400"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm font-mono placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue/40"
             />
             <button
               type="button"
@@ -246,7 +244,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
         <button
           onClick={handleAdd}
           disabled={saving || !apiKey.trim()}
-          className="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors"
+          className="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-40 text-white text-sm font-semibold rounded-full transition-colors"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
           {saving ? "กำลังบันทึก..." : "เชื่อมต่อ"}
@@ -254,22 +252,22 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
       </div>
 
       {/* Security note */}
-      <div className="flex items-start gap-2.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+      <div className="flex items-start gap-2.5 text-xs text-gray-500 bg-white/60 border border-white/80 rounded-2xl px-4 py-3">
         <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-400" />
         <p>Keys เข้ารหัส AES-256 server-side — แสดงเฉพาะ 4 ตัวท้าย ไม่ส่งออก client</p>
       </div>
 
       {/* Connected keys list */}
       {hasAnyKey && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="glass rounded-3xl overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <p className="text-xs font-semibold text-gray-700">Keys ที่เชื่อมต่อแล้ว</p>
             <span className="text-xs text-gray-400">{keys.length} keys · ⭐ = Default</span>
           </div>
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-100/70">
             {keys.map((k) => (
               <div key={k.id} className="flex items-center gap-3 px-4 py-3">
-                <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-lg border shrink-0", PROVIDER_COLOR[k.provider] ?? "bg-gray-100 text-gray-600 border-gray-200")}>
+                <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0", PROVIDER_COLOR[k.provider] ?? "bg-gray-100 text-gray-600 border-gray-200")}>
                   {PROVIDERS.find((p) => p.id === k.provider)?.label ?? k.provider}
                 </span>
                 <span className="flex-1 min-w-0">
@@ -278,7 +276,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
                 <button
                   onClick={() => handleToggleDefault(k)}
                   title={k.isDefault ? "ยกเลิก Default" : "ตั้งเป็น Default"}
-                  className="p-1.5 rounded-lg text-gray-300 hover:text-amber-500 hover:bg-amber-50 transition-colors shrink-0"
+                  className="p-1.5 rounded-full text-gray-300 hover:text-amber-500 hover:bg-amber-50 transition-colors shrink-0"
                 >
                   {k.isDefault
                     ? <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
@@ -286,7 +284,7 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
                 </button>
                 <button
                   onClick={() => handleDelete(k.id)}
-                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+                  className="p-1.5 rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -297,14 +295,14 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
       )}
 
       {!hasAnyKey && (
-        <div className="text-center py-8 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
+        <div className="text-center py-8 text-gray-400 bg-white/70 rounded-3xl border border-dashed border-gray-200">
           <Zap className="h-8 w-8 mx-auto mb-2 opacity-30" />
           <p className="text-sm">ยังไม่มี API key — เพิ่มด้านบนได้เลย</p>
         </div>
       )}
 
       {/* Cost estimate */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="glass rounded-3xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
           <p className="text-xs font-semibold text-gray-700">ประมาณการค่าใช้จ่าย Claude Sonnet</p>
         </div>
@@ -315,9 +313,9 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
             { label: "SEO Check", cost: "$0.02" },
             { label: "100 บทความ/เดือน", cost: "~$7", highlight: true },
           ].map((item) => (
-            <div key={item.label} className={`px-3 py-3 ${item.highlight ? "bg-green-50" : ""}`}>
+            <div key={item.label} className={`px-3 py-3 ${item.highlight ? "bg-brand-blue/10" : ""}`}>
               <p className="text-[11px] text-gray-500">{item.label}</p>
-              <p className={`text-base font-semibold tabular-nums mt-0.5 ${item.highlight ? "text-green-700" : "text-brand-navy"}`}>{item.cost}</p>
+              <p className={`text-base font-semibold tabular-nums mt-0.5 ${item.highlight ? "text-brand-blue" : "text-brand-navy"}`}>{item.cost}</p>
             </div>
           ))}
         </div>

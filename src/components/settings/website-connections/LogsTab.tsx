@@ -39,7 +39,7 @@ export function LogsTab({ rows }: Props) {
           <select
             value={connectionFilter}
             onChange={(e) => setConnectionFilter(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            className="rounded-xl border border-gray-200 px-3 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
           >
             <option value="all">ทุก Connection</option>
             {connections.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -47,7 +47,7 @@ export function LogsTab({ rows }: Props) {
           <select
             value={actionFilter}
             onChange={(e) => setActionFilter(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            className="rounded-xl border border-gray-200 px-3 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
           >
             <option value="all">ทุก Action</option>
             {actions.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -55,7 +55,7 @@ export function LogsTab({ rows }: Props) {
           <select
             value={resultFilter}
             onChange={(e) => setResultFilter(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            className="rounded-xl border border-gray-200 px-3 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
           >
             <option value="all">ทุกผลลัพธ์</option>
             <option value="Success">Success</option>
@@ -65,7 +65,7 @@ export function LogsTab({ rows }: Props) {
         </div>
 
         <div className="overflow-x-auto -mx-6 px-6">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="tbl w-full min-w-[900px] text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-400 border-b border-gray-200">
                 <th className="py-2 pr-4">Timestamp</th>
@@ -78,7 +78,7 @@ export function LogsTab({ rows }: Props) {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((log) => (
-                <tr key={log.id} className="cursor-pointer hover:bg-gray-50" onClick={() => setDetail(log)}>
+                <tr key={log.id} className="cursor-pointer hover:bg-white/60" onClick={() => setDetail(log)}>
                   <td className="py-2.5 pr-4 text-gray-500 whitespace-nowrap">{log.timestamp}</td>
                   <td className="py-2.5 pr-4 text-gray-700">{log.actor}</td>
                   <td className="py-2.5 pr-4 text-gray-600">{log.connection}</td>

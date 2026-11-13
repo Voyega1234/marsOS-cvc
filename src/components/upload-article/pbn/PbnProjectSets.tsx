@@ -15,7 +15,7 @@ import type { UploadClientDTO } from "@/lib/upload-article/types";
 import { PBN_LANGUAGE_LABEL, type PbnLanguage, type PbnProfile } from "@/lib/upload-article/pbn-sets";
 
 const labelCls = "block text-xs font-semibold text-gray-600 mb-1";
-const selectCls = "w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white";
+const selectCls = "w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white";
 
 type SetDraft = { name: string; website: string; language: PbnLanguage };
 
@@ -155,7 +155,7 @@ export default function PbnProjectSets({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-brand-navy">ข้อมูลโปรเจกต์ PBN ({profiles.length + 1} set)</p>

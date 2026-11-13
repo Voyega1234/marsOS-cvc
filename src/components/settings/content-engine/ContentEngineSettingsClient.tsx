@@ -242,13 +242,16 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh,
     <div className="space-y-4">
       {!hideHeader && (
       <>
-      <div>
-        <h1 className="text-xl font-semibold text-brand-navy">Content Engine</h1>
-        <p className="mt-1 max-w-3xl text-sm text-gray-500">
+      <div className="page-header">
+        <div>
+        <p className="page-eyebrow">Setting</p>
+        <h1 className="page-title">Content Engine</h1>
+        <p className="page-subtitle max-w-3xl">
           ทุกส่วนด้านล่างรวมกันเป็นคำสั่งที่ AI ใช้เขียนบทความและสร้างรูป ของสโคปนี้เท่านั้น: ข้อมูลธุรกิจ (Business Skill),
           สไตล์การเขียน (Master Prompt), โครงบทความ (Article Brief), ตัวตรวจคุณภาพ (Validator Pack), แม่แบบรูปภาพ (Image Prompt)
           ส่วนข้อจำกัดและ Comment ลูกค้าไม่บังคับ กด Run Test เพื่อดูคำสั่งจริงที่ส่งให้ AI
         </p>
+        </div>
       </div>
 
       {/* ── แถบสรุป: สถานะจริงของแต่ละ layer (เห็นทุกแท็บ) ──────────────────────── */}
@@ -260,11 +263,11 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh,
             onClick={() => setTab(l.tab)}
             title={`${l.label} · ${LAYER_STATE_LABEL[l.state]} · ${l.text}`}
             className={cn(
-              "flex max-w-[260px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-              l.state === "on" && "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
-              l.state === "off" && "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100",
-              (l.state === "inactive" || l.state === "blocked") && "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
-              l.state === "missing" && "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+              "chip max-w-[260px] transition-colors",
+              l.state === "on" && "chip-ok hover:bg-emerald-100",
+              l.state === "off" && "chip-muted hover:bg-gray-100",
+              (l.state === "inactive" || l.state === "blocked") && "chip-warn hover:bg-amber-100",
+              l.state === "missing" && "chip-bad hover:bg-red-100"
             )}
           >
             <StateIcon state={l.state} className="size-3 text-current" />
@@ -281,7 +284,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh,
 
       <div className="flex flex-col gap-4 md:flex-row">
         {/* ── Left rail nav แบ่งหมวดด้วยเส้นคั่น (ชื่อหมวดอยู่ใน aria-label ไม่โชว์ — คำไทยใต้ชื่อแท็บพอแล้ว) — แถบเลื่อนแนวนอนบนมือถือ ── */}
-        <nav className="flex shrink-0 items-stretch gap-2 overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5 md:w-56 md:flex-col md:gap-1 md:overflow-visible md:p-2">
+        <nav className="flex shrink-0 items-stretch gap-2 overflow-x-auto glass rounded-3xl p-1.5 md:w-56 md:flex-col md:gap-1 md:self-start md:overflow-visible md:p-2">
           {tabGroups.map((g) => (
             <div
               key={g.label}
@@ -300,14 +303,14 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh,
                     aria-current={tab === t.key ? "page" : undefined}
                     title={t.hint}
                     className={cn(
-                      "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors md:w-full",
-                      tab === t.key ? "bg-indigo-600 text-white" : "text-gray-600 hover:bg-gray-100"
+                      "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-2 text-left text-sm font-medium transition-colors md:w-full",
+                      tab === t.key ? "bg-brand-blue text-white shadow-sm" : "text-gray-600 hover:bg-white/80"
                     )}
                   >
                     <Icon className="size-3.5 shrink-0" />
                     <span className="flex flex-col leading-tight">
                       {t.label}
-                      <span className={cn("text-[10px] font-normal", tab === t.key ? "text-indigo-100" : "text-gray-400")}>{t.hint}</span>
+                      <span className={cn("text-[10px] font-normal", tab === t.key ? "text-white/70" : "text-gray-400")}>{t.hint}</span>
                     </span>
                   </button>
                 );
@@ -456,8 +459,8 @@ function OverviewTab({
         action={
           <span
             className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold",
-              isReady ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
+              "chip",
+              isReady ? "chip-ok" : "chip-warn"
             )}
           >
             {isReady ? <CheckCircle2 className="size-3.5" aria-hidden /> : <AlertTriangle className="size-3.5" aria-hidden />}
@@ -471,13 +474,13 @@ function OverviewTab({
               key={l.key}
               type="button"
               onClick={() => onJump(l.tab)}
-              className="flex items-start gap-2 rounded-md border border-gray-100 px-3 py-2 text-left text-xs transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+              className="flex items-start gap-2 rounded-2xl border border-white/80 bg-white/60 px-3 py-2.5 text-left text-xs transition-colors hover:border-brand-blue/40 hover:bg-brand-mist"
             >
               <StateIcon state={l.state} className="mt-0.5 size-4" />
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-x-1.5">
                   <span className="font-semibold text-gray-800">{l.label}</span>
-                  <span className={cn("rounded px-1 text-[10px] font-medium", l.required ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600")}>
+                  <span className={cn("rounded-full px-1.5 text-[10px] font-medium", l.required ? "bg-brand-navy text-white" : "bg-gray-100 text-gray-600")}>
                     {l.required ? "บังคับ" : "ไม่บังคับ"}
                   </span>
                 </span>
@@ -497,12 +500,12 @@ function OverviewTab({
             onClick={c.onClick}
             disabled={!c.onClick}
             className={cn(
-              "rounded-2xl border border-gray-200 bg-white p-4 text-left transition-colors",
-              c.onClick && "hover:border-indigo-300 hover:bg-indigo-50/40"
+              "kpi kpi-mist text-left transition-colors",
+              c.onClick && "hover:border-brand-blue/40"
             )}
           >
-            <p className="text-2xl font-semibold text-brand-navy">{c.value}</p>
-            <p className="mt-1 break-words text-xs text-gray-500">{c.label}</p>
+            <p className="kpi-value">{c.value}</p>
+            <p className="kpi-label mt-1 break-words">{c.label}</p>
           </button>
         ))}
       </div>
@@ -519,7 +522,7 @@ function OverviewTab({
                     <button
                       type="button"
                       onClick={() => onJump(c.tab as TabKey)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-brand-blue/40 hover:bg-brand-mist"
                     >
                       {info && <StateIcon state={info.state} className="size-3.5" />}
                       {c.label}
@@ -541,7 +544,7 @@ function OverviewTab({
                     <button
                       type="button"
                       onClick={() => onJump("prompt-composer")}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-brand-blue/20 bg-brand-blue/10 px-2.5 py-1 text-xs font-medium text-brand-blue hover:bg-brand-blue/15"
                     >
                       <FlaskConical className="size-3.5" aria-hidden /> {c.label}
                       {c.hint && <span className="font-normal">({c.hint})</span>}
@@ -550,7 +553,7 @@ function OverviewTab({
                     <span
                       className={cn(
                         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
-                        c.inTest ? "border-indigo-200 bg-indigo-50 text-indigo-800" : "border-dashed border-gray-300 bg-white text-gray-700"
+                        c.inTest ? "border-brand-blue/20 bg-brand-blue/10 text-brand-blue" : "border-dashed border-gray-300 bg-white text-gray-700"
                       )}
                     >
                       {c.label}
@@ -573,7 +576,7 @@ function OverviewTab({
               key={a.label}
               type="button"
               onClick={a.onClick}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-left text-xs font-medium text-gray-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+              className="rounded-full border border-gray-200 bg-white/80 px-4 py-2 text-left text-xs font-medium text-gray-700 transition-colors hover:border-brand-blue/40 hover:bg-brand-mist"
             >
               {a.label}
             </button>

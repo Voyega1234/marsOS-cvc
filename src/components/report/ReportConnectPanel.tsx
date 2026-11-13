@@ -122,14 +122,14 @@ export function ReportConnectPanel({ projectId, gscSiteUrl, ga4PropertyId, isAdm
   if (!isAdmin) return null;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-2.5">
+    <div className="glass rounded-2xl p-4 space-y-2.5">
       {/* แถว 1: การเชื่อมต่อ Google ระดับ org */}
       {!conn.connected && conn.serviceReady && conn.serviceEmail ? (
         <div className="flex flex-wrap items-center gap-2 text-xs text-emerald-700">
           <CheckCircle2 className="size-3.5 shrink-0" />
           <span>ใช้ Service Email: <b>{conn.serviceEmail}</b> — เว็บไหนอยากให้ดึงข้อมูล เอาเมล์นี้ไปเพิ่มใน GSC + GA4 ของเว็บนั้น</span>
           <button onClick={() => { navigator.clipboard?.writeText(conn.serviceEmail ?? ''); toast.success('คัดลอกเมล์แล้ว'); }}
-            className="ml-auto rounded-lg border border-emerald-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100">
+            className="ml-auto rounded-full border border-emerald-300 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100">
             คัดลอกเมล์
           </button>
         </div>
@@ -154,13 +154,13 @@ export function ReportConnectPanel({ projectId, gscSiteUrl, ga4PropertyId, isAdm
             </span>
             {isAdmin && conn.configured && (
               <a href={`/api/google-connect/start?returnTo=${encodeURIComponent(returnTo)}`}
-                className="ml-auto flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 transition-colors">
+                className="ml-auto flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 font-medium text-amber-700 hover:bg-amber-100 transition-colors">
                 <Link2 className="size-3" /> เชื่อมต่อ Google
               </a>
             )}
             {isAdmin && !conn.configured && (
               <button onClick={() => setShowSetup(v => !v)}
-                className="ml-auto flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 transition-colors">
+                className="ml-auto flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 font-medium text-amber-700 hover:bg-amber-100 transition-colors">
                 ⚙️ ตั้งค่า Google OAuth (ครั้งเดียว)
               </button>
             )}
@@ -201,7 +201,7 @@ export function ReportConnectPanel({ projectId, gscSiteUrl, ga4PropertyId, isAdm
                 placeholder="Client Secret"
                 className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs font-mono" />
               <button onClick={saveOauthClient} disabled={savingClient || !cId.trim() || !cSecret.trim()}
-                className="flex h-8 items-center gap-1.5 rounded-lg bg-brand-blue px-3 text-xs font-semibold text-white hover:bg-brand-deep disabled:opacity-50">
+                className="flex h-8 items-center gap-1.5 rounded-full bg-brand-blue px-3 text-xs font-semibold text-white hover:bg-brand-deep disabled:opacity-50">
                 <Save className="size-3" /> {savingClient ? "กำลังบันทึก..." : "บันทึก OAuth Client"}
               </button>
             </div>
@@ -213,13 +213,13 @@ export function ReportConnectPanel({ projectId, gscSiteUrl, ga4PropertyId, isAdm
       {isAdmin && dataReady && (
         <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2.5">
           <select value={selSite} onChange={(e) => setSelSite(e.target.value)}
-            className="h-8 min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-white px-2 text-xs">
+            className="h-8 min-w-[220px] flex-1 rounded-xl border border-gray-200 bg-white px-2 text-xs">
             <option value="">— เลือก GSC property ของ client นี้ —</option>
             {gscSiteUrl && !sites.includes(gscSiteUrl) && <option value={gscSiteUrl}>{gscSiteUrl} (ค่าปัจจุบัน)</option>}
             {sites.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           <select value={selProp} onChange={(e) => setSelProp(e.target.value)}
-            className="h-8 min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-white px-2 text-xs">
+            className="h-8 min-w-[220px] flex-1 rounded-xl border border-gray-200 bg-white px-2 text-xs">
             <option value="">— เลือก GA4 property —</option>
             {ga4PropertyId && !props.some((p) => p.id === ga4PropertyId) && (
               <option value={ga4PropertyId}>{ga4PropertyId} (ค่าปัจจุบัน)</option>
@@ -227,11 +227,11 @@ export function ReportConnectPanel({ projectId, gscSiteUrl, ga4PropertyId, isAdm
             {props.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
           </select>
           <button onClick={loadLists} disabled={loadingLists} title="โหลดรายการใหม่"
-            className="flex h-8 items-center gap-1 rounded-lg border border-gray-200 px-2 text-xs text-gray-500 hover:bg-gray-50">
+            className="flex h-8 items-center gap-1 rounded-full border border-gray-200 px-2 text-xs text-gray-500 hover:bg-gray-50">
             <RefreshCw className={`size-3 ${loadingLists ? "animate-spin" : ""}`} />
           </button>
           <button onClick={save} disabled={saving}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-brand-blue px-3 text-xs font-semibold text-white hover:bg-brand-deep disabled:opacity-50">
+            className="flex h-8 items-center gap-1.5 rounded-full bg-brand-blue px-3 text-xs font-semibold text-white hover:bg-brand-deep disabled:opacity-50">
             <Save className="size-3" /> {saving ? "กำลังบันทึก..." : "บันทึกการผูก"}
           </button>
         </div>

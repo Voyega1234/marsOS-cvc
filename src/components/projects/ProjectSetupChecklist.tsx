@@ -85,8 +85,8 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
   const requiredPct = requiredItems.length ? Math.round((requiredDone / requiredItems.length) * 100) : 100;
 
   const ItemRow = ({ item }: { item: ChecklistItem }) => (
-    <div className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${
-      item.ok ? "border-emerald-100 bg-emerald-50/40" : "border-red-200 bg-red-50"
+    <div className={`flex items-start gap-3 rounded-2xl border p-3.5 shadow-sm transition-colors ${
+      item.ok ? "border-emerald-100 bg-white/70" : "border-red-200 bg-red-50/80"
     }`}>
       {item.ok
         ? <CheckCircle2 size={17} className="text-emerald-500 shrink-0 mt-0.5" />
@@ -100,14 +100,14 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
       </div>
       {!item.ok && item.action.kind === "manual" && (
         <button onClick={() => confirmManual(item)} disabled={savingManual === item.id}
-          className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-red-600 text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+          className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-red-600 text-white hover:opacity-90 transition-opacity disabled:opacity-50">
           {savingManual === item.id ? <RefreshCw size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
           ยืนยันว่าทำแล้ว
         </button>
       )}
       {!item.ok && item.action.kind !== "manual" && (
         <button onClick={() => onNavigate(item.action)}
-          className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-red-600 text-white hover:opacity-90 transition-opacity">
+          className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-red-600 text-white hover:opacity-90 transition-opacity">
           ไปตั้งค่า <ArrowRight size={11} />
         </button>
       )}
@@ -117,7 +117,7 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
   return (
     <div className="space-y-4">
       {/* Progress — นับเฉพาะข้อบังคับ ข้อแนะนำมีตัวนับของมันเองในหัวข้อด้านล่าง */}
-      <div className={`rounded-2xl border p-4 ${data.requiredReady ? "border-emerald-200 bg-emerald-50/60" : "border-red-200 bg-red-50"}`}>
+      <div className={`rounded-2xl border p-4 shadow-sm ${data.requiredReady ? "border-emerald-200 bg-emerald-50/60" : "border-red-200 bg-red-50/80"}`}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
             {data.progressPct === 100 && <PartyPopper size={16} className="text-emerald-600" />}
@@ -137,7 +137,7 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
             </button>
           </div>
         </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div className="meter">
           <div className={`h-full rounded-full transition-all duration-500 ${data.requiredReady ? "bg-emerald-500" : "bg-red-500"}`}
             style={{ width: `${requiredPct}%` }} />
         </div>
@@ -145,7 +145,7 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
 
       {/* ข้อบังคับ */}
       <div>
-        <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">
+        <h3 className="section-label mb-2">
           ต้องมีก่อนเริ่ม ({requiredItems.filter(i => i.ok).length}/{requiredItems.length})
         </h3>
         <div className="space-y-2">{requiredItems.map(item => <ItemRow key={item.id} item={item} />)}</div>
@@ -153,7 +153,7 @@ export function ProjectSetupChecklist({ projectId, onNavigate, onStatus }: {
 
       {/* ข้อแนะนำ */}
       <div>
-        <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">
+        <h3 className="section-label mb-2">
           แนะนำให้ตั้งก่อนเริ่ม ({optionalItems.filter(i => i.ok).length}/{optionalItems.length})
         </h3>
         <div className="space-y-2">{optionalItems.map(item => <ItemRow key={item.id} item={item} />)}</div>

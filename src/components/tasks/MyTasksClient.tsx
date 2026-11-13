@@ -30,8 +30,8 @@ interface Props {
 
 // Actions available per status
 const STATUS_ACTIONS: Record<string, { label: string; newStatus: string; color: string } | null> = {
-  OUTLINE_APPROVED:  { label: "เริ่มเขียน (Auto Run)", newStatus: "ARTICLE_GENERATING", color: "bg-brand-blue hover:bg-blue-500 text-white" },
-  SEO_REVIEW:        { label: "Approve บทความ",         newStatus: "APPROVED",           color: "bg-green-600 hover:bg-green-500 text-white" },
+  OUTLINE_APPROVED:  { label: "เริ่มเขียน (Auto Run)", newStatus: "ARTICLE_GENERATING", color: "bg-brand-blue hover:bg-brand-deep text-white" },
+  SEO_REVIEW:        { label: "Approve บทความ",         newStatus: "APPROVED",           color: "bg-brand-blue hover:bg-brand-deep text-white" },
   REVISION_REQUIRED: { label: "ส่ง Review ใหม่",         newStatus: "SEO_REVIEW",         color: "bg-amber-500 hover:bg-amber-400 text-white" },
   ARTICLE_DONE:      { label: "ส่ง SEO Check",           newStatus: "SEO_REVIEW",         color: "bg-teal-600 hover:bg-teal-500 text-white" },
 };
@@ -90,13 +90,13 @@ export function MyTasksClient({ groups, urgencyMeta, userId }: Props) {
                 const isLoading = loading === article.id;
                 const isReviewTask = article.reviewerId === userId && article.status === "SEO_REVIEW";
                 return (
-                  <div key={article.id} className={`bg-white rounded-xl border ${meta.border} border overflow-hidden`}>
+                  <div key={article.id} className={`glass rounded-2xl border ${meta.border} overflow-hidden`}>
                     {/* Main row */}
                     <div className="flex items-start gap-3 p-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           {isReviewTask && (
-                            <span className="text-[10px] font-bold text-[#9A4A00] bg-[#FFF7ED] border border-[#F5C896] px-1.5 py-0.5 rounded-full shrink-0">
+                            <span className="text-[10px] font-bold chip chip-warn shrink-0">
                               รอฉันตรวจ
                             </span>
                           )}
@@ -122,7 +122,7 @@ export function MyTasksClient({ groups, urgencyMeta, userId }: Props) {
                               status === "OUTLINE_APPROVED"
                             )}
                             disabled={isLoading}
-                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${action.color}`}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-colors disabled:opacity-50 ${action.color}`}
                           >
                             {isLoading
                               ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -137,13 +137,13 @@ export function MyTasksClient({ groups, urgencyMeta, userId }: Props) {
                         {/* Expand / open */}
                         <button
                           onClick={() => setExpanded(isExpanded ? null : article.id)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                          className="p-1.5 rounded-full text-gray-400 hover:text-brand-navy hover:bg-brand-mist transition-colors"
                         >
                           {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                         </button>
                         <Link
                           href={`/articles/${article.id}`}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                          className="p-1.5 rounded-full text-gray-400 hover:text-brand-navy hover:bg-brand-mist transition-colors"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
                         </Link>
@@ -152,7 +152,7 @@ export function MyTasksClient({ groups, urgencyMeta, userId }: Props) {
 
                     {/* Expanded detail */}
                     {isExpanded && (
-                      <div className="px-4 pb-4 pt-0 border-t border-gray-50 bg-gray-50/50">
+                      <div className="px-4 pb-4 pt-0 border-t border-gray-100/70 bg-brand-mist/40">
                         <div className="flex items-center justify-between text-xs text-gray-400 pt-3">
                           <span>อัปเดต {formatDate(article.updatedAt)}</span>
                           <Link href={`/articles/${article.id}`} className="text-brand-blue hover:underline flex items-center gap-1">

@@ -205,22 +205,23 @@ export function CalendarClient({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-brand-navy">Content Calendar</h1>
-          <p className="text-sm text-gray-500 mt-0.5">วางแผนการเผยแพร่บทความทั้งระบบ — SEO SME, Upload Article, PBN · กดที่วันเพื่อดูรายละเอียด</p>
+          <p className="page-eyebrow">Calendar</p>
+          <h1 className="page-title">Content Calendar</h1>
+          <p className="page-subtitle">วางแผนการเผยแพร่บทความทั้งระบบ — SEO SME, Upload Article, PBN · กดที่วันเพื่อดูรายละเอียด</p>
         </div>
         {/* View Toggle */}
-        <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+        <div className="seg">
           <button
             onClick={() => setView("month")}
-            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all", view === "month" ? "bg-white shadow text-brand-navy" : "text-gray-500")}
+            className={cn("seg-item flex items-center gap-1.5", view === "month" && "is-active")}
           >
             <CalendarDays className="h-3.5 w-3.5" />รายเดือน
           </button>
           <button
             onClick={() => setView("list")}
-            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all", view === "list" ? "bg-white shadow text-brand-navy" : "text-gray-500")}
+            className={cn("seg-item flex items-center gap-1.5", view === "list" && "is-active")}
           >
             <List className="h-3.5 w-3.5" />รายการ
           </button>
@@ -232,10 +233,10 @@ export function CalendarClient({
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
         {/* ── Calendar / List ── */}
         <div className="xl:col-span-3 min-w-0">
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="glass rounded-3xl overflow-hidden">
             {/* Month Nav */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <button onClick={prevMonth} aria-label="เดือนก่อน" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500">
+              <button onClick={prevMonth} aria-label="เดือนก่อน" className="p-1.5 rounded-full hover:bg-brand-mist transition-colors text-gray-500">
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <div className="text-center">
@@ -244,7 +245,7 @@ export function CalendarClient({
                 </h2>
                 <p className="text-[11px] text-gray-400">{monthCount} บทความในเดือนนี้</p>
               </div>
-              <button onClick={nextMonth} aria-label="เดือนถัดไป" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500">
+              <button onClick={nextMonth} aria-label="เดือนถัดไป" className="p-1.5 rounded-full hover:bg-brand-mist transition-colors text-gray-500">
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
@@ -263,7 +264,7 @@ export function CalendarClient({
                 <div className="grid grid-cols-7 min-w-[640px] auto-rows-[minmax(88px,auto)]">
                   {/* Empty cells before day 1 */}
                   {Array.from({ length: firstDow }).map((_, i) => (
-                    <div key={`empty-${i}`} className="border-r border-b border-gray-50 bg-gray-50/30" />
+                    <div key={`empty-${i}`} className="border-r border-b border-gray-50 bg-brand-mist/30" />
                   ))}
                   {Array.from({ length: daysInMonth }).map((_, i) => {
                     const day  = i + 1;
@@ -278,14 +279,14 @@ export function CalendarClient({
                         onClick={() => setOpenDay(key)}
                         aria-label={`${formatDayTitle(key)} — ${dayArticles.length} บทความ`}
                         className={cn(
-                          "border-r border-b border-gray-100 p-1.5 min-h-[88px] text-left align-top flex flex-col transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue cursor-pointer",
-                          isToday && "bg-green-50/50"
+                          "border-r border-b border-gray-100 p-1.5 min-h-[88px] text-left align-top flex flex-col transition-colors hover:bg-brand-mist/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue cursor-pointer",
+                          isToday && "bg-brand-blue/5"
                         )}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className={cn(
                             "w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold",
-                            isToday ? "bg-green-500 text-white" : "text-gray-600"
+                            isToday ? "bg-brand-blue text-white" : "text-gray-600"
                           )}>
                             {day}
                           </span>
@@ -298,7 +299,7 @@ export function CalendarClient({
                             <div
                               key={a.id}
                               className={cn(
-                                "px-1.5 py-0.5 rounded text-[10px] font-medium truncate leading-4",
+                                "px-1.5 py-0.5 rounded-full text-[10px] font-medium truncate leading-4",
                                 STATUS_CONFIG[a.status].color
                               )}
                               title={`${a.title} · ${a.clientName} · ${STATUS_CONFIG[a.status].label}`}
@@ -326,7 +327,7 @@ export function CalendarClient({
                   const d = Number(day.slice(8, 10));
                   const time = overviewTime(a);
                   return (
-                    <Link key={a.id} href={a.href} className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 transition-colors">
+                    <Link key={a.id} href={a.href} className="flex items-center gap-4 px-5 py-3 hover:bg-brand-mist/50 transition-colors">
                       <div className="w-12 text-center flex-shrink-0">
                         <p className="text-lg font-bold text-brand-navy leading-none">{d}</p>
                         <p className="text-xs text-gray-400">{MONTH_TH[month].slice(0, 3)}</p>
@@ -361,16 +362,16 @@ export function CalendarClient({
         </div>
 
         {/* ── Sidebar: Unscheduled ── */}
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden flex flex-col">
+        <div className="glass rounded-3xl overflow-hidden flex flex-col">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
             <Clock className="h-4 w-4 text-gray-400" />
             <span className="text-sm font-semibold text-gray-700">ยังไม่กำหนดวัน</span>
-            <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{unscheduled.length}</span>
+            <span className="ml-auto text-xs text-gray-400 bg-brand-mist px-2 py-0.5 rounded-full">{unscheduled.length}</span>
           </div>
           <div className="flex-1 overflow-y-auto max-h-[60vh] sm:max-h-[500px]">
             {unscheduled.length === 0 && (
               <div className="py-8 text-center">
-                <CheckCircle2 className="h-8 w-8 text-green-300 mx-auto mb-2" />
+                <CheckCircle2 className="h-8 w-8 text-emerald-300 mx-auto mb-2" />
                 <p className="text-xs text-gray-400">บทความทุกชิ้นกำหนดวันแล้ว</p>
               </div>
             )}
@@ -382,7 +383,7 @@ export function CalendarClient({
                     <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0", clientColors[a.clientId])} />
                     <div className="flex-1 min-w-0">
                       <Link href={a.href}>
-                        <p className="text-xs font-semibold text-gray-800 hover:text-green-700 truncate">{a.title}</p>
+                        <p className="text-xs font-semibold text-gray-800 hover:text-brand-blue truncate">{a.title}</p>
                       </Link>
                       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         <StatusChip status={a.status} />
@@ -396,7 +397,7 @@ export function CalendarClient({
                             min={plan.startDate ?? undefined}
                             max={plan.endDate ?? undefined}
                             onChange={(e) => setDateInput(e.target.value)}
-                            className="w-full text-xs border border-gray-100 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-400/30"
+                            className="w-full text-xs border border-gray-200 rounded-xl px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
                           />
                           {(plan.startDate || plan.endDate) && (
                             <p className="text-[10px] text-gray-400">
@@ -411,13 +412,13 @@ export function CalendarClient({
                             <button
                               onClick={() => saveSchedule(a)}
                               disabled={saving || !dateInput}
-                              className="flex-1 text-xs font-semibold bg-green-600 text-white py-1 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                              className="flex-1 text-xs font-semibold bg-brand-blue text-white py-1 rounded-full hover:bg-brand-deep disabled:opacity-50 transition-colors"
                             >
                               {saving ? "..." : "บันทึก"}
                             </button>
                             <button
                               onClick={() => setEditingId(null)}
-                              className="flex-1 text-xs text-gray-400 border border-gray-100 py-1 rounded-lg hover:bg-gray-50 transition-colors"
+                              className="flex-1 text-xs text-gray-400 border border-gray-200 py-1 rounded-full hover:bg-brand-mist transition-colors"
                             >
                               ยกเลิก
                             </button>
@@ -426,7 +427,7 @@ export function CalendarClient({
                       ) : (
                         <button
                           onClick={() => { setEditingId(a.id); setDateInput(""); }}
-                          className="mt-1.5 flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium"
+                          className="mt-1.5 flex items-center gap-1 text-xs text-brand-blue hover:text-brand-deep font-medium"
                         >
                           <Plus className="h-3 w-3" />กำหนดวัน
                         </button>
@@ -460,7 +461,7 @@ export function CalendarClient({
           {openItems.length > 0 && (
             <div className="px-6 flex flex-wrap gap-1.5">
               {OVERVIEW_STATUSES.filter((s) => openCounts[s]).map((s) => (
-                <span key={s} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold", STATUS_CONFIG[s].color)}>
+                <span key={s} className={cn("chip", STATUS_CONFIG[s].color)}>
                   {STATUS_CONFIG[s].label} {openCounts[s]}
                 </span>
               ))}
@@ -488,7 +489,7 @@ export function CalendarClient({
                   </div>
                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                     <StatusChip status={a.status} />
-                    <Link href={a.href} className="inline-flex items-center gap-1 text-[11px] text-blue-500 hover:underline whitespace-nowrap">
+                    <Link href={a.href} className="inline-flex items-center gap-1 text-[11px] text-brand-blue hover:underline whitespace-nowrap">
                       <ExternalLink size={10} /> ไปดู
                     </Link>
                   </div>

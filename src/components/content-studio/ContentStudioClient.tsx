@@ -177,9 +177,9 @@ function ScoreCircle({ score, label, color }: { score: number; label: string; co
           <circle cx="32" cy="32" r={r} fill="none" stroke={colorMap[color]} strokeWidth="4"
             strokeDasharray={`${dash} ${circ - dash}`} strokeLinecap="round" />
         </svg>
-        <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-slate-800">{score}</span>
+        <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-brand-navy">{score}</span>
       </div>
-      <span className="text-xs text-slate-500 text-center leading-tight">{label}</span>
+      <span className="text-xs text-gray-500 text-center leading-tight">{label}</span>
     </div>
   );
 }
@@ -188,7 +188,7 @@ function ScoreCircle({ score, label, color }: { score: number; label: string; co
 
 function CatBadge({ cat }: { cat: Category }) {
   const map: Record<Category, string> = {
-    "SEO": "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+    "SEO": "bg-brand-blue/10 text-brand-blue ring-1 ring-brand-blue/20",
     "E-E-A-T": "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
     "Readability": "bg-teal-50 text-teal-700 ring-1 ring-teal-200",
     "Conversion": "bg-orange-50 text-orange-700 ring-1 ring-orange-200",
@@ -200,7 +200,7 @@ function PrioBadge({ p }: { p: Priority }) {
   const map: Record<Priority, string> = {
     High: "bg-red-50 text-red-600 ring-1 ring-red-200",
     Medium: "bg-amber-50 text-amber-600 ring-1 ring-amber-200",
-    Low: "bg-slate-100 text-slate-500",
+    Low: "bg-gray-100 text-gray-500",
   };
   return <span className={cn("text-xs px-2 py-0.5 rounded-full font-semibold", map[p])}>{p}</span>;
 }
@@ -543,31 +543,32 @@ export function ContentStudioClient() {
   const addedLinksCount = links.filter(l => l.added).length;
 
   return (
-    <div className="flex flex-col bg-white -m-3 sm:-m-4 md:-m-6 min-h-[calc(100dvh-4rem)] border-t border-gray-100">
+    <div className="flex flex-col -m-3 sm:-m-4 md:-m-6 min-h-[calc(100dvh-4rem)]">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-3 sm:px-6 py-3.5">
+      <div className="border-b border-white/80 bg-white/50 backdrop-blur px-3 sm:px-6 py-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center shadow-sm">
+            <div className="w-8 h-8 rounded-xl bg-brand-blue flex items-center justify-center shadow-sm">
               <PenLine className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-800">Content Studio</h1>
-              <p className="text-xs text-slate-400">เขียนและรีวิวด้วย MarsOS AI</p>
+              <p className="page-eyebrow">Studio</p>
+              <h1 className="text-lg font-bold text-brand-navy leading-tight">Content Studio</h1>
+              <p className="text-xs text-gray-400">เขียนและรีวิวด้วย MarsOS AI</p>
             </div>
           </div>
-          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto max-w-full">
+          <div className="flex items-center gap-1 bg-white/70 border border-white/80 rounded-full p-1 overflow-x-auto max-w-full">
             {([
               ["write", "Write", PenLine, "text-orange-500"],
               ["review", "Review & Analyze", Search, "text-blue-500"],
-              ["settings", "ตั้งค่าบทความ", Settings2, "text-violet-500"],
+              ["settings", "ตั้งค่าบทความ", Settings2, "text-brand-blue"],
             ] as const).map(([tab, label, Icon, color]) => (
               <button
                 key={tab}
                 onClick={() => setMainTab(tab)}
                 className={cn(
-                  "flex items-center gap-2 px-2 sm:px-4 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap shrink-0",
-                  mainTab === tab ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  "flex items-center gap-2 px-2 sm:px-4 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap shrink-0",
+                  mainTab === tab ? "bg-brand-navy text-white shadow-sm" : "text-gray-500 hover:text-gray-700"
                 )}
               >
                 <Icon className={cn("h-3.5 w-3.5", mainTab === tab ? color : "")} />
@@ -582,15 +583,15 @@ export function ContentStudioClient() {
       {mainTab === "write" && (
         <div className="flex flex-col md:flex-row flex-1 md:overflow-hidden">
           {/* Settings panel */}
-          <div className="w-full md:w-72 md:flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-100 bg-gray-50 flex flex-col">
+          <div className="w-full md:w-72 md:flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-100 bg-white/50 flex flex-col">
             <div className="px-4 py-3 border-b border-gray-100">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Article Settings</span>
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Article Settings</span>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-5">
 
               {/* Prefill banner from Morning Brief */}
               {prefillTitle && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 space-y-1">
+                <div className="bg-brand-blue/10 border border-brand-blue/30 rounded-full px-3 py-2.5 space-y-1">
                   <div className="text-[10px] font-bold text-brand-blue uppercase tracking-wide">จาก SEO News</div>
                   <p className="text-xs text-blue-800 font-medium leading-4">{prefillTitle}</p>
                   <button
@@ -604,40 +605,40 @@ export function ContentStudioClient() {
 
               {/* Title */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600">Article Title (ไม่บังคับ)</label>
+                <label className="text-xs font-semibold text-gray-600">Article Title (ไม่บังคับ)</label>
                 <input
                   value={prefillTitle}
                   onChange={e => setPrefillTitle(e.target.value)}
-                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue/20"
                   placeholder="Title ที่ต้องการ (AI จะใช้เป็น reference)"
                 />
               </div>
 
               {/* Keyword */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600">Target Keyword *</label>
+                <label className="text-xs font-semibold text-gray-600">Target Keyword *</label>
                 <input
                   value={settings.keyword}
                   onChange={e => updateSettings({ keyword: e.target.value })}
                   onKeyDown={e => { if (e.key === "Enter" && settings.keyword.trim()) handleGenerate(); }}
-                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                  className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue/20"
                   placeholder="เช่น วีซ่าเชงเก้น, รากฟันเทียม..."
                 />
               </div>
 
               {/* Language */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600">ภาษา</label>
+                <label className="text-xs font-semibold text-gray-600">ภาษา</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {[["th", "ไทย"], ["en", "English"]].map(([val, label]) => (
                     <button
                       key={val}
                       onClick={() => updateSettings({ language: val })}
                       className={cn(
-                        "py-2 rounded-lg text-sm font-medium border transition-all",
+                        "py-2 rounded-xl text-sm font-medium border transition-all",
                         settings.language === val
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-600 border-gray-200 hover:border-slate-400"
+                          ? "bg-gray-800 text-white border-gray-800"
+                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
                       )}
                     >
                       {label}
@@ -648,21 +649,21 @@ export function ContentStudioClient() {
 
               {/* Theme */}
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-600">Theme บทความ</label>
+                <label className="text-xs font-semibold text-gray-600">Theme บทความ</label>
                 <div className="space-y-1.5">
                   {THEMES.map(t => (
                     <button
                       key={t.id}
                       onClick={() => updateSettings({ theme: t.id })}
                       className={cn(
-                        "w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-all",
+                        "w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left transition-all",
                         settings.theme === t.id
-                          ? "bg-slate-800 border-slate-800 text-white"
-                          : "bg-white border-gray-200 text-slate-700 hover:border-slate-400"
+                          ? "bg-gray-800 border-gray-800 text-white"
+                          : "bg-white border-gray-200 text-gray-700 hover:border-gray-400"
                       )}
                     >
                       <span className="text-sm font-medium">{t.label}</span>
-                      <span className={cn("text-xs", settings.theme === t.id ? "text-slate-300" : "text-slate-400")}>{t.desc}</span>
+                      <span className={cn("text-xs", settings.theme === t.id ? "text-gray-300" : "text-gray-400")}>{t.desc}</span>
                     </button>
                   ))}
                 </div>
@@ -670,13 +671,13 @@ export function ContentStudioClient() {
 
               {/* ── Color System ── */}
               <div className="space-y-3">
-                <label className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+                <label className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
                   <Palette className="h-3.5 w-3.5" /> ระบบสี
                 </label>
 
                 {/* STEP 1 — เลือก Theme Color หลัก */}
                 <div className="space-y-2">
-                  <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">1. เลือก Theme Color หลัก</p>
+                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">1. เลือก Theme Color หลัก</p>
 
                   {/* Color wheel picker */}
                   <div className="flex items-center gap-2">
@@ -702,10 +703,10 @@ export function ContentStudioClient() {
                       />
                     </label>
                     <div className="flex-1">
-                      <p className="text-xs font-semibold text-slate-700" style={{ color: settings.colorTheme }}>
+                      <p className="text-xs font-semibold text-gray-700" style={{ color: settings.colorTheme }}>
                         {settings.colorTheme.toUpperCase()}
                       </p>
-                      <p className="text-[10px] text-slate-400">คลิกวงกลมเพื่อเปิด Color Wheel</p>
+                      <p className="text-[10px] text-gray-400">คลิกวงกลมเพื่อเปิด Color Wheel</p>
                     </div>
                   </div>
 
@@ -724,12 +725,12 @@ export function ContentStudioClient() {
                         className={cn(
                           "flex flex-col items-center gap-1 p-1.5 rounded-xl border-2 transition-all",
                           settings.colorTheme === p.theme
-                            ? "border-slate-700 bg-slate-50 scale-105 shadow-md"
-                            : "border-transparent hover:border-gray-300 hover:bg-gray-50"
+                            ? "border-gray-700 bg-white/50 scale-105 shadow-md"
+                            : "border-transparent hover:border-gray-300 hover:bg-white/50"
                         )}
                       >
                         <div className="w-7 h-7 rounded-full shadow-sm border border-white" style={{ backgroundColor: p.theme }} />
-                        <span className="text-[8px] text-slate-500 text-center leading-tight truncate w-full">{p.name}</span>
+                        <span className="text-[8px] text-gray-500 text-center leading-tight truncate w-full">{p.name}</span>
                       </button>
                     ))}
                   </div>
@@ -737,8 +738,8 @@ export function ContentStudioClient() {
 
                 {/* STEP 2 — Derived palette (auto-generated, adjustable) */}
                 <div className="space-y-1.5">
-                  <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">2. ปรับ Palette (auto จาก Theme)</p>
-                  <div className="bg-white border border-gray-100 rounded-xl p-3 space-y-2">
+                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">2. ปรับ Palette (auto จาก Theme)</p>
+                  <div className="glass rounded-2xl p-3 space-y-2">
                     {([
                       { key: "colorTheme" as const,  label: "Theme",  hint: "หัวข้อ / CTA" },
                       { key: "colorText" as const,   label: "Text",   hint: "เนื้อหาหลัก" },
@@ -758,15 +759,15 @@ export function ContentStudioClient() {
                             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                           />
                         </label>
-                        <span className="text-[10px] font-mono text-slate-500 w-16 flex-shrink-0">{settings[key].toUpperCase()}</span>
+                        <span className="text-[10px] font-mono text-gray-500 w-16 flex-shrink-0">{settings[key].toUpperCase()}</span>
                         <div className="flex-1 min-w-0">
-                          <span className="text-xs font-semibold text-slate-700">{label}</span>
-                          <span className="text-[10px] text-slate-400 ml-1.5">{hint}</span>
+                          <span className="text-xs font-semibold text-gray-700">{label}</span>
+                          <span className="text-[10px] text-gray-400 ml-1.5">{hint}</span>
                         </div>
                       </div>
                     ))}
                     {/* Preview strip */}
-                    <div className="mt-2 flex rounded-lg overflow-hidden h-3 shadow-inner">
+                    <div className="mt-2 flex rounded-xl overflow-hidden h-3 shadow-inner">
                       <div className="flex-1" style={{ backgroundColor: settings.colorTheme }} />
                       <div className="flex-1" style={{ backgroundColor: settings.colorAccent }} />
                       <div className="flex-1" style={{ backgroundColor: settings.colorBorder }} />
@@ -777,10 +778,10 @@ export function ContentStudioClient() {
 
                 {/* STEP 3 — สี + ฟอนต์ราย element (H1-H6 / Text / URL / Author / FAQ) */}
                 <div className="space-y-1.5">
-                  <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">3. ปรับราย Element (สี + ฟอนต์)</p>
-                  <div className="bg-white border border-gray-100 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">3. ปรับราย Element (สี + ฟอนต์)</p>
+                  <div className="glass rounded-2xl p-3">
                     <ArticleElementStylesEditor value={elementStyles} onChange={saveElementStyles} />
-                    <p className="mt-2 text-[10px] text-slate-400">บันทึกอัตโนมัติ — ใช้กับบทความที่เขียนจาก Studio ทุกชิ้น (client แต่ละรายตั้งแยกที่ Article Lab ของโปรเจกต์)</p>
+                    <p className="mt-2 text-[10px] text-gray-400">บันทึกอัตโนมัติ — ใช้กับบทความที่เขียนจาก Studio ทุกชิ้น (client แต่ละรายตั้งแยกที่ Article Lab ของโปรเจกต์)</p>
                   </div>
                 </div>
               </div>
@@ -788,8 +789,8 @@ export function ContentStudioClient() {
               {/* ── Style Reference URL ── */}
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <Link2 className="h-3.5 w-3.5 text-slate-400" />
-                  <label className="text-xs font-semibold text-slate-600">Generate Theme จาก URL</label>
+                  <Link2 className="h-3.5 w-3.5 text-gray-400" />
+                  <label className="text-xs font-semibold text-gray-600">Generate Theme จาก URL</label>
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex gap-1.5">
@@ -798,14 +799,14 @@ export function ContentStudioClient() {
                       value={settings.styleUrl}
                       onChange={e => updateSettings({ styleUrl: e.target.value })}
                       onKeyDown={e => { if (e.key === "Enter" && settings.styleUrl.trim()) handleScrapeStyle(); }}
-                      className="flex-1 min-w-0 bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-100"
+                      className="flex-1 min-w-0 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:border-brand-blue/30 focus:ring-1 focus:ring-violet-100"
                       placeholder="https://yoursite.com/article..."
                     />
                     <button
                       onClick={handleScrapeStyle}
                       disabled={scrapingStyle || !settings.styleUrl.trim()}
                       title="Generate palette จาก URL"
-                      className="flex-shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+                      className="flex-shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-xs font-semibold transition-colors"
                     >
                       {scrapingStyle
                         ? <span className="inline-block animate-spin text-sm">⟳</span>
@@ -813,16 +814,16 @@ export function ContentStudioClient() {
                       }
                     </button>
                   </div>
-                  <p className="text-[10px] text-slate-400">วางลิ้งก์ → ระบบดึงสี + font + spacing ทำ theme ให้เลย</p>
+                  <p className="text-[10px] text-gray-400">วางลิ้งก์ → ระบบดึงสี + font + spacing ทำ theme ให้เลย</p>
 
                   {/* Palette preview after scrape */}
                   {(settings.colorTheme || settings.typography) && settings.styleUrl && (
                     <div className="bg-violet-50 border border-violet-100 rounded-xl p-2.5 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-semibold text-violet-700">Theme ที่ดึงมาได้</span>
+                        <span className="text-[10px] font-semibold text-brand-blue">Theme ที่ดึงมาได้</span>
                         <button
                           onClick={() => updateSettings({ typography: null, styleUrl: "", colorTheme: DEFAULT_SETTINGS.colorTheme, colorText: DEFAULT_SETTINGS.colorText, colorBorder: DEFAULT_SETTINGS.colorBorder, colorAccent: DEFAULT_SETTINGS.colorAccent })}
-                          className="text-[9px] text-violet-400 hover:text-red-500 transition-colors"
+                          className="text-[9px] text-brand-blue hover:text-red-500 transition-colors"
                         >
                           ล้าง
                         </button>
@@ -835,17 +836,17 @@ export function ContentStudioClient() {
                       {settings.typography && (
                         <div className="flex flex-wrap gap-1">
                           {settings.typography.fontFamily && (
-                            <span className="text-[9px] bg-white text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded-full font-medium">
+                            <span className="text-[9px] bg-white text-brand-blue border border-brand-blue/30 px-1.5 py-0.5 rounded-full font-medium">
                               {settings.typography.fontFamily.split(",")[0].replace(/['"]/g, "").trim()}
                             </span>
                           )}
                           {settings.typography.lineHeight && (
-                            <span className="text-[9px] bg-white text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded-full font-medium">
+                            <span className="text-[9px] bg-white text-brand-blue border border-brand-blue/30 px-1.5 py-0.5 rounded-full font-medium">
                               line {settings.typography.lineHeight}
                             </span>
                           )}
                           {settings.typography.fontSize && (
-                            <span className="text-[9px] bg-white text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded-full font-medium">
+                            <span className="text-[9px] bg-white text-brand-blue border border-brand-blue/30 px-1.5 py-0.5 rounded-full font-medium">
                               {settings.typography.fontSize}
                             </span>
                           )}
@@ -860,12 +861,12 @@ export function ContentStudioClient() {
               <div className="border-t border-gray-100 pt-4">
                 <button
                   onClick={() => setMainTab("settings")}
-                  className="w-full flex items-start gap-2 text-left bg-white border border-gray-200 rounded-xl p-3 hover:border-violet-300 transition-colors"
+                  className="w-full flex items-start gap-2 text-left glass rounded-2xl p-3 hover:border-brand-blue/30 transition-colors"
                 >
-                  <Settings2 className="h-3.5 w-3.5 text-violet-500 mt-0.5 shrink-0" />
+                  <Settings2 className="h-3.5 w-3.5 text-brand-blue mt-0.5 shrink-0" />
                   <span>
-                    <span className="block text-xs font-semibold text-slate-700">รูปภาพ / CTA / Author Box</span>
-                    <span className="block text-[11px] text-slate-400">ตั้งค่าที่แท็บ &quot;ตั้งค่าบทความ&quot; — ระบบใช้ให้อัตโนมัติทุกครั้งที่เขียน</span>
+                    <span className="block text-xs font-semibold text-gray-700">รูปภาพ / CTA / Author Box</span>
+                    <span className="block text-[11px] text-gray-400">ตั้งค่าที่แท็บ &quot;ตั้งค่าบทความ&quot; — ระบบใช้ให้อัตโนมัติทุกครั้งที่เขียน</span>
                   </span>
                 </button>
               </div>
@@ -879,15 +880,15 @@ export function ContentStudioClient() {
                   <Sparkles className="h-4 w-4" />
                   {generating ? "กำลังเขียน..." : "เขียนบทความ"}
                 </button>
-                <p className="text-xs text-slate-400 text-center mt-2">ระบบ SEO Master Prompt + Auto-Validate</p>
+                <p className="text-xs text-gray-400 text-center mt-2">ระบบ SEO Master Prompt + Auto-Validate</p>
               </div>
             </div>
           </div>
 
           {/* Output area */}
-          <div className="flex-1 flex flex-col overflow-hidden bg-white">
+          <div className="flex-1 flex flex-col overflow-hidden">
             {/* Top toolbar */}
-            <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-white/80 bg-white/50">
               {(articleHtml || settings.keyword) && (
                 <button
                   onClick={() => {
@@ -897,13 +898,13 @@ export function ContentStudioClient() {
                     updateSettings({ keyword: "" });
                     setViewMode("preview");
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 text-xs transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-700 text-xs transition-colors"
                 >
                   <RotateCcw className="h-3 w-3" /> Clear
                 </button>
               )}
               {articleHtml && (
-                <div className="ml-auto flex flex-wrap items-center gap-1 bg-slate-100 rounded-lg p-1">
+                <div className="ml-auto flex flex-wrap items-center gap-1 bg-gray-100 rounded-xl p-1">
                   {([
                     ["preview", Eye, "Preview"],
                     ["edit",    Edit3, "Edit"],
@@ -921,8 +922,8 @@ export function ContentStudioClient() {
                       className={cn(
                         "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
                         viewMode === mode
-                          ? mode === "edit" ? "bg-orange-500 text-white shadow-sm" : "bg-white text-slate-800 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
+                          ? mode === "edit" ? "bg-brand-blue text-white shadow-sm" : "bg-brand-navy text-white shadow-sm"
+                          : "text-gray-500 hover:text-gray-700"
                       )}
                     >
                       <Icon className="h-3.5 w-3.5" />
@@ -941,7 +942,7 @@ export function ContentStudioClient() {
                   { icon: Italic,    title: "Italic",      cmd: "italic" },
                 ].map(({ icon: Icon, title, cmd }) => (
                   <button key={cmd} title={title} onMouseDown={e => { e.preventDefault(); execCmd(cmd); }}
-                    className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
+                    className="p-1.5 rounded hover:bg-orange-200 text-gray-700 transition-colors">
                     <Icon className="h-3.5 w-3.5" />
                   </button>
                 ))}
@@ -953,28 +954,28 @@ export function ContentStudioClient() {
                   { label: "P",  title: "Paragraph", tag: "p"  },
                 ].map(({ label, title, tag }) => (
                   <button key={tag} title={title} onMouseDown={e => { e.preventDefault(); execCmd("formatBlock", tag); }}
-                    className="px-2 py-1 rounded text-xs font-semibold hover:bg-orange-200 text-slate-700 transition-colors">
+                    className="px-2 py-1 rounded text-xs font-semibold hover:bg-orange-200 text-gray-700 transition-colors">
                     {label}
                   </button>
                 ))}
                 <div className="w-px h-4 bg-orange-200 mx-1" />
                 <button title="Bullet list" onMouseDown={e => { e.preventDefault(); execCmd("insertUnorderedList"); }}
-                  className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
+                  className="p-1.5 rounded hover:bg-orange-200 text-gray-700 transition-colors">
                   <List className="h-3.5 w-3.5" />
                 </button>
                 <button title="Ordered list" onMouseDown={e => { e.preventDefault(); execCmd("insertOrderedList"); }}
-                  className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
+                  className="p-1.5 rounded hover:bg-orange-200 text-gray-700 transition-colors">
                   <AlignLeft className="h-3.5 w-3.5" />
                 </button>
                 <button title="Horizontal rule" onMouseDown={e => { e.preventDefault(); execCmd("insertHorizontalRule"); }}
-                  className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
+                  className="p-1.5 rounded hover:bg-orange-200 text-gray-700 transition-colors">
                   <Minus className="h-3.5 w-3.5" />
                 </button>
                 <div className="w-px h-4 bg-orange-200 mx-1" />
                 <button title="Undo" onMouseDown={e => { e.preventDefault(); execCmd("undo"); }}
-                  className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-slate-700 transition-colors">↩</button>
+                  className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-gray-700 transition-colors">↩</button>
                 <button title="Redo" onMouseDown={e => { e.preventDefault(); execCmd("redo"); }}
-                  className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-slate-700 transition-colors">↪</button>
+                  className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-gray-700 transition-colors">↪</button>
                 <div className="ml-auto flex items-center gap-2">
                   <span className="text-[10px] text-orange-500 font-medium">กำลังแก้ไข — คลิกเพื่อพิมพ์ได้เลย</span>
                   <button
@@ -984,7 +985,7 @@ export function ContentStudioClient() {
                         toast.success("บันทึกการแก้ไขแล้ว ✓");
                       }
                     }}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-colors"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-colors"
                   >
                     <Check className="h-3 w-3" /> บันทึก
                   </button>
@@ -995,11 +996,11 @@ export function ContentStudioClient() {
             <div className="flex-1 overflow-y-auto p-5">
               {generating && (
                 <div className="flex flex-col items-center justify-center h-64 gap-4">
-                  <div className="w-full max-w-sm h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full animate-pulse w-3/4" />
+                  <div className="w-full max-w-sm h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-brand-blue to-brand-cyan rounded-full animate-pulse w-3/4" />
                   </div>
-                  <p className="text-slate-500 text-sm">AI กำลังเขียนบทความ...</p>
-                  <p className="text-slate-400 text-xs">SEO Master Prompt + Auto-Validate · อาจใช้เวลา 30–60 วินาที</p>
+                  <p className="text-gray-500 text-sm">AI กำลังเขียนบทความ...</p>
+                  <p className="text-gray-400 text-xs">SEO Master Prompt + Auto-Validate · อาจใช้เวลา 30–60 วินาที</p>
                 </div>
               )}
 
@@ -1033,7 +1034,7 @@ export function ContentStudioClient() {
                   </div>
 
                   <div className="w-full max-w-lg">
-                    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl px-4 py-3 shadow-md focus-within:ring-2 focus-within:ring-green-500/20 focus-within:border-green-400 transition-all">
+                    <div className="flex items-center gap-2 glass rounded-2xl px-4 py-3 shadow-md focus-within:ring-2 focus-within:ring-green-500/20 focus-within:border-green-400 transition-all">
                       <Sparkles className="h-4 w-4 text-gray-300 flex-shrink-0" />
                       <input
                         type="text"
@@ -1061,7 +1062,7 @@ export function ContentStudioClient() {
                 <div className="max-w-4xl mx-auto">
                   <RestrictionWarningBox className="mb-3" warnings={restrictionWarns} onDismiss={() => setRestrictionWarns([])} />
                   <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-gray-400">
                       {countWords(stripHtml(articleHtml)).toLocaleString()} คำ
                     </span>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1070,7 +1071,7 @@ export function ContentStudioClient() {
                           <select
                             value={saveTargetId}
                             onChange={(e) => setSaveTargetId(e.target.value)}
-                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 bg-white focus:outline-none max-w-48 truncate"
+                            className="text-xs border border-gray-200 rounded-xl px-2 py-1.5 text-gray-700 bg-white focus:outline-none max-w-48 truncate"
                           >
                             <option value="">— เลือก Article —</option>
                             {saveArticles.map((a) => (
@@ -1080,7 +1081,7 @@ export function ContentStudioClient() {
                           <button
                             onClick={saveToArticle}
                             disabled={!saveTargetId || saving}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white text-xs font-semibold transition-colors"
                           >
                             {saving ? "กำลังบันทึก..." : "บันทึกกลับ Article"}
                           </button>
@@ -1095,7 +1096,7 @@ export function ContentStudioClient() {
                             copyText(stripHtml(current), "Text");
                           }
                         }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-medium transition-colors"
                       >
                         <Copy className="h-3 w-3" />
                         Copy {(viewMode === "html" || viewMode === "edit") ? "HTML" : "Text"}
@@ -1104,12 +1105,12 @@ export function ContentStudioClient() {
                   </div>
 
                   {viewMode === "html" && (
-                    <pre className="bg-slate-900 border border-gray-100 rounded-xl p-4 text-xs text-green-300 overflow-x-auto leading-relaxed whitespace-pre-wrap font-mono">
+                    <pre className="bg-brand-navy border border-gray-100 rounded-xl p-4 text-xs text-green-300 overflow-x-auto leading-relaxed whitespace-pre-wrap font-mono">
                       {articleHtml}
                     </pre>
                   )}
                   {viewMode === "preview" && (
-                    <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+                    <div className="glass rounded-2xl shadow-sm overflow-hidden">
                       <ArticleFrame html={articleHtml} />
                     </div>
                   )}
@@ -1118,11 +1119,11 @@ export function ContentStudioClient() {
                       html={articleHtml}
                       editorRef={editorRef}
                       onInput={() => { if (editorRef.current) setAndPersistHtml(editorRef.current.innerHTML); }}
-                      className="bg-white border-2 border-orange-200 rounded-xl p-4 sm:p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
+                      className="bg-white border-2 border-orange-200 rounded-xl p-4 sm:p-8 text-brand-navy prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
                     />
                   )}
                   {viewMode === "text" && (
-                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-6 text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">
+                    <div className="bg-white/50 border border-gray-100 rounded-xl p-6 text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
                       {stripHtml(articleHtml)}
                     </div>
                   )}
@@ -1137,20 +1138,20 @@ export function ContentStudioClient() {
       {mainTab === "review" && (
         <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden">
           {/* Input panel */}
-          <div className="w-full lg:w-80 lg:flex-shrink-0 border-b lg:border-b-0 lg:border-r border-gray-100 bg-gray-50 flex flex-col">
+          <div className="w-full lg:w-80 lg:flex-shrink-0 border-b lg:border-b-0 lg:border-r border-gray-100 bg-white/50 flex flex-col">
             <div className="px-4 py-3 border-b border-gray-100">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-brand-blue/10 border border-brand-blue/30">
                 <Brain className="h-4 w-4 text-blue-500" />
-                <span className="text-sm font-semibold text-blue-700">AI SEO Reviewer</span>
+                <span className="text-sm font-semibold text-brand-blue">AI SEO Reviewer</span>
               </div>
             </div>
             <div className="flex-1 flex flex-col p-4 gap-3 overflow-y-auto">
-              <label className="text-xs font-semibold text-slate-600">เนื้อหาบทความ</label>
+              <label className="text-xs font-semibold text-gray-600">เนื้อหาบทความ</label>
               <textarea
                 value={reviewText}
                 onChange={e => setAndPersistReviewText(e.target.value)}
                 rows={10}
-                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 resize-none leading-relaxed"
+                className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue/20 resize-none leading-relaxed"
                 placeholder="วาง HTML หรือ text บทความที่นี่..."
               />
 
@@ -1158,15 +1159,15 @@ export function ContentStudioClient() {
                 onDrop={handleDrop}
                 onDragOver={e => e.preventDefault()}
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50 rounded-lg p-4 text-center cursor-pointer transition-colors"
+                className="border-2 border-dashed border-gray-200 hover:border-brand-blue hover:bg-brand-blue/10 rounded-xl p-4 text-center cursor-pointer transition-colors"
               >
-                <Upload className="h-5 w-5 text-slate-400 mx-auto mb-2" />
+                <Upload className="h-5 w-5 text-gray-400 mx-auto mb-2" />
                 {fileName ? (
                   <p className="text-xs text-green-600 font-semibold">{fileName}</p>
                 ) : (
                   <>
-                    <p className="text-xs text-slate-500 font-medium">วางไฟล์ หรือคลิกเลือก</p>
-                    <p className="text-xs text-slate-400 mt-0.5">.txt · .pdf · .doc</p>
+                    <p className="text-xs text-gray-500 font-medium">วางไฟล์ หรือคลิกเลือก</p>
+                    <p className="text-xs text-gray-400 mt-0.5">.txt · .pdf · .doc</p>
                   </>
                 )}
                 <input ref={fileInputRef} type="file" accept=".txt,.pdf,.doc,.docx" className="hidden" onChange={handleFileUpload} />
@@ -1175,7 +1176,7 @@ export function ContentStudioClient() {
               <button
                 onClick={handleReview}
                 disabled={reviewing}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-blue hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-sm"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-brand-blue hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-sm"
               >
                 <Search className="h-4 w-4" />
                 {reviewing ? "กำลังวิเคราะห์..." : "วิเคราะห์บทความ"}
@@ -1184,32 +1185,32 @@ export function ContentStudioClient() {
           </div>
 
           {/* Results panel */}
-          <div className="flex-1 flex flex-col lg:flex-row lg:overflow-hidden bg-white">
+          <div className="flex-1 flex flex-col lg:flex-row lg:overflow-hidden">
 
             {/* Feedback column */}
             <div className="w-full lg:w-80 lg:flex-shrink-0 border-b lg:border-b-0 lg:border-r border-gray-100 flex flex-col lg:overflow-hidden">
             {reviewing && (
               <div className="flex flex-col items-center justify-center flex-1 gap-4">
-                <div className="w-full max-w-xs h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-400 rounded-full animate-pulse w-3/4" />
+                <div className="w-full max-w-xs h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-brand-blue to-brand-cyan rounded-full animate-pulse w-3/4" />
                 </div>
-                <p className="text-slate-500 text-sm">AI กำลังวิเคราะห์บทความ...</p>
+                <p className="text-gray-500 text-sm">AI กำลังวิเคราะห์บทความ...</p>
               </div>
             )}
 
             {!reviewing && !reviewDone && (
               <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center p-6">
-                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-                  <Search className="h-5 w-5 text-slate-400" />
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                  <Search className="h-5 w-5 text-gray-400" />
                 </div>
-                <p className="text-slate-500 text-sm">วางบทความและกด วิเคราะห์ เพื่อรับ feedback</p>
+                <p className="text-gray-500 text-sm">วางบทความและกด วิเคราะห์ เพื่อรับ feedback</p>
               </div>
             )}
 
             {!reviewing && reviewDone && (
               <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Sub-tabs */}
-                <div className="flex gap-0.5 px-4 pt-2 border-b border-gray-100 bg-white overflow-x-auto">
+                <div className="flex gap-0.5 px-4 pt-2 border-b border-white/80 overflow-x-auto">
                   {([
                     ["suggestions", "Suggestions", Lightbulb, appliedCount > 0 ? `${appliedCount}/${suggestions.length}` : `${suggestions.length}`],
                     ["links", "Internal Links", Link2, addedLinksCount > 0 ? `${addedLinksCount}/${links.length}` : `${links.length}`],
@@ -1222,8 +1223,8 @@ export function ContentStudioClient() {
                       className={cn(
                         "flex items-center gap-1.5 px-3 pb-2.5 pt-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0",
                         reviewTab === tab
-                          ? "border-blue-500 text-brand-blue"
-                          : "border-transparent text-slate-500 hover:text-slate-700"
+                          ? "border-brand-blue text-brand-blue"
+                          : "border-transparent text-gray-500 hover:text-gray-700"
                       )}
                     >
                       <Icon className="h-3.5 w-3.5" />
@@ -1231,7 +1232,7 @@ export function ContentStudioClient() {
                       {badge && (
                         <span className={cn(
                           "text-xs px-1.5 py-0.5 rounded-full font-semibold",
-                          reviewTab === tab ? "bg-blue-100 text-brand-blue" : "bg-slate-100 text-slate-500"
+                          reviewTab === tab ? "bg-blue-100 text-brand-blue" : "bg-gray-100 text-gray-500"
                         )}>{badge}</span>
                       )}
                     </button>
@@ -1244,14 +1245,14 @@ export function ContentStudioClient() {
                   {reviewTab === "suggestions" && (
                     <div className="space-y-2">
                       {suggestions.length === 0 && (
-                        <p className="text-center text-slate-400 text-sm py-8">ไม่มี suggestions</p>
+                        <p className="text-center text-gray-400 text-sm py-8">ไม่มี suggestions</p>
                       )}
                       {suggestions.map(s => (
                         <div
                           key={s.id}
                           className={cn(
                             "p-3.5 rounded-xl border transition-colors cursor-pointer",
-                            s.applied ? "bg-green-50 border-green-200" : "bg-white border-gray-200 hover:bg-gray-50"
+                            s.applied ? "bg-green-50 border-green-200" : "bg-white border-gray-200 hover:bg-white/50"
                           )}
                           onClick={() => setSuggestions(prev => prev.map(x => x.id === s.id ? { ...x, applied: !x.applied } : x))}
                         >
@@ -1259,7 +1260,7 @@ export function ContentStudioClient() {
                             <div className="mt-0.5 flex-shrink-0">
                               {s.applied
                                 ? <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                : <Circle className="h-4 w-4 text-slate-300" />
+                                : <Circle className="h-4 w-4 text-gray-300" />
                               }
                             </div>
                             <div className="flex-1 min-w-0">
@@ -1267,8 +1268,8 @@ export function ContentStudioClient() {
                                 <CatBadge cat={s.category} />
                                 <PrioBadge p={s.priority} />
                               </div>
-                              <p className={cn("text-sm font-semibold mb-0.5", s.applied ? "text-slate-400 line-through" : "text-slate-700")}>{s.title}</p>
-                              <p className="text-xs text-slate-500 leading-relaxed">{s.description}</p>
+                              <p className={cn("text-sm font-semibold mb-0.5", s.applied ? "text-gray-400 line-through" : "text-gray-700")}>{s.title}</p>
+                              <p className="text-xs text-gray-500 leading-relaxed">{s.description}</p>
                             </div>
                           </div>
                         </div>
@@ -1283,18 +1284,18 @@ export function ContentStudioClient() {
                         <input
                           value={siteUrl}
                           onChange={e => setSiteUrl(e.target.value)}
-                          className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-blue-400"
+                          className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:border-brand-blue"
                           placeholder="URL เว็บไซต์ เช่น example.co.th"
                         />
                         <button
                           onClick={() => { setLinks(prev => prev.map(l => ({ ...l, added: true }))); toast.success("เพิ่ม links ทั้งหมดแล้ว"); }}
-                          className="flex-shrink-0 px-3 py-2 rounded-lg bg-brand-blue hover:bg-blue-500 text-white text-sm font-semibold transition-colors"
+                          className="flex-shrink-0 px-3 py-2 rounded-full bg-brand-blue hover:bg-blue-500 text-white text-sm font-semibold transition-colors"
                         >
                           Apply All
                         </button>
                       </div>
                       {links.length === 0 && (
-                        <p className="text-center text-slate-400 text-sm py-8">ไม่มี internal link suggestions</p>
+                        <p className="text-center text-gray-400 text-sm py-8">ไม่มี internal link suggestions</p>
                       )}
                       {links.map(l => (
                         <div key={l.id} className={cn(
@@ -1304,18 +1305,18 @@ export function ContentStudioClient() {
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 mb-0.5">
-                                <code className="text-xs bg-slate-100 text-brand-blue px-2 py-0.5 rounded font-mono">{l.anchor}</code>
-                                <ArrowRight className="h-3 w-3 text-slate-400 flex-shrink-0" />
-                                <code className="text-xs text-slate-500 truncate font-mono">{siteUrl || "site.com"}{l.url}</code>
+                                <code className="text-xs bg-gray-100 text-brand-blue px-2 py-0.5 rounded font-mono">{l.anchor}</code>
+                                <ArrowRight className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                                <code className="text-xs text-gray-500 truncate font-mono">{siteUrl || "site.com"}{l.url}</code>
                               </div>
-                              <p className="text-xs text-slate-400">{l.reason}</p>
+                              <p className="text-xs text-gray-400">{l.reason}</p>
                             </div>
                             <button
                               onClick={() => { setLinks(prev => prev.map(x => x.id === l.id ? { ...x, added: true } : x)); toast.success("Link added"); }}
                               disabled={l.added}
                               className={cn(
-                                "flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors",
-                                l.added ? "bg-green-100 text-green-600 cursor-default" : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+                                "flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-colors",
+                                l.added ? "bg-green-100 text-green-600 cursor-default" : "bg-gray-100 hover:bg-gray-200 text-gray-600"
                               )}
                             >
                               {l.added ? <><Check className="h-3 w-3" /> Added</> : <><Plus className="h-3 w-3" /> Add</>}
@@ -1330,22 +1331,22 @@ export function ContentStudioClient() {
                   {reviewTab === "cta" && (
                     <div className="space-y-4">
                       <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-600">CTA HTML Block</label>
+                        <label className="text-xs font-semibold text-gray-600">CTA HTML Block</label>
                         <textarea value={ctaHtml} onChange={e => setCtaHtml(e.target.value)} rows={6}
-                          className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-slate-700 font-mono focus:outline-none focus:border-blue-400 resize-none" />
+                          className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 font-mono focus:outline-none focus:border-brand-blue resize-none" />
                       </div>
                       <div className="space-y-2">
-                        <p className="text-xs font-semibold text-slate-600">Insert position</p>
+                        <p className="text-xs font-semibold text-gray-600">Insert position</p>
                         {["After Introduction", "After H2 #1", "At End"].map(pos => (
                           <button key={pos} onClick={() => toast.success(`CTA: ${pos}`)}
-                            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 text-sm text-slate-700 transition-colors">
+                            className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200 hover:bg-white/50 text-sm text-gray-700 transition-colors">
                             <span>{pos}</span>
-                            <Plus className="h-3.5 w-3.5 text-slate-400" />
+                            <Plus className="h-3.5 w-3.5 text-gray-400" />
                           </button>
                         ))}
                       </div>
                       <button onClick={() => copyText(ctaHtml, "CTA HTML")}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-medium transition-colors">
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm font-medium transition-colors">
                         <Copy className="h-3.5 w-3.5" />Copy CTA HTML
                       </button>
                     </div>
@@ -1354,9 +1355,9 @@ export function ContentStudioClient() {
                   {/* GENERATE PROMPT */}
                   {reviewTab === "prompt" && (
                     <div className="space-y-4">
-                      <div className="flex items-start gap-3 p-3.5 rounded-xl bg-violet-50 border border-violet-200">
-                        <Brain className="h-4 w-4 text-violet-500 mt-0.5 flex-shrink-0" />
-                        <p className="text-xs text-violet-700 leading-relaxed">
+                      <div className="flex items-start gap-3 p-3.5 rounded-xl bg-violet-50 border border-brand-blue/30">
+                        <Brain className="h-4 w-4 text-brand-blue mt-0.5 flex-shrink-0" />
+                        <p className="text-xs text-brand-blue leading-relaxed">
                           สร้าง 2 prompts จากบทความนี้: สำหรับเลียนแบบสไตล์การเขียน และปรับปรุงตามคำแนะนำทั้งหมด
                         </p>
                       </div>
@@ -1365,21 +1366,21 @@ export function ContentStudioClient() {
                         ["style", "Prompt 1: Replicate Writing Style", "เรียนรู้ pattern การเขียนจากบทความนี้", `คุณเป็น SEO Content Writer เชี่ยวชาญตลาดไทย\nวิเคราะห์ writing pattern จากบทความต้นฉบับและเขียนบทความใหม่ในสไตล์เดียวกัน\nReturn HTML only.`],
                         ["improve", "Prompt 2: SEO Improvement Rewrite", "ปรับปรุงบทความตามคำแนะนำทั้งหมด", `คุณเป็น SEO Content Editor ผู้เชี่ยวชาญ\nปรับปรุงบทความตาม suggestions ทั้งหมด เพิ่ม internal links และ CTA\nReturn complete improved HTML only.`],
                       ] as const).map(([key, title, subtitle, content]) => (
-                        <div key={key} className="rounded-xl border border-gray-100 bg-white overflow-hidden shadow-sm">
-                          <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+                        <div key={key} className="glass rounded-2xl overflow-hidden shadow-sm">
+                          <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-white/50">
                             <div>
-                              <p className="text-sm font-semibold text-slate-800">{title}</p>
-                              <p className="text-xs text-slate-500">{subtitle}</p>
+                              <p className="text-sm font-semibold text-brand-navy">{title}</p>
+                              <p className="text-xs text-gray-500">{subtitle}</p>
                             </div>
                             <button onClick={() => copyPrompt(key)}
                               className={cn(
-                                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                                copiedPrompt === key ? "bg-green-50 text-green-600 border border-green-200" : "bg-white border border-gray-100 hover:bg-gray-50 text-slate-600"
+                                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-colors",
+                                copiedPrompt === key ? "bg-green-50 text-green-600 border border-green-200" : "bg-white border border-gray-100 hover:bg-white/50 text-gray-600"
                               )}>
                               {copiedPrompt === key ? <><Check className="h-3 w-3" />Copied</> : <><Copy className="h-3 w-3" />Copy</>}
                             </button>
                           </div>
-                          <pre className="p-4 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-56 overflow-y-auto bg-white">
+                          <pre className="p-4 text-xs text-gray-600 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-56 overflow-y-auto bg-white">
                             {content}
                           </pre>
                         </div>
@@ -1393,12 +1394,12 @@ export function ContentStudioClient() {
             </div>{/* end feedback column */}
 
             {/* Article editor column — right side of Review */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-white">
+            <div className="flex-1 flex flex-col overflow-hidden">
               {/* Toolbar */}
-              <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
-                <span className="text-xs font-semibold text-slate-500">บทความ</span>
+              <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-white/80 bg-white/50">
+                <span className="text-xs font-semibold text-gray-500">บทความ</span>
                 {reviewHtml && (
-                  <div className="ml-auto flex flex-wrap items-center gap-1 bg-slate-100 rounded-lg p-1">
+                  <div className="ml-auto flex flex-wrap items-center gap-1 bg-gray-100 rounded-xl p-1">
                     {([
                       ["preview", Eye, "Preview"],
                       ["edit",    Edit3, "Edit"],
@@ -1415,8 +1416,8 @@ export function ContentStudioClient() {
                         className={cn(
                           "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
                           reviewViewMode === mode
-                            ? mode === "edit" ? "bg-orange-500 text-white shadow-sm" : "bg-white text-slate-800 shadow-sm"
-                            : "text-slate-500 hover:text-slate-700"
+                            ? mode === "edit" ? "bg-brand-blue text-white shadow-sm" : "bg-brand-navy text-white shadow-sm"
+                            : "text-gray-500 hover:text-gray-700"
                         )}
                       >
                         <Icon className="h-3.5 w-3.5" />
@@ -1425,7 +1426,7 @@ export function ContentStudioClient() {
                     ))}
                     <button
                       onClick={() => copyText(reviewEditorRef.current?.innerHTML ?? reviewHtml, "HTML")}
-                      className="ml-1 flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-white transition-colors"
+                      className="ml-1 flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-white transition-colors"
                     >
                       <Copy className="h-3.5 w-3.5" /> Copy
                     </button>
@@ -1441,7 +1442,7 @@ export function ContentStudioClient() {
                     { icon: Italic, title: "Italic", cmd: "italic" },
                   ].map(({ icon: Icon, title, cmd }) => (
                     <button key={cmd} title={title} onMouseDown={e => { e.preventDefault(); execReviewCmd(cmd); }}
-                      className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
+                      className="p-1.5 rounded hover:bg-orange-200 text-gray-700 transition-colors">
                       <Icon className="h-3.5 w-3.5" />
                     </button>
                   ))}
@@ -1451,19 +1452,19 @@ export function ContentStudioClient() {
                     { label: "H3", tag: "h3" }, { label: "P",  tag: "p"  },
                   ].map(({ label, tag }) => (
                     <button key={tag} onMouseDown={e => { e.preventDefault(); execReviewCmd("formatBlock", tag); }}
-                      className="px-2 py-1 rounded text-xs font-semibold hover:bg-orange-200 text-slate-700 transition-colors">
+                      className="px-2 py-1 rounded text-xs font-semibold hover:bg-orange-200 text-gray-700 transition-colors">
                       {label}
                     </button>
                   ))}
                   <div className="w-px h-4 bg-orange-200 mx-1" />
                   <button onMouseDown={e => { e.preventDefault(); execReviewCmd("insertUnorderedList"); }}
-                    className="p-1.5 rounded hover:bg-orange-200 text-slate-700 transition-colors">
+                    className="p-1.5 rounded hover:bg-orange-200 text-gray-700 transition-colors">
                     <List className="h-3.5 w-3.5" />
                   </button>
                   <button title="Undo" onMouseDown={e => { e.preventDefault(); execReviewCmd("undo"); }}
-                    className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-slate-700 transition-colors">↩</button>
+                    className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-gray-700 transition-colors">↩</button>
                   <button title="Redo" onMouseDown={e => { e.preventDefault(); execReviewCmd("redo"); }}
-                    className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-slate-700 transition-colors">↪</button>
+                    className="px-2 py-1 rounded text-xs font-mono hover:bg-orange-200 text-gray-700 transition-colors">↪</button>
                   <div className="ml-auto">
                     <span className="text-[10px] text-orange-500 font-medium">แก้ไขได้เลย</span>
                   </div>
@@ -1474,14 +1475,14 @@ export function ContentStudioClient() {
               <div className="flex-1 overflow-y-auto p-5">
                 {!reviewHtml && (
                   <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
-                    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-                      <Edit3 className="h-5 w-5 text-slate-400" />
+                    <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                      <Edit3 className="h-5 w-5 text-gray-400" />
                     </div>
-                    <p className="text-slate-500 text-sm">วิเคราะห์บทความก่อน แล้วแก้ไขได้ที่นี่</p>
+                    <p className="text-gray-500 text-sm">วิเคราะห์บทความก่อน แล้วแก้ไขได้ที่นี่</p>
                   </div>
                 )}
                 {reviewHtml && reviewViewMode === "preview" && (
-                  <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+                  <div className="glass rounded-2xl shadow-sm overflow-hidden">
                     <ArticleFrame html={reviewHtml} />
                   </div>
                 )}
@@ -1490,11 +1491,11 @@ export function ContentStudioClient() {
                     html={reviewHtml}
                     editorRef={reviewEditorRef}
                     onInput={() => { if (reviewEditorRef.current) setAndPersistReviewHtml(reviewEditorRef.current.innerHTML); }}
-                    className="bg-white border-2 border-orange-200 rounded-xl p-4 sm:p-8 text-slate-800 prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
+                    className="bg-white border-2 border-orange-200 rounded-xl p-4 sm:p-8 text-brand-navy prose prose-lg max-w-none shadow-sm outline-none focus:border-orange-400 min-h-[300px]"
                   />
                 )}
                 {reviewHtml && reviewViewMode === "text" && (
-                  <div className="bg-gray-50 border border-gray-100 rounded-xl p-6 text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">
+                  <div className="bg-white/50 border border-gray-100 rounded-xl p-6 text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
                     {stripHtml(reviewHtml)}
                   </div>
                 )}

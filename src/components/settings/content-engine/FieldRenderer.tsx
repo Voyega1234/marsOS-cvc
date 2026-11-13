@@ -43,7 +43,7 @@ function Field({
           value={value}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
-          className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
+          className="h-9 w-full rounded-xl border border-gray-200 bg-white px-2.5 text-sm disabled:opacity-60"
         >
           <option value="">— เลือก —</option>
           {(field.options ?? []).map((opt) => (
@@ -133,13 +133,13 @@ export function RepeatableCardForm({
       }
     >
       {rows.length === 0 ? (
-        <p className="rounded-md border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400">
+        <p className="rounded-2xl border border-dashed border-gray-200 bg-white/50 px-3 py-4 text-center text-xs text-gray-400">
           ยังไม่มีข้อมูลใน {card.title}
         </p>
       ) : (
         <div className="space-y-3">
           {rows.map((row, idx) => (
-            <div key={idx} className="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+            <div key={idx} className="rounded-2xl border border-white/80 bg-white/60 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-semibold text-gray-500">
                   {card.title} #{idx + 1}

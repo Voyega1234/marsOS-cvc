@@ -86,7 +86,7 @@ function TrendsChart({ data, keyword }: { data: TrendPoint[]; keyword: string })
   const trend = avgRecent > avgPrev ? "up" : avgRecent < avgPrev ? "down" : "flat"
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs font-bold text-brand-navy">Search Trends — {keyword}</p>
@@ -102,16 +102,16 @@ function TrendsChart({ data, keyword }: { data: TrendPoint[]; keyword: string })
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-24" preserveAspectRatio="none">
           <defs>
             <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#16a34a" stopOpacity="0.25" />
-              <stop offset="100%" stopColor="#16a34a" stopOpacity="0.03" />
+              <stop offset="0%" stopColor="#1d48f3" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="#1d48f3" stopOpacity="0.03" />
             </linearGradient>
           </defs>
           <polygon points={area} fill="url(#trendGrad)" />
-          <polyline points={polyline} fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points={polyline} fill="none" stroke="#1d48f3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           {data.map((d, i) => {
             const x = PAD + (i / (data.length - 1)) * (W - PAD * 2)
             const y = H - PAD - (d.value / max) * (H - PAD * 2)
-            return <circle key={i} cx={x} cy={y} r="2.5" fill="#16a34a" />
+            return <circle key={i} cx={x} cy={y} r="2.5" fill="#1d48f3" />
           })}
         </svg>
       </div>
@@ -130,8 +130,8 @@ function TrendsChart({ data, keyword }: { data: TrendPoint[]; keyword: string })
 // ── SERP Analysis panel ───────────────────────────────────────────────────────
 function SerpPanel({ results, keyword, onClose }: { results: SerpResult[]; keyword: string; onClose: () => void }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+    <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white/50">
         <div>
           <p className="text-xs font-bold text-brand-navy">SERP Analysis — {results.length} organic results</p>
           <p className="text-[10px] text-gray-400">"{keyword}"</p>
@@ -191,7 +191,7 @@ function CostPanel({ data }: { data: CostSummary | null }) {
     SEO_LAB_SERP: "SERP Analysis", SEO_LAB_AI_VISIBILITY: "AI Visibility",
   }
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
       <div className="flex items-center gap-2">
         <DollarSign size={13} className="text-gray-400" />
         <p className="text-xs font-bold text-gray-700">DataForSEO Cost Tracker</p>
@@ -425,24 +425,24 @@ export default function SEOIntelligenceLabClient() {
   )
 
   return (
-    <div className="min-h-screen bg-[#f8f9fa] pb-16">
+    <div className="pb-16">
       {showBrief && <DemoBriefModal onClose={() => setShowBrief(false)} />}
       {toast && <Toast msg={toast} onClose={() => setToast(null)} />}
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="px-0 py-2">
         <div className="max-w-6xl mx-auto space-y-3">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <FlaskConical size={17} className="text-gray-500" />
-              <h1 className="text-lg font-bold text-brand-navy">SEO Intelligence Lab</h1>
+              <FlaskConical size={20} className="text-brand-blue" />
+              <h1 className="page-title">SEO Intelligence Lab</h1>
               <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200 uppercase tracking-wide">Live Data</span>
             </div>
-            <button onClick={() => setShowBrief(true)} className="px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Demo Brief</button>
+            <button onClick={() => setShowBrief(true)} className="px-3 py-1.5 text-xs font-semibold bg-white/70 border border-gray-200 text-gray-700 rounded-full hover:bg-white">Demo Brief</button>
           </div>
 
           {/* Global domain */}
-          <div className="flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2 bg-white/70 border border-white/80 rounded-2xl px-4 py-2.5">
             <p className="text-xs text-gray-500 font-medium shrink-0">Domain:</p>
             <div className="relative">
               <Globe size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -457,7 +457,7 @@ export default function SEOIntelligenceLabClient() {
           <div className="flex gap-0.5 overflow-x-auto">
             {TABS.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${tab === t.id ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-100"}`}>
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${tab === t.id ? "bg-brand-navy text-white" : "text-gray-600 hover:bg-white/70"}`}>
                 {t.icon}{t.label}
               </button>
             ))}
@@ -466,13 +466,13 @@ export default function SEOIntelligenceLabClient() {
       </div>
 
       {/* ── Content ─────────────────────────────────────────────────────────── */}
-      <div className="max-w-6xl mx-auto px-6 pt-5 space-y-5">
+      <div className="max-w-6xl mx-auto pt-5 space-y-5">
 
         {/* OVERVIEW */}
         {tab === "overview" && (
           <div className="grid lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 space-y-4">
-              <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-2">
+              <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-5 space-y-2">
                 <p className="text-sm font-bold text-brand-navy flex items-center gap-2"><Zap size={14} />เริ่มใช้งาน</p>
                 <p className="text-xs text-gray-500 leading-relaxed">1. ใส่ domain ในช่องด้านบน → 2. เลือก tab → 3. กด Analyze</p>
               </div>
@@ -486,7 +486,7 @@ export default function SEOIntelligenceLabClient() {
                   { label: "AI Visibility",     icon: <Cpu size={14}/>,     tab: "ai-visibility" as Tab, desc: "Brand presence in AI answers" },
                 ].map(c => (
                   <button key={c.tab} onClick={() => setTab(c.tab)}
-                    className="text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-brand-blue hover:shadow-sm transition-all space-y-2">
+                    className="text-left bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 hover:border-brand-blue hover:shadow-sm transition-all space-y-2">
                     <div className="text-gray-500">{c.icon}</div>
                     <p className="text-xs font-semibold text-brand-navy">{c.label}</p>
                     <p className="text-[10px] text-gray-400">{c.desc}</p>
@@ -502,7 +502,7 @@ export default function SEOIntelligenceLabClient() {
         {tab === "keywords" && (
           <div className="space-y-4">
             {/* Input */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-gray-700">Keyword Research</p>
                 {kwRows.length > 0 && (
@@ -531,7 +531,7 @@ export default function SEOIntelligenceLabClient() {
             </div>
 
             {/* Search Trends input */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
               <p className="text-xs font-semibold text-gray-700">Search Trends</p>
               <div className="flex gap-2">
                 <input value={trendsKw} onChange={e => setTrendsKw(e.target.value)}
@@ -554,7 +554,7 @@ export default function SEOIntelligenceLabClient() {
             </div>
 
             {/* SERP Analysis input */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
               <p className="text-xs font-semibold text-gray-700">SERP Analysis</p>
               <div className="flex gap-2">
                 <input value={serpKw} onChange={e => setSerpKw(e.target.value)}
@@ -599,9 +599,9 @@ export default function SEOIntelligenceLabClient() {
                     <CostBadge cost={kwCost} />
                   </div>
                 </div>
-                <div className="overflow-x-auto bg-white border border-gray-200 rounded-xl">
+                <div className="overflow-x-auto bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm">
                   <table className="w-full text-xs">
-                    <thead><tr className="border-b border-gray-100 bg-gray-50 text-gray-500">
+                    <thead><tr className="border-b border-gray-100 bg-white/50 text-gray-500">
                       <th className="text-left px-4 py-3 font-medium">Keyword</th>
                       <th className="text-right px-4 py-3 font-medium">
                         <button className="flex items-center gap-1 ml-auto" onClick={() => toggleSort("volume")}>Vol <SortIcon col="volume" /></button>
@@ -649,7 +649,7 @@ export default function SEOIntelligenceLabClient() {
         {/* COMPETITORS */}
         {tab === "competitors" && (
           <div className="space-y-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-gray-700">Competitor Analysis</p>
                 {(compTarget || compList.length > 0) && (
@@ -682,7 +682,7 @@ export default function SEOIntelligenceLabClient() {
                 </div>
                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   {[compTarget, ...compList].filter(Boolean).map((c, i) => c && (
-                    <div key={i} className={`bg-white border rounded-xl p-4 space-y-3 ${i === 0 ? "border-blue-300 ring-1 ring-blue-100" : "border-gray-200"}`}>
+                    <div key={i} className={`bg-white/70 backdrop-blur border rounded-2xl shadow-sm p-4 space-y-3 ${i === 0 ? "border-blue-300 ring-1 ring-blue-100" : "border-gray-200"}`}>
                       <div className="flex items-center gap-2">
                         <Globe size={12} className="text-gray-400 shrink-0" />
                         <p className="text-xs font-bold text-brand-navy truncate">{c.domain}</p>
@@ -704,7 +704,7 @@ export default function SEOIntelligenceLabClient() {
         {/* RANKINGS */}
         {tab === "rankings" && (
           <div className="space-y-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-gray-700">Rank Tracking</p>
                 {rankRows.length > 0 && (
@@ -731,13 +731,13 @@ export default function SEOIntelligenceLabClient() {
               </div>
             </div>
             {rankRows.length > 0 && (
-              <div className="overflow-x-auto bg-white border border-gray-200 rounded-xl">
+              <div className="overflow-x-auto bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                   <p className="text-xs font-semibold text-gray-700">SERP Positions</p>
                   <CostBadge cost={rankCost} />
                 </div>
                 <table className="w-full text-xs">
-                  <thead><tr className="border-b border-gray-100 bg-gray-50 text-gray-500">
+                  <thead><tr className="border-b border-gray-100 bg-white/50 text-gray-500">
                     <th className="text-left px-4 py-3 font-medium">Keyword</th>
                     <th className="text-center px-4 py-3 font-medium">Position</th>
                     <th className="text-left px-4 py-3 font-medium">Your URL</th>
@@ -784,7 +784,7 @@ export default function SEOIntelligenceLabClient() {
         {/* BACKLINKS */}
         {tab === "backlinks" && (
           <div className="space-y-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-gray-700">Backlink Intelligence</p>
                 {blDomains.length > 0 && (
@@ -819,17 +819,17 @@ export default function SEOIntelligenceLabClient() {
                     { l: "Broken",           v: blSummary.brokenBacklinks },
                     { l: "Domain Rank",      v: blSummary.rank },
                   ].map(s => (
-                    <div key={s.l} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
+                    <div key={s.l} className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-3 text-center">
                       <p className="text-xl font-bold text-brand-navy">{s.v.toLocaleString()}</p>
                       <p className="text-[10px] text-gray-400 mt-0.5">{s.l}</p>
                     </div>
                   ))}
                 </div>
                 {blDomains.length > 0 && (
-                  <div className="overflow-x-auto bg-white border border-gray-200 rounded-xl">
+                  <div className="overflow-x-auto bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm">
                     <p className="text-xs font-semibold text-gray-700 px-4 py-3 border-b border-gray-100">Top Referring Domains</p>
                     <table className="w-full text-xs">
-                      <thead><tr className="border-b border-gray-100 bg-gray-50 text-gray-500">
+                      <thead><tr className="border-b border-gray-100 bg-white/50 text-gray-500">
                         <th className="text-left px-4 py-3 font-medium">Domain</th>
                         <th className="text-center px-4 py-3 font-medium">Rank</th>
                         <th className="text-center px-4 py-3 font-medium">Backlinks</th>
@@ -862,7 +862,7 @@ export default function SEOIntelligenceLabClient() {
         {/* SITE AUDIT */}
         {tab === "audit" && (
           <div className="space-y-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
               <p className="text-xs font-semibold text-gray-700">Site Audit — Instant Page Analysis</p>
               <div className="flex flex-wrap gap-2">
                 <div className="relative flex-1 min-w-48">
@@ -895,27 +895,27 @@ export default function SEOIntelligenceLabClient() {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-white border border-gray-200 rounded-xl p-3">
+                  <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-3">
                     <p className="text-[10px] text-gray-400">Title</p>
                     <p className="text-xs font-medium text-brand-navy truncate mt-0.5">{auditResult.title || "—"}</p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-xl p-3">
+                  <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-3">
                     <p className="text-[10px] text-gray-400">H1</p>
                     <p className="text-xs font-medium text-brand-navy truncate mt-0.5">{auditResult.h1 || "—"}</p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-xl p-3">
+                  <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-3">
                     <p className="text-[10px] text-gray-400">Word Count</p>
                     <p className="text-lg font-bold text-brand-navy">{auditResult.wordCount}</p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-xl p-3">
+                  <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-3">
                     <p className="text-[10px] text-gray-400">Load Time</p>
                     <p className={`text-lg font-bold ${auditResult.loadTime > 3 ? "text-red-600" : auditResult.loadTime > 1 ? "text-yellow-600" : "text-green-600"}`}>{auditResult.loadTime}s</p>
                   </div>
                 </div>
                 {auditResult.issues.length > 0 ? (
-                  <div className="overflow-x-auto bg-white border border-gray-200 rounded-xl">
+                  <div className="overflow-x-auto bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm">
                     <table className="w-full text-xs">
-                      <thead><tr className="border-b border-gray-100 bg-gray-50 text-gray-500">
+                      <thead><tr className="border-b border-gray-100 bg-white/50 text-gray-500">
                         <th className="text-left px-4 py-3 font-medium">Issue</th>
                         <th className="text-center px-4 py-3 font-medium">Severity</th>
                         <th className="text-left px-4 py-3 font-medium">Detail</th>
@@ -942,7 +942,7 @@ export default function SEOIntelligenceLabClient() {
               </>
             )}
             {!auditResult && !auditLoading && (
-              <div className="bg-white border border-gray-200 rounded-xl p-8 text-center space-y-1">
+              <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-8 text-center space-y-1">
                 <Activity size={24} className="text-gray-300 mx-auto" />
                 <p className="text-sm text-gray-500">ใส่ URL แล้วกด Audit</p>
               </div>
@@ -953,7 +953,7 @@ export default function SEOIntelligenceLabClient() {
         {/* AI VISIBILITY */}
         {tab === "ai-visibility" && (
           <div className="space-y-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-4 space-y-3">
               <div>
                 <p className="text-xs font-semibold text-gray-700">AI Visibility — Brand Presence in AI Answers</p>
                 <p className="text-[10px] text-gray-400 mt-0.5">ทดสอบว่า Brand ของคุณปรากฏใน AI answers หรือไม่</p>
@@ -978,7 +978,7 @@ export default function SEOIntelligenceLabClient() {
 
             {aiScore !== null && (
               <>
-                <div className="bg-white border border-gray-200 rounded-xl p-5">
+                <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-5">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-gray-500">AI Visibility Score</p>
@@ -997,7 +997,7 @@ export default function SEOIntelligenceLabClient() {
                 <div className="space-y-3">
                   <p className="text-xs font-semibold text-gray-700">AI Response Detail</p>
                   {aiResults.map((r, i) => (
-                    <div key={i} className={`bg-white border rounded-xl p-4 space-y-2 ${r.mentioned ? "border-green-200" : "border-gray-200"}`}>
+                    <div key={i} className={`bg-white/70 backdrop-blur border rounded-2xl shadow-sm p-4 space-y-2 ${r.mentioned ? "border-green-200" : "border-gray-200"}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-start gap-2 flex-1">
                           {r.mentioned
@@ -1022,7 +1022,7 @@ export default function SEOIntelligenceLabClient() {
             )}
 
             {aiScore === null && !aiLoading && (
-              <div className="bg-white border border-gray-200 rounded-xl p-10 text-center space-y-3">
+              <div className="bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm p-10 text-center space-y-3">
                 <Cpu size={32} className="text-gray-200 mx-auto" />
                 <p className="text-sm font-semibold text-gray-600">ทดสอบ AI Visibility ของ Brand คุณ</p>
                 <p className="text-xs text-gray-400 max-w-sm mx-auto">ระบบจะส่ง prompts ไปยัง AI แล้วตรวจสอบว่า Brand ของคุณถูกกล่าวถึงหรือไม่</p>

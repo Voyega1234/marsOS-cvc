@@ -8,6 +8,9 @@ import {
   ExternalLink, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  PageHeader, KpiTile, Segmented, EmptyState, MeterBar, Gauge as ScoreGauge,
+} from "@/components/ds";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -184,13 +187,16 @@ function DeltaBadge({ delta, inverse = false, suffix = "%" }: { delta: number; i
 }
 
 function PsiScoreCircle({ score, label }: { score: number | null; label: string }) {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div className={cn("w-12 h-12 rounded-full border-4 flex items-center justify-center font-bold text-sm", psiRingColor(score), psiColor(score))}>
-        {score ?? "—"}
+  if (score === null) {
+    return (
+      <div className="flex flex-col items-center gap-1">
+        <div className="w-14 h-14 rounded-full border-4 border-gray-200 flex items-center justify-center font-bold text-sm text-gray-400">—</div>
+        <span className="text-[10px] text-gray-500">{label}</span>
       </div>
-      <span className="text-[10px] text-gray-500">{label}</span>
-    </div>
+    );
+  }
+  return (
+    <ScoreGauge value={score} max={100} size={96} label={label} thresholds={{ warn: 90, bad: 50 }} />
   );
 }
 
@@ -226,7 +232,7 @@ function ConnectorBadge({ status, label }: { status: ConnectorState; label: stri
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({
-  icon: Icon, label, value, delta, inverse = false, note,
+  icon: Icon, label, value, delta, inverse = false, note, tone = "plain",
 }: {
   icon: React.ElementType;
   label: string;
@@ -234,35 +240,32 @@ function KpiCard({
   delta?: number;
   inverse?: boolean;
   note?: string;
+  tone?: "plain" | "blue" | "sky" | "mist" | "navy" | "warm";
 }) {
   return (
-    <div className="rounded-xl bg-white border border-gray-100 shadow-sm p-4 flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-slate-500">
-        <Icon className="h-4 w-4" />
-        <span className="text-xs font-medium">{label}</span>
-      </div>
-      <div className="text-2xl font-bold text-slate-900">{value}</div>
-      <div className="flex items-center gap-2 flex-wrap">
-        {delta !== undefined && delta !== 0 && (
-          <DeltaBadge delta={delta} inverse={inverse} />
-        )}
-        {note && <span className="text-xs text-gray-400">{note}</span>}
-      </div>
-    </div>
+    <KpiTile
+      tone={tone}
+      icon={<Icon className="h-4 w-4" />}
+      label={label}
+      value={value}
+      delta={delta !== undefined && delta !== 0 ? delta : undefined}
+      invertDelta={inverse}
+      hint={note}
+    />
   );
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse bg-gray-100 rounded-lg", className)} />;
+  return <div className={cn("animate-pulse bg-white/60 rounded-lg", className)} />;
 }
 
 function KpiSkeleton() {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {[...Array(4)].map((_, i) => (
-        <div key={i} className="rounded-xl bg-white border border-gray-100 shadow-sm p-4 space-y-2">
+        <div key={i} className="glass rounded-2xl p-4 space-y-2">
           <Skeleton className="h-4 w-24" />
           <Skeleton className="h-8 w-16" />
           <Skeleton className="h-3 w-12" />
@@ -278,12 +281,9 @@ function ClientTab({ label, active, onClick }: { label: string; active: boolean;
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "px-4 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors whitespace-nowrap",
-        active
-          ? "border-blue-500 text-blue-700 bg-blue-50/50"
-          : "border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-200"
-      )}
+      data-active={active ? "true" : "false"}
+      aria-selected={active}
+      className={cn("utab whitespace-nowrap shrink-0", active && "is-active")}
     >
       {label}
     </button>
@@ -516,44 +516,37 @@ export function SEOReportClient() {
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50 text-slate-900">
-      <div className="max-w-[1400px] mx-auto px-4 py-6 md:px-8 md:py-8 space-y-6">
+    <div className="text-brand-navy">
+      <div className="max-w-[1400px] mx-auto space-y-6">
 
         {/* ── Header ───────────────────────────────────────────────────────── */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">SEO Report</h1>
-            <p className="text-sm text-slate-500 mt-0.5">ข้อมูลจริงจาก Google Search Console · GA4 · PageSpeed</p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Day range selector */}
-            <div className="flex max-w-full rounded-lg overflow-x-auto border border-gray-200 bg-white text-sm">
-              {([7, 28, 90] as const).map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setDays(d)}
-                  className={cn(
-                    "px-3 py-1.5 font-medium transition-colors whitespace-nowrap shrink-0",
-                    days === d ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-50"
-                  )}
-                >
-                  {d} วัน
-                </button>
-              ))}
+        <PageHeader
+          eyebrow="Report"
+          title="SEO Report"
+          subtitle="ข้อมูลจริงจาก Google Search Console · GA4 · PageSpeed"
+          actions={
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Day range selector */}
+              <Segmented
+                ariaLabel="ช่วงเวลา"
+                options={([7, 28, 90] as const).map((d) => ({ value: String(d), label: `${d} วัน` }))}
+                value={String(days)}
+                onChange={(v) => setDays(Number(v))}
+              />
+              <button
+                onClick={refresh}
+                disabled={loading}
+                className="btn-primary disabled:opacity-60"
+              >
+                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+                {loading ? "กำลังโหลด..." : "Refresh"}
+              </button>
             </div>
-            <button
-              onClick={refresh}
-              disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold transition-colors disabled:opacity-60"
-            >
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-              {loading ? "กำลังโหลด..." : "Refresh"}
-            </button>
-          </div>
-        </div>
+          }
+        />
 
         {/* ── Connectors Panel ─────────────────────────────────────────────── */}
-        <div className="rounded-xl bg-white border border-gray-100 shadow-sm p-4">
+        <div className="glass rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <Activity className="h-4 w-4 text-slate-500" />
             <span className="text-sm font-semibold text-slate-700">Data API Connectors</span>
@@ -566,7 +559,7 @@ export function SEOReportClient() {
             </span>
           </div>
           {gscError && (
-            <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+            <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
               <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
               {gscError === "Could not load the default credentials." || gscError?.includes("credentials")
                 ? "กรุณาตั้งค่า Google OIDC env และแชร์สิทธิ์ GSC ให้ service account"
@@ -583,7 +576,7 @@ export function SEOReportClient() {
         {/* ── Client Tabs ──────────────────────────────────────────────────── */}
         {clients.length > 0 && (
           <div>
-            <div className="flex gap-0 border-b border-gray-200 overflow-x-auto">
+            <div className="utabs overflow-x-auto">
               {clients.map((client, idx) => (
                 <ClientTab
                   key={client.name}
@@ -605,11 +598,11 @@ export function SEOReportClient() {
 
         {/* ── Unmatched projects ──────────────────────────────────────────── */}
         {activeClientIdx === clients.length && unmatched.length > 0 && (
-          <div className="rounded-xl bg-white border border-gray-100 shadow-sm p-5">
+          <div className="glass rounded-2xl p-5">
             <h2 className="font-semibold text-slate-700 mb-3 text-sm">Projects ที่ยังไม่ได้ผูก GSC Site</h2>
             <div className="space-y-2">
               {unmatched.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50">
+                <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl border border-white/80 bg-white/70">
                   <Globe2 className="h-4 w-4 text-gray-400 flex-shrink-0" />
                   <div>
                     <p className="text-sm font-medium text-slate-700">{p.name}</p>
@@ -647,11 +640,7 @@ export function SEOReportClient() {
 
         {/* ── Empty state ─────────────────────────────────────────────────── */}
         {projects.length === 0 && !loading && (
-          <div className="rounded-xl bg-white border border-dashed border-gray-200 p-12 text-center">
-            <Globe2 className="h-10 w-10 text-gray-200 mx-auto mb-3" />
-            <p className="font-semibold text-slate-600 mb-1">ยังไม่มี Projects</p>
-            <p className="text-sm text-slate-400">กด Refresh เพื่อโหลดข้อมูล หรือสร้าง Project ก่อน</p>
-          </div>
+          <EmptyState icon={<Globe2 className="h-6 w-6" />} title="ยังไม่มี Projects" description="กด Refresh เพื่อโหลดข้อมูล หรือสร้าง Project ก่อน" />
         )}
 
       </div>
@@ -697,12 +686,12 @@ function ProjectReport({
     .sort((a, b) => b.gscClicks - a.gscClicks);
 
   return (
-    <div className="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
+    <div className="glass rounded-3xl overflow-hidden">
       {/* Project header */}
-      <div className="p-5 border-b border-gray-100 flex items-start gap-3">
+      <div className="p-5 border-b border-white/70 flex items-start gap-3">
         <div className="w-2 h-10 rounded-full flex-shrink-0" style={{ background: project.accentColor ?? "#2563eb" }} />
         <div className="flex-1 min-w-0">
-          <h2 className="font-bold text-slate-900 text-lg leading-tight">{project.name}</h2>
+          <h2 className="font-bold text-brand-navy text-lg leading-tight">{project.name}</h2>
           {project.clientName && <p className="text-sm text-gray-400">{project.clientName}</p>}
           <a href={project.website} target="_blank" rel="noopener noreferrer"
             className="text-xs text-blue-500 hover:underline flex items-center gap-1 mt-0.5">
@@ -736,24 +725,28 @@ function ProjectReport({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
               <KpiCard
                 icon={MousePointerClick}
+                tone="blue"
                 label="Clicks"
                 value={gscData.overview.clicks.toLocaleString()}
                 delta={gscData.overview.clicksDelta}
               />
               <KpiCard
                 icon={Eye}
+                tone="sky"
                 label="Impressions"
                 value={gscData.overview.impressions.toLocaleString()}
                 delta={gscData.overview.impressionsDelta}
               />
               <KpiCard
                 icon={Target}
+                tone="mist"
                 label="CTR"
                 value={`${gscData.overview.ctr.toFixed(1)}%`}
                 delta={gscData.overview.ctrDelta}
               />
               <KpiCard
                 icon={TrendingUp}
+                tone="warm"
                 label="Avg Position"
                 value={`#${gscData.overview.position.toFixed(1)}`}
                 delta={gscData.overview.positionDelta}
@@ -766,13 +759,13 @@ function ProjectReport({
 
         {/* GSC not available */}
         {!isLoading && !gscData && project.gscSiteUrl && (
-          <div className="rounded-lg bg-amber-50 border border-amber-100 p-4 text-sm text-amber-700">
+          <div className="rounded-2xl bg-amber-50/80 border border-amber-100 p-4 text-sm text-amber-700">
             <AlertTriangle className="h-4 w-4 inline mr-1.5" />
             ไม่สามารถดึงข้อมูล GSC ได้ — กด Refresh เพื่อลองใหม่
           </div>
         )}
         {!isLoading && !project.gscSiteUrl && (
-          <div className="rounded-lg bg-gray-50 border border-gray-100 p-4 text-sm text-gray-500">
+          <div className="rounded-2xl bg-white/70 border border-white/80 p-4 text-sm text-gray-500">
             ยังไม่ได้ตั้งค่า <code className="bg-gray-200 px-1 rounded text-xs">gscSiteUrl</code> ใน Project settings
           </div>
         )}
@@ -782,14 +775,12 @@ function ProjectReport({
           <section>
             <SectionTitle icon={<FileText className="h-4 w-4" />} label="บทความที่ Published (WordPress)" sub={`${enrichedArticles.length} บทความ`} />
             {enrichedArticles.length === 0 ? (
-              <div className="mt-3 text-center py-8 text-gray-400 text-sm border border-dashed border-gray-200 rounded-xl">
-                ยังไม่มีบทความที่มี WordPress URL
-              </div>
+              <div className="mt-3"><EmptyState title="ยังไม่มีบทความที่มี WordPress URL" /></div>
             ) : (
-              <div className="mt-3 overflow-x-auto rounded-xl border border-gray-100">
-                <table className="w-full text-sm">
+              <div className="mt-3 overflow-x-auto rounded-2xl border border-white/80 bg-white/60">
+                <table className="tbl w-full text-sm min-w-[860px]">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
+                    <tr>
                       {["ชื่อบทความ", "URL", "Keyword", "Clicks", "Impressions", "CTR", "Position", "PageSpeed Mobile"].map((h) => (
                         <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">
                           {h}
@@ -798,8 +789,8 @@ function ProjectReport({
                     </tr>
                   </thead>
                   <tbody>
-                    {enrichedArticles.map((a, i) => (
-                      <tr key={a.id} className={cn("border-b border-gray-50 hover:bg-blue-50/20 transition-colors", i % 2 === 1 && "bg-gray-50/50")}>
+                    {enrichedArticles.map((a) => (
+                      <tr key={a.id} className="transition-colors">
                         <td className="px-3 py-2.5 font-medium text-slate-800 max-w-[200px]">
                           <div className="truncate text-xs leading-snug">{a.title}</div>
                         </td>
@@ -822,7 +813,12 @@ function ProjectReport({
                           {a.gscImpressions > 0 ? a.gscImpressions.toLocaleString() : "0"}
                         </td>
                         <td className="px-3 py-2.5 text-xs text-gray-500">
-                          {a.gscCtr > 0 ? `${a.gscCtr.toFixed(1)}%` : "—"}
+                          {a.gscCtr > 0 ? (
+                            <div className="flex items-center gap-2 min-w-[90px]">
+                              <span>{`${a.gscCtr.toFixed(1)}%`}</span>
+                              <div className="flex-1"><MeterBar value={a.gscCtr} max={20} tone="blue" /></div>
+                            </div>
+                          ) : "—"}
                         </td>
                         <td className="px-3 py-2.5">
                           {a.gscPosition !== null ? (
@@ -859,24 +855,28 @@ function ProjectReport({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
               <KpiCard
                 icon={Activity}
+                tone="blue"
                 label="Sessions"
                 value={ga4Data.overview.sessions.toLocaleString()}
                 delta={ga4Data.overview.sessionsDelta}
               />
               <KpiCard
                 icon={Users}
+                tone="sky"
                 label="Users"
                 value={ga4Data.overview.users.toLocaleString()}
                 delta={ga4Data.overview.usersDelta}
               />
               <KpiCard
                 icon={Target}
+                tone="mist"
                 label="Conversions"
                 value={ga4Data.overview.conversions.toLocaleString()}
                 delta={ga4Data.overview.conversionsDelta}
               />
               <KpiCard
                 icon={TrendingUp}
+                tone="warm"
                 label="Revenue"
                 value={`฿${ga4Data.overview.revenue.toLocaleString()}`}
               />
@@ -884,7 +884,7 @@ function ProjectReport({
           </section>
         )}
         {!isLoading && !ga4Data && project.ga4PropertyId && (
-          <div className="rounded-lg bg-amber-50 border border-amber-100 p-4 text-sm text-amber-700">
+          <div className="rounded-2xl bg-amber-50/80 border border-amber-100 p-4 text-sm text-amber-700">
             <AlertTriangle className="h-4 w-4 inline mr-1.5" />
             ไม่สามารถดึงข้อมูล GA4 ได้ — ตรวจสอบ property ID: {project.ga4PropertyId}
           </div>
@@ -895,7 +895,7 @@ function ProjectReport({
           <section>
             <SectionTitle icon={<Zap className="h-4 w-4 text-blue-500" />} label="AI Performance (Google Search Console)" sub="Beta" />
             {!gscAiData.available ? (
-              <div className="mt-3 rounded-xl bg-blue-50 border border-blue-100 p-5 flex gap-3 items-start">
+              <div className="mt-3 rounded-2xl bg-blue-50/80 border border-blue-100 p-5 flex gap-3 items-start">
                 <div className="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center">
                   <Zap className="h-4 w-4 text-blue-400" />
                 </div>
@@ -914,7 +914,7 @@ function ProjectReport({
               <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* AI Overviews */}
                 {gscAiData.aiOverviews && (
-                  <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4">
+                  <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white/80 p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center">
                         <Zap className="h-3 w-3 text-white" />
@@ -926,12 +926,12 @@ function ProjectReport({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <p className="text-xs text-gray-500 mb-0.5">Impressions</p>
-                        <p className="text-xl font-bold text-slate-900">{gscAiData.aiOverviews.impressions.toLocaleString()}</p>
+                        <p className="text-xl font-bold text-brand-navy">{gscAiData.aiOverviews.impressions.toLocaleString()}</p>
                         <DeltaBadge delta={gscAiData.aiOverviews.impressionsDelta} />
                       </div>
                       <div>
                         <p className="text-xs text-gray-500 mb-0.5">Clicks</p>
-                        <p className="text-xl font-bold text-slate-900">{gscAiData.aiOverviews.clicks.toLocaleString()}</p>
+                        <p className="text-xl font-bold text-brand-navy">{gscAiData.aiOverviews.clicks.toLocaleString()}</p>
                         <DeltaBadge delta={gscAiData.aiOverviews.clicksDelta} />
                       </div>
                       <div>
@@ -948,7 +948,7 @@ function ProjectReport({
 
                 {/* AI Mode */}
                 {gscAiData.aiMode && (
-                  <div className="rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white p-4">
+                  <div className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white/80 p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center">
                         <Search className="h-3 w-3 text-white" />
@@ -960,12 +960,12 @@ function ProjectReport({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <p className="text-xs text-gray-500 mb-0.5">Impressions</p>
-                        <p className="text-xl font-bold text-slate-900">{gscAiData.aiMode.impressions.toLocaleString()}</p>
+                        <p className="text-xl font-bold text-brand-navy">{gscAiData.aiMode.impressions.toLocaleString()}</p>
                         <DeltaBadge delta={gscAiData.aiMode.impressionsDelta} />
                       </div>
                       <div>
                         <p className="text-xs text-gray-500 mb-0.5">Clicks</p>
-                        <p className="text-xl font-bold text-slate-900">{gscAiData.aiMode.clicks.toLocaleString()}</p>
+                        <p className="text-xl font-bold text-brand-navy">{gscAiData.aiMode.clicks.toLocaleString()}</p>
                         <DeltaBadge delta={gscAiData.aiMode.clicksDelta} />
                       </div>
                       <div>
@@ -981,7 +981,7 @@ function ProjectReport({
                 )}
 
                 {/* Summary banner */}
-                <div className="md:col-span-2 rounded-lg bg-slate-50 border border-slate-100 px-4 py-3 flex items-center gap-2">
+                <div className="md:col-span-2 rounded-2xl bg-white/70 border border-white/80 px-4 py-3 flex items-center gap-2">
                   <TrendingUp className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
                   <p className="text-xs text-slate-500">
                     {gscAiData.period && <>ข้อมูล {gscAiData.period.days} วัน · {gscAiData.period.start} → {gscAiData.period.end} · </>}
@@ -1015,10 +1015,10 @@ function ProjectReport({
         {!isLoading && gscData && gscData.queries.length > 0 && (
           <section>
             <SectionTitle icon={<Search className="h-4 w-4" />} label="Top Keywords จาก GSC" />
-            <div className="mt-3 overflow-x-auto rounded-xl border border-gray-100">
-              <table className="w-full text-sm">
+            <div className="mt-3 overflow-x-auto rounded-2xl border border-white/80 bg-white/60">
+              <table className="tbl w-full text-sm min-w-[560px]">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
+                  <tr>
                     {["Keyword", "Clicks", "Impressions", "CTR", "Position"].map((h) => (
                       <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide">
                         {h}
@@ -1027,8 +1027,8 @@ function ProjectReport({
                   </tr>
                 </thead>
                 <tbody>
-                  {gscData.queries.slice(0, 15).map((q, i) => (
-                    <tr key={q.query} className={cn("border-b border-gray-50 hover:bg-blue-50/20 transition-colors", i % 2 === 1 && "bg-gray-50/50")}>
+                  {gscData.queries.slice(0, 15).map((q) => (
+                    <tr key={q.query} className="transition-colors">
                       <td className="px-3 py-2 text-xs text-slate-700 font-medium max-w-[220px]">
                         <div className="truncate">{q.query}</div>
                       </td>
@@ -1061,12 +1061,12 @@ function ProjectReport({
 
 function PsiPanel({ strategy, data }: { strategy: string; data: PsiStrategy }) {
   return (
-    <div className="rounded-xl border border-gray-100 p-4">
+    <div className="rounded-2xl border border-white/80 bg-white/60 p-4">
       <div className="flex items-center gap-1.5 mb-3">
         <Gauge className="h-3.5 w-3.5 text-violet-500" />
         <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{strategy}</span>
       </div>
-      <div className="flex gap-4 mb-4">
+      <div className="flex flex-wrap gap-4 mb-4">
         <PsiScoreCircle score={data.scores.performance} label="Performance" />
         <PsiScoreCircle score={data.scores.accessibility} label="Accessibility" />
         <PsiScoreCircle score={data.scores.seo} label="SEO" />
@@ -1129,7 +1129,7 @@ function ArticlePsiCell({ url, score, isLoading, onLoad }: {
   return (
     <button
       onClick={() => onLoad()}
-      className="text-xs px-2 py-0.5 rounded bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-brand-blue transition-colors font-medium"
+      className="text-xs px-2 py-0.5 rounded-full bg-white/80 border border-gray-200 hover:bg-blue-100 text-gray-500 hover:text-brand-blue transition-colors font-medium"
       title={url}
     >
       โหลด

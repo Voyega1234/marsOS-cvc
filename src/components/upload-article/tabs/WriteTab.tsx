@@ -547,7 +547,7 @@ export default function WriteTab({
   return (
     <div className="space-y-4">
       {!variantsEnabled && setClient && (
-        <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 space-y-1">
+        <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl px-4 py-3 space-y-1">
           <p className="text-xs font-semibold text-gray-600">ภาษาที่ใช้เขียน</p>
           <UploadLanguageSelect
             value={client.language}
@@ -585,11 +585,11 @@ export default function WriteTab({
       </div>
 
       {variantsEnabled && (
-        <div className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-3 flex-wrap">
+        <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-3 flex items-center gap-3 flex-wrap">
           <label className="text-xs font-semibold text-gray-600" htmlFor="pbn-variant-count">จำนวนบทความต่อ keyword</label>
           <select id="pbn-variant-count" value={variantCount} disabled={running}
             onChange={e => setVariantCount(Number(e.target.value))}
-            className="h-8 rounded-md border border-gray-200 px-2 text-sm bg-white">
+            className="h-8 rounded-xl border border-gray-200 px-2 text-sm bg-white">
             {Array.from({ length: PBN_MAX_VARIANTS }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} บทความ</option>)}
           </select>
           <p className="text-[11px] text-gray-400 flex-1 min-w-[220px]">
@@ -598,7 +598,7 @@ export default function WriteTab({
           <div className="w-full border-t border-gray-100 pt-3 grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-x-3 gap-y-2 items-center">
             <label className="text-xs font-semibold text-gray-600" htmlFor="pbn-write-set">ข้อมูลโปรเจกต์ (set)</label>
             <select id="pbn-write-set" value={activePbnSet} disabled={running} onChange={e => setPbnSetId(e.target.value)}
-              className="h-8 rounded-md border border-gray-200 px-2 text-sm bg-white">
+              className="h-8 rounded-xl border border-gray-200 px-2 text-sm bg-white">
               <option value={PBN_MAIN_PROFILE}>set หลัก{client.website ? ` — ${client.website}` : ""}</option>
               {pbnProfiles.profiles.map(p => <option key={p.id} value={p.id}>{p.name}{p.website ? ` — ${p.website}` : ""}</option>)}
             </select>
@@ -624,7 +624,7 @@ export default function WriteTab({
                     )}
                     {siteId && isMagazineSite(siteId) && (() => {
                       const sc = magazineClusters[siteId];
-                      const cls = "h-8 max-w-[220px] rounded-md border border-gray-200 px-2 text-sm bg-white";
+                      const cls = "h-8 max-w-[220px] rounded-xl border border-gray-200 px-2 text-sm bg-white";
                       if (!sc || sc.status === "loading") {
                         return <select disabled value="" className={cls} aria-label="หมวดของเว็บ"><option value="">กำลังโหลดหมวด…</option></select>;
                       }
@@ -647,7 +647,7 @@ export default function WriteTab({
                       <select id={`pbn-variant-backlinks-${i}`} aria-label="จำนวน Backlink ในบทความ" value={backlinksForSite(siteId)} disabled={running}
                         title="จำนวนลิงก์ในบทความนี้ที่ชี้ไป URL ปลายทางของ keyword (ทุกลิงก์ไป URL เดียวกัน)"
                         onChange={e => setSiteBacklinks(prev => ({ ...prev, [siteId]: Number(e.target.value) }))}
-                        className="h-8 rounded-md border border-gray-200 px-2 text-sm bg-white">
+                        className="h-8 rounded-xl border border-gray-200 px-2 text-sm bg-white">
                         {Array.from({ length: PBN_BACKLINKS_MAX }, (_, n) => n + 1).map(n => <option key={n} value={n}>Backlink: {n} ลิงก์</option>)}
                       </select>
                     )}
@@ -713,13 +713,13 @@ export default function WriteTab({
         </p>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl overflow-x-auto">
         {loadingKw ? (
           <p className="text-sm text-gray-400 text-center py-10">กำลังโหลด...</p>
         ) : keywords.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-10">ยังไม่มี keyword ที่มี title — ไปตั้ง title ที่แท็บ Keyword ก่อน</p>
         ) : (
-          <table className="w-full text-xs min-w-[700px]">
+          <table className="tbl w-full text-xs min-w-[700px]">
             <thead>
               <tr className="border-b border-gray-100 text-left text-gray-400">
                 <th className="px-3 py-2 w-8"><input type="checkbox" checked={selected.size === keywords.length && keywords.length > 0} onChange={toggleSelectAll} /></th>
@@ -735,7 +735,7 @@ export default function WriteTab({
                 const variantKeys = variantKeysOf(k.id);
                 if (variantKeys.length > 1) {
                   return (
-                    <tr key={k.id} className="border-b border-gray-50 hover:bg-gray-50/60 align-top">
+                    <tr key={k.id} className="border-b border-gray-50 hover:bg-brand-mist/60 align-top">
                       <td className="px-3 py-2"><input type="checkbox" checked={selected.has(k.id)} onChange={() => toggleSelect(k.id)} /></td>
                       <td className="px-2 py-2 text-brand-navy font-medium">{renderTitle(k)}</td>
                       <td className="px-2 py-2 text-gray-500">{k.keyword}</td>
@@ -783,7 +783,7 @@ export default function WriteTab({
                   );
                 }
                 return (
-                  <tr key={k.id} className="border-b border-gray-50 hover:bg-gray-50/60">
+                  <tr key={k.id} className="border-b border-gray-50 hover:bg-brand-mist/60">
                     <td className="px-3 py-2"><input type="checkbox" checked={selected.has(k.id)} onChange={() => toggleSelect(k.id)} /></td>
                     <td className="px-2 py-2 text-brand-navy font-medium">{renderTitle(k)}</td>
                     <td className="px-2 py-2 text-gray-500">{k.keyword}</td>
@@ -818,7 +818,7 @@ export default function WriteTab({
       </div>
 
       {staleWriting.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+        <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-2">
           <p className="text-sm font-semibold text-brand-navy">บทความที่ค้างเขียนนานเกิน 6 นาที</p>
           {staleWriting.map(a => {
             const parsed = parseWriterSourceName(a.sourceName);

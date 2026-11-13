@@ -102,7 +102,7 @@ export function AIProviderSelect({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex items-center gap-2 rounded-lg border border-gray-100 bg-white hover:border-gray-300 transition-colors w-full",
+          "flex items-center gap-2 rounded-xl border border-gray-200 bg-white hover:border-gray-300 transition-colors w-full",
           h
         )}
       >
@@ -127,7 +127,7 @@ export function AIProviderSelect({
           {/* Backdrop */}
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           {/* Dropdown */}
-          <div className="absolute z-20 mt-1 w-full min-w-[220px] bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden">
+          <div className="absolute z-20 mt-1 w-full min-w-[220px] bg-white border border-white/80 rounded-2xl shadow-lg overflow-hidden">
             {Object.entries(groups).map(([provider, provKeys]) => (
               <div key={provider}>
                 <div className="px-3 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100">
@@ -140,7 +140,7 @@ export function AIProviderSelect({
                     onClick={() => { onChange(k.id, k.provider); setOpen(false); }}
                     className={cn(
                       "w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors",
-                      value === k.id && "bg-blue-50"
+                      value === k.id && "bg-brand-blue/10"
                     )}
                   >
                     <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0", PROVIDER_COLOR[k.provider])}>

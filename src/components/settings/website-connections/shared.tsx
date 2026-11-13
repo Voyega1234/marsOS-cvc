@@ -45,7 +45,7 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden ${className}`}>
+    <div className={`glass rounded-3xl overflow-hidden ${className}`}>
       {(title || action) && (
         <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-gray-200">
           <div>
@@ -85,7 +85,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto p-4">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} aria-hidden />
-      <div className={`relative w-full ${widthClassName} bg-white rounded-2xl border border-gray-200 shadow-xl my-8`}>
+      <div className={`relative w-full ${widthClassName} glass-strong rounded-3xl shadow-xl my-8`}>
         {children}
       </div>
     </div>
@@ -126,14 +126,14 @@ export function Drawer({
         onClick={onClose}
       />
       <div
-        className={`fixed inset-y-0 right-0 w-full ${widthClassName} bg-white border-l border-gray-200 shadow-xl flex flex-col transition-transform duration-200 ${open ? "translate-x-0" : "translate-x-full"}`}
+        className={`fixed inset-y-0 right-0 w-full ${widthClassName} glass-strong border-l border-white/80 rounded-l-3xl shadow-xl flex flex-col transition-transform duration-200 ${open ? "translate-x-0" : "translate-x-full"}`}
       >
         <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-gray-200 flex-shrink-0">
           <div>
             <h3 className="text-sm font-bold text-brand-navy">{title}</h3>
             {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0">
+          <button onClick={onClose} className="p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -154,7 +154,7 @@ export function Field({ label, value }: { label: string; value: React.ReactNode 
   return (
     <div>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="text-sm text-gray-800 mt-0.5 break-words">{value ?? "—"}</p>
+      <p className="text-sm text-brand-navy mt-0.5 break-words">{value ?? "—"}</p>
     </div>
   );
 }

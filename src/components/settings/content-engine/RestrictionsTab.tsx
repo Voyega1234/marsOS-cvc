@@ -513,7 +513,7 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
               value={uploadKind}
               disabled={disabled || !!uploading}
               onChange={(e) => setUploadKind(e.target.value as RestrictionFileKind)}
-              className="h-8 rounded-md border border-gray-200 bg-white px-2 text-xs"
+              className="h-8 rounded-xl border border-gray-200 bg-white px-2.5 text-xs"
             >
               {UPLOAD_KINDS.map((k) => (
                 <option key={k} value={k}>
@@ -540,7 +540,7 @@ export function RestrictionsTab({ items, scope, canEdit }: Props) {
           </div>
         }
       >
-        {uploading && <p className="mb-2 text-xs text-indigo-600">{uploading}</p>}
+        {uploading && <p className="mb-2 text-xs text-brand-blue">{uploading}</p>}
         <RestrictionFileList files={files} canEdit={canEdit} deleting={deleting} onDelete={(g) => void deleteGroup(g)} />
         <p className="mt-2 text-[11px] text-gray-400">
           ใช้ไป {usedChars.toLocaleString()} / {RESTRICTION_FILES_TOTAL_MAX_CHARS.toLocaleString()} ตัวอักษร (รวมไฟล์ Comment) · {KIND_LABEL.rules} = ต้องทำตาม,{" "}

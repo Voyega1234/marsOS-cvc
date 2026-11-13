@@ -5,8 +5,9 @@
  * ใช้ร่วมกันทุกตาราง (คำค้นหา/หน้าเว็บ/บทความ/โอกาส/Cannibalization/อุปกรณ์-ประเทศ)
  */
 import { Fragment, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Download, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SearchPill } from "@/components/ds";
 
 const PAGE_SIZE = 50;
 
@@ -106,15 +107,12 @@ export default function GscTable<T>({
     <div className="space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         {searchText && (
-          <div className="relative w-full sm:w-56">
-            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300" />
-            <input
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              placeholder="ค้นหา"
-              className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg"
-            />
-          </div>
+          <SearchPill
+            value={search}
+            onChange={(v) => { setSearch(v); setPage(1); }}
+            placeholder="ค้นหา"
+            className="w-full sm:w-56"
+          />
         )}
         <span className="text-[11px] text-gray-400">{sorted.length.toLocaleString()} แถว</span>
         <div className="flex-1" />
@@ -125,16 +123,16 @@ export default function GscTable<T>({
         )}
       </div>
 
-      <div className="overflow-x-auto border border-gray-200 rounded-xl">
-        <table className="w-full text-xs">
+      <div className="overflow-x-auto rounded-2xl border border-white/80 bg-white/70 shadow-sm">
+        <table className="tbl w-full text-xs">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
+            <tr>
               {renderExpanded && <th className="w-8" />}
               {columns.map((c) => (
                 <th
                   key={c.key}
                   onClick={() => toggleSort(c)}
-                  className={`px-3 py-2 font-semibold text-gray-500 whitespace-nowrap ${c.align === "right" ? "text-right" : "text-left"} ${c.sortValue ? "cursor-pointer select-none hover:text-gray-700" : ""}`}
+                  className={`whitespace-nowrap ${c.align === "right" ? "num" : "text-left"} ${c.sortValue ? "cursor-pointer select-none hover:text-brand-navy" : ""}`}
                 >
                   <span className="inline-flex items-center gap-1">
                     {c.label}
@@ -153,7 +151,7 @@ export default function GscTable<T>({
               const isOpen = expanded.has(key);
               return (
                 <Fragment key={key}>
-                  <tr className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                  <tr>
                     {renderExpanded && (
                       <td className="text-center">
                         <button onClick={() => toggleExpand(key)} className="text-gray-400 hover:text-gray-700">
@@ -162,13 +160,13 @@ export default function GscTable<T>({
                       </td>
                     )}
                     {columns.map((c) => (
-                      <td key={c.key} className={`px-3 py-2 ${c.align === "right" ? "text-right" : "text-left"}`}>
+                      <td key={c.key} className={c.align === "right" ? "num" : "text-left"}>
                         {c.render ? c.render(row) : String(c.sortValue?.(row) ?? "")}
                       </td>
                     ))}
                   </tr>
                   {renderExpanded && isOpen && (
-                    <tr className="bg-gray-50/60">
+                    <tr className="bg-brand-mist/40">
                       <td colSpan={columns.length + 1} className="px-3 py-2">{renderExpanded(row)}</td>
                     </tr>
                   )}
@@ -182,10 +180,10 @@ export default function GscTable<T>({
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 text-xs">
           <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}
-            className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40">ก่อนหน้า</button>
+            className="px-3 py-1 rounded-full border border-white/80 bg-white/70 disabled:opacity-40">ก่อนหน้า</button>
           <span className="text-gray-500">หน้า {page} / {totalPages}</span>
           <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-            className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40">ถัดไป</button>
+            className="px-3 py-1 rounded-full border border-white/80 bg-white/70 disabled:opacity-40">ถัดไป</button>
         </div>
       )}
     </div>

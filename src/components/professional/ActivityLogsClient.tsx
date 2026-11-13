@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Activity, Search, Loader2 } from "lucide-react";
+import { SearchPill } from "@/components/ds";
+import { Activity, Loader2 } from "lucide-react";
 import { describeActivity, activityKind, readAutoPath, type ActivityKind } from "@/lib/activity-describe";
 
 interface ActivityLog {
@@ -37,10 +38,10 @@ const KIND_OPTIONS: Array<{ value: string; label: string }> = [
 ];
 
 const KIND_BADGE: Record<ActivityKind, { label: string; className: string }> = {
-  action: { label: "ทำรายการ", className: "bg-blue-50 text-blue-600" },
-  view: { label: "เปิดหน้า", className: "bg-gray-100 text-gray-600" },
-  auth: { label: "เข้า/ออกระบบ", className: "bg-purple-50 text-purple-600" },
-  legacy: { label: "บันทึกเดิม", className: "bg-amber-50 text-amber-700" },
+  action: { label: "ทำรายการ", className: "chip chip-info" },
+  view: { label: "เปิดหน้า", className: "chip chip-muted" },
+  auth: { label: "เข้า/ออกระบบ", className: "chip chip-ok" },
+  legacy: { label: "บันทึกเดิม", className: "chip chip-warn" },
 };
 
 function formatThaiDateTime(iso: string): string {
@@ -163,15 +164,12 @@ export function ActivityLogsClient({ users }: Props) {
     <div className="space-y-5">
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="ค้นหา..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 rounded-xl"
-          />
-        </div>
+        <SearchPill
+          placeholder="ค้นหา..."
+          value={search}
+          onChange={setSearch}
+          className="flex-1 min-w-[200px]"
+        />
         <Select value={userId} onValueChange={setUserId}>
           <SelectTrigger className="w-44 rounded-xl">
             <SelectValue placeholder="ผู้ใช้" />
@@ -212,7 +210,7 @@ export function ActivityLogsClient({ users }: Props) {
       </div>
 
       {/* List */}
-      <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+      <div className="glass rounded-3xl overflow-hidden">
         {loading ? (
           <div className="px-4 py-12 text-center text-sm text-gray-400">
             <Loader2 className="h-6 w-6 mx-auto mb-2 animate-spin text-gray-300" />
@@ -226,15 +224,15 @@ export function ActivityLogsClient({ users }: Props) {
             ไม่พบกิจกรรม
           </div>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-100/70">
             {logs.map((log) => {
               const k = activityKind(log.action);
               const badge = KIND_BADGE[k];
               const detail = detailLine(log);
               return (
-                <div key={log.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 hover:bg-gray-50/50 transition-colors">
+                <div key={log.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 hover:bg-white/60 transition-colors">
                   <div className="flex items-center gap-2 sm:w-44 flex-shrink-0">
-                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-slate-600 text-xs font-bold flex-shrink-0">
+                    <div className="w-7 h-7 rounded-full bg-brand-blue/10 flex items-center justify-center text-brand-blue text-xs font-bold flex-shrink-0">
                       {(log.user?.name ?? log.user?.email ?? "?")[0]?.toUpperCase()}
                     </div>
                     <div className="min-w-0">
@@ -243,11 +241,11 @@ export function ActivityLogsClient({ users }: Props) {
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-gray-800 leading-tight">{describeActivity(log)}</p>
+                    <p className="text-xs font-semibold text-brand-navy leading-tight">{describeActivity(log)}</p>
                     {detail && <p className="text-xs text-gray-400 leading-tight mt-0.5 truncate">{detail}</p>}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${badge.className}`}>{badge.label}</span>
+                    <span className={badge.className}>{badge.label}</span>
                     <span className="text-xs text-gray-400 whitespace-nowrap">{formatThaiDateTime(log.createdAt)}</span>
                   </div>
                 </div>
@@ -262,7 +260,7 @@ export function ActivityLogsClient({ users }: Props) {
           <button
             onClick={loadMore}
             disabled={loadingMore}
-            className="text-xs font-medium text-brand-navy border border-gray-200 rounded-xl px-4 py-2 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="text-xs font-medium text-brand-navy border border-gray-200 bg-white rounded-full px-4 py-2 hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
             {loadingMore ? "กำลังโหลด..." : "โหลดเพิ่ม"}
           </button>

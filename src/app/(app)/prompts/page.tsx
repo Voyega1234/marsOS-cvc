@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PromptLibraryClient } from "@/components/professional/PromptLibraryClient";
+import { PageHeader } from "@/components/ds";
 
 // หน้า/route นี้ query DB ตอน request เท่านั้น — ห้าม prerender ตอน build (build ไม่ควรแตะ DB)
 export const dynamic = 'force-dynamic'
@@ -30,14 +31,11 @@ export default async function PromptsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-brand-navy">Prompt Library</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {prompts.length} prompt{prompts.length !== 1 ? "s" : ""}
-          {" · "}
-          {prompts.filter((p) => p.isActive).length} active
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Prompts"
+        title="Prompt Library"
+        subtitle={`${prompts.length} prompt${prompts.length !== 1 ? "s" : ""} · ${prompts.filter((p) => p.isActive).length} active`}
+      />
       <PromptLibraryClient
         prompts={prompts.map((p) => ({
           id: p.id,

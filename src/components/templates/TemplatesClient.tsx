@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { PageHeader } from "@/components/ds";
 import { Plus, Star, Edit2, Layers } from "lucide-react";
 
 interface Template {
@@ -77,23 +78,24 @@ export function TemplatesClient({ templates: initial, orgId }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-brand-navy">Brand Templates</h1>
-          <p className="text-gray-500 text-sm mt-1">{templates.length} templates</p>
-        </div>
-        <Button onClick={openCreate} className="gap-2">
-          <Plus className="h-4 w-4" /> สร้าง Template ใหม่
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Brand"
+        title="Brand Templates"
+        subtitle={`${templates.length} templates`}
+        actions={
+          <Button onClick={openCreate} className="gap-2 rounded-full">
+            <Plus className="h-4 w-4" /> สร้าง Template ใหม่
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {templates.map((t) => (
-          <div key={t.id} className={`bg-white rounded-xl border p-5 ${t.isDefault ? "border-green-400 ring-2 ring-green-200" : ""}`}>
+          <div key={t.id} className={`glass rounded-3xl p-5 ${t.isDefault ? "ring-2 ring-brand-blue/30" : ""}`}>
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center">
-                  <Layers className="h-5 w-5 text-green-600" />
+                <div className="w-9 h-9 rounded-full bg-brand-blue/10 flex items-center justify-center">
+                  <Layers className="h-5 w-5 text-brand-blue" />
                 </div>
                 <div>
                   <h3 className="font-semibold text-brand-navy">{t.name}</h3>
@@ -114,14 +116,14 @@ export function TemplatesClient({ templates: initial, orgId }: Props) {
             </div>
 
             {t.forbiddenClaims && (
-              <div className="mt-3 p-2.5 bg-red-50 rounded-lg">
+              <div className="mt-3 p-2.5 bg-red-50 rounded-xl">
                 <p className="text-xs text-red-600 font-medium">⛔ ข้อห้าม:</p>
                 <p className="text-xs text-red-500 truncate">{t.forbiddenClaims}</p>
               </div>
             )}
 
-            <div className="mt-4 pt-3 border-t flex justify-end">
-              <Button variant="outline" size="sm" onClick={() => openEdit(t)} className="gap-1.5">
+            <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => openEdit(t)} className="gap-1.5 rounded-full">
                 <Edit2 className="h-3.5 w-3.5" /> แก้ไข
               </Button>
             </div>
@@ -131,7 +133,7 @@ export function TemplatesClient({ templates: initial, orgId }: Props) {
 
       {/* Edit/Create Dialog */}
       <Dialog open={isOpen} onOpenChange={closeDialog}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl glass-strong">
           <DialogHeader>
             <DialogTitle>{editingId ? "แก้ไข Template" : "สร้าง Template ใหม่"}</DialogTitle>
           </DialogHeader>
@@ -178,8 +180,8 @@ export function TemplatesClient({ templates: initial, orgId }: Props) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>ยกเลิก</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? "กำลังบันทึก..." : "บันทึก"}</Button>
+            <Button variant="outline" onClick={closeDialog} className="rounded-full">ยกเลิก</Button>
+            <Button onClick={handleSave} disabled={saving} className="rounded-full">{saving ? "กำลังบันทึก..." : "บันทึก"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

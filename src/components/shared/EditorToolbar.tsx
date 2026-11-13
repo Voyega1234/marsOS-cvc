@@ -174,8 +174,8 @@ export default function EditorToolbar({
     done();
   }
 
-  const btn = "p-1.5 rounded hover:bg-gray-200 text-gray-700 transition-colors";
-  const txt = "px-2 py-1 rounded text-xs font-semibold hover:bg-gray-200 text-gray-700 transition-colors";
+  const btn = "p-1.5 rounded-lg hover:bg-brand-navy hover:text-white text-gray-700 transition-colors";
+  const txt = "px-2 py-1 rounded-lg text-xs font-semibold hover:bg-brand-navy hover:text-white text-gray-700 transition-colors";
   const sep = <div className="w-px h-4 bg-gray-300 mx-1" />;
   const md = (fn: () => void) => (e: React.MouseEvent) => { e.preventDefault(); fn(); };
 
@@ -191,7 +191,7 @@ export default function EditorToolbar({
   );
 
   return (
-    <div className={`flex items-center gap-0.5 flex-wrap px-3 py-1.5 border-b border-gray-200 bg-gray-50 ${className}`}>
+    <div className={`flex items-center gap-0.5 flex-wrap px-3 py-1.5 border-b border-gray-200 bg-white/70 ${className}`}>
       <style>{EDITOR_IMG_CSS}</style>
       {iconBtn(Bold, "ตัวหนา", () => exec("bold"))}
       {iconBtn(Italic, "ตัวเอียง", () => exec("italic"))}
@@ -205,7 +205,7 @@ export default function EditorToolbar({
       {iconBtn(List, "รายการแบบจุด", () => exec("insertUnorderedList"))}
       {iconBtn(ListOrdered, "รายการแบบตัวเลข", () => exec("insertOrderedList"))}
       {sep}
-      {imgActive && <span className="text-[10px] font-semibold text-blue-600 mr-0.5">จัดรูป</span>}
+      {imgActive && <span className="text-[10px] font-semibold text-brand-blue mr-0.5">จัดรูป</span>}
       {iconBtn(AlignLeft, "ชิดซ้าย (คลิกรูปก่อน = จัดรูป)", () => align("left", "justifyLeft"))}
       {iconBtn(AlignCenter, "กึ่งกลาง (คลิกรูปก่อน = จัดรูป)", () => align("center", "justifyCenter"))}
       {iconBtn(AlignRight, "ชิดขวา (คลิกรูปก่อน = จัดรูป)", () => align("right", "justifyRight"))}
@@ -213,7 +213,7 @@ export default function EditorToolbar({
       {imgActive && (
         <>
           {sep}
-          <span className="text-[10px] font-semibold text-blue-600 mr-0.5">ขนาดรูป</span>
+          <span className="text-[10px] font-semibold text-brand-blue mr-0.5">ขนาดรูป</span>
           {[25, 50, 75].map((p) => textBtn(`${p}%`, `ขนาดรูป ${p}% ของความกว้างบทความ`, () => resize(p)))}
           {textBtn("เดิม", "ขนาดรูปเดิม", () => resize(100))}
         </>

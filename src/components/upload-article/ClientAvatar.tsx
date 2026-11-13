@@ -98,7 +98,7 @@ async function patchLogo(clientId: string, logo: string | null): Promise<void> {
 }
 
 export default function ClientAvatar({
-  clientId, name, theme, logo, onChange, size = 36,
+  clientId, name, theme, logo, onChange, size = 36, save, readOnly,
 }: {
   clientId: string;
   name: string;
@@ -107,6 +107,10 @@ export default function ClientAvatar({
   /** อัปเดต state ฝั่งหน้า (optimistic) */
   onChange: (logo: string | null) => void;
   size?: number;
+  /** ถ้าส่งมา ใช้แทน PATCH ของ Upload Article (เช่น โปรเจกต์ SME) */
+  save?: (logo: string | null) => Promise<void>;
+  /** แสดงอย่างเดียว ไม่มีปุ่มอัปโหลด/ลบ */
+  readOnly?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -117,7 +121,7 @@ export default function ClientAvatar({
     onChange(next);
     setBusy(true);
     try {
-      await patchLogo(clientId, next);
+      await (save ? save(next) : patchLogo(clientId, next));
     } catch (e) {
       onChange(prev);
       toast.error(`${errPrefix}: ${e instanceof Error ? e.message : String(e)}`);
@@ -138,6 +142,23 @@ export default function ClientAvatar({
     await apply(data, "ตั้งโลโก้ไม่สำเร็จ");
   }
 
+  if (readOnly) {
+    return (
+      <div
+        className="relative block shrink-0 rounded-2xl overflow-hidden border border-white/80 shadow-sm"
+        style={{ width: size, height: size, ...(logo ? { background: "#fff" } : { background: bg, color: fg }) }}
+        title={name}
+      >
+        {logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logo} alt="" className="w-full h-full object-contain" />
+        ) : (
+          <span className="flex items-center justify-center w-full h-full text-sm font-bold select-none">{initialsOf(name)}</span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="relative group shrink-0" style={{ width: size, height: size }}>
       <button
@@ -146,7 +167,7 @@ export default function ClientAvatar({
         onClick={e => { e.stopPropagation(); inputRef.current?.click(); }}
         aria-label={`${logo ? "เปลี่ยน" : "อัปโหลด"}โลโก้ ${name}`}
         title="อัปโหลดโลโก้ (png, jpg, webp, svg)"
-        className="relative block w-full h-full rounded-lg overflow-hidden border border-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue disabled:opacity-60"
+        className="relative block w-full h-full rounded-2xl overflow-hidden border border-white/80 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue disabled:opacity-60"
         style={logo ? { background: "#fff" } : { background: bg, color: fg }}
       >
         {logo ? (

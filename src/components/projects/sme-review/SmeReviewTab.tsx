@@ -19,6 +19,7 @@ import { boxKeyTakeaways } from '@/lib/article-structure'
 import { applyFaqDisplay } from '@/lib/upload-article/theme-css'
 import { exportFontCssDetailed } from '@/lib/upload-article/font-faces'
 import { useProjectArticleLook } from '@/components/projects/useProjectArticleLook'
+import ClientProposalPanel from '@/components/client-portal/ClientProposalPanel'
 import type { ProjectData, TimelineEntry, ArticleJob } from '@/components/projects/sme-types'
 
 // ─── Review Tab ───────────────────────────────────────────────────────────────
@@ -800,16 +801,54 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
     if (autoPicked.current || expanded !== null || !reviewEntries.length) return
     autoPicked.current = true
     const first = reviewEntries.find(({ entry, job }) => !(entry.articleStatus === 'approved' || job?.status === 'approved')) ?? reviewEntries[0]
-    void expand(first.entryIdx, first.entry)
+    // มาจากแจ้งเตือน "ลูกค้าเสนอแก้ไข" (?proposal=<articleId>) = เปิดบทความนั้นเลย · หาไม่เจอค่อยเปิดบทความแรกตามเดิม
+    const wanted = isClient ? null : new URLSearchParams(window.location.search).get('proposal')
+    if (!wanted) { void expand(first.entryIdx, first.entry); return }
+    void (async () => {
+      let target = reviewEntries.find(({ job }) => job?.articleId === wanted)
+      if (!target) {
+        try {
+          // แถวนี้ยังไม่รู้ id (ยังไม่เคยเปิดในรอบนี้) — ถามชื่อบทความจาก id แล้วจับคู่กับชื่อในตาราง
+          const res = await fetch(`/api/articles/by-title?projectId=${encodeURIComponent(project.id)}&id=${encodeURIComponent(wanted)}`)
+          const row: { title?: string } | null = res.ok ? await res.json() : null
+          if (row?.title) target = reviewEntries.find(({ entry }) => entry.title === row.title)
+        } catch { /* เปิดบทความแรกแทน */ }
+      }
+      const pick = target ?? first
+      // บทความที่ลูกค้าเสนอแก้ไม่อยู่ในตาราง Timeline — ยังต้องให้ทีมเห็นข้อเสนอ (แสดงกล่องด้านบน)
+      if (!target) setOrphanProposal(wanted)
+      void expand(pick.entryIdx, pick.entry)
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewEntries.length])
 
+  // ไม่มีบทความในตาราง Review เลย แต่มาจากแจ้งเตือนข้อเสนอของลูกค้า
+  const [orphanProposal, setOrphanProposal] = useState<string | null>(null)
+  useEffect(() => {
+    if (isClient || reviewEntries.length) return
+    const wanted = new URLSearchParams(window.location.search).get('proposal')
+    if (wanted) setOrphanProposal(wanted)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const orphanPanel = !isClient && orphanProposal ? (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-500">
+        บทความนี้ไม่อยู่ในตาราง Timeline ของแท็บ Review —{' '}
+        <a href={`/articles/${orphanProposal}`} className="font-medium text-brand-blue hover:underline">เปิดบทความเพื่อแก้ไข</a>
+      </p>
+      <ClientProposalPanel articleId={orphanProposal} />
+    </div>
+  ) : null
+
   if (!reviewEntries.length) {
     return (
-      <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
-        <CheckCircle2 size={32} className="text-gray-300 mx-auto mb-3" />
-        <p className="text-gray-500 text-sm font-medium">ยังไม่มีบทความรอ Review</p>
-        <p className="text-gray-400 text-xs mt-1">เมื่อเขียนบทความเสร็จจากหน้า Articles บทความจะมาปรากฏที่นี่</p>
+      <div className="space-y-4">
+        {orphanPanel}
+        <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-3xl p-12 text-center">
+          <CheckCircle2 size={32} className="text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500 text-sm font-medium">ยังไม่มีบทความรอ Review</p>
+          <p className="text-gray-400 text-xs mt-1">เมื่อเขียนบทความเสร็จจากหน้า Articles บทความจะมาปรากฏที่นี่</p>
+        </div>
       </div>
     )
   }
@@ -831,7 +870,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
 
     // การ์ดภาพปก — ทีมงานเห็นในคอลัมน์ขวาใต้ Meta Description, ลูกค้าเห็นเหนือบทความ (ดูอย่างเดียว)
     const coverCard = (
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3">
         <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><ImageIcon size={12} /> 🖼 ภาพปกบทความ</p>
         {(job?.coverImage || coverUrl[entryIdx]) ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -858,13 +897,13 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                 if (v.trim() !== altAtFocus.current.trim() && !coverControlsOff) void patchCover(entryIdx, entry, { coverAlt: v })
               }}
               placeholder="Alt text ของภาพปก"
-              className="w-full text-xs border border-gray-200 rounded-md px-3 py-2 disabled:bg-gray-50"
+              className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 disabled:bg-gray-50"
             />
             {(job?.coverImage || coverUrl[entryIdx]) && (
               <button
                 disabled={coverControlsOff}
                 onClick={() => void patchCover(entryIdx, entry, { coverImageUrl: null })}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50">
                 <X size={12} /> ลบภาพปก
               </button>
             )}
@@ -875,20 +914,20 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
 
     const statusBadges = (
       <>
-        {isApproved && <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✅ Approved</span>}
+        {isApproved && <span className="chip chip-ok">✅ Approved</span>}
         {hasComments && !isApproved && (
-          <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full">
+          <span className="chip chip-bad">
             💬 {entryComments.length} Comment{entryComments.length > 1 ? 's' : ''}
           </span>
         )}
-        {!hasComments && !isApproved && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">รอ Review</span>}
+        {!hasComments && !isApproved && <span className="chip chip-warn">รอ Review</span>}
       </>
     )
 
     // แถวในรายการซ้าย — กดแล้วเปิดบทความตรงกลาง
     const row = (
       <button key={entryIdx} onClick={() => expand(entryIdx, entry)} disabled={loadingHtml === entryIdx}
-        className={`w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors disabled:opacity-60 ${expanded === entryIdx ? 'bg-brand-mist/40' : ''}`}>
+        className={`w-full text-left px-3 py-2.5 rounded-2xl border transition-colors disabled:opacity-60 ${expanded === entryIdx ? 'bg-brand-mist border-brand-blue/30' : 'bg-white/60 border-white/80 hover:bg-white'}`}>
         <p className="text-xs font-medium text-brand-navy line-clamp-2">{entry.title}</p>
         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
           <span className="text-[10px] text-gray-400">{entry.date}</span>
@@ -902,7 +941,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
     // ตรงกลาง = บทความ · ขวา = Search appearance → สร้างรูปด้วย Mars → ภาพปก (เหมือน Upload Review)
     const detail = (
       <>
-            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-5 min-w-0">
+            <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-3xl p-5 space-y-5 min-w-0">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -919,7 +958,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
               </div>
               {!isApproved && (
                 <button onClick={() => approve(entryIdx)} disabled={!!approving[entryIdx]}
-                  className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-60">
+                  className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-brand-blue text-white text-xs font-bold rounded-full hover:bg-brand-deep transition-colors disabled:opacity-60">
                   <CheckCircle2 size={12} /> {approving[entryIdx] ? 'กำลังบันทึก…' : 'Approve'}
                 </button>
               )}
@@ -940,8 +979,8 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       <button key={m} onClick={() => setViewMode(m)}
                         disabled={m === 'edit' && (imagesRunning || rewritingNow)}
                         title={m === 'edit' && imagesRunning ? 'รอสร้างรูปให้เสร็จก่อน' : m === 'edit' && rewritingNow ? 'กำลังเขียนใหม่ — รอให้เสร็จก่อน' : undefined}
-                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors disabled:opacity-50 ${
-                          viewMode === m ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-colors disabled:opacity-50 ${
+                          viewMode === m ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
                         }`}>
                         {label}
                       </button>
@@ -949,13 +988,13 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                     {!isClient && (
                       <button onClick={() => regenerateArticle(entryIdx)} disabled={rewritingNow || imagesRunning || coverLocked || editSaving}
                         title="ให้ AI เขียนบทความนี้ใหม่ทั้งบทความ (keyword/title เดิม) — ที่แก้มือ/รูปเดิมจะถูกแทน"
-                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:text-brand-blue hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue hover:bg-gray-50 disabled:opacity-50 transition-colors">
                         <RefreshCw size={11} className={rewritingNow ? 'animate-spin' : ''} /> {rewritingNow ? 'กำลังเขียนใหม่...' : 'Re-generate'}
                       </button>
                     )}
                     <button disabled={wordBusy !== null} onClick={() => downloadArticleWord(entryIdx, entry, job, html)}
                       title="ดาวน์โหลดเป็นไฟล์ Word ส่งให้ลูกค้าตรวจ"
-                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
                       {wordBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />} Word
                     </button>
                     <button disabled={docsBusy !== null} onClick={() => exportArticleGoogleDocs(entryIdx, entry, job, html)}
@@ -963,31 +1002,31 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       title={isDriveExportConfigured()
                         ? 'สร้างเป็น Google Doc ใน Drive ของคุณ แล้วเปิดให้ทันที'
                         : 'คัดลอกบทความ แล้วเปิด Google Docs ใหม่ให้กดวาง (⌘V / Ctrl+V)'}
-                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors">
                       {docsBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <FileText size={11} />} Google Docs
                     </button>
                     <button onClick={() => downloadArticleHtml(entryIdx, entry, job, html)}
                       title="ดาวน์โหลดเป็นไฟล์ HTML หน้าตาเหมือน Preview เปิดได้ทุกเบราว์เซอร์"
-                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
+                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
                       <Download size={11} /> HTML
                     </button>
                     {!isClient && (
                       <button onClick={() => openHtmlPreview(entryIdx, entry, job, html)}
                         title="เปิดดู HTML หน้าตาเหมือน Preview ในแท็บใหม่"
-                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:bg-gray-50 transition-colors">
                         เปิด HTML ในแท็บใหม่
                       </button>
                     )}
                     {viewMode === 'edit' && !isClient && (
                       <button onClick={() => setEditTone(t => (t === 'site' ? 'readable' : 'site'))}
                         title="เปลี่ยนสีเฉพาะตอนแก้ไข ไม่มีผลกับบทความที่บันทึก/push"
-                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${editTone === 'readable' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200'}`}>
+                        className={`px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-colors ${editTone === 'readable' ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-500 border-gray-200'}`}>
                         {editTone === 'readable' ? 'สีอ่านง่าย ✓' : 'สีอ่านง่าย'}
                       </button>
                     )}
                     {viewMode === 'edit' && (
                       <button disabled={editSaving} onClick={() => saveEditedHtml(entryIdx, entry)}
-                        className="flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors">
+                        className="flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-full bg-brand-blue text-white hover:bg-brand-deep disabled:opacity-50 transition-colors">
                         {editSaving ? <RefreshCw size={10} className="animate-spin" /> : null} 💾 บันทึกการแก้ไข
                       </button>
                     )}
@@ -998,7 +1037,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                     คลิกที่ข้อความในบทความแล้วพิมพ์แก้ได้เลย — โครง HTML/สไตล์/Schema ระบบเก็บให้เหมือนเดิม กด 💾 เมื่อเสร็จ
                   </p>
                 )}
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden max-h-[70vh] overflow-y-auto">
+                <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden max-h-[70vh] overflow-y-auto">
                   {viewMode === 'preview' && <ArticleFrame html={applyFaqDisplay(boxKeyTakeaways(html), articleLook.detail?.faq)} pageBackground={articleLook.pageBackground} fontFaces={isClient ? undefined : articleLook.detail?.article?.fontFaces} />}
                   {viewMode === 'text' && (
                     <div className="p-5 text-sm text-gray-800 whitespace-pre-wrap leading-7">{htmlToPlainText(html)}</div>
@@ -1019,13 +1058,16 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
               <p className="text-sm text-gray-400 text-center py-4">ยังไม่มี HTML ของบทความนี้</p>
             )}
 
+            {/* สิ่งที่ลูกค้าเสนอแก้ผ่านพอร์ทัล — ทีมเห็นว่าแก้ตรงไหน แล้วเลือกปรับตามหรือไม่ปรับ */}
+            {!isClient && articleIds[entryIdx] && <ClientProposalPanel articleId={articleIds[entryIdx]} />}
+
             {/* Comment history */}
             {hasComments && (
               <div>
                 <div className="text-xs font-semibold text-gray-500 mb-2">💬 ประวัติ Comment ({entryComments.length} รอบ)</div>
                 <div className="space-y-2">
                   {entryComments.map((c, i) => (
-                    <div key={c.id} className="bg-rose-50 border border-rose-100 rounded-xl px-4 py-3">
+                    <div key={c.id} className="bg-rose-50 border border-rose-100 rounded-2xl rounded-tl-md px-4 py-3">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[10px] font-bold text-rose-600">Comment รอบที่ {i + 1}</span>
                         <span className="text-[10px] text-gray-400">{c.user?.name ?? 'ทีม'}</span>
@@ -1052,13 +1094,13 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       ? 'อยากให้แก้ตรงไหน พิมพ์บอกทีมงานได้เลย แล้วกด "ขอแก้ไข"'
                       : 'ระบุสิ่งที่ต้องแก้ไข... comment จะถูกบันทึกไว้ในบทความและใช้เป็น instruction ในการ regenerate'}
                     rows={3}
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-200 resize-none"
+                    className="w-full text-sm border border-gray-200 rounded-2xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 resize-none"
                   />
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {/* Approve */}
                   <button onClick={() => approve(entryIdx)} disabled={!!approving[entryIdx]}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-60">
+                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-bold rounded-full hover:bg-brand-deep transition-colors disabled:opacity-60">
                     <CheckCircle2 size={12} /> {approving[entryIdx] ? 'กำลังบันทึก…' : 'Approve'}
                   </button>
                   {/* Save comment only */}
@@ -1066,7 +1108,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                   <button
                     disabled={!(commentDraft[entryIdx] ?? '').trim() || savingComment[entryIdx]}
                     onClick={() => requestRevision(entryIdx, entry)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 transition-colors disabled:opacity-40">
+                    className="flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-full hover:bg-gray-50 transition-colors disabled:opacity-40">
                     {savingComment[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
                     ขอแก้ไข
                   </button>
@@ -1075,7 +1117,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                   <button
                     disabled={!(commentDraft[entryIdx] ?? '').trim() || savingComment[entryIdx]}
                     onClick={() => saveComment(entryIdx, entry)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 disabled:opacity-40 transition-colors">
+                    className="flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-full hover:bg-gray-50 disabled:opacity-40 transition-colors">
                     {savingComment[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
                     บันทึก Comment
                   </button>
@@ -1083,7 +1125,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                   <button
                     disabled={(!hasComments && !(commentDraft[entryIdx] ?? '').trim()) || rewriting[entryIdx]}
                     onClick={() => rewriteWithComments(entryIdx, entry)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-bold rounded-lg hover:bg-blue-500 disabled:opacity-40 transition-colors">
+                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-xs font-bold rounded-full hover:bg-brand-deep disabled:opacity-40 transition-colors">
                     {rewriting[entryIdx] ? <RefreshCw size={12} className="animate-spin" /> : null}
                     🔄 เขียนใหม่ตาม Comment{entryComments.length > 0 ? ` (${entryComments.length + (commentDraft[entryIdx]?.trim() ? 1 : 0)} รอบ)` : ''}
                   </button>
@@ -1104,17 +1146,17 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
               return (
                 // คอลัมน์ขวา: Search appearance → สร้างรูปด้วย Mars → ภาพปก เรียงลงมา
                 <div className="space-y-4 min-w-0 lg:col-start-2 2xl:col-start-3">
-                <aside className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                <aside className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-brand-navy">Search appearance</p>
                       <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">หน้าตาบทความบน Google — แก้ตรงนี้แล้วกดบันทึก ค่าที่ได้จะถูกใช้ตอน Push</p>
                     </div>
-                    <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 shrink-0">
+                    <div className="flex items-center gap-0.5 bg-white/70 border border-white/80 rounded-full p-0.5 shrink-0">
                       {(['mobile', 'desktop'] as const).map(d => (
                         <button key={d} onClick={() => setSerpDevice(d)}
-                          className={`px-2 py-1 text-[10px] font-semibold rounded-md transition-colors ${
-                            serpDevice === d ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500'
+                          className={`px-2 py-1 text-[10px] font-semibold rounded-full transition-colors ${
+                            serpDevice === d ? 'bg-brand-navy shadow-sm text-white' : 'text-gray-500'
                           }`}>
                           {d === 'mobile' ? 'Mobile' : 'Desktop'}
                         </button>
@@ -1149,7 +1191,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       value={draft.seoTitle}
                       onChange={e => setDraft({ seoTitle: e.target.value })}
                       placeholder="ชื่อที่จะแสดงบนผลการค้นหา"
-                      className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                      className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                     />
                     <MetaLengthBar len={draft.seoTitle.length} min={30} max={60} />
                   </div>
@@ -1165,7 +1207,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       onChange={e => setDraft({ slug: e.target.value })}
                       onBlur={e => setDraft({ slug: slugifyEnSlug(e.target.value) })}
                       placeholder="english-url-slug"
-                      className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                      className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                     />
                     <p className="text-[10px] text-gray-400 mt-1 truncate">
                       {siteHost ? `${siteHost}/` : '/'}{slugifyEnSlug(draft.slug)}
@@ -1185,7 +1227,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       value={draft.metaDescription}
                       onChange={e => setDraft({ metaDescription: e.target.value })}
                       placeholder="สรุปบทความ 1-2 ประโยคสำหรับผลการค้นหา"
-                      className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                      className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                     />
                     <MetaLengthBar len={draft.metaDescription.length} min={120} max={160} />
                   </div>
@@ -1195,7 +1237,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       disabled={seoSaving === entryIdx || imagesRunning}
                       title={imagesRunning ? 'รอสร้างรูปให้เสร็จก่อน' : undefined}
                       onClick={() => saveSeo(entryIdx, entry)}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors">
+                      className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-full hover:bg-brand-deep disabled:opacity-50 transition-colors">
                       {seoSaving === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
                       {seoSaving === entryIdx ? 'กำลังบันทึก...' : 'บันทึก SEO'}
                     </button>
@@ -1203,7 +1245,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                       disabled={aiMetaBusy === entryIdx || seoSaving === entryIdx || imagesRunning}
                       title="ให้ Mars เสนอ Meta Title / Description / Slug จากเนื้อหาบทความ — ยังไม่บันทึกจนกว่าจะกด บันทึก SEO"
                       onClick={() => suggestMeta(entryIdx)}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                      className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 text-[11px] font-bold rounded-full hover:bg-gray-50 disabled:opacity-50 transition-colors">
                       {aiMetaBusy === entryIdx ? <RefreshCw size={11} className="animate-spin" /> : null}
                       {aiMetaBusy === entryIdx ? 'Mars กำลังเขียน...' : 'ให้ Mars เขียน Meta + Slug'}
                     </button>
@@ -1253,18 +1295,18 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
                   </div>
                 )}
                 {html && (
-                  <div className={`bg-white border border-gray-200 rounded-xl p-4 space-y-3 ${coverControlsOff ? 'pointer-events-none opacity-50' : ''}`}>
+                  <div className={`bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3 ${coverControlsOff ? 'pointer-events-none opacity-50' : ''}`}>
                     <p className="text-xs font-bold text-brand-navy">แทรกรูปในเนื้อหา</p>
                     <input type="file" accept="image/*" onChange={e => setInsertFile(e.target.files?.[0] ?? null)} className="text-xs" />
                     <input value={insertAlt} onChange={e => setInsertAlt(e.target.value)} placeholder="Alt text ของรูป"
-                      className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+                      className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
                     <select value={insertPos} onChange={e => setInsertPos(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white">
+                      className="w-full text-xs border border-gray-200 rounded-xl px-2.5 py-2 bg-white">
                       <option value="">หลังหัวข้อ H2:</option>
                       {listH2Sections(html).map((h, i) => <option key={i} value={h.index}>{h.text}</option>)}
                     </select>
                     <button disabled={!insertFile || insertPos === '' || inserting} onClick={() => insertImageAfterH2(entryIdx, entry)}
-                      className="w-full px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors">
+                      className="w-full px-3 py-2 bg-brand-blue text-white text-[11px] font-bold rounded-full hover:bg-brand-deep disabled:opacity-50 transition-colors">
                       {inserting ? 'กำลังแทรก...' : 'แทรกรูป'}
                     </button>
                   </div>
@@ -1284,6 +1326,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
 
   return (
     <div className="space-y-4">
+      {orphanPanel}
       <div className="flex items-center gap-3 text-sm text-gray-600">
         <div className="flex items-center gap-2">
           <AlertTriangle size={14} className="text-amber-500" />
@@ -1301,26 +1344,26 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
           (หน้าโปรเจกต์มีเมนูซ้ายอีกชั้น 3 คอลัมน์ที่ lg/xl ทำให้บทความแคบจนอ่านไม่ได้) */}
       <div className={`grid grid-cols-1 gap-4 items-start lg:grid-cols-[240px_minmax(0,1fr)] ${isClient ? '' : '2xl:grid-cols-[240px_minmax(0,1fr)_360px]'}`}>
         {/* รายการบทความ */}
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <div className="px-3 py-2.5 border-b border-gray-100 space-y-1.5">
+        <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-3xl overflow-hidden">
+          <div className="px-3 py-2.5 border-b border-white/80 space-y-1.5">
             <p className="text-xs font-semibold text-gray-500">
               บทความ ({statusFilter ? `${visibleItems.length}/${reviewItems.length}` : reviewItems.length})
             </p>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as '' | ReviewListStatus)}
-              className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+              className="w-full text-xs border border-gray-200 rounded-xl px-2.5 py-1.5 bg-white">
               <option value="">ทุกสถานะ ({reviewItems.length})</option>
               {REVIEW_LIST_STATUS_OPTIONS.filter(o => statusCounts[o.value] || o.value === statusFilter).map(o => (
                 <option key={o.value} value={o.value}>{o.label} ({statusCounts[o.value] || 0})</option>
               ))}
             </select>
           </div>
-          <div className="max-h-[70vh] overflow-y-auto divide-y divide-gray-50">
+          <div className="max-h-[70vh] overflow-y-auto p-2 space-y-1.5">
             {visibleItems.map(i => i.row)}
             {!visibleItems.length && <p className="px-3 py-6 text-xs text-gray-400 text-center">ไม่มีบทความในสถานะนี้</p>}
           </div>
         </div>
         {selectedDetail ?? (
-          <div className="bg-white border border-gray-200 rounded-xl p-4 min-w-0">
+          <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-3xl p-4 min-w-0">
             <p className="text-sm text-gray-400 text-center py-10">เลือกบทความจากรายการด้านซ้าย</p>
           </div>
         )}

@@ -50,8 +50,8 @@ export default function KeywordMemoryFields({
   excludeText,
   onExcludeText,
   onSeeds,
-  fieldClass = 'w-full rounded-xl border border-[#dbe1ee] px-3 py-2 text-sm',
-  labelClass = 'mb-1 block text-[11px] font-semibold text-[#495975]',
+  fieldClass = 'w-full rounded-xl border border-gray-200 px-3 py-2 text-sm',
+  labelClass = 'mb-1 block text-[11px] font-semibold text-gray-600',
 }: Props) {
   const [handoff, setHandoff] = useState<HandoffItem[]>([]);
   const [status, setStatus] = useState<string | null>(null);
@@ -163,7 +163,7 @@ export default function KeywordMemoryFields({
           onChange={e => onExistingText(e.target.value)}
           placeholder={'รับทำ SEO | /services/seo\nSEO คืออะไร\n/blog/seo-guide'}
         />
-        <p className="mt-1 text-[10px] text-[#91a0b8]">ระบบเทียบคำใหม่กับรายการนี้ก่อนสร้างกลุ่ม/หน้าใหม่เสมอ — ซ้ำมากจะกลายเป็น “รวม/ใช้เป็นคำรอง” แทนหน้าใหม่</p>
+        <p className="mt-1 text-[10px] text-gray-400">ระบบเทียบคำใหม่กับรายการนี้ก่อนสร้างกลุ่ม/หน้าใหม่เสมอ — ซ้ำมากจะกลายเป็น “รวม/ใช้เป็นคำรอง” แทนหน้าใหม่</p>
       </div>
 
       <div>
@@ -184,7 +184,7 @@ export default function KeywordMemoryFields({
           type="button"
           onClick={save}
           disabled={busy || !loaded}
-          className="rounded-lg border border-[#dbe1ee] px-3 py-1.5 font-semibold text-[#374763] disabled:opacity-40"
+          className="rounded-xl border border-gray-200 px-3 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
         >
           บันทึกเข้าโปรเจกต์
         </button>
@@ -193,7 +193,7 @@ export default function KeywordMemoryFields({
             type="button"
             onClick={() => void refreshHandoff()}
             disabled={busy}
-            className="rounded-lg border border-[#dbe1ee] px-2.5 py-1.5 font-semibold text-[#374763] disabled:opacity-40"
+            className="rounded-xl border border-gray-200 px-2.5 py-1.5 font-semibold text-gray-700 disabled:opacity-40"
             title="โหลดรายการคำที่ Competitor Gap ส่งมาใหม่"
           >
             รีเฟรชรายการจาก Gap
@@ -204,13 +204,13 @@ export default function KeywordMemoryFields({
             type="button"
             onClick={useHandoff}
             disabled={busy}
-            className="rounded-lg bg-[#155eef] px-3 py-1.5 font-semibold text-white disabled:opacity-40"
+            className="rounded-xl bg-brand-blue px-3 py-1.5 font-semibold text-white disabled:opacity-40"
             title={handoff.slice(0, 20).map(h => h.keyword).join(', ')}
           >
             ใส่คำจาก Competitor Gap {handoff.length} คำเป็นคำตั้งต้น
           </button>
         ) : null}
-        {status ? <span className="text-[#495975]">{status}</span> : null}
+        {status ? <span className="text-gray-600">{status}</span> : null}
       </div>
     </div>
   );

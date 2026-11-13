@@ -312,7 +312,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
             <button
               onClick={generateMap}
               disabled={generating}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2.5 bg-brand-navy hover:bg-brand-deep text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
             >
               {generating
                 ? <><Loader2 className="h-4 w-4 animate-spin" />กำลังสร้าง...</>
@@ -327,7 +327,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
 
       {/* No content map yet */}
       {!contentMap && (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+        <div className="bg-white/75 rounded-2xl border border-white/80 shadow-sm backdrop-blur p-12 text-center">
           <div className="text-5xl mb-4">🗺️</div>
           <h2 className="text-lg font-bold text-brand-navy">ยังไม่มี Content Map</h2>
           <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
@@ -338,7 +338,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
           {keywordList.length === 0 && (
             <Link
               href={`/projects/${project.id}/keywords`}
-              className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl"
+              className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-brand-navy hover:bg-brand-deep text-white text-sm font-semibold rounded-xl"
             >
               ไปเพิ่ม Keywords
             </Link>
@@ -350,7 +350,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
       {contentMap && (
         <>
           {/* Selection toolbar */}
-          <div className="bg-white rounded-2xl border border-gray-100 px-5 py-3 flex items-center justify-between flex-wrap gap-3">
+          <div className="bg-white/75 rounded-2xl border border-white/80 shadow-sm backdrop-blur px-5 py-3 flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-600">
                 เลือกแล้ว <strong>{selectedCount}</strong> / {totalNew} หัวข้อ
@@ -370,7 +370,7 @@ export default function ContentMapClient({ project, contentMap: initialMap, exis
             <button
               onClick={createSelectedArticles}
               disabled={selectedCount === 0 || creating}
-              className="flex items-center gap-2 px-5 py-2.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40"
+              className="flex items-center gap-2 px-5 py-2.5 bg-brand-navy hover:bg-brand-deep text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40"
             >
               {creating
                 ? <><Loader2 className="h-4 w-4 animate-spin" />กำลังสร้าง...</>

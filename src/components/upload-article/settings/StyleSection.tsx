@@ -60,7 +60,7 @@ export default function StyleSection({
     }
   }
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+    <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-4">
       <p className="text-sm font-semibold text-brand-navy">สไตล์บทความ</p>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -106,7 +106,7 @@ export default function StyleSection({
       </div>
 
       {platform === "webflow" ? (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2 text-xs text-blue-900">
+        <div className="rounded-xl border border-brand-blue/20 bg-brand-blue/5 p-3 space-y-2 text-xs text-blue-900">
           <p className="font-semibold">Webflow ใช้ CSS จาก Custom Code ของเว็บ</p>
           <p>Webflow ตัด &lt;style&gt; ที่แนบมากับบทความทิ้งตอน push จึงไม่มีตัวเลือก embed / clean — วาง CSS ด้านล่างใน Custom Code ของเว็บแทน (สี/ฟอนต์ด้านบนใช้สร้าง CSS นี้)</p>
           <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
@@ -169,7 +169,7 @@ export default function StyleSection({
       <ArticleStructureEditor theme={themeDraft} onChange={d => setThemeDraft(p => ({ ...p, detail: d }))}
         importUrl={client?.id ? `/api/upload-article/clients/${client.id}/site-references` : undefined} />
 
-      <div className="border border-gray-100 rounded-lg">
+      <div className="border border-gray-100 rounded-xl">
         <button onClick={() => setShowFaqEditor(v => !v)} className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 hover:text-brand-navy">
           {showFaqEditor ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           หน้าตา FAQ card + ตาราง (ละเอียด){themeDraft.detail ? " · ตั้งค่าแล้ว" : ""}
@@ -186,7 +186,7 @@ export default function StyleSection({
       </Button>
       {/* fixed ไม่ใช่ sticky — main ของ layout เป็น overflow-auto ที่ไม่ scroll เอง sticky จึงไม่ติดจอ */}
       {dirty && (
-        <div className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 shadow-lg">
+        <div className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/95 pl-4 pr-2 py-1.5 shadow-lg backdrop-blur">
           <span className="text-xs text-amber-800">มีการแก้ที่ยังไม่บันทึก</span>
           <Button size="sm" disabled={savingTheme} onClick={saveTheme}>
             {savingTheme ? "กำลังบันทึก..." : "บันทึกธีม"}

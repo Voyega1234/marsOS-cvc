@@ -936,3 +936,242 @@ model UploadArticle {
   @@index([organizationId, clientId])
   @@schema("plans_seo_pipeline")
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Backlink Management & Budget Tracking (โมดูลเสริม — เพิ่มเข้ามาใหม่ทั้งชุด)
+// ตารางชุดนี้ไม่มี @relation ไปหาตารางเดิม เก็บ id เป็นข้อความธรรมดา
+// เพื่อไม่ต้องแก้ model เดิมแม้แต่บรรทัดเดียว (Project / User / Organization อ่านอย่างเดียว)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// คลังเว็บที่ซื้อ/ฝากลิงก์ได้ (Backlink Database)
+model BlmVendorSite {
+  id             String  @id @default(cuid())
+  organizationId String
+  domain         String // ตัวพิมพ์เล็ก ไม่มี protocol / www
+  siteUrl        String  @default("")
+  category       String  @default("")
+  price          Float   @default(0) // ราคาต่อลิงก์ (บาท)
+  currency       String  @default("THB")
+  domainRating   Int?
+  traffic        Int? // organic traffic ต่อเดือน
+  linkType       String  @default("dofollow") // dofollow | nofollow | sponsored
+  contactName    String  @default("")
+  contactChannel String  @default("") // อีเมล / LINE / เบอร์
+  notes          String  @default("")
+  status         String  @default("ACTIVE") // ACTIVE | INACTIVE
+  createdById    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, domain])
+  @@index([organizationId, status])
+  @@schema("plans_seo_pipeline")
+}
+
+// งบ backlink ที่อนุมัติ ต่อโปรเจกต์ ต่อเดือน
+model BlmBudget {
+  id             String @id @default(cuid())
+  organizationId String
+  projectId      String // Project.id (อ่านอย่างเดียว)
+  period         String // "YYYY-MM"
+  approvedAmount Float  @default(0) // บาท
+  note           String @default("")
+  setById        String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, projectId, period])
+  @@schema("plans_seo_pipeline")
+}
+
+// คำขอ backlink 1 ลิงก์ — ยอด reserved / actual คิดจากแถวในตารางนี้โดยตรง (ไม่มียอดสะสมแยกให้เพี้ยน)
+model BlmRequest {
+  id             String  @id @default(cuid())
+  organizationId String
+  projectId      String // Project.id (อ่านอย่างเดียว)
+  vendorSiteId   String? // BlmVendorSite.id
+  vendorDomain   String  @default("") // สำเนาชื่อเว็บ ณ ตอนขอ (เว็บในคลังถูกลบ/แก้ก็ยังอ่านได้)
+  targetUrl      String // หน้าเว็บลูกค้าที่ลิงก์ต้องชี้มา
+  anchorText     String  @default("")
+  keyword        String  @default("")
+  linkType       String  @default("dofollow")
+  quotedPrice    Float   @default(0) // ราคาที่ขอ (กันงบ)
+  actualPrice    Float? // ราคาที่จ่ายจริง
+  budgetPeriod   String // "YYYY-MM" ตัดงบเดือนไหน
+  // REQUESTED | APPROVED | REJECTED | IN_PROGRESS | PUBLISHED | VERIFIED | LOST | CANCELLED
+  status         String  @default("REQUESTED")
+  requestedById  String
+  assigneeId     String? // User.id
+  approvedById   String?
+  approvedAt     DateTime?
+  rejectReason   String  @default("")
+  dueDate        DateTime?
+  notes          String  @default("")
+
+  // หลังเผยแพร่
+  liveUrl       String  @default("") // URL หน้าที่ลิงก์อยู่จริง
+  publishedAt   DateTime?
+  lastCheckedAt DateTime?
+  checkStatus   String  @default("") // LIVE | LOST | NOFOLLOW | PAGE_ERROR | BLOCKED | ""
+  checkDetail   String  @default("")
+  foundRel      String  @default("") // ค่า rel ที่เจอจริงบนหน้า
+
+  // Asana (สร้าง/อัปเดตอัตโนมัติ)
+  asanaTaskGid   String?
+  asanaTaskUrl   String  @default("")
+  asanaCompleted Boolean @default(false)
+  asanaSyncedAt  DateTime?
+  asanaSyncError String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, projectId, budgetPeriod])
+  @@index([organizationId, status])
+  @@index([organizationId, asanaTaskGid])
+  @@schema("plans_seo_pipeline")
+}
+
+// ประวัติของคำขอ (ใครเปลี่ยนสถานะ/ราคา เมื่อไร จากที่ไหน) — เพิ่มอย่างเดียว ไม่แก้ไม่ลบ
+model BlmRequestEvent {
+  id             String  @id @default(cuid())
+  organizationId String
+  requestId      String
+  type           String // CREATED | STATUS | PRICE | ASSIGN | VERIFY | ASANA | NOTE
+  fromStatus     String  @default("")
+  toStatus       String  @default("")
+  amount         Float?
+  note           String  @default("")
+  source         String  @default("user") // user | asana | system
+  actorId        String? // User.id (ว่าง = มาจาก Asana / ระบบ)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, requestId])
+  @@schema("plans_seo_pipeline")
+}
+
+// การเชื่อม Asana ของโมดูลนี้ (1 แถวต่อองค์กร)
+model BlmAsanaConfig {
+  id               String    @id @default(cuid())
+  organizationId   String    @unique
+  tokenEnc         String    @default("") // Personal Access Token เข้ารหัสด้วย encrypt() — ว่าง = ใช้ env ASANA_ACCESS_TOKEN
+  projectGid       String    @default("")
+  projectName      String    @default("")
+  hookToken        String?   @unique // ส่วนท้ายของ URL webhook (สุ่ม เดาไม่ได้)
+  webhookGid       String    @default("")
+  webhookSecretEnc String    @default("") // X-Hook-Secret เข้ารหัส
+  webhookState     String    @default("NONE") // NONE | PENDING | ACTIVE
+  pendingUntil     DateTime?
+  lastSyncAt       DateTime?
+  lastEventAt      DateTime?
+  lastError        String    @default("")
+  updatedById      String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Article Compliance Checker (โมดูลเสริม — เพิ่มเข้ามาใหม่ทั้งชุด)
+// แยกขาดจาก Content Engine / PromptTemplate: กฎรายอุตสาหกรรมอยู่ในตารางของตัวเอง
+// โมดูลนี้อ่านบทความจากระบบเดิมอย่างเดียว ไม่เขียนกลับ
+// ═══════════════════════════════════════════════════════════════════════════
+
+// กฎ 1 ข้อ — ต้องมีแหล่งอ้างอิง + วันที่มีผล ก่อนเปิดใช้ (ACTIVE)
+model ComplianceRule {
+  id             String    @id @default(cuid())
+  organizationId String
+  industry       String // เช่น "beauty_clinic" | "finance_banking" (เพิ่มเองได้ ไม่ต้องแก้โค้ด)
+  code           String    @default("") // รหัสอ้างอิงภายใน เช่น BC-001
+  title          String
+  description    String    @default("") // กฎห้ามอะไร / ทำไม
+  ruleType       String    @default("PROHIBITED_TERM") // PROHIBITED_TERM | RISKY_TERM | CONTEXT
+  terms          String    @default("[]") // JSON string[] — คำ/วลีที่จับ (CONTEXT เว้นว่างได้)
+  severity       String    @default("MEDIUM") // CRITICAL | HIGH | MEDIUM | LOW
+  guidance       String    @default("") // ควรเขียนอย่างไรแทน
+  sourceName     String    @default("") // ชื่อประกาศ/กฎหมาย/หน่วยงาน
+  sourceUrl      String    @default("")
+  sourceRef      String    @default("") // ข้อ/มาตรา
+  effectiveDate  DateTime?
+  version        Int       @default(1)
+  status         String    @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
+  createdById    String
+  updatedById    String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, industry, status])
+  @@schema("plans_seo_pipeline")
+}
+
+// สำเนากฎทุกเวอร์ชัน (แก้กฎ 1 ครั้ง = เพิ่ม 1 แถว)
+model ComplianceRuleVersion {
+  id             String @id @default(cuid())
+  organizationId String
+  ruleId         String
+  version        Int
+  snapshot       String // JSON ของกฎทั้งข้อ ณ เวอร์ชันนั้น
+  changeNote     String @default("")
+  changedById    String
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, ruleId])
+  @@schema("plans_seo_pipeline")
+}
+
+// ผลตรวจ 1 ครั้ง — เก็บสำเนาเนื้อหา + กฎที่ใช้ ณ ตอนตรวจ (ย้อนดูได้ว่าตรวจกับอะไร)
+model ComplianceCheck {
+  id              String    @id @default(cuid())
+  organizationId  String
+  industry        String
+  articleSource   String    @default("manual") // sme | upload | manual
+  articleId       String? // Article.id หรือ UploadArticle.id (อ่านอย่างเดียว)
+  ownerLabel      String    @default("") // ชื่อโปรเจกต์/ลูกค้า ณ ตอนตรวจ
+  title           String    @default("")
+  contentHash     String    @default("")
+  contentSnapshot String    @default("") // ข้อความที่ถูกตรวจ
+  riskLevel       String    @default("NONE") // CRITICAL | HIGH | MEDIUM | LOW | NONE
+  riskScore       Int       @default(0) // 0-100
+  summary         String    @default("")
+  findings        String    @default("[]") // JSON Finding[]
+  rulesSnapshot   String    @default("[]") // JSON [{id, version, title, sourceName, sourceRef, effectiveDate}]
+  aiUsed          Boolean   @default(false)
+  aiModel         String    @default("")
+  aiError         String    @default("")
+  // PENDING_REVIEW | APPROVED | CHANGES_REQUESTED | REJECTED
+  status          String    @default("PENDING_REVIEW")
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewNote      String    @default("")
+  createdById     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, articleSource, articleId])
+  @@schema("plans_seo_pipeline")
+}
+
+// Audit log ของโมดูล Compliance — เพิ่มอย่างเดียว
+model ComplianceAuditLog {
+  id             String  @id @default(cuid())
+  organizationId String
+  checkId        String?
+  ruleId         String?
+  action         String // RULE_CREATE | RULE_UPDATE | RULE_STATUS | CHECK_RUN | CHECK_REVIEW | STARTER_IMPORT
+  detail         String  @default("{}") // JSON
+  actorId        String
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@schema("plans_seo_pipeline")
+}

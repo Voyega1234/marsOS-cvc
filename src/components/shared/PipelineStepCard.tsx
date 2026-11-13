@@ -26,9 +26,9 @@ export function PipelineStepCard({ step, count, isActive, onClick }: PipelineSte
     <div
       onClick={onClick}
       className={cn(
-        "flex flex-col gap-2 p-4 rounded-xl border-2 transition-all",
+        "flex flex-col gap-2 p-4 rounded-2xl border transition-all",
         colors.bg, colors.border,
-        isActive && "ring-2 ring-offset-2 ring-green-500",
+        isActive && "ring-2 ring-offset-2 ring-brand-blue",
         onClick && "cursor-pointer hover:shadow-md"
       )}
     >

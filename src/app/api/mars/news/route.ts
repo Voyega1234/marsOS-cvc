@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(cache.data)
   }
 
-  const built = await buildNewsResponse()
+  const built = await buildNewsResponse({ withImages: true })
   const data: MarsNewsResponse = {
     ...built,
     items: built.items.map(item => ({ ...item, excerpt: item.excerpt?.slice(0, 220) })),

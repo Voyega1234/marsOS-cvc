@@ -48,9 +48,9 @@ const SAMPLE_DEFAULTS = AVAILABLE_VARIABLES.reduce(
 );
 
 const PROVIDER_COLOR: Record<string, string> = {
-  CLAUDE: "bg-orange-50 text-orange-700 border-orange-200",
-  OPENAI: "bg-green-50 text-green-700 border-green-200",
-  GEMINI: "bg-blue-50 text-blue-700 border-blue-200",
+  CLAUDE: "bg-brand-blue/10 text-brand-blue border-brand-blue/20",
+  OPENAI: "bg-brand-mist text-brand-navy border-gray-200",
+  GEMINI: "bg-brand-blue/10 text-brand-blue border-brand-blue/20",
   CUSTOM: "bg-gray-50 text-gray-700 border-gray-100",
 };
 
@@ -157,18 +157,18 @@ export function TestPromptClient({ prompt }: Props) {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Link href={`/prompts/${prompt.id}`} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors">
+        <Link href={`/prompts/${prompt.id}`} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
           <ChevronLeft className="h-5 w-5" />
         </Link>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-brand-navy flex items-center gap-2">
-              <FlaskConical className="h-5 w-5 text-teal-600" />
+            <h1 className="page-title !text-xl flex items-center gap-2">
+              <FlaskConical className="h-5 w-5 text-brand-blue" />
               Test Prompt
             </h1>
             <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-gray-100 text-gray-600">v{prompt.version}</span>
             {prompt.isActive && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex items-center gap-1">
+              <span className="chip chip-ok">
                 <CheckCircle2 className="h-3 w-3" /> Active
               </span>
             )}
@@ -197,8 +197,8 @@ export function TestPromptClient({ prompt }: Props) {
 
         {/* Left — Variable Editor */}
         <div className="space-y-4">
-          <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-            <div className="bg-gray-50 border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="glass rounded-3xl overflow-hidden">
+            <div className="bg-white/40 border-b border-gray-100 px-4 py-3 flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-gray-700">Variable Values</h2>
                 <p className="text-xs text-gray-400 mt-0.5">{usedVarNames.length} variable{usedVarNames.length !== 1 ? "s" : ""} used in this prompt</p>
@@ -259,7 +259,7 @@ export function TestPromptClient({ prompt }: Props) {
           <Button
             onClick={handleRun}
             disabled={running}
-            className="w-full gap-2 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-xl py-3 text-base font-semibold"
+            className="w-full gap-2 bg-brand-blue hover:bg-brand-deep text-white rounded-full py-3 text-base font-semibold"
           >
             {running ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Running test…</>
@@ -269,7 +269,7 @@ export function TestPromptClient({ prompt }: Props) {
           </Button>
 
           {/* Prompt info card */}
-          <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-2">
+          <div className="glass rounded-3xl p-4 space-y-2">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Prompt Settings</h3>
             <div className="grid grid-cols-2 gap-y-2 text-xs">
               <span className="text-gray-400">Type</span>
@@ -293,9 +293,9 @@ export function TestPromptClient({ prompt }: Props) {
         {/* Right — Preview + Result */}
         <div className="space-y-4">
           {/* Compiled preview */}
-          <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+          <div className="glass rounded-3xl overflow-hidden">
             <div
-              className="bg-gray-50 border-b border-gray-100 px-4 py-3 flex items-center justify-between cursor-pointer select-none"
+              className="bg-white/40 border-b border-gray-100 px-4 py-3 flex items-center justify-between cursor-pointer select-none"
               onClick={() => setShowPreview((v) => !v)}
             >
               <div className="flex items-center gap-2">
@@ -324,7 +324,7 @@ export function TestPromptClient({ prompt }: Props) {
 
           {/* Result panel */}
           {result ? (
-            <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+            <div className="glass rounded-3xl overflow-hidden">
               {/* Stats bar */}
               <div className="bg-teal-50 border-b border-teal-200 px-4 py-3 flex items-center gap-4">
                 <span className="flex items-center gap-1.5 text-xs font-medium text-teal-700">
@@ -344,13 +344,13 @@ export function TestPromptClient({ prompt }: Props) {
                 <div className="ml-auto flex items-center gap-2">
                   <button
                     onClick={() => setShowRaw((v) => !v)}
-                    className="text-xs text-teal-600 hover:text-teal-800 flex items-center gap-1"
+                    className="text-xs text-brand-blue hover:text-teal-800 flex items-center gap-1"
                   >
                     {showRaw ? "Formatted" : "Raw"} ↕
                   </button>
                   <button
                     onClick={copyOutput}
-                    className="text-xs text-teal-600 hover:text-teal-800 flex items-center gap-1"
+                    className="text-xs text-brand-blue hover:text-teal-800 flex items-center gap-1"
                   >
                     <Copy className="h-3 w-3" /> Copy
                   </button>

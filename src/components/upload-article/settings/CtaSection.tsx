@@ -46,7 +46,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
     : "ยังใช้ไม่ได้ — ต้องมีช่องทางที่มีลิงก์/เบอร์อย่างน้อย 1 ช่อง";
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+    <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 px-4 py-3">
         <button onClick={onToggle} className="text-gray-400 hover:text-gray-600 shrink-0">
           {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -84,7 +84,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                     mode: v,
                     custom: v === "custom" && !item.custom ? defaultUploadCtaCustom(accentColor, border) : item.custom,
                   })}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${item.mode === v ? "border-gray-800 bg-gray-800 text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                  className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${item.mode === v ? "border-brand-navy bg-brand-navy text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                   {lbl}
                 </button>
               ))}
@@ -96,12 +96,12 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Headline</label>
                 <input value={item.headline} onChange={(e) => onChange({ headline: e.target.value })}
-                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/15 focus:border-brand-blue/50" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Subtext</label>
                 <input value={item.subtext} onChange={(e) => onChange({ subtext: e.target.value })}
-                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/15 focus:border-brand-blue/50" />
               </div>
             </div>
           )}
@@ -114,7 +114,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                 <div className="flex flex-wrap gap-1">
                   {([["left", "◀ ซ้าย"], ["center", "■ กลาง"], ["right", "ขวา ▶"]] as [UploadCtaItem["alignment"], string][]).map(([v, lbl]) => (
                     <button key={v} onClick={() => onChange({ alignment: v })}
-                      className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${item.alignment === v ? "border-gray-800 bg-gray-800 text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                      className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${item.alignment === v ? "border-brand-navy bg-brand-navy text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                       {lbl}
                     </button>
                   ))}
@@ -125,7 +125,7 @@ function CtaItemEditor({ item, onChange, accentColor, border, isOpen, onToggle, 
                 <div className="flex flex-wrap gap-1">
                   {([["row", "แนวนอน ▷▷"], ["column", "แนวตั้ง ↓"]] as [UploadCtaItem["buttonLayout"], string][]).map(([v, lbl]) => (
                     <button key={v} onClick={() => onChange({ buttonLayout: v })}
-                      className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${item.buttonLayout === v ? "border-gray-800 bg-gray-800 text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                      className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${item.buttonLayout === v ? "border-brand-navy bg-brand-navy text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                       {lbl}
                     </button>
                   ))}
@@ -523,7 +523,7 @@ export function CtaSettingsEditor({ loadKey, load, save: persist, accentColor, b
 
   return (
     <div className="max-w-2xl space-y-4">
-      <div className="bg-white border border-gray-200 rounded-2xl p-5">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm p-5">
         <div className="flex items-center justify-between mb-1">
           <div>
             <p className="text-sm font-bold text-brand-navy flex items-center gap-1.5"><Megaphone size={14} /> CTA (Call-to-Action)</p>
@@ -543,7 +543,7 @@ export function CtaSettingsEditor({ loadKey, load, save: persist, accentColor, b
             <select
               value={draft.perArticle}
               onChange={(e) => setDraft((p) => ({ ...p, perArticle: Number(e.target.value) }))}
-              className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-gray-200"
+              className="text-sm border border-gray-200 rounded-xl px-2.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/15"
             >
               {Array.from({ length: UPLOAD_CTA_MAX_PER_ARTICLE - UPLOAD_CTA_MIN_PER_ARTICLE + 1 }, (_, i) => UPLOAD_CTA_MIN_PER_ARTICLE + i).map((n) => (
                 <option key={n} value={n}>{n}</option>

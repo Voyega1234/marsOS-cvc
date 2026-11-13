@@ -324,8 +324,8 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
               type="button"
               onClick={() => selectItem(item)}
               className={cn(
-                "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
-                selectedId === item.id ? "border-indigo-300 bg-indigo-50/60" : "border-gray-200 bg-white hover:bg-gray-50"
+                "w-full rounded-2xl border px-3 py-2.5 text-left transition-colors",
+                selectedId === item.id ? "border-brand-blue/40 bg-brand-blue/10" : "border-white/80 bg-white/70 hover:bg-brand-mist"
               )}
             >
               <div className="flex items-center justify-between gap-2">
@@ -351,7 +351,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
               description="วางลิงก์เว็บลูกค้าหรือวางข้อความบริบท ระบบจะร่าง prompt สร้างภาพให้ แก้ต่อได้ทุกช่อง"
             />
           )}
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-brand-navy">{selectedId ? "แก้ไข Image Prompt" : "สร้าง Image Prompt ใหม่"}</h2>
@@ -403,7 +403,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-3">
                 <Label className="text-xs text-gray-600">Prompt Text</Label>
@@ -413,7 +413,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
                     value={readMidImageCount(draft.promptText)}
                     disabled={!canEdit}
                     onChange={(e) => setDraft({ ...draft, promptText: writeMidImageCount(draft.promptText, parseInt(e.target.value, 10)) })}
-                    className="h-7 rounded-md border border-gray-200 bg-white px-1.5 text-xs text-brand-navy disabled:opacity-50"
+                    className="h-7 rounded-xl border border-gray-200 bg-white px-2 text-xs text-brand-navy disabled:opacity-50"
                   >
                     {[1, 2, 3, 4, 5, 6, 7].map((n) => (
                       <option key={n} value={n}>{n} รูป</option>
@@ -425,7 +425,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
               {draft.mode === "form" && (
                 <div className="flex flex-wrap gap-1.5">
                   {IMAGE_PROMPT_VARIABLES.map((v) => (
-                    <span key={v} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-mono text-[11px] text-gray-500">
+                    <span key={v} className="rounded-full border border-gray-200 bg-brand-mist px-2 py-0.5 font-mono text-[11px] text-gray-500">
                       {v}
                     </span>
                   ))}
@@ -450,7 +450,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
             )}
           </div>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <Label className="text-xs text-gray-600">Reference &amp; Brand assets</Label>
               <span className="text-[11px] text-gray-400">
@@ -464,12 +464,12 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => { e.preventDefault(); if (canEdit) addReferenceImages(e.dataTransfer.files); }}
                 className={cn(
-                  "flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50/50 p-3",
+                  "flex flex-wrap items-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-white/50 p-3",
                   !canEdit && "opacity-60"
                 )}
               >
                 {draft.referenceImages.map((src, idx) => (
-                  <div key={idx} className="relative h-20 w-20 overflow-hidden rounded-md border border-gray-200">
+                  <div key={idx} className="relative h-20 w-20 overflow-hidden rounded-xl border border-gray-200">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={src} alt={`ภาพอ้างอิง ${idx + 1}`} className="h-full w-full object-cover" />
                     {canEdit && (
@@ -484,7 +484,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
                   </div>
                 ))}
                 {canEdit && draft.referenceImages.length < MAX_REFERENCE_IMAGES && (
-                  <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-gray-300 bg-white text-gray-400 hover:bg-gray-50">
+                  <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-gray-300 bg-white text-gray-400 hover:bg-brand-mist">
                     <Upload className="size-4" />
                     <span className="text-[10px]">เพิ่มภาพ</span>
                     <input
@@ -504,7 +504,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
               <Label className="text-xs text-gray-600">โลโก้แบรนด์</Label>
               <div className="flex items-center gap-2">
                 {draft.logoImage ? (
-                  <div className="relative h-16 w-16 overflow-hidden rounded-md border border-gray-200 bg-white">
+                  <div className="relative h-16 w-16 overflow-hidden rounded-xl border border-gray-200 bg-white">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={draft.logoImage} alt="โลโก้แบรนด์" className="h-full w-full object-contain" />
                     {canEdit && (
@@ -519,7 +519,7 @@ export function ImagePromptsTab({ items, scope, canEdit }: Props) {
                   </div>
                 ) : (
                   canEdit && (
-                    <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-gray-300 bg-gray-50/50 text-gray-400 hover:bg-gray-50">
+                    <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-gray-300 bg-white/50 text-gray-400 hover:bg-brand-mist">
                       <Upload className="size-4" />
                       <span className="text-[10px]">โลโก้</span>
                       <input

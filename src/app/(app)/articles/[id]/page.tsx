@@ -3,12 +3,15 @@ import { notFound } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { NOT_PROPOSAL_WHERE } from "@/lib/client-proposal/store";
 import { ArticleDetailClient } from "@/components/articles/ArticleDetailClient";
 
 export const metadata: Metadata = { title: "Article Detail" };
 
 export default async function ArticleDetailPage({ params }: { params: { id: string } }) {
   const session = await getSession();
+  // ไม่มี session = ไม่โหลดบทความ (CLIENT ได้ null ที่หน้านี้เสมอ — ดู getSession ใน src/lib/auth.ts)
+  if (!session) notFound();
 
   const article = await prisma.article.findUnique({
     where: { id: params.id },
@@ -20,7 +23,8 @@ export default async function ArticleDetailPage({ params }: { params: { id: stri
       assignedTo: true,
       reviewer: true,
       createdBy: true,
-      versions: { orderBy: { versionNumber: "desc" }, take: 10 },
+      // แถว "ลูกค้าเสนอแก้ไข" เก็บในตารางเดียวกัน แต่ไม่ใช่เวอร์ชันของบทความ
+      versions: { where: NOT_PROPOSAL_WHERE, orderBy: { versionNumber: "desc" }, take: 10 },
       reviews: { include: { reviewer: true }, orderBy: { createdAt: "desc" }, take: 5 },
       comments: { include: { user: true }, orderBy: { createdAt: "desc" }, take: 20 },
       aiJobs: { orderBy: { createdAt: "desc" }, take: 10 },
@@ -46,7 +50,7 @@ export default async function ArticleDetailPage({ params }: { params: { id: stri
     <ArticleDetailClient
       article={article}
       users={users}
-      currentUser={session!.user}
+      currentUser={session.user}
       projectArticles={projectArticles}
     />
   );

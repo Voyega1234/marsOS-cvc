@@ -216,11 +216,11 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
   };
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-white/80 bg-white/70 p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <ScanSearch className="h-4 w-4 text-indigo-500" />
+            <ScanSearch className="h-4 w-4 text-brand-blue" />
             <h3 className="text-sm font-semibold text-brand-navy">สแกนเว็บไซต์หาสิ่งที่ต้องแก้</h3>
           </div>
           <p className="mt-1 text-xs text-gray-500">
@@ -231,7 +231,7 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
         <button
           onClick={scan}
           disabled={scanning || readOnly}
-          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
           {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanSearch className="h-4 w-4" />}
           {scanning ? "กำลังสแกน" : result ? "สแกนใหม่" : "สแกนเว็บไซต์"}
@@ -268,7 +268,7 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
                     onClick={() =>
                       setSelected(selected.size === findings.length ? new Set() : new Set(findings.map((f) => f.id)))
                     }
-                    className="ml-3 text-xs text-indigo-600 hover:underline"
+                    className="ml-3 text-xs text-brand-blue hover:underline"
                   >
                     {selected.size === findings.length ? "ล้างที่เลือก" : "เลือกทั้งหมด"}
                   </button>
@@ -286,7 +286,7 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
                     <button
                       onClick={createTasks}
                       disabled={creating || selected.size === 0}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-brand-blue/30 bg-brand-blue/10 px-3 py-1.5 text-xs font-semibold text-brand-blue disabled:opacity-50"
                     >
                       {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                       {creating
@@ -327,7 +327,7 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
                             ) : null}
                             <span className="text-sm font-medium text-brand-navy">{f.title}</span>
                             {f.aiSuggest && (
-                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
+                              <span className="rounded-full bg-brand-blue/10 px-2 py-0.5 text-[10px] font-medium text-brand-blue">
                                 AI แนะนำข้อความ
                               </span>
                             )}
@@ -340,7 +340,7 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
                             {f.affected.length > 0 && (
                               <button
                                 onClick={() => setOpenAffected((s) => toggle(s, f.id))}
-                                className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:underline"
+                                className="inline-flex items-center gap-1 text-[11px] text-brand-blue hover:underline"
                               >
                                 {affectedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                 ดูรายหน้า ({f.affected.length})
@@ -348,7 +348,7 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
                             )}
                             <button
                               onClick={() => setOpenEvidence((s) => toggle(s, f.id))}
-                              className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:underline"
+                              className="inline-flex items-center gap-1 text-[11px] text-brand-blue hover:underline"
                             >
                               {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                               หลักฐาน

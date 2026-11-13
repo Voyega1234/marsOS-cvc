@@ -19,7 +19,7 @@ type Busy = "" | "cover" | "inline" | "remove";
 
 function TextToggle({ value, onChange, disabled }: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-[11px]">
+    <div className="inline-flex rounded-full border border-gray-200 overflow-hidden text-[11px]">
       {[{ v: true, l: "มีตัวหนังสือ" }, { v: false, l: "ภาพล้วน" }].map(o => (
         <button key={String(o.v)} type="button" disabled={disabled} onClick={() => onChange(o.v)}
           className={`px-2.5 py-1 ${value === o.v ? "bg-brand-blue text-white" : "bg-white text-gray-600 hover:bg-gray-50"} disabled:opacity-40`}>
@@ -100,7 +100,7 @@ export default function AiImagesPanel({ client, detail, applyArticleUpdate }: {
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
       <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><Sparkles size={12} /> สร้างรูปด้วย Mars</p>
       <p className="text-[11px] text-gray-500">ใช้ Image Prompt + ภาพตัวอย่างจาก Content Engine ของลูกค้านี้ · ใช้เวลาประมาณ 1-2 นาที</p>
 
@@ -120,7 +120,7 @@ export default function AiImagesPanel({ client, detail, applyArticleUpdate }: {
           <span className="text-[11px] text-gray-500 mr-1">จำนวน</span>
           {Array.from({ length: UPLOAD_MAX_INLINE_IMAGES }, (_, i) => i + 1).map(n => (
             <button key={n} type="button" disabled={!!busy || locked} onClick={() => setInlineCount(n)}
-              className={`w-7 h-7 rounded-md border text-[11px] ${inlineCount === n ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+              className={`w-7 h-7 rounded-full border text-[11px] ${inlineCount === n ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
               {n}
             </button>
           ))}

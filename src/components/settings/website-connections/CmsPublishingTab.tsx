@@ -40,7 +40,7 @@ export function CmsPublishingTab() {
                 m.disabled
                   ? "border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed"
                   : mode === m.id
-                  ? "border-indigo-300 bg-indigo-50/50 cursor-pointer"
+                  ? "border-brand-blue/40 bg-brand-blue/10 cursor-pointer"
                   : "border-gray-200 hover:border-gray-300 cursor-pointer"
               }`}
             >
@@ -55,7 +55,7 @@ export function CmsPublishingTab() {
               <div>
                 <p className="text-sm font-semibold text-brand-navy">
                   {m.label}
-                  {m.default && <span className="ml-2 text-[10px] font-medium text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded-full">Default</span>}
+                  {m.default && <span className="ml-2 text-[10px] font-medium text-brand-blue bg-brand-blue/10 px-1.5 py-0.5 rounded-full">Default</span>}
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">{m.desc}</p>
                 {m.note && <p className="text-xs text-amber-600 mt-1 font-medium">{m.note}</p>}
@@ -70,7 +70,7 @@ export function CmsPublishingTab() {
           {PUBLISH_FLOW_STEPS.map((step, idx) => (
             <li key={step} className="flex items-start gap-3">
               <div className="flex flex-col items-center">
-                <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-brand-blue text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0">
                   {idx + 1}
                 </div>
                 {idx < PUBLISH_FLOW_STEPS.length - 1 && <div className="w-px flex-1 bg-gray-200 min-h-[16px]" />}
@@ -85,7 +85,7 @@ export function CmsPublishingTab() {
         title="Publish Configuration"
         description="ค่าเริ่มต้นสำหรับการสร้าง CMS Draft และ Publish"
         action={
-          <button onClick={handleSave} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold">
+          <button onClick={handleSave} className="px-4 py-2 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-xs font-semibold">
             บันทึก
           </button>
         }
@@ -106,7 +106,7 @@ export function CmsPublishingTab() {
               <input
                 value={config[key]}
                 onChange={(e) => updateConfig(key, e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
               />
             </div>
           ))}
@@ -121,7 +121,7 @@ export function CmsPublishingTab() {
         </div>
       </SectionCard>
 
-      <div className="bg-white rounded-2xl border-2 border-rose-200 overflow-hidden">
+      <div className="glass rounded-3xl border-2 border-rose-200 overflow-hidden">
         <div className="flex items-center gap-2 px-6 py-4 border-b border-rose-100 bg-rose-50">
           <ShieldAlert className="h-4 w-4 text-rose-600" />
           <h2 className="text-sm font-bold text-rose-700">ข้อห้ามในการ Publish</h2>

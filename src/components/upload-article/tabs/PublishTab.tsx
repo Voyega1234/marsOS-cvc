@@ -19,7 +19,7 @@ export default function PublishTab({
 
   if (list.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 gap-3 text-center bg-white border border-gray-200 rounded-xl">
+      <div className="flex flex-col items-center justify-center py-16 gap-3 text-center bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl">
         <Globe size={32} className="text-gray-200" />
         <p className="text-gray-400 text-sm">ยังไม่มีบทความที่ Push</p>
       </div>
@@ -27,10 +27,10 @@ export default function PublishTab({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm">
+    <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl overflow-hidden overflow-x-auto">
+      <table className="tbl w-full min-w-[640px] text-sm">
         <thead>
-          <tr className="border-b border-gray-100 bg-gray-50">
+          <tr>
             <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">ชื่อบทความ</th>
             <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">สถานะ</th>
             <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">โหมด</th>
@@ -40,7 +40,7 @@ export default function PublishTab({
         </thead>
         <tbody className="divide-y divide-gray-50">
           {list.map(a => (
-            <tr key={a.id} className="hover:bg-gray-50/60">
+            <tr key={a.id} className="hover:bg-brand-mist/60">
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2">
                   <p className="font-medium text-brand-navy truncate max-w-sm">{a.title}</p>
@@ -58,7 +58,7 @@ export default function PublishTab({
               <td className="px-4 py-3"><UploadStatusBadge status={a.status} /></td>
               <td className="px-4 py-3 text-xs">
                 {a.pushMode && (
-                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${a.pushMode === "publish" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-brand-blue"}`}>
+                  <span className={`chip ${a.pushMode === "publish" ? "chip-ok" : "chip-info"}`}>
                     {a.pushMode === "publish" ? "Publish" : "Draft"}
                   </span>
                 )}

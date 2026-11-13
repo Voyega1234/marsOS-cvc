@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { AdminUsersClient } from "@/components/admin/AdminUsersClient";
+import { PageHeader } from "@/components/ds";
 
 export const metadata: Metadata = { title: "จัดการ Users" };
 
@@ -32,10 +33,7 @@ export default async function AdminUsersPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-brand-navy">จัดการ Users</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{users.length} users ในองค์กร</p>
-      </div>
+      <PageHeader eyebrow="Admin" title="จัดการ Users" subtitle={`${users.length} users ในองค์กร`} />
       <AdminUsersClient
         users={users.map((u) => ({
           id: u.id,

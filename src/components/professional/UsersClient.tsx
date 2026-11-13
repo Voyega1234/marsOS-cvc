@@ -143,7 +143,7 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
           const count = users.filter((u) => u.role === role).length;
           const cfg = ROLE_CONFIG[role];
           return (
-            <div key={role} className="bg-white border border-gray-100 rounded-xl p-4">
+            <div key={role} className="glass rounded-2xl p-4">
               <p className={`text-2xl font-bold ${cfg.color}`}>{count}</p>
               <p className="text-xs text-gray-500 mt-0.5">{cfg.label}</p>
             </div>
@@ -154,17 +154,17 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
       {/* Invite Button */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">{users.length} total users</p>
-        <Button onClick={() => setShowInvite(true)} className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-xl gap-2">
+        <Button onClick={() => setShowInvite(true)} className="bg-brand-blue hover:bg-brand-deep text-white rounded-full gap-2">
           <Plus className="h-4 w-4" />
           Add User
         </Button>
       </div>
 
       {/* Users Table */}
-      <div className="bg-white border border-gray-100 rounded-xl overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
+      <div className="glass rounded-3xl overflow-x-auto">
+        <table className="tbl w-full text-sm min-w-[640px]">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
+            <tr>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
@@ -172,38 +172,38 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody>
             {users.map((user) => {
               const roleCfg = ROLE_CONFIG[user.role as Role];
               const isMe = user.id === currentUserId;
               return (
-                <tr key={user.id} className="hover:bg-gray-50/50 transition-colors group">
+                <tr key={user.id} className="transition-colors group">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-brand-blue/10 text-brand-blue flex items-center justify-center text-sm font-bold flex-shrink-0">
                         {user.name?.[0]?.toUpperCase() ?? "?"}
                       </div>
                       <div>
                         <p className="text-sm font-medium text-brand-navy">
                           {user.name}
-                          {isMe && <span className="ml-2 text-xs text-green-600 font-normal">(You)</span>}
+                          {isMe && <span className="ml-2 text-xs text-brand-blue font-normal">(You)</span>}
                         </p>
                         <p className="text-xs text-gray-400">{user.email}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs font-medium ${roleCfg?.color ?? "text-gray-600"}`}>
+                    <span className="chip chip-info">
                       {roleCfg?.label ?? user.role}
                     </span>
                     <p className="text-xs text-gray-400 mt-0.5 max-w-xs line-clamp-1">{ROLE_DESCS[user.role] ?? ""}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                      user.status === "ACTIVE" ? "bg-green-100 text-green-700" :
-                      user.status === "INACTIVE" ? "bg-gray-100 text-gray-500" :
-                      "bg-yellow-100 text-yellow-700"
-                    }`}>
+                    <span className={
+                      user.status === "ACTIVE" ? "chip chip-ok" :
+                      user.status === "INACTIVE" ? "chip chip-muted" :
+                      "chip chip-warn"
+                    }>
                       {user.status}
                     </span>
                   </td>
@@ -212,7 +212,7 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
                     {!isMe && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button disabled={loadingId === user.id} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-40">
+                          <button disabled={loadingId === user.id} className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 md:opacity-0 md:group-hover:opacity-100 transition-opacity disabled:opacity-40">
                             {loadingId === user.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
                           </button>
                         </DropdownMenuTrigger>
@@ -251,16 +251,16 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
       </div>
 
       {/* Role Reference */}
-      <div className="bg-white border border-gray-100 rounded-xl p-5">
+      <div className="glass rounded-3xl p-5">
         <p className="text-sm font-semibold text-brand-navy mb-4 flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-green-600" />
+          <ShieldCheck className="h-4 w-4 text-brand-blue" />
           Role Permissions Reference
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {roleGroups.map((role) => {
             const cfg = ROLE_CONFIG[role];
             return (
-              <div key={role} className="p-3 border border-gray-100 rounded-xl">
+              <div key={role} className="p-3 border border-white/80 bg-white/60 rounded-2xl">
                 <p className={`text-xs font-bold ${cfg.color} mb-1`}>{cfg.label}</p>
                 <p className="text-xs text-gray-500 leading-relaxed">{ROLE_DESCS[role]}</p>
               </div>
@@ -271,10 +271,10 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
 
       {/* Edit User Dialog */}
       <Dialog open={!!editUser} onOpenChange={(v) => !v && setEditUser(null)}>
-        <DialogContent className="sm:max-w-sm rounded-2xl">
+        <DialogContent className="sm:max-w-sm rounded-3xl glass-strong">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Edit2 className="h-4 w-4 text-green-600" />
+              <Edit2 className="h-4 w-4 text-brand-blue" />
               แก้ไข — {editUser?.name}
             </DialogTitle>
             <DialogDescription>{editUser?.email}</DialogDescription>
@@ -308,8 +308,8 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditUser(null)} className="rounded-xl">ยกเลิก</Button>
-            <Button onClick={handleEditSave} disabled={editSaving} className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-xl gap-2">
+            <Button variant="outline" onClick={() => setEditUser(null)} className="rounded-full">ยกเลิก</Button>
+            <Button onClick={handleEditSave} disabled={editSaving} className="bg-brand-blue hover:bg-brand-deep text-white rounded-full gap-2">
               {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               บันทึก
             </Button>
@@ -319,10 +319,10 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
 
       {/* Add User Dialog */}
       <Dialog open={showInvite} onOpenChange={setShowInvite}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
+        <DialogContent className="sm:max-w-md rounded-3xl glass-strong">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-green-600" />
+              <Plus className="h-5 w-5 text-brand-blue" />
               Add New User
             </DialogTitle>
             <DialogDescription>Create a new team member account</DialogDescription>
@@ -383,8 +383,8 @@ export function UsersClient({ users: initialUsers, currentUserId }: Props) {
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowInvite(false)} className="rounded-xl">Cancel</Button>
-              <Button type="submit" disabled={submitting} className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-xl gap-2">
+              <Button type="button" variant="outline" onClick={() => setShowInvite(false)} className="rounded-full">Cancel</Button>
+              <Button type="submit" disabled={submitting} className="bg-brand-blue hover:bg-brand-deep text-white rounded-full gap-2">
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                 Add User
               </Button>

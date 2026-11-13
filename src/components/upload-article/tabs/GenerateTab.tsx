@@ -240,7 +240,7 @@ export default function GenerateTab({
         ระบบไม่เขียนเนื้อหาเพิ่ม — จัดโครงสร้าง ใส่ Schema, Breadcrumb, FAQ, สารบัญ ให้เท่านั้น
       </p>
 
-      <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+      <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 text-xs text-gray-600 flex-wrap">
           <span className="font-semibold text-brand-navy">สไตล์บทความ:</span>
           <span>{fontLabel(client.theme.fontFamily)}</span>
@@ -258,7 +258,7 @@ export default function GenerateTab({
 
       <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-4 items-start">
         {/* ตัวเลือก generate + checklist บทความ */}
-        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+        <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-4">
           <div>
             <label className="block text-[11px] font-semibold text-gray-500 mb-1.5">รูปแบบผลลัพธ์</label>
             <div className="flex flex-col gap-2 text-xs">
@@ -319,7 +319,7 @@ export default function GenerateTab({
                   <label className="flex items-center gap-1.5 text-[11px] text-gray-600">
                     จำนวน
                     <select value={opts.inlineCount} onChange={e => setOpt("inlineCount", Number(e.target.value))}
-                      className="text-[11px] border border-gray-200 rounded px-1.5 py-0.5 bg-white">
+                      className="text-[11px] border border-gray-200 rounded-lg px-1.5 py-0.5 bg-white">
                       {Array.from({ length: UPLOAD_MAX_INLINE_IMAGES }, (_, i) => i + 1).map(n => (
                         <option key={n} value={n}>{n} รูป</option>
                       ))}
@@ -370,7 +370,7 @@ export default function GenerateTab({
         </div>
 
         {/* พรีวิว */}
-        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3 min-w-0">
+        <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3 min-w-0">
           {!selected ? (
             <p className="text-sm text-gray-400 text-center py-10">เลือกบทความจากรายการด้านซ้ายเพื่อดูตัวอย่าง</p>
           ) : (
@@ -380,7 +380,7 @@ export default function GenerateTab({
                 <div className="flex items-center gap-1.5">
                   {(["preview", "html", "text"] as const).map(m => (
                     <button key={m} onClick={() => setPreviewMode(m)}
-                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${previewMode === m ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"}`}>
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-colors ${previewMode === m ? "bg-brand-navy text-white border-brand-navy" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"}`}>
                       {m === "preview" ? "Preview" : m === "html" ? "HTML code" : "Text"}
                     </button>
                   ))}

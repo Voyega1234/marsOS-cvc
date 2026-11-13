@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ActivityLogsClient } from "@/components/professional/ActivityLogsClient";
+import { PageHeader } from "@/components/ds";
 
 export const metadata: Metadata = { title: "Activity Logs" };
 
@@ -22,10 +23,7 @@ export default async function ActivityLogsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-brand-navy">Activity Logs</h1>
-        <p className="text-sm text-gray-500 mt-0.5">ทุกการกระทำในระบบ — ใครทำอะไร เมื่อไร</p>
-      </div>
+      <PageHeader eyebrow="Admin" title="Activity Logs" subtitle="ทุกการกระทำในระบบ — ใครทำอะไร เมื่อไร" />
       <ActivityLogsClient users={users} />
     </div>
   );

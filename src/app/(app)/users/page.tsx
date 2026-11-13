@@ -3,6 +3,7 @@ import { Metadata } from "next";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { UsersClient } from "@/components/professional/UsersClient";
+import { PageHeader } from "@/components/ds";
 
 export const metadata: Metadata = { title: "Users & Roles" };
 
@@ -26,10 +27,7 @@ export default async function UsersPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-brand-navy">Users & Roles</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{users.length} team members</p>
-      </div>
+      <PageHeader eyebrow="Team" title="Users & Roles" subtitle={`${users.length} team members`} />
       <UsersClient
         users={users.map((u) => ({
           id: u.id,

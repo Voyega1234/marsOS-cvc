@@ -49,7 +49,7 @@ export function CreateProjectButton({ orgId, userId }: Props) {
         <Plus className="h-4 w-4" /> สร้างโปรเจ็กต์ใหม่
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg rounded-3xl glass-strong">
           <DialogHeader>
             <DialogTitle>สร้างโปรเจ็กต์ใหม่</DialogTitle>
           </DialogHeader>

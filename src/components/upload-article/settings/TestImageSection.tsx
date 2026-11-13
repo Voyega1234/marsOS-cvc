@@ -80,13 +80,13 @@ export default function TestImageSection({ client }: { client: UploadClientDTO }
 
   return (
     <div className="max-w-3xl space-y-5">
-      <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+      <div className="bg-white/75 rounded-2xl border border-white/80 shadow-sm p-5 space-y-4">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
-            <Sparkles size={18} className="text-purple-600" />
+          <div className="w-9 h-9 rounded-xl bg-brand-blue/10 flex items-center justify-center shrink-0">
+            <Sparkles size={18} className="text-brand-blue" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-900">Test Image — ลองสร้างรูปจาก Image Prompt</h3>
+            <h3 className="text-sm font-bold text-brand-navy">Test Image — ลองสร้างรูปจาก Image Prompt</h3>
             <p className="text-xs text-gray-500 mt-0.5">
               ใช้ Image Prompt ที่ Active ของลูกค้านี้ + ภาพอ้างอิง/โลโก้ที่แนบไว้ใน Content Engine ผ่านท่อเดียวกับตอนสร้างรูปบทความจริง
             </p>
@@ -100,7 +100,7 @@ export default function TestImageSection({ client }: { client: UploadClientDTO }
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="เช่น คอนโดใกล้ BTS"
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+              className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/15"
             />
           </label>
           <label className="block">
@@ -109,20 +109,20 @@ export default function TestImageSection({ client }: { client: UploadClientDTO }
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="หัวเรื่องที่จะขึ้นบนปก"
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+              className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/15"
             />
           </label>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-full p-1">
             {(["cover", "mid"] as const).map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setType(t)}
-                className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
-                  type === t ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  type === t ? "bg-white shadow-sm text-brand-navy" : "text-gray-500 hover:text-gray-700"
                 }`}
               >
                 {t === "cover" ? "รูปปก (cover)" : "รูปในบทความ (mid)"}
@@ -133,7 +133,7 @@ export default function TestImageSection({ client }: { client: UploadClientDTO }
             type="button"
             onClick={generate}
             disabled={busy}
-            className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm font-semibold rounded-xl hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-brand-deep disabled:opacity-50 transition-colors"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
             {busy ? "กำลังสร้างรูป..." : "ให้ Mars ลองสร้างรูป"}
@@ -147,14 +147,14 @@ export default function TestImageSection({ client }: { client: UploadClientDTO }
       </div>
 
       {results.map((r, i) => (
-        <div key={`${r.at.getTime()}-${i}`} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div key={`${r.at.getTime()}-${i}`} className="bg-white/75 rounded-2xl border border-white/80 shadow-sm overflow-hidden">
           <div className="flex flex-col lg:flex-row">
             <div className="lg:w-2/3 bg-gray-50 flex items-center justify-center p-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={r.src} alt={r.title} className="max-w-full max-h-[520px] rounded-lg object-contain" />
             </div>
             <div className="lg:w-1/3 p-4 text-xs space-y-2">
-              <div className="font-semibold text-gray-900 text-sm">{r.title}</div>
+              <div className="font-semibold text-brand-navy text-sm">{r.title}</div>
               <div className="text-gray-500">keyword: {r.keyword} · {r.type === "cover" ? "รูปปก" : "รูปในบทความ"}</div>
               {r.meta ? (
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-gray-700 pt-1">
@@ -171,7 +171,7 @@ export default function TestImageSection({ client }: { client: UploadClientDTO }
                 <div className="text-gray-400">ไม่มีข้อมูล meta จากเซิร์ฟเวอร์</div>
               )}
               <div className="text-gray-400 pt-1">{Math.round(r.elapsedMs / 1000)} วินาที · {r.at.toLocaleTimeString("th-TH")}</div>
-              <a href={r.src} download={`test-${r.type}-${r.keyword}.${r.ext}`} className="inline-block text-purple-600 hover:underline pt-1">ดาวน์โหลดรูป</a>
+              <a href={r.src} download={`test-${r.type}-${r.keyword}.${r.ext}`} className="inline-block text-brand-blue hover:underline pt-1">ดาวน์โหลดรูป</a>
             </div>
           </div>
         </div>

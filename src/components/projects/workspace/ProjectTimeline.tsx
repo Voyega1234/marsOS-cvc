@@ -405,19 +405,19 @@ export function ProjectTimeline({ project, userRole }: Props) {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="animate-pulse rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="animate-pulse rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
           <div className="h-5 w-40 rounded bg-gray-100" />
           <div className="mt-2 h-4 w-64 rounded bg-gray-100" />
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div key={i} className="h-40 animate-pulse rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
               <div className="h-4 w-24 rounded bg-gray-100" />
               <div className="mt-4 h-24 rounded bg-gray-50" />
             </div>
           ))}
         </div>
-        <div className="h-64 animate-pulse rounded-2xl border border-gray-200 bg-white p-4 shadow-sm" />
+        <div className="h-64 animate-pulse rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm" />
       </div>
     );
   }
@@ -425,7 +425,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-brand-navy">Project Timeline</h2>
@@ -435,12 +435,12 @@ export function ProjectTimeline({ project, userRole }: Props) {
           </div>
 
           {!error && hasAnyData && (
-            <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            <div className="seg">
               <button
                 type="button"
                 onClick={() => setViewMode("gantt")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                  viewMode === "gantt" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                className={`flex items-center gap-1.5 seg-item transition ${
+                  viewMode === "gantt" ? "bg-white text-brand-blue shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}
               >
                 <CalendarDays className="h-4 w-4" />
@@ -449,8 +449,8 @@ export function ProjectTimeline({ project, userRole }: Props) {
               <button
                 type="button"
                 onClick={() => setViewMode("list")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                  viewMode === "list" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                className={`flex items-center gap-1.5 seg-item transition ${
+                  viewMode === "list" ? "bg-white text-brand-blue shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}
               >
                 <ListIcon className="h-4 w-4" />
@@ -459,8 +459,8 @@ export function ProjectTimeline({ project, userRole }: Props) {
               <button
                 type="button"
                 onClick={() => setViewMode("kanban")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                  viewMode === "kanban" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                className={`flex items-center gap-1.5 seg-item transition ${
+                  viewMode === "kanban" ? "bg-white text-brand-blue shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}
               >
                 <LayoutGrid className="h-4 w-4" />
@@ -475,7 +475,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as DerivedStatus | "all")}
-              className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-indigo-400 focus:outline-none"
+              className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-brand-blue focus:outline-none"
             >
               <option value="all">สถานะทั้งหมด</option>
               {STATUS_LIST.map((s) => (
@@ -488,7 +488,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
             <select
               value={monthFilter}
               onChange={(e) => setMonthFilter(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-indigo-400 focus:outline-none"
+              className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-brand-blue focus:outline-none"
             >
               <option value="all">เดือนทั้งหมด</option>
               {availableMonths.map((m) => (
@@ -502,7 +502,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                className="text-sm font-medium text-brand-blue hover:text-brand-blue"
               >
                 ล้างตัวกรอง
               </button>
@@ -516,11 +516,11 @@ export function ProjectTimeline({ project, userRole }: Props) {
       </div>
 
       {/* ── ช่วงเวลาโปรเจกต์ — ทีมกำหนดเอง งานทุกอย่างยึดตามช่วงนี้ ── */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-brand-navy">
-              <CalendarDays className="h-4 w-4 text-indigo-600" />
+              <CalendarDays className="h-4 w-4 text-brand-blue" />
               ช่วงเวลาทำงานของโปรเจกต์
             </h3>
             <p className="mt-1 text-xs text-gray-500">
@@ -532,7 +532,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
               type="button"
               onClick={savePlan}
               disabled={savingPlan || !planDirty}
-              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-blue disabled:opacity-40"
             >
               {savingPlan ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               {savingPlan ? "กำลังบันทึก" : "บันทึกช่วงเวลา"}
@@ -549,7 +549,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
               max={planDraft.endDate ?? undefined}
               disabled={isReadOnly}
               onChange={(e) => setPlanDraft((p) => ({ ...p, startDate: e.target.value || null }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
             />
           </div>
           <div>
@@ -560,7 +560,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
               min={planDraft.startDate ?? undefined}
               disabled={isReadOnly}
               onChange={(e) => setPlanDraft((p) => ({ ...p, endDate: e.target.value || null }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
             />
           </div>
           <div>
@@ -571,7 +571,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
               disabled={isReadOnly}
               placeholder="เช่น งวดที่ 1 — SEO ฐานราก + บทความชุดแรก"
               onChange={(e) => setPlanDraft((p) => ({ ...p, note: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-indigo-400 focus:outline-none disabled:bg-gray-50"
+              className="w-full rounded-xl border border-gray-200 px-3 py-1.5 text-sm text-gray-700 focus:border-brand-blue focus:outline-none disabled:bg-gray-50"
             />
           </div>
         </div>
@@ -618,14 +618,14 @@ export function ProjectTimeline({ project, userRole }: Props) {
           <button
             type="button"
             onClick={() => fetchData()}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-red-300 bg-white px-3.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             ลองใหม่
           </button>
         </div>
       ) : !hasAnyData ? (
-        <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
+        <div className="rounded-2xl border border-dashed border-gray-300 bg-white/60 p-10 text-center shadow-sm">
           <CalendarDays className="mx-auto h-10 w-10 text-gray-300" />
           <p className="mt-3 text-sm font-medium text-gray-700">ยังไม่มีแผนงาน</p>
           <p className="mt-1 text-sm text-gray-500">
@@ -644,7 +644,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
           {/* Summary strip */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             {/* Status Donut */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
               <h3 className="mb-3 text-sm font-semibold text-brand-navy">สรุปสถานะบทความ</h3>
               <div className="flex items-center gap-4">
                 <svg viewBox="0 0 100 100" className="h-28 w-28 shrink-0">
@@ -707,7 +707,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
             </div>
 
             {/* Progress */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
               <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-brand-navy">
                 <CheckCircle2 className="h-4 w-4 text-teal-600" />
                 ความคืบหน้าโดยรวม
@@ -722,9 +722,9 @@ export function ProjectTimeline({ project, userRole }: Props) {
             </div>
 
             {/* SEO tasks mini card */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
               <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-brand-navy">
-                <ClipboardList className="h-4 w-4 text-indigo-600" />
+                <ClipboardList className="h-4 w-4 text-brand-blue" />
                 งาน SEO
               </h3>
               <div className="flex items-center gap-6">
@@ -745,7 +745,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
           </div>
 
           {/* Main view area */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
             {viewMode === "gantt" && (
               <GanttView
                 plan={plan}
@@ -769,7 +769,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
           </div>
 
           {seoTasksNoDue.length > 0 && (
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
               <h3 className="mb-3 text-sm font-semibold text-brand-navy">งาน SEO ที่ยังไม่มีกำหนด ({seoTasksNoDue.length})</h3>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {seoTasksNoDue.map((t) => {
@@ -779,7 +779,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
                       key={t.id}
                       type="button"
                       onClick={() => setSelected({ kind: "seo", item: t })}
-                      className="rounded-lg border border-gray-200 p-2.5 text-left text-xs transition hover:border-indigo-300 hover:shadow"
+                      className="rounded-lg border border-gray-200 p-2.5 text-left text-xs transition hover:border-brand-blue/30 hover:shadow"
                     >
                       <p className="font-medium text-brand-navy">{t.title}</p>
                       <div className="mt-1.5 flex items-center gap-2">
@@ -887,7 +887,7 @@ function GanttView({
               <div className="w-48 shrink-0 pr-2 text-xs font-semibold text-brand-navy">ช่วงงานโปรเจกต์</div>
               <div className="relative h-6 flex-1">
                 <div
-                  className="absolute top-1.5 h-3 rounded-full bg-indigo-200 ring-1 ring-indigo-300"
+                  className="absolute top-1.5 h-3 rounded-full bg-brand-blue/30 ring-1 ring-brand-blue/30"
                   title={`${formatDateTh(plan.startDate)} — ${formatDateTh(plan.endDate)}`}
                   style={{
                     left: `${pct(plan.startDate ? dayOffset(plan.startDate) : 0)}%`,
@@ -906,7 +906,7 @@ function GanttView({
 
           {seoTasksWithDue.length > 0 && (
             <div className="relative">
-              <div className="sticky left-0 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
+              <div className="sticky left-0 bg-brand-blue/10 px-2 py-1 text-xs font-semibold text-brand-blue">
                 งาน SEO (On-Page / Technical / Indexing)
               </div>
               {seoTasksWithDue.map((task) => {
@@ -1004,7 +1004,7 @@ function ListView({
               <tr
                 key={t.id}
                 onClick={() => onSeoClick(t)}
-                className="cursor-pointer border-b border-gray-100 bg-indigo-50/40 transition hover:bg-indigo-50"
+                className="cursor-pointer border-b border-gray-100 bg-brand-blue/10 transition hover:bg-brand-blue/10"
               >
                 <td className="py-2 pr-3">
                   <p className="font-medium text-brand-navy">{t.title}</p>
@@ -1116,7 +1116,7 @@ function DetailDrawer({ selected, onClose }: { selected: NonNullable<SelectedDra
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} aria-hidden="true" />
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto bg-white shadow-xl">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto glass-strong rounded-l-3xl shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-200 p-4">
           <h3 className="text-base font-semibold text-brand-navy">{isContent ? "รายละเอียดบทความ" : "รายละเอียดงาน SEO"}</h3>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100">
@@ -1169,7 +1169,7 @@ function DetailDrawer({ selected, onClose }: { selected: NonNullable<SelectedDra
               </dl>
 
               {selected.item.matchedArticle ? (
-                <p className="rounded-lg bg-indigo-50 p-3 text-xs text-indigo-700">เปิดดูในแท็บ Article เพื่อดูเนื้อหาฉบับเต็ม</p>
+                <p className="rounded-lg bg-brand-blue/10 p-3 text-xs text-brand-blue">เปิดดูในแท็บ Article เพื่อดูเนื้อหาฉบับเต็ม</p>
               ) : (
                 <p className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500">ยังไม่มีบทความสำหรับหัวข้อนี้ — เริ่มเขียนได้ในแท็บ Article</p>
               )}
@@ -1225,7 +1225,7 @@ function DetailDrawer({ selected, onClose }: { selected: NonNullable<SelectedDra
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
             >
               ปิด
             </button>

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { CLIENT_REVIEW_VISIBLE } from '@/lib/client-proposal/constants'
+import { CLIENT_VISIBLE_COMMENT_WHERE } from '@/lib/client-access'
 
 export async function GET(req: NextRequest) {
   const session = await getSession()
@@ -23,7 +25,9 @@ export async function GET(req: NextRequest) {
       where: { userId_projectId: { userId: session.user.id, projectId } },
     })
     if (!access) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    whereClause = id ? { id, projectId } : { projectId, title }
+    // ลูกค้าอ่านได้เฉพาะบทความที่ทีมเปิดให้ตรวจ — ฉบับร่าง/งานที่ยังเขียนไม่เสร็จไม่ส่งออก
+    const visible = { status: { in: [...CLIENT_REVIEW_VISIBLE] } }
+    whereClause = id ? { id, projectId, ...visible } : { projectId, title, ...visible }
   } else {
     if (!session.user.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     whereClause = id
@@ -48,8 +52,13 @@ export async function GET(req: NextRequest) {
     select: {
       id: true, title: true, htmlContent: true, status: true, slug: true, metaDescription: true, seoTitle: true,
       // ปกที่เปลี่ยนในแท็บ Review เก็บเป็น data URI — ต้องส่งกลับไปโชว์ตอนเปิดรอบใหม่
-      coverImageUrl: true,
-      comments: { include: { user: { select: { name: true, role: true } } }, orderBy: { createdAt: 'asc' as const } },
+      coverImageUrl: true, updatedAt: true,
+      comments: {
+        // ลูกค้าไม่เห็นโน้ตตรวจงานภายในทีม — role อื่นได้ครบเหมือนเดิม
+        ...(userRole === 'CLIENT' ? { where: CLIENT_VISIBLE_COMMENT_WHERE } : {}),
+        include: { user: { select: { name: true, role: true } } },
+        orderBy: { createdAt: 'asc' as const },
+      },
     },
   })
 

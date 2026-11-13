@@ -79,9 +79,9 @@ interface Props {
   sendLabel?: string;
 }
 
-const fieldClass = 'w-full rounded-xl border border-[#cfd9ea] bg-white px-3.5 py-3 text-sm text-[#17233a] placeholder:text-[#91a0b8] shadow-sm outline-none transition focus:border-[#155eef] focus:ring-4 focus:ring-[#155eef]/10';
-const labelClass = 'mb-1.5 block text-xs font-semibold text-[#495975]';
-const cardClass = 'rounded-2xl border border-[#dbe1ee] bg-white shadow-[0_8px_30px_rgba(28,73,52,0.05)]';
+const fieldClass = 'w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm text-brand-navy placeholder:text-gray-400 shadow-sm outline-none transition focus:border-brand-blue focus:ring-4 focus:ring-brand-blue/10';
+const labelClass = 'mb-1.5 block text-xs font-semibold text-gray-600';
+const cardClass = 'rounded-2xl border border-white/80 bg-white/75 backdrop-blur shadow-[0_8px_30px_rgba(28,73,52,0.05)]';
 
 const BUSINESS_TYPE_OPTIONS: Array<{ value: OnlineBusinessType; label: string; hint: string }> = [
   { value: 'ONLINE_SERVICE', label: 'บริการออนไลน์', hint: 'เอเจนซี่ ที่ปรึกษา รับทำ…' },
@@ -115,7 +115,7 @@ const INTENT_LABEL_TH: Record<string, string> = {
 const OBJECTIVE_LABEL: Record<string, string> = { SALE: 'Sale', LEAD: 'Lead', TRAFFIC: 'Traffic' };
 const OBJECTIVE_STYLE: Record<string, string> = {
   SALE: 'bg-[#e9f7ef] text-[#157347]',
-  LEAD: 'bg-[#e7f0ff] text-[#0d4fd8]',
+  LEAD: 'bg-brand-mist text-brand-blue',
   TRAFFIC: 'bg-[#f4effd] text-[#6d3fc4]',
 };
 
@@ -191,7 +191,7 @@ function isReadyToSend(row: OnlineKeywordResult): boolean {
 // ── ชิ้นส่วนแสดงผลย่อย ────────────────────────────────────────────────────────
 
 function ConfidenceBadge({ confidence }: { confidence?: string }) {
-  if (!confidence) return <span className="text-[#c7cfde]">—</span>;
+  if (!confidence) return <span className="text-gray-300">—</span>;
   const label = confidence === 'NO_VOLUME' ? 'NO VOLUME' : confidence;
   return (
     <span
@@ -216,12 +216,12 @@ function ReferenceVolumeCell({ row }: { row: OnlineKeywordResult }) {
   return (
     <span className="inline-flex cursor-help items-center gap-1.5" title={tooltip}>
       {row.reference.volume === null
-        ? <span className="text-[#c7cfde]">—</span>
+        ? <span className="text-gray-300">—</span>
         : <span className="tabular-nums font-semibold">{fmtInt(row.reference.volume)}</span>}
       <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${
-        row.reference.source === 'google_keyword_planner' ? 'bg-[#e7f0ff] text-[#0d4fd8]'
+        row.reference.source === 'google_keyword_planner' ? 'bg-brand-mist text-brand-blue'
           : row.reference.source === 'dataforseo' ? 'bg-[#fdf0e7] text-[#c46a12]'
-            : 'bg-[#f1f3f8] text-[#91a0b8]'
+            : 'bg-gray-100 text-gray-400'
       }`}>
         {referenceSourceLabel(row.reference.source)}
       </span>
@@ -231,18 +231,18 @@ function ReferenceVolumeCell({ row }: { row: OnlineKeywordResult }) {
 
 function SingleSourceVolumeCell({ status, value }: { status?: string; value: number | null | undefined }) {
   if (status === 'ok' || status === 'zero') {
-    return <span className={`tabular-nums ${(value ?? 0) === 0 ? 'text-[#71809c]' : ''}`}>{fmtInt(value ?? 0)}</span>;
+    return <span className={`tabular-nums ${(value ?? 0) === 0 ? 'text-gray-500' : ''}`}>{fmtInt(value ?? 0)}</span>;
   }
   if (status === 'api_error') return <span title="เรียก API ไม่สำเร็จ (ไม่ใช่ศูนย์)" className="cursor-help text-[10px] font-semibold text-red-500">ERR</span>;
-  return <span title={status === 'no_data' ? 'แหล่งนี้ไม่มีข้อมูลสำหรับคำนี้' : 'ไม่ได้ดึงข้อมูลจากแหล่งนี้'} className="cursor-help text-[#c7cfde]">—</span>;
+  return <span title={status === 'no_data' ? 'แหล่งนี้ไม่มีข้อมูลสำหรับคำนี้' : 'ไม่ได้ดึงข้อมูลจากแหล่งนี้'} className="cursor-help text-gray-300">—</span>;
 }
 
 function KpiCard({ label, value, sub, tooltip }: { label: string; value: string; sub?: string; tooltip?: string }) {
   return (
-    <div title={tooltip} className={`${tooltip ? 'cursor-help ' : ''}rounded-xl border border-[#e3e8f1] bg-white px-4 py-3`}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#91a0b8]">{label}</p>
-      <p className="mt-1 text-xl font-bold tabular-nums text-[#17233a]">{value}</p>
-      {sub ? <p className="mt-0.5 text-[10px] leading-4 text-[#71809c]">{sub}</p> : null}
+    <div title={tooltip} className={`${tooltip ? 'cursor-help ' : ''}rounded-xl border border-gray-200 bg-white px-4 py-3`}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 text-xl font-bold tabular-nums text-brand-navy">{value}</p>
+      {sub ? <p className="mt-0.5 text-[10px] leading-4 text-gray-500">{sub}</p> : null}
     </div>
   );
 }
@@ -257,10 +257,10 @@ const SOURCE_STATUS_STYLE: Record<string, string> = {
 
 function SourcePill({ name, status, detail }: { name: string; status: string; detail: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e3e8f1] bg-white px-2.5 py-1.5 text-[11px] text-[#495975]" title={detail}>
+    <span className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-600" title={detail}>
       <span className={`h-2 w-2 rounded-full ${SOURCE_STATUS_STYLE[status] ?? 'bg-slate-300'}`} />
-      <span className="font-semibold text-[#17233a]">{name}</span>
-      <span className="text-[#91a0b8]">{detail}</span>
+      <span className="font-semibold text-brand-navy">{name}</span>
+      <span className="text-gray-400">{detail}</span>
     </span>
   );
 }
@@ -319,7 +319,7 @@ function StepChecklist({ current, target }: { current: number; target: number })
         const active = step.index === current;
         const est = estStepSec(step.index, target);
         return (
-          <div key={step.key} className={`flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] ${active ? 'bg-[#eef4ff] font-bold text-[#0d4fd8]' : done ? 'text-[#157347]' : 'text-[#a7b1c4]'}`}>
+          <div key={step.key} className={`flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] ${active ? 'bg-brand-mist font-bold text-brand-blue' : done ? 'text-[#157347]' : 'text-gray-400'}`}>
             <span className="w-4 text-center">{done ? '✓' : active ? '●' : '○'}</span>
             <span>{step.index}. {step.label}</span>
             {!done && est >= 45 ? (
@@ -363,7 +363,7 @@ const GUARD_BAND_LABEL: Record<string, string> = {
 
 /** ความเสี่ยงกินกันเอง 0–100 — ไม่มีข้อมูล guard = "—" */
 function GuardRiskCell({ row }: { row: OnlineKeywordResult }) {
-  if (!row.guard) return <span className="text-[#c2cad9]">—</span>;
+  if (!row.guard) return <span className="text-gray-300">—</span>;
   return (
     <span
       className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${GUARD_BAND_STYLE[row.guard.band] ?? ''}`}
@@ -1035,80 +1035,80 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
   // ── ตารางคีย์เวิร์ดหลัก (แท็บ Keywords และ Wave 1) ──
   const keywordTable = (
     <>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[#eef1f7] px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5">
         <input
-          className="w-52 rounded-xl border border-[#cfd9ea] bg-white px-3 py-2 text-xs outline-none focus:border-[#155eef]"
+          className="w-52 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs outline-none focus:border-brand-blue"
           value={queryInput}
           onChange={event => setQueryInput(event.target.value)}
           placeholder="ค้นหาคีย์เวิร์ด / title / cluster"
         />
-        <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={confidenceFilter} onChange={e => setConfidenceFilter(e.target.value)}>
+        <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={confidenceFilter} onChange={e => setConfidenceFilter(e.target.value)}>
           <option value="all">ทุก Confidence</option>
           {['HIGH', 'MEDIUM', 'LOW', 'NO_VOLUME'].map(c => <option key={c} value={c}>{c === 'NO_VOLUME' ? 'NO VOLUME' : c}</option>)}
         </select>
-        <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={objectiveFilter} onChange={e => setObjectiveFilter(e.target.value)}>
+        <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={objectiveFilter} onChange={e => setObjectiveFilter(e.target.value)}>
           <option value="all">ทุก Objective</option>
           <option value="SALE">Sale</option>
           <option value="LEAD">Lead</option>
           <option value="TRAFFIC">Traffic</option>
         </select>
-        <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={funnelFilter} onChange={e => setFunnelFilter(e.target.value)}>
+        <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={funnelFilter} onChange={e => setFunnelFilter(e.target.value)}>
           <option value="all">ทุก Funnel</option>
           <option value="TOFU">TOFU</option>
           <option value="MOFU">MOFU</option>
           <option value="BOFU">BOFU</option>
         </select>
-        <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={journeyFilter} onChange={e => setJourneyFilter(e.target.value)}>
+        <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={journeyFilter} onChange={e => setJourneyFilter(e.target.value)}>
           <option value="all">ทุก Journey Stage</option>
           {journeyStagesInData.map(s => (
             <option key={s} value={s}>{JOURNEY_STAGE_MAP[s as keyof typeof JOURNEY_STAGE_MAP]?.labelTh ?? s}</option>
           ))}
         </select>
         {tab !== 'wave1' ? (
-          <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={waveFilter} onChange={e => setWaveFilter(e.target.value)}>
+          <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={waveFilter} onChange={e => setWaveFilter(e.target.value)}>
             <option value="all">ทุก Wave</option>
             <option value="1">Wave 1</option>
             <option value="2">Wave 2</option>
             <option value="3">Wave 3</option>
           </select>
         ) : null}
-        <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1.5 text-[11px] text-[#495975]" value={clusterFilter} onChange={e => setClusterFilter(e.target.value)}>
+        <select className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-600" value={clusterFilter} onChange={e => setClusterFilter(e.target.value)}>
           <option value="all">ทุก Cluster</option>
           {clusterNames.map(name => <option key={name} value={name}>{name}</option>)}
         </select>
-        <label className="flex items-center gap-1.5 text-[11px] text-[#495975]">
+        <label className="flex items-center gap-1.5 text-[11px] text-gray-600">
           <input type="checkbox" checked={coreOnly} onChange={e => setCoreOnly(e.target.checked)} />
           แสดงเฉพาะคำหลัก
         </label>
-        <span className="ml-auto text-[11px] text-[#91a0b8]">{filtered.length.toLocaleString('th-TH')} คำ</span>
+        <span className="ml-auto text-[11px] text-gray-400">{filtered.length.toLocaleString('th-TH')} คำ</span>
         <button
           onClick={selectCoreFiltered}
-          className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#155eef] hover:bg-[#f0f5ff]"
+          className="rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-brand-blue hover:bg-brand-mist"
         >
           เลือกคำหลัก {coreFilteredCount.toLocaleString('th-TH')}
         </button>
         <button
           onClick={selectAllFiltered}
-          className="rounded-lg border border-[#dbe1ee] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#155eef] hover:bg-[#f0f5ff]"
+          className="rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-brand-blue hover:bg-brand-mist"
         >
           เลือกทั้งหมดที่กรองอยู่
         </button>
       </div>
 
       {data?.meta?.guardSummary ? (
-        <div className="border-b border-[#eef1f7] bg-[#fafbfe] px-4 py-2.5 text-[11px] text-[#495975]">
-          <span className="font-semibold text-[#17233a]">กันคำกินกันเอง:</span>{' '}
+        <div className="border-b border-gray-100 bg-white/60 px-4 py-2.5 text-[11px] text-gray-600">
+          <span className="font-semibold text-brand-navy">กันคำกินกันเอง:</span>{' '}
           เทียบกับของเดิม {data.meta.guardSummary.existingCount.toLocaleString('th-TH')} รายการ · ตรวจ {data.meta.guardSummary.checked.toLocaleString('th-TH')} คำ ·
           คำใหม่ {data.meta.guardSummary.createNew.toLocaleString('th-TH')} · รวมกับของเดิม {data.meta.guardSummary.merged.toLocaleString('th-TH')} ·
           ใช้เป็นคำรอง {data.meta.guardSummary.secondary.toLocaleString('th-TH')} · ชี้ไปหน้าเดิม {data.meta.guardSummary.mappedExisting.toLocaleString('th-TH')} ·
           ต้องตรวจเอง {data.meta.guardSummary.needsReview.toLocaleString('th-TH')} · ตัดออก {data.meta.guardSummary.excluded.toLocaleString('th-TH')}
           {data.meta.excludedKeywords && data.meta.excludedKeywords.length > 0 ? (
             <details className="mt-1">
-              <summary className="cursor-pointer text-[#155eef]">ดูคำที่ตัดออกพร้อมเหตุผล ({data.meta.excludedKeywords.length.toLocaleString('th-TH')})</summary>
+              <summary className="cursor-pointer text-brand-blue">ดูคำที่ตัดออกพร้อมเหตุผล ({data.meta.excludedKeywords.length.toLocaleString('th-TH')})</summary>
               <ul className="mt-1 max-h-48 space-y-0.5 overflow-y-auto">
                 {data.meta.excludedKeywords.map(x => (
                   <li key={x.keyword} className="text-[10px]">
-                    <span className="font-semibold text-[#17233a]">{x.keyword}</span> — {x.reason}
+                    <span className="font-semibold text-brand-navy">{x.keyword}</span> — {x.reason}
                     {x.matchedKeyword ? ` (ชนกับ “${x.matchedKeyword}”)` : ''}
                     {x.matchedUrl ? ` ${x.matchedUrl}` : ''} · เสี่ยง {x.risk}
                   </li>
@@ -1122,7 +1122,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
       <div className="overflow-x-auto">
         <table className="w-full min-w-[2150px] text-left text-xs">
           <thead>
-            <tr className="border-b border-[#eef1f7] text-[10px] uppercase tracking-wide text-[#91a0b8]">
+            <tr className="border-b border-gray-100 text-[10px] uppercase tracking-wide text-gray-400">
               <th className="px-3 py-2.5">
                 <input type="checkbox" checked={pageAllSelected} onChange={toggleSelectPage} title="เลือกทั้งหน้านี้" />
               </th>
@@ -1162,30 +1162,30 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
               return (
                 <tr
                   key={row.keyword}
-                  className={`cursor-pointer border-b border-[#f4f6fb] transition hover:bg-[#f7f9fd] ${checked ? 'bg-[#f0f5ff]' : ''}`}
+                  className={`cursor-pointer border-b border-gray-100 transition hover:bg-white/60 ${checked ? 'bg-brand-mist' : ''}`}
                   onClick={() => setDrawerKeyword(row.keyword)}
                 >
                   <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                     <input type="checkbox" checked={checked} onChange={() => toggleSelect(row.keyword)} />
                   </td>
-                  <td className="px-2 py-2.5 tabular-nums text-[#91a0b8]">{row.rank}</td>
+                  <td className="px-2 py-2.5 tabular-nums text-gray-400">{row.rank}</td>
                   <td className="max-w-[230px] px-3 py-2.5">
-                    <p className="flex items-center gap-1.5 truncate font-semibold text-[#17233a]" title={row.keyword}>
+                    <p className="flex items-center gap-1.5 truncate font-semibold text-brand-navy" title={row.keyword}>
                       {row.keyword}
                       {row.selectionTier === 'EXTRA' ? (
                         <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-bold text-amber-700">สำรอง</span>
                       ) : null}
                     </p>
                     {row.secondaryKeywords.length > 0 ? (
-                      <p className="truncate text-[10px] text-[#91a0b8]" title={row.secondaryKeywords.join(', ')}>
+                      <p className="truncate text-[10px] text-gray-400" title={row.secondaryKeywords.join(', ')}>
                         +{row.secondaryKeywords.length} คำรอง
                       </p>
                     ) : null}
                   </td>
                   <td className="max-w-[260px] px-3 py-2.5">
-                    <p className="truncate text-[#374763]" title={row.recommendedTitle ?? undefined}>{row.recommendedTitle ?? '—'}</p>
+                    <p className="truncate text-gray-700" title={row.recommendedTitle ?? undefined}>{row.recommendedTitle ?? '—'}</p>
                     {row.suggestedSlug ? (
-                      <p className="flex items-center gap-1 truncate text-[10px] text-[#91a0b8]">
+                      <p className="flex items-center gap-1 truncate text-[10px] text-gray-400">
                         <span className={`rounded px-1 text-[9px] font-bold ${SLUG_STATUS_STYLE[row.slugStatus] ?? ''}`}>{row.slugStatus}</span>
                         /{row.suggestedSlug}
                       </p>
@@ -1195,34 +1195,34 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   <td className="px-3 py-2.5"><SingleSourceVolumeCell status={row.google.status} value={row.google.avgMonthlySearches} /></td>
                   <td className="px-3 py-2.5"><SingleSourceVolumeCell status={row.dfs.status} value={row.dfs.searchVolume} /></td>
                   <td className="px-3 py-2.5"><ConfidenceBadge confidence={row.confidence} /></td>
-                  <td className="px-3 py-2.5 text-[#495975]">
+                  <td className="px-3 py-2.5 text-gray-600">
                     {row.searchIntent.intent ? (INTENT_LABEL_TH[row.searchIntent.intent] ?? row.searchIntent.intent) : '—'}
                   </td>
-                  <td className="max-w-[150px] truncate px-3 py-2.5 text-[#495975]" title={journeyLabel(row)}>
+                  <td className="max-w-[150px] truncate px-3 py-2.5 text-gray-600" title={journeyLabel(row)}>
                     {row.journeyOrder}. {journeyLabel(row)}
                   </td>
-                  <td className="px-3 py-2.5 text-[#495975]">{row.funnelStage}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{row.funnelStage}</td>
                   <td className="px-3 py-2.5">
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${OBJECTIVE_STYLE[row.objective] ?? ''}`}>
                       {OBJECTIVE_LABEL[row.objective] ?? row.objective}
                     </span>
                   </td>
-                  <td className="max-w-[160px] truncate px-3 py-2.5 text-[#495975]" title={row.guard ? `${row.cluster} · หัวข้อ: ${row.guard.topic}` : row.cluster}>
+                  <td className="max-w-[160px] truncate px-3 py-2.5 text-gray-600" title={row.guard ? `${row.cluster} · หัวข้อ: ${row.guard.topic}` : row.cluster}>
                     {row.cluster}
-                    {row.guard ? <span className="block truncate text-[10px] text-[#91a0b8]">{row.guard.topic}</span> : null}
+                    {row.guard ? <span className="block truncate text-[10px] text-gray-400">{row.guard.topic}</span> : null}
                   </td>
-                  <td className="max-w-[160px] px-3 py-2.5 text-[#495975]">
+                  <td className="max-w-[160px] px-3 py-2.5 text-gray-600">
                     {row.guard?.existingMatch || row.guard?.existingUrl
                       ? <span className="block truncate text-[11px]" title={`${row.guard.existingMatch ?? ''} ${row.guard.existingUrl ?? ''} (${row.guard.matchSource ? MATCH_SOURCE_LABEL_TH[row.guard.matchSource] : ''})`}>
                           {row.guard.existingMatch || row.guard.existingUrl}
                         </span>
-                      : <span className="text-[#c2cad9]">—</span>}
+                      : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-3 py-2.5"><GuardRiskCell row={row} /></td>
-                  <td className="max-w-[140px] px-3 py-2.5 text-[11px] text-[#495975]">
-                    {row.guard ? <span className="block truncate" title={row.guard.reasons.join(' · ')}>{DECISION_LABEL_TH[row.guard.decision]}</span> : <span className="text-[#c2cad9]">—</span>}
+                  <td className="max-w-[140px] px-3 py-2.5 text-[11px] text-gray-600">
+                    {row.guard ? <span className="block truncate" title={row.guard.reasons.join(' · ')}>{DECISION_LABEL_TH[row.guard.decision]}</span> : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="max-w-[150px] truncate px-3 py-2.5 text-[#495975]" title={row.problemGroup ?? undefined}>{row.problemGroup ?? '—'}</td>
+                  <td className="max-w-[150px] truncate px-3 py-2.5 text-gray-600" title={row.problemGroup ?? undefined}>{row.problemGroup ?? '—'}</td>
                   <td className="px-3 py-2.5 tabular-nums">{row.dfs.keywordDifficulty ?? '—'}</td>
                   <td className="px-3 py-2.5 tabular-nums">{row.dfs.cpc ? row.dfs.cpc.toLocaleString('th-TH', { maximumFractionDigits: 1 }) : '—'}</td>
                   <td className="px-3 py-2.5 tabular-nums">{Math.round(row.scores.businessScore)}</td>
@@ -1230,18 +1230,18 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   <td className="px-3 py-2.5 tabular-nums">{Math.round(row.scores.aeoOpportunity)}</td>
                   <td className="px-3 py-2.5 tabular-nums">{Math.round(row.scores.geoOpportunity)}</td>
                   <td className="px-3 py-2.5">
-                    <span className="rounded-lg bg-[#17233a] px-2 py-1 text-[11px] font-bold tabular-nums text-white">
+                    <span className="rounded-lg bg-brand-navy px-2 py-1 text-[11px] font-bold tabular-nums text-white">
                       {Math.round(row.scores.finalScore * 10) / 10}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-[#495975]">{PAGE_TYPE_LABELS[row.pageType] ?? row.pageType}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{PAGE_TYPE_LABELS[row.pageType] ?? row.pageType}</td>
                   <td className="px-3 py-2.5 tabular-nums">{row.priorityWave}</td>
                   <td className="px-3 py-2.5">
                     {row.handoffStatus === 'SENT_TO_KEYWORDS'
                       ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">ส่งแล้ว ✓</span>
                       : !isReadyToSend(row)
                         ? <span title="title/slug ยังไม่พร้อม — เปิด Detail เพื่อตรวจ" className="cursor-help rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">Needs Review</span>
-                        : <span className="rounded bg-[#f1f3f8] px-1.5 py-0.5 text-[10px] font-semibold text-[#71809c]">Ready</span>}
+                        : <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">Ready</span>}
                   </td>
                   {hasIskRows ? (
                     <td className="px-3 py-2.5">{row.isk ? <IntentBadge mix={row.isk.intent.mix} /> : '—'}</td>
@@ -1256,14 +1256,14 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-[#eef1f7] px-4 py-2.5 text-[11px] text-[#495975]">
+      <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-4 py-2.5 text-[11px] text-gray-600">
         <span>หน้า {page} / {totalPages}</span>
-        <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="rounded-lg border border-[#dbe1ee] px-2 py-1 disabled:opacity-40">← ก่อนหน้า</button>
-        <button disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} className="rounded-lg border border-[#dbe1ee] px-2 py-1 disabled:opacity-40">ถัดไป →</button>
-        <select className="rounded-lg border border-[#dbe1ee] bg-white px-2 py-1" value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
+        <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="rounded-lg border border-gray-200 px-2 py-1 disabled:opacity-40">← ก่อนหน้า</button>
+        <button disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} className="rounded-lg border border-gray-200 px-2 py-1 disabled:opacity-40">ถัดไป →</button>
+        <select className="rounded-xl border border-gray-200 bg-white px-2 py-1" value={pageSize} onChange={e => setPageSize(Number(e.target.value))}>
           {[25, 50, 100, 200].map(n => <option key={n} value={n}>{n} / หน้า</option>)}
         </select>
-        <span className="ml-auto text-[#91a0b8]">การเลือกคงอยู่แม้เปลี่ยนหน้า/ตัวกรอง — เลือกแล้ว {selectedKeys.size.toLocaleString('th-TH')} คำ</span>
+        <span className="ml-auto text-gray-400">การเลือกคงอยู่แม้เปลี่ยนหน้า/ตัวกรอง — เลือกแล้ว {selectedKeys.size.toLocaleString('th-TH')} คำ</span>
       </div>
     </>
   );
@@ -1274,8 +1274,8 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
         {/* ── ฟอร์มซ้าย (360–420px) ── */}
         <aside className="w-full shrink-0 xl:w-[400px]">
           <div className={`${cardClass} p-5`}>
-            <h3 className="text-sm font-bold text-[#17233a]">ข้อมูลธุรกิจ (ไม่มีหน้าร้าน / ขายออนไลน์)</h3>
-            <p className="mt-1 text-[11px] leading-5 text-[#71809c]">
+            <h3 className="text-sm font-bold text-brand-navy">ข้อมูลธุรกิจ (ไม่มีหน้าร้าน / ขายออนไลน์)</h3>
+            <p className="mt-1 text-[11px] leading-5 text-gray-500">
               ระบบวิเคราะห์จากธุรกิจจริง → ปัญหาลูกค้า → journey 19 ขั้น แล้วค่อยดึงตัวเลขจริงจาก Google / DataForSEO — AI ไม่มีสิทธิ์แต่งตัวเลขใด ๆ
             </p>
 
@@ -1287,10 +1287,10 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                     key={opt.value}
                     type="button"
                     onClick={() => setBusinessType(opt.value)}
-                    className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs transition ${businessType === opt.value ? 'border-[#155eef] bg-[#f0f5ff] font-bold text-[#0d4fd8]' : 'border-[#dbe1ee] bg-white text-[#495975] hover:border-[#b9c6dd]'}`}
+                    className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs transition ${businessType === opt.value ? 'border-brand-blue bg-brand-mist font-bold text-brand-blue' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
                   >
                     <span>{opt.label}</span>
-                    <span className="text-[10px] font-normal text-[#91a0b8]">{opt.hint}</span>
+                    <span className="text-[10px] font-normal text-gray-400">{opt.hint}</span>
                   </button>
                 ))}
               </div>
@@ -1302,7 +1302,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             <div className="mt-4">
               <label className={labelClass}>สินค้า / บริการหลัก * (บรรทัดละรายการ — แนะนำ 3–8 รายการ)</label>
               <textarea rows={4} className={fieldClass} value={productsText} onChange={e => setProductsText(e.target.value)} placeholder={'เช่น\nรับทำ SEO\nรับเขียนบทความ\nรับดูแลเว็บไซต์'} />
-              <p className="mt-1 text-[10px] leading-4 text-[#91a0b8]">
+              <p className="mt-1 text-[10px] leading-4 text-gray-400">
                 รายการนี้คือจุดตั้งต้นของการขุดคำทั้งหมด — ยิ่งใส่ครบทุกบริการ/หมวดสินค้า คำที่ได้ยิ่งครบและตรงกับธุรกิจ
               </p>
             </div>
@@ -1310,7 +1310,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             <div className="mt-4">
               <label className={labelClass}>เว็บไซต์ (แนะนำอย่างยิ่งถ้ามีเว็บอยู่แล้ว)</label>
               <input className={fieldClass} value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://example.com" />
-              <p className="mt-1 text-[11px] text-[#71809c]">ระบบจะอ่าน sitemap ของเว็บ เพื่อไม่เสนอคีย์เวิร์ด/slug ซ้ำกับหน้าที่มีอยู่แล้ว — ธุรกิจที่ยังไม่มีเว็บเว้นว่างได้</p>
+              <p className="mt-1 text-[11px] text-gray-500">ระบบจะอ่าน sitemap ของเว็บ เพื่อไม่เสนอคีย์เวิร์ด/slug ซ้ำกับหน้าที่มีอยู่แล้ว — ธุรกิจที่ยังไม่มีเว็บเว้นว่างได้</p>
             </div>
 
             <div className="mt-4">
@@ -1340,10 +1340,10 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   <option value="en">English</option>
                 </select>
                 {languageLocked && (
-                  <p className="mt-1 text-[10px] leading-4 text-[#71809c]">ล็อกตามโหมดภาษาของโปรเจกต์ (เปลี่ยนได้ที่ตัวเลือกด้านบน)</p>
+                  <p className="mt-1 text-[10px] leading-4 text-gray-500">ล็อกตามโหมดภาษาของโปรเจกต์ (เปลี่ยนได้ที่ตัวเลือกด้านบน)</p>
                 )}
                 {languageMode === 'both' && (
-                  <p className="mt-1 text-[10px] leading-4 text-[#71809c]">
+                  <p className="mt-1 text-[10px] leading-4 text-gray-500">
                     โหมดไทย+อังกฤษ: รอบนี้จะค้น {clampTargetCount(language === 'th' ? splitCountByRatio(targetCount, ratioThai).th : splitCountByRatio(targetCount, ratioThai).en)} คำ
                     ({language === 'th' ? 'ไทย' : 'อังกฤษ'} {language === 'th' ? ratioThai : 100 - ratioThai}% ของ {targetCount}) — สลับภาษาแล้วรันอีกรอบให้ครบสัดส่วน
                   </p>
@@ -1361,10 +1361,10 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                       key={goal}
                       type="button"
                       onClick={() => setStrategyGoal(goal)}
-                      className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs transition ${strategyGoal === goal ? 'border-[#155eef] bg-[#f0f5ff] font-bold text-[#0d4fd8]' : 'border-[#dbe1ee] bg-white text-[#495975] hover:border-[#b9c6dd]'}`}
+                      className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs transition ${strategyGoal === goal ? 'border-brand-blue bg-brand-mist font-bold text-brand-blue' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
                     >
                       <span>{p.label}</span>
-                      <span className="text-[10px] font-normal text-[#91a0b8]">Traffic {p.traffic}% / Sales {p.sales}%</span>
+                      <span className="text-[10px] font-normal text-gray-400">Traffic {p.traffic}% / Sales {p.sales}%</span>
                     </button>
                   );
                 })}
@@ -1379,14 +1379,14 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                     key={n}
                     type="button"
                     onClick={() => setTargetCount(n)}
-                    className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${targetCount === n ? 'border-[#155eef] bg-[#155eef] text-white' : 'border-[#dbe1ee] bg-white text-[#495975] hover:border-[#b9c6dd]'}`}
+                    className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${targetCount === n ? 'border-brand-blue bg-brand-blue text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
                   >
                     {n}
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] leading-5 text-[#71809c]">
-                เป้า {targetCount} คำ ใช้เวลาประมาณ <span className="font-bold text-[#17233a]">{estRangeLabel(clampTargetCount(targetCount))}</span> —
+              <p className="mt-2 text-[11px] leading-5 text-gray-500">
+                เป้า {targetCount} คำ ใช้เวลาประมาณ <span className="font-bold text-brand-navy">{estRangeLabel(clampTargetCount(targetCount))}</span> —
                 ระหว่างรันจะเห็นทุกขั้นตอน + เวลาที่เหลือแบบ real-time
               </p>
               {websiteUrl.trim() ? (
@@ -1412,12 +1412,12 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             <button
               type="button"
               onClick={() => setShowAdvanced(s => !s)}
-              className="mt-4 text-[11px] font-semibold text-[#155eef]"
+              className="mt-4 text-[11px] font-semibold text-brand-blue"
             >
               {showAdvanced ? '▾ ซ่อนตัวเลือกขั้นสูง' : '▸ ตัวเลือกขั้นสูง (คู่แข่ง / หน้าเดิม / ชนิดคำ)'}
             </button>
             {showAdvanced ? (
-              <div className="mt-3 space-y-4 rounded-xl border border-[#eef1f7] bg-[#fafbfe] p-3">
+              <div className="mt-3 space-y-4 rounded-xl border border-gray-100 bg-white/60 p-3">
                 <div>
                   <label className={labelClass}>โดเมนคู่แข่ง (1–10 โดเมน บรรทัดละอัน — ขุดคำที่คู่แข่งติดอันดับจริง)</label>
                   <textarea rows={2} className={fieldClass} value={competitorsText} onChange={e => setCompetitorsText(e.target.value)} placeholder={'competitor1.com\ncompetitor2.co.th'} />
@@ -1426,7 +1426,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   <label className={labelClass}>หน้าที่มีอยู่แล้วบนเว็บ (บรรทัดละ path — เพิ่มเองนอกเหนือจากที่อ่านได้จาก sitemap)</label>
                   <textarea rows={2} className={fieldClass} value={existingPagesText} onChange={e => setExistingPagesText(e.target.value)} placeholder={'/services/seo\n/blog/what-is-seo'} />
                 </div>
-                <div className="space-y-1.5 text-xs text-[#495975]">
+                <div className="space-y-1.5 text-xs text-gray-600">
                   <label className="flex items-center gap-2"><input type="checkbox" checked={includeBrand} onChange={e => setIncludeBrand(e.target.checked)} /> รวมคำที่มีชื่อแบรนด์</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={includeComparison} onChange={e => setIncludeComparison(e.target.checked)} /> รวมคำเปรียบเทียบ (เทียบ/vs/แบบไหนดี)</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={includeProblem} onChange={e => setIncludeProblem(e.target.checked)} /> รวมคำจากปัญหาลูกค้า (problem-first)</label>
@@ -1435,8 +1435,8 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             ) : null}
 
             {!standalone ? (
-              <div className="mt-4 rounded-xl border border-[#eef1f7] bg-[#fafbfe] p-3">
-                <p className="mb-2 text-[11px] font-bold text-[#17233a]">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
+              <div className="mt-4 rounded-xl border border-gray-100 bg-white/60 p-3">
+                <p className="mb-2 text-[11px] font-bold text-brand-navy">กันคีย์เวิร์ดกินกันเอง (Cannibalization Guard)</p>
                 <KeywordMemoryFields
                   projectId={project.id}
                   existingText={existingKwText}
@@ -1448,9 +1448,9 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   labelClass={labelClass}
                 />
                 {cgSeeds.length > 0 ? (
-                  <p className="mt-2 text-[11px] text-[#495975]">
+                  <p className="mt-2 text-[11px] text-gray-600">
                     คำตั้งต้นจาก Competitor Gap {cgSeeds.length} คำ
-                    <button type="button" onClick={() => setCgSeeds([])} className="ml-2 text-[#155eef] underline">ล้าง</button>
+                    <button type="button" onClick={() => setCgSeeds([])} className="ml-2 text-brand-blue underline">ล้าง</button>
                   </p>
                 ) : null}
               </div>
@@ -1468,7 +1468,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             <button
               onClick={runResearch}
               disabled={status === 'running'}
-              className="mt-5 w-full rounded-xl bg-[#155eef] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0d4fd8] disabled:opacity-50"
+              className="mt-5 w-full rounded-xl bg-brand-blue px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-brand-deep disabled:opacity-50"
             >
               {status === 'running'
                 ? `กำลังวิเคราะห์… (${progressMeta ? `เหลือ ${progressMeta.remainingLabel}` : 'เริ่มต้น'})`
@@ -1489,20 +1489,20 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             <div>
               <KeywordResearchProgress title="กำลังวิเคราะห์ธุรกิจ + ดึงข้อมูลจริง" logs={progressLogs} progressMeta={progressMeta} />
               <div className={`${cardClass} mt-4 p-5`}>
-                <p className="text-xs font-bold text-[#17233a]">ขั้นตอนละเอียด ({Math.min(progressStep, ONLINE_STEPS.length)}/{ONLINE_STEPS.length})</p>
+                <p className="text-xs font-bold text-brand-navy">ขั้นตอนละเอียด ({Math.min(progressStep, ONLINE_STEPS.length)}/{ONLINE_STEPS.length})</p>
                 <StepChecklist current={progressStep} target={clampTargetCount(targetCount)} />
               </div>
             </div>
           ) : !data ? (
             <div className={`${cardClass} flex min-h-[300px] flex-col items-center justify-center p-6 text-center sm:min-h-[420px] sm:p-10`}>
-              <p className="text-lg font-bold text-[#17233a]">Business-Centric Keyword Intelligence</p>
-              <p className="mt-2 max-w-md text-xs leading-6 text-[#71809c]">
+              <p className="text-lg font-bold text-brand-navy">Business-Centric Keyword Intelligence</p>
+              <p className="mt-2 max-w-md text-xs leading-6 text-gray-500">
                 กรอกข้อมูลธุรกิจด้านซ้ายแล้วกด "เริ่มวิเคราะห์" — ระบบจะสร้าง Business Blueprint,
                 เดินตาม Customer Journey 19 ขั้น, ดึง Search Volume จริงจาก Google Keyword Planner
                 (cross-check ด้วย DataForSEO), ให้คะแนน SEO / AEO / GEO แล้วให้คุณ
-                <span className="font-bold text-[#17233a]"> ติ๊กเลือกคำที่ต้องการ</span> ก่อนส่งเข้าหน้า Keyword
+                <span className="font-bold text-brand-navy"> ติ๊กเลือกคำที่ต้องการ</span> ก่อนส่งเข้าหน้า Keyword
               </p>
-              {statusMessage && status === 'done' ? <p className="mt-3 text-[11px] text-[#91a0b8]">{statusMessage}</p> : null}
+              {statusMessage && status === 'done' ? <p className="mt-3 text-[11px] text-gray-400">{statusMessage}</p> : null}
             </div>
           ) : (
             <div className="space-y-4">
@@ -1557,7 +1557,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
 
               {/* Tabs */}
               <div className={cardClass}>
-                <div className="flex flex-wrap items-center gap-1 border-b border-[#eef1f7] px-3 pt-3">
+                <div className="flex flex-wrap items-center gap-1 border-b border-gray-100 px-3 pt-3">
                   {([
                     ['keywords', `Keywords (${results.length})`],
                     ['wave1', `Wave 1 (${kpi.wave1})`],
@@ -1570,7 +1570,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                     <button
                       key={key}
                       onClick={() => setTab(key)}
-                      className={`rounded-t-xl px-3.5 py-2 text-xs font-semibold transition ${tab === key ? 'border border-b-0 border-[#eef1f7] bg-white text-[#0d4fd8]' : 'text-[#71809c] hover:text-[#17233a]'}`}
+                      className={`rounded-t-xl px-3.5 py-2 text-xs font-semibold transition ${tab === key ? 'border border-b-0 border-gray-100 bg-white text-brand-blue' : 'text-gray-500 hover:text-brand-navy'}`}
                     >
                       {label}
                     </button>
@@ -1579,7 +1579,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                     <button
                       onClick={exportExcel}
                       disabled={exporting}
-                      className="rounded-lg border border-[#dbe1ee] bg-white px-3 py-1.5 text-[11px] font-bold text-[#17233a] transition hover:border-[#b9c6dd] disabled:opacity-50"
+                      className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold text-brand-navy transition hover:border-gray-300 disabled:opacity-50"
                     >
                       {exporting ? 'กำลังสร้างไฟล์…' : '⬇ Excel (7 ชีต)'}
                     </button>
@@ -1592,7 +1592,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   <div className="overflow-x-auto p-4">
                     <table className="w-full min-w-[760px] text-left text-xs">
                       <thead>
-                        <tr className="border-b border-[#eef1f7] text-[10px] uppercase tracking-wide text-[#91a0b8]">
+                        <tr className="border-b border-gray-100 text-[10px] uppercase tracking-wide text-gray-400">
                           <th className="px-3 py-2">Cluster</th>
                           <th className="px-3 py-2">Primary Keyword</th>
                           <th className="px-3 py-2">Keywords</th>
@@ -1603,13 +1603,13 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                       </thead>
                       <tbody>
                         {clusters.map(c => (
-                          <tr key={c.clusterId} className="border-b border-[#f4f6fb]">
-                            <td className="px-3 py-2.5 font-semibold text-[#17233a]">{c.name}</td>
-                            <td className="px-3 py-2.5 text-[#495975]">{c.primaryKeyword}</td>
+                          <tr key={c.clusterId} className="border-b border-gray-100">
+                            <td className="px-3 py-2.5 font-semibold text-brand-navy">{c.name}</td>
+                            <td className="px-3 py-2.5 text-gray-600">{c.primaryKeyword}</td>
                             <td className="px-3 py-2.5 tabular-nums">{c.keywordCount}</td>
                             <td className="px-3 py-2.5 tabular-nums">{fmtInt(c.totalReferenceVolume)}</td>
-                            <td className="px-3 py-2.5 text-[#495975]">/{c.section}</td>
-                            <td className="px-3 py-2.5 text-[#495975]">{TOPIC_ROLE_LABELS[c.topicRole] ?? c.topicRole}</td>
+                            <td className="px-3 py-2.5 text-gray-600">/{c.section}</td>
+                            <td className="px-3 py-2.5 text-gray-600">{TOPIC_ROLE_LABELS[c.topicRole] ?? c.topicRole}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1618,13 +1618,13 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                 ) : null}
 
                 {tab === 'blueprint' && blueprint ? (
-                  <div className="space-y-5 p-5 text-xs leading-6 text-[#374763]">
+                  <div className="space-y-5 p-5 text-xs leading-6 text-gray-700">
                     <div>
-                      <p className="text-sm font-bold text-[#17233a]">สรุปธุรกิจ</p>
+                      <p className="text-sm font-bold text-brand-navy">สรุปธุรกิจ</p>
                       <p className="mt-1">{blueprint.businessSummary}</p>
                     </div>
                     <div>
-                      <p className="font-bold text-[#17233a]">กลุ่มลูกค้า ({blueprint.segments.length})</p>
+                      <p className="font-bold text-brand-navy">กลุ่มลูกค้า ({blueprint.segments.length})</p>
                       <ul className="mt-1 list-disc space-y-1 pl-5">
                         {blueprint.segments.map((s, i) => (
                           <li key={i}>
@@ -1635,7 +1635,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                       </ul>
                     </div>
                     <div>
-                      <p className="font-bold text-[#17233a]">Problem Map ({blueprint.problemMap.length})</p>
+                      <p className="font-bold text-brand-navy">Problem Map ({blueprint.problemMap.length})</p>
                       <ul className="mt-1 list-disc space-y-1 pl-5">
                         {blueprint.problemMap.map((p, i) => (
                           <li key={i}><span className="font-semibold">{p.problem}</span> ({p.segment} · ระดับ {p.severity}) → ค้นแบบ: {p.searchBehaviors.join(', ') || '—'}</li>
@@ -1643,19 +1643,19 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                       </ul>
                     </div>
                     <div>
-                      <p className="font-bold text-[#17233a]">Jobs-to-be-Done ({blueprint.jtbd.length})</p>
+                      <p className="font-bold text-brand-navy">Jobs-to-be-Done ({blueprint.jtbd.length})</p>
                       <ul className="mt-1 list-disc space-y-1 pl-5">
-                        {blueprint.jtbd.map((j, i) => <li key={i}>{j.job} — <span className="text-[#71809c]">{j.desiredOutcome}</span></li>)}
+                        {blueprint.jtbd.map((j, i) => <li key={i}>{j.job} — <span className="text-gray-500">{j.desiredOutcome}</span></li>)}
                       </ul>
                     </div>
                     <div>
-                      <p className="font-bold text-[#17233a]">ปัจจัยตัดสินใจซื้อ ({blueprint.purchaseFactors.length})</p>
+                      <p className="font-bold text-brand-navy">ปัจจัยตัดสินใจซื้อ ({blueprint.purchaseFactors.length})</p>
                       <ul className="mt-1 list-disc space-y-1 pl-5">
                         {blueprint.purchaseFactors.map((f, i) => <li key={i}><span className="font-semibold">{f.factor}</span> — มุมคำค้น: {f.keywordAngles.join(', ') || '—'}</li>)}
                       </ul>
                     </div>
                     <div>
-                      <p className="font-bold text-[#17233a]">Keyword Taxonomy ({blueprint.taxonomy.length} กิ่ง)</p>
+                      <p className="font-bold text-brand-navy">Keyword Taxonomy ({blueprint.taxonomy.length} กิ่ง)</p>
                       <ul className="mt-1 list-disc space-y-1 pl-5">
                         {blueprint.taxonomy.map((t, i) => (
                           <li key={i}><span className="font-semibold">{t.branch}</span> ({t.product}) — seeds: {t.seedKeywords.join(', ')}</li>
@@ -1669,7 +1669,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   <div className="overflow-x-auto p-4">
                     <table className="w-full min-w-[900px] text-left text-xs">
                       <thead>
-                        <tr className="border-b border-[#eef1f7] text-[10px] uppercase tracking-wide text-[#91a0b8]">
+                        <tr className="border-b border-gray-100 text-[10px] uppercase tracking-wide text-gray-400">
                           <th className="px-3 py-2">Suggested Path</th>
                           <th className="px-3 py-2">Keyword</th>
                           <th className="px-3 py-2">Topic Role</th>
@@ -1680,12 +1680,12 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                       </thead>
                       <tbody>
                         {[...results].sort((a, b) => (a.sitemap.section + a.cluster).localeCompare(b.sitemap.section + b.cluster)).map(r => (
-                          <tr key={r.keyword} className="border-b border-[#f4f6fb]">
-                            <td className="px-3 py-2 font-mono text-[11px] text-[#0d4fd8]">{r.sitemap.suggestedPath ?? '—'}</td>
-                            <td className="px-3 py-2 text-[#17233a]">{r.keyword}</td>
-                            <td className="px-3 py-2 text-[#495975]">{TOPIC_ROLE_LABELS[r.sitemap.topicRole] ?? r.sitemap.topicRole}</td>
-                            <td className="px-3 py-2 text-[#495975]">{r.sitemap.parentTopic ?? '—'}</td>
-                            <td className="px-3 py-2 font-mono text-[11px] text-[#495975]">{r.sitemap.internalLinkTarget ?? '—'}</td>
+                          <tr key={r.keyword} className="border-b border-gray-100">
+                            <td className="px-3 py-2 font-mono text-[11px] text-brand-blue">{r.sitemap.suggestedPath ?? '—'}</td>
+                            <td className="px-3 py-2 text-brand-navy">{r.keyword}</td>
+                            <td className="px-3 py-2 text-gray-600">{TOPIC_ROLE_LABELS[r.sitemap.topicRole] ?? r.sitemap.topicRole}</td>
+                            <td className="px-3 py-2 text-gray-600">{r.sitemap.parentTopic ?? '—'}</td>
+                            <td className="px-3 py-2 font-mono text-[11px] text-gray-600">{r.sitemap.internalLinkTarget ?? '—'}</td>
                             <td className="px-3 py-2"><span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${SLUG_STATUS_STYLE[r.slugStatus] ?? ''}`}>{r.slugStatus}</span></td>
                           </tr>
                         ))}
@@ -1695,15 +1695,15 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                 ) : null}
 
                 {tab === 'sources' && sourceStatus ? (
-                  <div className="space-y-3 p-5 text-xs leading-6 text-[#374763]">
-                    <p className="text-sm font-bold text-[#17233a]">แหล่งข้อมูล — ตัวเลขทุกตัวมาจาก API จริง ไม่มีตัวเลขจาก AI</p>
+                  <div className="space-y-3 p-5 text-xs leading-6 text-gray-700">
+                    <p className="text-sm font-bold text-brand-navy">แหล่งข้อมูล — ตัวเลขทุกตัวมาจาก API จริง ไม่มีตัวเลขจาก AI</p>
                     <ul className="list-disc space-y-2 pl-5">
                       <li><span className="font-semibold">Google Keyword Planner (Primary Reference)</span> — สถานะ {sourceStatus.googleKeywordPlanner.status}, ครอบคลุม {Math.round(sourceStatus.googleKeywordPlanner.coverage * 100)}% @ {sourceStatus.googleKeywordPlanner.geo}, ดึงเมื่อ {fmtDate(sourceStatus.googleKeywordPlanner.fetchedAt)}{sourceStatus.googleKeywordPlanner.message ? ` — ${sourceStatus.googleKeywordPlanner.message}` : ''}</li>
                       <li><span className="font-semibold">DataForSEO (Cross-check + Ideas + Intent + KD)</span> — สถานะ {sourceStatus.dataForSeo.status}, ครอบคลุม {Math.round(sourceStatus.dataForSeo.coverage * 100)}%, ดึงเมื่อ {fmtDate(sourceStatus.dataForSeo.fetchedAt)}{sourceStatus.dataForSeo.message ? ` — ${sourceStatus.dataForSeo.message}` : ''}</li>
                       <li><span className="font-semibold">DataForSEO SERP Validation</span> — สถานะ {sourceStatus.serp.status}, ตรวจ {sourceStatus.serp.checkedCount} คำ (เฉพาะ Tier A เพื่อคุมค่าใช้จ่าย)</li>
                       <li><span className="font-semibold">OpenRouter AI</span> — {sourceStatus.ai.role}</li>
                     </ul>
-                    <p className="rounded-xl bg-[#f7f9fd] px-4 py-3 text-[11px] text-[#71809c]">
+                    <p className="rounded-xl bg-white/60 px-4 py-3 text-[11px] text-gray-500">
                       Reference Volume เลือกจาก Google ก่อน → DataForSEO สำรอง → ไม่มีข้อมูล = N/A
                       ตัวเลขสองแหล่งเก็บแยกคอลัมน์เสมอ ไม่มีการเฉลี่ยรวม · ZERO (ค้นเป็นศูนย์จริง) ≠ NULL (ไม่มีข้อมูล)
                     </p>
@@ -1729,48 +1729,48 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-[#91a0b8]">อันดับ {drawerRow.rank} · {drawerRow.cluster}</p>
-                <h3 className="mt-1 text-lg font-bold text-[#17233a]">{drawerRow.keyword}</h3>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">อันดับ {drawerRow.rank} · {drawerRow.cluster}</p>
+                <h3 className="mt-1 text-lg font-bold text-brand-navy">{drawerRow.keyword}</h3>
               </div>
-              <button onClick={() => setDrawerKeyword(null)} className="rounded-lg border border-[#dbe1ee] px-2.5 py-1 text-xs text-[#495975]">ปิด ✕</button>
+              <button onClick={() => setDrawerKeyword(null)} className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600">ปิด ✕</button>
             </div>
 
-            <label className="mt-4 flex items-center gap-2 rounded-xl border border-[#dbe1ee] bg-[#fafbfe] px-3 py-2.5 text-xs font-semibold text-[#17233a]">
+            <label className="mt-4 flex items-center gap-2 rounded-xl border border-gray-200 bg-white/60 px-3 py-2.5 text-xs font-semibold text-brand-navy">
               <input type="checkbox" checked={selectedKeys.has(drawerRow.keyword)} onChange={() => toggleSelect(drawerRow.keyword)} />
               เลือกคำนี้เพื่อส่งไปหน้า Keyword
               {drawerRow.handoffStatus === 'SENT_TO_KEYWORDS' ? <span className="ml-auto rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">ส่งแล้ว ✓</span> : null}
             </label>
 
-            <div className="mt-4 rounded-xl border border-[#e3e8f1] bg-[#f7f9fd] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-[#91a0b8]">Why this keyword?</p>
-              <p className="mt-1.5 text-xs leading-6 text-[#374763]">{drawerRow.whyThisKeyword ?? 'ยังไม่มีคำอธิบาย (title generation ไม่สำเร็จสำหรับคำนี้ — สถานะ REVIEW)'}</p>
+            <div className="mt-4 rounded-xl border border-gray-200 bg-white/60 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Why this keyword?</p>
+              <p className="mt-1.5 text-xs leading-6 text-gray-700">{drawerRow.whyThisKeyword ?? 'ยังไม่มีคำอธิบาย (title generation ไม่สำเร็จสำหรับคำนี้ — สถานะ REVIEW)'}</p>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-2.5 text-xs sm:grid-cols-2">
-              <div className="rounded-xl border border-[#e3e8f1] p-3">
-                <p className="text-[10px] font-semibold text-[#91a0b8]">Google Keyword Planner</p>
+              <div className="rounded-xl border border-gray-200 p-3">
+                <p className="text-[10px] font-semibold text-gray-400">Google Keyword Planner</p>
                 <p className="mt-1 font-bold tabular-nums">{metricStatusText(drawerRow.google.status, drawerRow.google.avgMonthlySearches)}</p>
-                <p className="text-[10px] text-[#91a0b8]">{drawerRow.google.geoTarget ?? '—'} · {fmtDate(drawerRow.google.retrievedAt)}</p>
+                <p className="text-[10px] text-gray-400">{drawerRow.google.geoTarget ?? '—'} · {fmtDate(drawerRow.google.retrievedAt)}</p>
               </div>
-              <div className="rounded-xl border border-[#e3e8f1] p-3">
-                <p className="text-[10px] font-semibold text-[#91a0b8]">DataForSEO</p>
+              <div className="rounded-xl border border-gray-200 p-3">
+                <p className="text-[10px] font-semibold text-gray-400">DataForSEO</p>
                 <p className="mt-1 font-bold tabular-nums">{metricStatusText(drawerRow.dfs.status, drawerRow.dfs.searchVolume)}</p>
-                <p className="text-[10px] text-[#91a0b8]">Thailand · {fmtDate(drawerRow.dfs.retrievedAt)}</p>
+                <p className="text-[10px] text-gray-400">Thailand · {fmtDate(drawerRow.dfs.retrievedAt)}</p>
               </div>
-              <div className="rounded-xl border border-[#e3e8f1] p-3">
-                <p className="text-[10px] font-semibold text-[#91a0b8]">Reference (ไม่เฉลี่ยรวม)</p>
+              <div className="rounded-xl border border-gray-200 p-3">
+                <p className="text-[10px] font-semibold text-gray-400">Reference (ไม่เฉลี่ยรวม)</p>
                 <p className="mt-1 font-bold tabular-nums">{drawerRow.reference.volume === null ? 'N/A' : fmtInt(drawerRow.reference.volume)}</p>
-                <p className="text-[10px] text-[#91a0b8]">{referenceSourceLabel(drawerRow.reference.source)} · <ConfidenceBadge confidence={drawerRow.confidence} /></p>
+                <p className="text-[10px] text-gray-400">{referenceSourceLabel(drawerRow.reference.source)} · <ConfidenceBadge confidence={drawerRow.confidence} /></p>
               </div>
-              <div className="rounded-xl border border-[#e3e8f1] p-3">
-                <p className="text-[10px] font-semibold text-[#91a0b8]">KD / CPC</p>
+              <div className="rounded-xl border border-gray-200 p-3">
+                <p className="text-[10px] font-semibold text-gray-400">KD / CPC</p>
                 <p className="mt-1 font-bold tabular-nums">{drawerRow.dfs.keywordDifficulty ?? '—'} / {drawerRow.dfs.cpc ? `฿${drawerRow.dfs.cpc.toLocaleString('th-TH', { maximumFractionDigits: 1 })}` : '—'}</p>
               </div>
             </div>
 
-            <div className="mt-4 rounded-xl border border-[#e3e8f1] p-4 text-xs">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-[#91a0b8]">Evidence Summary</p>
-              <ul className="mt-2 space-y-1.5 text-[#374763]">
+            <div className="mt-4 rounded-xl border border-gray-200 p-4 text-xs">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Evidence Summary</p>
+              <ul className="mt-2 space-y-1.5 text-gray-700">
                 <li>• Journey: <span className="font-semibold">{drawerRow.journeyOrder}. {journeyLabel(drawerRow)}</span> ({drawerRow.funnelStage} → {OBJECTIVE_LABEL[drawerRow.objective]})</li>
                 <li>• Search intent จริง: {drawerRow.searchIntent.intent ? `${INTENT_LABEL_TH[drawerRow.searchIntent.intent] ?? drawerRow.searchIntent.intent}${typeof drawerRow.searchIntent.probability === 'number' ? ` (${Math.round(drawerRow.searchIntent.probability * 100)}%)` : ''}` : 'ไม่ได้ตรวจ'}</li>
                 <li>• ปัญหาลูกค้า: {drawerRow.problemGroup ?? 'ไม่ได้ผูกกับ Problem Map'}</li>
@@ -1784,16 +1784,16 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs sm:grid-cols-5">
               {([['Biz', drawerRow.scores.businessScore], ['SEO', drawerRow.scores.seoOpportunity], ['AEO', drawerRow.scores.aeoOpportunity], ['GEO', drawerRow.scores.geoOpportunity], ['Final', drawerRow.scores.finalScore]] as Array<[string, number]>).map(([label, val]) => (
-                <div key={label} className={`rounded-xl border p-2.5 ${label === 'Final' ? 'border-[#17233a] bg-[#17233a] text-white' : 'border-[#e3e8f1]'}`}>
-                  <p className={`text-[10px] font-semibold ${label === 'Final' ? 'text-white/70' : 'text-[#91a0b8]'}`}>{label}</p>
+                <div key={label} className={`rounded-xl border p-2.5 ${label === 'Final' ? 'border-brand-navy bg-brand-navy text-white' : 'border-gray-200'}`}>
+                  <p className={`text-[10px] font-semibold ${label === 'Final' ? 'text-white/70' : 'text-gray-400'}`}>{label}</p>
                   <p className="mt-0.5 text-base font-bold tabular-nums">{Math.round(val * 10) / 10}</p>
                 </div>
               ))}
             </div>
 
-            <div className="mt-4 rounded-xl border border-[#e3e8f1] p-4 text-xs">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-[#91a0b8]">แผนหน้าเว็บ</p>
-              <ul className="mt-2 space-y-1.5 text-[#374763]">
+            <div className="mt-4 rounded-xl border border-gray-200 p-4 text-xs">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">แผนหน้าเว็บ</p>
+              <ul className="mt-2 space-y-1.5 text-gray-700">
                 <li>• Title: <span className="font-semibold">{drawerRow.recommendedTitle ?? '—'}</span></li>
                 <li>• Slug: <span className="font-mono text-[11px]">{drawerRow.suggestedSlug ? `/${drawerRow.suggestedSlug}` : '—'}</span> <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${SLUG_STATUS_STYLE[drawerRow.slugStatus] ?? ''}`}>{drawerRow.slugStatus}</span></li>
                 <li>• Page Type: {PAGE_TYPE_LABELS[drawerRow.pageType] ?? drawerRow.pageType} · Topic Role: {TOPIC_ROLE_LABELS[drawerRow.sitemap.topicRole]}</li>
@@ -1802,7 +1802,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                 <li>• Wave {drawerRow.priorityWave}</li>
               </ul>
               {drawerRow.secondaryKeywords.length > 0 ? (
-                <p className="mt-2 rounded-lg bg-[#f7f9fd] px-3 py-2 text-[11px] text-[#71809c]">
+                <p className="mt-2 rounded-lg bg-white/60 px-3 py-2 text-[11px] text-gray-500">
                   คำรองที่ควรอยู่หน้าเดียวกัน: {drawerRow.secondaryKeywords.join(', ')}
                 </p>
               ) : null}
@@ -1814,7 +1814,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
       {/* ── Sticky bulk bar ── */}
       {selectedKeys.size > 0 && status !== 'running' ? (
         <div className="fixed bottom-4 left-1/2 z-30 w-max max-w-[calc(100vw-1.5rem)] -translate-x-1/2">
-          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#17233a]/10 bg-[#17233a] px-5 py-3 text-white shadow-2xl">
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-brand-navy/10 bg-brand-navy px-5 py-3 text-white shadow-2xl">
             <span className="text-xs">
               เลือกแล้ว <span className="font-bold tabular-nums">{selectedKeys.size.toLocaleString('th-TH')}</span> คำ
               {reviewRows.length > 0 ? <span className="ml-1.5 text-amber-300">({reviewRows.length} คำ Needs Review)</span> : null}
@@ -1824,7 +1824,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
             </button>
             <button
               onClick={openConfirm}
-              className="rounded-xl bg-[#155eef] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d4fd8]"
+              className="rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-deep"
             >
               {sendLabel ?? 'ส่งไปหน้า Keyword →'}
             </button>
@@ -1837,8 +1837,8 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => !sending && setConfirmOpen(false)}>
           <div className="absolute inset-0 bg-black/30" />
           <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-bold text-[#17233a]">ยืนยันส่งไปหน้า Keyword</h3>
-            <p className="mt-1 text-xs text-[#71809c]">ส่งเฉพาะคำที่ติ๊กเลือก ({selectedRows.length.toLocaleString('th-TH')} คำ) เข้า Keyword Bank ของโปรเจกต์นี้ผ่านระบบเดิม</p>
+            <h3 className="text-base font-bold text-brand-navy">ยืนยันส่งไปหน้า Keyword</h3>
+            <p className="mt-1 text-xs text-gray-500">ส่งเฉพาะคำที่ติ๊กเลือก ({selectedRows.length.toLocaleString('th-TH')} คำ) เข้า Keyword Bank ของโปรเจกต์นี้ผ่านระบบเดิม</p>
             <div className="mt-4 space-y-2 text-xs">
               <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5">
                 <span className="font-semibold text-emerald-800">Ready (title + slug พร้อม)</span>
@@ -1851,7 +1851,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                 </div>
               ) : null}
               {dupChecking ? (
-                <p className="text-[11px] text-[#91a0b8]">กำลังตรวจคำซ้ำกับหน้า Keyword …</p>
+                <p className="text-[11px] text-gray-400">กำลังตรวจคำซ้ำกับหน้า Keyword …</p>
               ) : existingBank ? (
                 duplicateRows.length > 0 ? (
                   <div className="rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-blue-800">
@@ -1862,15 +1862,15 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
                   <p className="text-[11px] text-emerald-700">ไม่มีคำซ้ำกับหน้า Keyword ✓</p>
                 )
               ) : (
-                <p className="text-[11px] text-[#91a0b8]">ตรวจคำซ้ำล่วงหน้าไม่ได้ — ระบบปลายทาง upsert ให้อยู่แล้ว จะไม่เกิดคำซ้ำ</p>
+                <p className="text-[11px] text-gray-400">ตรวจคำซ้ำล่วงหน้าไม่ได้ — ระบบปลายทาง upsert ให้อยู่แล้ว จะไม่เกิดคำซ้ำ</p>
               )}
             </div>
             <div className="mt-5 flex items-center justify-end gap-2">
-              <button disabled={sending} onClick={() => setConfirmOpen(false)} className="rounded-xl border border-[#dbe1ee] px-4 py-2 text-xs font-semibold text-[#495975]">ยกเลิก</button>
+              <button disabled={sending} onClick={() => setConfirmOpen(false)} className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600">ยกเลิก</button>
               <button
                 disabled={sending || selectedRows.length === 0}
                 onClick={sendToKeywordPage}
-                className="rounded-xl bg-[#155eef] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0d4fd8] disabled:opacity-50"
+                className="rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-deep disabled:opacity-50"
               >
                 {sending ? 'กำลังส่ง…' : `ยืนยันส่ง ${selectedRows.length.toLocaleString('th-TH')} คำ`}
               </button>

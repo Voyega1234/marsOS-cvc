@@ -260,7 +260,7 @@ export function ReviewChecklist({ articleId, articleStatus, reviews }: Props) {
               <button
                 onClick={() => submit("approve")}
                 disabled={submitting}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold transition-colors disabled:opacity-50 shadow-sm"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold transition-colors disabled:opacity-50 shadow-sm"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
                 อนุมัติบทความ
@@ -268,7 +268,7 @@ export function ReviewChecklist({ articleId, articleStatus, reviews }: Props) {
               <button
                 onClick={() => submit("revision")}
                 disabled={submitting}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold transition-colors disabled:opacity-50"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsDown className="h-4 w-4" />}
                 ขอ Revision

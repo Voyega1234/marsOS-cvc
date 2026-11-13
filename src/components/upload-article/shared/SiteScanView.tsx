@@ -98,7 +98,7 @@ export default function SiteScanView({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
       <div>
         <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5"><ScanSearch size={14} /> {title}</p>
         <p className="text-[11px] text-gray-500 mt-0.5">
@@ -123,7 +123,7 @@ export default function SiteScanView({
 
       {scan && (
         <div className="space-y-3 text-xs">
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-1">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 space-y-1">
             <p className="font-semibold text-brand-navy">สรุปผลสแกน</p>
             <ul className="space-y-0.5 text-[12px] leading-5 text-gray-700">
               {plainSummary(scan, !!onApplyTheme).map((l, i) => <li key={i}>• {l}</li>)}
@@ -230,7 +230,7 @@ export default function SiteScanView({
               </div>
 
               {scan.faqSummary && (
-                <div className="rounded-lg border border-brand-blue/20 bg-brand-mist/30 p-3">
+                <div className="rounded-xl border border-brand-blue/20 bg-brand-mist/30 p-3">
                   <p className="font-semibold text-brand-navy mb-1">หน้าตา FAQ / บทความบนเว็บนี้</p>
                   <p className="text-gray-600 leading-relaxed">{scan.faqSummary}</p>
                   {scan.detail?.source && <p className="text-[10px] text-gray-400 mt-1">อ้างอิง: {scan.detail.source}</p>}

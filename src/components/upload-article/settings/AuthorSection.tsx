@@ -35,7 +35,7 @@ function AuthorProfileEditor({ author, onChange, isOpen, onToggle, onRemove, can
   withGender?: boolean;
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+    <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3">
         <button onClick={onToggle} className="text-gray-400 hover:text-gray-600 shrink-0">
           {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -84,18 +84,18 @@ function AuthorProfileEditor({ author, onChange, isOpen, onToggle, onRemove, can
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">ชื่อ</label>
                 <input value={author.name} onChange={(e) => onChange({ name: e.target.value.slice(0, 100) })}
-                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/15 focus:border-brand-blue/50" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">ตำแหน่ง / คำอธิบาย</label>
                 <input value={author.title} onChange={(e) => onChange({ title: e.target.value.slice(0, 150) })}
-                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200" />
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/15 focus:border-brand-blue/50" />
               </div>
               {withGender && (
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">เพศ (ใช้ปรับสรรพนามในบทความ)</label>
                   <select value={author.gender || "none"} onChange={(e) => onChange({ gender: e.target.value })}
-                    className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200">
+                    className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/15 focus:border-brand-blue/50">
                     <option value="none">ไม่ระบุ</option>
                     <option value="male">ชาย</option>
                     <option value="female">หญิง</option>
@@ -111,7 +111,7 @@ function AuthorProfileEditor({ author, onChange, isOpen, onToggle, onRemove, can
               value={author.credentials.join("\n")}
               onChange={(e) => onChange({ credentials: e.target.value.split("\n").slice(0, 20).map((s) => s.slice(0, 200)) })}
               rows={4}
-              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200"
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/15 focus:border-brand-blue/50"
               placeholder={"เช่น ปริญญาโท การตลาดดิจิทัล\nประสบการณ์เขียนบทความ SEO 5 ปี"}
             />
           </div>
@@ -207,7 +207,7 @@ export function AuthorSettingsEditor({ loadKey, load, save: persist, description
 
   return (
     <div className="max-w-2xl space-y-4">
-      <div className="bg-white border border-gray-200 rounded-2xl p-5">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm p-5">
         <div className="flex items-center justify-between mb-1">
           <div>
             <p className="text-sm font-bold text-brand-navy flex items-center gap-1.5"><UserRound size={14} /> Author Box (กล่องผู้เขียน)</p>
@@ -231,7 +231,7 @@ export function AuthorSettingsEditor({ loadKey, load, save: persist, description
                 {AUTHOR_CARD_STYLES.map((s) => (
                   <button key={s.key} onClick={() => setDraft((p) => ({ ...p, style: s.key }))}
                     title={s.description}
-                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${draft.style === s.key ? "border-gray-800 bg-gray-800 text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
+                    className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${draft.style === s.key ? "border-brand-navy bg-brand-navy text-white" : "border-gray-200 text-gray-500 hover:border-gray-400"}`}>
                     {s.label}
                   </button>
                 ))}
@@ -249,7 +249,7 @@ export function AuthorSettingsEditor({ loadKey, load, save: persist, description
               <select
                 value={draft.pick}
                 onChange={(e) => setDraft((p) => ({ ...p, pick: e.target.value === "random" ? "random" : "first" }))}
-                className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-gray-200"
+                className="text-sm border border-gray-200 rounded-xl px-2.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/15"
               >
                 <option value="first">ใช้คนแรกเสมอ</option>
                 <option value="random">สุ่ม (คงที่ตามบทความ)</option>

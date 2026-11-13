@@ -66,13 +66,13 @@ export default function PbnStylePicker({
   }
 
   return (
-    <div className="bg-white border border-violet-200 rounded-xl p-4 space-y-3">
+    <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-3">
       <div className="flex items-center gap-2">
         <Palette size={14} className="text-violet-600" />
         <p className="text-sm font-semibold text-brand-navy">กำลังแก้สไตล์บทความของ</p>
       </div>
       <select value={siteId ?? ""} onChange={e => onSelect(e.target.value || null)}
-        className="w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white">
+        className="w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white">
         <option value="">สไตล์หลัก (ใช้กับเว็บที่ยังไม่มีสไตล์ของตัวเอง)</option>
         {sites.map(s => (
           <option key={s.id} value={s.id}>

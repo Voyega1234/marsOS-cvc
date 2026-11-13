@@ -14,7 +14,6 @@ import {
   parseWriterOutput,
   MIN_CLEANED_HTML_LENGTH,
   WRITER_MAX_CONTINUATIONS,
-  WRITER_MAX_DURATION_S,
   WRITER_STALE_MS,
   WRITER_MIN_FAQ_ITEMS,
   isTruncatedFinish,
@@ -63,7 +62,9 @@ import { PUSH_LOCK_MS, REWRITE_SOURCE_TYPE, rewriteBackupName } from '@/lib/uplo
 import { isNormalStopFinish, rewriteOutputProblem } from '@/lib/upload-article/rewrite-guard'
 import { DEFAULT_UPLOAD_INTERNAL_LINKS, type UploadInternalLinks, type UploadKeyword, type UploadTheme } from '@/lib/upload-article/types'
 
-export const maxDuration = WRITER_MAX_DURATION_S
+// Next.js อ่านค่า maxDuration ได้เฉพาะตัวเลข literal (ใส่ตัวแปร/ค่าที่ import มาจะถูกมองข้าม)
+// ต้องเท่ากับ WRITER_MAX_DURATION_S ใน lib/upload-article/writer-timing.ts เสมอ — แก้ที่หนึ่งต้องแก้อีกที่ด้วย
+export const maxDuration = 800
 /** เวลาที่ใช้ได้ทั้งงาน (เผื่อบันทึกผลก่อนชน maxDuration) — รอบเขียนต่อ/เติม FAQ ต้องอยู่ในกรอบนี้ */
 const WRITE_BUDGET_MS = 770_000
 /** รอบเสริมต้องมีเวลาเหลืออย่างน้อยเท่านี้ถึงจะเริ่ม */

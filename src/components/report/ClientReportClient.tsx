@@ -14,6 +14,7 @@ import {
   deriveGSCInsights, deriveGA4Insights, deriveConversionInsights,
   derivePSIInsights, deriveConnectedInsights, deriveAIInsights,
 } from "@/lib/report/seo-insights";
+import { KpiTile, Panel, Segmented, EmptyState, MeterBar, AreaChart, DonutChart, Gauge as ScoreGauge, UnderlineTabs } from "@/components/ds";
 import OwnerTagsEditor from "@/components/upload-article/report/OwnerTagsEditor";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
 
@@ -35,35 +36,29 @@ function StatCard({ label, value, delta, format = "number", inverse = false }:
     return v.toLocaleString();
   };
 
-  const goodDelta = inverse ? (delta ?? 0) < 0 : (delta ?? 0) > 0;
-  const deltaNeutral = (delta ?? 0) === 0;
-
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className="text-2xl font-bold text-brand-navy">{fmt(value)}</p>
-      {delta !== undefined && (
-        <div className={`flex items-center gap-1 text-xs mt-1 font-medium ${deltaNeutral ? "text-gray-400" : goodDelta ? "text-emerald-600" : "text-red-500"}`}>
-          {deltaNeutral ? <Minus size={11} /> : goodDelta ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-          {Math.abs(delta)}{format === "position" ? "" : "%"} vs ก่อนหน้า
-        </div>
-      )}
-    </div>
+    <KpiTile
+      label={label}
+      value={fmt(value)}
+      delta={delta !== undefined ? delta : undefined}
+      deltaSuffix={format === "position" ? "" : "%"}
+      invertDelta={inverse}
+      hint={delta !== undefined ? "vs ก่อนหน้า" : undefined}
+    />
   );
 }
 
 // ── Score ring ─────────────────────────────────────────────────────────────────
 function ScoreRing({ score, label }: { score: number | null; label: string }) {
-  const color = score === null ? "text-gray-300"
-    : score >= 90 ? "text-emerald-500"
-    : score >= 50 ? "text-amber-500"
-    : "text-red-500";
-  return (
-    <div className="text-center">
-      <div className={`text-3xl font-black ${color}`}>{score ?? "—"}</div>
-      <div className="text-[10px] text-gray-500 mt-0.5">{label}</div>
-    </div>
-  );
+  if (score === null) {
+    return (
+      <div className="text-center">
+        <div className="text-3xl font-black text-gray-300">—</div>
+        <div className="text-[10px] text-gray-500 mt-0.5">{label}</div>
+      </div>
+    );
+  }
+  return <ScoreGauge value={score} max={100} size={104} label={label} thresholds={{ warn: 90, bad: 50 }} />;
 }
 
 // ── Section wrapper ────────────────────────────────────────────────────────────
@@ -71,9 +66,9 @@ function Section({ title, icon, children, defaultOpen = true }:
   { title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+    <div className="glass rounded-2xl overflow-hidden">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
+        className="w-full flex items-center justify-between p-4 hover:bg-white/60 transition-colors">
         <div className="flex items-center gap-2 font-semibold text-brand-navy text-sm">{icon}{title}</div>
         {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
       </button>
@@ -187,10 +182,10 @@ function GscInsightCard({ item }: { item: GscInsightItem }) {
   const label = item.query ?? (item.page ? item.page.replace(/^https?:\/\/[^/]+/, "") : "—");
 
   return (
-    <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+    <div className="bg-white/80 border border-white/80 rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white transition-colors"
       >
         {/* Keyword / page */}
         <span className="flex-1 text-xs font-semibold text-gray-800 truncate">{label}</span>
@@ -223,7 +218,7 @@ function GscInsightCard({ item }: { item: GscInsightItem }) {
       </button>
 
       {open && (
-        <div className="border-t border-gray-100 px-3 py-2.5 bg-gray-50 space-y-2">
+        <div className="border-t border-gray-100 px-3 py-2.5 bg-white/60 space-y-2">
           {/* 4 metric pills */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
             {[
@@ -529,7 +524,7 @@ function SimpleMetricCard({ label, value, subLabel, delta, deltaLabel, color = "
   const up = (delta ?? 0) > 0;
   const neutral = (delta ?? 0) === 0;
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5">
+    <div className="glass rounded-2xl p-5">
       <p className="text-xs font-medium text-gray-500 mb-2">{label}</p>
       <p className={`text-3xl font-black ${color}`}>{value}</p>
       {subLabel && <p className="text-xs text-gray-400 mt-0.5">{subLabel}</p>}
@@ -589,9 +584,7 @@ function SimpleBarChart({ data, maxVal }: { data: {label:string;value:number;pre
             <span className="truncate">{d.label}</span>
             <span className="font-semibold text-brand-navy ml-2 shrink-0">{d.value.toLocaleString()}</span>
           </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${(d.value / max) * 100}%` }} />
-          </div>
+          <MeterBar value={(d.value / max) * 100} max={100} tone="ok" />
         </div>
       ))}
     </div>
@@ -748,51 +741,16 @@ function SKLineChart({ data, field, color = "#137333", prevData, prevField }: {
 // ── Site Kit donut — large donut center + legend list below (matches Site Kit screenshots) ──
 function SKDonut({ data, label }: { data: {label:string;value:number;color:string}[]; label?: string }) {
   const total = data.reduce((s, d) => s + d.value, 0);
-  if (!total) return <p className="text-xs text-[#5f6368] text-center py-8">ไม่มีข้อมูล</p>;
-
+  if (!total) return <p className="text-xs text-gray-500 text-center py-8">ไม่มีข้อมูล</p>;
   const sorted = [...data].sort((a, b) => b.value - a.value);
-
-  // Large donut: R=80, thick=28, viewBox 200x200
-  const R = 80; const cx = 100; const cy = 100; const thick = 28;
-  const innerR = R - thick;
-  let startAngle = -90;
-  const segments = sorted.map(d => {
-    const pct = d.value / total;
-    const angle = pct * 360;
-    const a1 = (startAngle * Math.PI) / 180;
-    const a2 = ((startAngle + angle) * Math.PI) / 180;
-    const x1 = cx + R * Math.cos(a1); const y1 = cy + R * Math.sin(a1);
-    const x2 = cx + R * Math.cos(a2); const y2 = cy + R * Math.sin(a2);
-    const large = angle > 180 ? 1 : 0;
-    const xi1 = cx + innerR * Math.cos(a1); const yi1 = cy + innerR * Math.sin(a1);
-    const xi2 = cx + innerR * Math.cos(a2); const yi2 = cy + innerR * Math.sin(a2);
-    const path = `M${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} L${xi2.toFixed(2)},${yi2.toFixed(2)} A${innerR},${innerR} 0 ${large} 0 ${xi1.toFixed(2)},${yi1.toFixed(2)} Z`;
-    startAngle += angle;
-    return { ...d, path, pct };
-  });
-
   return (
-    <div>
-      {/* Large centered donut */}
-      <div className="flex justify-center">
-        <svg viewBox="0 0 200 200" className="w-48 h-48">
-          {segments.map((s, i) => <path key={i} d={s.path} fill={s.color}/>)}
-          <text x={cx} y={cy - 8} textAnchor="middle" fill="#5f6368" fontSize="12" fontFamily="Google Sans,sans-serif">By</text>
-          <text x={cx} y={cy + 8} textAnchor="middle" fill="#5f6368" fontSize="12" fontFamily="Google Sans,sans-serif">{label ?? 'Channels'}</text>
-        </svg>
-      </div>
-      {/* Legend: percentage on right, label left — matches Site Kit */}
-      <div className="mt-3 space-y-1.5">
-        {segments.map((s, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }}/>
-            <span className="text-[12px] text-[#5f6368] truncate flex-1 min-w-0" title={s.label}>
-              {s.label.length > 14 ? s.label.slice(0, 13) + '…' : s.label}
-            </span>
-            <span className="text-[12px] text-[#202124] font-medium shrink-0 tabular-nums">{(s.pct * 100).toFixed(1)}%</span>
-          </div>
-        ))}
-      </div>
+    <div className="flex justify-center">
+      <DonutChart
+        segments={sorted.map(d => ({ label: d.label, value: d.value }))}
+        size={176}
+        centerLabel={`By ${label ?? "Channels"}`}
+        formatValue={(v) => `${((v / total) * 100).toFixed(1)}%`}
+      />
     </div>
   );
 }
@@ -809,7 +767,7 @@ const CI = {
   sky:    "#177cfe",
   soft:   "#6b8cef",
   navy:   "#000E3F",
-  mist:   "#eff5f9",
+  mist:   "rgb(var(--mist))", // ตามโหมดสว่าง/มืด (สว่าง = #eff5f9)
   sage:   "#769a6d", // addon — CTR / good
   salmon: "#e35336", // addon — position / attention
   mustard:"#ffb95c",
@@ -832,45 +790,40 @@ function CCard({ title, right, children, className = "", pad = true }: {
   title?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode; className?: string; pad?: boolean;
 }) {
   return (
-    <div className={`bg-white rounded-xl border border-[#e3e9f2] shadow-[0_1px_2px_rgba(0,14,63,0.06)] ${className}`}>
+    <div className={`glass rounded-2xl min-w-0 ${className}`}>
       {title && (
-        <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
-          <p className="text-[13px] font-semibold text-brand-navy flex items-center gap-1.5">{title}</p>
+        <div className="flex items-center justify-between gap-2 px-5 pt-4 pb-1">
+          <div className="text-[13px] font-semibold text-brand-navy flex items-center gap-1.5">{title}</div>
           {right}
         </div>
       )}
-      <div className={pad ? "px-4 pb-4 pt-1" : ""}>{children}</div>
+      <div className={pad ? "px-5 pb-5 pt-1" : ""}>{children}</div>
     </div>
   );
 }
 
 // KPI แถวบนสุด (Sessions / Pages per session / ...)
-function CKpi({ label, value, sub, delta, invert = false }: {
-  label: string; value: string; sub?: string; delta?: number; invert?: boolean;
+function CKpi({ label, value, sub, delta, invert = false, calm = false }: {
+  label: string; value: string; sub?: string; delta?: number; invert?: boolean; calm?: boolean;
 }) {
-  const good = delta === undefined ? true : invert ? delta <= 0 : delta >= 0;
   return (
-    <div className="bg-white rounded-xl border border-[#e3e9f2] shadow-[0_1px_2px_rgba(0,14,63,0.06)] px-4 py-3.5">
-      <p className="text-[12px] font-semibold text-brand-navy mb-1.5">{label}</p>
-      <div className="flex items-end justify-between gap-2">
-        <p className="text-[1.9rem] leading-none font-bold text-brand-navy tabular-nums">{value}</p>
-        {delta !== undefined && delta !== 0 && (
-          <span className={`text-[12px] font-semibold ${good ? "text-emerald-600" : "text-red-500"}`}>
-            {delta > 0 ? "↑" : "↓"}{Math.abs(delta)}%
-          </span>
-        )}
-      </div>
-      {sub && <p className="text-[11px] italic text-gray-400 mt-1.5">{sub}</p>}
-    </div>
+    <KpiTile
+      label={label}
+      value={value}
+      hint={sub}
+      delta={delta !== undefined && delta !== 0 ? delta : undefined}
+      invertDelta={invert}
+      className={calm ? "py-6 [&_.kpi-value]:text-4xl" : undefined}
+    />
   );
 }
 
 // แถว insight (สไตล์ Rage clicks / Dead clicks ของ Clarity)
-function InsightRow({ icon, label, value, sub, valueColor = "#000E3F" }: {
+function InsightRow({ icon, label, value, sub, valueColor = "var(--chart-ink)" }: {
   icon: React.ReactNode; label: string; value: string; sub?: string; valueColor?: string;
 }) {
   return (
-    <div className="border border-[#eef2f8] rounded-lg px-3 py-2.5">
+    <div className="border border-white/80 bg-white/60 rounded-xl px-3 py-2.5">
       <p className="text-[12px] font-medium text-gray-500 mb-1.5">{label}</p>
       <div className="flex items-center gap-3">
         <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: CI.mist, color: CI.blue }}>
@@ -902,8 +855,8 @@ function HBarList({ items, color = CI.blue, linkPrefix }: {
             <p className="text-[12px] text-brand-navy truncate" title={it.label}>{it.label}</p>
           )}
           <div className="flex items-center gap-2 mt-1">
-            <div className="flex-1 h-3 rounded-sm bg-[#f4f7fb] overflow-hidden">
-              <div className="h-full rounded-sm" style={{ width: `${Math.max((it.value / max) * 100, 2)}%`, backgroundColor: color }} />
+            <div className="flex-1 min-w-0">
+              <MeterBar value={Math.max((it.value / max) * 100, 2)} max={100} tone="blue" />
             </div>
             <span className="text-[12px] text-gray-500 tabular-nums w-12 text-right shrink-0">{fmtNum(it.value)}</span>
           </div>
@@ -939,7 +892,7 @@ function MLChart({ data, series }: {
     <div className="relative w-full" style={{ height: TH }}>
       <svg viewBox={`0 0 ${W} ${TH}`} className="w-full h-full" preserveAspectRatio="none">
         {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
-          <line key={i} x1={0} y1={PT + H * f} x2={W} y2={PT + H * f} stroke="#e8ecf3" strokeWidth="0.8" />
+          <line key={i} x1={0} y1={PT + H * f} x2={W} y2={PT + H * f} stroke="currentColor" className="text-gray-200" strokeWidth="0.8" />
         ))}
         {paths.map((p, i) => (
           <path key={i} d={p.d} fill="none" stroke={p.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
@@ -952,7 +905,8 @@ function MLChart({ data, series }: {
   );
 }
 
-function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoading, gscError, ga4Error, days, periodLabel }: {
+function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoading, gscError, ga4Error, days, periodLabel, calm = false }: {
+  calm?: boolean
   project: { name: string; website: string }
   gsc: GscType; ga4: Ga4Type; psi: PsiType
   gscLoading: boolean; ga4Loading: boolean; psiLoading: boolean
@@ -1109,33 +1063,33 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   const newPct = users ? Math.round((newUsers / users) * 100) : 0;
 
   return (
-    <div className="bg-brand-mist -mx-3 sm:-mx-4 md:-mx-6 -mt-4 px-4 pt-5 pb-10 min-h-screen space-y-3 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]">
+    <div className={`pb-10 w-full min-w-0 ${calm ? "space-y-6" : "space-y-4"}`}>
       {loading && (
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-white rounded-lg px-3 py-1.5 w-fit shadow-sm">
+        <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-white/80 rounded-full px-3 py-1.5 w-fit shadow-sm">
           <RefreshCw size={11} className="animate-spin" /> กำลังโหลดข้อมูล...
         </div>
       )}
       {(gscError || ga4Error) && (
-        <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
           <AlertCircle size={12} className="shrink-0" />
           <span>{gscError ? `GSC: ${gscError}` : ""}{gscError && ga4Error ? " · " : ""}{ga4Error ? `GA4: ${ga4Error}` : ""}</span>
         </div>
       )}
 
       {/* ══ ROW 1 — KPI cards (Clarity top strip) — GA4 ══ */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <CKpi label="Sessions" value={fmtNum(sessions)} sub={`${fmtNum(users)} unique users`} delta={sessionsD} />
-        <CKpi label="Pages per session" value={pagesPerSession ? pagesPerSession.toFixed(2) : "—"} sub="average" />
-        <CKpi label="Engagement rate" value={engagement ? `${engagement}%` : "—"} sub="average" />
-        <CKpi label="Active time spent" value={fmtMin(avgDur)} sub="avg per session" />
+      <div className={`grid grid-cols-2 lg:grid-cols-4 ${calm ? "gap-4" : "gap-3"}`}>
+        <CKpi calm={calm} label="Sessions" value={fmtNum(sessions)} sub={`${fmtNum(users)} unique users`} delta={sessionsD} />
+        <CKpi calm={calm} label="Pages per session" value={pagesPerSession ? pagesPerSession.toFixed(2) : "—"} sub="average" />
+        <CKpi calm={calm} label="Engagement rate" value={engagement ? `${engagement}%` : "—"} sub="average" />
+        <CKpi calm={calm} label="Active time spent" value={fmtMin(avgDur)} sub="avg per session" />
       </div>
 
       {/* ══ ROW 2 — Users overview · Insights · Performance overview ══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Users overview */}
         <CCard title="Users overview">
           <div className="space-y-2 mt-1">
-            <div className="border border-[#eef2f8] rounded-lg px-3 py-2.5 flex items-center gap-3">
+            <div className="border border-white/80 bg-white/60 rounded-xl px-3 py-2.5 flex items-center gap-3">
               <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: CI.mist, color: CI.blue }}>
                 <Users size={16} />
               </span>
@@ -1153,7 +1107,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
             {/* New vs returning bar — ซ่อนตอนยังไม่มีข้อมูล users */}
             {users > 0 && (
             <div className="pt-2">
-              <div className="h-3.5 rounded-full overflow-hidden flex bg-[#f4f7fb]">
+              <div className="h-3.5 rounded-full overflow-hidden flex bg-brand-mist">
                 <div style={{ width: `${newPct}%`, backgroundColor: CI.blue }} />
                 <div style={{ width: `${100 - newPct}%`, backgroundColor: CI.soft }} />
               </div>
@@ -1176,7 +1130,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
 
             {/* Top location banner */}
             {topCountry && (
-              <div className="rounded-lg px-3 py-2.5 flex items-center gap-2.5 mt-2" style={{ backgroundColor: CI.mist }}>
+              <div className="rounded-xl px-3 py-2.5 flex items-center gap-2.5 mt-2 bg-brand-mist">
                 <MapPin size={14} style={{ color: CI.blue }} className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[11px] text-gray-500">Top location</p>
@@ -1207,14 +1161,9 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         {/* Performance overview (PageSpeed) */}
         <CCard title="Performance overview"
           right={
-            <div className="flex rounded-full bg-[#f4f7fb] p-0.5 overflow-x-auto max-w-full">
-              {(["mobile", "desktop"] as const).map(m => (
-                <button key={m} onClick={() => setPsiMode(m)}
-                  className={`px-2.5 h-6 flex items-center whitespace-nowrap shrink-0 text-[11px] font-medium rounded-full transition-colors ${psiMode === m ? "bg-brand-blue text-white" : "text-gray-500 hover:text-brand-navy"}`}>
-                  {m === "mobile" ? "Mobile" : "Desktop"}
-                </button>
-              ))}
-            </div>
+            <Segmented size="sm" ariaLabel="PageSpeed strategy"
+              options={[{ value: "mobile", label: "Mobile" }, { value: "desktop", label: "Desktop" }]}
+              value={psiMode} onChange={(m) => setPsiMode(m as "mobile" | "desktop")} />
           }>
           {psiLoading ? (
             <div className="flex items-center gap-2 text-[12px] text-gray-400 py-10 justify-center">
@@ -1222,15 +1171,15 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
             </div>
           ) : curPsi?.status === "ok" ? (
             <div className="mt-1">
-              <div className="border border-[#eef2f8] rounded-lg px-3 py-2.5">
+              <div className="border border-white/80 bg-white/60 rounded-xl px-3 py-2.5">
                 <div className="flex items-baseline gap-2">
                   <p className="text-[1.6rem] leading-none font-bold tabular-nums" style={{ color: scoreColor }}>
                     {perfScore ?? "—"}<span className="text-[13px] text-gray-400 font-normal">/100</span>
                   </p>
                   <p className="text-[11px] text-gray-400">Performance score ({psiMode})</p>
                 </div>
-                <div className="h-2 rounded-full bg-[#f4f7fb] mt-2 overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${perfScore ?? 0}%`, backgroundColor: scoreColor }} />
+                <div className="mt-2">
+                  <MeterBar value={perfScore ?? 0} max={100} tone={perfScore === null ? "navy" : perfScore >= 90 ? "ok" : perfScore >= 50 ? "warn" : "bad"} />
                 </div>
                 <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400">
                   <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />90+ good</span>
@@ -1245,7 +1194,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                   const grade = v.val === null ? "—" : v.val <= v.good ? "good" : v.val <= v.bad ? "needs improvement" : "poor";
                   const gc = v.val === null ? "#9ca3af" : v.val <= v.good ? "#059669" : v.val <= v.bad ? "#d97706" : "#dc2626";
                   return (
-                    <div key={v.label} className="border border-[#eef2f8] rounded-lg px-3 py-2 flex items-center gap-3">
+                    <div key={v.label} className="border border-white/80 bg-white/60 rounded-xl px-3 py-2 flex items-center gap-3">
                       <p className="text-[1.05rem] font-bold tabular-nums w-16 shrink-0" style={{ color: gc }}>{v.display ?? "—"}</p>
                       <div className="min-w-0 flex-1">
                         <p className="text-[12px] text-brand-navy font-medium truncate">{v.label} ({v.full})</p>
@@ -1268,7 +1217,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       </div>
 
       {/* ══ ROW 3 — Sources · Devices/Locations donut · Smart events ══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Traffic sources */}
         <CCard title="Traffic sources">
           <div className="mt-1.5">
@@ -1280,14 +1229,9 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         {/* Devices / Locations donut */}
         <CCard
           title={
-            <span className="flex flex-wrap gap-2 sm:gap-4">
-              {(["devices", "locations"] as const).map(t => (
-                <button key={t} onClick={() => setDonutTab(t)}
-                  className={`pb-0.5 border-b-2 transition-colors ${donutTab === t ? "border-brand-blue text-brand-navy" : "border-transparent text-gray-400 hover:text-brand-navy"}`}>
-                  {t === "devices" ? "Devices" : "Locations"}
-                </button>
-              ))}
-            </span>
+            <Segmented size="sm" ariaLabel="Devices / Locations"
+              options={[{ value: "devices", label: "Devices" }, { value: "locations", label: "Locations" }]}
+              value={donutTab} onChange={(t) => setDonutTab(t as "devices" | "locations")} />
           }>
           <div className="mt-1">
             {donutTab === "devices"
@@ -1300,7 +1244,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         {/* Smart events */}
         <CCard title="Smart events">
           {events.length ? (
-            <div className="mt-1 divide-y divide-[#f1f5fa]">
+            <div className="mt-1 divide-y divide-gray-100">
               {events.map((e, i) => (
                 <div key={i} className="flex items-center gap-3 py-2.5">
                   <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: CI.mist, color: CI.blue }}>
@@ -1308,7 +1252,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                   </span>
                   <p className="text-[12.5px] text-brand-navy truncate flex-1 min-w-0" title={e.event}>{e.event}</p>
                   {e.isConversion && (
-                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 rounded-full px-2 py-0.5 shrink-0">conversion</span>
+                    <span className="chip chip-ok shrink-0">conversion</span>
                   )}
                   <span className="text-[12px] text-gray-500 tabular-nums shrink-0">{fmtNum(e.count)}</span>
                 </div>
@@ -1323,14 +1267,14 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
 
       {/* ══ ROW 4 — Search performance (GSC-style tiles + multi-line chart) ══ */}
       <CCard title={`Search performance — ${periodLabel ?? `last ${days} days`}`} pad={false}>
-        <div className="px-4 pt-2 pb-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="px-5 pt-2 pb-1 grid grid-cols-2 lg:grid-cols-4 gap-3">
           {GSC_METRICS.map(m => {
             const on = gscSeries[m.key];
             return (
               <button key={m.key}
                 onClick={() => setGscSeries(s => ({ ...s, [m.key]: !s[m.key] }))}
-                className="rounded-lg px-3.5 py-3 text-left transition-opacity"
-                style={{ backgroundColor: on ? m.color : "#f4f7fb", opacity: on ? 1 : 0.9 }}>
+                className="rounded-2xl px-3.5 py-3 text-left transition-opacity"
+                style={{ backgroundColor: on ? m.color : "rgba(255,255,255,0.7)", opacity: on ? 1 : 0.9 }}>
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className={`w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center text-[9px] leading-none ${on ? "bg-white/25 border-white/70 text-white" : "border-gray-300 text-transparent bg-white"}`}>✓</span>
                   <p className={`text-[11.5px] ${on ? "text-white/90" : "text-gray-500"}`}>{m.label}</p>
@@ -1345,8 +1289,30 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
             );
           })}
         </div>
-        <div className="px-4 pt-3 pb-2">
-          <MLChart data={gscDaily as unknown as Record<string, number | string>[]} series={activeSeries} />
+        <div className="px-5 pt-3 pb-2">
+          {activeSeries.length === 1 && gscDaily.length >= 2 ? (() => {
+            // series เดียว = แกนเดียว ใช้ AreaChart ค่าจริง (position กลับด้านเหมือนเดิม)
+            const one = activeSeries[0];
+            const meta = GSC_METRICS.find(m => m.key === one.key)!;
+            const dl = (raw: string) => {
+              if (raw.length === 8) return `${parseInt(raw.slice(6))}/${parseInt(raw.slice(4, 6))}`;
+              if (raw.includes("-")) { const q = raw.split("-"); return `${parseInt(q[2])}/${parseInt(q[1])}`; }
+              return raw;
+            };
+            return (
+              <AreaChart
+                height={300}
+                invertY={one.key === "position"}
+                series={[{
+                  name: meta.label,
+                  color: meta.color,
+                  points: gscDaily.map(d => ({ label: dl(String(d.date ?? "")), value: Number((d as unknown as Record<string, number>)[one.key] ?? 0) })),
+                }]}
+              />
+            );
+          })() : (
+            <MLChart data={gscDaily as unknown as Record<string, number | string>[]} series={activeSeries} />
+          )}
         </div>
         <div className="px-4 pb-3 flex items-center justify-between flex-wrap gap-2">
           <p className="text-[10px] text-gray-400">Average position ใช้สเกลกลับด้าน (เส้นอยู่สูง = อันดับดี) · Source: Search Console</p>
@@ -1358,23 +1324,23 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       <CCard title="Top search queries for your site" right={evSelect} pad={false}>
         {topQueryRows.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="tbl w-full min-w-[520px]">
               <thead>
-                <tr className="border-b border-[#eef2f8]">
+                <tr>
                   <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Keyword</th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Clicks</th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.dark }}>Impressions</th>
-                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>{hasConv ? "Conversions*" : "Events*"}</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-24">Clicks</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-28">Impressions</th>
+                  <th className="px-4 pb-2 pt-1 num text-[11.5px] font-medium w-28">{hasConv ? "Conversions*" : "Events*"}</th>
                 </tr>
               </thead>
               <tbody>
                 {topQueryRows.map((r, i) => (
-                  <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                  <tr key={i} >
                     <td className="px-4 py-2.5 min-w-0">
                       <span className="text-[13px] text-brand-navy"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{r.query}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{r.clicks.toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.impressions.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">{r.clicks.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">{r.impressions.toLocaleString()}</td>
                     <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: r.estConv >= 0.05 ? CI.sage : "#c3ccd6" }}>{r.estConv >= 0.05 ? (hasConv ? r.estConv.toFixed(1) : Math.round(r.estConv).toLocaleString()) : "—"}</td>
                   </tr>
                 ))}
@@ -1391,20 +1357,20 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       <CCard title="Top pages — pageviews & engagement" right={evSelect} pad={false}>
         {gaPageRows.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="tbl w-full min-w-[520px]">
               <thead>
-                <tr className="border-b border-[#eef2f8]">
+                <tr>
                   <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Title</th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Pageviews</th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.dark }}>Sessions</th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-32" style={{ color: CI.soft }}>Engagement Rate</th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-32" style={{ color: CI.mustard }}>Session Duration</th>
-                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>{pagesHaveConv ? "Conversions" : "Events"}</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-24">Pageviews</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-24">Sessions</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-32">Engagement Rate</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-32">Session Duration</th>
+                  <th className="px-4 pb-2 pt-1 num text-[11.5px] font-medium w-28">{pagesHaveConv ? "Conversions" : "Events"}</th>
                 </tr>
               </thead>
               <tbody>
                 {gaPageRows.map((r, i) => (
-                  <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                  <tr key={i} >
                     <td className="px-4 py-2.5 min-w-0 max-w-lg">
                       <a href={`${project.website}${r.path}`} target="_blank" rel="noopener noreferrer"
                         className="text-[13px] text-brand-navy hover:text-brand-blue hover:underline block truncate"
@@ -1413,10 +1379,10 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                       </a>
                       <p className="text-[11px] text-gray-400 truncate pl-6">{r.path}</p>
                     </td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{r.views.toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.sessions.toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.soft }}>{r.engagementRate}%</td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.mustard }}>{fmtDuration(r.avgDuration ?? 0)}</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">{r.views.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">{r.sessions.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">{r.engagementRate}%</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">{fmtDuration(r.avgDuration ?? 0)}</td>
                     <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: r.actVal > 0 ? CI.sage : "#c3ccd6" }}>{r.actVal > 0 ? r.actVal.toLocaleString() : "—"}</td>
                   </tr>
                 ))}
@@ -1430,27 +1396,27 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       </CCard>
 
       {/* ══ ROW 4.3 — Events & Conversions + Conversion deep-dive ══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CCard title="Events" pad={false}>
           {allEvents.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="tbl w-full min-w-[520px]">
                 <thead>
-                  <tr className="border-b border-[#eef2f8]">
+                  <tr>
                     <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Event</th>
-                    <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.blue }}>Count</th>
+                    <th className="px-4 pb-2 pt-1 num text-[11.5px] font-medium w-24">Count</th>
                   </tr>
                 </thead>
                 <tbody>
                   {allEvents.slice(0, 12).map((e, i) => (
-                    <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                    <tr key={i} >
                       <td className="px-4 py-2.5 min-w-0">
                         <span className="text-[13px] text-brand-navy">{e.event}</span>
                         {e.isConversion && (
-                          <span className="ml-2 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full align-middle" style={{ backgroundColor: "#e8f3ec", color: CI.sage }}>conversion</span>
+                          <span className="chip chip-ok ml-2 align-middle">conversion</span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{e.count.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 num text-[13px] tabular-nums">{e.count.toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1465,31 +1431,31 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         <CCard title={hasConv ? "Conversion เกิดที่หน้าไหน" : "Event เกิดที่หน้าไหน"} right={evSelect} pad={false}>
           {convPageRows.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="tbl w-full min-w-[520px]">
                 <thead>
-                  <tr className="border-b border-[#eef2f8]">
+                  <tr>
                     <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">Landing page</th>
-                    <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.dark }}>Sessions</th>
-                    <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-28" style={{ color: CI.sage }}>{hasConv ? "Conversions" : "Events"}</th>
+                    <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-24">Sessions</th>
+                    <th className="px-4 pb-2 pt-1 num text-[11.5px] font-medium w-28">{hasConv ? "Conversions" : "Events"}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {convPageRows.map((r, i) => (
-                    <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                    <tr key={i} >
                       <td className="px-4 py-2.5 min-w-0 max-w-xs">
                         <a href={`${project.website}${r.path}`} target="_blank" rel="noopener noreferrer"
                           className="text-[13px] text-brand-navy hover:text-brand-blue hover:underline block truncate" title={r.path}>
                           <span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{r.path}
                         </a>
                       </td>
-                      <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.sessions.toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-right text-[13px] tabular-nums font-medium" style={{ color: CI.sage }}>{r.actVal.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 num text-[13px] tabular-nums">{r.sessions.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 num text-[13px] tabular-nums font-medium">{r.actVal.toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {kwConvRows.length > 0 && (
-                <div className="border-t border-[#eef2f8] px-4 pt-2.5 pb-1">
+                <div className="border-t border-gray-100 px-4 pt-2.5 pb-1">
                   <p className="text-[11.5px] font-medium text-gray-400 mb-1.5">Keyword ที่คาดว่าพาให้เกิด {hasConv ? "conversion" : "event"}*</p>
                   {kwConvRows.map((k, i) => (
                     <div key={i} className="flex items-center justify-between gap-3 py-1">
@@ -1510,32 +1476,27 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       {/* ══ ROW 5 — GSC table: Queries / Pages / Devices ══ */}
       <CCard pad={false}
         title={
-          <span className="flex flex-wrap gap-2 sm:gap-5">
-            {(["queries", "pages", "devices"] as const).map(t => (
-              <button key={t} onClick={() => setGscTable(t)}
-                className={`pb-0.5 border-b-2 uppercase tracking-wide text-[11.5px] transition-colors ${gscTable === t ? "border-brand-blue text-brand-navy font-semibold" : "border-transparent text-gray-400 hover:text-brand-navy"}`}>
-                {t}
-              </button>
-            ))}
-          </span>
+          <Segmented size="sm" ariaLabel="GSC table"
+            options={[{ value: "queries", label: "Queries" }, { value: "pages", label: "Pages" }, { value: "devices", label: "Devices" }]}
+            value={gscTable} onChange={(t) => setGscTable(t as "queries" | "pages" | "devices")} />
         }>
         {gscRows.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="tbl w-full min-w-[520px]">
               <thead>
-                <tr className="border-b border-[#eef2f8]">
+                <tr>
                   <th className="px-4 pb-2 pt-1 text-left text-[11.5px] font-medium text-gray-400">
                     {gscTable === "queries" ? "Top queries" : gscTable === "pages" ? "Top pages" : "Device"}
                   </th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-20" style={{ color: CI.blue }}>Clicks</th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-24" style={{ color: CI.dark }}>Impressions</th>
-                  <th className="px-3 pb-2 pt-1 text-right text-[11.5px] font-medium w-16" style={{ color: CI.sage }}>CTR</th>
-                  <th className="px-4 pb-2 pt-1 text-right text-[11.5px] font-medium w-20" style={{ color: CI.salmon }}>Position</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-20">Clicks</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-24">Impressions</th>
+                  <th className="px-3 pb-2 pt-1 num text-[11.5px] font-medium w-16">CTR</th>
+                  <th className="px-4 pb-2 pt-1 num text-[11.5px] font-medium w-20">Position</th>
                 </tr>
               </thead>
               <tbody>
                 {gscRows.map((r, i) => (
-                  <tr key={i} className="border-b border-[#f4f7fb] last:border-0 hover:bg-[#fafcff]">
+                  <tr key={i} >
                     <td className="px-4 py-2.5 min-w-0">
                       {r.href ? (
                         <a href={r.href} target="_blank" rel="noopener noreferrer"
@@ -1544,10 +1505,15 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
                         <span className="text-[13px] text-brand-navy block truncate max-w-md">{r.name}</span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.blue }}>{r.clicks.toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.dark }}>{r.impressions.toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.sage }}>{r.ctr}%</td>
-                    <td className="px-4 py-2.5 text-right text-[13px] tabular-nums" style={{ color: CI.salmon }}>{r.position ? r.position.toFixed(1) : "—"}</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">{r.clicks.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">{r.impressions.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 num text-[13px] tabular-nums">
+                      <div className="flex items-center justify-end gap-2 min-w-[90px]">
+                        <span>{r.ctr}%</span>
+                        <div className="w-12"><MeterBar value={r.ctr} max={20} tone="ok" /></div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 num text-[13px] tabular-nums">{r.position ? r.position.toFixed(1) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1560,7 +1526,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
       </CCard>
 
       {/* ══ ROW 6 — Top pages (GA4) · How to improve (PSI) ══ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CCard title="Top pages">
           <div className="mt-1.5">
             <HBarList items={topPageItems} color={CI.soft} />
@@ -1571,7 +1537,7 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         <CCard title="How to improve"
           right={<span className="text-[11px] text-gray-400">{psiMode}</span>}>
           {curPsi?.opportunities && curPsi.opportunities.length > 0 ? (
-            <div className="mt-1 divide-y divide-[#f1f5fa]">
+            <div className="mt-1 divide-y divide-gray-100">
               {curPsi.opportunities.slice(0, 8).map((o, i) => (
                 <div key={i} className="flex items-center justify-between gap-3 py-2.5">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -1779,30 +1745,31 @@ export function ClientReportClient({
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           {!isClient && !embedded && (
-            <Link href={`/projects/${project.id}`} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+            <Link href={`/projects/${project.id}`} className="p-2 rounded-full hover:bg-white/70 transition-colors">
               <ArrowLeft size={16} />
             </Link>
           )}
           <div>
-            <h1 className="text-xl font-bold text-brand-navy">{project.name}</h1>
+            <p className="page-eyebrow">Report</p>
+            <h1 className="page-title">{project.name}</h1>
             <a href={project.website} target="_blank" rel="noopener" className="text-xs text-gray-400 hover:text-blue-500 flex items-center gap-0.5">
               <ExternalLink size={9} />{project.website}
             </a>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {[7, 28, 90].map(d => (
-            <button key={d} onClick={() => { setCustomRange(null); setShowCustom(false); setDays(d); }}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${!customRange && days === d ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-              {d} วัน
-            </button>
-          ))}
+          <Segmented
+            ariaLabel="ช่วงเวลา"
+            options={[7, 28, 90].map(d => ({ value: String(d), label: `${d} วัน` }))}
+            value={customRange ? "" : String(days)}
+            onChange={(v) => { setCustomRange(null); setShowCustom(false); setDays(Number(v)); }}
+          />
           <button onClick={() => setShowCustom(v => !v)}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${customRange ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${customRange ? "bg-brand-navy text-white" : "bg-white/80 border border-gray-200 text-gray-600 hover:bg-white"}`}>
             {customRange ? `${customRange.start} → ${customRange.end}` : "กำหนดเอง"}
           </button>
           {showCustom && (
-            <span className="flex flex-wrap items-center gap-1.5 bg-white border border-gray-200 rounded-full px-2.5 py-1">
+            <span className="flex flex-wrap items-center gap-1.5 bg-white/80 border border-gray-200 rounded-full px-2.5 py-1">
               <input type="date" value={draftStart} max={draftEnd || undefined} onChange={e => setDraftStart(e.target.value)}
                 className="text-[11px] text-gray-600 outline-none bg-transparent" />
               <span className="text-[11px] text-gray-400">→</span>
@@ -1817,13 +1784,13 @@ export function ClientReportClient({
           )}
           {ownerControls && ownerControls.ownerTags.length > 0 && (
             <select value={ownerFilter} onChange={e => changeOwnerFilter(e.target.value)} title="กรองรายงาน GSC ตามผู้ดูแลบทความ"
-              className={`h-8 rounded-full border px-2.5 text-xs bg-white ${ownerFilter ? "border-brand-soft/60 text-brand-blue font-semibold" : "border-gray-200"}`}>
+              className={`h-8 rounded-full border px-2.5 text-xs bg-white/80 ${ownerFilter ? "border-brand-soft/60 text-brand-blue font-semibold" : "border-gray-200"}`}>
               <option value="">ผู้ดูแล: ทั้งหมด</option>
               {ownerControls.ownerTags.map(t => <option key={t.id} value={t.id}>ผู้ดูแล: {t.name}</option>)}
             </select>
           )}
           <button onClick={() => { fetchGSC(); fetchGA4(); fetchPSI(); }}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+            className="p-2 rounded-full hover:bg-white/70 transition-colors">
             <RefreshCw size={14} className={gscLoading || ga4Loading || psiLoading ? "animate-spin" : ""} />
           </button>
           {!isClient && (
@@ -1831,13 +1798,13 @@ export function ClientReportClient({
               <button
                 onClick={() => exportCsv(project.name, gsc, ga4, days)}
                 title="Export CSV"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold transition-colors">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/80 border border-gray-200 text-brand-navy hover:bg-white text-xs font-semibold transition-colors">
                 <FileSpreadsheet size={13} /> CSV
               </button>
               <button
                 onClick={() => exportHtml(project.name, project.website, gsc, ga4, psi as any, days, dashInsights)}
                 title="Export HTML"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold transition-colors">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/80 border border-gray-200 text-brand-navy hover:bg-white text-xs font-semibold transition-colors">
                 <FileText size={13} /> HTML
               </button>
             </>
@@ -1847,32 +1814,27 @@ export function ClientReportClient({
 
       {/* Report type selector — hidden for clients (always simple) */}
       {!isClient && (
-        <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-3">
-          <button onClick={() => setReportMode("simple")}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "simple" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            <FileText size={12} /> Simple Report
-          </button>
-          <button onClick={() => setReportMode("dashboard")}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "dashboard" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            <BarChart3 size={12} /> Dashboard
-          </button>
-          <button onClick={() => setReportMode("seo-performance")}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${reportMode === "seo-performance" ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            <FileBarChart2 size={12} /> SEO Performance Report
-          </button>
-        </div>
+        <UnderlineTabs
+          tabs={[
+            { id: "simple" as ReportMode, label: "Simple Report", icon: <FileText size={12} /> },
+            { id: "dashboard" as ReportMode, label: "Dashboard", icon: <BarChart3 size={12} /> },
+            { id: "seo-performance" as ReportMode, label: "SEO Performance Report", icon: <FileBarChart2 size={12} /> },
+          ]}
+          value={reportMode}
+          onChange={setReportMode}
+        />
       )}
 
       {/* การตั้งค่าเชื่อมต่อ Google ย้ายไปอยู่ Project Settings (ฟันเฟือง) > GSC · GA4 */}
 
       {/* Status badges — read-only. การผูก GSC/GA4 Property ทำที่ Project Settings › GSC · GA4 เท่านั้น */}
       <div className="flex gap-2 flex-wrap items-center">
-        <span className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${project.gscSiteUrl ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"}`}>
+        <span className={project.gscSiteUrl ? "chip chip-ok" : "chip chip-muted"}>
           {project.gscSiteUrl ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
           GSC{project.gscSiteUrl ? "" : " — ยังไม่เชื่อมต่อ"}
         </span>
 
-        <span className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${ga4PropertyId ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"}`}>
+        <span className={ga4PropertyId ? "chip chip-ok" : "chip chip-muted"}>
           {ga4PropertyId ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
           {ga4PropertyId ? `GA4 (${ga4PropertyId})` : "GA4 — ยังไม่เชื่อมต่อ"}
         </span>
@@ -1886,7 +1848,7 @@ export function ClientReportClient({
 
       {/* แบนเนอร์บอกว่ากำลังกรองตามผู้ดูแลคนไหน (ขึ้นทุกโหมดรายงาน) */}
       {ownerInfo && (
-        <div className="bg-brand-mist/60 border border-brand-soft/40 rounded-xl px-4 py-2.5 text-xs text-brand-navy">
+        <div className="bg-brand-mist/70 border border-white/80 rounded-2xl px-4 py-2.5 text-xs text-brand-navy">
           <p>
             กรองเฉพาะบทความของ <b>{ownerControls?.ownerTags.find(t => t.id === ownerInfo.tagId)?.name ?? "ผู้ดูแลที่ถูกลบ"}</b>
             {" "}— {ownerInfo.articles.toLocaleString()} บทความ, พบใน GSC {ownerInfo.pagesMatched.toLocaleString()} หน้า
@@ -2033,8 +1995,8 @@ export function ClientReportClient({
                       return (
                         <div key={i} className="flex items-center gap-2 text-xs">
                           <span className="w-28 text-gray-700 truncate shrink-0">{c.channel}</span>
-                          <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+                          <div className="flex-1 min-w-0">
+                            <MeterBar value={pct} max={100} tone="blue" />
                           </div>
                           <span className="text-brand-navy font-semibold w-14 text-right">{c.sessions.toLocaleString()}</span>
                           <span className="text-emerald-600 w-14 text-right">{c.conversions} conv</span>
@@ -2209,13 +2171,14 @@ export function ClientReportClient({
           gscError={gscError}
           ga4Error={ga4Error}
           days={days}
+          calm={isClient}
           periodLabel={customRange ? `${customRange.start} ถึง ${customRange.end}` : `last ${days} days`}
         />
       )}
 
       {/* Setup guide if not connected — admin only */}
       {!isClient && reportMode === "dashboard" && (!project.gscSiteUrl || !project.ga4PropertyId) && (
-        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 text-sm text-gray-500 space-y-2">
+        <div className="glass rounded-2xl p-5 text-sm text-gray-500 space-y-2">
           <p className="font-semibold text-gray-700">ตั้งค่าเพื่อดูรายงานครบ</p>
           {!project.gscSiteUrl && (
             <p>• <b>GSC</b>: เพิ่ม <code className="bg-gray-200 px-1 rounded text-xs">gscSiteUrl</code> ใน Project settings เช่น <code className="bg-gray-200 px-1 rounded text-xs">sc-domain:example.com</code></p>

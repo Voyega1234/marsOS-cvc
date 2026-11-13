@@ -20,7 +20,10 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
   if (!session) return <NoAccessScreen />;
   if (session.user.role === "CLIENT") {
     const pathname = headers().get("x-pathname");
-    if (pathname && !isClientPageAllowed(pathname)) redirect("/projects");
+    // ไม่มี x-pathname = request ไม่ผ่าน middleware (เช่น path ที่ลงท้ายด้วยนามสกุลไฟล์รูป/ฟอนต์)
+    // ตรวจไม่ได้ว่าอยู่หน้าไหน — ปิดไว้ก่อน (ไม่ redirect เพื่อกันวนลูป)
+    if (!pathname) return <NoAccessScreen />;
+    if (!isClientPageAllowed(pathname)) redirect("/projects");
   }
 
   return (

@@ -136,7 +136,7 @@ export function LabContextFilesCard({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-4">
+    <div className="bg-white/70 border border-white/80 rounded-2xl shadow-sm p-4">
       <div className="flex items-center gap-2 mb-3">
         <FileText size={13} className="text-gray-400" />
         <span className="text-xs font-semibold text-gray-800">อ่านไฟล์ธุรกิจลูกค้า (CSV / PDF)</span>

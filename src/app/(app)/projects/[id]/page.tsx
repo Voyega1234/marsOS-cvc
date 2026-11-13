@@ -2,6 +2,8 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
 import ClientDetailTabs from "@/components/projects/ClientDetailTabs";
+import ClientPortal from "@/components/client-portal/ClientPortal";
+import { CLIENT_REVIEW_VISIBLE } from "@/lib/client-proposal/constants";
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
   const session = await getSession();
@@ -16,6 +18,41 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
       where: { userId_projectId: { userId: session.user.id, projectId: params.id } },
     });
     if (!access) notFound();
+
+    // ลูกค้า: ส่งเฉพาะข้อมูลที่พอร์ทัลต้องใช้ ไม่ส่ง project เต็ม
+    const [cp, reviewRows, accessRows] = await Promise.all([
+      prisma.project.findUnique({
+        where: { id: params.id },
+        select: { id: true, name: true, clientName: true, website: true, gscSiteUrl: true, ga4PropertyId: true, logoUrl: true },
+      }),
+      prisma.article.findMany({
+        where: {
+          projectId: params.id,
+          status: { in: [...CLIENT_REVIEW_VISIBLE] },
+          NOT: [{ htmlContent: null }, { htmlContent: "" }],
+        },
+        select: { id: true, title: true, status: true, updatedAt: true },
+        orderBy: { updatedAt: "desc" },
+      }),
+      prisma.clientProjectAccess.findMany({
+        where: { userId: session.user.id },
+        select: { project: { select: { id: true, name: true, clientName: true } } },
+      }),
+    ]);
+    if (!cp) notFound();
+    return (
+      <ClientPortal
+        user={{ name: session.user.name ?? null }}
+        project={cp}
+        projects={accessRows.map((r) => r.project)}
+        reviewArticles={reviewRows.map((a) => ({
+          id: a.id,
+          title: a.title,
+          status: a.status as string,
+          updatedAt: a.updatedAt.toISOString(),
+        }))}
+      />
+    );
   } else if (!orgId) {
     redirect("/setup");
   }
@@ -23,7 +60,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
   const project = await prisma.project.findFirst({
     where: {
       id: params.id,
-      ...(userRole !== "CLIENT" ? { organizationId: orgId! } : {}),
+      organizationId: orgId!, // CLIENT ออกไปแล้วด้านบน
     },
     include: {
       _count: { select: { articles: true, keywords: true } },
@@ -38,6 +75,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         id: project.id,
         name: project.name,
         clientName: project.clientName,
+        logoUrl: project.logoUrl ?? null,
         website: project.website,
         businessType: project.businessType,
         industry: project.industry,

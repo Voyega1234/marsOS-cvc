@@ -78,11 +78,11 @@ interface Props {
 }
 
 const AI_ACTIONS = [
-  { key: "outline",      labelTh: "สร้าง Outline",      requiredStatus: [],                                   lockedReason: "",                                    endpoint: "/api/ai/outline",       icon: LayoutList, color: "bg-[#FFF7ED] hover:bg-[#FEE9CC] text-[#9A4A00] border border-[#F5C896]", cost: "~$0.01" },
-  { key: "article",      labelTh: "เขียนบทความ",        requiredStatus: ["OUTLINE_APPROVED"],                 lockedReason: "ต้อง Approve Outline ก่อน",           endpoint: "/api/ai/article",       icon: PenLine,    color: "bg-[#EDFAF4] hover:bg-[#D5F5E5] text-[#1A6A46] border border-[#B8E8D0]", cost: "~$0.04" },
-  { key: "image-prompt", labelTh: "สร้าง Image Prompt", requiredStatus: ["ARTICLE_DONE","IMAGE_PROMPT_DONE"], lockedReason: "ต้องเขียนบทความเสร็จก่อน",           endpoint: "/api/ai/image-prompt",  icon: Image,      color: "bg-[#F5EEFF] hover:bg-[#EBD9FF] text-[#6B35A8] border border-[#D4B8F5]", cost: "~$0.01" },
-  { key: "seo-check",    labelTh: "ตรวจ SEO",           requiredStatus: ["ARTICLE_DONE","IMAGE_PROMPT_DONE","SEO_REVIEW","REVISION_REQUIRED","APPROVED","WORDPRESS_DRAFTED","POSTED"], lockedReason: "ต้องเขียนบทความเสร็จก่อน", endpoint: "/api/ai/seo-check", icon: Search, color: "bg-[#EEF3FF] hover:bg-[#DCE7FF] text-[#2B4FAD] border border-[#BAC8F5]", cost: "~$0.02" },
-  { key: "wordpress",    labelTh: "ส่ง WordPress Draft", requiredStatus: ["APPROVED"],                        lockedReason: "ต้อง Approve บทความก่อน",             endpoint: "/api/wordpress/draft",  icon: Globe,      color: "bg-[#F5F5F5] hover:bg-[#EBEBEB] text-[#444444] border border-[#E0E0E0]", cost: "free" },
+  { key: "outline",      labelTh: "สร้าง Outline",      requiredStatus: [],                                   lockedReason: "",                                    endpoint: "/api/ai/outline",       icon: LayoutList, color: "bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200", cost: "~$0.01" },
+  { key: "article",      labelTh: "เขียนบทความ",        requiredStatus: ["OUTLINE_APPROVED"],                 lockedReason: "ต้อง Approve Outline ก่อน",           endpoint: "/api/ai/article",       icon: PenLine,    color: "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200", cost: "~$0.04" },
+  { key: "image-prompt", labelTh: "สร้าง Image Prompt", requiredStatus: ["ARTICLE_DONE","IMAGE_PROMPT_DONE"], lockedReason: "ต้องเขียนบทความเสร็จก่อน",           endpoint: "/api/ai/image-prompt",  icon: Image,      color: "bg-brand-mist hover:bg-brand-blue/10 text-brand-navy border border-gray-200", cost: "~$0.01" },
+  { key: "seo-check",    labelTh: "ตรวจ SEO",           requiredStatus: ["ARTICLE_DONE","IMAGE_PROMPT_DONE","SEO_REVIEW","REVISION_REQUIRED","APPROVED","WORDPRESS_DRAFTED","POSTED"], lockedReason: "ต้องเขียนบทความเสร็จก่อน", endpoint: "/api/ai/seo-check", icon: Search, color: "bg-brand-blue/10 hover:bg-brand-blue/20 text-brand-blue border border-brand-blue/20", cost: "~$0.02" },
+  { key: "wordpress",    labelTh: "ส่ง WordPress Draft", requiredStatus: ["APPROVED"],                        lockedReason: "ต้อง Approve บทความก่อน",             endpoint: "/api/wordpress/draft",  icon: Globe,      color: "bg-white/70 hover:bg-white text-gray-600 border border-gray-200", cost: "free" },
 ];
 
 // ── Version Diff ─────────────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ function VersionDiff({ versions }: {
                 >A</button>
                 <button
                   onClick={() => setVB(v.id)}
-                  className={`px-2 py-1 text-[10px] font-bold rounded ${vB === v.id ? "bg-green-600 text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-50"}`}
+                  className={`px-2 py-1 text-[10px] font-bold rounded ${vB === v.id ? "bg-brand-blue text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-50"}`}
                 >B</button>
               </div>
             )}
@@ -564,7 +564,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               <Button
                 onClick={approveOutline}
                 disabled={loadingAction === "approve-outline"}
-                className="bg-[#1A1A1A] hover:bg-[#2D2D2D]"
+                className="bg-brand-blue hover:bg-brand-deep"
               >
                 {loadingAction === "approve-outline" ? <LoadingSpinner className="border-white mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
                 อนุมัติ Outline
@@ -574,7 +574,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               <Button
                 onClick={approveArticle}
                 disabled={loadingAction === "approve-article"}
-                className="bg-[#1A1A1A] hover:bg-[#2D2D2D]"
+                className="bg-brand-blue hover:bg-brand-deep"
               >
                 {loadingAction === "approve-article" ? <LoadingSpinner className="border-white mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
                 อนุมัติบทความ
@@ -627,7 +627,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
               <button
                 onClick={runAutoFull}
                 disabled={loadingAction !== null}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
               >
                 {loadingAction === "auto-full"
                   ? <LoadingSpinner className="border-white" />
@@ -714,7 +714,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                 <TabsTrigger
                   key={tab.value}
                   value={tab.value}
-                  className="flex items-center gap-1.5 px-4 py-3 rounded-none border-b border-gray-100-2 border-transparent data-[state=active]:border-green-600 data-[state=active]:text-green-700 data-[state=active]:bg-transparent text-gray-500 hover:text-gray-700"
+                  className="flex items-center gap-1.5 px-4 py-3 rounded-none border-b-2 border-transparent data-[state=active]:border-brand-blue data-[state=active]:text-brand-blue data-[state=active]:bg-transparent text-gray-500 hover:text-gray-700"
                 >
                   <tab.icon className="h-3.5 w-3.5" />
                   {tab.label}
@@ -744,7 +744,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-brand-navy">Outline บทความ</h3>
               {article.status === "OUTLINE_DONE" && (
-                <Button onClick={approveOutline} size="sm" className="bg-[#1A1A1A] hover:bg-[#2D2D2D] gap-2">
+                <Button onClick={approveOutline} size="sm" className="bg-brand-blue hover:bg-brand-deep gap-2">
                   <CheckCircle className="h-4 w-4" /> อนุมัติ Outline
                 </Button>
               )}
@@ -840,7 +840,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                 <button
                   onClick={saveHtmlContent}
                   disabled={savingHtml}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
                 >
                   {savingHtml
                     ? <><span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />บันทึก...</>
@@ -922,7 +922,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                 </div>
                 {editedHtml.startsWith("<") ? (
                   <div
-                    className="p-6 prose prose-sm max-w-none text-gray-800 leading-relaxed"
+                    className="force-light p-6 prose prose-sm max-w-none text-gray-800 leading-relaxed"
                     style={{ fontFamily: "Georgia, serif" }}
                     dangerouslySetInnerHTML={{ __html: editedHtml }}
                   />
@@ -1069,7 +1069,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                     <div key={a.id} className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${relevant ? "border-green-200 bg-green-50/50" : "border-gray-100 bg-white"}`}>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <Link href={`/articles/${a.id}`} target="_blank" className="text-sm font-medium text-brand-navy hover:text-green-700 truncate">
+                          <Link href={`/articles/${a.id}`} target="_blank" className="text-sm font-medium text-brand-navy hover:text-brand-blue truncate">
                             {a.title}
                           </Link>
                           {relevant && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">แนะนำ</span>}
@@ -1151,7 +1151,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                   href={article.wordpressUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm text-green-600 hover:text-green-700"
+                  className="flex items-center gap-2 text-sm text-brand-blue hover:text-brand-deep"
                 >
                   <Globe className="h-4 w-4" />
                   {article.wordpressUrl}

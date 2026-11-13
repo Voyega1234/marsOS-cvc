@@ -13,7 +13,7 @@ export function EmptyState({ icon: Icon, title, description, action, className }
   return (
     <div className={cn("flex flex-col items-center justify-center py-16 text-center", className)}>
       {Icon && (
-        <div className="mb-4 p-4 rounded-full bg-gray-100">
+        <div className="mb-4 p-4 rounded-full bg-white/70 border border-white/80">
           <Icon className="h-8 w-8 text-gray-400" />
         </div>
       )}

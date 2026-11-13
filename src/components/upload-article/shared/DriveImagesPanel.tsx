@@ -79,7 +79,7 @@ export default function DriveImagesPanel({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+    <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><FolderOpen size={12} /> รูปจากโฟลเดอร์ Drive</p>
         <button onClick={() => void load()} disabled={loading}

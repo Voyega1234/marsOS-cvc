@@ -7,7 +7,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Search, Globe, FileText, CheckCircle2, UploadCloud, Loader2, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { Plus, Globe, FileText, CheckCircle2, UploadCloud, Loader2, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import PasteDialog from "@/components/upload-article/shared/PasteDialog";
 import GoogleDocDialog from "@/components/upload-article/shared/GoogleDocDialog";
 import UploadLanguageSelect from "@/components/upload-article/shared/UploadLanguageSelect";
 import ClientAvatar from "@/components/upload-article/ClientAvatar";
+import { Chip, EmptyState, EntityCard, EntityGrid, PageHeader, Panel, SearchPill, Segmented } from "@/components/ds";
 
 /** เพดานต่อไฟล์ฝั่งเบราว์เซอร์ — เผื่อที่ให้ multipart header ใต้เพดาน 4.5MB ของ Vercel */
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
@@ -44,6 +46,9 @@ export default function UploadClientsBoard() {
   const [clients, setClients] = useState<UploadClientDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<"cards" | "table">("cards");
+  // ตัวกรองฝั่งเบราว์เซอร์จากตัวเลขที่โหลดมาแล้ว
+  const [statusFilter, setStatusFilter] = useState<"all" | "pushed" | "empty">("all");
 
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -95,7 +100,10 @@ export default function UploadClientsBoard() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = !q ? clients : clients.filter(c => c.name.toLowerCase().includes(q) || c.website.toLowerCase().includes(q));
+    const searched = !q ? clients : clients.filter(c => c.name.toLowerCase().includes(q) || c.website.toLowerCase().includes(q));
+    const list = statusFilter === "pushed" ? searched.filter(c => c.counts.pushed > 0)
+      : statusFilter === "empty" ? searched.filter(c => c.counts.total === 0)
+      : searched;
     if (sort.key === "recent") return list;
     const sign = sort.dir === "asc" ? 1 : -1;
     const key = sort.key;
@@ -103,7 +111,7 @@ export default function UploadClientsBoard() {
       if (key === "name") return sign * a.name.localeCompare(b.name, "th");
       return sign * (a.counts[key] - b.counts[key]) || a.name.localeCompare(b.name, "th");
     });
-  }, [clients, search, sort]);
+  }, [clients, search, sort, statusFilter]);
 
   async function createClient() {
     if (!newName.trim()) return;
@@ -201,51 +209,212 @@ export default function UploadClientsBoard() {
     );
   }
 
-  return (
-    <div className="px-4 py-6 sm:px-6 w-full space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-brand-navy">Upload Article</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            นำบทความที่เขียนเสร็จแล้วขึ้นเว็บลูกค้า — แยกลูกค้า แยกเว็บ ชัดเจน
-          </p>
-        </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <Plus size={14} className="mr-1.5" /> เพิ่มลูกค้า
-        </Button>
-      </div>
+  // ── ส่วนที่ใช้ร่วมกันทั้งมุมมองการ์ดและตาราง ──
+  const dropProps = (c: UploadClientDTO) => {
+    const cardBusy = !!busy[c.id];
+    return {
+      onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); if (!cardBusy) setDragRow(c.id); } },
+      onDragLeave: (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragRow(prev => prev === c.id ? null : prev); },
+      onDrop: (e: React.DragEvent) => {
+        if (!e.dataTransfer.files?.length) return;
+        e.preventDefault();
+        setDragRow(null);
+        if (cardBusy) return;
+        uploadFiles(c.id, Array.from(e.dataTransfer.files));
+      },
+    };
+  };
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="relative w-full max-w-sm">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อลูกค้า / เว็บไซต์"
-            className="pl-9" />
-        </div>
-        {!loading && clients.length > 0 && (
-          <p className="text-xs text-gray-500" aria-live="polite">
-            {search.trim() ? `พบ ${filtered.length} จาก ${clients.length} ลูกค้า` : `ทั้งหมด ${clients.length} ลูกค้า`}
+  const langSelectFor = (c: UploadClientDTO) => (
+    <UploadLanguageSelect
+      compact
+      value={c.language}
+      clientId={c.id}
+      onChange={v => setClients(prev => prev.map(x => x.id === c.id ? { ...x, language: v } : x))}
+    />
+  );
+
+  const addPanel = (c: UploadClientDTO, className: string) => {
+    const result = results[c.id];
+    const cardBusy = !!busy[c.id];
+    const open = !!expanded[c.id];
+    const setLogo = (logo: string | null) => setClients(prev => prev.map(x => x.id === c.id ? { ...x, logo } : x));
+    if (!(open || cardBusy || result)) return null;
+    return (
+      <div className={className}>
+        {open && (
+          <div className="space-y-2 max-w-xl">
+            <DropZone
+              label="ลากไฟล์มาวาง (.docx .txt .md .html)"
+              disabled={cardBusy}
+              compact
+              onFiles={files => uploadFiles(c.id, files)}
+            />
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="flex-1 text-xs" disabled={cardBusy}
+                onClick={() => setPasteOpenFor(c.id)}>
+                วางข้อความ
+              </Button>
+              <Button variant="outline" size="sm" className="flex-1 text-xs" disabled={cardBusy}
+                onClick={() => setGdocOpenFor(c.id)}>
+                ลิงก์ Google Doc
+              </Button>
+            </div>
+            {c.logo && (
+              <button type="button" className="text-[11px] text-gray-400 hover:text-rose-600 underline"
+                onClick={async () => {
+                  setLogo(null);
+                  try {
+                    const r = await fetch(`/api/upload-article/clients/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientLogo: null }) });
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                  } catch (e) {
+                    setLogo(c.logo ?? null);
+                    toast.error(`ลบโลโก้ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+                  }
+                }}>
+                ลบโลโก้
+              </button>
+            )}
+          </div>
+        )}
+        {cardBusy && (
+          <p className="flex items-center gap-1.5 text-[11px] text-gray-400">
+            <UploadCloud size={11} className="animate-pulse" /> กำลังนำเข้า...
           </p>
         )}
+        {result && (
+          <div className="text-[11px] space-y-0.5">
+            {result.createdCount > 0 && (
+              <p className="flex items-center gap-1 text-emerald-600">
+                <CheckCircle2 size={11} /> นำเข้าสำเร็จ {result.createdCount} บทความ
+              </p>
+            )}
+            {result.errors.map((e, i) => (
+              <p key={i} className="text-rose-500">✕ {e.name}: {e.error}</p>
+            ))}
+          </div>
+        )}
       </div>
+    );
+  };
+
+  const clientStatus = (c: UploadClientDTO): { tone: "ok" | "info" | "bad" | "muted"; label: string } => {
+    if (c.counts.failed > 0) return { tone: "bad", label: `ผิดพลาด ${c.counts.failed}` };
+    if (c.counts.pushed > 0) return { tone: "ok", label: "Push แล้ว" };
+    if (c.counts.total > 0) return { tone: "info", label: `${c.counts.total} บทความ` };
+    return { tone: "muted", label: "ยังไม่มีบทความ" };
+  };
+
+  return (
+    <div className="px-4 py-6 sm:px-6 w-full space-y-4">
+      <PageHeader
+        className="!mb-2"
+        eyebrow="Upload Article"
+        title="Upload Article"
+        subtitle={<>นำบทความที่เขียนเสร็จแล้วขึ้นเว็บลูกค้า — แยกลูกค้า แยกเว็บ ชัดเจน{!loading && clients.length > 0 ? ` · ${clients.length} ลูกค้า` : ""}</>}
+        actions={
+          <Button onClick={() => setAddOpen(true)}>
+            <Plus size={14} className="mr-1.5" /> เพิ่มลูกค้า
+          </Button>
+        }
+      />
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <SearchPill value={search} onChange={setSearch} placeholder="ค้นหาชื่อลูกค้า / เว็บไซต์" className="w-full max-w-sm" />
+        {!loading && clients.length > 0 && (
+          <>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Chip active={statusFilter === "all"} onClick={() => setStatusFilter("all")}
+                className={statusFilter === "all" ? "!bg-brand-navy !text-white !border-brand-navy" : ""}>ทั้งหมด</Chip>
+              <Chip active={statusFilter === "pushed"} onClick={() => setStatusFilter("pushed")}
+                className={statusFilter === "pushed" ? "!bg-brand-navy !text-white !border-brand-navy" : ""}>Push แล้ว</Chip>
+              <Chip active={statusFilter === "empty"} onClick={() => setStatusFilter("empty")}
+                className={statusFilter === "empty" ? "!bg-brand-navy !text-white !border-brand-navy" : ""}>ยังไม่มีบทความ</Chip>
+            </div>
+            <p className="text-xs text-gray-500" aria-live="polite">
+              {search.trim() || statusFilter !== "all" ? `พบ ${filtered.length} จาก ${clients.length} ลูกค้า` : `ทั้งหมด ${clients.length} ลูกค้า`}
+            </p>
+            <Segmented<"cards" | "table"> className="ml-auto" ariaLabel="มุมมอง" value={view} onChange={setView}
+              options={[{ value: "cards", label: "การ์ด" }, { value: "table", label: "ตาราง" }]} />
+          </>
+        )}
+      </div>
+
+      {!loading && clients.length > 0 && view === "cards" && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-semibold text-gray-500 mr-1">เรียง:</span>
+          <SortHead k="name" label="ลูกค้า" className="rounded-full border border-gray-200 bg-white/70 px-2.5 py-1" />
+          {COUNT_COLS.map(col => (
+            <SortHead key={col.key} k={col.key} label={col.label} className="rounded-full border border-gray-200 bg-white/70 px-2.5 py-1" />
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20 text-gray-400 text-sm gap-2">
           <Loader2 size={16} className="animate-spin" /> กำลังโหลด...
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
-          <FileText size={32} className="text-gray-200" />
-          <p className="text-gray-400 text-sm">{clients.length === 0 ? "ยังไม่มีลูกค้าใน Upload Article" : "ไม่พบลูกค้าที่ค้นหา"}</p>
-          {clients.length === 0 && (
-            <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
-              <Plus size={12} className="mr-1" /> เพิ่มลูกค้ารายแรก
-            </Button>
-          )}
-        </div>
+        <Panel>
+          <EmptyState
+            icon={<FileText size={24} />}
+            title={clients.length === 0 ? "ยังไม่มีลูกค้าใน Upload Article" : "ไม่พบลูกค้าที่ค้นหา"}
+            action={clients.length === 0 ? (
+              <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
+                <Plus size={12} className="mr-1" /> เพิ่มลูกค้ารายแรก
+              </Button>
+            ) : undefined}
+          />
+        </Panel>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200" role="table" aria-label="รายชื่อลูกค้า">
+view === "cards" ? (
+        <EntityGrid>
+          {filtered.map(c => {
+            const host = c.website.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+            const cardBusy = !!busy[c.id];
+            const open = !!expanded[c.id];
+            const setLogo = (logo: string | null) => setClients(prev => prev.map(x => x.id === c.id ? { ...x, logo } : x));
+            const st = clientStatus(c);
+            return (
+              <div key={c.id} {...dropProps(c)} className="min-w-0">
+                <EntityCard
+                  className={`h-full ${dragRow === c.id ? "ring-2 ring-brand-blue bg-brand-mist/60" : ""}`}
+                  avatar={<ClientAvatar clientId={c.id} name={c.name} theme={c.theme.theme} logo={c.logo} onChange={setLogo} size={44} />}
+                  title={
+                    <button type="button" onClick={() => router.push(`/upload-article/${c.id}`)}
+                      className="block max-w-full text-left truncate hover:text-brand-blue hover:underline focus:outline-none focus-visible:underline">
+                      {c.name}
+                    </button>
+                  }
+                  subtitle={<span className="flex items-center gap-1"><Globe size={11} className="shrink-0" /> <span className="truncate">{host || "ยังไม่ตั้งเว็บไซต์"}</span></span>}
+                  stats={COUNT_COLS.map(col => ({ label: col.label, value: c.counts[col.key], tone: col.key === "pushed" && c.counts.pushed > 0 ? "ok" as const : "default" as const }))}
+                  footerLeft={c.updatedAt ? formatDistanceToNow(new Date(c.updatedAt), { addSuffix: true }) : undefined}
+                  footerRight={<Chip tone={st.tone}>{st.label}</Chip>}
+                  actions={
+                    <>
+                      <Button size="sm" variant="outline" className="text-xs" aria-expanded={open}
+                        onClick={() => setExpanded(prev => ({ ...prev, [c.id]: !prev[c.id] }))}>
+                        {open ? <ChevronDown size={12} className="mr-1" /> : <ChevronRight size={12} className="mr-1" />}
+                        เพิ่มบทความ
+                      </Button>
+                      <Button size="sm" onClick={() => router.push(`/upload-article/${c.id}`)}>เปิด</Button>
+                    </>
+                  }
+                >
+                  <div className="space-y-2">
+                    <div>{langSelectFor(c)}</div>
+                    {addPanel(c, "space-y-2")}
+                  </div>
+                </EntityCard>
+              </div>
+            );
+          })}
+        </EntityGrid>
+      ) : (
+        <Panel padded={false}>
+        <div role="table" aria-label="รายชื่อลูกค้า">
           {/* หัวตาราง (md ขึ้นไป) — ติดบนเมื่อเลื่อน */}
-          <div role="row" className={`hidden ${ROW_GRID} sticky top-0 z-10 bg-gray-50 border-b border-gray-200 rounded-t-xl px-3 py-2`}>
+          <div role="row" className={`hidden ${ROW_GRID} sticky top-[4.5rem] z-10 bg-white/80 backdrop-blur border-b border-gray-200/70 rounded-t-3xl px-3 py-2`}>
             <div role="columnheader"><SortHead k="name" label="ลูกค้า" /></div>
             <div role="columnheader" className="hidden xl:block text-left text-[11px] font-semibold text-gray-500">ภาษา</div>
             {COUNT_COLS.map(col => (
@@ -254,33 +423,16 @@ export default function UploadClientsBoard() {
             <div role="columnheader" className="text-right text-[11px] font-semibold text-gray-500">จัดการ</div>
           </div>
 
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-200/60">
             {filtered.map(c => {
               const host = c.website.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
-              const result = results[c.id];
               const cardBusy = !!busy[c.id];
               const open = !!expanded[c.id];
               const setLogo = (logo: string | null) => setClients(prev => prev.map(x => x.id === c.id ? { ...x, logo } : x));
-              const langSelect = (
-                <UploadLanguageSelect
-                  compact
-                  value={c.language}
-                  clientId={c.id}
-                  onChange={v => setClients(prev => prev.map(x => x.id === c.id ? { ...x, language: v } : x))}
-                />
-              );
+              const langSelect = langSelectFor(c);
               return (
-                <div key={c.id}
-                  onDragOver={e => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); if (!cardBusy) setDragRow(c.id); } }}
-                  onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragRow(prev => prev === c.id ? null : prev); }}
-                  onDrop={e => {
-                    if (!e.dataTransfer.files?.length) return;
-                    e.preventDefault();
-                    setDragRow(null);
-                    if (cardBusy) return;
-                    uploadFiles(c.id, Array.from(e.dataTransfer.files));
-                  }}
-                  className={dragRow === c.id ? "bg-brand-mist/40 ring-2 ring-inset ring-brand-blue" : "hover:bg-gray-50/60"}
+                <div key={c.id} {...dropProps(c)}
+                  className={dragRow === c.id ? "bg-brand-mist/40 ring-2 ring-inset ring-brand-blue" : "hover:bg-white/60"}
                 >
                   <div role="row" className={`${ROW_GRID} px-3 py-2 space-y-2 lg:space-y-0`}>
                     <div role="cell" className="flex items-center gap-3 min-w-0">
@@ -326,71 +478,18 @@ export default function UploadClientsBoard() {
                   {/* ภาษาสำหรับ md–xl: แถวเสริมใต้ชื่อ */}
                   <div className="hidden lg:block xl:hidden px-3 pb-2 pl-[60px]">{langSelect}</div>
 
-                  {(open || cardBusy || result) && (
-                    <div className="px-3 pb-3 lg:pl-[60px] space-y-2">
-                      {open && (
-                        <div className="space-y-2 max-w-xl">
-                          <DropZone
-                            label="ลากไฟล์มาวาง (.docx .txt .md .html)"
-                            disabled={cardBusy}
-                            compact
-                            onFiles={files => uploadFiles(c.id, files)}
-                          />
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" className="flex-1 text-xs" disabled={cardBusy}
-                              onClick={() => setPasteOpenFor(c.id)}>
-                              วางข้อความ
-                            </Button>
-                            <Button variant="outline" size="sm" className="flex-1 text-xs" disabled={cardBusy}
-                              onClick={() => setGdocOpenFor(c.id)}>
-                              ลิงก์ Google Doc
-                            </Button>
-                          </div>
-                          {c.logo && (
-                            <button type="button" className="text-[11px] text-gray-400 hover:text-rose-600 underline"
-                              onClick={async () => {
-                                setLogo(null);
-                                try {
-                                  const r = await fetch(`/api/upload-article/clients/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientLogo: null }) });
-                                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                                } catch (e) {
-                                  setLogo(c.logo ?? null);
-                                  toast.error(`ลบโลโก้ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
-                                }
-                              }}>
-                              ลบโลโก้
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      {cardBusy && (
-                        <p className="flex items-center gap-1.5 text-[11px] text-gray-400">
-                          <UploadCloud size={11} className="animate-pulse" /> กำลังนำเข้า...
-                        </p>
-                      )}
-                      {result && (
-                        <div className="text-[11px] space-y-0.5">
-                          {result.createdCount > 0 && (
-                            <p className="flex items-center gap-1 text-emerald-600">
-                              <CheckCircle2 size={11} /> นำเข้าสำเร็จ {result.createdCount} บทความ
-                            </p>
-                          )}
-                          {result.errors.map((e, i) => (
-                            <p key={i} className="text-rose-500">✕ {e.name}: {e.error}</p>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {addPanel(c, "px-3 pb-3 lg:pl-[60px] space-y-2")}
                 </div>
               );
             })}
           </div>
         </div>
+        </Panel>
+        )
       )}
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-3xl glass-strong">
           <DialogHeader>
             <DialogTitle>เพิ่มลูกค้าใหม่</DialogTitle>
           </DialogHeader>

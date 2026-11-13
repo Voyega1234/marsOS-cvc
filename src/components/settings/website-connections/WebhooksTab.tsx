@@ -31,7 +31,7 @@ export function WebhooksTab() {
     <div className="space-y-5">
       <SectionCard title="Automation Rules" description="งานอัตโนมัติที่ทำงานร่วมกับ Website Connection" action={<MockBadge />}>
         <div className="overflow-x-auto -mx-6 px-6">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="tbl w-full min-w-[900px] text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-400 border-b border-gray-200">
                 <th className="py-2 pr-4">Automation</th>
@@ -72,7 +72,7 @@ export function WebhooksTab() {
 
       <SectionCard title="Delivery Log" description="ประวัติการส่ง Webhook (ตัวอย่าง)" action={<MockBadge />}>
         <div className="overflow-x-auto -mx-6 px-6">
-          <table className="w-full min-w-[700px] text-sm">
+          <table className="tbl w-full min-w-[700px] text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-400 border-b border-gray-200">
                 <th className="py-2 pr-4">Timestamp</th>
@@ -104,7 +104,7 @@ export function WebhooksTab() {
           </table>
         </div>
         <div className="mt-4 flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
-          <ShieldCheck className="h-4 w-4 text-indigo-500 flex-shrink-0 mt-0.5" />
+          <ShieldCheck className="h-4 w-4 text-brand-blue flex-shrink-0 mt-0.5" />
           ทุก Webhook ที่เข้ามาจะถูกตรวจสอบ Signature ก่อนประมวลผลเสมอ — Payload ที่ Signature ไม่ถูกต้องจะถูกปฏิเสธและบันทึกลง Log
         </div>
       </SectionCard>

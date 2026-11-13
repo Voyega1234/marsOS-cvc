@@ -40,9 +40,9 @@ interface SiteCategory {
   count?: number;
 }
 
-const fieldClass = 'w-full rounded-xl border border-[#cfd9ea] bg-white px-3.5 py-3 text-sm text-[#17233a] placeholder:text-[#91a0b8] shadow-sm outline-none transition focus:border-[#155eef] focus:ring-4 focus:ring-[#155eef]/10';
-const labelClass = 'mb-1.5 block text-xs font-semibold text-[#495975]';
-const cardClass = 'rounded-2xl border border-[#dbe1ee] bg-white shadow-[0_8px_30px_rgba(28,73,52,0.05)]';
+const fieldClass = 'w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm text-brand-navy placeholder:text-gray-400 shadow-sm outline-none transition focus:border-brand-blue focus:ring-4 focus:ring-brand-blue/10';
+const labelClass = 'mb-1.5 block text-xs font-semibold text-gray-600';
+const cardClass = 'rounded-2xl border border-white/80 bg-white/75 backdrop-blur shadow-[0_8px_30px_rgba(28,73,52,0.05)]';
 
 function parseKeywords(text: string): string[] {
   const lines = text.replace(/^﻿/, '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
@@ -98,7 +98,7 @@ function SourceBadge({ value }: { value: string }) {
 // libs, CSP-safe. Hover shows the raw monthly series + 3-month change.
 function Sparkline({ trend }: { trend?: number[] }) {
   const series = (trend ?? []).filter(value => typeof value === 'number' && isFinite(value));
-  if (series.length < 2) return <span className="text-[#c7cfde]">—</span>;
+  if (series.length < 2) return <span className="text-gray-300">—</span>;
 
   const width = 68;
   const height = 20;
@@ -112,7 +112,7 @@ function Sparkline({ trend }: { trend?: number[] }) {
 
   const change = threeMonthChange(series);
   const rising = change === null ? series[series.length - 1] >= series[0] : change >= 0;
-  const stroke = rising ? '#155eef' : '#d1584f';
+  const stroke = rising ? '#1d48f3' : '#d1584f';
   const changeLabel = change === null ? '' : ` • 3-mo ${formatPercentChange(change)}`;
   const lastX = x(series.length - 1);
   const lastY = y(series[series.length - 1]);
@@ -179,18 +179,18 @@ function ResearchModeSwitch({ mode, onChange }: { mode: ResearchMode; onChange: 
     { key: 'standard', label: 'ไม่มีหน้าร้าน / ขายออนไลน์', hint: 'หา keyword ที่มีโอกาสขายของธุรกิจ — จัดอันดับตามโอกาสปิดการขาย' },
   ];
   return (
-    <div className="inline-grid w-full max-w-2xl grid-cols-2 gap-1 rounded-xl bg-[#eef1f7] p-1">
+    <div className="inline-grid w-full max-w-2xl grid-cols-2 gap-1 rounded-full border border-white/80 bg-white/70 p-1 backdrop-blur">
       {options.map(option => (
         <button
           key={option.key}
           onClick={() => onChange(option.key)}
           title={option.hint}
-          className={`rounded-lg px-4 py-2 text-left transition ${
-            mode === option.key ? 'bg-white shadow-sm' : 'hover:bg-white/50'
+          className={`rounded-full px-5 py-2 text-left transition ${
+            mode === option.key ? 'bg-brand-navy shadow-sm' : 'hover:bg-brand-mist'
           }`}
         >
-          <span className={`block text-xs font-semibold ${mode === option.key ? 'text-[#0d4fd8]' : 'text-[#606f8c]'}`}>{option.label}</span>
-          <span className="mt-0.5 block text-[10px] font-normal leading-4 text-[#71809c]">{option.hint}</span>
+          <span className={`block text-xs font-semibold ${mode === option.key ? 'text-white' : 'text-gray-600'}`}>{option.label}</span>
+          <span className={`mt-0.5 block text-[10px] font-normal leading-4 ${mode === option.key ? 'text-white/70' : 'text-gray-500'}`}>{option.hint}</span>
         </button>
       ))}
     </div>
@@ -480,7 +480,7 @@ export default function WordGodTab({ project, onSendToBank }: Props) {
 
   if (researchMode === 'local_sme') {
     return (
-      <div className="min-h-screen bg-[#f7f9fd] text-[#17233a]">
+      <div className="text-brand-navy">
         <div className="mx-auto max-w-[1600px] px-1 pt-4 space-y-3">
           <ResearchModeSwitch mode={researchMode} onChange={setResearchMode} />
           <LanguageModeSelect
@@ -499,7 +499,7 @@ export default function WordGodTab({ project, onSendToBank }: Props) {
   // โหมดไม่มีหน้าร้าน → workspace ใหม่ (Business-Centric Keyword Intelligence)
   // แทนที่ standard pipeline UI เดิมทั้งก้อน — logic ฝั่ง run เดิมยังอยู่ในไฟล์เผื่ออ้างอิง
   return (
-    <div className="min-h-screen bg-[#f7f9fd] text-[#17233a]">
+    <div className="text-brand-navy">
       <div className="mx-auto max-w-[1600px] px-1 pt-4 space-y-3">
         <ResearchModeSwitch mode={researchMode} onChange={setResearchMode} />
         <LanguageModeSelect

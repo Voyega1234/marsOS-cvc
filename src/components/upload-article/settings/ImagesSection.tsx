@@ -15,10 +15,10 @@ import {
 
 function TextChoice({ value, onChange, disabled }: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+    <div className="inline-flex rounded-full border border-gray-200 overflow-hidden text-xs">
       {[{ v: true, l: "มีตัวหนังสือ" }, { v: false, l: "ภาพล้วน ไม่มีตัวหนังสือ" }].map(o => (
         <button key={String(o.v)} type="button" disabled={disabled} onClick={() => onChange(o.v)}
-          className={`px-3 py-1.5 ${value === o.v ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-50"} disabled:opacity-40`}>
+          className={`px-3 py-1.5 ${value === o.v ? "bg-brand-navy text-white" : "bg-white text-gray-600 hover:bg-gray-50"} disabled:opacity-40`}>
           {o.l}
         </button>
       ))}
@@ -70,17 +70,17 @@ export function ImageSettingsEditor<T extends ImageSettingsValue>({ saved, save:
 
   return (
     <div className="max-w-2xl space-y-4">
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-1.5">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><ImageIcon size={14} /> รูปภาพบทความ</p>
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-1.5">
+        <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5"><ImageIcon size={14} /> รูปภาพบทความ</p>
         <p className="text-xs text-gray-500">
           {intro ?? "ใช้โมเดลสร้างรูปตัวเดียวกับหน้า Clients · Prompt และภาพตัวอย่าง 3-5 รูปที่ใช้เป็นไกด์ ตั้งที่ Content Engine > Image Prompt"}
         </p>
         {openEngine && (
-          <button type="button" onClick={openEngine} className="text-xs text-blue-600 hover:underline">ไปตั้ง Image Prompt / ภาพตัวอย่าง →</button>
+          <button type="button" onClick={openEngine} className="text-xs text-brand-blue hover:underline">ไปตั้ง Image Prompt / ภาพตัวอย่าง →</button>
         )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
         <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
           <input type="checkbox" checked={draft.cover} onChange={e => setDraft({ ...draft, cover: e.target.checked })} />
           สร้างรูปปก (featured image)
@@ -91,19 +91,19 @@ export function ImageSettingsEditor<T extends ImageSettingsValue>({ saved, save:
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
         <p className="text-sm font-medium text-gray-800">รูปประกอบในบทความ</p>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-500">จำนวน</span>
           {autoOption && (
             <button type="button" onClick={() => setDraft({ ...draft, inlineCount: null })}
-              className={`h-8 px-2.5 rounded-lg border text-xs ${draft.inlineCount === null ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+              className={`h-8 px-2.5 rounded-lg border text-xs ${draft.inlineCount === null ? "bg-brand-navy text-white border-brand-navy" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
               ตาม Image Prompt
             </button>
           )}
           {Array.from({ length: UPLOAD_MAX_INLINE_IMAGES + 1 }, (_, n) => (
             <button key={n} type="button" onClick={() => setDraft({ ...draft, inlineCount: n })}
-              className={`w-8 h-8 rounded-lg border text-xs ${draft.inlineCount === n ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+              className={`w-8 h-8 rounded-lg border text-xs ${draft.inlineCount === n ? "bg-brand-navy text-white border-brand-navy" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
               {n}
             </button>
           ))}

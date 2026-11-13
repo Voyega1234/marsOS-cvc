@@ -544,7 +544,7 @@ ${cover}${html}
   // ปุ่ม "บันทึกทั้งหมด" ตัวเดียวกัน (saveAll) — โหมดเมนูซ้ายวางเป็นแถวหัวของหน้า business / links / test-article
   const saveAllButton = (
     <button onClick={saveAll} disabled={saving}
-      className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-50 transition-colors">
+      className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-brand-deep disabled:opacity-50 transition-colors">
       {saving ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
       {saving ? 'บันทึก...' : saved ? '✅ บันทึกแล้ว!' : 'บันทึกทั้งหมด'}
     </button>
@@ -568,7 +568,7 @@ ${cover}${html}
       )}
       {/* ── Sub-tab bar (ซ่อนเมื่อใช้เมนูซ้าย) ─────────────── */}
       {!section && (
-      <div className="flex items-center gap-1 mb-5 bg-gray-100 rounded-2xl p-1 w-fit max-w-full overflow-x-auto">
+      <div className="flex items-center gap-1 mb-5 bg-white/70 backdrop-blur border border-white/80 rounded-full p-1 w-fit max-w-full overflow-x-auto">
         {LAB_SUBTABS.map(t => (
           <button key={t.id} onClick={() => {
             setLabSubTab(t.id)
@@ -578,8 +578,8 @@ ${cover}${html}
               ilFetchKeywords()
             }
           }}
-            className={`flex items-center gap-1.5 whitespace-nowrap shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              labSubTab === t.id ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500 hover:text-gray-700'
+            className={`flex items-center gap-1.5 whitespace-nowrap shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-all ${
+              labSubTab === t.id ? 'bg-brand-navy shadow-sm text-white' : 'text-gray-500 hover:text-gray-700'
             }`}>
             <span>{t.icon}</span>{t.label}
           </button>
@@ -623,7 +623,7 @@ ${cover}${html}
             />
 
             {/* Project Context — ข้อเท็จจริงของธุรกิจ (Setup Checklist ชี้มาที่นี่) */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-4">
+            <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs font-semibold text-gray-800">🏢 บริบทธุรกิจ (Project Context)</span>
                 <span className="text-[10px] text-gray-400 ml-auto">AI ยึดเป็นข้อเท็จจริง ห้ามเขียนขัด</span>
@@ -635,7 +635,7 @@ ${cover}${html}
             </div>
 
             {/* Style Guide */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-4">
+            <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <span className="text-xs font-semibold text-gray-800 flex-1">Style Guide (.md)</span>
                 <button onClick={() => setStyleGuide(DEFAULT_STYLE_GUIDE)}
@@ -666,7 +666,7 @@ ${cover}${html}
             </div>
 
             {/* Forbidden Words */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-4">
+            <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4">
               <div className="mb-2">
                 <span className="text-xs font-semibold text-gray-800">คำต้องห้าม</span>
                 <p className="text-[10px] text-gray-400 mt-0.5">1 บรรทัด = 1 คำ</p>
@@ -682,7 +682,7 @@ ${cover}${html}
           {/* Right: Article Lab */}
           {showTestArticleBlock && (
           <div className="flex-1 min-w-0 space-y-4">
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-5">
               <div className="flex items-center justify-between mb-1">
                 <div className="text-sm font-bold text-brand-navy">Article Lab</div>
                 {project.sampleArticle && (
@@ -709,7 +709,7 @@ ${cover}${html}
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={generate} disabled={loading || !keyword.trim() || !title.trim()}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-40 transition-colors">
+                  className="flex items-center gap-2 px-5 py-2.5 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-brand-deep disabled:opacity-40 transition-colors">
                   {loading ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
                   {loading ? 'กำลัง Generate...' : 'Generate ด้วย Style นี้'}
                 </button>
@@ -735,27 +735,27 @@ ${cover}${html}
             )}
 
             {html && !loading && (
-              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl overflow-hidden">
                 <div className="flex flex-wrap gap-2 items-center justify-between px-5 py-3 border-b border-gray-100">
-                  <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                  <div className="flex items-center gap-1 bg-white/70 border border-white/80 rounded-full p-1">
                     <button onClick={() => setViewMode('preview')}
-                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${viewMode === 'preview' ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500'}`}>
+                      className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${viewMode === 'preview' ? 'bg-brand-navy shadow-sm text-white' : 'text-gray-500'}`}>
                       Preview
                     </button>
                     <button onClick={() => setViewMode('code')}
-                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${viewMode === 'code' ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500'}`}>
+                      className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${viewMode === 'code' ? 'bg-brand-navy shadow-sm text-white' : 'text-gray-500'}`}>
                       HTML
                     </button>
                     {coverImageLab && (
                       <button onClick={() => setViewMode('cover')}
-                        className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${viewMode === 'cover' ? 'bg-white shadow-sm text-brand-navy' : 'text-gray-500'}`}>
+                        className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${viewMode === 'cover' ? 'bg-brand-navy shadow-sm text-white' : 'text-gray-500'}`}>
                         🖼️ รูปปก
                       </button>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button onClick={generate} disabled={loading}
-                      className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-semibold rounded-xl hover:bg-gray-50">
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 bg-white text-gray-600 text-xs font-semibold rounded-full hover:bg-gray-50">
                       <RefreshCw size={11} /> Regenerate
                     </button>
                     <button onClick={exportHtml}
@@ -764,7 +764,7 @@ ${cover}${html}
                       <Download size={11} /> Export HTML
                     </button>
                     <button onClick={saveAll} disabled={saving}
-                      className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-xl hover:bg-emerald-700 disabled:opacity-50">
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-full hover:bg-emerald-700 disabled:opacity-50">
                       {saving ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
                       {saved ? '✅ บันทึกแล้ว!' : 'บันทึกเป็น Pattern'}
                     </button>
@@ -776,7 +776,7 @@ ${cover}${html}
                     spellCheck={false} />
                 )}
                 {viewMode === 'preview' && (
-                  <div className="p-6 min-h-96 overflow-auto"
+                  <div className="force-light p-6 min-h-96 overflow-auto"
                     // บทความพื้นโปร่งใส — วางบนสีพื้นหน้าเว็บจริงจากการสแกน ไม่งั้นเว็บพื้นเข้มจะอ่านไม่ออก
                     style={articleColors.background === '' && /^#[0-9a-f]{3,8}$/i.test(articleColors.pageBackground ?? '') ? { backgroundColor: articleColors.pageBackground } : undefined}>
                     <iframe srcDoc={html} className="w-full border-0 min-h-[400px] sm:min-h-[600px]" sandbox="allow-same-origin" title="Article Preview" />
@@ -868,7 +868,7 @@ ${cover}${html}
       {/* ══ SITELINK sub-tab ═══════════════════════════ */}
       {showLinksBlock && (
         <div className="space-y-4">
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="bg-white/70 backdrop-blur border border-white/80 shadow-sm rounded-2xl overflow-hidden">
             {/* Header */}
             <div className="px-5 py-4 border-b border-gray-100">
               <div className="flex items-center justify-between gap-4">
@@ -879,7 +879,7 @@ ${cover}${html}
                   </p>
                 </div>
                 <button onClick={ilSave} disabled={ilSaving}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-xl hover:bg-emerald-700 disabled:opacity-50 shrink-0">
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-full hover:bg-emerald-700 disabled:opacity-50 shrink-0">
                   {ilSaving ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
                   {ilSaved ? '✅ บันทึกแล้ว!' : 'บันทึก'}
                 </button>
@@ -901,7 +901,7 @@ ${cover}${html}
                     className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white font-mono focus:outline-none focus:ring-1 focus:ring-gray-300" />
                 )}
                 <button onClick={() => ilFetchGsc()} disabled={ilGscLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-xs font-semibold text-gray-600 rounded-xl hover:bg-white disabled:opacity-50 shrink-0">
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 bg-white text-xs font-semibold text-gray-600 rounded-full hover:bg-white disabled:opacity-50 shrink-0">
                   <RefreshCw size={11} className={ilGscLoading ? 'animate-spin' : ''} /> ดึงจาก GSC
                 </button>
               </div>
@@ -909,7 +909,7 @@ ${cover}${html}
                 <span className="text-xs font-semibold text-gray-600 shrink-0 w-28">Keywords</span>
                 <span className="flex-1 text-xs text-gray-400">ดึงจาก keyword list + articles ในโปรเจกต์นี้</span>
                 <button onClick={ilFetchKeywords} disabled={ilKwLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-xs font-semibold text-gray-600 rounded-xl hover:bg-white disabled:opacity-50 shrink-0">
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 bg-white text-xs font-semibold text-gray-600 rounded-full hover:bg-white disabled:opacity-50 shrink-0">
                   <Zap size={11} className={ilKwLoading ? 'animate-spin' : ''} /> ดึงจาก Keywords
                 </button>
               </div>
@@ -1016,7 +1016,7 @@ ${cover}${html}
                 {ilSaved && <span className="ml-3 text-emerald-600 font-semibold">✅ บันทึกแล้ว</span>}
               </p>
               <button onClick={ilSave} disabled={ilSaving}
-                className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-xl hover:bg-emerald-700 disabled:opacity-50">
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-full hover:bg-emerald-700 disabled:opacity-50">
                 {ilSaving ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
                 {ilSaved ? '✅ บันทึกแล้ว!' : 'บันทึก'}
               </button>

@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { ArrowRight, PauseCircle, PlayCircle, ArchiveX, Search, CalendarDays, AlertTriangle, Eye, FileText, Wrench, CheckCircle2, UserCircle2 } from "lucide-react";
+import { Chip, EmptyState, EntityCard, EntityGrid, MeterBar, Panel, Segmented, SearchPill } from "@/components/ds";
+import type { ChipTone } from "@/components/ds/Chip";
+import ClientAvatar from "@/components/upload-article/ClientAvatar";
+import { useSession } from "@/components/layout/SessionProvider";
+import { ArrowRight, PauseCircle, PlayCircle, ArchiveX, CalendarDays, AlertTriangle, Eye, FileText, Wrench, CheckCircle2, UserCircle2 } from "lucide-react";
 
 type TimelineStats = { total: number; writing: number; review: number; approved: number; pushed: number };
 type UrgentItem = { title: string; kind: "article" | "task"; date: string; overdue: boolean };
@@ -56,19 +60,21 @@ function ownerChipColor(name: string) {
   return OWNER_CHIP_COLORS[h % OWNER_CHIP_COLORS.length];
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  ACTIVE:    "bg-green-100 text-green-700",
-  PLANNING:  "bg-blue-100 text-blue-700",
-  PAUSED:    "bg-yellow-100 text-yellow-700",
-  COMPLETED: "bg-gray-100 text-gray-600",
-  ARCHIVED:  "bg-red-50 text-red-400",
+const STATUS_TONE: Record<string, ChipTone> = {
+  ACTIVE:    "ok",
+  PLANNING:  "info",
+  PAUSED:    "warn",
+  COMPLETED: "muted",
+  ARCHIVED:  "bad",
 };
 
 export default function ProjectsTable({ projects: initial, userRole }: { projects: ProjectRow[]; userRole: string }) {
   const [projects, setProjects] = useState(initial);
+  const isClientViewer = useSession().data?.user?.role === "CLIENT";
   const [updating, setUpdating] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("ALL");
+  const [view, setView] = useState<"cards" | "table">("cards");
   // ผู้ดูแล: 'ALL' | 'NONE' (ยังไม่มีผู้ดูแล) | userId
   const [ownerFilter, setOwnerFilter] = useState("ALL");
   const [orgUsers, setOrgUsers] = useState<{ id: string; name: string | null }[]>([]);
@@ -175,6 +181,89 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
     { key: "pending",  label: "ยังไม่เริ่ม",  bar: "bg-gray-200",    dot: "bg-gray-300" },
   ];
 
+  // ── ตัวควบคุมผู้ดูแล + ปุ่ม action ใช้ร่วมกันทั้งมุมมองการ์ดและตาราง ──
+  const ownerControl = (p: ProjectRow) =>
+    isAdmin ? (
+      <label className={`relative inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold cursor-pointer transition-opacity hover:opacity-75 ${
+        p.owner?.name ? ownerChipColor(p.owner.name) : "bg-white text-gray-400 border-dashed border-gray-300"
+      }`} title="เปลี่ยนผู้ดูแล">
+        <UserCircle2 size={10} />
+        {p.owner?.name ?? "มอบหมายผู้ดูแล"}
+        <select
+          value={p.owner?.id ?? ""}
+          onChange={e => changeOwner(p.id, e.target.value || null)}
+          className="absolute inset-0 opacity-0 cursor-pointer">
+          <option value="">— ไม่มีผู้ดูแล —</option>
+          {orgUsers.map(u => <option key={u.id} value={u.id}>{u.name ?? u.id}</option>)}
+        </select>
+      </label>
+    ) : p.owner?.name ? (
+      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ownerChipColor(p.owner.name)}`}>
+        <UserCircle2 size={10} /> {p.owner.name}
+      </span>
+    ) : null;
+
+  const rowActions = (p: ProjectRow, busy: boolean) => (
+    <>
+      <Link href={`/projects/${p.id}`}
+        className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-brand-blue hover:bg-brand-deep rounded-full transition-colors">
+        เปิด <ArrowRight size={11} />
+      </Link>
+      {isAdmin && (
+        <>
+          {p.status === "ACTIVE" || p.status === "PLANNING" ? (
+            <button onClick={() => changeStatus(p.id, "PAUSED")} disabled={busy}
+              className="p-1.5 text-amber-500 hover:bg-amber-50 rounded-full transition-colors disabled:opacity-40" title="ระงับ">
+              <PauseCircle size={14} />
+            </button>
+          ) : p.status === "PAUSED" ? (
+            <button onClick={() => changeStatus(p.id, "ACTIVE")} disabled={busy}
+              className="p-1.5 text-green-500 hover:bg-green-50 rounded-full transition-colors disabled:opacity-40" title="เปิดใช้งาน">
+              <PlayCircle size={14} />
+            </button>
+          ) : null}
+          {p.status !== "ARCHIVED" ? (
+            <button onClick={() => { if (confirm(`Archive "${p.name}"?`)) changeStatus(p.id, "ARCHIVED") }} disabled={busy}
+              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors disabled:opacity-40" title="Archive">
+              <ArchiveX size={14} />
+            </button>
+          ) : (
+            <button onClick={() => changeStatus(p.id, "ACTIVE")} disabled={busy}
+              className="p-1.5 text-green-500 hover:bg-green-50 rounded-full transition-colors disabled:opacity-40" title="กู้คืน">
+              <PlayCircle size={14} />
+            </button>
+          )}
+        </>
+      )}
+    </>
+  );
+
+  const saveLogo = (id: string) => async (logo: string | null) => {
+    const r = await fetch(`/api/projects/${id}/logo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ logo }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d?.error || `HTTP ${r.status}`);
+    }
+  };
+  const avatarEl = (p: ProjectRow, px: number) => (
+    <div className="relative z-10 shrink-0" onClick={e => e.stopPropagation()}>
+      <ClientAvatar
+        clientId={p.id}
+        name={p.clientName || p.name}
+        theme=""
+        logo={p.logoUrl}
+        onChange={logo => setProjects(prev => prev.map(x => x.id === p.id ? { ...x, logoUrl: logo } : x))}
+        save={saveLogo(p.id)}
+        readOnly={isClientViewer}
+        size={px}
+      />
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       {/* ── Filter ผู้ดูแล — กรองทั้งหน้า (overview + ตาราง) ── */}
@@ -182,27 +271,21 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
         <span className="flex items-center gap-1 text-[11px] font-semibold text-gray-400 mr-1">
           <UserCircle2 size={13} /> ผู้ดูแล:
         </span>
-        <button onClick={() => setOwnerFilter("ALL")}
-          className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-            ownerFilter === "ALL" ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-500 border-gray-200 hover:border-brand-soft"
-          }`}>
+        <Chip active={ownerFilter === "ALL"} onClick={() => setOwnerFilter("ALL")}
+          className={ownerFilter === "ALL" ? "!bg-brand-navy !text-white !border-brand-navy" : ""}>
           ทุกคน
-        </button>
+        </Chip>
         {ownerChips.owners.map(o => (
-          <button key={o.id} onClick={() => setOwnerFilter(ownerFilter === o.id ? "ALL" : o.id)}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
-              ownerFilter === o.id ? "bg-brand-blue text-white border-brand-blue" : ownerChipColor(o.name) + " hover:opacity-80"
-            }`}>
+          <Chip key={o.id} active={ownerFilter === o.id} onClick={() => setOwnerFilter(ownerFilter === o.id ? "ALL" : o.id)}
+            className={ownerFilter === o.id ? "!bg-brand-navy !text-white !border-brand-navy" : ""}>
             {o.name} ({o.count})
-          </button>
+          </Chip>
         ))}
         {ownerChips.none > 0 && (
-          <button onClick={() => setOwnerFilter(ownerFilter === "NONE" ? "ALL" : "NONE")}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-medium border border-dashed transition-colors ${
-              ownerFilter === "NONE" ? "bg-brand-blue text-white border-brand-blue border-solid" : "bg-white text-gray-400 border-gray-300 hover:border-gray-400"
-            }`}>
+          <Chip active={ownerFilter === "NONE"} onClick={() => setOwnerFilter(ownerFilter === "NONE" ? "ALL" : "NONE")}
+            className={ownerFilter === "NONE" ? "!bg-brand-navy !text-white !border-brand-navy" : "border-dashed"}>
             ยังไม่มีผู้ดูแล ({ownerChips.none})
-          </button>
+          </Chip>
         )}
       </div>
 
@@ -210,7 +293,7 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
 
         {/* Hero — งานที่ต้องเคลียร์วันนี้ (องค์ประกอบมืดเดียวของหน้า) */}
-        <div className="lg:col-span-3 rounded-2xl bg-brand-navy text-white p-5 relative overflow-hidden">
+        <div className="lg:col-span-3 rounded-3xl bg-brand-navy text-white p-5 relative overflow-hidden shadow-sm">
           {/* เส้น accent Tech Cyan — สัดส่วนจิ๋วตาม CI */}
           <div className="absolute top-0 left-5 right-5 h-px bg-brand-cyan/60" />
           <div className="flex items-baseline justify-between gap-3 mb-3">
@@ -276,7 +359,7 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
             { label: "เกินกำหนด", value: totals.overdue, icon: <AlertTriangle size={15} />, tone: totals.overdue > 0 ? "text-red-600 bg-red-50" : "text-gray-400 bg-gray-50", sub: totals.overdue > 0 ? "ต้องรีบเคลียร์ก่อน" : "ไม่มีงานค้าง" },
             { label: "รอตรวจ (Review)", value: totals.review, icon: <Eye size={15} />, tone: totals.review > 0 ? "text-amber-600 bg-amber-50" : "text-gray-400 bg-gray-50", sub: totals.review > 0 ? "รอทีมกดอนุมัติ" : "ไม่มีบทความรอตรวจ" },
           ].map(card => (
-            <div key={card.label} className="flex lg:flex-row flex-col lg:items-center gap-2 lg:gap-3 bg-white border border-gray-200 rounded-2xl px-4 py-3">
+            <div key={card.label} className="flex lg:flex-row flex-col lg:items-center gap-2 lg:gap-3 rounded-3xl border border-white/80 bg-white/70 shadow-sm backdrop-blur-xl px-4 py-3">
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${card.tone}`}>
                 {card.icon}
               </div>
@@ -294,7 +377,7 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
 
       {/* ── ความคืบหน้าแต่ละโปรเจกต์ — แท่งแบ่งตามสถานะ ── */}
       {progressProjects.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-4">
+        <div className="rounded-3xl border border-white/80 bg-white/70 shadow-sm backdrop-blur-xl p-4">
           <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
             <h2 className="text-[13px] font-bold text-brand-navy">ความคืบหน้าแต่ละโปรเจกต์</h2>
             <div className="flex items-center gap-3 flex-wrap">
@@ -310,7 +393,7 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
               const w = p.workload;
               return (
                 <Link key={p.id} href={`/projects/${p.id}`}
-                  className="group rounded-xl border border-gray-100 hover:border-brand-soft hover:shadow-sm p-3.5 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-blue">
+                  className="group rounded-2xl border border-gray-200/70 bg-white/60 hover:border-brand-soft hover:shadow-sm p-3.5 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-blue">
                   <div className="flex items-center gap-2 mb-2.5">
                     <div className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-bold overflow-hidden ${p.logoUrl ? "" : avatarColor(p.clientName || p.name)}`}>
                       {p.logoUrl
@@ -372,37 +455,85 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
         </div>
       )}
 
-      {/* Filter bar */}
+      {/* Toolbar: ค้นหา + ชิปสถานะ + สลับมุมมอง */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ client, เว็บ..."
-            className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-200"
-          />
-        </div>
+        <SearchPill value={search} onChange={setSearch} placeholder="ค้นหาชื่อ client, เว็บ..." className="flex-1 min-w-[200px] max-w-md" />
         <div className="flex gap-1.5 flex-wrap">
           {["ALL", "ACTIVE", "PAUSED", "ARCHIVED", "PLANNING", "COMPLETED"].map(s => (
-            <button key={s} onClick={() => setFilterStatus(s)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${filterStatus === s ? "bg-brand-blue text-white border-brand-blue" : "bg-white text-gray-500 border-gray-200 hover:border-gray-400"}`}>
+            <Chip key={s} active={filterStatus === s} onClick={() => setFilterStatus(s)}
+              className={filterStatus === s ? "!bg-brand-navy !text-white !border-brand-navy" : ""}>
               {s === "ALL" ? `ทั้งหมด (${projects.length})` : `${s} (${statusCounts[s] ?? 0})`}
-            </button>
+            </Chip>
           ))}
         </div>
+        <Segmented<"cards" | "table"> className="ml-auto" ariaLabel="มุมมอง" value={view} onChange={setView}
+          options={[{ value: "cards", label: "การ์ด" }, { value: "table", label: "ตาราง" }]} />
       </div>
 
-      {/* Table */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-x-auto">
-        <table className="w-full text-sm min-w-[720px]">
-          <thead className="bg-gray-50 border-b border-gray-100">
+      {view === "cards" ? (
+        filtered.length === 0 ? (
+          <Panel><EmptyState title="ไม่พบ client" /></Panel>
+        ) : (
+          <EntityGrid>
+            {filtered.map(p => {
+              const ts = p.timelineStats;
+              const done = ts.approved + ts.pushed;
+              const progress = ts.total > 0 ? Math.round((done / ts.total) * 100) : 0;
+              const busy = updating === p.id;
+              return (
+                <EntityCard
+                  key={p.id}
+                  className={p.status === "ARCHIVED" ? "opacity-60" : ""}
+                  avatar={avatarEl(p, 44)}
+                  title={p.clientName || p.name}
+                  href={`/projects/${p.id}`}
+                  subtitle={p.website || p.industry || undefined}
+                  stats={[
+                    { label: "บทความ", value: ts.total },
+                    { label: "เขียน", value: ts.writing, tone: ts.writing > 0 ? "default" : undefined },
+                    { label: "รอตรวจ", value: ts.review, tone: ts.review > 0 ? "warn" : "default" },
+                    { label: "เสร็จ", value: ts.total > 0 ? `${done}/${ts.total}` : "—", tone: ts.total > 0 && done === ts.total ? "ok" : "default" },
+                  ]}
+                  footerLeft={formatDistanceToNow(new Date(p.updatedAt), { addSuffix: true })}
+                  footerRight={<Chip tone={STATUS_TONE[p.status] ?? "muted"}>{p.status}</Chip>}
+                  actions={rowActions(p, busy)}
+                >
+                  <div className="space-y-2">
+                    {(p.industry || p.businessType || p.website) && (
+                      <div className="text-[11px] text-gray-500 space-y-0.5">
+                        {p.website && <div className="truncate text-brand-blue">{p.website}</div>}
+                        {(p.industry || p.businessType) && (
+                          <div className="truncate">{[p.businessType, p.industry].filter(Boolean).join(" · ")}</div>
+                        )}
+                      </div>
+                    )}
+                    {ts.total > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between text-[10px] text-gray-400 mb-1">
+                          <span>{done}/{ts.total}</span>
+                          <span className="font-semibold">{progress}%</span>
+                        </div>
+                        <MeterBar value={progress} tone="ok" />
+                      </div>
+                    )}
+                    <div>{ownerControl(p)}</div>
+                  </div>
+                </EntityCard>
+              );
+            })}
+          </EntityGrid>
+        )
+      ) : (
+      <Panel padded={false} bodyClassName="overflow-x-auto">
+        <table className="tbl w-full text-sm min-w-[720px]">
+          <thead>
             <tr>
               {["#", "Client", "เว็บไซต์", "ประเภท", "บทความ", "ความคืบหน้า", "อัปเดต", "Status", isAdmin ? "Actions" : ""].filter(Boolean).map(h => (
-                <th key={h} className="text-left px-4 py-3 text-[11px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                <th key={h} className="text-left whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody>
             {filtered.length === 0 && (
               <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">ไม่พบ client</td></tr>
             )}
@@ -412,108 +543,52 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
               const progress = ts.total > 0 ? Math.round((done / ts.total) * 100) : 0;
               const busy = updating === p.id;
               return (
-                <tr key={p.id} className={`hover:bg-gray-50/80 transition-colors ${p.status === "ARCHIVED" ? "opacity-50" : ""}`}>
-                  <td className="px-4 py-3 text-gray-400 tabular-nums text-xs">{i + 1}</td>
-                  <td className="px-4 py-3">
+                <tr key={p.id} className={`transition-colors ${p.status === "ARCHIVED" ? "opacity-50" : ""}`}>
+                  <td className="text-gray-400 tabular-nums text-xs">{i + 1}</td>
+                  <td>
                     <div className="flex items-center gap-3">
-                      <div className={`shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white text-[13px] font-bold overflow-hidden ${p.logoUrl ? '' : avatarColor(p.clientName || p.name)}`}>
-                        {p.logoUrl
-                          ? <img src={p.logoUrl} alt="" className="w-full h-full object-cover" />
-                          : initials(p.clientName || p.name)
-                        }
-                      </div>
+                      {avatarEl(p, 36)}
                       <div className="min-w-0">
                         <div className="font-semibold text-brand-navy truncate">{p.clientName || p.name}</div>
                         {p.industry && <div className="text-[11px] text-gray-400 truncate">{p.industry}</div>}
                         <div className="mt-1 flex items-center gap-1">
-                          {isAdmin ? (
-                            <label className={`relative inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold cursor-pointer transition-opacity hover:opacity-75 ${
-                              p.owner?.name ? ownerChipColor(p.owner.name) : "bg-white text-gray-400 border-dashed border-gray-300"
-                            }`} title="เปลี่ยนผู้ดูแล">
-                              <UserCircle2 size={10} />
-                              {p.owner?.name ?? "มอบหมายผู้ดูแล"}
-                              <select
-                                value={p.owner?.id ?? ""}
-                                onChange={e => changeOwner(p.id, e.target.value || null)}
-                                className="absolute inset-0 opacity-0 cursor-pointer">
-                                <option value="">— ไม่มีผู้ดูแล —</option>
-                                {orgUsers.map(u => <option key={u.id} value={u.id}>{u.name ?? u.id}</option>)}
-                              </select>
-                            </label>
-                          ) : p.owner?.name ? (
-                            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ownerChipColor(p.owner.name)}`}>
-                              <UserCircle2 size={10} /> {p.owner.name}
-                            </span>
-                          ) : null}
+                          {ownerControl(p)}
                         </div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-xs text-blue-500 max-w-[160px]">
+                  <td className="text-xs text-brand-blue max-w-[160px]">
                     <span className="truncate block">{p.website}</span>
                     {p.industry && <span className="text-gray-400 block">{p.industry}</span>}
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{p.businessType}</td>
-                  <td className="px-4 py-3">
+                  <td className="text-xs text-gray-500">{p.businessType}</td>
+                  <td>
                     <div className="flex gap-2 text-xs tabular-nums">
-                      <span className="text-gray-700 font-semibold">{ts.total}</span>
+                      <span className="text-brand-navy font-semibold">{ts.total}</span>
                       {ts.review > 0 && <span className="text-amber-600">รอตรวจ {ts.review}</span>}
-                      {ts.writing > 0 && <span className="text-blue-500">เขียน {ts.writing}</span>}
+                      {ts.writing > 0 && <span className="text-brand-blue">เขียน {ts.writing}</span>}
                     </div>
                   </td>
-                  <td className="px-4 py-3 min-w-[100px]">
+                  <td className="min-w-[100px]">
                     {ts.total > 0 ? (
                       <div>
                         <div className="flex items-center justify-between text-[10px] text-gray-400 mb-1">
                           <span>{done}/{ts.total}</span>
                           <span className="font-semibold">{progress}%</span>
                         </div>
-                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${progress}%` }} />
-                        </div>
+                        <MeterBar value={progress} tone="ok" />
                       </div>
                     ) : <span className="text-xs text-gray-300">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                  <td className="text-xs text-gray-400 whitespace-nowrap">
                     {formatDistanceToNow(new Date(p.updatedAt), { addSuffix: true })}
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={`text-[10px] font-semibold px-2 py-1 rounded-full whitespace-nowrap ${STATUS_BADGE[p.status] ?? "bg-gray-100 text-gray-500"}`}>
-                      {p.status}
-                    </span>
+                  <td>
+                    <Chip tone={STATUS_TONE[p.status] ?? "muted"} className="whitespace-nowrap">{p.status}</Chip>
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <Link href={`/projects/${p.id}`}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-brand-blue hover:bg-brand-deep rounded-lg transition-colors">
-                        เปิด <ArrowRight size={11} />
-                      </Link>
-                      {isAdmin && (
-                        <>
-                          {p.status === "ACTIVE" || p.status === "PLANNING" ? (
-                            <button onClick={() => changeStatus(p.id, "PAUSED")} disabled={busy}
-                              className="p-1.5 text-amber-500 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-40" title="ระงับ">
-                              <PauseCircle size={14} />
-                            </button>
-                          ) : p.status === "PAUSED" ? (
-                            <button onClick={() => changeStatus(p.id, "ACTIVE")} disabled={busy}
-                              className="p-1.5 text-green-500 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-40" title="เปิดใช้งาน">
-                              <PlayCircle size={14} />
-                            </button>
-                          ) : null}
-                          {p.status !== "ARCHIVED" ? (
-                            <button onClick={() => { if (confirm(`Archive "${p.name}"?`)) changeStatus(p.id, "ARCHIVED") }} disabled={busy}
-                              className="p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40" title="Archive">
-                              <ArchiveX size={14} />
-                            </button>
-                          ) : (
-                            <button onClick={() => changeStatus(p.id, "ACTIVE")} disabled={busy}
-                              className="p-1.5 text-green-400 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-40" title="กู้คืน">
-                              <PlayCircle size={14} />
-                            </button>
-                          )}
-                        </>
-                      )}
+                      {rowActions(p, busy)}
                     </div>
                   </td>
                 </tr>
@@ -521,7 +596,8 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
             })}
           </tbody>
         </table>
-      </div>
+      </Panel>
+      )}
     </div>
   );
 }

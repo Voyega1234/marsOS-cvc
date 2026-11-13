@@ -24,7 +24,7 @@ export function TopNav() {
   const roleLabel = ROLE_CONFIG[session?.user?.role as keyof typeof ROLE_CONFIG]?.label ?? session?.user?.role;
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-b border-gray-100lue-100 shadow-sm">
+    <header className="sticky top-0 z-40 bg-white border-b border-b border-blue-100 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center h-16 gap-4">
 

@@ -55,7 +55,7 @@ const PIPELINE_CARDS: Omit<PipelineCard, "count">[] = [
     emoji: "🔎", icon: Search, label: "Keyword Research", labelTh: "วิจัยคีย์เวิร์ด",
     description: "ค้นหาคำที่คนใช้ค้นหาสินค้า/บริการของคุณ",
     actionLabel: "ดูงานวิจัย", href: "/articles?step=keywords",
-    gradient: "from-blue-50 to-sky-50", border: "border-b border-gray-100lue-100",
+    gradient: "from-blue-50 to-sky-50", border: "border-blue-100",
     iconBg: "bg-blue-100", countColor: "text-blue-700",
   },
   {
@@ -154,17 +154,17 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
       {/* Greeting */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-brand-navy">
+          <h1 className="page-title">
             {getGreeting()}, {userName} 👋
           </h1>
           <p className="text-gray-500 mt-1.5 text-base">
             มีบทความที่รอดำเนินการ{" "}
-            <span className="font-semibold text-orange-600">{stats.needsAction} บทความ</span>
+            <span className="font-semibold text-brand-blue">{stats.needsAction} บทความ</span>
           </p>
         </div>
         <Link
           href="/articles/new"
-          className="hidden sm:flex items-center gap-2 px-5 py-2.5 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white font-medium rounded-xl transition-colors shadow-sm text-sm"
+          className="hidden sm:flex items-center gap-2 px-5 py-2.5 btn-primary rounded-full text-sm"
         >
           <Plus className="h-4 w-4" />
           บทความใหม่
@@ -179,8 +179,8 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
           { label: "อนุมัติแล้ว",   value: stats.approved,    icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-100" },
           { label: "เผยแพร่แล้ว",   value: stats.posted,      icon: Globe, color: "text-indigo-600", bg: "bg-indigo-50", border: "border-indigo-100" },
         ].map((s) => (
-          <div key={s.label} className={`rounded-2xl border ${s.border} ${s.bg} p-5 flex items-center gap-4`}>
-            <div className={`p-2 rounded-xl ${s.bg}`}>
+          <div key={s.label} className={`glass rounded-3xl p-5 flex items-center gap-4`}>
+            <div className={`p-2 rounded-full ${s.bg}`}>
               <s.icon className={`h-5 w-5 ${s.color}`} />
             </div>
             <div>
@@ -204,7 +204,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
             const count = pipelineCounts[card.label] ?? 0;
             return (
               <Link key={card.label} href={card.href}>
-                <div className={`bg-gradient-to-br ${card.gradient} border ${card.border} rounded-2xl p-4 hover:shadow-md transition-all cursor-pointer group`}>
+                <div className={`glass rounded-3xl p-4 hover:shadow-md transition-all cursor-pointer group`}>
                   <div className="flex items-start justify-between mb-3">
                     <span className="text-2xl">{card.emoji}</span>
                     {count > 0 && (
@@ -242,18 +242,18 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
         <div className="lg:col-span-3">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-brand-navy">บทความของฉัน</h2>
-            <Link href="/articles" className="text-sm text-green-600 hover:text-green-700 font-medium flex items-center gap-1">
+            <Link href="/articles" className="text-sm text-brand-blue hover:text-brand-deep font-medium flex items-center gap-1">
               ดูทั้งหมด <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
           {myArticles.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
-              <div className="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <PenLine className="h-8 w-8 text-green-400" />
+            <div className="glass rounded-3xl p-10 text-center">
+              <div className="w-16 h-16 bg-brand-blue/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <PenLine className="h-8 w-8 text-brand-blue" />
               </div>
               <p className="font-semibold text-gray-700 text-lg">ยังไม่มีบทความที่มอบหมาย</p>
               <p className="text-sm text-gray-400 mt-2 mb-5">สร้างบทความใหม่หรือรับมอบหมายจากผู้จัดการ</p>
-              <Link href="/articles/new" className="inline-flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors">
+              <Link href="/articles/new" className="inline-flex items-center gap-2 px-5 py-2.5 btn-primary rounded-full text-sm">
                 <Plus className="h-4 w-4" /> สร้างบทความแรก
               </Link>
             </div>
@@ -265,7 +265,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
                 const funnelCfg = FUNNEL_CONFIG[article.funnelStage as FunnelStage];
                 return (
                   <Link key={article.id} href={`/articles/${article.id}`}>
-                    <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-green-200 hover:shadow-md transition-all group">
+                    <div className="glass rounded-3xl p-5 hover:shadow-md transition-all group">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-brand-navy group-hover:text-green-700 transition-colors line-clamp-2 leading-snug">
@@ -307,7 +307,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
         {/* Activity Feed */}
         <div className="lg:col-span-2">
           <h2 className="text-xl font-bold text-brand-navy mb-4">กิจกรรมล่าสุด</h2>
-          <div className="bg-white rounded-2xl border border-gray-100 p-5">
+          <div className="glass rounded-3xl p-5">
             {recentActivity.length === 0 ? (
               <div className="text-center py-6">
                 <TrendingUp className="h-8 w-8 text-gray-200 mx-auto mb-3" />
@@ -317,7 +317,7 @@ export function SimpleDashboard({ userName, pipelineCounts, myArticles, recentAc
               <div className="space-y-4">
                 {recentActivity.map((log) => (
                   <div key={log.id} className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center text-xs font-bold text-white flex-shrink-0 shadow-sm">
+                    <div className="w-8 h-8 rounded-xl bg-brand-blue flex items-center justify-center text-xs font-bold text-white flex-shrink-0 shadow-sm">
                       {log.user.name?.[0]?.toUpperCase() ?? "?"}
                     </div>
                     <div className="flex-1 min-w-0">

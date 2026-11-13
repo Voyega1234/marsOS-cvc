@@ -64,8 +64,8 @@ export default function SmeSettingsShell({
         <div className="flex gap-1.5 pb-1 w-max">
           {SECTIONS.map(s => (
             <button key={s.id} onClick={() => onSectionChange(s.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-colors ${
-                section === s.id ? 'bg-brand-mist text-brand-blue border-brand-soft/60' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border whitespace-nowrap transition-colors ${
+                section === s.id ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white/70 text-gray-600 border-white/80 hover:bg-white'
               }`}>
               <s.icon size={13} /> {s.label}
               {s.id === 'checklist' && checklistMissing > 0 && <MissingBadge n={checklistMissing} />}
@@ -76,11 +76,11 @@ export default function SmeSettingsShell({
 
       {/* จอใหญ่: เมนูแนวตั้งด้านซ้าย */}
       <div className="hidden md:block w-52 shrink-0">
-        <div className="space-y-1 sticky top-4">
+        <div className="space-y-1 sticky top-[4.5rem] rounded-3xl border border-white/80 bg-white/70 backdrop-blur p-2 shadow-sm">
           {SECTIONS.map(s => (
             <button key={s.id} onClick={() => onSectionChange(s.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
-                section === s.id ? 'bg-brand-mist text-brand-blue' : 'text-gray-500 hover:bg-gray-50 hover:text-brand-navy'
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium text-left transition-colors ${
+                section === s.id ? 'bg-brand-navy text-white shadow-sm' : 'text-gray-600 hover:bg-white/80 hover:text-brand-navy'
               }`}>
               <s.icon size={15} /> <span className="flex-1">{s.label}</span>
               {s.id === 'checklist' && checklistMissing > 0 && <MissingBadge n={checklistMissing} />}
@@ -93,7 +93,7 @@ export default function SmeSettingsShell({
         {section === 'checklist' && (
           <div className="max-w-3xl space-y-3">
             <div>
-              <h3 className="text-sm font-bold text-brand-navy">Setup Checklist</h3>
+              <h3 className="section-label !text-brand-navy">Setup Checklist</h3>
               <p className="mt-0.5 text-xs text-gray-400">
                 ความพร้อมก่อนเริ่มงานกับลูกค้า — เช็คจากข้อมูลจริงทุกข้อ กดปุ่มเพื่อไปตั้งค่าจุดที่ยังขาด
               </p>
@@ -113,7 +113,7 @@ export default function SmeSettingsShell({
         {section === 'website' && (
           <div className="max-w-3xl space-y-3">
             <div>
-              <h3 className="text-sm font-bold text-brand-navy">Connect Website</h3>
+              <h3 className="section-label !text-brand-navy">Connect Website</h3>
               <p className="mt-0.5 text-xs text-gray-400">
                 ผูกเว็บไซต์ของ client นี้ — แต่ละโปรเจกต์เชื่อมคนละเว็บ รองรับทุกแพลตฟอร์ม (WordPress push อัตโนมัติได้)
               </p>
@@ -124,7 +124,7 @@ export default function SmeSettingsShell({
         {section === 'google' && (
           <div className="max-w-3xl space-y-3">
             <div>
-              <h3 className="text-sm font-bold text-brand-navy">เชื่อมต่อข้อมูล Google (GSC / GA4)</h3>
+              <h3 className="section-label !text-brand-navy">เชื่อมต่อข้อมูล Google (GSC / GA4)</h3>
               <p className="mt-0.5 text-xs text-gray-400">
                 Service Email ระดับระบบ + ผูก property ของ client นี้ — ใช้กับหน้า Report และ Content Refresh
               </p>

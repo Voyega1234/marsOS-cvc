@@ -36,15 +36,15 @@ const ROLE_OPTIONS = ["ADMIN", "USER", "CLIENT"] as const;
 type RoleOption = (typeof ROLE_OPTIONS)[number];
 
 const roleBadge: Record<string, string> = {
-  ADMIN: "bg-red-100 text-red-700",
-  USER: "bg-blue-100 text-blue-700",
-  CLIENT: "bg-teal-100 text-teal-700",
+  ADMIN: "chip chip-bad",
+  USER: "chip chip-info",
+  CLIENT: "chip chip-ok",
 };
 
 const statusBadge: Record<string, string> = {
-  ACTIVE: "bg-green-100 text-green-700",
-  INACTIVE: "bg-gray-100 text-gray-600",
-  INVITED: "bg-yellow-100 text-yellow-700",
+  ACTIVE: "chip chip-ok",
+  INACTIVE: "chip chip-muted",
+  INVITED: "chip chip-warn",
 };
 
 export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props) {
@@ -58,7 +58,9 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
   const [showPw, setShowPw] = useState(false);
   const [role, setRole] = useState<RoleOption>("USER");
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
-  const [createdInfo, setCreatedInfo] = useState<{ username: string; pw: string } | null>(null);
+  const [createdInfo, setCreatedInfo] = useState<{
+    username: string; pw: string; isClient: boolean; loginReady: boolean; loginError?: string;
+  } | null>(null);
   const [showCreatedPw, setShowCreatedPw] = useState(false);
 
   // Reset password state
@@ -87,9 +89,21 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !password.trim()) return;
+    // ลูกค้า login ด้วย username + รหัสผ่านจริง — username ต้องกลายเป็นอีเมลที่ระบบ login รับได้
+    if (role === "CLIENT") {
+      if (!/^[a-z0-9._-]+$/.test(name.trim().toLowerCase().replace(/\s+/g, ""))) {
+        toast.error("Username ของลูกค้าใช้ได้เฉพาะ a-z 0-9 จุด ขีดกลาง ขีดล่าง");
+        return;
+      }
+      if (password.length < 6) {
+        toast.error("รหัสผ่านของลูกค้าต้องยาวอย่างน้อย 6 ตัวอักษร");
+        return;
+      }
+    }
     setSubmitting(true);
     try {
-      // use username@mars.local as email placeholder (login uses name field)
+      // username@mars.local = อีเมลในระบบของบัญชีที่สร้างจากหน้านี้
+      // ลูกค้า (CLIENT) พิมพ์แค่ username + รหัสผ่านที่หน้า login — ระบบเติม @mars.local ให้เอง
       const fakeEmail = `${name.trim().toLowerCase().replace(/\s+/g, "")}@mars.local`;
       const res = await fetch("/api/admin/users", {
         method: "POST",
@@ -99,7 +113,12 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "เกิดข้อผิดพลาด");
       setUsers((prev) => [data.user, ...prev]);
-      setCreatedInfo({ username: name.trim(), pw: password });
+      const isClient = role === "CLIENT";
+      // loginReady มาจากเซิร์ฟเวอร์เฉพาะ CLIENT — false = สร้าง User แล้ว แต่บัญชี login ยังไม่พร้อม
+      const loginReady = !isClient || data.loginReady !== false;
+      const loginError = typeof data.loginError === "string" ? data.loginError : undefined;
+      setCreatedInfo({ username: name.trim(), pw: password, isClient, loginReady, loginError });
+      if (!loginReady) toast.warning(`สร้าง User แล้ว แต่ระบบ login ยังไม่พร้อม${loginError ? `: ${loginError}` : ""}`);
       setShowCreatedPw(false);
       setName("");
       setPassword("");
@@ -124,7 +143,13 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
         body: JSON.stringify({ password: resetPw }),
       });
       if (!res.ok) throw new Error("ไม่สามารถรีเซ็ตรหัสผ่านได้");
-      toast.success("รีเซ็ตรหัสผ่านสำเร็จ");
+      // CLIENT: เซิร์ฟเวอร์ตั้งรหัสเดียวกันในระบบ login ด้วย — loginReady false = บันทึกแล้วแต่ยัง login ไม่ได้
+      const data = await res.json().catch(() => ({}));
+      if (data?.loginReady === false) {
+        toast.warning(`บันทึกรหัสผ่านแล้ว แต่ระบบ login ยังไม่พร้อม${typeof data.loginError === "string" ? `: ${data.loginError}` : ""}`);
+      } else {
+        toast.success("รีเซ็ตรหัสผ่านสำเร็จ");
+      }
       setSavedPw({ userId: resetUserId, pw: resetPw });
       setUsers(prev => prev.map(u => u.id === resetUserId ? { ...u, passwordPlain: resetPw } : u));
       setResetUserId(null);
@@ -172,7 +197,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       <div className="flex justify-end">
         <button
           onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-brand-deep transition-colors"
+          className="flex items-center gap-2 bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-full hover:bg-brand-deep transition-colors"
         >
           <Plus size={14} /> สร้าง User ใหม่
         </button>
@@ -182,7 +207,16 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       {createdInfo && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <p className="text-xs font-semibold text-emerald-800">สร้าง User สำเร็จ — แจ้งข้อมูลนี้ให้ทีม</p>
+            <p className="text-xs font-semibold text-emerald-800">
+              {createdInfo.isClient
+                ? "สร้าง User สำเร็จ — ส่ง Username + รหัสผ่านนี้ให้ลูกค้า (กรอกที่หน้า login ช่อง \"สำหรับลูกค้า\")"
+                : "สร้าง User สำเร็จ — แจ้งข้อมูลนี้ให้ทีม"}
+            </p>
+            {createdInfo.isClient && !createdInfo.loginReady && (
+              <p className="text-xs font-medium text-amber-700">
+                ระบบ login ยังไม่พร้อม{createdInfo.loginError ? `: ${createdInfo.loginError}` : ""} — กดรีเซ็ตรหัสผ่านของ User นี้เพื่อลองใหม่
+              </p>
+            )}
             <div className="flex items-center gap-3 mt-2">
               <div>
                 <span className="text-[10px] text-emerald-600 font-medium block">Username</span>
@@ -211,7 +245,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
 
       {/* Create form */}
       {showForm && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <div className="glass rounded-3xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-brand-navy">สร้าง User ใหม่</h3>
             <button onClick={resetForm} className="text-gray-400 hover:text-gray-600">
@@ -225,7 +259,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
                 placeholder="เช่น userseo, clientabc"
                 required
                 autoFocus
@@ -239,7 +273,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                     type={showPw ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 pr-9 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full px-3 py-2 pr-9 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
                     placeholder="••••••••"
                     required
                     minLength={6}
@@ -258,7 +292,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value as RoleOption)}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
                 >
                   {ROLE_OPTIONS.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -301,14 +335,14 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
               <button
                 type="submit"
                 disabled={submitting}
-                className="bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-brand-deep disabled:opacity-60 transition-colors"
+                className="bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-full hover:bg-brand-deep disabled:opacity-60 transition-colors"
               >
                 {submitting ? "กำลังสร้าง..." : "สร้าง User"}
               </button>
               <button
                 type="button"
                 onClick={resetForm}
-                className="text-sm text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+                className="text-sm text-gray-600 px-4 py-2 rounded-full hover:bg-gray-100 transition-colors"
               >
                 ยกเลิก
               </button>
@@ -320,7 +354,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       {/* Reset password modal */}
       {resetUserId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
+          <div className="glass-strong rounded-3xl shadow-xl p-6 w-full max-w-sm mx-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-brand-navy">รีเซ็ตรหัสผ่าน</h3>
               <button onClick={() => { setResetUserId(null); setResetPw(""); }} className="text-gray-400 hover:text-gray-600">
@@ -336,7 +370,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                   type={showResetPw ? "text" : "password"}
                   value={resetPw}
                   onChange={e => setResetPw(e.target.value)}
-                  className="w-full px-3 py-2 pr-9 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  className="w-full px-3 py-2 pr-9 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
                   placeholder="รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)"
                   minLength={6}
                   required
@@ -349,11 +383,11 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
               </div>
               <div className="flex gap-2 pt-1">
                 <button type="submit" disabled={resetting || resetPw.length < 6}
-                  className="bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-brand-deep disabled:opacity-60 transition-colors">
+                  className="bg-brand-blue text-white text-sm font-medium px-4 py-2 rounded-full hover:bg-brand-deep disabled:opacity-60 transition-colors">
                   {resetting ? "กำลังบันทึก..." : "บันทึก"}
                 </button>
                 <button type="button" onClick={() => { setResetUserId(null); setResetPw(""); }}
-                  className="text-sm text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors">
+                  className="text-sm text-gray-600 px-4 py-2 rounded-full hover:bg-gray-100 transition-colors">
                   ยกเลิก
                 </button>
               </div>
@@ -363,10 +397,10 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       )}
 
       {/* Users table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
+      <div className="glass rounded-3xl overflow-x-auto">
+        <table className="tbl w-full text-sm min-w-[640px]">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50">
+            <tr>
               <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">ชื่อ / Username</th>
               <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Role</th>
               <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">สถานะ</th>
@@ -376,7 +410,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+              <tr key={u.id} className="transition-colors">
                 <td className="px-4 py-3">
                   <p className="font-medium text-brand-navy">{u.name || "—"}</p>
                   {u.email && !u.email.endsWith("@mars.local") && (
@@ -384,12 +418,12 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded ${roleBadge[u.role] ?? "bg-gray-100 text-gray-600"}`}>
+                  <span className={roleBadge[u.role] ?? "chip chip-muted"}>
                     {u.role}
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded ${statusBadge[u.status] ?? "bg-gray-100 text-gray-600"}`}>
+                  <span className={statusBadge[u.status] ?? "chip chip-muted"}>
                     {u.status}
                   </span>
                 </td>
@@ -397,7 +431,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                   {u.role === "CLIENT" && u.clientProjects.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
                       {u.clientProjects.map((cp) => (
-                        <span key={cp.projectId} className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded">
+                        <span key={cp.projectId} className="chip chip-info">
                           {cp.projectName}
                         </span>
                       ))}

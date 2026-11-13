@@ -80,7 +80,7 @@ export default function ContentEngineReadyBar({
 
   if (loading && !status) {
     return (
-      <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-xs text-gray-400">
+      <div className="flex items-center gap-2 rounded-2xl border border-white/80 bg-white/70 px-4 py-2.5 text-xs text-gray-400">
         <RefreshCw size={12} className="animate-spin" /> ตรวจสถานะ AI และ Content Engine...
       </div>
     )
@@ -93,7 +93,7 @@ export default function ContentEngineReadyBar({
   // พร้อมทุกอย่าง + โหมด compact → แถบเขียวบางๆ ไม่กินที่
   if (allOk && compact) {
     return (
-      <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-[11px] text-emerald-700">
+      <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 backdrop-blur text-[11px] text-emerald-700">
         <CheckCircle2 size={13} className="shrink-0" />
         <span className="font-semibold">พร้อมเขียนบทความ</span>
         <span className="text-emerald-600/70">
@@ -109,7 +109,7 @@ export default function ContentEngineReadyBar({
   }
 
   return (
-    <div className={`rounded-2xl border px-4 py-3 space-y-2.5 ${allOk ? 'border-emerald-200 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}>
+    <div className={`rounded-2xl border px-4 py-3 space-y-2.5 ${allOk ? 'border-emerald-200 bg-emerald-50/80 shadow-sm' : 'border-amber-200 bg-amber-50/80 shadow-sm'}`}>
       <div className="flex items-start gap-2 flex-wrap">
         {allOk
           ? <CheckCircle2 size={15} className="text-emerald-600 shrink-0 mt-0.5" />
@@ -132,19 +132,19 @@ export default function ContentEngineReadyBar({
         <div className="flex items-center gap-1.5 shrink-0">
           {status.fixable.length > 0 && (
             <button onClick={autoActivate} disabled={fixing}
-              className="flex items-center gap-1.5 text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-500 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors">
+              className="flex items-center gap-1.5 text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-500 disabled:opacity-40 px-3 py-1.5 rounded-full transition-colors">
               {fixing ? <RefreshCw size={11} className="animate-spin" /> : <Wand2 size={11} />}
               เปิดใช้งานอัตโนมัติ ({status.fixable.length})
             </button>
           )}
           {onOpenSettings && (
             <button onClick={onOpenSettings}
-              className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg transition-colors">
+              className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-full transition-colors">
               <Settings size={11} /> ตั้งค่า Content Engine
             </button>
           )}
           <button onClick={reload} title="ตรวจใหม่"
-            className="p-1.5 rounded-lg border border-gray-200 bg-white text-gray-400 hover:text-gray-700 transition-colors">
+            className="p-1.5 rounded-full border border-gray-200 bg-white text-gray-400 hover:text-gray-700 transition-colors">
             <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -175,7 +175,7 @@ function Chip({ ok, label, dim = false }: { ok: boolean; label: string; dim?: bo
       ? 'bg-white text-gray-400 border-gray-200'
       : 'bg-white text-red-600 border-red-200'
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-lg border max-w-[280px] truncate ${cls}`} title={label}>
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border max-w-[280px] truncate ${cls}`} title={label}>
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ok ? 'bg-emerald-500' : dim ? 'bg-gray-300' : 'bg-red-400'}`} />
       <span className="truncate">{label}</span>
     </span>

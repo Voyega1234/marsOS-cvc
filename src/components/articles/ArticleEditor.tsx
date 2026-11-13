@@ -123,7 +123,7 @@ export function ArticleEditor({ value, onChange, readOnly = false, placeholder =
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
     editorProps: {
       attributes: {
-        class: "prose prose-sm max-w-none focus:outline-none min-h-[280px] sm:min-h-[400px] px-5 py-4 leading-relaxed",
+        class: "force-light prose prose-sm max-w-none focus:outline-none min-h-[280px] sm:min-h-[400px] px-5 py-4 leading-relaxed",
       },
     },
   });

@@ -3,6 +3,8 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, X } from "lucide-react";
+import { toast } from "sonner";
+import { rasterizeLogo } from "@/components/upload-article/ClientAvatar";
 import {
   Dialog,
   DialogContent,
@@ -71,9 +73,20 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
 
       // upload logo if selected
       if (logoFile) {
-        const fd = new FormData();
-        fd.append("logo", logoFile);
-        await fetch(`/api/projects/${project.id}/logo`, { method: "POST", body: fd });
+        try {
+          const logo = await rasterizeLogo(logoFile);
+          const lr = await fetch(`/api/projects/${project.id}/logo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ logo }),
+          });
+          if (!lr.ok) {
+            const d = await lr.json().catch(() => ({}));
+            throw new Error(d?.error || `HTTP ${lr.status}`);
+          }
+        } catch (le) {
+          toast.error(`ตั้งโลโก้ไม่สำเร็จ: ${le instanceof Error ? le.message : String(le)}`);
+        }
       }
 
       onClose();
@@ -88,7 +101,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl glass-strong">
         <DialogHeader>
           <DialogTitle>สร้างโปรเจกต์ใหม่</DialogTitle>
         </DialogHeader>
@@ -137,7 +150,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
               placeholder="เช่น Convert Cake"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 placeholder:text-gray-300"
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 placeholder:text-gray-300"
               required
             />
           </div>
@@ -149,7 +162,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
               value={form.website}
               onChange={(e) => update("website", e.target.value)}
               placeholder="เช่น convertcake.com"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 placeholder:text-gray-300"
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 placeholder:text-gray-300"
             />
           </div>
 
@@ -159,7 +172,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
               <select
                 value={form.language}
                 onChange={(e) => update("language", e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 bg-white"
               >
                 <option value="th">ไทย (TH)</option>
                 <option value="en">English (EN)</option>
@@ -173,7 +186,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
                 value={form.businessType}
                 onChange={(e) => update("businessType", e.target.value)}
                 placeholder="เช่น Performance Marketing Agency"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 placeholder:text-gray-300"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 placeholder:text-gray-300"
               />
             </div>
           </div>
@@ -183,7 +196,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
             <select
               value={form.industry}
               onChange={(e) => update("industry", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 bg-white"
             >
               <option value="">— เลือก Industry —</option>
               {INDUSTRY_OPTIONS.map(o => (
@@ -199,12 +212,12 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
               onChange={(e) => update("targetAudience", e.target.value)}
               placeholder="เช่น ธุรกิจที่ต้องการทำโฆษณา SEO Performance Marketing"
               rows={3}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none placeholder:text-gray-300"
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 resize-none placeholder:text-gray-300"
             />
           </div>
 
           {/* WordPress Connection */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
+          <div className="border border-gray-200 rounded-2xl overflow-hidden">
             <button
               type="button"
               onClick={() => setShowWp(v => !v)}
@@ -232,7 +245,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
                     value={form.wpUrl}
                     onChange={(e) => update("wpUrl", e.target.value)}
                     placeholder="https://yoursite.com"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -243,7 +256,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
                       value={form.wpUser}
                       onChange={(e) => update("wpUser", e.target.value)}
                       placeholder="admin"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
                     />
                   </div>
                   <div>
@@ -253,7 +266,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
                       value={form.wpAppPassword}
                       onChange={(e) => update("wpAppPassword", e.target.value)}
                       placeholder="xxxx xxxx xxxx xxxx"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
                     />
                   </div>
                 </div>
@@ -268,7 +281,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2 border border-gray-200 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+              className="flex-1 py-2 border border-gray-200 bg-white text-gray-600 text-sm font-medium rounded-full hover:bg-gray-50 transition-colors"
               disabled={loading}
             >
               ยกเลิก
@@ -276,7 +289,7 @@ export default function CreateProjectModal({ onClose }: { onClose: () => void })
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-2 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+              className="flex-1 py-2 bg-brand-blue hover:bg-brand-deep text-white text-sm font-medium rounded-full transition-colors disabled:opacity-50"
             >
               {loading ? "กำลังสร้าง..." : "สร้างโปรเจกต์"}
             </button>

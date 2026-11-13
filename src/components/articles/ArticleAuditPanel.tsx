@@ -144,7 +144,7 @@ export function ArticleAuditPanel({ articleId, auditScore, auditResultsJson, has
             onClick={runAudit}
             disabled={running !== null || !hasHtmlContent}
             size="sm"
-            className="bg-[#1A1A1A] hover:bg-[#2D2D2D] gap-1.5"
+            className="bg-brand-blue hover:bg-brand-deep gap-1.5"
           >
             {running === "audit" ? <LoadingSpinner className="border-white" /> : <Sparkles className="h-3.5 w-3.5" />}
             {audit ? "Re-Audit" : "Run Audit"}
@@ -154,7 +154,7 @@ export function ArticleAuditPanel({ articleId, auditScore, auditResultsJson, has
               onClick={runFix}
               disabled={running !== null}
               size="sm"
-              className="bg-[#1A1A1A] hover:bg-[#2D2D2D] gap-1.5"
+              className="bg-brand-blue hover:bg-brand-deep gap-1.5"
             >
               {running === "fix" ? <LoadingSpinner className="border-white" /> : <Zap className="h-3.5 w-3.5" />}
               Auto Fix to 10/10

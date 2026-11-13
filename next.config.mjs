@@ -20,6 +20,18 @@ const nextConfig = {
   // ห้ามรันสคริปต์ทุกชนิด (รวม onerror=) กัน stored XSS ขโมย session ทีม
   async headers() {
     return [
+      // หัวความปลอดภัยพื้นฐานทุกหน้า — ไม่มี script CSP (แอปใช้ inline script ของ Next + GTM)
+      // HSTS ไม่ต้องใส่เอง Vercel ส่งให้อยู่แล้ว
+      {
+        source: "/:path*",
+        headers: [
+          // ห้ามเว็บอื่นเอาหน้าแอปไปฝังใน iframe (กัน clickjacking) — preview บทความใช้ srcDoc ไม่กระทบ
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+        ],
+      },
       {
         source: "/share/:path*",
         headers: [

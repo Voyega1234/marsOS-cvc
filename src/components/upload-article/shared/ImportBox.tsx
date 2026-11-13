@@ -107,7 +107,7 @@ export default function ImportBox({
 
   return (
     <>
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
         <DropZone disabled={busy} onFiles={uploadFiles} />
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" className="flex-1" disabled={busy} onClick={() => setPasteOpen(true)}>

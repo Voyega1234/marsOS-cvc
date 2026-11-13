@@ -84,7 +84,7 @@ export function ReviewQueueClient({ articles }: Props) {
 
   if (articles.length === 0) {
     return (
-      <div className="text-center py-16 bg-white rounded-xl border">
+      <div className="text-center py-16 glass rounded-3xl">
         <div className="text-5xl mb-4">✅</div>
         <h3 className="text-lg font-semibold text-brand-navy">ไม่มีบทความรอ Review</h3>
         <p className="text-gray-500 text-sm mt-1">ทุกอย่างเรียบร้อยแล้ว!</p>
@@ -112,12 +112,12 @@ export function ReviewQueueClient({ articles }: Props) {
                 const canReject  = meta.rejectStatus  !== "—" && meta.rejectStatus  !== article.status;
 
                 return (
-                  <div key={article.id} className={`bg-white rounded-xl border transition-all ${isExpanded ? "border-gray-300 shadow-sm" : "border-gray-100"}`}>
+                  <div key={article.id} className={`glass rounded-2xl transition-all ${isExpanded ? "shadow-md" : ""}`}>
                     {/* Main row */}
                     <div className="flex items-start gap-3 p-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <Link href={`/articles/${article.id}`} target="_blank" className="font-medium text-brand-navy hover:text-green-700 truncate flex items-center gap-1">
+                          <Link href={`/articles/${article.id}`} target="_blank" className="font-medium text-brand-navy hover:text-brand-blue truncate flex items-center gap-1">
                             {article.title}
                             <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 shrink-0" />
                           </Link>
@@ -135,8 +135,8 @@ export function ReviewQueueClient({ articles }: Props) {
                       {/* Scores */}
                       {review && (
                         <div className="flex items-center gap-1.5 text-xs shrink-0">
-                          {review.seoScore != null && <span className="px-2 py-0.5 bg-blue-50 text-brand-blue rounded font-medium">SEO {review.seoScore}</span>}
-                          {review.aeoScore != null && <span className="px-2 py-0.5 bg-purple-50 text-purple-600 rounded font-medium">AEO {review.aeoScore}</span>}
+                          {review.seoScore != null && <span className="chip chip-info">SEO {review.seoScore}</span>}
+                          {review.aeoScore != null && <span className="chip chip-muted">AEO {review.aeoScore}</span>}
                         </div>
                       )}
 
@@ -146,7 +146,7 @@ export function ReviewQueueClient({ articles }: Props) {
                           <button
                             onClick={() => doAction(article, "approve")}
                             disabled={!!isLoading}
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
                           >
                             {isLoading === "approve" ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
                             {meta.approveLabel}
@@ -156,7 +156,7 @@ export function ReviewQueueClient({ articles }: Props) {
                           <button
                             onClick={() => doAction(article, "reject")}
                             disabled={!!isLoading}
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 text-xs font-semibold rounded-lg border border-red-200 transition-colors"
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 text-xs font-semibold rounded-full border border-red-200 transition-colors"
                           >
                             {isLoading === "reject" ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
                             {meta.rejectLabel}
@@ -164,7 +164,7 @@ export function ReviewQueueClient({ articles }: Props) {
                         )}
                         <button
                           onClick={() => setExpandedId(isExpanded ? null : article.id)}
-                          className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${isExpanded ? "bg-gray-100 border-gray-200 text-gray-700" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-full border transition-colors ${isExpanded ? "bg-brand-mist border-gray-200 text-brand-navy" : "bg-white border-gray-200 text-gray-500 hover:bg-brand-mist"}`}
                         >
                           <MessageSquare className="h-3 w-3" />
                           Note
@@ -175,21 +175,21 @@ export function ReviewQueueClient({ articles }: Props) {
 
                     {/* Inline note + action */}
                     {isExpanded && (
-                      <div className="px-4 pb-4 pt-0 border-t border-gray-50 mt-0">
+                      <div className="px-4 pb-4 pt-0 border-t border-gray-100/70 mt-0">
                         <textarea
                           autoFocus
                           rows={2}
                           placeholder="เพิ่ม note / feedback สำหรับผู้เขียน (optional)..."
                           value={notes[article.id] ?? ""}
                           onChange={(e) => setNotes((p) => ({ ...p, [article.id]: e.target.value }))}
-                          className="w-full mt-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none"
+                          className="w-full mt-3 rounded-xl border border-gray-200 bg-white/80 px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 resize-none"
                         />
                         <div className="flex items-center gap-2 mt-2">
                           {canApprove && (
                             <button
                               onClick={() => doAction(article, "approve")}
                               disabled={!!isLoading}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-blue hover:bg-brand-deep disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
                             >
                               {isLoading === "approve" ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
                               {meta.approveLabel} + บันทึก Note
@@ -199,7 +199,7 @@ export function ReviewQueueClient({ articles }: Props) {
                             <button
                               onClick={() => doAction(article, "reject")}
                               disabled={!!isLoading}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold rounded-full transition-colors"
                             >
                               {isLoading === "reject" ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
                               {meta.rejectLabel} + บันทึก Note

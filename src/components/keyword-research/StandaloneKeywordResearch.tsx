@@ -64,18 +64,18 @@ function ModeSwitch({ mode, onChange }: { mode: ResearchMode; onChange: (next: R
     { key: 'local', label: 'มีหน้าร้าน (Local)', hint: 'เน้น keyword + ทำเล — เขต อำเภอ สถานี ที่ลูกค้าใช้ค้นหา' },
   ];
   return (
-    <div className="inline-grid w-full max-w-2xl grid-cols-2 gap-1 rounded-xl bg-[#eef1f7] p-1">
+    <div className="inline-grid w-full max-w-2xl grid-cols-2 gap-1 rounded-full border border-white/80 bg-white/70 p-1 backdrop-blur">
       {options.map(option => (
         <button
           key={option.key}
           onClick={() => onChange(option.key)}
           title={option.hint}
-          className={`rounded-lg px-4 py-2 text-left transition ${
-            mode === option.key ? 'bg-white shadow-sm' : 'hover:bg-white/50'
+          className={`rounded-full px-5 py-2 text-left transition ${
+            mode === option.key ? 'bg-brand-navy shadow-sm' : 'hover:bg-brand-mist'
           }`}
         >
-          <span className={`block text-xs font-semibold ${mode === option.key ? 'text-[#0d4fd8]' : 'text-[#606f8c]'}`}>{option.label}</span>
-          <span className="mt-0.5 block text-[10px] font-normal leading-4 text-[#71809c]">{option.hint}</span>
+          <span className={`block text-xs font-semibold ${mode === option.key ? 'text-white' : 'text-gray-600'}`}>{option.label}</span>
+          <span className={`mt-0.5 block text-[10px] font-normal leading-4 ${mode === option.key ? 'text-white/70' : 'text-gray-500'}`}>{option.hint}</span>
         </button>
       ))}
     </div>
@@ -101,7 +101,7 @@ function LanguageModeLocalSelect({
   onChangeRatio: (ratio: number) => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+    <div className="flex flex-col gap-2 rounded-2xl border border-white/80 bg-white/70 backdrop-blur p-3">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-semibold text-gray-600">ภาษา:</span>
         {MODE_OPTIONS.map(opt => (
@@ -111,7 +111,7 @@ function LanguageModeLocalSelect({
             onClick={() => onChangeMode(opt.id)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
               value === opt.id
-                ? 'bg-gray-900 text-white border-gray-900'
+                ? 'bg-brand-navy text-white border-brand-navy'
                 : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
             }`}
           >
@@ -269,10 +269,11 @@ export default function StandaloneKeywordResearch() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f9fd] text-[#17233a]">
+    <div className="text-brand-navy">
       <div className="mx-auto max-w-[1600px] px-4 pt-6 pb-2">
-        <h1 className="text-xl font-bold text-[#17233a]">Keyword Research</h1>
-        <p className="mt-1 text-sm text-[#606f8c]">
+        <p className="page-eyebrow">Keyword Research</p>
+        <h1 className="page-title">Keyword Research</h1>
+        <p className="page-subtitle mt-1">
           หา keyword ใหม่ วิเคราะห์ intent/จัดกลุ่ม แล้ว export หรือส่งต่อไปหน้า Keyword ของ Upload Article —
           ไม่ผูกกับโปรเจกต์ SEO SME
         </p>
@@ -314,9 +315,9 @@ export default function StandaloneKeywordResearch() {
 
       {sendModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-[#dbe1ee] bg-white p-5 shadow-xl">
+          <div className="w-full max-w-lg rounded-2xl border border-white/80 bg-white/75 backdrop-blur p-5 shadow-xl">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-[#17233a]">ส่งไป Upload Article</h2>
+              <h2 className="text-base font-bold text-brand-navy">ส่งไป Upload Article</h2>
               <button
                 onClick={closeSendModal}
                 className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -328,18 +329,18 @@ export default function StandaloneKeywordResearch() {
 
             {!sendResult ? (
               <>
-                <p className="mt-2 text-sm text-[#495975]">
+                <p className="mt-2 text-sm text-gray-600">
                   จะส่ง <span className="font-semibold">{rowsToSend.length}</span> คำ (จากทั้งหมด {pendingRows.length} คำ) ไปยังลูกค้าที่เลือก
                 </p>
 
                 {rowsToSend.length > MAX_SEND_ROWS && (
-                  <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
+                  <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
                     เกินเพดาน {MAX_SEND_ROWS} คำต่อครั้ง — กรุณาลดจำนวนคำก่อนส่ง (ติ๊ก &quot;เฉพาะที่อนุมัติ&quot; หรือลดคำที่เลือกในตาราง)
                   </p>
                 )}
 
                 {hasApprovedInfo && (
-                  <label className="mt-3 flex items-center gap-2 text-sm text-[#17233a]">
+                  <label className="mt-3 flex items-center gap-2 text-sm text-brand-navy">
                     <input
                       type="checkbox"
                       checked={onlyApproved}
@@ -356,26 +357,26 @@ export default function StandaloneKeywordResearch() {
                     value={clientSearch}
                     onChange={e => setClientSearch(e.target.value)}
                     placeholder="ค้นหาลูกค้า..."
-                    className="w-full rounded-xl border border-[#cfd9ea] bg-white px-3.5 py-2.5 text-sm text-[#17233a] placeholder:text-[#91a0b8] shadow-sm outline-none transition focus:border-[#155eef] focus:ring-4 focus:ring-[#155eef]/10"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-brand-navy placeholder:text-gray-400 shadow-sm outline-none transition focus:border-brand-blue focus:ring-4 focus:ring-brand-blue/10"
                   />
                 </div>
 
-                <div className="mt-3 max-h-64 overflow-y-auto rounded-xl border border-[#dbe1ee]">
+                <div className="mt-3 max-h-64 overflow-y-auto rounded-xl border border-gray-200">
                   {clientsLoading ? (
-                    <div className="p-4 text-center text-sm text-[#91a0b8]">กำลังโหลดรายชื่อลูกค้า...</div>
+                    <div className="p-4 text-center text-sm text-gray-400">กำลังโหลดรายชื่อลูกค้า...</div>
                   ) : filteredClients.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-[#91a0b8]">ไม่พบลูกค้า</div>
+                    <div className="p-4 text-center text-sm text-gray-400">ไม่พบลูกค้า</div>
                   ) : (
                     filteredClients.map(client => (
                       <button
                         key={client.id}
                         onClick={() => setSelectedClientId(client.id)}
-                        className={`flex w-full flex-col items-start gap-0.5 border-b border-[#eef1f7] px-3.5 py-2.5 text-left last:border-b-0 transition ${
-                          selectedClientId === client.id ? 'bg-[#eef4ff]' : 'hover:bg-gray-50'
+                        className={`flex w-full flex-col items-start gap-0.5 border-b border-gray-100 px-3.5 py-2.5 text-left last:border-b-0 transition ${
+                          selectedClientId === client.id ? 'bg-brand-mist' : 'hover:bg-brand-mist'
                         }`}
                       >
-                        <span className="text-sm font-semibold text-[#17233a]">{client.name}</span>
-                        {client.website && <span className="text-xs text-[#91a0b8]">{client.website}</span>}
+                        <span className="text-sm font-semibold text-brand-navy">{client.name}</span>
+                        {client.website && <span className="text-xs text-gray-400">{client.website}</span>}
                       </button>
                     ))
                   )}
@@ -384,14 +385,14 @@ export default function StandaloneKeywordResearch() {
                 <div className="mt-4 flex justify-end gap-2">
                   <button
                     onClick={closeSendModal}
-                    className="rounded-lg border border-[#cfd9ea] px-4 py-2 text-sm font-medium text-[#495975] hover:bg-gray-50"
+                    className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-brand-mist"
                   >
                     ยกเลิก
                   </button>
                   <button
                     onClick={confirmSend}
                     disabled={!selectedClientId || sending || rowsToSend.length === 0 || rowsToSend.length > MAX_SEND_ROWS}
-                    className="rounded-lg bg-[#155eef] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#0d4fd8] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-xl bg-brand-blue px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {sending ? 'กำลังส่ง...' : 'ส่ง'}
                   </button>
@@ -399,7 +400,7 @@ export default function StandaloneKeywordResearch() {
               </>
             ) : (
               <>
-                <div className="mt-3 rounded-xl bg-[#eef4ff] p-4 text-sm text-[#17233a]">
+                <div className="mt-3 rounded-xl bg-brand-mist p-4 text-sm text-brand-navy">
                   ส่งสำเร็จ — เพิ่มใหม่ <span className="font-semibold">{sendResult.added}</span> · อัปเดต{' '}
                   <span className="font-semibold">{sendResult.updated}</span> · ข้าม{' '}
                   <span className="font-semibold">{sendResult.skipped}</span>
@@ -407,13 +408,13 @@ export default function StandaloneKeywordResearch() {
                 <div className="mt-4 flex justify-end gap-2">
                   <button
                     onClick={closeSendModal}
-                    className="rounded-lg border border-[#cfd9ea] px-4 py-2 text-sm font-medium text-[#495975] hover:bg-gray-50"
+                    className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-brand-mist"
                   >
                     ปิด
                   </button>
                   <Link
                     href={`/upload-article/${sendResult.clientId}?tab=keyword`}
-                    className="rounded-lg bg-[#155eef] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#0d4fd8]"
+                    className="rounded-xl bg-brand-blue px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-deep"
                   >
                     เปิดหน้า Keyword ของลูกค้า
                   </Link>

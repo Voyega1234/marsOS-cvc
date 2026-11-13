@@ -76,7 +76,7 @@ export default function LanguageModeSelect({ projectId, projectLanguage, value, 
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+    <div className="flex flex-col gap-2 rounded-2xl border border-white/80 bg-white/70 p-3">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-semibold text-gray-600">ภาษา:</span>
         {MODE_OPTIONS.map(opt => (
@@ -87,8 +87,8 @@ export default function LanguageModeSelect({ projectId, projectLanguage, value, 
             disabled={saving}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
               value === opt.id
-                ? 'bg-gray-900 text-white border-gray-900'
-                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
+                ? 'bg-brand-navy text-white border-brand-navy'
+                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
             }`}
           >
             {opt.label}

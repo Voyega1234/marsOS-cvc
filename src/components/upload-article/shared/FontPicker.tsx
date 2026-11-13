@@ -47,7 +47,7 @@ export default function FontPicker({
       <label className="block text-[11px] font-semibold text-gray-500 mb-1">{label}</label>
       <div className="flex items-center gap-1.5">
         <select value={selectValue} onChange={e => onSelect(e.target.value)}
-          className="flex-1 min-w-0 w-full h-9 rounded-md border border-gray-200 bg-white px-2 text-sm"
+          className="flex-1 min-w-0 w-full h-9 rounded-xl border border-gray-200 bg-white px-2 text-sm"
           style={isListed ? { fontFamily: value } : undefined}>
           {defaultLabel && <option value="default">{defaultLabel}</option>}
           <option value="none">{noneLabel}</option>
@@ -58,7 +58,7 @@ export default function FontPicker({
         </select>
         <button type="button" title="ตัดฟอนต์ออก (ใช้ฟอนต์ของเว็บ)" disabled={isNone}
           onClick={() => onChange(noneValue)}
-          className="h-9 w-9 shrink-0 flex items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+          className="h-9 w-9 shrink-0 flex items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
           <X size={14} />
         </button>
       </div>

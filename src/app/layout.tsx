@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
-import { Inter, Sarabun } from "next/font/google";
+import { Urbanist, Anuphan, Sarabun } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+// UI: Urbanist (Latin) + Anuphan (ไทย). Sarabun คงไว้ให้ .article-preview ใช้
+const urbanist = Urbanist({
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-urbanist",
+  display: "swap",
+});
+
+const anuphan = Anuphan({
+  subsets: ["thai", "latin"],
+  variable: "--font-thai",
   display: "swap",
 });
 
@@ -14,7 +21,8 @@ const sarabun = Sarabun({
   variable: "--font-sarabun",
   display: "swap",
 });
-import { Toaster } from "sonner";
+import { ThemeRuntime } from "@/components/layout/theme";
+import { THEME_SCRIPT } from "@/lib/theme-script";
 import { UIModeProvider } from "@/contexts/UIModeContext";
 import { SessionProvider } from "@/components/layout/SessionProvider";
 import { MarsProvider } from "@/lib/context/mars-context";
@@ -37,8 +45,10 @@ const GTM_ID = process.env.NEXT_PUBLIC_GTM_ID;
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   return (
-    <html lang="th" suppressHydrationWarning className={`${inter.variable} ${sarabun.variable}`}>
+    <html lang="th" suppressHydrationWarning className={`${urbanist.variable} ${anuphan.variable} ${sarabun.variable}`}>
       <head>
+        {/* โหมดมืด: ใส่ class ก่อนวาดหน้า กันจอกะพริบ (ค่าตั้งต้น = สว่าง) */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         {GTM_ID && (
           <script
             dangerouslySetInnerHTML={{
@@ -47,7 +57,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           />
         )}
       </head>
-      <body className="min-h-screen bg-background antialiased" style={{ fontFamily: "var(--font-inter), var(--font-sarabun), system-ui, sans-serif" }}>
+      <body className="min-h-screen antialiased" style={{ fontFamily: "var(--font-urbanist), var(--font-thai), var(--font-sarabun), system-ui, sans-serif" }}>
         {GTM_ID && (
           <noscript>
             <iframe
@@ -61,7 +71,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <MarsProvider>
             <UIModeProvider>
               {children}
-              <Toaster position="top-right" richColors closeButton />
+              <ThemeRuntime />
             </UIModeProvider>
           </MarsProvider>
         </SessionProvider>

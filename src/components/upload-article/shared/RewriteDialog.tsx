@@ -32,7 +32,7 @@ export default function RewriteDialog({ check, pushed, hasInlineImages, onRewrit
     : "ไม่ทราบค่าใช้จ่าย";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-3">
+      <div className="bg-white/95 rounded-3xl shadow-xl w-full max-w-md p-5 space-y-3">
         {check.changed.length === 0 ? (
           <>
             <p className="text-sm font-bold text-brand-navy">ให้ AI เขียนบทความนี้ใหม่</p>

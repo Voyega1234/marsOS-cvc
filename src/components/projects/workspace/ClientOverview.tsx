@@ -151,8 +151,8 @@ function KpiCard({ label, value, hint, onClick }: KpiCardProps) {
       type="button"
       onClick={onClick}
       disabled={!clickable}
-      className={`flex flex-col items-start rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition ${
-        clickable ? "cursor-pointer hover:border-indigo-300 hover:shadow-md" : "cursor-default"
+      className={`flex flex-col items-start rounded-2xl border border-white/80 bg-white/70 p-4 text-left shadow-sm transition ${
+        clickable ? "cursor-pointer hover:border-brand-blue/30 hover:shadow-md" : "cursor-default"
       }`}
     >
       <span className="text-xs font-medium text-gray-500">{label}</span>
@@ -162,7 +162,7 @@ function KpiCard({ label, value, hint, onClick }: KpiCardProps) {
   );
 }
 
-function ProgressBar({ pct, color = "bg-indigo-500" }: { pct: number; color?: string }) {
+function ProgressBar({ pct, color = "bg-brand-blue" }: { pct: number; color?: string }) {
   const clamped = Math.max(0, Math.min(100, pct));
   return (
     <div className="h-2 w-full rounded-full bg-gray-100">
@@ -196,7 +196,7 @@ function OverviewSkeleton() {
   return (
     <div className="flex flex-col gap-6 pb-10">
       {[220, 140, 220, 160, 160, 220].map((h, i) => (
-        <div key={i} className="animate-pulse rounded-2xl border border-gray-200 bg-white p-6 shadow-sm" style={{ height: h }} />
+        <div key={i} className="animate-pulse rounded-2xl border border-white/80 bg-white/70 p-6 shadow-sm" style={{ height: h }} />
       ))}
     </div>
   );
@@ -290,15 +290,24 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
       )}
 
       {/* 1. Client Hero */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-white/80 bg-white/70 p-6 shadow-sm">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-start gap-4">
-            <div
-              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-xl font-bold text-white"
-              style={{ backgroundColor: data.project.accentColor || project.accentColor || "#4f46e5" }}
-            >
-              {initial}
-            </div>
+            {project.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={project.logoUrl}
+                alt={displayName}
+                className="h-14 w-14 shrink-0 rounded-2xl border border-gray-200/70 bg-white object-contain"
+              />
+            ) : (
+              <div
+                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-xl font-bold text-white"
+                style={{ backgroundColor: data.project.accentColor || project.accentColor || "#1d48f3" }}
+              >
+                {initial}
+              </div>
+            )}
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-bold text-brand-navy">{displayName}</h1>
@@ -310,7 +319,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
                 href={data.project.website}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-1 inline-flex max-w-full items-center gap-1 break-all text-sm text-indigo-600 hover:underline"
+                className="mt-1 inline-flex max-w-full items-center gap-1 break-all text-sm text-brand-blue hover:underline"
               >
                 <Globe className="h-3.5 w-3.5 shrink-0" />
                 {data.project.website}
@@ -331,14 +340,14 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
             <button
               type="button"
               onClick={() => handleNavigate("timeline-view")}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-blue px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-blue"
             >
               <CalendarDays className="h-4 w-4" /> Project Timeline
             </button>
             <button
               type="button"
               onClick={() => handleNavigate("report")}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="inline-flex items-center justify-center gap-1.5 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               <FileText className="h-4 w-4" /> ดู Report
             </button>
@@ -355,7 +364,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
             value={data.articles.total.toLocaleString()}
             onClick={() => handleNavigate("articles")}
           />
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-white/80 bg-white/70 p-4 shadow-sm">
             <span className="text-xs font-medium text-gray-500">เผยแพร่เดือนนี้</span>
             <div className="mt-1 flex items-baseline gap-1">
               <span className="text-2xl font-bold text-brand-navy">{data.articles.publishedThisMonth}</span>
@@ -383,9 +392,9 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
       </section>
 
       {/* 3. สถานะบทความ */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-white/80 bg-white/70 p-6 shadow-sm">
         <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-brand-navy">
-          <FileText className="h-4 w-4 text-indigo-600" /> สถานะบทความ
+          <FileText className="h-4 w-4 text-brand-blue" /> สถานะบทความ
         </h2>
         {data.articles.byStatus.length === 0 ? (
           <p className="text-sm text-gray-500">ยังไม่มีบทความในโปรเจกต์นี้</p>
@@ -398,7 +407,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
                   key={row.status}
                   type="button"
                   onClick={() => handleNavigate("articles")}
-                  className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3.5 py-2.5 text-left hover:border-indigo-200 hover:bg-indigo-50/40"
+                  className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3.5 py-2.5 text-left hover:border-brand-blue/30 hover:bg-brand-blue/10"
                 >
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${articleStatusBadgeClasses(row.status)}`}>
                     {articleStatusLabel(row.status)}
@@ -415,9 +424,9 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
       </section>
 
       {/* 4. SEO Checklist progress */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-white/80 bg-white/70 p-6 shadow-sm">
         <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-brand-navy">
-          <ListChecks className="h-4 w-4 text-indigo-600" /> SEO Checklist
+          <ListChecks className="h-4 w-4 text-brand-blue" /> SEO Checklist
         </h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {seoAreas.map((area) => {
@@ -430,7 +439,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
                 key={area.key}
                 type="button"
                 onClick={() => handleNavigate(area.navTab)}
-                className="flex flex-col rounded-xl border border-gray-200 bg-gray-50/60 p-4 text-left hover:border-indigo-200 hover:bg-indigo-50/40"
+                className="flex flex-col rounded-xl border border-gray-200 bg-gray-50/60 p-4 text-left hover:border-brand-blue/30 hover:bg-brand-blue/10"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-800">{area.label}</span>
@@ -442,7 +451,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
                 </div>
                 {total > 0 ? (
                   <div className="mt-2">
-                    <ProgressBar pct={pct} color={pct >= 80 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-indigo-500"} />
+                    <ProgressBar pct={pct} color={pct >= 80 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-brand-blue"} />
                   </div>
                 ) : (
                   <p className="mt-2 text-xs text-gray-500">ยังไม่มี checklist — เปิดหน้า {area.label} เพื่อเริ่ม</p>
@@ -455,9 +464,9 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
 
       {/* 5. AI cost (role-gated) */}
       {showCost && (
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <section className="rounded-2xl border border-white/80 bg-white/70 p-6 shadow-sm">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-brand-navy">
-            <Wallet className="h-4 w-4 text-indigo-600" /> ค่าใช้จ่าย AI เดือนนี้
+            <Wallet className="h-4 w-4 text-brand-blue" /> ค่าใช้จ่าย AI เดือนนี้
           </h2>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-bold text-brand-navy">${formatCost(data.aiCost.totalThisMonth)}</span>
@@ -467,7 +476,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
           </div>
           {aiCostLimit ? (
             <div className="mt-2 max-w-md">
-              <ProgressBar pct={aiCostPct} color={aiCostPct >= 90 ? "bg-red-500" : aiCostPct >= 70 ? "bg-amber-500" : "bg-indigo-500"} />
+              <ProgressBar pct={aiCostPct} color={aiCostPct >= 90 ? "bg-red-500" : aiCostPct >= 70 ? "bg-amber-500" : "bg-brand-blue"} />
             </div>
           ) : (
             <p className="mt-1 text-xs text-gray-400">ยังไม่ตั้งงบ — ตั้งได้ที่ Project Settings</p>
@@ -487,9 +496,9 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
       )}
 
       {/* 6. การเชื่อมต่อข้อมูล */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-white/80 bg-white/70 p-6 shadow-sm">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-brand-navy">
-          <Link2 className="h-4 w-4 text-indigo-600" /> การเชื่อมต่อข้อมูล
+          <Link2 className="h-4 w-4 text-brand-blue" /> การเชื่อมต่อข้อมูล
         </h2>
         <div className="flex flex-col gap-2">
           <ConnectionRow label="Google Search Console" value={data.project.gscSiteUrl} />
@@ -501,16 +510,16 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
         <button
           type="button"
           onClick={() => handleNavigate("report")}
-          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="mt-3 inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
           ไปที่ Report <ChevronRight className="h-4 w-4" />
         </button>
       </section>
 
       {/* 7. บทความล่าสุด */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-white/80 bg-white/70 p-6 shadow-sm">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-brand-navy">
-          <FileText className="h-4 w-4 text-indigo-600" /> บทความล่าสุด
+          <FileText className="h-4 w-4 text-brand-blue" /> บทความล่าสุด
         </h2>
         {data.articles.recent.length === 0 ? (
           <p className="text-sm text-gray-500">ยังไม่มีบทความ</p>

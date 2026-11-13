@@ -82,7 +82,7 @@ export default function OwnerTagsEditor({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2.5">
+    <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-2.5">
       <div>
         <p className="text-sm font-semibold text-brand-navy">ผู้ดูแลบทความ</p>
         <p className="text-xs text-gray-500 mt-0.5">{description}</p>
@@ -127,7 +127,7 @@ export default function OwnerTagsEditor({
           onKeyDown={e => { if (e.key === "Enter") void addTag(); }}
           placeholder="พิมพ์ชื่อผู้ดูแล"
           disabled={saving}
-          className="h-8 w-48 rounded-md border border-gray-200 px-2.5 text-xs"
+          className="h-8 w-48 rounded-full border border-gray-200 px-2.5 text-xs"
         />
         <Button size="sm" variant="outline" onClick={() => void addTag()} disabled={saving || !newName.trim()}>
           <Plus size={12} className="mr-1" /> เพิ่ม

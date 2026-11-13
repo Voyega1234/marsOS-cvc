@@ -238,8 +238,8 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
                 type="button"
                 onClick={() => selectItem(item)}
                 className={cn(
-                  "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
-                  selectedId === item.id ? "border-indigo-300 bg-indigo-50/60" : "border-gray-200 bg-white hover:bg-gray-50"
+                  "w-full rounded-2xl border px-3 py-2.5 text-left transition-colors",
+                  selectedId === item.id ? "border-brand-blue/40 bg-brand-blue/10" : "border-white/80 bg-white/70 hover:bg-brand-mist"
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -259,7 +259,7 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
         </aside>
 
         <section className="space-y-3">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-brand-navy">{selectedId ? "แก้ไข Article Brief Template" : "สร้าง Article Brief Template ใหม่"}</h2>
@@ -305,7 +305,7 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
                   value={draft.data.contentType}
                   disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, contentType: e.target.value } })}
-                  className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
+                  className="h-9 w-full rounded-xl border border-gray-200 bg-white px-2.5 text-sm disabled:opacity-60"
                 >
                   {CONTENT_TYPES.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -318,7 +318,7 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
                   value={draft.data.status}
                   disabled={!canEdit}
                   onChange={(e) => setDraft({ ...draft, data: { ...draft.data, status: e.target.value as any } })}
-                  className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm disabled:opacity-60"
+                  className="h-9 w-full rounded-xl border border-gray-200 bg-white px-2.5 text-sm disabled:opacity-60"
                 >
                   {STATUS_OPTIONS.map((s) => (
                     <option key={s} value={s}>{s}</option>
@@ -344,7 +344,7 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
             />
           )}
           {canEdit && draft.mode === "raw" && (
-            <p className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs text-gray-400">
+            <p className="rounded-2xl border border-dashed border-gray-200 bg-white/50 px-4 py-3 text-xs text-gray-400">
               สลับเป็นโหมดฟอร์มก่อน ถึงจะใช้ “กรอกอัตโนมัติจากเว็บไซต์/บทความตัวอย่าง” ได้
             </p>
           )}
@@ -360,7 +360,7 @@ export function ArticleBriefsTab({ items, scope, canEdit }: Props) {
           )}
 
           {draft.mode === "raw" ? (
-            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+            <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
               {rawToFormNotice && <RawToFormNotice onStartFresh={startFreshForm} />}
               <Textarea
                 value={draft.rawText}

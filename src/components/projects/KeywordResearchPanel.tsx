@@ -42,7 +42,7 @@ export function KeywordResearchPanel({ projectId, keywords, userId }: Props) {
   }
 
   return (
-    <div className="bg-white rounded-xl border">
+    <div className="bg-white/75 rounded-2xl border border-white/80 shadow-sm backdrop-blur">
       <div className="p-5 border-b border-gray-100 flex items-center justify-between">
         <h2 className="text-base font-semibold text-brand-navy">Keyword Research</h2>
         <span className="text-sm text-gray-500">{keywords.length} keywords</span>
@@ -74,19 +74,19 @@ export function KeywordResearchPanel({ projectId, keywords, userId }: Props) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
+          <table className="tbl w-full text-sm">
+            <thead>
               <tr>
                 <th className="text-left p-3 font-medium text-gray-600">Keyword</th>
                 <th className="text-left p-3 font-medium text-gray-600">Funnel</th>
                 <th className="text-left p-3 font-medium text-gray-600">Intent</th>
-                <th className="text-right p-3 font-medium text-gray-600">Volume</th>
-                <th className="text-right p-3 font-medium text-gray-600">Difficulty</th>
+                <th className="num p-3 font-medium text-gray-600">Volume</th>
+                <th className="num p-3 font-medium text-gray-600">Difficulty</th>
               </tr>
             </thead>
             <tbody>
               {keywords.map((kw) => (
-                <tr key={kw.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <tr key={kw.id} className="last:border-0">
                   <td className="p-3">
                     <div>
                       <p className="font-medium text-brand-navy">{kw.keyword}</p>
@@ -95,8 +95,8 @@ export function KeywordResearchPanel({ projectId, keywords, userId }: Props) {
                   </td>
                   <td className="p-3"><FunnelBadge stage={kw.funnelStage} /></td>
                   <td className="p-3 text-gray-600">{kw.intent}</td>
-                  <td className="p-3 text-right text-brand-navy">{kw.volume?.toLocaleString() ?? "—"}</td>
-                  <td className="p-3 text-right">
+                  <td className="num p-3 text-right text-brand-navy">{kw.volume?.toLocaleString() ?? "—"}</td>
+                  <td className="num p-3 text-right">
                     <span className={`font-medium ${(kw.difficulty ?? 0) > 50 ? "text-red-600" : (kw.difficulty ?? 0) > 30 ? "text-yellow-600" : "text-green-600"}`}>
                       {kw.difficulty ?? "—"}
                     </span>

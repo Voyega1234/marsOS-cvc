@@ -92,13 +92,13 @@ function AddForm({ projects, onAdd, defaultProjectId = "" }: { projects: { id: s
   }
 
   if (!open) return (
-    <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep transition-colors">
+    <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-brand-deep transition-colors">
       <Plus size={14} /> เพิ่มหน้าที่ต้อง Refresh
     </button>
   );
 
   return (
-    <form onSubmit={submit} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
+    <form onSubmit={submit} className="glass rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-brand-navy text-sm">เพิ่มหน้าที่ต้อง Refresh</h3>
         <button type="button" onClick={reset} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
@@ -107,17 +107,17 @@ function AddForm({ projects, onAdd, defaultProjectId = "" }: { projects: { id: s
         <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">URL *</label>
           <input type="url" value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} required
-            placeholder="https://yoursite.com/page" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+            placeholder="https://yoursite.com/page" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">ชื่อหน้า</label>
           <input value={form.pageTitle} onChange={e => setForm(f => ({ ...f, pageTitle: e.target.value }))}
-            placeholder="Title ของหน้า" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+            placeholder="Title ของหน้า" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Client</label>
           <select value={form.projectId} onChange={e => setForm(f => ({ ...f, projectId: e.target.value }))}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
             <option value="">— เลือก Client —</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -125,7 +125,7 @@ function AddForm({ projects, onAdd, defaultProjectId = "" }: { projects: { id: s
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Priority</label>
           <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
@@ -134,30 +134,30 @@ function AddForm({ projects, onAdd, defaultProjectId = "" }: { projects: { id: s
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">อายุบทความ (วัน)</label>
           <input type="number" value={form.daysOld} onChange={e => setForm(f => ({ ...f, daysOld: e.target.value }))}
-            placeholder="180" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+            placeholder="180" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Due Date</label>
           <input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
         <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">เหตุผล (คั่นด้วย comma)</label>
           <input value={form.reasons} onChange={e => setForm(f => ({ ...f, reasons: e.target.value }))}
             placeholder="ข้อมูลเก่า, traffic ลด, competitor ใหม่"
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
         <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">คำแนะนำ</label>
           <input value={form.recommendation} onChange={e => setForm(f => ({ ...f, recommendation: e.target.value }))}
             placeholder="ปรับปรุงข้อมูลให้ทันสมัย, เพิ่ม FAQ"
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
         </div>
       </div>
       <div className="flex flex-wrap justify-end gap-2">
         <button type="button" onClick={reset} className="px-4 py-2 text-sm text-gray-500 hover:text-brand-navy">ยกเลิก</button>
         <button type="submit" disabled={saving}
-          className="px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-brand-deep disabled:opacity-50 transition-colors">
+          className="px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-brand-deep disabled:opacity-50 transition-colors">
           {saving ? "กำลังบันทึก..." : "บันทึก"}
         </button>
       </div>
@@ -199,13 +199,13 @@ function RefreshRow({ item, onUpdate, onDelete }: {
   }
 
   return (
-    <div className={`p-4 bg-white border border-gray-200 rounded-xl space-y-2 transition-opacity ${item.status === "done" || item.status === "ignored" ? "opacity-50" : ""}`}>
+    <div className={`p-4 glass rounded-2xl space-y-2 transition-opacity ${item.status === "done" || item.status === "ignored" ? "opacity-50" : ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <PriorityChip priority={item.priority} />
             <span className="text-xs font-medium text-gray-500">{projectName}</span>
-            {item.daysOld && <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{item.daysOld} วัน</span>}
+            {item.daysOld && <span className="text-[10px] text-gray-400 bg-white/50 px-1.5 py-0.5 rounded">{item.daysOld} วัน</span>}
           </div>
           <p className="text-sm font-semibold text-brand-navy mt-1">{item.pageTitle || item.url}</p>
           <a href={item.url} target="_blank" rel="noopener" className="text-[11px] text-blue-500 hover:underline flex items-center gap-0.5 truncate mt-0.5">
@@ -222,29 +222,29 @@ function RefreshRow({ item, onUpdate, onDelete }: {
       )}
 
       {item.recommendation && (
-        <p className="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded-lg">💡 {item.recommendation}</p>
+        <p className="text-xs text-gray-500 bg-white/50 px-3 py-2 rounded-xl">💡 {item.recommendation}</p>
       )}
 
       <div className="flex items-center gap-2 pt-1 flex-wrap">
         {item.status !== "done" && (
           <button onClick={() => changeStatus("done")} disabled={saving}
-            className="flex items-center gap-1 px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-lg hover:bg-emerald-200 transition-colors disabled:opacity-50">
+            className="flex items-center gap-1 px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-xl hover:bg-emerald-200 transition-colors disabled:opacity-50">
             <Check size={11} /> เสร็จแล้ว
           </button>
         )}
         {item.status === "pending" && (
           <button onClick={() => changeStatus("in_progress")} disabled={saving}
-            className="flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-200 transition-colors disabled:opacity-50">
+            className="flex items-center gap-1 px-3 py-1 bg-blue-100 text-brand-blue text-xs font-semibold rounded-xl hover:bg-blue-200 transition-colors disabled:opacity-50">
             <RefreshCw size={11} /> เริ่มทำ
           </button>
         )}
         {item.status !== "ignored" && item.status !== "done" && (
           <button onClick={() => changeStatus("ignored")} disabled={saving}
-            className="px-3 py-1 bg-gray-100 text-gray-500 text-xs rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50">ข้าม</button>
+            className="px-3 py-1 bg-gray-100 text-gray-500 text-xs rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50">ข้าม</button>
         )}
         {(item.status === "done" || item.status === "ignored") && (
           <button onClick={() => changeStatus("pending")} disabled={saving}
-            className="px-3 py-1 bg-gray-100 text-gray-500 text-xs rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50">รีเซ็ต</button>
+            className="px-3 py-1 bg-gray-100 text-gray-500 text-xs rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50">รีเซ็ต</button>
         )}
         <div className="flex-1" />
         {item.dueDate && <span className="text-[10px] text-gray-400">Due: {item.dueDate}</span>}
@@ -287,7 +287,7 @@ function GSCScanModal({ projects, onDone, defaultProjectId = "", defaultSiteUrl 
   }
 
   if (!open) return (
-    <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-blue-500 transition-colors">
+    <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-blue-500 transition-colors">
       <Search size={14} /> Scan GSC
     </button>
   );
@@ -305,14 +305,14 @@ function GSCScanModal({ projects, onDone, defaultProjectId = "", defaultSiteUrl 
             <label className="block text-xs font-medium text-gray-500 mb-1">GSC Site URL *</label>
             <input value={siteUrl} onChange={e => setSiteUrl(e.target.value)}
               placeholder="sc-domain:example.com หรือ https://example.com/"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
             <p className="text-[10px] text-gray-400 mt-1">ดู format ได้จาก Google Search Console → Property selector</p>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Client (optional)</label>
             <select value={projectId} onChange={e => setProjectId(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20">
               <option value="">— ไม่ระบุ Client —</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
@@ -321,22 +321,22 @@ function GSCScanModal({ projects, onDone, defaultProjectId = "", defaultSiteUrl 
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Flag เมื่อ traffic ลดเกิน (%)</label>
             <input type="number" value={dropThreshold} onChange={e => setDropThreshold(e.target.value)}
-              min={5} max={90} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              min={5} max={90} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
           </div>
         </div>
 
         {result && (
-          <div className="bg-blue-50 rounded-xl p-4 text-sm">
+          <div className="bg-brand-blue/10 rounded-xl p-4 text-sm">
             <p className="font-semibold text-blue-800">ผลการ Scan</p>
-            <p className="text-blue-700 mt-1">พบหน้าที่ traffic ลด: <b>{result.scanned}</b></p>
-            <p className="text-blue-700">เพิ่มใหม่: <b>{result.added}</b> | ซ้ำ (ข้าม): <b>{result.skipped}</b></p>
+            <p className="text-brand-blue mt-1">พบหน้าที่ traffic ลด: <b>{result.scanned}</b></p>
+            <p className="text-brand-blue">เพิ่มใหม่: <b>{result.added}</b> | ซ้ำ (ข้าม): <b>{result.skipped}</b></p>
           </div>
         )}
 
         <div className="flex flex-wrap justify-end gap-2">
           <button onClick={() => { setOpen(false); setResult(null); }} className="px-4 py-2 text-sm text-gray-500 hover:text-brand-navy">ปิด</button>
           <button onClick={scan} disabled={scanning || !siteUrl}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-xl hover:bg-blue-500 disabled:opacity-50 transition-colors">
+            className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-blue-500 disabled:opacity-50 transition-colors">
             {scanning ? <><RefreshCw size={13} className="animate-spin" /> กำลัง Scan...</> : <><Search size={13} /> Scan</>}
           </button>
         </div>
@@ -376,8 +376,9 @@ export function ContentRefreshClient({ initialItems, projects, defaultProjectId,
     <div className="space-y-5 w-full">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-brand-navy">Content Refresh</h1>
-          <p className="text-sm text-gray-500 mt-0.5">ติดตามหน้าที่ต้องปรับปรุงเนื้อหา</p>
+          <p className="page-eyebrow">Refresh</p>
+          <h1 className="page-title">Content Refresh</h1>
+          <p className="page-subtitle">ติดตามหน้าที่ต้องปรับปรุงเนื้อหา</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <GSCScanModal projects={projects} onDone={handleGSCDone} defaultProjectId={defaultProjectId} defaultSiteUrl={defaultSiteUrl} />
@@ -407,12 +408,12 @@ export function ContentRefreshClient({ initialItems, projects, defaultProjectId,
       <div className="flex items-center gap-3 flex-wrap">
         <Filter size={13} className="text-gray-400" />
         <select value={filterProject} onChange={e => setFilterProject(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gray-900">
+          className="border border-gray-200 rounded-xl px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gray-900">
           <option value="all">ทุก Client</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
         <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gray-900">
+          className="border border-gray-200 rounded-xl px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-gray-900">
           <option value="all">ทุก Priority</option>
           <option value="high">High</option>
           <option value="medium">Medium</option>
@@ -432,7 +433,7 @@ export function ContentRefreshClient({ initialItems, projects, defaultProjectId,
           ))}
         </div>
       ) : (
-        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+        <div className="text-center py-16 glass rounded-2xl">
           <CheckCircle2 size={32} className="text-gray-200 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">ไม่มีรายการ</p>
           <p className="text-gray-400 text-sm mt-1">กด "+ เพิ่มหน้าที่ต้อง Refresh" เพื่อเริ่มติดตาม</p>

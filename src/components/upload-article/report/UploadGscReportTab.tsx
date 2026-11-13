@@ -8,12 +8,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  AlertCircle, BarChart3, Copy, ExternalLink, Loader2, RefreshCw, TrendingDown, TrendingUp, Minus,
+  AlertCircle, BarChart3, Copy, ExternalLink, Loader2, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Chip, EmptyState, Panel, Segmented, UnderlineTabs } from "@/components/ds";
 import GscTable, { type GscTableColumn } from "./GscTable";
-import { GscLineChart, GscBarChart } from "./GscCharts";
+import { GscKpiRow, GscTrendPanel, GscBucketPanel } from "./GscCharts";
 import OwnerTagsEditor from "./OwnerTagsEditor";
 import ArticleOwnerSelect from "@/components/upload-article/ArticleOwnerSelect";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
@@ -57,6 +57,17 @@ const SUB_TAB_LABELS: Record<SubTab, string> = {
   opportunities: "โอกาส", cannibal: "Cannibalization", devices: "อุปกรณ์/ประเทศ",
 };
 
+function SUB_TAB_COUNTS(data: GscReportResponse, t: SubTab): number | undefined {
+  switch (t) {
+    case "queries": return data.queries.length;
+    case "pages": return data.pages.length;
+    case "articles": return data.uploadedArticles.length;
+    case "opportunities": return data.opportunities.strikingDistance.length + data.opportunities.lowCtr.length;
+    case "cannibal": return data.cannibalization.length;
+    default: return undefined;
+  }
+}
+
 function fmtNum(n: number): string { return Math.round(n).toLocaleString(); }
 function fmtCtr(n: number): string { return `${(n * 100).toFixed(2)}%`; }
 function fmtPos(n: number): string { return n ? n.toFixed(1) : "—"; }
@@ -65,30 +76,9 @@ function fmtDate(s: string): string {
   return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : s;
 }
 
-function DeltaBadge({ pct, inverse = false }: { pct: number; inverse?: boolean }) {
-  const good = inverse ? pct < 0 : pct > 0;
-  const neutral = pct === 0;
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${neutral ? "text-gray-400" : good ? "text-emerald-600" : "text-red-500"}`}>
-      {neutral ? <Minus size={10} /> : good ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-      {Math.abs(pct).toFixed(1)}%
-    </span>
-  );
-}
-
-function KpiCard({ label, value, pct, inverse = false }: { label: string; value: string; pct: number; inverse?: boolean }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className="text-2xl font-bold text-brand-navy">{value}</p>
-      <div className="mt-1"><DeltaBadge pct={pct} inverse={inverse} /> <span className="text-[11px] text-gray-400">vs ก่อนหน้า</span></div>
-    </div>
-  );
-}
-
 function ChangeCell({ current, prev, isNew, isLost }: { current: number; prev: number; isNew?: boolean; isLost?: boolean }) {
-  if (isNew) return <span className="text-[10px] font-bold text-brand-blue bg-blue-50 px-1.5 py-0.5 rounded">ใหม่</span>;
-  if (isLost) return <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">หาย</span>;
+  if (isNew) return <Chip tone="info">ใหม่</Chip>;
+  if (isLost) return <Chip tone="bad">หาย</Chip>;
   const diff = current - prev;
   if (diff === 0) return <span className="text-gray-400">—</span>;
   return <span className={diff > 0 ? "text-emerald-600" : "text-red-500"}>{diff > 0 ? "+" : ""}{fmtNum(diff)}</span>;
@@ -227,13 +217,13 @@ export default function UploadGscReportTab({
   );
 
   if (sitesLoading) {
-    return <p className="text-xs text-gray-400 flex items-center gap-1.5 py-10 justify-center"><Loader2 size={12} className="animate-spin" /> กำลังโหลด...</p>;
+    return <Panel><EmptyState icon={<Loader2 className="h-5 w-5 animate-spin" />} title="กำลังโหลด..." /></Panel>;
   }
 
   return (
     <div className="space-y-4">
       {/* ── การ์ดตั้งค่า service account + property ── */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-semibold text-brand-navy">เชื่อมต่อ Search Console</p>
@@ -244,7 +234,7 @@ export default function UploadGscReportTab({
           </span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <code className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700">{serviceEmail || "ไม่พบ service account"}</code>
+          <code className="text-xs bg-white/70 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700">{serviceEmail || "ไม่พบ service account"}</code>
           <Button size="sm" variant="outline" onClick={copyServiceEmail} disabled={!serviceEmail}>
             <Copy size={12} className="mr-1.5" /> คัดลอก
           </Button>
@@ -258,7 +248,7 @@ export default function UploadGscReportTab({
 
         <div className="flex items-center gap-2 flex-wrap">
           <select value={selectedSite} onChange={(e) => saveSite(e.target.value)} disabled={savingSite}
-            className="h-9 min-w-[260px] rounded-md border border-gray-200 px-3 text-sm bg-white">
+            className="h-9 min-w-[260px] rounded-full border border-gray-200 px-3 text-sm bg-white">
             <option value="">— เลือกเว็บ —</option>
             {sites.map((s) => <option key={s.siteUrl} value={s.siteUrl}>{s.siteUrl}</option>)}
           </select>
@@ -274,26 +264,26 @@ export default function UploadGscReportTab({
       {selectedSite && (
         <>
           {/* ── ตัวควบคุมช่วงข้อมูล ── */}
-          <div className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-2 flex-wrap">
+          <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-3 flex items-center gap-2 flex-wrap">
             <select value={customRange ? "custom" : String(days)} onChange={(e) => {
               if (e.target.value === "custom") { setCustomRange(true); return; }
               setCustomRange(false); setDays(Number(e.target.value));
-            }} className="h-9 rounded-md border border-gray-200 px-2.5 text-xs bg-white">
+            }} className="h-9 rounded-full border border-gray-200 px-2.5 text-xs bg-white">
               {DAY_OPTIONS.map((d) => <option key={d} value={d}>{d} วันล่าสุด</option>)}
               <option value="custom">กำหนดช่วงเอง</option>
             </select>
             {customRange && (
               <>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 rounded-md border border-gray-200 px-2 text-xs" />
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 rounded-full border border-gray-200 px-2 text-xs" />
                 <span className="text-gray-400 text-xs">ถึง</span>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 rounded-md border border-gray-200 px-2 text-xs" />
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 rounded-full border border-gray-200 px-2 text-xs" />
               </>
             )}
-            <select value={compare} onChange={(e) => setCompare(e.target.value as ReportCompareMode)} className="h-9 rounded-md border border-gray-200 px-2.5 text-xs bg-white">
+            <select value={compare} onChange={(e) => setCompare(e.target.value as ReportCompareMode)} className="h-9 rounded-full border border-gray-200 px-2.5 text-xs bg-white">
               <option value="previous">เทียบช่วงก่อนหน้า</option>
               <option value="yoy">เทียบปีก่อนหน้า (YoY)</option>
             </select>
-            <select value={searchType} onChange={(e) => setSearchType(e.target.value as ReportSearchType)} className="h-9 rounded-md border border-gray-200 px-2.5 text-xs bg-white">
+            <select value={searchType} onChange={(e) => setSearchType(e.target.value as ReportSearchType)} className="h-9 rounded-full border border-gray-200 px-2.5 text-xs bg-white">
               {Object.entries(SEARCH_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             {ownerTags.length > 0 && (
@@ -319,7 +309,7 @@ export default function UploadGscReportTab({
           )}
 
           {reportError && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-start gap-2">
+            <div className="bg-red-50/80 border border-red-200 rounded-2xl p-4 text-sm text-red-700 flex items-start gap-2">
               <AlertCircle size={16} className="shrink-0 mt-0.5" />
               <div>
                 <p>{reportError}</p>
@@ -329,74 +319,53 @@ export default function UploadGscReportTab({
           )}
 
           {reportLoading && !data && (
-            <p className="text-xs text-gray-400 flex items-center gap-1.5 py-10 justify-center"><Loader2 size={12} className="animate-spin" /> กำลังดึงข้อมูลจาก Search Console...</p>
+            <Panel><EmptyState icon={<Loader2 className="h-5 w-5 animate-spin" />} title="กำลังดึงข้อมูลจาก Search Console..." /></Panel>
           )}
 
           {data && (
             <>
               {/* ── KPI ── */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <KpiCard label="คลิก" value={fmtNum(data.overview.current.clicks)} pct={data.overview.deltaPct.clicks} />
-                <KpiCard label="การแสดงผล" value={fmtNum(data.overview.current.impressions)} pct={data.overview.deltaPct.impressions} />
-                <KpiCard label="CTR" value={fmtCtr(data.overview.current.ctr)} pct={data.overview.deltaPct.ctr} />
-                <KpiCard label="อันดับเฉลี่ย" value={fmtPos(data.overview.current.position)} pct={data.overview.deltaPct.position} inverse />
-              </div>
+              <GscKpiRow overview={data.overview} />
 
               {/* ── กราฟรายวัน ── */}
-              <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-brand-navy">แนวโน้มรายวัน</p>
-                  <div className="flex gap-1">
-                    {(["clicks", "impressions"] as const).map((m) => (
-                      <button key={m} onClick={() => setDailyMetric(m)}
-                        className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${dailyMetric === m ? "bg-brand-mist text-brand-blue" : "text-gray-400 hover:bg-gray-50"}`}>
-                        {m === "clicks" ? "คลิก" : "การแสดงผล"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <GscLineChart current={dailyCurrent} previous={dailyPrevious} color={dailyMetric === "clicks" ? "#137333" : "#1a73e8"} />
-                <p className="text-[11px] text-gray-400">เส้นทึบ = ช่วงปัจจุบัน, เส้นประ = ช่วงเทียบ</p>
-              </div>
+              <GscTrendPanel current={dailyCurrent} previous={dailyPrevious} metric={dailyMetric} onMetricChange={setDailyMetric} />
 
               {/* ── Sub-tabs ── */}
-              <Tabs value={subTab} onValueChange={(v) => setSubTab(v as SubTab)}>
-                <TabsList className="flex-wrap h-auto">
-                  {SUB_TABS.map((t) => <TabsTrigger key={t} value={t}>{SUB_TAB_LABELS[t]}</TabsTrigger>)}
-                </TabsList>
-
-                <TabsContent value="overview">
+              <UnderlineTabs
+                value={subTab}
+                onChange={setSubTab}
+                tabs={SUB_TABS.map((t) => ({ id: t, label: SUB_TAB_LABELS[t], count: SUB_TAB_COUNTS(data, t) }))}
+              />
+              <div className="space-y-4">
+                {subTab === "overview" && (
                   <OverviewSubTab data={data} />
-                </TabsContent>
-                <TabsContent value="queries">
+                )}
+                {subTab === "queries" && (
                   <QueriesSubTab rows={data.queries} />
-                </TabsContent>
-                <TabsContent value="pages">
+                )}
+                {subTab === "pages" && (
                   <PagesSubTab rows={data.pages} />
-                </TabsContent>
-                <TabsContent value="articles">
+                )}
+                {subTab === "articles" && (
                   <ArticlesSubTab rows={data.uploadedArticles} ownerTags={ownerTags} articleOwners={articleOwners} onOwnerChange={onOwnerChange} />
-                </TabsContent>
-                <TabsContent value="opportunities">
+                )}
+                {subTab === "opportunities" && (
                   <OpportunitiesSubTab strikingDistance={data.opportunities.strikingDistance} lowCtr={data.opportunities.lowCtr} />
-                </TabsContent>
-                <TabsContent value="cannibal">
+                )}
+                {subTab === "cannibal" && (
                   <CannibalSubTab rows={data.cannibalization} />
-                </TabsContent>
-                <TabsContent value="devices">
+                )}
+                {subTab === "devices" && (
                   <DevicesSubTab devices={data.devices} countries={data.countries} searchAppearance={data.searchAppearance} />
-                </TabsContent>
-              </Tabs>
+                )}
+              </div>
             </>
           )}
         </>
       )}
 
       {!selectedSite && !sitesError && (
-        <div className="bg-white border border-gray-200 rounded-xl p-8 text-center space-y-2">
-          <BarChart3 size={28} className="mx-auto text-gray-300" />
-          <p className="text-sm text-gray-500">เลือกเว็บ Search Console ด้านบนเพื่อดูรายงาน</p>
-        </div>
+        <Panel><EmptyState icon={<BarChart3 className="h-5 w-5" />} title="เลือกเว็บ Search Console ด้านบนเพื่อดูรายงาน" /></Panel>
       )}
     </div>
   );
@@ -405,14 +374,7 @@ export default function UploadGscReportTab({
 // ── Sub-tabs ──────────────────────────────────────────────────────────────────
 
 function OverviewSubTab({ data }: { data: GscReportResponse }) {
-  const buckets = data.positionBuckets;
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-      <p className="text-sm font-semibold text-brand-navy">สัดส่วนอันดับคำค้นหา (ปัจจุบันเทียบก่อนหน้า)</p>
-      <GscBarChart data={buckets.current.map((b, i) => ({ label: `อันดับ ${b.bucket} (${b.count} คำ)`, value: b.clicks, prevValue: buckets.previous[i]?.clicks ?? 0 }))} />
-      <p className="text-[11px] text-gray-400">แถบเข้ม = คลิกช่วงปัจจุบัน, แถบเทา = คลิกช่วงก่อนหน้า</p>
-    </div>
-  );
+  return <GscBucketPanel buckets={data.positionBuckets} />;
 }
 
 function QueriesSubTab({ rows }: { rows: GscQueryRow[] }) {
@@ -514,11 +476,11 @@ function OpportunitiesSubTab({ strikingDistance, lowCtr }: { strikingDistance: S
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-sm font-semibold text-brand-navy mb-2">Striking Distance — อันดับ 4-20 ที่ผลักขึ้นหน้าแรกได้ (เรียงตามการแสดงผล)</p>
+        <p className="section-label mb-2">Striking Distance — อันดับ 4-20 ที่ผลักขึ้นหน้าแรกได้ (เรียงตามการแสดงผล)</p>
         <GscTable rows={strikingDistance} columns={strikingCols} rowKey={(r) => r.query} searchText={(r) => r.query} csvFilename="gsc-striking-distance.csv" />
       </div>
       <div>
-        <p className="text-sm font-semibold text-brand-navy mb-2">CTR ต่ำกว่าที่ควร — การแสดงผล ≥ 100 และ CTR ต่ำกว่าครึ่งของค่าเฉลี่ยช่วงอันดับเดียวกัน</p>
+        <p className="section-label mb-2">CTR ต่ำกว่าที่ควร — การแสดงผล ≥ 100 และ CTR ต่ำกว่าครึ่งของค่าเฉลี่ยช่วงอันดับเดียวกัน</p>
         <GscTable rows={lowCtr} columns={lowCtrCols} rowKey={(r) => r.query} searchText={(r) => r.query} csvFilename="gsc-low-ctr.csv" />
       </div>
     </div>
@@ -581,15 +543,15 @@ function DevicesSubTab({ devices, countries, searchAppearance }: {
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-sm font-semibold text-brand-navy mb-2">อุปกรณ์</p>
+        <p className="section-label mb-2">อุปกรณ์</p>
         <GscTable rows={devices} columns={dimCols()} rowKey={(r) => r.label} csvFilename="gsc-devices.csv" />
       </div>
       <div>
-        <p className="text-sm font-semibold text-brand-navy mb-2">ประเทศ</p>
+        <p className="section-label mb-2">ประเทศ</p>
         <GscTable rows={countries} columns={countryCols} rowKey={(r) => r.label} searchText={(r) => r.name} csvFilename="gsc-countries.csv" />
       </div>
       <div>
-        <p className="text-sm font-semibold text-brand-navy mb-2">รูปแบบการแสดงผล (Search Appearance)</p>
+        <p className="section-label mb-2">รูปแบบการแสดงผล (Search Appearance)</p>
         <GscTable rows={searchAppearance} columns={dimCols()} rowKey={(r) => r.label} csvFilename="gsc-search-appearance.csv" emptyText="ไม่มีรูปแบบพิเศษในช่วงนี้" />
       </div>
     </div>

@@ -58,11 +58,11 @@ interface Props {
 }
 
 const STATUS_LABEL: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  pending:  { label: "รอเขียน",    color: "bg-gray-100 text-gray-500",    icon: <Clock size={10} /> },
-  writing:  { label: "กำลังเขียน", color: "bg-blue-100 text-brand-blue",   icon: <RefreshCw size={10} className="animate-spin" /> },
-  review:   { label: "รอตรวจ",     color: "bg-amber-100 text-amber-700",  icon: <Eye size={10} /> },
-  approved: { label: "Approved",   color: "bg-emerald-100 text-emerald-700", icon: <CheckCircle2 size={10} /> },
-  pushed:   { label: "Pushed",     color: "bg-teal-100 text-teal-700",    icon: <Send size={10} /> },
+  pending:  { label: "รอเขียน",    color: "chip-muted",    icon: <Clock size={10} /> },
+  writing:  { label: "กำลังเขียน", color: "chip-info",   icon: <RefreshCw size={10} className="animate-spin" /> },
+  review:   { label: "รอตรวจ",     color: "chip-warn",  icon: <Eye size={10} /> },
+  approved: { label: "Approved",   color: "chip-ok", icon: <CheckCircle2 size={10} /> },
+  pushed:   { label: "Pushed",     color: "chip-ok",    icon: <Send size={10} /> },
 };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -75,9 +75,9 @@ const ACTION_LABEL: Record<string, string> = {
 };
 
 function StatusChip({ status }: { status: string }) {
-  const s = STATUS_LABEL[status] ?? { label: status, color: "bg-gray-100 text-gray-500", icon: null };
+  const s = STATUS_LABEL[status] ?? { label: status, color: "chip-muted", icon: null };
   return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${s.color}`}>
+    <span className={`chip ${s.color}`}>
       {s.icon}{s.label}
     </span>
   );
@@ -115,7 +115,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
           { label: "รอตรวจ",        value: summary.totalReview,   color: summary.totalReview > 0   ? "bg-amber-100 text-amber-700" : "bg-gray-50 text-gray-400" },
           { label: "Pushed แล้ว",   value: summary.totalPushed,   color: summary.totalPushed > 0   ? "bg-emerald-100 text-emerald-700" : "bg-gray-50 text-gray-400" },
         ].map(s => (
-          <div key={s.label} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${s.color}`}>
+          <div key={s.label} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-semibold shadow-sm ${s.color}`}>
             <span>{s.value}</span>
             <span className="font-normal opacity-70">{s.label}</span>
           </div>
@@ -130,9 +130,9 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
             งานที่ค้างอยู่ ({activeProjects.length} client)
           </h2>
 
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="glass rounded-3xl overflow-hidden">
             {/* Table header */}
-            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-0 px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-[11px] font-bold text-gray-400 uppercase tracking-wide">
+            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-0 px-5 py-2.5 bg-brand-mist/60 border-b border-gray-100/70 text-[11px] font-bold text-gray-400 uppercase tracking-wide">
               <span>Client</span>
               <span className="text-center">รอเขียน</span>
               <span className="text-center">กำลังเขียน</span>
@@ -144,7 +144,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
             {activeProjects.map((p, i) => (
               <div key={p.id} className={`${i !== activeProjects.length - 1 ? "border-b border-gray-50" : ""}`}>
                 {/* Row */}
-                <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-0 px-5 py-3.5 items-center hover:bg-gray-50/50 transition-colors">
+                <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-0 px-5 py-3.5 items-center hover:bg-brand-mist/50 transition-colors">
                   {/* Client */}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -170,7 +170,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
                   {/* Progress */}
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.progress}%` }} />
+                      <div className="h-full bg-brand-blue rounded-full" style={{ width: `${p.progress}%` }} />
                     </div>
                     <span className="text-[10px] text-gray-400 font-medium w-7 text-right">{p.progress}%</span>
                   </div>
@@ -178,7 +178,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
                   <div className="flex justify-end">
                     <Link
                       href={`/projects/${p.id}?tab=${p.review > 0 ? "review" : "articles"}`}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors"
                     >
                       {p.review > 0 ? <Eye size={11} /> : <Pencil size={11} />}
                       {p.review > 0 ? "ตรวจ" : "เขียน"}
@@ -199,7 +199,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
                       </div>
                     ))}
                     {(p.pending + p.writing + p.review) > p.pendingEntries.length && (
-                      <Link href={`/projects/${p.id}?tab=articles`} className="text-[10px] text-blue-500 hover:underline">
+                      <Link href={`/projects/${p.id}?tab=articles`} className="text-[10px] text-brand-blue hover:underline">
                         + อีก {(p.pending + p.writing + p.review) - p.pendingEntries.length} บทความ →
                       </Link>
                     )}
@@ -218,11 +218,11 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
             <CheckCircle2 size={14} className="text-emerald-500" />
             ไม่มีงานค้าง ({idleProjects.length} client)
           </h2>
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="glass rounded-3xl overflow-hidden">
             {idleProjects.map((p, i) => (
               <div
                 key={p.id}
-                className={`flex items-center gap-4 px-5 py-3 hover:bg-gray-50/50 transition-colors ${i !== idleProjects.length - 1 ? "border-b border-gray-50" : ""}`}
+                className={`flex items-center gap-4 px-5 py-3 hover:bg-brand-mist/50 transition-colors ${i !== idleProjects.length - 1 ? "border-b border-gray-50" : ""}`}
               >
                 <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -231,7 +231,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.progress}%` }} />
+                    <div className="h-full bg-brand-blue rounded-full" style={{ width: `${p.progress}%` }} />
                   </div>
                   <span className="text-[10px] text-gray-400 w-7 text-right">{p.progress}%</span>
                 </div>
@@ -246,11 +246,11 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
 
       {/* ── Empty state ── */}
       {projectRows.length === 0 && (
-        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+        <div className="text-center py-16 glass rounded-3xl">
           <div className="text-4xl mb-3">📋</div>
           <p className="text-gray-500 font-medium">ยังไม่มี client</p>
           <p className="text-gray-400 text-sm mt-1">ไปที่ Clients เพื่อสร้าง project แรก</p>
-          <Link href="/projects" className="inline-block mt-4 px-4 py-2 bg-brand-blue text-white text-sm rounded-xl hover:bg-brand-deep transition-colors">
+          <Link href="/projects" className="inline-block mt-4 px-4 py-2 bg-brand-blue text-white text-sm rounded-full hover:bg-brand-deep transition-colors">
             + สร้าง Client
           </Link>
         </div>
@@ -263,7 +263,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
             <FileText size={14} className="text-gray-400" />
             กิจกรรมล่าสุด
           </h2>
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden divide-y divide-gray-50">
+          <div className="glass rounded-3xl overflow-hidden divide-y divide-gray-50">
             {recentActivity.slice(0, 15).map(a => {
               let detail = ""
               try {
@@ -274,7 +274,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
 
               return (
                 <div key={a.id} className="flex items-start gap-3 px-5 py-3">
-                  <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="w-6 h-6 rounded-full bg-brand-mist flex items-center justify-center shrink-0 mt-0.5">
                     <span className="text-[10px] font-bold text-gray-500">{a.userName?.[0]?.toUpperCase() ?? "?"}</span>
                   </div>
                   <div className="flex-1 min-w-0">
@@ -288,7 +288,7 @@ export function HomeDashboard({ userName, projectRows, summary, recentActivity }
                       {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true, locale: th })}
                     </p>
                   </div>
-                  <span className="text-[9px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded font-mono shrink-0">{a.action}</span>
+                  <span className="chip chip-muted font-mono shrink-0">{a.action}</span>
                 </div>
               );
             })}

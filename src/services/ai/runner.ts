@@ -5,6 +5,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { NOT_PROPOSAL_WHERE } from "@/lib/client-proposal/store";
 import { compilePrompt } from "./compiler";
 import { callAIProvider } from "./provider";
 import { clientSlugForProject } from '@/lib/orClient';
@@ -91,7 +92,8 @@ export async function snapshotArticleVersion(articleId: string, userId: string, 
   // Only snapshot if there is meaningful content to preserve
   if (!article.outline && !article.htmlContent) return;
 
-  const count = await prisma.articleVersion.count({ where: { articleId } });
+  // Client proposals live in the same table but are not versions: keep them out of the numbering
+  const count = await prisma.articleVersion.count({ where: { articleId, ...NOT_PROPOSAL_WHERE } });
   await prisma.articleVersion.create({
     data: {
       articleId,

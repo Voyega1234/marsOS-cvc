@@ -194,7 +194,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
           <ArrowLeft className="h-4 w-4" />
           กลับไปหน้าบทความ — {article.project.name}
         </Link>
-        <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+        <div className="glass rounded-3xl p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-2">
@@ -252,7 +252,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
           <button
             onClick={runAutoFlow}
             disabled={autoRunning || !!loadingAction}
-            className="flex items-center gap-2.5 px-6 py-3 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white font-semibold text-sm transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex-shrink-0"
+            className="flex items-center gap-2.5 px-6 py-3 rounded-xl bg-brand-blue hover:bg-brand-deep text-white font-semibold text-sm transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex-shrink-0"
           >
             {autoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {autoRunning ? "กำลังรัน Pipeline..." : "▶ Run Auto Pipeline"}
@@ -270,7 +270,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
       />
 
       {/* Step Progress Indicator */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm overflow-x-auto">
+      <div className="glass rounded-3xl p-5 shadow-sm overflow-x-auto">
         <div className="flex items-start gap-0 min-w-max">
           {STEPS.map((step, idx) => {
             const isDone = isStepComplete(step.num, article.status);
@@ -286,7 +286,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                   <div className={`
                     relative w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-all
                     ${isDone ? "bg-green-500 text-white shadow-sm" : ""}
-                    ${isActive && !isDone ? "bg-green-600 text-white shadow-md ring-2 ring-green-300 ring-offset-2" : ""}
+                    ${isActive && !isDone ? "bg-brand-blue text-white shadow-md ring-2 ring-brand-blue/30 ring-offset-2" : ""}
                     ${!isDone && !isActive ? "bg-gray-100 text-gray-400 group-hover:bg-gray-200" : ""}
                   `}>
                     {isDone ? (
@@ -315,7 +315,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
       </div>
 
       {/* Step Content */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="glass rounded-3xl shadow-sm overflow-hidden">
 
         {/* Step Header */}
         <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
@@ -360,7 +360,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
               ) : (
                 <div>
                   <SectionLabel>รายละเอียด Brief</SectionLabel>
-                  <div className="p-5 bg-blue-50 rounded-2xl border border-b border-gray-100lue-100 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                  <div className="p-5 bg-blue-50 rounded-2xl border border-b border-blue-100 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
                     {article.brief}
                   </div>
                 </div>
@@ -412,7 +412,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                       <SectionLabel>Related Keywords</SectionLabel>
                       <div className="flex flex-wrap gap-2">
                         {relatedKeywords.map((kw, i) => (
-                          <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl text-sm border border-b border-gray-100lue-100 font-medium">
+                          <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl text-sm border border-b border-blue-100 font-medium">
                             {kw}
                           </span>
                         ))}
@@ -454,7 +454,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                     </div>
                   )}
                   {outline.sections?.map((section, i) => (
-                    <div key={i} className="border border-gray-100 rounded-2xl p-4 hover:border-green-200 transition-colors">
+                    <div key={i} className="border border-gray-100 rounded-2xl p-4  transition-colors">
                       <p className="font-semibold text-brand-navy text-base">{section.heading}</p>
                       {section.subheadings?.map((sh, j) => (
                         <p key={j} className="text-sm text-gray-600 ml-4 mt-1.5 flex items-center gap-1.5">
@@ -549,7 +549,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                       <span className="text-sm font-medium text-gray-700">Preview บทความ</span>
                     </div>
                     <div
-                      className="p-6 prose max-w-none text-sm overflow-auto max-h-80 text-gray-700"
+                      className="force-light p-6 prose max-w-none text-sm overflow-auto max-h-80 text-gray-700"
                       dangerouslySetInnerHTML={{ __html: article.htmlContent }}
                     />
                     <div className="border-t p-4 bg-gray-50">
@@ -596,7 +596,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                       label="🔍 ตรวจ SEO อัตโนมัติ"
                       loading={loadingAction === "seo-check"}
                       onClick={() => runAIAction("seo-check", "/api/ai/seo-check")}
-                      color="bg-[#1A1A1A] hover:bg-[#2D2D2D]"
+                      color="bg-brand-blue hover:bg-brand-deep"
                     />
                   )}
                 </EmptyStepState>
@@ -637,7 +637,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                       <SectionLabel>คะแนน SEO</SectionLabel>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         {[
-                          { label: "SEO",        value: latestReview.seoScore,        color: "text-brand-blue",   bg: "bg-blue-50",   border: "border-b border-gray-100lue-100" },
+                          { label: "SEO",        value: latestReview.seoScore,        color: "text-brand-blue",   bg: "bg-blue-50",   border: "border-b border-blue-100" },
                           { label: "AEO",         value: latestReview.aeoScore,        color: "text-violet-600", bg: "bg-violet-50", border: "border-violet-100" },
                           { label: "Conversion",  value: latestReview.conversionScore, color: "text-green-600",  bg: "bg-green-50",  border: "border-green-100" },
                         ].map((s) => (
@@ -654,7 +654,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                     <Button
                       onClick={() => patchStatus("APPROVED", "บทความได้รับการอนุมัติแล้ว! 🎉")}
                       disabled={!!loadingAction}
-                      className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-xl px-6 py-3 text-base font-semibold gap-2 w-full sm:w-auto"
+                      className="bg-brand-blue hover:bg-brand-deep text-white rounded-xl px-6 py-3 text-base font-semibold gap-2 w-full sm:w-auto"
                     >
                       {loadingAction?.startsWith("patch") ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                       อนุมัติบทความ
@@ -789,7 +789,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                   <Button
                     onClick={() => patchStatus("APPROVED", "บทความได้รับการอนุมัติแล้ว! 🎉")}
                     disabled={!!loadingAction}
-                    className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-xl px-6 gap-2"
+                    className="bg-brand-blue hover:bg-brand-deep text-white rounded-xl px-6 gap-2"
                   >
                     {loadingAction?.startsWith("patch") ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                     อนุมัติบทความ
@@ -846,7 +846,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                     label="🌐 ส่ง WordPress Draft"
                     loading={loadingAction === "wordpress"}
                     onClick={() => runAIAction("wordpress", "/api/wordpress/draft")}
-                    color="bg-[#1A1A1A] hover:bg-[#2D2D2D]"
+                    color="bg-brand-blue hover:bg-brand-deep"
                   />
                 </div>
               )}
@@ -858,7 +858,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
                   <p className="text-sm text-green-600 mt-2">บทความนี้มีผลบนเว็บไซต์แล้ว</p>
                   {article.wordpressUrl && (
                     <a href={article.wordpressUrl} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
+                      className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-brand-blue text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
                       <Globe className="h-4 w-4" /> ดูบทความบนเว็บ
                     </a>
                   )}
@@ -913,7 +913,7 @@ export function WizardArticleDetail({ article, users, currentUser }: Props) {
               {confirmRegenerate?.label}เดิมจะถูกบันทึกเป็น version สำรอง แล้ว AI จะสร้างใหม่แทน
             </DialogDescription>
           </DialogHeader>
-          <div className="bg-blue-50 rounded-xl p-4 text-sm text-blue-700 border border-b border-gray-100lue-100">
+          <div className="bg-blue-50 rounded-xl p-4 text-sm text-blue-700 border border-b border-blue-100">
             💡 ไม่ต้องกังวล — เนื้อหาเดิมจะยังอยู่ใน "ประวัติ Version" สามารถย้อนกลับได้เสมอ
           </div>
           <DialogFooter className="gap-2">
@@ -970,7 +970,7 @@ function EmptyStepState({
       <p className="text-xl font-semibold text-gray-700">{title}</p>
       <p className="text-sm text-gray-400 mt-2 mb-6 max-w-sm mx-auto leading-relaxed">{description}</p>
       {actionHref && actionLabel && (
-        <Link href={actionHref} className="inline-flex items-center gap-2 text-sm text-green-600 hover:text-green-700 font-medium underline underline-offset-2">
+        <Link href={actionHref} className="inline-flex items-center gap-2 text-sm text-brand-blue hover:text-brand-deep font-medium underline underline-offset-2">
           {actionLabel}
           <ChevronRight className="h-4 w-4" />
         </Link>
@@ -981,7 +981,7 @@ function EmptyStepState({
 }
 
 function AIActionButton({
-  label, loading, onClick, color = "bg-[#1A1A1A] hover:bg-[#2D2D2D]",
+  label, loading, onClick, color = "bg-brand-blue hover:bg-brand-deep",
 }: {
   label: string;
   loading: boolean;
@@ -1017,7 +1017,7 @@ function StepNav({
         </button>
       ) : <div />}
       {onNext ? (
-        <button onClick={onNext} className="flex items-center gap-1.5 text-sm text-green-600 hover:text-green-700 font-semibold transition-colors">
+        <button onClick={onNext} className="flex items-center gap-1.5 text-sm text-brand-blue hover:text-brand-deep font-semibold transition-colors">
           {nextLabel}
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -1046,7 +1046,7 @@ function resolveBannerAction(status: string): {
         icon: <Search className="h-5 w-5 text-brand-blue" />,
         title: "เพิ่มคีย์เวิร์ดก่อนเริ่มต้น",
         subtitle: "เลือก keyword จากโปรเจกต์ แล้วสร้าง Outline",
-        action: { type: "nav", step: 2, label: "ไปหน้าคีย์เวิร์ด →", color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]" },
+        action: { type: "nav", step: 2, label: "ไปหน้าคีย์เวิร์ด →", color: "bg-brand-blue hover:bg-brand-deep" },
       };
     case "KEYWORD_DONE":
     case "CONTENT_MAP_DONE":
@@ -1055,7 +1055,7 @@ function resolveBannerAction(status: string): {
         icon: <LayoutList className="h-5 w-5 text-purple-600" />,
         title: "พร้อมสร้างโครงร่างแล้ว",
         subtitle: "คีย์เวิร์ดพร้อมแล้ว กด Generate เพื่อให้ AI สร้าง Outline",
-        action: { type: "ai", key: "outline", endpoint: "/api/ai/outline", label: "🤖 สร้างโครงร่าง (AI)", color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]" },
+        action: { type: "ai", key: "outline", endpoint: "/api/ai/outline", label: "🤖 สร้างโครงร่าง (AI)", color: "bg-brand-blue hover:bg-brand-deep" },
       };
     case "OUTLINE_DONE":
       return {
@@ -1073,7 +1073,7 @@ function resolveBannerAction(status: string): {
         icon: <PenLine className="h-5 w-5 text-green-600" />,
         title: "พร้อมเขียนบทความแล้ว",
         subtitle: "Outline อนุมัติแล้ว กด Generate เพื่อให้ AI เขียนบทความเต็มรูปแบบ",
-        action: { type: "ai", key: "article", endpoint: "/api/ai/article", label: "✍️ เขียนบทความ (AI)", color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]" },
+        action: { type: "ai", key: "article", endpoint: "/api/ai/article", label: "✍️ เขียนบทความ (AI)", color: "bg-brand-blue hover:bg-brand-deep" },
       };
     case "ARTICLE_DONE":
     case "IMAGE_PROMPT_DONE":
@@ -1082,7 +1082,7 @@ function resolveBannerAction(status: string): {
         icon: <Search className="h-5 w-5 text-teal-600" />,
         title: "ตรวจสอบ SEO ก่อนส่งรีวิว",
         subtitle: "บทความพร้อมแล้ว กด SEO Check เพื่อวิเคราะห์คุณภาพและสร้าง Meta tags",
-        action: { type: "ai", key: "seo-check", endpoint: "/api/ai/seo-check", label: "🔍 ตรวจ SEO อัตโนมัติ", color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]" },
+        action: { type: "ai", key: "seo-check", endpoint: "/api/ai/seo-check", label: "🔍 ตรวจ SEO อัตโนมัติ", color: "bg-brand-blue hover:bg-brand-deep" },
       };
     case "SEO_REVIEW":
       return {
@@ -1090,7 +1090,7 @@ function resolveBannerAction(status: string): {
         icon: <CheckCircle className="h-5 w-5 text-emerald-600" />,
         title: "ผ่าน SEO แล้ว — รออนุมัติ",
         subtitle: "ตรวจผลคะแนน SEO แล้วกดอนุมัติบทความเพื่อดำเนินการต่อ",
-        action: { type: "patch", newStatus: "APPROVED", successMsg: "บทความได้รับการอนุมัติแล้ว! 🎉", label: "✅ อนุมัติบทความ", color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]" },
+        action: { type: "patch", newStatus: "APPROVED", successMsg: "บทความได้รับการอนุมัติแล้ว! 🎉", label: "✅ อนุมัติบทความ", color: "bg-brand-blue hover:bg-brand-deep" },
       };
     case "REVISION_REQUIRED":
       return {
@@ -1106,7 +1106,7 @@ function resolveBannerAction(status: string): {
         icon: <Globe className="h-5 w-5 text-indigo-600" />,
         title: "อนุมัติแล้ว — พร้อมส่ง WordPress",
         subtitle: "บทความผ่านการอนุมัติแล้ว กดส่งเพื่อสร้าง Draft บน WordPress",
-        action: { type: "ai", key: "wordpress", endpoint: "/api/wordpress/draft", label: "🌐 ส่ง WordPress Draft", color: "bg-[#1A1A1A] hover:bg-[#2D2D2D]" },
+        action: { type: "ai", key: "wordpress", endpoint: "/api/wordpress/draft", label: "🌐 ส่ง WordPress Draft", color: "bg-brand-blue hover:bg-brand-deep" },
       };
     case "WORDPRESS_DRAFTED":
       return {

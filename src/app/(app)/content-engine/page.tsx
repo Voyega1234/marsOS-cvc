@@ -50,8 +50,11 @@ export default async function ContentEngineStudioPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold text-brand-navy">Content Engine ของ Studio — ใช้กับเครื่องมือใน Studio เท่านั้น</h1>
+      <div className="page-header">
+        <div>
+          <p className="page-eyebrow">Content Engine</p>
+          <h1 className="page-title">Content Engine ของ Studio — ใช้กับเครื่องมือใน Studio เท่านั้น</h1>
+        </div>
       </div>
       <ContentEngineSettingsClient
         items={prompts.map((p) => ({

@@ -29,9 +29,9 @@ const SOURCE_LABEL: Record<string, string> = {
   mars: 'Mars AI', manual: 'Manual', client: 'Client', review: 'Review',
 }
 const SOURCE_COLOR: Record<string, string> = {
-  mars:   'bg-green-50 text-green-700',
+  mars:   'bg-brand-blue/10 text-brand-blue',
   manual: 'bg-gray-100 text-gray-500',
-  client: 'bg-blue-50 text-blue-700',
+  client: 'bg-sky-50 text-sky-700',
   review: 'bg-amber-50 text-amber-700',
 }
 const ARTIFACT_ICON: Record<string, typeof FileText> = {
@@ -85,8 +85,8 @@ function TaskCard({ task, onToggle, onDelete }: {
   const isManual = task.source === 'manual'
 
   return (
-    <div className={`bg-white rounded-2xl border overflow-hidden transition-colors ${
-      task.status === 'done' ? 'border-gray-100 opacity-60' : 'border-gray-200 hover:border-gray-300'
+    <div className={`glass rounded-3xl overflow-hidden transition-colors ${
+      task.status === 'done' ? 'opacity-60' : 'hover:shadow-md'
     }`}>
       <div className="px-5 py-4">
         <div className="flex items-start gap-3">
@@ -142,7 +142,7 @@ function TaskCard({ task, onToggle, onDelete }: {
             )}
             {task.actionHref && task.actionHref.startsWith('http') && (
               <a href={task.actionHref} target="_blank" rel="noopener noreferrer"
-                className="text-[10px] text-gray-400 hover:text-blue-500 flex items-center gap-0.5 transition-colors">
+                className="text-[10px] text-gray-400 hover:text-brand-blue flex items-center gap-0.5 transition-colors">
                 <ExternalLink size={10} /> เปิดลิ้งค์
               </a>
             )}
@@ -183,7 +183,7 @@ function AddTodoModal({ onClose, onAdd }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+      <div className="glass-strong rounded-3xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-brand-navy text-sm">เพิ่ม Todo ใหม่</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
@@ -266,7 +266,7 @@ function AddTodoModal({ onClose, onAdd }: {
               ยกเลิก
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold hover:bg-brand-deep transition-colors disabled:opacity-50">
+              className="flex-1 px-4 py-2.5 rounded-full bg-brand-blue text-white text-sm font-semibold hover:bg-brand-deep transition-colors disabled:opacity-50">
               {saving ? 'กำลังบันทึก...' : 'เพิ่ม Todo'}
             </button>
           </div>
@@ -335,8 +335,8 @@ function CalendarView({ tasks }: { tasks: MarsTask[] }) {
           const isWeekend = dow === 0 || dow === 6
 
           return (
-            <div key={date} className={`rounded-xl border p-2 min-h-[100px] ${
-              isToday ? 'border-brand-blue bg-gray-50' : 'border-gray-200 bg-white'
+            <div key={date} className={`rounded-2xl border p-2 min-h-[100px] ${
+              isToday ? 'border-brand-blue bg-brand-blue/5' : 'border-white/80 bg-white/60'
             } ${isWeekend ? 'opacity-50' : ''}`}>
               <div className="flex items-center justify-between mb-1.5">
                 <span className={`text-[11px] font-semibold ${isToday ? 'text-brand-navy' : 'text-gray-400'}`}>
@@ -444,13 +444,14 @@ export default function TodosPage() {
         <AddTodoModal onClose={() => setShowAdd(false)} onAdd={handleAdd} />
       )}
 
-      <div className="max-w-3xl mx-auto py-8 px-4 space-y-5">
+      <div className="max-w-3xl mx-auto py-2 space-y-5">
 
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 pb-5">
+        <div className="flex items-end justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-brand-navy">Todos</h1>
-            <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <p className="page-eyebrow">Tasks</p>
+            <h1 className="page-title">Todos</h1>
+            <p className="page-subtitle flex items-center gap-1.5 flex-wrap">
               Tasks จาก{' '}
               <SourceBadge source="mars" />
               <SourceBadge source="review" />
@@ -462,18 +463,18 @@ export default function TodosPage() {
             <button onClick={loadTasks} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors" title="Refresh">
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             </button>
-            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <div className="seg">
               <button onClick={() => setView('list')}
-                className={`p-1.5 rounded-md transition-colors ${view === 'list' ? 'bg-white text-brand-navy shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
+                className={`seg-item !px-2 ${view === 'list' ? 'is-active' : ''}`}>
                 <List size={14} />
               </button>
               <button onClick={() => setView('calendar')}
-                className={`p-1.5 rounded-md transition-colors ${view === 'calendar' ? 'bg-white text-brand-navy shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
+                className={`seg-item !px-2 ${view === 'calendar' ? 'is-active' : ''}`}>
                 <CalendarDays size={14} />
               </button>
             </div>
             <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors">
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors">
               <Plus size={13} /> เพิ่ม Todo
             </button>
           </div>
@@ -484,7 +485,7 @@ export default function TodosPage() {
           {(['all', 'todo', 'in_progress', 'blocked', 'done'] as const).map(s => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={`px-3 py-1.5 text-xs rounded-full transition-colors ${
-                statusFilter === s ? 'bg-brand-blue text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
+                statusFilter === s ? 'bg-brand-navy text-white' : 'bg-white/70 border border-white/80 text-gray-500 hover:bg-white'
               }`}>
               {s === 'all'         ? `All (${counts.all})`
                : s === 'in_progress' ? `In Progress (${counts.in_progress})`
@@ -499,7 +500,7 @@ export default function TodosPage() {
               {['all', ...projects].map(p => (
                 <button key={p} onClick={() => setProjectFilter(p)}
                   className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                    projectFilter === p ? 'bg-brand-blue text-white' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
+                    projectFilter === p ? 'bg-brand-navy text-white' : 'bg-white/70 border border-white/80 text-gray-500 hover:bg-white'
                   }`}>
                   {p === 'all' ? 'All projects' : p}
                 </button>
@@ -518,10 +519,10 @@ export default function TodosPage() {
           <div className="space-y-2.5">
             {filtered.length === 0
               ? (
-                <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-12 text-center">
+                <div className="glass border-dashed rounded-3xl p-12 text-center">
                   <p className="text-gray-400 text-sm mb-3">ยังไม่มี Todo ในหมวดนี้</p>
                   <button onClick={() => setShowAdd(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors">
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-brand-blue text-white text-xs font-semibold hover:bg-brand-deep transition-colors">
                     <Plus size={13} /> เพิ่ม Todo แรก
                   </button>
                 </div>

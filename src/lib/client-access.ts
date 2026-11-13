@@ -2,14 +2,13 @@ import { prisma } from "@/lib/prisma";
 import type { AppSession } from "@/lib/session-types";
 
 /**
- * ขอบเขตของ role CLIENT (คำสั่งเจ้าของ 2026-09-03)
+ * ขอบเขตของ role CLIENT (คำสั่งเจ้าของ 2026-09-03, ปรับเป็นพอร์ทัล 3 แท็บ)
  *
- * ลูกค้าที่ล็อกอินเข้ามาต้องเห็นแค่ 4 อย่างเท่านั้น และต้องเจาะเข้าส่วนอื่นไม่ได้
- * แม้จะพิมพ์ URL หรือยิง API ตรง ๆ:
- *   1. Project Timeline
- *   2. Review        (ในหน้า Content Studio)
- *   3. Publish       (ในหน้า Content Studio)
- *   4. Report        (ในหน้า Content Studio)
+ * ลูกค้าที่ล็อกอินเข้ามาเห็นพอร์ทัลที่ /projects/<id> แค่ 3 แท็บ:
+ *   1. Review     (ตรวจบทความ: อ่าน คอมเมนต์ เสนอแก้ข้อความ อนุมัติ)
+ *   2. Published  (ลิงก์บทความที่เผยแพร่แล้ว)
+ *   3. Report     (รายงาน)
+ * และต้องเจาะเข้าส่วนอื่นไม่ได้ แม้จะพิมพ์ URL หรือยิง API ตรง ๆ
  *
  * ไฟล์นี้เป็นจุดเดียวที่นิยาม allowlist ทั้งหน้าเว็บและ API — deny by default
  * ทุกอย่างที่ไม่อยู่ในลิสต์นี้ถูกปฏิเสธ ไม่มีผลกับ role อื่น (ทีมงานใช้งานเหมือนเดิมทุกประการ)
@@ -17,6 +16,17 @@ import type { AppSession } from "@/lib/session-types";
 
 /** subtab ที่ CLIENT เปิดได้ในหน้า project (ต้องตรงกับ CLIENT_TABS ใน ClientDetailTabs) */
 export const CLIENT_TAB_IDS = ["timeline-view", "review", "publish", "report"] as const;
+
+/**
+ * โน้ตตรวจงานภายในทีม (หน้า Review Queue เขียนขึ้นต้นแบบนี้) — ลูกค้าไม่ควรเห็น
+ * คอมเมนต์อื่น (ลูกค้าเขียนเอง, ทีมตอบในแท็บ Review, "[✅ ทีมแก้ไขแล้ว]") เป็นบทสนทนากับลูกค้า ส่งตามเดิม
+ */
+export const INTERNAL_COMMENT_PREFIXES = ["[✓ Approved]", "[✗ Revision]"] as const;
+
+/** เงื่อนไข Prisma สำหรับคอมเมนต์ที่ CLIENT อ่านได้ */
+export const CLIENT_VISIBLE_COMMENT_WHERE = {
+  NOT: INTERNAL_COMMENT_PREFIXES.map((prefix) => ({ body: { startsWith: prefix } })),
+};
 
 /** หน้าเว็บที่ CLIENT เข้าได้: รายการโปรเจกต์ (จะ redirect ต่อเอง) + หน้า project ของตัวเอง */
 const CLIENT_PAGE_PATTERNS: RegExp[] = [
@@ -26,13 +36,8 @@ const CLIENT_PAGE_PATTERNS: RegExp[] = [
 
 /** API ที่ CLIENT เรียกได้ แยกตาม method — นอกลิสต์นี้คือ 401 ทั้งหมด */
 const CLIENT_API_RULES: { pattern: RegExp; methods: string[] }[] = [
-  { pattern: /^\/api\/scheduler$/,                      methods: ["GET"] },
-  { pattern: /^\/api\/projects\/[^/]+$/,                methods: ["GET"] },
-  { pattern: /^\/api\/projects\/[^/]+\/seo-tasks$/,     methods: ["GET"] },
-  { pattern: /^\/api\/articles$/,                       methods: ["GET"] },
   { pattern: /^\/api\/articles\/published$/,            methods: ["GET"] },
   { pattern: /^\/api\/articles\/by-title$/,             methods: ["GET"] },
-  { pattern: /^\/api\/articles\/[^/]+$/,                methods: ["GET"] },
   { pattern: /^\/api\/articles\/[^/]+\/client-review$/, methods: ["POST"] },
   { pattern: /^\/api\/report\/(gsc|gsc-ai|gsc-insights|ga4|pagespeed)$/, methods: ["POST"] },
   // จด Activity Log ของตัวเอง (เปิดหน้า / ออกจากระบบ) — เขียนได้แค่ log ของ session ตัวเอง อ่านอะไรไม่ได้
@@ -127,6 +132,8 @@ export async function clientCanAccessGa4(
   if (session?.user?.role !== "CLIENT") return true;
   if (!propertyId) return false;
   const wanted = String(propertyId).trim().replace(/^properties\//, "");
+  // ค่าว่าง (เช่น "properties/") ห้ามไปเท่ากับโปรเจกต์ที่ยังไม่ได้ตั้ง GA4
+  if (!wanted) return false;
   const projects = await clientProjects(session.user.id);
   return projects.some(
     (p) => (p.ga4PropertyId ?? "").trim().replace(/^properties\//, "") === wanted,

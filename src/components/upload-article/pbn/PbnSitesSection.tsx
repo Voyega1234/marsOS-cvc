@@ -65,7 +65,7 @@ const HOST_LABEL: Record<Draft["host"], string> = { vercel: "Vercel", cloudflare
 
 const labelCls = "block text-xs font-semibold text-gray-600 mb-1";
 const pwCls = "w-full px-3 py-2 text-sm border border-gray-200 rounded-xl";
-const selectCls = "w-full h-10 rounded-md border border-gray-200 px-3 text-sm bg-white";
+const selectCls = "w-full h-10 rounded-xl border border-gray-200 px-3 text-sm bg-white";
 
 function useReportSources() {
   const [gscSites, setGscSites] = useState<string[] | null>(null);
@@ -154,7 +154,7 @@ function SiteForm({
   }
 
   return (
-    <div className="bg-white border border-brand-soft/60 rounded-xl p-4 space-y-4">
+    <div className="rounded-2xl border border-brand-soft/60 bg-white/70 shadow-sm backdrop-blur p-4 space-y-4">
       <p className="text-sm font-semibold text-brand-navy">{site ? `แก้ไขเว็บ: ${site.name}` : "เพิ่มเว็บ PBN"}</p>
       <PbnSiteGuide platform={d.platform} />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -378,7 +378,7 @@ export default function PbnSitesSection({ client, setClient }: { client: UploadC
       <PbnProjectSets client={client} setClient={setClient} profiles={pbnProfiles.profiles} setProfiles={pbnProfiles.setProfiles}
         loading={pbnProfiles.loading} error={pbnProfiles.error} />
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div>
             <p className="text-sm font-semibold text-brand-navy">เว็บ PBN ทั้งหมด ({sites.length})</p>

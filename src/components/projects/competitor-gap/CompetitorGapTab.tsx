@@ -268,7 +268,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
   return (
     <div className="space-y-6">
       {/* ── ฟอร์ม ── */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <h2 className="text-lg font-semibold text-brand-navy">Competitor Gap</h2>
@@ -290,18 +290,18 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
             <label className="block text-xs font-medium text-gray-600 mb-1">เว็บไซต์ของเรา</label>
             <input value={website} onChange={e => setWebsite(e.target.value)}
               placeholder="https://example.com"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30" />
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">คีย์เวิร์ดเป้าหมาย *</label>
             <input value={keyword} onChange={e => setKeyword(e.target.value)}
               placeholder="เช่น รับทำ SEO"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30" />
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">ประเทศ *</label>
             <select value={country} onChange={e => setCountry(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white">
               {COUNTRIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           </div>
@@ -313,7 +313,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           </label>
           <textarea value={manualCompetitors} onChange={e => setManualCompetitors(e.target.value)}
             rows={3} placeholder={'https://competitor-a.com\nhttps://competitor-b.co.th'}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/30" />
+            className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-blue/30" />
           <p className="text-xs text-gray-500 mt-1">
             ใส่ไม่ครบตามจำนวนคู่แข่งที่ตั้งไว้ ระบบจะเติมจาก Google Top N ให้เองด้วยกระบวนการเดิม · เว็บที่ปิดด้วยหน้าล็อกอิน (เช่น Facebook) สแกนไม่ได้ จะถูกข้าม
           </p>
@@ -321,7 +321,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
 
         <div className="mt-4 flex items-center gap-3 flex-wrap">
           <button onClick={startRun} disabled={running}
-            className="px-5 py-2.5 rounded-lg bg-brand-blue text-white text-sm font-medium disabled:opacity-50">
+            className="px-5 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-medium disabled:opacity-50">
             {running ? 'กำลังสแกน…' : report ? 'สแกนใหม่' : 'เริ่มวิเคราะห์'}
           </button>
           <button onClick={() => setShowAdvanced(v => !v)} className="text-sm text-gray-500 hover:text-gray-700">
@@ -336,13 +336,13 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
               <label className="block text-xs font-medium text-gray-600 mb-1">หน้าที่ดึงสูงสุดต่อเว็บ</label>
               <input type="number" min={50} max={2000} value={maxPages}
                 onChange={e => setMaxPages(Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">จำนวนคู่แข่ง</label>
               <input type="number" min={3} max={5} value={competitorCount}
                 onChange={e => setCompetitorCount(Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" />
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700 mt-5">
               <input type="checkbox" checked={includeKeywordGap} onChange={e => setIncludeKeywordGap(e.target.checked)} />
@@ -360,7 +360,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
 
       {/* ── สถานะการสแกน ── */}
       {run && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-brand-navy">สถานะการสแกน</h3>
             <span className="text-xs text-gray-500">
@@ -389,9 +389,9 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
 
       {/* ── รายงาน ── */}
       {loadingReport ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center text-sm text-gray-400">กำลังโหลด…</div>
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-10 text-center text-sm text-gray-400">กำลังโหลด…</div>
       ) : !report ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-10 text-center">
           <p className="text-gray-500">No Competitor Gap analysis yet.</p>
           <p className="text-xs text-gray-400 mt-2">ใส่คีย์เวิร์ดเป้าหมายแล้วกด “เริ่มวิเคราะห์” — ระบบจะไม่สแกนเองเพื่อคุมค่าใช้จ่าย</p>
         </div>
@@ -400,7 +400,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
           <div className="flex gap-2 overflow-x-auto pb-1">
             {SECTIONS.map(s => (
               <button key={s.id} onClick={() => setSection(s.id)}
-                className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap border ${
+                className={`px-4 py-2 rounded-full text-sm whitespace-nowrap shrink-0 border ${
                   section === s.id ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
                 }`}>
                 {s.label}
@@ -477,14 +477,14 @@ function ParitySection({ report, history }: { report: GapReport; history: GapSna
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="text-xs text-gray-500">คู่แข่งเทียบเคียงที่เราตามทันแล้ว</div>
           <div className="text-4xl font-bold text-brand-navy mt-1">
             {comparableRows.length === 0 ? '—' : `${reachedCount}/${comparableRows.length}`}
           </div>
           <div className="text-xs text-gray-400 mt-1">"ตามทัน" = มี ≥ เขาในทุกมิติที่วัดได้ (หน้า relevant · หน้าเนื้อหา · คำ Top 10)</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="text-xs text-gray-500">ช่องว่างหน้าเนื้อหาที่กว้างที่สุด</div>
           <div className="text-4xl font-bold text-orange-600 mt-1">
             {worstContent === null || worstContent.contentDeficit === null ? '—' : fmt(worstContent.contentDeficit, ' หน้า')}
@@ -493,7 +493,7 @@ function ParitySection({ report, history }: { report: GapReport; history: GapSna
             {worstContent === null ? 'ไม่มีคู่แข่งเทียบเคียงในรอบนี้' : `เทียบกับ ${worstContent.c.domain}`}
           </div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="text-xs text-gray-500">คำที่เราติด Top 10 ตอนนี้</div>
           <div className="text-4xl font-bold text-brand-navy mt-1">{fmt(ourTop10)}</div>
           <div className="text-xs text-gray-400 mt-1">
@@ -502,12 +502,12 @@ function ParitySection({ report, history }: { report: GapReport; history: GapSna
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-6 overflow-x-auto">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6 overflow-x-auto">
         <h3 className="font-semibold text-brand-navy mb-1">Parity checklist ต่อคู่แข่ง</h3>
         <p className="text-xs text-gray-500 mb-4">
           เป้าช่วงแรก: มี ≥ คู่แข่งก่อน — คอลัมน์ "ขาดอีก" คือระยะทางที่เหลือถึงจะเท่าเจ้านั้น (0 = เท่าหรือนำแล้ว)
         </p>
-        <table className="w-full text-sm">
+        <table className="tbl w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
               <th className="py-2 pr-4">คู่แข่ง</th>
@@ -560,7 +560,7 @@ function ParitySection({ report, history }: { report: GapReport; history: GapSna
         </p>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-6 overflow-x-auto">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6 overflow-x-auto">
         <h3 className="font-semibold text-brand-navy mb-1">ความคืบหน้าข้ามรอบสแกน</h3>
         <p className="text-xs text-gray-500 mb-4">เทียบรอบล่าสุดกับรอบก่อนหน้า — ดูว่า gap แคบลงจริงหรือไม่</p>
         {history.length === 0 ? (
@@ -591,7 +591,7 @@ function ParitySection({ report, history }: { report: GapReport; history: GapSna
                 </div>
               </div>
             )}
-            <table className="w-full text-sm">
+            <table className="tbl w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
                   <th className="py-2 pr-4">วันที่สแกน</th>
@@ -641,25 +641,25 @@ function OverviewSection({ report, compDomains }: { report: GapReport; compDomai
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="text-xs text-gray-500">ความพร้อมแข่งขัน</div>
           <div className="text-4xl font-bold text-brand-navy mt-1">
             {report.readiness === null ? '—' : report.readiness}<span className="text-lg text-gray-400">/100</span>
           </div>
           <div className="text-xs text-gray-400 mt-1">คะแนนภายในของ MarsOS ไม่ใช่คะแนนจาก Google</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="text-xs text-gray-500">ห่างจากมาตรฐาน Top 5</div>
           <div className="text-4xl font-bold text-orange-600 mt-1">{fmt(report.gapToBaselinePct, '%')}</div>
           <div className="text-xs text-gray-400 mt-1">เทียบกับ median ของคู่แข่งที่เทียบเคียงได้</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="text-xs text-gray-500">ปัญหาใหญ่ที่สุดตอนนี้</div>
           <div className="text-xl font-semibold text-brand-navy mt-2">{report.biggestProblem ?? '—'}</div>
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <h3 className="font-semibold text-brand-navy mb-4">สรุปความครอบคลุมรายด้าน</h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {cards.length === 0 && <div className="text-sm text-gray-400">ข้อมูลไม่พอคำนวณ — แสดง “—”</div>}
@@ -673,10 +673,10 @@ function OverviewSection({ report, compDomains }: { report: GapReport; compDomai
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-6 overflow-x-auto">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6 overflow-x-auto">
         <h3 className="font-semibold text-brand-navy mb-1">ตารางเทียบกับ Top 5</h3>
         <p className="text-xs text-gray-500 mb-4">{report.baselineBasis.note}</p>
-        <table className="w-full text-sm">
+        <table className="tbl w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
               <th className="py-2 pr-4">ตัวชี้วัด</th>
@@ -715,11 +715,11 @@ function OverviewSection({ report, compDomains }: { report: GapReport; compDomai
 
 function CoverageDisclosure({ report }: { report: GapReport }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-6">
+    <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
       <h3 className="font-semibold text-brand-navy mb-3">ความครอบคลุมของการสแกน</h3>
       <p className="text-xs text-gray-500 mb-3">ระบบไม่เคลมว่าสแกนได้ 100% — ตัวเลขด้านล่างคือสิ่งที่เก็บได้จริง</p>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="tbl w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
               <th className="py-2 pr-4">เว็บ</th>
@@ -821,7 +821,7 @@ function StartHereSection({ report }: { report: GapReport }) {
   ]
   return (
     <div className="space-y-6">
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <h3 className="font-semibold text-brand-navy">START HERE — ทำอะไรก่อน</h3>
         <p className="text-xs text-gray-500 mt-1">Phase 1: ไล่ให้ทันมาตรฐาน Top 5 ก่อน (ยังไม่ใช่ขั้นแซง)</p>
         {p1.summary && <p className="text-sm text-gray-700 mt-3">{p1.summary}</p>}
@@ -846,7 +846,7 @@ function StartHereSection({ report }: { report: GapReport }) {
       </div>
 
       {p1.actions.length === 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-400">
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-8 text-center text-sm text-gray-400">
           ไม่พบงานที่ต้องทำจากข้อมูลที่เก็บได้
         </div>
       )}
@@ -855,7 +855,7 @@ function StartHereSection({ report }: { report: GapReport }) {
         const items = p1.actions.filter(a => a.priority === g.priority)
         if (items.length === 0) return null
         return (
-          <div key={g.priority} className="bg-white border border-gray-200 rounded-2xl p-6">
+          <div key={g.priority} className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
             <h4 className="font-semibold text-brand-navy mb-4">{g.label} · {items.length} งาน</h4>
             <div className="space-y-3">
               {items.map(a => <ActionCard key={a.id} a={a} />)}
@@ -872,7 +872,7 @@ function StartHereSection({ report }: { report: GapReport }) {
 function CompetitorsSection({ report }: { report: GapReport }) {
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <h3 className="font-semibold text-brand-navy mb-1">ผลออร์แกนิกที่ดึงมา</h3>
         <p className="text-xs text-gray-500 mb-3">แสดง Top 5 ตามจริง — เว็บที่ไม่ใช่ประเภทเดียวกับเรา (ไดเรกทอรี/ราชการ/ชุมชน) จะถูกยกเว้นจากการตั้งมาตรฐาน</p>
         <ol className="space-y-2 text-sm">
@@ -888,7 +888,7 @@ function CompetitorsSection({ report }: { report: GapReport }) {
       </div>
 
       {report.competitors.map(c => (
-        <div key={c.domain} className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div key={c.domain} className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h4 className="font-semibold text-brand-navy">
@@ -962,13 +962,13 @@ function PageGapSection({ report, compDomains }: { report: GapReport; compDomain
   const clusters = report.clusters.slice().sort((a, b) => b.competitorCoverage - a.competitorCoverage || b.medianPages - a.medianPages)
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <h3 className="font-semibold text-brand-navy mb-1">ช่องว่างเชิงหัวข้อ</h3>
         <p className="text-xs text-gray-500 mb-4">
           เป้าหมายคือ “ครอบคลุมหัวข้อ” ไม่ใช่จำนวนหน้าเท่ากับคู่แข่ง — หัวข้อที่คู่แข่งมีกันหลายเจ้าคือสัญญาณที่หนักที่สุด
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="tbl w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
                 <th className="py-2 pr-4">หัวข้อ</th>
@@ -1130,14 +1130,14 @@ function KeywordGapSection({ report, compDomains, projectId }: { report: GapRepo
 
   if (!kg.available) {
     return (
-      <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-500">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-8 text-center text-sm text-gray-500">
         ไม่มีข้อมูลคีย์เวิร์ด{kg.note ? ` — ${kg.note}` : ''}
       </div>
     )
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-6">
+    <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
       <h3 className="font-semibold text-brand-navy mb-1">คำแนะนำโอกาสคีย์เวิร์ด</h3>
       <p className="text-xs text-gray-500 mb-3">
         ข้อมูลอันดับและปริมาณค้นหาจาก DataForSEO — ช่องที่ไม่มีข้อมูลแสดง “—”
@@ -1147,7 +1147,7 @@ function KeywordGapSection({ report, compDomains, projectId }: { report: GapRepo
       <div className="flex flex-wrap gap-2 mb-2">
         {['ALL', ...Object.keys(kg.counts)].map(k => (
           <button key={k} onClick={() => setFilter(k)}
-            className={`text-xs px-3 py-1.5 rounded-lg border ${filter === k ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200'}`}>
+            className={`text-xs px-3 py-1.5 rounded-full border ${filter === k ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200'}`}>
             {k === 'ALL' ? `ทั้งหมด (${kg.rows.length})` : `${KW_STATE_LABEL[k] ?? k} (${kg.counts[k as keyof typeof kg.counts]})`}
           </button>
         ))}
@@ -1156,12 +1156,12 @@ function KeywordGapSection({ report, compDomains, projectId }: { report: GapRepo
       {hasOpportunity ? (
         <div className="flex flex-wrap gap-2 mb-4">
           <button onClick={() => setActionFilter('ALL')}
-            className={`text-xs px-3 py-1.5 rounded-lg border ${actionFilter === 'ALL' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}`}>
+            className={`text-xs px-3 py-1.5 rounded-full border ${actionFilter === 'ALL' ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200'}`}>
             ทุกคำแนะนำ
           </button>
           {Array.from(actionCounts.entries()).map(([a, n]) => (
             <button key={a} onClick={() => setActionFilter(a)}
-              className={`text-xs px-3 py-1.5 rounded-lg border ${actionFilter === a ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}`}>
+              className={`text-xs px-3 py-1.5 rounded-full border ${actionFilter === a ? 'bg-brand-navy text-white border-brand-navy' : 'bg-white text-gray-600 border-gray-200'}`}>
               {OPP_ACTION_LABEL[a] ?? a} ({n})
             </button>
           ))}
@@ -1171,18 +1171,18 @@ function KeywordGapSection({ report, compDomains, projectId }: { report: GapRepo
       <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
         <span className="text-gray-500">เลือกแล้ว {selected.size} คำ</span>
         <button disabled={busy || selected.size === 0} onClick={addExisting}
-          className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 disabled:opacity-40">เก็บเป็นคำที่มีอยู่แล้ว</button>
+          className="px-3 py-1.5 rounded-xl border border-gray-200 text-gray-700 disabled:opacity-40">เก็บเป็นคำที่มีอยู่แล้ว</button>
         <button disabled={busy || selected.size === 0} onClick={addExclude}
-          className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 disabled:opacity-40">ใส่รายการไม่เอา</button>
+          className="px-3 py-1.5 rounded-xl border border-gray-200 text-gray-700 disabled:opacity-40">ใส่รายการไม่เอา</button>
         <button disabled={busy || selected.size === 0} onClick={sendToResearch}
-          className="px-3 py-1.5 rounded-lg bg-brand-navy text-white disabled:opacity-40">ส่งเข้า Keyword Research</button>
+          className="px-3 py-1.5 rounded-xl bg-brand-navy text-white disabled:opacity-40">ส่งเข้า Keyword Research</button>
         <button disabled={busy || selected.size === 0} onClick={ignore}
-          className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 disabled:opacity-40">ข้าม</button>
+          className="px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 disabled:opacity-40">ข้าม</button>
         {note ? <span className="text-gray-500">{note}</span> : null}
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="tbl w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
               <th className="py-2 pr-2"><input type="checkbox" checked={pageAllSelected} onChange={toggleAll} title="เลือกทั้งหน้านี้" /></th>
@@ -1308,22 +1308,22 @@ function OpportunitiesSection({ report, projectId }: { report: GapReport; projec
     }
   }
   if (items.length === 0) {
-    return <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-400">ยังไม่มีรายการคอนเทนต์ที่ต้องทำจากข้อมูลที่เก็บได้</div>
+    return <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-8 text-center text-sm text-gray-400">ยังไม่มีรายการคอนเทนต์ที่ต้องทำจากข้อมูลที่เก็บได้</div>
   }
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-6 overflow-x-auto">
+    <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6 overflow-x-auto">
       <h3 className="font-semibold text-brand-navy mb-1">โอกาสคอนเทนต์</h3>
       <p className="text-xs text-gray-500 mb-3">ทุกแถวถูกเช็คกับหน้าที่มีอยู่แล้วบนเว็บเรา — ถ้าเจอหน้าที่ตอบเจตนาเดียวกันจะเป็น UPGRADE ไม่ใช่ CREATE</p>
       <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
         <span className="text-gray-500">เลือกแล้ว {selected.size} รายการ</span>
         <button disabled={sending || selected.size === 0} onClick={sendToKeywordPage}
-          className="px-3 py-1.5 rounded-lg bg-brand-navy text-white disabled:opacity-40">
+          className="px-3 py-1.5 rounded-xl bg-brand-navy text-white disabled:opacity-40">
           {sending ? 'กำลังส่ง…' : 'ส่งไปหน้า Keyword'}
         </button>
         <span className="text-gray-400">คีย์เวิร์ด + Title ที่เลือกจะเข้า Keyword Bank ของโปรเจกต์ (คำซ้ำจะอัปเดตของเดิม ไม่สร้างซ้ำ)</span>
         {note ? <span className="text-gray-600">{note}</span> : null}
       </div>
-      <table className="w-full text-sm">
+      <table className="tbl w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
             <th className="py-2 pr-2"><input type="checkbox" checked={allSelected} onChange={toggleAll} title="เลือกทุกแถวที่มีคีย์เวิร์ดหลัก" /></th>
@@ -1377,7 +1377,7 @@ function SurpassSection({ report }: { report: GapReport }) {
   const p1Remaining = (report.phase1.counts.P0 ?? 0) + (report.phase1.counts.P1 ?? 0)
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <h3 className="font-semibold text-brand-navy">Phase 2 — ทำให้ดีกว่า Top 5</h3>
         <p className="text-xs text-gray-500 mt-1">
           ส่วนนี้ใช้ได้หลังปิดงาน Phase 1 แล้วเท่านั้น — ตอนนี้ยังมีงาน P0+P1 ค้างอยู่ {p1Remaining} งาน
@@ -1385,9 +1385,9 @@ function SurpassSection({ report }: { report: GapReport }) {
         {report.phase2.summary && <p className="text-sm text-gray-700 mt-3">{report.phase2.summary}</p>}
       </div>
       {report.phase2.ideas.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-400">ยังไม่มีข้อเสนอในส่วนนี้</div>
+        <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-8 text-center text-sm text-gray-400">ยังไม่มีข้อเสนอในส่วนนี้</div>
       ) : report.phase2.ideas.map(i => (
-        <div key={i.id} className="bg-white border border-gray-200 rounded-2xl p-6">
+        <div key={i.id} className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
           <div className="flex items-start justify-between gap-3">
             <h4 className="font-semibold text-brand-navy">{i.title}</h4>
             <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600">แรงที่ต้องใช้: {i.effort}</span>
@@ -1428,7 +1428,7 @@ function StructureSection({ report }: { report: GapReport }) {
 
   if (!st) {
     return (
-      <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-400">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-8 text-center text-sm text-gray-400">
         รายงานรอบนี้สแกนก่อนมีการวิเคราะห์โครงสร้างบทความ — สแกนใหม่อีกครั้งเพื่อดูส่วนนี้
       </div>
     )
@@ -1436,7 +1436,7 @@ function StructureSection({ report }: { report: GapReport }) {
 
   if (!st.available) {
     return (
-      <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-sm text-gray-500">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-8 text-center text-sm text-gray-500">
         {st.note ?? 'ข้อมูลไม่พอสำหรับเทียบโครงสร้างบทความ'}
       </div>
     )
@@ -1446,7 +1446,7 @@ function StructureSection({ report }: { report: GapReport }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <h3 className="font-semibold text-brand-navy">โครงสร้างบทความ — คู่แข่งทำยังไง เราขาดอะไร</h3>
         <p className="text-xs text-gray-500 mt-1">
           วัดจากหน้าเนื้อหาที่ index ได้จริง (บทความ/ไกด์/เคสศึกษา/คำศัพท์) — เรา {fmt(st.ours?.contentPages ?? null)} หน้า ·
@@ -1461,13 +1461,13 @@ function StructureSection({ report }: { report: GapReport }) {
         if (rows.length === 0) return null
         const note = st.aiNotes.find(n => n.pillar === pillar.id) ?? null
         return (
-          <div key={pillar.id} className="bg-white border border-gray-200 rounded-2xl p-6">
+          <div key={pillar.id} className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
             <div className="flex items-baseline gap-3">
               <h4 className="font-semibold text-brand-navy">{pillar.label}</h4>
               <span className="text-xs text-gray-500">{pillar.what}</span>
             </div>
             <div className="overflow-x-auto mt-3">
-              <table className="w-full text-sm">
+              <table className="tbl w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-200">
                     <th className="py-2 pr-3">ตัวชี้วัด</th>
@@ -1506,11 +1506,11 @@ function StructureSection({ report }: { report: GapReport }) {
         )
       })}
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <h4 className="font-semibold text-brand-navy">โครงบทความรายเว็บ</h4>
         <p className="text-xs text-gray-500 mt-1">ค่าที่วัดได้ต่อเว็บ — เว็บที่มีหน้าเนื้อหาน้อยกว่า 3 หน้าไม่ถูกนับเข้า median</p>
         <div className="overflow-x-auto mt-3">
-          <table className="w-full text-sm">
+          <table className="tbl w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-200">
                 <th className="py-2 pr-3">เว็บ</th>
@@ -1552,7 +1552,7 @@ function StructureSection({ report }: { report: GapReport }) {
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white/75 border border-white/80 rounded-2xl shadow-sm backdrop-blur p-6">
         <h4 className="font-semibold text-brand-navy">บทความคู่แข่งที่โครงสร้างครบที่สุด</h4>
         {st.exemplars.length === 0 ? (
           <p className="text-sm text-gray-400 mt-2">ไม่พบบทความคู่แข่งที่โครงสร้างครบพอจะยกเป็นตัวอย่าง</p>

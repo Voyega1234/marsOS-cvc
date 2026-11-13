@@ -24,7 +24,7 @@ export function OnPageSeo({ project, userRole }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/80 bg-white/70 p-5 shadow-sm">
         <div>
           <h2 className="text-lg font-semibold text-brand-navy">On-Page SEO</h2>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-gray-500">
@@ -34,7 +34,7 @@ export function OnPageSeo({ project, userRole }: Props) {
                 href={project.website}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1 text-indigo-600 hover:underline"
+                className="flex items-center gap-1 text-brand-blue hover:underline"
               >
                 <Globe className="h-3.5 w-3.5" />
                 {project.website}

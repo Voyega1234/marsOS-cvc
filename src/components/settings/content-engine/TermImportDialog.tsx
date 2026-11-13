@@ -109,7 +109,7 @@ export function TermImportDialog({
         </DialogHeader>
 
         {/\.pdf$/i.test(fileName) && (
-          <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">
+          <p className="rounded-2xl bg-amber-50 p-3 text-xs text-amber-800">
             รายการนี้ประกอบจากตำแหน่งข้อความใน PDF ถ้ามีไฟล์เดียวกันเป็น Excel หรือ CSV ใช้ไฟล์นั้นจะแม่นกว่า และได้คำแทนที่กำหนดไว้ด้วย
           </p>
         )}
@@ -130,7 +130,7 @@ export function TermImportDialog({
               onClick={() => setFilter(f.key)}
               className={cn(
                 "rounded-full border px-2.5 py-0.5 text-xs",
-                filter === f.key ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-gray-200 text-gray-600",
+                filter === f.key ? "border-brand-blue/40 bg-brand-blue/10 text-brand-blue" : "border-gray-200 text-gray-600",
               )}
             >
               {f.label}

@@ -320,7 +320,7 @@ export function RestrictionFileList({
               </button>
             )}
           </summary>
-          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-2 text-[11px] text-gray-600">
+          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-brand-mist p-2.5 text-[11px] text-gray-600">
             {g.preview}
             {g.chars > g.preview.length ? "\n…" : ""}
           </pre>

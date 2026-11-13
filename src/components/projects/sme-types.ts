@@ -1,4 +1,6 @@
 export interface ProjectData {
+  /** โลโก้ลูกค้า (data URL รูปเล็ก หรือ path เก่า) — ใช้แสดงที่หัวหน้าโปรเจกต์ */
+  logoUrl?: string | null
   id: string
   autoSchedule?: boolean
   wordpressConnectionId?: string | null

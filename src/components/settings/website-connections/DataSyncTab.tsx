@@ -43,7 +43,7 @@ export function DataSyncTab({ rows }: Props) {
                 onClick={() => toggle(field)}
                 className="flex items-center gap-2 text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                {isChecked ? <CheckSquare className="h-4 w-4 text-indigo-600 flex-shrink-0" /> : <Square className="h-4 w-4 text-gray-300 flex-shrink-0" />}
+                {isChecked ? <CheckSquare className="h-4 w-4 text-brand-blue flex-shrink-0" /> : <Square className="h-4 w-4 text-gray-300 flex-shrink-0" />}
                 <span className="text-sm text-gray-700">{field}</span>
               </button>
             );
@@ -77,7 +77,7 @@ export function DataSyncTab({ rows }: Props) {
 
       <SectionCard title="Sync Runs" description="ประวัติการ Sync (ตัวอย่าง)">
         <div className="overflow-x-auto -mx-6 px-6">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="tbl w-full min-w-[900px] text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-400 border-b border-gray-200">
                 <th className="py-2 pr-4">Run ID</th>
@@ -91,7 +91,7 @@ export function DataSyncTab({ rows }: Props) {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {MOCK_SYNC_RUNS.map((run) => (
-                <tr key={run.id} className="cursor-pointer hover:bg-gray-50" onClick={() => setDetailRun(run)}>
+                <tr key={run.id} className="cursor-pointer hover:bg-white/60" onClick={() => setDetailRun(run)}>
                   <td className="py-2.5 pr-4 font-mono text-xs text-gray-700">{run.id}</td>
                   <td className="py-2.5 pr-4 text-gray-700">{run.connection}</td>
                   <td className="py-2.5 pr-4 text-gray-500">{run.mode}</td>

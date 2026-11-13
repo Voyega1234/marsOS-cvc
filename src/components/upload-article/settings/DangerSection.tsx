@@ -38,7 +38,7 @@ export default function DangerSection({ client, onDeleted }: { client: UploadCli
 
   return (
     <div className="max-w-2xl">
-      <div className="bg-white border border-rose-200 rounded-xl p-4 space-y-2">
+      <div className="bg-white/75 border border-rose-200 rounded-2xl p-4 shadow-sm space-y-2">
         <p className="text-sm font-semibold text-rose-600">Danger zone</p>
         <p className="text-xs text-gray-500">
           ลบลูกค้านี้จะลบบทความในระบบทั้งหมดของลูกค้านี้ ({client.counts.total} บทความ) รวมถึง Keyword, Internal Link และ Content Engine ของลูกค้านี้ ทำแล้วกู้คืนไม่ได้

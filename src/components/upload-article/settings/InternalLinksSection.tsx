@@ -148,7 +148,7 @@ export default function InternalLinksSection({ clientId, hideArticles = false }:
 
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-semibold text-brand-navy">Internal Link</p>
@@ -193,7 +193,7 @@ export default function InternalLinksSection({ clientId, hideArticles = false }:
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold text-brand-navy">จาก GSC</p>
@@ -202,7 +202,7 @@ export default function InternalLinksSection({ clientId, hideArticles = false }:
           <div className="relative w-full sm:w-56">
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหา keyword/URL"
-              className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg" />
+              className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 rounded-full bg-white/90" />
           </div>
         </div>
         {data.gsc.length === 0 ? (
@@ -225,7 +225,7 @@ export default function InternalLinksSection({ clientId, hideArticles = false }:
       </div>
 
       {!hideArticles && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+        <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
               <p className="text-sm font-semibold text-brand-navy">จากบทความในระบบ</p>
@@ -261,7 +261,7 @@ export default function InternalLinksSection({ clientId, hideArticles = false }:
         </div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+      <div className="bg-white/75 border border-white/80 rounded-2xl p-4 shadow-sm space-y-2">
         <p className="text-sm font-semibold text-brand-navy">เพิ่มเอง ({data.manual.filter(l => l.url.trim()).length})</p>
         <div className="space-y-1 max-h-60 overflow-y-auto">
           {data.manual.map((l, i) => (

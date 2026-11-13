@@ -296,7 +296,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
   return (
     <div className="space-y-0">
       {/* ── Sticky Header ── */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-20">
+      <div className="glass rounded-3xl px-6 py-4 sticky top-[4.5rem] z-20 mb-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <Link href="/prompts" className="text-gray-400 hover:text-gray-600 flex-shrink-0">
@@ -313,11 +313,11 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
                   </span>
                 )}
                 {form.isActive ? (
-                  <span className="flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                  <span className="chip chip-ok">
                     <CheckCircle2 className="h-3 w-3" /> Active
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-full">
+                  <span className="chip chip-muted">
                     <Circle className="h-3 w-3" /> Inactive
                   </span>
                 )}
@@ -375,7 +375,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
               <Button
                 onClick={handleSaveClick}
                 disabled={saving}
-                className="gap-2 bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-lg"
+                className="gap-2 bg-brand-blue hover:bg-brand-deep text-white rounded-full"
               >
                 <Save className="h-4 w-4" />
                 {saving ? "Saving…" : isNew ? "Create Prompt" : "Save"}
@@ -417,7 +417,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap shrink-0 border-b border-gray-100-2 transition-colors ${tab === t
+                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap shrink-0 border-b-2 transition-colors ${tab === t
                   ? "border-green-600 text-green-700"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   }`}
@@ -437,7 +437,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
             {/* Left — Form */}
             <div className="lg:col-span-2 space-y-4">
               {/* Meta */}
-              <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
+              <div className="glass rounded-3xl p-5 space-y-4">
                 <h2 className="text-sm font-semibold text-gray-700">Prompt Info</h2>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2 sm:col-span-1">
@@ -549,7 +549,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
               </div>
 
               {/* Prompt Textarea */}
-              <div className="bg-white rounded-xl border border-gray-100 p-5">
+              <div className="glass rounded-3xl p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-semibold text-gray-700">Prompt Text *</h2>
                   <div className="flex items-center gap-3 text-xs text-gray-400">
@@ -595,7 +595,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
             <div className="space-y-4">
               {/* Used variables */}
               {usedVars.length > 0 && (
-                <div className="bg-white rounded-xl border border-gray-100 p-4">
+                <div className="glass rounded-3xl p-4">
                   <h3 className="text-xs font-semibold text-gray-700 mb-3 uppercase tracking-wider">
                     Variables in this prompt ({usedVars.length})
                   </h3>
@@ -622,7 +622,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
               {VAR_GROUPS.map((group) => {
                 const vars = AVAILABLE_VARIABLES.filter((v) => v.group === group);
                 return (
-                  <div key={group} className="bg-white rounded-xl border border-gray-100 p-4">
+                  <div key={group} className="glass rounded-3xl p-4">
                     <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{group}</h3>
                     <div className="space-y-1">
                       {vars.map((v) => {
@@ -669,8 +669,8 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
                 </span>
               </div>
             )}
-            <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-              <div className="bg-gray-50 border-b border-gray-100 px-5 py-3 flex items-center justify-between">
+            <div className="glass rounded-3xl overflow-hidden">
+              <div className="bg-white/40 border-b border-gray-100 px-5 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Eye className="h-4 w-4 text-gray-400" />
                   <span className="text-sm font-medium text-gray-700">Compiled Preview</span>
@@ -686,7 +686,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
             </div>
 
             {/* Variable values used in preview */}
-            <div className="bg-white border border-gray-100 rounded-xl p-5">
+            <div className="glass rounded-3xl p-5">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Sample Values Used</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {usedVars.map((v) => {
@@ -709,7 +709,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
         {tab === "versions" && (
           <div className="max-w-3xl space-y-3">
             {versions.length === 0 ? (
-              <div className="bg-white border border-gray-100 rounded-xl p-12 text-center">
+              <div className="glass rounded-3xl p-12 text-center">
                 <History className="h-10 w-10 mx-auto mb-3 text-gray-200" />
                 <p className="text-sm text-gray-500">No version history yet.</p>
                 <p className="text-xs text-gray-400 mt-1">Snapshots are created automatically each time you save.</p>
@@ -761,13 +761,13 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
         {tab === "activity" && (
           <div className="max-w-3xl space-y-2">
             {activity.length === 0 ? (
-              <div className="bg-white border border-gray-100 rounded-xl p-12 text-center">
+              <div className="glass rounded-3xl p-12 text-center">
                 <Pencil className="h-10 w-10 mx-auto mb-3 text-gray-200" />
                 <p className="text-sm text-gray-500">No activity yet.</p>
               </div>
             ) : (
               activity.map((log) => (
-                <div key={log.id} className="flex items-start gap-3 bg-white border border-gray-100 rounded-xl p-4">
+                <div key={log.id} className="flex items-start gap-3 glass rounded-3xl p-4">
                   <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-500 flex-shrink-0">
                     {(log.user?.name ?? log.user?.email ?? "?")[0]?.toUpperCase()}
                   </div>
@@ -825,7 +825,7 @@ export function PromptEditorClient({ prompt, orgId, userRole, versions = [], act
             <Button
               onClick={doSave}
               disabled={saving}
-              className="bg-[#1A1A1A] hover:bg-[#2D2D2D] text-white rounded-xl gap-2"
+              className="bg-brand-blue hover:bg-brand-deep text-white rounded-full gap-2"
             >
               {saving ? "Saving…" : `Save as v${form.version + 1}`}
             </Button>

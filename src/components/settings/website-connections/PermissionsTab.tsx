@@ -13,7 +13,7 @@ export function PermissionsTab() {
     <div className="space-y-5">
       <SectionCard title="Role × Permission Matrix" description="สิทธิ์ของแต่ละ Role ต่อ Website Connection">
         <div className="overflow-x-auto -mx-6 px-6">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="tbl w-full min-w-[900px] text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-400 border-b border-gray-200">
                 <th className="py-2 pr-4">Permission</th>

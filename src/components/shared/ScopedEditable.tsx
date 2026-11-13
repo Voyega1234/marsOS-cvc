@@ -70,7 +70,8 @@ export default function ScopedEditable({
       contentEditable
       suppressContentEditableWarning
       onInput={onInput}
-      className={className}
+      // force-light: บทความถูกเขียนมาสำหรับพื้นขาว — โหมดมืดก็ต้องแก้บนพื้นขาวเหมือนหน้าเว็บจริง
+      className={className ? `force-light ${className}` : "force-light"}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )

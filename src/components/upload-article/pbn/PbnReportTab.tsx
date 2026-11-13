@@ -6,8 +6,9 @@
  * ใช้หน้ารายงานชุดเดียวกับ SEO SME (ClientReportClient) แบบฝัง
  */
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Loader2 } from "lucide-react";
+import { AlertCircle, BarChart3, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState, Panel } from "@/components/ds";
 import { ClientReportClient } from "@/components/report/ClientReportClient";
 import { usePbnSites } from "./usePbnSites";
 
@@ -34,28 +35,28 @@ export default function PbnReportTab({ onOpenSettings }: { onOpenSettings: () =>
   const site = reportable.find(s => s.id === siteId) ?? null;
 
   if (loading) {
-    return <p className="text-xs text-gray-400 flex items-center gap-1.5 py-10 justify-center"><Loader2 size={12} className="animate-spin" /> กำลังโหลด...</p>;
+    return <Panel><EmptyState icon={<Loader2 className="h-5 w-5 animate-spin" />} title="กำลังโหลด..." /></Panel>;
   }
-  if (error) return <p className="text-sm text-red-600 py-10 text-center">{error}</p>;
+  if (error) return <Panel><EmptyState icon={<AlertCircle className="h-5 w-5" />} title={error} /></Panel>;
 
   if (!reportable.length) {
     return (
-      <div className="bg-white border border-gray-200 rounded-xl p-8 text-center space-y-3">
-        <BarChart3 size={28} className="mx-auto text-gray-300" />
-        <p className="text-sm text-gray-500">
-          {sites.length ? "ยังไม่มีเว็บ PBN ที่ผูก GSC หรือ GA4" : "ยังไม่มีเว็บ PBN"} — ผูก property ต่อเว็บได้ที่ Project Setting
-        </p>
-        <Button size="sm" variant="outline" onClick={onOpenSettings}>ไปที่ PBN Sites & Connect</Button>
-      </div>
+      <Panel>
+        <EmptyState
+          icon={<BarChart3 className="h-5 w-5" />}
+          title={<>{sites.length ? "ยังไม่มีเว็บ PBN ที่ผูก GSC หรือ GA4" : "ยังไม่มีเว็บ PBN"} — ผูก property ต่อเว็บได้ที่ Project Setting</>}
+          action={<Button size="sm" variant="outline" onClick={onOpenSettings}>ไปที่ PBN Sites & Connect</Button>}
+        />
+      </Panel>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-3 flex-wrap">
+      <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-3 flex items-center gap-3 flex-wrap">
         <label htmlFor="pbn-report-site" className="text-xs font-semibold text-gray-600">ดูรายงานของเว็บ</label>
         <select id="pbn-report-site" value={siteId} onChange={e => choose(e.target.value)}
-          className="h-9 min-w-[240px] rounded-md border border-gray-200 px-3 text-sm bg-white">
+          className="h-9 min-w-[240px] rounded-full border border-gray-200 px-3 text-sm bg-white">
           {reportable.map(s => (
             <option key={s.id} value={s.id}>
               {s.name} — {[s.gscSiteUrl && "GSC", s.ga4PropertyId && "GA4"].filter(Boolean).join(" + ")}

@@ -14,9 +14,17 @@ import { fetchProjectsList } from "@/lib/client/projects-list";
 
 const PAGE_LABELS: Record<string, string> = {
   "/dashboard":            "หน้าหลัก",
+  "/morning-brief":        "News & Update",
+  "/upload-article":       "Upload Article",
+  "/pbn-backlinks":        "PBN Backlinks",
+  "/keyword-research":     "Keyword Research",
+  "/content-engine":       "Content Engine",
+  "/image-studio":         "Image Studio",
+  "/settings/ai-cost":     "AI Cost",
+  "/admin/users":          "Users",
   "/my-tasks":             "งานของฉัน",
   "/calendar":             "ปฏิทิน",
-  "/projects":             "Projects",
+  "/projects":             "SEO SME",
   "/articles":             "บทความ",
   "/review":               "รอ Review",
   "/content-studio":       "Content Studio",
@@ -105,7 +113,7 @@ export function ProTopBar({ leading }: { leading?: React.ReactNode } = {}) {
 
       {/* แบนเนอร์เตือนเมื่อ AI ยังไม่ได้เชื่อมต่อจริงเท่านั้น (เช็คจาก /api/ai/status) */}
       {!demoDismissed && !isClient && aiConnected === false && (
-        <div className="bg-amber-50 border-b border-amber-100 px-3 md:px-5 py-1.5 flex items-center gap-2 text-xs text-amber-700">
+        <div className="mx-2 mt-2 md:mx-6 md:mt-3 rounded-full bg-amber-50 border border-amber-100 px-4 py-1.5 flex items-center gap-2 text-xs text-amber-700">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
           <span className="font-medium">AI ยังไม่ได้เชื่อมต่อ</span>
           <span className="hidden md:inline text-amber-500">— local: รัน ./scripts/gcloud-adc.sh · หรือใส่ key ที่</span>
@@ -114,17 +122,20 @@ export function ProTopBar({ leading }: { leading?: React.ReactNode } = {}) {
         </div>
       )}
 
-      <div className="sticky top-0 z-30 bg-white border-b border-gray-100 px-3 md:px-5 py-2.5 flex items-center gap-2 md:gap-3">
+      {/* แถบบนลอยแบบกระจก — ชั้นกระจกแยกเป็นลูก (ไม่ใส่ backdrop-filter ที่ตัวแถบ)
+          เพราะ backdrop-filter ทำให้ลูกที่เป็น position:fixed (ฉากปิดเมนูเลือกโปรเจกต์) ยึดกับแถบแทนทั้งจอ */}
+      <div className="sticky top-2 md:top-3 z-30 mx-2 mt-2 md:mx-6 md:mt-3 px-3 md:px-4 py-2 flex items-center gap-2 md:gap-3">
+        <div aria-hidden className="glass absolute inset-0 -z-10 rounded-[22px]" />
         {leading}
         {/* Mars back button */}
         <button
           onClick={enterFront}
-          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-brand-navy transition-colors shrink-0 mr-1"
+          className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-gray-500 hover:text-brand-navy hover:bg-white/80 transition-colors shrink-0"
         >
           <IconBolt className="h-3.5 w-3.5" />
           MarsOS
         </button>
-        <span className="hidden md:inline text-gray-200 shrink-0">/</span>
+        <span className="hidden md:inline text-gray-300 shrink-0">/</span>
 
         {/* Page Label — มือถือซ่อน (หัวหน้าเพจมีชื่ออยู่แล้ว) */}
         <div className="hidden md:block flex-shrink-0">
@@ -136,17 +147,17 @@ export function ProTopBar({ leading }: { leading?: React.ReactNode } = {}) {
           <div className="relative min-w-0 md:flex-shrink-0">
             <button
               onClick={() => setShowProjectPicker(!showProjectPicker)}
-              className="flex max-w-full items-center gap-2 px-2.5 md:px-3 py-1.5 text-xs font-medium bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors"
+              className="flex max-w-full items-center gap-2 px-3 py-1.5 text-xs font-medium bg-white/70 border border-white rounded-full hover:bg-white transition-colors"
             >
-              <span className="w-2 h-2 shrink-0 rounded-full bg-green-500" />
+              <span className="w-2 h-2 shrink-0 rounded-full bg-brand-blue" />
               <span className="min-w-0 max-w-32 truncate text-gray-700">{selectedProjectName}</span>
               <ChevronDown className="h-3 w-3 text-gray-400" />
             </button>
             {showProjectPicker && (
-              <div className="absolute top-full left-0 mt-1 w-56 max-w-[calc(100vw-1.5rem)] max-h-[70vh] overflow-y-auto bg-white border border-gray-100 rounded-xl shadow-lg z-50">
+              <div className="absolute top-full left-0 mt-2 w-60 max-w-[calc(100vw-1.5rem)] max-h-[70vh] overflow-y-auto bg-white border border-gray-100 rounded-2xl shadow-xl z-50 p-1.5">
                 <button
                   onClick={() => goToProject("ALL")}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors ${selectedProject === "ALL" ? "text-green-700 font-medium bg-green-50" : "text-gray-700"}`}
+                  className={`w-full flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-left hover:bg-brand-mist transition-colors ${selectedProject === "ALL" ? "text-brand-blue font-medium bg-brand-blue/10" : "text-gray-700"}`}
                 >
                   All Projects · หน้ารวม Clients
                 </button>
@@ -154,9 +165,9 @@ export function ProTopBar({ leading }: { leading?: React.ReactNode } = {}) {
                   <button
                     key={p.id}
                     onClick={() => goToProject(p.id)}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors ${selectedProject === p.id ? "text-green-700 font-medium bg-green-50" : "text-gray-700"}`}
+                    className={`w-full flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-left hover:bg-brand-mist transition-colors ${selectedProject === p.id ? "text-brand-blue font-medium bg-brand-blue/10" : "text-gray-700"}`}
                   >
-                    <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                    <span className="w-2 h-2 rounded-full bg-brand-soft flex-shrink-0" />
                     <span className="truncate">{p.name}</span>
                   </button>
                 ))}
@@ -173,7 +184,7 @@ export function ProTopBar({ leading }: { leading?: React.ReactNode } = {}) {
           <button
             onClick={() => setCmdOpen(true)}
             aria-label="ค้นหา"
-            className="ml-auto md:ml-0 shrink-0 md:shrink md:flex-1 md:max-w-md flex items-center gap-2 p-2 md:px-3 md:py-1.5 text-sm bg-gray-50 border border-gray-100 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 text-left"
+            className="ml-auto md:ml-0 shrink-0 md:shrink md:flex-1 md:max-w-md flex items-center gap-2 p-2 md:px-3.5 md:py-1.5 text-sm bg-white/70 border border-white rounded-full hover:bg-white transition-colors text-gray-400 text-left"
           >
             <Search className="h-3.5 w-3.5 flex-shrink-0" />
             <span className="hidden md:inline flex-1">ค้นหา หรือสั่งงาน...</span>

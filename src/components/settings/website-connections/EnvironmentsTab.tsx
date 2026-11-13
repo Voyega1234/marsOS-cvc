@@ -22,7 +22,7 @@ export function EnvironmentsTab() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {ENVIRONMENTS.map((env) => (
-          <div key={env.id} className="bg-white rounded-2xl border border-gray-200 p-5">
+          <div key={env.id} className="glass rounded-3xl p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-brand-navy">{env.name}</h3>
               <MockBadge />
@@ -57,7 +57,7 @@ export function EnvironmentsTab() {
         <div className="flex items-center gap-1 overflow-x-auto pb-1">
           {PROMOTE_FLOW_STEPS.map((step, idx) => (
             <div key={step} className="flex items-center gap-1 flex-shrink-0">
-              <div className="px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-xs font-medium text-indigo-700 whitespace-nowrap">
+              <div className="px-3 py-2 rounded-lg bg-brand-blue/10 border border-brand-blue/30 text-xs font-medium text-brand-blue whitespace-nowrap">
                 {step}
               </div>
               {idx < PROMOTE_FLOW_STEPS.length - 1 && <ChevronRight className="h-3.5 w-3.5 text-gray-300 flex-shrink-0" />}

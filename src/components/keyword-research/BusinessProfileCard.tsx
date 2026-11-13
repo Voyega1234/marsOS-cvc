@@ -66,14 +66,14 @@ export default function BusinessProfileCard({ value, onChange, quota, onQuotaCha
   );
 
   return (
-    <div className="mt-4 rounded-xl border border-[#eef1f7] bg-[#fafbfe] p-3">
+    <div className="mt-4 rounded-xl border border-gray-100 bg-white/60 p-3">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         className="flex w-full items-center justify-between text-left"
       >
-        <span className="text-xs font-bold text-[#17233a]">ข้อมูลธุรกิจจริง (ใช้คัดคีย์เวิร์ดให้ตรงธุรกิจ)</span>
-        <span className="text-[11px] font-semibold text-[#155eef]">{open ? '▾ ซ่อน' : '▸ แสดง'}</span>
+        <span className="text-xs font-bold text-brand-navy">ข้อมูลธุรกิจจริง (ใช้คัดคีย์เวิร์ดให้ตรงธุรกิจ)</span>
+        <span className="text-[11px] font-semibold text-brand-blue">{open ? '▾ ซ่อน' : '▸ แสดง'}</span>
       </button>
 
       {open ? (
@@ -98,7 +98,7 @@ export default function BusinessProfileCard({ value, onChange, quota, onQuotaCha
               onChange={e => setServicesNotOfferedText(e.target.value)}
               placeholder={'เช่น\nกำจัดหนู'}
             />
-            <p className="mt-1 text-[10px] leading-4 text-[#91a0b8]">คีย์เวิร์ดกลุ่มนี้ทำได้แค่บทความ (ไม่แนะนำทำหน้าขาย)</p>
+            <p className="mt-1 text-[10px] leading-4 text-gray-400">คีย์เวิร์ดกลุ่มนี้ทำได้แค่บทความ (ไม่แนะนำทำหน้าขาย)</p>
           </div>
 
           <div>
@@ -110,7 +110,7 @@ export default function BusinessProfileCard({ value, onChange, quota, onQuotaCha
               onChange={e => setBranchesText(e.target.value)}
               placeholder={'เช่น\nกรุงเทพ\nนนทบุรี'}
             />
-            <p className="mt-1 text-[10px] leading-4 text-[#91a0b8]">ไม่มีสาขา = ไม่ทำหน้า Location สำหรับพื้นที่นั้น</p>
+            <p className="mt-1 text-[10px] leading-4 text-gray-400">ไม่มีสาขา = ไม่ทำหน้า Location สำหรับพื้นที่นั้น</p>
           </div>
 
           <div>
@@ -122,10 +122,10 @@ export default function BusinessProfileCard({ value, onChange, quota, onQuotaCha
               onChange={e => setCompetitorBrandsText(e.target.value)}
               placeholder={'เช่น\nแบรนด์ A\nแบรนด์ B'}
             />
-            <p className="mt-1 text-[10px] leading-4 text-[#91a0b8]">คีย์เวิร์ดที่มีชื่อแบรนด์คู่แข่ง/คำแปลภาษา ไม่แนะนำทำหน้าขาย</p>
+            <p className="mt-1 text-[10px] leading-4 text-gray-400">คีย์เวิร์ดที่มีชื่อแบรนด์คู่แข่ง/คำแปลภาษา ไม่แนะนำทำหน้าขาย</p>
           </div>
 
-          <label className="flex items-center gap-2 text-xs font-semibold text-[#495975]">
+          <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
             <input
               type="checkbox"
               checked={value.hasShop}
@@ -144,7 +144,7 @@ export default function BusinessProfileCard({ value, onChange, quota, onQuotaCha
                 onChange={e => setShopProductsText(e.target.value)}
                 placeholder={'เช่น\nยาฆ่าแมลง'}
               />
-              <p className="mt-1 text-[10px] leading-4 text-[#91a0b8]">คีย์เวิร์ดสินค้าที่ไม่มีร้านขาย จะถือว่าไม่แนะนำทำหน้าขาย</p>
+              <p className="mt-1 text-[10px] leading-4 text-gray-400">คีย์เวิร์ดสินค้าที่ไม่มีร้านขาย จะถือว่าไม่แนะนำทำหน้าขาย</p>
             </div>
           ) : null}
 

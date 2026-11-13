@@ -15,12 +15,12 @@ import {
 export const metadata: Metadata = { title: "My Tasks" };
 
 const URGENCY: Record<string, { label: string; color: string; border: string; icon: typeof Clock; order: number }> = {
-  REVISION_REQUIRED:  { label: "ต้องแก้ไข",        color: "text-[#9B2525] bg-[#FFF0F0]", border: "border-[#F5C8C8]", icon: AlertTriangle, order: 0 },
-  SEO_REVIEW:         { label: "รอตรวจสอบ",        color: "text-[#9A4A00] bg-[#FFF7ED]", border: "border-[#F5C896]", icon: Search,        order: 1 },
-  OUTLINE_APPROVED:   { label: "พร้อมเขียน",        color: "text-[#2B4FAD] bg-[#EEF3FF]", border: "border-[#C5D4F8]", icon: PenLine,       order: 2 },
-  ARTICLE_GENERATING: { label: "กำลังสร้าง",        color: "text-[#6B35A8] bg-[#F5EEFF]", border: "border-[#D4B8F5]", icon: Clock,         order: 3 },
-  OUTLINE_DONE:       { label: "ร่าง Outline แล้ว", color: "text-[#2B4FAD] bg-[#EEF3FF]", border: "border-[#C5D4F8]", icon: PenLine,       order: 4 },
-  ARTICLE_DONE:       { label: "บทความพร้อม",       color: "text-[#1A6A46] bg-[#EDFAF4]", border: "border-[#B8E8D0]", icon: CheckCircle2,  order: 5 },
+  REVISION_REQUIRED:  { label: "ต้องแก้ไข",        color: "text-red-700 bg-red-50", border: "border-red-200", icon: AlertTriangle, order: 0 },
+  SEO_REVIEW:         { label: "รอตรวจสอบ",        color: "text-amber-700 bg-amber-50", border: "border-amber-200", icon: Search,        order: 1 },
+  OUTLINE_APPROVED:   { label: "พร้อมเขียน",        color: "text-brand-blue bg-brand-blue/10", border: "border-brand-blue/20", icon: PenLine,       order: 2 },
+  ARTICLE_GENERATING: { label: "กำลังสร้าง",        color: "text-brand-navy bg-brand-mist", border: "border-gray-200", icon: Clock,         order: 3 },
+  OUTLINE_DONE:       { label: "ร่าง Outline แล้ว", color: "text-brand-blue bg-brand-blue/10", border: "border-brand-blue/20", icon: PenLine,       order: 4 },
+  ARTICLE_DONE:       { label: "บทความพร้อม",       color: "text-emerald-700 bg-emerald-50", border: "border-emerald-200", icon: CheckCircle2,  order: 5 },
 };
 
 const SOURCE_META: Record<string, { label: string; color: string; icon: typeof MessageSquare }> = {
@@ -29,9 +29,9 @@ const SOURCE_META: Record<string, { label: string; color: string; icon: typeof M
 };
 
 const PRIORITY_COLOR: Record<string, string> = {
-  HIGH:   "text-[#9B2525] bg-[#FFF0F0]",
-  MEDIUM: "text-[#9A4A00] bg-[#FFF7ED]",
-  LOW:    "text-[#444444] bg-[#F5F5F5]",
+  HIGH:   "text-red-700 bg-red-50",
+  MEDIUM: "text-amber-700 bg-amber-50",
+  LOW:    "text-gray-600 bg-gray-100",
 };
 
 export default async function MyTasksPage() {
@@ -97,10 +97,11 @@ export default async function MyTasksPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold text-brand-navy">งานของฉัน</h1>
-          <p className="text-gray-500 text-sm mt-1">
+          <p className="page-eyebrow">Tasks</p>
+          <h1 className="page-title">งานของฉัน</h1>
+          <p className="page-subtitle">
             {totalCount === 0 ? "ไม่มีงานค้างอยู่ 🎉" : `${totalCount} งานที่รอดำเนินการ`}
           </p>
         </div>
@@ -112,17 +113,17 @@ export default async function MyTasksPage() {
             <span className="w-2 h-2 rounded-full bg-[#F06A6A]" />Asana
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#2B4FAD]" />บทความ
+            <span className="w-2 h-2 rounded-full bg-brand-blue" />บทความ
           </div>
         </div>
       </div>
 
       {totalCount === 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
-          <CheckCircle2 className="h-12 w-12 text-[#1A6A46] mx-auto mb-4 opacity-50" />
+        <div className="glass rounded-3xl p-16 text-center">
+          <CheckCircle2 className="h-12 w-12 text-emerald-600 mx-auto mb-4 opacity-50" />
           <h2 className="text-lg font-bold text-brand-navy">ทำงานเสร็จหมดแล้ว!</h2>
           <p className="text-sm text-gray-500 mt-2">ยังไม่มีงานที่มอบหมายมาให้</p>
-          <Link href="/articles/new" className="inline-flex items-center gap-2 mt-5 px-4 py-2 bg-[#1A1A1A] text-white text-sm font-semibold rounded-xl hover:bg-[#2D2D2D] transition-colors">
+          <Link href="/articles/new" className="inline-flex items-center gap-2 mt-5 px-4 py-2 bg-brand-blue text-white text-sm font-semibold rounded-full hover:bg-brand-deep transition-colors">
             สร้างบทความใหม่ <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -143,7 +144,7 @@ export default async function MyTasksPage() {
               const src  = SOURCE_META[task.source] ?? SOURCE_META.slack;
               const Icon = src.icon;
               return (
-                <div key={task.id} className="bg-white rounded-xl border border-gray-100 hover:shadow-sm transition-all p-4">
+                <div key={task.id} className="glass rounded-3xl hover:shadow-sm transition-all p-4">
                   <div className="flex items-start gap-4">
                     {/* Source badge */}
                     <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg flex-shrink-0 ${src.color}`}>
@@ -167,7 +168,7 @@ export default async function MyTasksPage() {
                         {task.article && (
                           <Link
                             href={`/articles/${task.article.id}`}
-                            className="text-xs text-[#2B4FAD] hover:underline flex items-center gap-1"
+                            className="text-xs text-brand-blue hover:underline flex items-center gap-1"
                           >
                             <ExternalLink className="h-3 w-3" />ดูบทความ
                           </Link>

@@ -5,6 +5,7 @@ import {
   LayoutDashboard, Plug, FileText, RefreshCw, Layers, ShieldCheck, Webhook, ScrollText,
 } from "lucide-react";
 
+import { PageHeader } from "@/components/ds";
 import type { ConnectionRow, ProjectLite, RealWpConnection, SettingsTabId } from "./types";
 import { buildRealConnectionRows, MOCK_CONNECTIONS } from "./mockData";
 import { ConnectWizard } from "./ConnectWizard";
@@ -47,24 +48,23 @@ export function WebsiteConnectionsClient({ wpConnections, projects }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-brand-navy">Website Connections</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            เชื่อมเว็บไซต์ของ Client เพื่อดึงข้อมูลจริงและใช้กับ Article Brief, Validator และ Publish
-          </p>
-        </div>
-        <button
-          onClick={() => setWizardOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors flex-shrink-0"
-        >
-          <Plug className="h-4 w-4" />
-          Connect Website
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="Settings"
+        title="Website Connections"
+        subtitle="เชื่อมเว็บไซต์ของ Client เพื่อดึงข้อมูลจริงและใช้กับ Article Brief, Validator และ Publish"
+        actions={
+          <button
+            onClick={() => setWizardOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-brand-blue hover:bg-brand-deep text-white text-sm font-semibold transition-colors flex-shrink-0"
+          >
+            <Plug className="h-4 w-4" />
+            Connect Website
+          </button>
+        }
+      />
 
       <div className="flex flex-col lg:flex-row items-start gap-5">
-        <nav className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible w-full lg:w-[216px] flex-shrink-0 lg:sticky lg:top-4 bg-white rounded-2xl border border-gray-200 p-2">
+        <nav className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible w-full lg:w-[216px] flex-shrink-0 lg:sticky lg:top-[4.5rem] glass rounded-3xl p-2">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -72,8 +72,8 @@ export function WebsiteConnectionsClient({ wpConnections, projects }: Props) {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 lg:w-full lg:flex-shrink lg:justify-start ${
-                  active ? "bg-indigo-600 text-white" : "text-gray-600 hover:bg-gray-100 hover:text-brand-navy"
+                className={`flex items-center gap-2.5 rounded-full px-3 py-2.5 text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 lg:w-full lg:flex-shrink lg:justify-start ${
+                  active ? "bg-brand-navy text-white" : "text-gray-600 hover:bg-gray-100 hover:text-brand-navy"
                 }`}
               >
                 <Icon className="h-4 w-4 flex-shrink-0" />

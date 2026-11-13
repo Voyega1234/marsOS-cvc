@@ -79,8 +79,8 @@ export default function StudioArticleSettings({ accentColor, border }: { accentC
         <div className="flex gap-1.5 pb-1 w-max">
           {SECTIONS.map(s => (
             <button key={s.id} onClick={() => setActive(s.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-colors ${
-                active === s.id ? "bg-brand-mist text-brand-blue border-brand-soft/60" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border whitespace-nowrap transition-colors ${
+                active === s.id ? "bg-brand-mist text-brand-blue border-brand-soft/60" : "bg-white text-gray-500 border-gray-200 hover:bg-white/50"
               }`}>
               <s.icon size={13} /> {s.label}
             </button>
@@ -93,8 +93,8 @@ export default function StudioArticleSettings({ accentColor, border }: { accentC
         <div className="space-y-1 sticky top-4">
           {SECTIONS.map(s => (
             <button key={s.id} onClick={() => setActive(s.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
-                active === s.id ? "bg-brand-mist text-brand-blue" : "text-gray-500 hover:bg-gray-50 hover:text-brand-navy"
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-left transition-colors ${
+                active === s.id ? "bg-brand-mist text-brand-blue" : "text-gray-500 hover:bg-white/50 hover:text-brand-navy"
               }`}>
               <s.icon size={15} /> {s.label}
             </button>

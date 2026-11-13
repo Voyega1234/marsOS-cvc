@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Bell, CheckCheck, Trash2, ExternalLink, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ds";
 
 type Notification = {
   id: string;
@@ -82,25 +83,19 @@ export function NotificationsPageClient({ notifications: initial }: { notificati
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 pb-16">
+    <div className="max-w-2xl mx-auto space-y-5 pb-16">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-brand-navy flex items-center gap-2">
-            <Bell className="h-5 w-5 text-gray-600" />
-            การแจ้งเตือน
-          </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {unread > 0 ? `${unread} รายการที่ยังไม่ได้อ่าน` : "อ่านทั้งหมดแล้ว"}
-          </p>
-        </div>
-        {unread > 0 && (
+      <PageHeader
+        eyebrow="Notifications"
+        title="การแจ้งเตือน"
+        subtitle={unread > 0 ? `${unread} รายการที่ยังไม่ได้อ่าน` : "อ่านทั้งหมดแล้ว"}
+        actions={unread > 0 ? (
           <Button variant="outline" size="sm" onClick={markAllRead} className="gap-1.5">
             <CheckCheck className="h-3.5 w-3.5" />
             อ่านทั้งหมด
           </Button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {/* Filter tabs */}
       <div className="flex gap-1.5 flex-wrap">
@@ -113,16 +108,16 @@ export function NotificationsPageClient({ notifications: initial }: { notificati
               key={opt.value}
               onClick={() => setFilter(opt.value)}
               className={cn(
-                "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                "px-3 py-1.5 rounded-full text-xs font-medium transition-colors border",
                 filter === opt.value
-                  ? "bg-brand-blue text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  ? "bg-brand-navy text-white border-brand-navy"
+                  : "bg-white/70 text-gray-600 border-white/80 hover:bg-white"
               )}
             >
               {opt.label}
               {count > 0 && (
                 <span className={cn("ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold",
-                  filter === opt.value ? "bg-white/20 text-white" : "bg-gray-200 text-gray-600"
+                  filter === opt.value ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
                 )}>
                   {count}
                 </span>
@@ -135,8 +130,10 @@ export function NotificationsPageClient({ notifications: initial }: { notificati
       {/* Notification list */}
       <div className="space-y-2">
         {filtered.length === 0 && (
-          <div className="py-16 text-center">
-            <Bell className="h-10 w-10 text-gray-200 mx-auto mb-3" />
+          <div className="py-16 text-center glass rounded-2xl">
+            <div className="w-14 h-14 rounded-full bg-white/70 border border-white/80 flex items-center justify-center mx-auto mb-3">
+              <Bell className="h-7 w-7 text-gray-300" />
+            </div>
             <p className="text-sm font-medium text-gray-400">ไม่มีการแจ้งเตือน</p>
           </div>
         )}
@@ -147,14 +144,13 @@ export function NotificationsPageClient({ notifications: initial }: { notificati
           const inner = (
             <div
               className={cn(
-                "group flex items-start gap-4 p-4 rounded-2xl border transition-all",
-                meta.color,
-                !n.isRead && "ring-1 ring-inset ring-blue-200",
+                "group flex items-start gap-4 p-4 rounded-2xl border border-white/80 bg-white/70 backdrop-blur transition-all",
+                !n.isRead && "ring-1 ring-inset ring-brand-blue/30",
                 "hover:shadow-sm"
               )}
               onClick={() => { if (!n.isRead) markRead(n.id); }}
             >
-              <div className="w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center flex-shrink-0 text-lg shadow-sm">
+              <div className={cn("w-10 h-10 rounded-full border flex items-center justify-center flex-shrink-0 text-lg", meta.color)}>
                 {meta.emoji}
               </div>
 
@@ -175,11 +171,11 @@ export function NotificationsPageClient({ notifications: initial }: { notificati
                 </div>
                 {n.body && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</p>}
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/60 border border-gray-200 text-gray-500 font-medium">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/70 border border-gray-200 text-gray-500 font-medium">
                     {meta.label}
                   </span>
                   <span className="text-xs text-gray-400">{timeAgo(n.createdAt)}</span>
-                  {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+                  {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-brand-blue" />}
                 </div>
               </div>
             </div>
