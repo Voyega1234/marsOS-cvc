@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, Download } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Download, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AreaChart, BarChart, Chip, EmptyState, KpiTile, Panel } from "@/components/ds";
@@ -10,21 +10,28 @@ import {
 } from "@/lib/brand-radar/types";
 import { fmtDateTime, fmtNum, fmtPct, fmtRange, isSmallSample, methodLabel, providerShort, radarQuery } from "./shared";
 import { CitedDomainsTable, EntityTable, LoadState, exportCitedCsv, useApiData } from "./PromptDialogs";
+import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
 
-function ResponseItem({ r }: { r: ResponseDTO }) {
+function ResponseItem({ r, onView }: { r: ResponseDTO; onView: () => void }) {
   const [open, setOpen] = useState(false);
   const failed = r.status === "FAILED" || r.status === "SKIPPED";
   return (
     <li className="rounded-2xl border border-gray-100 bg-white/70">
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
-        className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left text-sm">
-        {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-        <span className="font-medium">{r.providerLabel || providerShort(r.provider)}</span>
-        <span className="text-xs text-gray-500">{r.model || "-"}</span>
-        <Chip tone="muted">{methodLabel(r.collectionMethod)}</Chip>
-        <span className="text-xs text-gray-500">{fmtDateTime(r.collectedAt)}</span>
-        <Chip tone={failed ? "bad" : r.status === "DONE" ? "ok" : "muted"}>{r.status}</Chip>
-      </button>
+      <div className="flex items-center gap-2 pr-2">
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-2 px-3 py-2 text-left text-sm">
+          {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+          <span className="font-medium">{r.providerLabel || providerShort(r.provider)}</span>
+          <span className="text-xs text-gray-500">{r.model || "-"}</span>
+          <Chip tone="muted">{methodLabel(r.collectionMethod)}</Chip>
+          <span className="text-xs text-gray-500">{fmtDateTime(r.collectedAt)}</span>
+          <Chip tone={failed ? "bad" : r.status === "DONE" ? "ok" : "muted"}>{r.status}</Chip>
+          {r.status === "DONE" ? <Chip tone={r.brandMentioned ? "ok" : "muted"}>{r.brandMentioned ? "พูดถึงเรา" : "ไม่พูดถึงเรา"}</Chip> : null}
+        </button>
+        <Button size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" onClick={onView}>
+          <Eye className="mr-1 h-3.5 w-3.5" /> ดูคำตอบแบบเต็ม
+        </Button>
+      </div>
       {open ? (
         <div className="space-y-3 border-t border-gray-100 px-3 py-3 text-sm">
           {failed ? <p className="rounded-xl bg-red-50 p-2 text-xs text-red-700">{r.error || "ไม่มีรายละเอียดข้อผิดพลาด"}</p> : null}
@@ -69,9 +76,14 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
   const url = `/api/brand-radar/prompts/${encodeURIComponent(promptId)}/detail?${radarQuery(projectId, filters)}`;
   const { data, loading, error, reload } = useApiData<PromptDetailDTO>(url, refreshKey);
   const [buyableOnly, setBuyableOnly] = useState(false);
+  const [viewing, setViewing] = useState<ViewerTarget | null>(null);
 
   const back = (
-    <Button size="sm" variant="outline" onClick={onBack}><ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> กลับไปรายการ Prompt</Button>
+    <div className="flex flex-wrap items-center gap-2">
+      <Button size="sm" variant="outline" onClick={onBack}><ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> กลับไปรายการ Prompt</Button>
+      <Button size="sm" onClick={() => setViewing({ promptId })}><Eye className="mr-1.5 h-3.5 w-3.5" /> ดูคำตอบของ AI</Button>
+      <ResponseViewer projectId={projectId} filters={filters} target={viewing} onClose={() => setViewing(null)} />
+    </div>
   );
 
   if (loading || error || !data) {
@@ -222,7 +234,11 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
         {data.history.length === 0 ? (
           <p className="py-4 text-center text-sm text-gray-500">ยังไม่มีประวัติคำตอบ</p>
         ) : (
-          <ul className="space-y-2">{data.history.map((r) => <ResponseItem key={r.id} r={r} />)}</ul>
+          <ul className="space-y-2">
+            {data.history.map((r) => (
+              <ResponseItem key={r.id} r={r} onView={() => setViewing({ promptId, runId: r.runId, provider: r.provider, responseId: r.id })} />
+            ))}
+          </ul>
         )}
       </Panel>
     </div>

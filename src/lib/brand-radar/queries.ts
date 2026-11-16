@@ -24,7 +24,7 @@ import {
   type CompetitorInsightsDTO, type Confidence, type JourneyStage, type OpportunityDTO, type OpportunityListRes,
   type OpportunityStatus, type OpportunityType, type OverviewDTO, type Priority, type ProfileDTO, type ProjectOptDTO,
   type PromptDTO, type PromptDetailDTO, type PromptIntent, type PromptListDTO, type PromptRowDTO, type PromptSource,
-  type PromptStats, type PromptStatus, type ProviderKey, type RadarFilters, type ResponseDTO, type RunDTO, type RunStatus,
+  type PromptStats, type PromptStatus, type ProviderKey, type RadarFilters, type ResponseDTO, type ResponseViewerDTO, type RunDTO, type RunStatus,
   type Schedule, type TaskStatus,
 } from './types'
 
@@ -374,6 +374,67 @@ export async function buildPromptList(ctx: RadarCtx, filters: RadarFilters, p: P
   }
 }
 
+// ── Response rows -> DTO (shared by prompt detail and the answer viewer) ──────
+
+type ResponseRecord = Awaited<ReturnType<typeof prisma.brandRadarResponse.findMany>>[number]
+
+function parseAliases(raw: string): string[] {
+  try {
+    const v: unknown = JSON.parse(raw || '[]')
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
+  } catch {
+    return []
+  }
+}
+
+async function toResponseDTOs(
+  base: { organizationId: string; projectId: string },
+  rows: ResponseRecord[],
+  flags: FlagSources,
+): Promise<ResponseDTO[]> {
+  const ids = rows.map((h) => h.id)
+  const [hm, hc] = ids.length
+    ? await Promise.all([
+        prisma.brandRadarMention.findMany({ where: { ...base, responseId: { in: ids } } }),
+        prisma.brandRadarCitation.findMany({ where: { ...base, responseId: { in: ids } }, orderBy: { position: 'asc' } }),
+      ])
+    : [[], []]
+  return rows.map((h) => {
+    const provider = (isProviderKey(h.provider) ? h.provider : 'openai') as ProviderKey
+    const cites = hc.filter((c) => c.responseId === h.id)
+    return {
+      id: h.id, runId: h.runId, promptId: h.promptId, provider, providerLabel: PROVIDERS[provider].label,
+      model: h.model,
+      collectionMethod: oneOf<CollectionMethod>(['api_simulated', 'observed_serp', 'imported'], h.collectionMethod, 'api_simulated'),
+      status: oneOf<TaskStatus>(['PENDING', 'RUNNING', 'DONE', 'FAILED', 'SKIPPED'], h.status, 'FAILED'),
+      error: h.error, country: h.country, language: h.language, responseText: h.responseText,
+      collectedAt: h.collectedAt ? h.collectedAt.toISOString() : null, costUsd: h.costUsd,
+      brandMentioned: h.brandMentioned, brandOccurrences: h.brandOccurrences, brandRecommended: h.brandRecommended, ownedCited: h.ownedCited,
+      sampleIndex: h.sampleIndex,
+      mentions: hm.filter((m) => m.responseId === h.id).map((m) => {
+        const isComp = m.entityType === 'competitor'
+        return {
+          entityType: isComp ? 'competitor' as const : 'brand' as const,
+          key: m.entityKey, name: m.entityName, occurrences: m.occurrences, recommended: m.recommended, compared: m.compared,
+          position: m.position, snippet: m.snippet,
+          aliases: parseAliases(m.matchedAliases),
+          linked: isComp
+            ? cites.some((c) => c.ownerType === 'competitor' && !!c.competitorId && c.competitorId === (m.competitorId || m.entityKey))
+            : cites.some((c) => c.ownerType === 'own'),
+        }
+      }),
+      citations: cites.map((c) => {
+        const key = normalizeDomain(c.domain) || c.domain.toLowerCase()
+        return {
+          url: c.url, domain: c.domain, title: c.title,
+          ownerType: oneOf<CitationOwner>(['own', 'competitor', 'external'], c.ownerType, 'external'), position: c.position,
+          vendor: flags.vendors.get(key) ?? null, isOwnPbn: flags.pbn.has(key),
+        }
+      }),
+    }
+  })
+}
+
 // ── Prompt detail ────────────────────────────────────────────────────────────
 
 const HISTORY_CAP = 50
@@ -412,34 +473,7 @@ export async function buildPromptDetail(ctx: RadarCtx, filters: RadarFilters, pr
     ...(filters.provider !== 'all' ? { provider: filters.provider } : {}),
   }
   const hist = await prisma.brandRadarResponse.findMany({ where: hw, orderBy: { createdAt: 'desc' }, take: HISTORY_CAP })
-  const histIds = hist.map((h) => h.id)
-  const [hm, hc] = histIds.length
-    ? await Promise.all([
-        prisma.brandRadarMention.findMany({ where: { ...base, responseId: { in: histIds } } }),
-        prisma.brandRadarCitation.findMany({ where: { ...base, responseId: { in: histIds } }, orderBy: { position: 'asc' } }),
-      ])
-    : [[], []]
-  const history: ResponseDTO[] = hist.map((h) => {
-    const provider = (isProviderKey(h.provider) ? h.provider : 'openai') as ProviderKey
-    return {
-      id: h.id, runId: h.runId, promptId: h.promptId, provider, providerLabel: PROVIDERS[provider].label,
-      model: h.model,
-      collectionMethod: oneOf<CollectionMethod>(['api_simulated', 'observed_serp', 'imported'], h.collectionMethod, 'api_simulated'),
-      status: oneOf<TaskStatus>(['PENDING', 'RUNNING', 'DONE', 'FAILED', 'SKIPPED'], h.status, 'FAILED'),
-      error: h.error, country: h.country, language: h.language, responseText: h.responseText,
-      collectedAt: h.collectedAt ? h.collectedAt.toISOString() : null, costUsd: h.costUsd,
-      brandMentioned: h.brandMentioned, brandOccurrences: h.brandOccurrences, brandRecommended: h.brandRecommended, ownedCited: h.ownedCited,
-      mentions: hm.filter((m) => m.responseId === h.id).map((m) => ({
-        entityType: m.entityType === 'competitor' ? 'competitor' as const : 'brand' as const,
-        key: m.entityKey, name: m.entityName, occurrences: m.occurrences, recommended: m.recommended, compared: m.compared,
-        position: m.position, snippet: m.snippet,
-      })),
-      citations: hc.filter((c) => c.responseId === h.id).map((c) => ({
-        url: c.url, domain: c.domain, title: c.title,
-        ownerType: oneOf<CitationOwner>(['own', 'competitor', 'external'], c.ownerType, 'external'), position: c.position,
-      })),
-    }
-  })
+  const history = await toResponseDTOs(base, hist, flags)
 
   return {
     prompt: toPromptDTO(row),
@@ -449,6 +483,143 @@ export async function buildPromptDetail(ctx: RadarCtx, filters: RadarFilters, pr
     trend: promptEntityTrend(ds, runs),
     citedDomains: cited,
     history,
+  }
+}
+
+// ── Full-answer viewer ───────────────────────────────────────────────────────
+
+const VIEWER_RUN_CAP = 30
+
+/**
+ * One prompt, one run, one AI platform: every repeat ask with its full text, highlighted names and cited pages.
+ * runId / provider default to the newest run and the first platform with answers (the provider filter wins when set).
+ * Country, language and date filters apply; the provider filter only picks the default platform.
+ */
+export async function buildResponseViewer(
+  ctx: RadarCtx,
+  filters: RadarFilters,
+  promptId: string,
+  wantRunId: string | null,
+  wantProvider: string | null,
+): Promise<ResponseViewerDTO | null> {
+  const base = { organizationId: ctx.orgId, projectId: ctx.project.id }
+  const [row, profile] = await Promise.all([
+    prisma.brandRadarPrompt.findFirst({ where: { ...base, id: promptId } }),
+    prisma.brandRadarProfile.findFirst({ where: base, select: { brandName: true } }),
+  ])
+  if (!row) return null
+
+  const range = parseDayRange(filters.from, filters.to)
+  const dateWhere = range.gte || range.lte ? { gte: range.gte, lte: range.lte } : undefined
+  const where: Prisma.BrandRadarResponseWhereInput = {
+    ...base, promptId, status: { in: ['DONE', 'FAILED', 'SKIPPED'] },
+    ...(dateWhere ? { createdAt: dateWhere } : {}),
+    ...(filters.country !== 'all' ? { country: filters.country } : {}),
+    ...(filters.language !== 'all' ? { language: filters.language } : {}),
+  }
+
+  const groups = await prisma.brandRadarResponse.groupBy({
+    by: ['runId', 'provider'], where, _count: { _all: true }, _max: { createdAt: true },
+  })
+  const runMap = new Map<string, { runId: string; last: number; providers: Set<ProviderKey>; responses: number }>()
+  for (const g of groups) {
+    if (!isProviderKey(g.provider)) continue
+    const cur = runMap.get(g.runId) ?? { runId: g.runId, last: 0, providers: new Set<ProviderKey>(), responses: 0 }
+    cur.providers.add(g.provider)
+    cur.responses += g._count._all
+    cur.last = Math.max(cur.last, g._max.createdAt ? g._max.createdAt.getTime() : 0)
+    runMap.set(g.runId, cur)
+  }
+  const runIdsAll = Array.from(runMap.keys())
+  const runRows = runIdsAll.length
+    ? await prisma.brandRadarRun.findMany({ where: { ...base, id: { in: runIdsAll } }, select: { id: true, startedAt: true } })
+    : []
+  const startedBy = new Map(runRows.map((r) => [r.id, r.startedAt.getTime()]))
+  const runs = Array.from(runMap.values())
+    .map((r) => ({ ...r, at: startedBy.get(r.runId) ?? r.last }))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, VIEWER_RUN_CAP)
+
+  const shell: ResponseViewerDTO = {
+    prompt: { id: row.id, text: row.text, country: row.country, language: row.language, topic: row.topic },
+    brandName: profile?.brandName ?? '',
+    runs: runs.map((r) => ({
+      runId: r.runId, date: new Date(r.at).toISOString(),
+      providers: PROVIDER_KEYS.filter((k) => r.providers.has(k)), responses: r.responses,
+    })),
+    runId: null, providers: [], provider: null, samples: [],
+    summary: { asked: 0, brandMentioned: 0, brandRecommended: 0, ownedCited: 0, entities: [], domains: [] },
+  }
+  if (runs.length === 0) return shell
+
+  const run = (wantRunId && runs.find((r) => r.runId === wantRunId)) || runs[0]
+  const [doneByProv, flags] = await Promise.all([
+    prisma.brandRadarResponse.groupBy({
+      by: ['provider', 'brandMentioned'], where: { ...where, runId: run.runId, status: 'DONE' }, _count: { _all: true },
+    }),
+    loadFlagSources(ctx.orgId),
+  ])
+  const providers: ResponseViewerDTO['providers'] = []
+  for (const key of PROVIDER_KEYS) {
+    if (!run.providers.has(key)) continue
+    const gs = doneByProv.filter((g) => g.provider === key)
+    providers.push({
+      provider: key, label: PROVIDERS[key].label, method: PROVIDERS[key].method,
+      responses: gs.reduce((n, g) => n + g._count._all, 0),
+      brandMentions: gs.filter((g) => g.brandMentioned === true).reduce((n, g) => n + g._count._all, 0),
+    })
+  }
+  const pick = (k: string | null) => (k ? providers.find((p) => p.provider === k) : undefined)
+  const filterProv = filters.provider !== 'all' ? filters.provider : null
+  const chosen = pick(wantProvider) || pick(filterProv) || providers.find((p) => p.responses > 0) || providers[0]
+  if (!chosen) return { ...shell, runId: run.runId }
+
+  const rows = await prisma.brandRadarResponse.findMany({
+    where: { ...where, runId: run.runId, provider: chosen.provider },
+    orderBy: [{ sampleIndex: 'asc' }, { createdAt: 'asc' }],
+  })
+  const samples = await toResponseDTOs(base, rows, flags)
+  const done = samples.filter((r) => r.status === 'DONE')
+
+  const ent = new Map<string, ResponseViewerDTO['summary']['entities'][number] & { posSum: number; posN: number }>()
+  const dom = new Map<string, ResponseViewerDTO['summary']['domains'][number]>()
+  for (const r of done) {
+    for (const m of r.mentions) {
+      const cur = ent.get(m.key) ?? { key: m.key, name: m.name, entityType: m.entityType, answers: 0, recommended: 0, avgPosition: null, posSum: 0, posN: 0 }
+      cur.answers += 1
+      if (m.recommended) cur.recommended += 1
+      if (m.position !== null) { cur.posSum += m.position; cur.posN += 1 }
+      ent.set(m.key, cur)
+    }
+    const seen = new Set<string>()
+    for (const c of r.citations) {
+      const key = normalizeDomain(c.domain) || c.domain.toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      const cur = dom.get(key) ?? { domain: key, ownerType: c.ownerType, answers: 0, vendor: c.vendor, isOwnPbn: c.isOwnPbn }
+      cur.answers += 1
+      dom.set(key, cur)
+    }
+  }
+  const entities = Array.from(ent.values())
+    .map(({ posSum, posN, ...e }) => ({ ...e, avgPosition: posN > 0 ? posSum / posN : null }))
+    .sort((a, b) => (a.entityType === 'brand' ? -1 : b.entityType === 'brand' ? 1 : b.answers - a.answers))
+  const domains = Array.from(dom.values()).sort((a, b) => b.answers - a.answers || a.domain.localeCompare(b.domain))
+
+  return {
+    ...shell,
+    runId: run.runId,
+    providers,
+    provider: chosen.provider,
+    samples,
+    summary: {
+      asked: done.length,
+      brandMentioned: done.filter((r) => r.brandMentioned === true).length,
+      brandRecommended: done.filter((r) => r.brandRecommended === true).length,
+      ownedCited: done.filter((r) => r.ownedCited === true).length,
+      entities,
+      domains,
+    },
   }
 }
 

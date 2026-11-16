@@ -363,8 +363,47 @@ export interface ResponseDTO {
   brandOccurrences: number | null
   brandRecommended: boolean | null
   ownedCited: boolean | null
-  mentions: Array<{ entityType: 'brand' | 'competitor'; key: string; name: string; occurrences: number; recommended: boolean; compared: boolean; position: number | null; snippet: string }>
-  citations: Array<{ url: string; domain: string; title: string; ownerType: CitationOwner; position: number }>
+  /** repeat-ask number inside the run (0-based) */
+  sampleIndex: number
+  mentions: Array<{
+    entityType: 'brand' | 'competitor'; key: string; name: string; occurrences: number; recommended: boolean; compared: boolean; position: number | null; snippet: string
+    /** the exact names / aliases found in the text (lowercase), used to highlight them */
+    aliases: string[]
+    /** true when the answer also links to this entity's own website */
+    linked: boolean
+  }>
+  citations: Array<{
+    url: string; domain: string; title: string; ownerType: CitationOwner; position: number
+    /** set when the cited domain is in the Backlink Management vendor library */
+    vendor: CitedDomainRow['vendor']
+    /** true when the cited domain is one of the organization's own PBN sites */
+    isOwnPbn: boolean
+  }>
+}
+
+/** Full-answer viewer: one prompt, one run, one AI platform, every repeat ask */
+export interface ResponseViewerDTO {
+  prompt: { id: string; text: string; country: string; language: string; topic: string }
+  brandName: string
+  /** runs that hold answers for this prompt, newest first (capped) */
+  runs: Array<{ runId: string; date: string; providers: ProviderKey[]; responses: number }>
+  runId: string | null
+  /** platforms answered in the selected run */
+  providers: Array<{ provider: ProviderKey; label: string; method: CollectionMethod; responses: number; brandMentions: number }>
+  provider: ProviderKey | null
+  /** every attempt for the selected run + platform, by sampleIndex */
+  samples: ResponseDTO[]
+  /** counts over the DONE samples above */
+  summary: {
+    asked: number
+    brandMentioned: number
+    brandRecommended: number
+    ownedCited: number
+    /** brand first, then competitors by answers mentioning them */
+    entities: Array<{ key: string; name: string; entityType: 'brand' | 'competitor'; answers: number; recommended: number; avgPosition: number | null }>
+    /** domains cited across samples, most answers first */
+    domains: Array<{ domain: string; ownerType: CitationOwner; answers: number; vendor: CitedDomainRow['vendor']; isOwnPbn: boolean }>
+  }
 }
 
 /** Per-prompt page: how often we appear, how often each competitor appears, who gets recommended, which sites are cited */

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Download, FileUp, Info, Plus, Search as SearchIcon } from "lucide-react";
+import { Download, Eye, FileUp, Info, Plus, Search as SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Chip, EmptyState, Panel, SearchPill, Segmented } from "@/components/ds";
@@ -13,6 +13,7 @@ import {
 import { useUrlState } from "@/hooks/use-url-state";
 import { api, fmtDateTime, fmtNum, fmtPct, isSmallSample, postJson, radarQuery, type TabProps } from "./shared";
 import PromptDetail from "./PromptDetail";
+import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
 import {
   GeneratePromptsDialog, ImportPromptsDialog, LoadState, Pager, PromptFormDialog, SELECT_CLS, useApiData,
 } from "./PromptDialogs";
@@ -61,6 +62,7 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<"" | "add" | "generate" | "import">("");
+  const [viewing, setViewing] = useState<ViewerTarget | null>(null);
   const [editing, setEditing] = useState<PromptRowDTO | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkPriority, setBulkPriority] = useState<Priority>("high");
@@ -249,7 +251,13 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
                         {r.stats.topCompetitor ? `${r.stats.topCompetitor.name} · ${fmtPct(r.stats.topCompetitor.mentionRate)}` : "-"}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs">{fmtDateTime(r.stats.lastCollectedAt)}</TableCell>
-                      <TableCell><Button size="sm" variant="ghost" onClick={() => setEditing(r)}>แก้ไข</Button></TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <Button size="sm" variant="ghost" disabled={r.stats.responses === 0} title="ดูคำตอบเต็มของ AI"
+                          onClick={() => setViewing({ promptId: r.id })}>
+                          <Eye className="mr-1 h-3.5 w-3.5" /> ดูคำตอบ
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(r)}>แก้ไข</Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -268,6 +276,7 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
       ) : null}
       {dialog === "generate" ? <GeneratePromptsDialog projectId={projectId} onClose={() => setDialog("")} onSaved={saved} /> : null}
       {dialog === "import" ? <ImportPromptsDialog projectId={projectId} onClose={() => setDialog("")} onSaved={saved} /> : null}
+      <ResponseViewer projectId={projectId} filters={filters} target={viewing} onClose={() => setViewing(null)} />
     </div>
   );
 }
