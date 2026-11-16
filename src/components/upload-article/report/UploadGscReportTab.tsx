@@ -163,7 +163,7 @@ export default function UploadGscReportTab({
       const r = await fetch(`/api/upload-article/clients/${clientId}/report/trackers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword, url, ...(title ? { title } : {}) }),
+        body: JSON.stringify({ keyword, url, ...(title ? { title } : {}), ...(ownerFilter ? { ownerTagId: ownerFilter } : {}) }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "บันทึก Monitor ไม่สำเร็จ"); return; }
@@ -172,7 +172,7 @@ export default function UploadGscReportTab({
     } catch (e) {
       toast.error(`บันทึก Monitor ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [clientId]);
+  }, [clientId, ownerFilter]);
 
   const loadSites = useCallback(async () => {
     setSitesLoading(true);
@@ -414,6 +414,8 @@ export default function UploadGscReportTab({
                     periodParams={trackerPeriod}
                     draft={trackerDraft}
                     onDraftConsumed={() => setTrackerDraft(null)}
+                    ownerTags={ownerTags}
+                    defaultOwnerTagId={ownerFilter}
                   />
                 )}
                 {subTab === "queries" && (

@@ -25,7 +25,30 @@ export interface UploadGscTracker {
   title?: string
   /** URL แบบ ?p=123 ที่ผู้ใช้เลือกไว้ตอนบันทึก (มีเมื่อระบบแปลงเป็นลิงก์จริงแล้วเก็บลง url) — ใช้บอกว่าแถวนั้น "ติดตามแล้ว" */
   sourceUrl?: string
+  /** ownerTag.id ของผู้ดูแลรายการนี้ (pushPrefs.ownerTags) — ไม่มี = ยังไม่ระบุ; ใช้กรองแท็บ Keyword ที่ติดตาม */
+  ownerTagId?: string
+  /** ชื่อกลุ่มที่ทีมตั้งเอง (เช่น "Blog 45 - cpas") — ไม่มี = อยู่นอกกลุ่ม; ใช้จัดแถวในตารางเท่านั้น */
+  group?: string
   createdAt: string
+}
+
+export const UPLOAD_MAX_TRACKER_GROUP = 60
+
+/** ชื่อกลุ่ม: ยุบช่องว่าง ตัดหัวท้าย ตัดตามเพดาน — ไม่ใช่ string = '' (นอกกลุ่ม) */
+export function normalizeTrackerGroup(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  return raw.normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, UPLOAD_MAX_TRACKER_GROUP)
+}
+
+const MAX_OWNER_TAG_ID = 64
+
+/** ownerTag.id ที่เก็บได้ — string สั้น ๆ ไม่ว่าง; ถ้าส่ง validIds มาต้องอยู่ในชุดนั้นด้วย ไม่ผ่าน = '' */
+export function normalizeTrackerOwner(raw: unknown, validIds?: ReadonlySet<string>): string {
+  if (typeof raw !== 'string') return ''
+  const id = raw.trim()
+  if (!id || id.length > MAX_OWNER_TAG_ID) return ''
+  if (validIds && !validIds.has(id)) return ''
+  return id
 }
 
 export function trackerKind(t: Pick<UploadGscTracker, 'keyword' | 'url'>): GscTrackerKind {
@@ -145,7 +168,13 @@ export function readGscTrackers(raw: unknown): UploadGscTracker[] {
     seenKeys.add(key)
     const title = normalizeTrackerTitle(rec.title)
     const sourceUrl = normalizeSourceUrl(rec.sourceUrl, url)
-    out.push({ id, keyword, url, ...(title ? { title } : {}), ...(sourceUrl ? { sourceUrl } : {}), createdAt: typeof rec.createdAt === 'string' ? rec.createdAt : '' })
+    const ownerTagId = normalizeTrackerOwner(rec.ownerTagId)
+    const group = normalizeTrackerGroup(rec.group)
+    out.push({
+      id, keyword, url,
+      ...(title ? { title } : {}), ...(sourceUrl ? { sourceUrl } : {}), ...(ownerTagId ? { ownerTagId } : {}), ...(group ? { group } : {}),
+      createdAt: typeof rec.createdAt === 'string' ? rec.createdAt : '',
+    })
     if (out.length >= UPLOAD_MAX_GSC_TRACKERS) break
   }
   return out
@@ -178,9 +207,11 @@ function isTrackerKind(v: unknown): v is GscTrackerKind {
  */
 export function addGscTracker(
   existing: UploadGscTracker[],
-  input: { kind?: unknown; keyword?: unknown; url?: unknown; title?: unknown; sourceUrl?: unknown },
+  input: { kind?: unknown; keyword?: unknown; url?: unknown; title?: unknown; sourceUrl?: unknown; ownerTagId?: unknown; group?: unknown },
   newId: () => string,
   nowIso: string,
+  /** ownerTag.id ที่มีอยู่จริง — ownerTagId ที่ไม่อยู่ในชุดนี้ถูกทิ้ง (ไม่ส่ง = ไม่เก็บผู้ดูแลเลย) */
+  validOwnerIds?: ReadonlySet<string>,
 ): AddGscTrackerResult {
   const kindIn = isTrackerKind(input.kind) ? input.kind : null
   const wantKeyword = kindIn !== 'page'
@@ -202,12 +233,50 @@ export function addGscTracker(
   if (existing.length >= UPLOAD_MAX_GSC_TRACKERS) return { ok: false, error: 'limit' }
   let id = newId()
   for (let i = 0; i < 5 && existing.some((t) => t.id === id); i++) id = newId()
-  const tracker: UploadGscTracker = { id, keyword, url, ...(title ? { title } : {}), ...(sourceUrl ? { sourceUrl } : {}), createdAt: nowIso }
+  const ownerTagId = validOwnerIds ? normalizeTrackerOwner(input.ownerTagId, validOwnerIds) : ''
+  const group = normalizeTrackerGroup(input.group)
+  const tracker: UploadGscTracker = {
+    id, keyword, url,
+    ...(title ? { title } : {}), ...(sourceUrl ? { sourceUrl } : {}), ...(ownerTagId ? { ownerTagId } : {}), ...(group ? { group } : {}),
+    createdAt: nowIso,
+  }
   return { ok: true, trackers: [tracker, ...existing], tracker }
 }
 
 export function removeGscTracker(existing: UploadGscTracker[], id: string): UploadGscTracker[] {
-  return existing.filter((t) => t.id !== id)
+  return removeGscTrackers(existing, [id])
+}
+
+export function removeGscTrackers(existing: UploadGscTracker[], ids: readonly string[]): UploadGscTracker[] {
+  const drop = new Set(ids)
+  return existing.filter((t) => !drop.has(t.id))
+}
+
+/**
+ * แก้ผู้ดูแล/กลุ่มของหลายรายการพร้อมกัน (ไม่แก้ array เดิม) — เฉพาะช่องที่ส่งมา (undefined = ไม่แตะ)
+ * - ownerTagId ว่าง/ไม่อยู่ใน validOwnerIds = ล้างผู้ดูแล
+ * - group ว่าง = เอาออกจากกลุ่ม
+ * คืน null ถ้าไม่พบรายการใดเลยใน ids
+ */
+export function updateGscTrackers(
+  existing: UploadGscTracker[],
+  ids: readonly string[],
+  patch: { ownerTagId?: unknown; group?: unknown },
+  validOwnerIds: ReadonlySet<string>,
+): UploadGscTracker[] | null {
+  const target = new Set(ids)
+  if (!existing.some((t) => target.has(t.id))) return null
+  const setOwner = patch.ownerTagId !== undefined
+  const setGroup = patch.group !== undefined
+  const owner = setOwner ? normalizeTrackerOwner(patch.ownerTagId, validOwnerIds) : ''
+  const group = setGroup ? normalizeTrackerGroup(patch.group) : ''
+  return existing.map((t) => {
+    if (!target.has(t.id)) return t
+    const next: UploadGscTracker = { ...t }
+    if (setOwner) { if (owner) next.ownerTagId = owner; else delete next.ownerTagId }
+    if (setGroup) { if (group) next.group = group; else delete next.group }
+    return next
+  })
 }
 
 // ── ผลรายวันของ 1 รายการ ─────────────────────────────────────────────────────────

@@ -7,13 +7,32 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertCircle, BookmarkPlus, Loader2, RefreshCw, Trash2, Search } from "lucide-react";
+import { AlertCircle, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, Link2, Loader2, Pencil, RefreshCw, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AreaChart, EmptyState, Panel, Segmented } from "@/components/ds";
 import {
-  UPLOAD_MAX_GSC_TRACKERS, UPLOAD_MAX_TRACKER_KEYWORD, UPLOAD_MAX_TRACKER_URL, trackerKind,
+  UPLOAD_MAX_GSC_TRACKERS, UPLOAD_MAX_TRACKER_GROUP, UPLOAD_MAX_TRACKER_KEYWORD, UPLOAD_MAX_TRACKER_URL, trackerKind,
   type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse, type UploadGscTracker,
 } from "@/lib/upload-article/gsc-trackers";
+import type { UploadOwnerTag } from "@/lib/upload-article/types";
+
+/** ค่าพิเศษของตัวกรองผู้ดูแล: "" = ทุกคน, NO_OWNER = รายการที่ยังไม่ระบุผู้ดูแล */
+const NO_OWNER = "__none__";
+
+/** กลุ่มที่ย่อไว้ (เก็บชื่อกลุ่ม, "" = ไม่มีกลุ่ม) จำแยกต่อลูกค้าในเบราว์เซอร์นี้ — ไม่มี/อ่านไม่ได้ = ขยายทั้งหมด */
+function collapsedStorageKey(clientId: string): string { return `mars_tracker_groups_collapsed_${clientId}`; }
+function readCollapsed(clientId: string): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(collapsedStorageKey(clientId));
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+function writeCollapsed(clientId: string, ids: Set<string>) {
+  try { window.localStorage.setItem(collapsedStorageKey(clientId), JSON.stringify(Array.from(ids))); } catch { /* ไม่มีที่เก็บ — ใช้ได้แค่รอบนี้ */ }
+}
 
 export interface TrackerArticleOption { title: string; url: string }
 export interface TrackerDraft { keyword: string; url?: string; title?: string }
@@ -78,9 +97,13 @@ function Stat({ label, value, change }: { label: string; value: string; change: 
 }
 
 export default function GscTrackedKeywords({
-  clientId, trackers, onTrackersChange, articles, periodParams, draft, onDraftConsumed,
+  clientId, trackers, onTrackersChange, articles, periodParams, draft, onDraftConsumed, ownerTags = [], defaultOwnerTagId = "",
 }: {
   clientId: string;
+  /** ผู้ดูแลที่ทีมตั้งไว้ในหน้า Report — ใช้ระบุและกรองผู้ดูแลของแต่ละรายการ */
+  ownerTags?: UploadOwnerTag[];
+  /** ผู้ดูแลที่เลือกไว้ตอนเพิ่มรายการใหม่ (เช่น ผู้ดูแลที่กรองรายงานอยู่) */
+  defaultOwnerTagId?: string;
   trackers: UploadGscTracker[];
   onTrackersChange: (trackers: UploadGscTracker[]) => void;
   articles: TrackerArticleOption[];
@@ -99,7 +122,18 @@ export default function GscTrackedKeywords({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [formOwner, setFormOwner] = useState(defaultOwnerTagId);
+  const [formGroup, setFormGroup] = useState("");
   const pickerRef = useRef<HTMLDivElement>(null);
+
+  const ownerIds = useMemo(() => new Set(ownerTags.map((t) => t.id)), [ownerTags]);
+  const ownerName = useCallback((id?: string) => (id ? ownerTags.find((t) => t.id === id)?.name : undefined), [ownerTags]);
+
+  // ผู้ดูแลที่เลือกในฟอร์มถูกลบไปแล้ว → กลับเป็นไม่ระบุ
+  useEffect(() => {
+    if (formOwner && !ownerIds.has(formOwner)) setFormOwner("");
+  }, [ownerIds, formOwner]);
+  useEffect(() => { if (defaultOwnerTagId && ownerIds.has(defaultOwnerTagId)) setFormOwner(defaultOwnerTagId); }, [defaultOwnerTagId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ปิดรายการบทความเมื่อคลิกนอกกล่อง / กด Esc
   useEffect(() => {
@@ -147,6 +181,8 @@ export default function GscTrackedKeywords({
     if (mode === "pair" && !u) { toast.error("เลือกบทความหรือกรอก URL ของหน้าที่ต้องการติดตาม"); return; }
     const kind: GscTrackerKind = mode === "keyword" ? "keyword" : mode === "pair" ? "pair" : "page";
     const payload: Record<string, string> = { kind };
+    if (formOwner) payload.ownerTagId = formOwner;
+    if (formGroup.trim()) payload.group = formGroup.trim();
     if (kind !== "page") payload.keyword = kw;
     if (kind !== "keyword") { payload.url = u; if (title) payload.title = title; }
     setSaving(true);
@@ -205,28 +241,141 @@ export default function GscTrackedKeywords({
 
   const perfById = useMemo(() => new Map(perf.map((p) => [p.id, p])), [perf]);
 
-  async function remove(t: UploadGscTracker) {
-    const kind = trackerKind(t);
-    const label = kind === "keyword" ? `keyword "${t.keyword}" (ทั้งเว็บ)`
-      : kind === "page" ? `หน้า "${t.title || t.url}"`
-      : `"${t.keyword}" ของหน้านี้`;
-    if (!window.confirm(`เลิกติดตาม ${label}?`)) return;
+  // ── กรองตามผู้ดูแล ── (ผู้ดูแลที่ถูกลบไปแล้ว = ยังไม่ระบุ)
+  const [ownerFilter, setOwnerFilter] = useState("");
+  useEffect(() => {
+    if (ownerFilter && ownerFilter !== NO_OWNER && !ownerIds.has(ownerFilter)) setOwnerFilter("");
+  }, [ownerIds, ownerFilter]);
+  const effectiveOwner = useCallback((t: UploadGscTracker) => (t.ownerTagId && ownerIds.has(t.ownerTagId) ? t.ownerTagId : ""), [ownerIds]);
+  const visibleTrackers = useMemo(() => {
+    if (!ownerFilter) return trackers;
+    return trackers.filter((t) => (ownerFilter === NO_OWNER ? !effectiveOwner(t) : effectiveOwner(t) === ownerFilter));
+  }, [trackers, ownerFilter, effectiveOwner]);
+  const ownerCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of trackers) { const o = effectiveOwner(t) || NO_OWNER; m.set(o, (m.get(o) ?? 0) + 1); }
+    return m;
+  }, [trackers, effectiveOwner]);
+
+  // ── กลุ่ม + แถวที่เปิดกราฟ + เลือกหลายแถว ──
+  const groupNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of trackers) if (t.group) set.add(t.group);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "th", { numeric: true }));
+  }, [trackers]);
+  const groups = useMemo(() => {
+    const byName = new Map<string, UploadGscTracker[]>();
+    for (const t of visibleTrackers) {
+      const g = t.group || "";
+      const list = byName.get(g);
+      if (list) list.push(t); else byName.set(g, [t]);
+    }
+    const named = Array.from(byName.keys()).filter(Boolean).sort((a, b) => a.localeCompare(b, "th", { numeric: true }));
+    const out = named.map((g) => ({ name: g, items: byName.get(g)! }));
+    if (byName.has("")) out.push({ name: "", items: byName.get("")! });
+    return out;
+  }, [visibleTrackers]);
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  useEffect(() => { setCollapsedGroups(readCollapsed(clientId)); }, [clientId]);
+  function toggleGroup(g: string) {
+    const next = new Set(collapsedGroups);
+    if (next.has(g)) next.delete(g); else next.add(g);
+    setCollapsedGroups(next);
+    writeCollapsed(clientId, next);
+  }
+  const allGroupsCollapsed = groups.length > 0 && groups.every((g) => collapsedGroups.has(g.name));
+  function setAllGroups(collapse: boolean) {
+    const next = new Set(collapsedGroups);
+    for (const g of groups) { if (collapse) next.add(g.name); else next.delete(g.name); }
+    setCollapsedGroups(next);
+    writeCollapsed(clientId, next);
+  }
+
+  const [openRows, setOpenRows] = useState<Set<string>>(() => new Set());
+  function toggleRow(id: string) {
+    setOpenRows((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  // รายการที่ถูกลบ/ซ่อนด้วยตัวกรอง ไม่นับว่าเลือกอยู่
+  useEffect(() => {
+    const visible = new Set(visibleTrackers.map((t) => t.id));
+    setSelected((prev) => {
+      const next = new Set(Array.from(prev).filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleTrackers]);
+  function toggleSelect(ids: string[], on: boolean) {
+    setSelected((prev) => { const next = new Set(prev); for (const id of ids) { if (on) next.add(id); else next.delete(id); } return next; });
+  }
+
+  const [busy, setBusy] = useState(false);
+  /** แก้ผู้ดูแล/กลุ่มของหลายรายการ — patch มีเฉพาะช่องที่จะเปลี่ยน */
+  async function patchTrackers(ids: string[], patch: { ownerTagId?: string; group?: string }, okText?: string): Promise<boolean> {
+    if (ids.length === 0) return false;
+    setBusy(true);
     try {
-      const r = await fetch(`${base}?id=${encodeURIComponent(t.id)}`, { method: "DELETE" });
+      const r = await fetch(base, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, ...patch }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d?.error || "บันทึกไม่สำเร็จ"); return false; }
+      if (Array.isArray(d.trackers)) onTrackersChange(d.trackers);
+      if (okText) toast.success(okText);
+      return true;
+    } catch (e) {
+      toast.error(`บันทึกไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeMany(ids: string[], label: string) {
+    if (ids.length === 0 || !window.confirm(`เลิกติดตาม ${label}?`)) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${base}?ids=${encodeURIComponent(ids.join(","))}`, { method: "DELETE" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "ลบไม่สำเร็จ"); return; }
       if (Array.isArray(d.trackers)) onTrackersChange(d.trackers);
       toast.success("เลิกติดตามแล้ว");
     } catch (e) {
       toast.error(`ลบไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
     }
   }
+
+  function remove(t: UploadGscTracker) {
+    const kind = trackerKind(t);
+    const label = kind === "keyword" ? `keyword "${t.keyword}" (ทั้งเว็บ)`
+      : kind === "page" ? `หน้า "${t.title || t.url}"`
+      : `"${t.keyword}" ของหน้านี้`;
+    void removeMany([t.id], label);
+  }
+
+  async function renameGroup(oldName: string, ids: string[]) {
+    const next = window.prompt("ชื่อกลุ่มใหม่ (เว้นว่าง = เอาออกจากกลุ่ม)", oldName);
+    if (next === null || next.trim() === oldName) return;
+    await patchTrackers(ids, { group: next }, next.trim() ? "เปลี่ยนชื่อกลุ่มแล้ว" : "เอาออกจากกลุ่มแล้ว");
+  }
+
+  // แถบจัดการหลายรายการ
+  const [bulkGroup, setBulkGroup] = useState("");
+  const selectedIds = Array.from(selected);
 
   const name = METRIC_NAME[metric];
   const inputCls = "h-9 rounded-full border border-gray-200 px-3 text-sm bg-white";
 
   return (
     <div className="space-y-4">
+      <datalist id="tracker-group-names">
+        {groupNames.map((g) => <option key={g} value={g} />)}
+      </datalist>
       {/* ── ฟอร์มเพิ่ม ── relative + z-30: การ์ดนี้มี backdrop-blur (สร้าง stacking context) ไม่ยกชั้นไว้ รายการบทความที่เปิดลงมาจะโดนแผงถัดไปทับ */}
       <div className="relative z-30 rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -298,6 +447,19 @@ export default function GscTrackedKeywords({
             />
           )}
 
+          <input value={formGroup} onChange={(e) => setFormGroup(e.target.value)} list="tracker-group-names"
+            maxLength={UPLOAD_MAX_TRACKER_GROUP} aria-label="กลุ่มคำ"
+            onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+            placeholder="กลุ่มคำ (ไม่ใส่ก็ได้)" className={`${inputCls} w-full sm:w-44 text-xs`} />
+
+          {ownerTags.length > 0 && (
+            <select value={formOwner} onChange={(e) => setFormOwner(e.target.value)} aria-label="ผู้ดูแลของรายการนี้"
+              className={`${inputCls} w-full sm:w-44 text-xs ${formOwner ? "text-brand-navy font-semibold" : "text-gray-500"}`}>
+              <option value="">ผู้ดูแล: ยังไม่ระบุ</option>
+              {ownerTags.map((o) => <option key={o.id} value={o.id}>ผู้ดูแล: {o.name}</option>)}
+            </select>
+          )}
+
           <Button size="sm" onClick={() => void submit()} disabled={saving}>
             {saving ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <BookmarkPlus size={12} className="mr-1.5" />}
             บันทึก Monitor
@@ -321,7 +483,7 @@ export default function GscTrackedKeywords({
           <div className="flex items-center gap-2 flex-wrap">
             <Segmented
               size="sm"
-              ariaLabel="เลือกตัวชี้วัด"
+              ariaLabel="ตัวชี้วัดของกราฟ"
               value={metric}
               onChange={setMetric}
               options={[
@@ -332,6 +494,23 @@ export default function GscTrackedKeywords({
               ]}
             />
             {loading && <Loader2 size={14} className="animate-spin text-gray-400" />}
+            <div className="flex items-center gap-2 flex-wrap ml-auto">
+              {ownerTags.length > 0 && (
+                <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} aria-label="กรองตามผู้ดูแล"
+                  className={`h-8 rounded-full border px-3 text-xs bg-white ${ownerFilter ? "border-brand-soft/60 text-brand-blue font-semibold" : "border-gray-200 text-gray-600"}`}>
+                  <option value="">ผู้ดูแล: ทุกคน ({trackers.length})</option>
+                  {ownerTags.map((o) => <option key={o.id} value={o.id}>ผู้ดูแล: {o.name} ({ownerCounts.get(o.id) ?? 0})</option>)}
+                  <option value={NO_OWNER}>ยังไม่ระบุผู้ดูแล ({ownerCounts.get(NO_OWNER) ?? 0})</option>
+                </select>
+              )}
+              {groups.length > 0 && (
+                <Button size="sm" variant="outline" onClick={() => setAllGroups(!allGroupsCollapsed)}>
+                  {allGroupsCollapsed
+                    ? <><ChevronsUpDown size={12} className="mr-1.5" /> ขยายทุกกลุ่ม</>
+                    : <><ChevronsDownUp size={12} className="mr-1.5" /> ย่อทุกกลุ่ม</>}
+                </Button>
+              )}
+            </div>
           </div>
 
           {error && (
@@ -346,56 +525,233 @@ export default function GscTrackedKeywords({
             </div>
           )}
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {trackers.map((t) => {
-              const p = perfById.get(t.id);
-              const kind = trackerKind(t);
-              return (
-                <Panel
-                  key={t.id}
-                  title={
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span className="truncate">{kind === "page" ? (t.title || t.url) : t.keyword}</span>
-                      <span className="shrink-0 rounded-full bg-brand-mist px-2 py-0.5 text-[10px] font-medium text-brand-navy">{KIND_BADGE[kind]}</span>
-                    </span>
-                  }
-                  subtitle={
-                    <span className="block min-w-0">
-                      {kind === "pair" && t.title && <span className="block truncate text-gray-600">{t.title}</span>}
-                      {t.url ? (
-                        <a href={t.url} target="_blank" rel="noopener noreferrer"
-                          className="block truncate text-brand-blue font-mono text-[10px] hover:underline" title={t.url}>{t.url}</a>
-                      ) : (
-                        <span className="block text-gray-500">ทุกหน้าของเว็บ</span>
-                      )}
-                      {p && p.matchUrl && p.matchUrl !== t.url && (
-                        <a href={p.matchUrl} target="_blank" rel="noopener noreferrer"
-                          className="block truncate text-gray-500 font-mono text-[10px] hover:underline" title={p.matchUrl}>ใช้เทียบกับ: {p.matchUrl}</a>
-                      )}
-                    </span>
-                  }
-                  actions={
-                    <Button size="sm" variant="outline" onClick={() => void remove(t)} title="เลิกติดตาม">
-                      <Trash2 size={12} />
-                    </Button>
-                  }
-                >
-                  {!p ? (
-                    <div className="py-10 flex justify-center text-gray-400">
-                      {loading ? <Loader2 size={18} className="animate-spin" /> : <span className="text-xs">ยังไม่มีข้อมูล</span>}
-                    </div>
-                  ) : (
-                    <TrackerBody p={p} kind={kind} metric={metric} name={name} />
-                  )}
-                </Panel>
-              );
-            })}
-          </div>
+          {selectedIds.length > 0 && (
+            <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-2xl border border-brand-soft/40 bg-white/95 px-3 py-2 shadow-sm backdrop-blur">
+              <span className="text-xs font-semibold text-brand-navy">เลือก {selectedIds.length} รายการ</span>
+              <span className="h-5 w-px bg-gray-200" />
+              <input value={bulkGroup} onChange={(e) => setBulkGroup(e.target.value)} list="tracker-group-names"
+                maxLength={UPLOAD_MAX_TRACKER_GROUP} placeholder="ชื่อกลุ่ม เช่น Blog 45 - cpas"
+                className="h-8 w-48 rounded-full border border-gray-200 px-3 text-xs bg-white" />
+              <Button size="sm" variant="outline" disabled={busy || !bulkGroup.trim()}
+                onClick={() => void patchTrackers(selectedIds, { group: bulkGroup }, `ย้ายเข้ากลุ่ม "${bulkGroup.trim()}" แล้ว`).then((ok) => { if (ok) setSelected(new Set()); })}>
+                <FolderInput size={12} className="mr-1.5" /> ย้ายเข้ากลุ่ม
+              </Button>
+              <Button size="sm" variant="outline" disabled={busy}
+                onClick={() => void patchTrackers(selectedIds, { group: "" }, "เอาออกจากกลุ่มแล้ว").then((ok) => { if (ok) setSelected(new Set()); })}>
+                เอาออกจากกลุ่ม
+              </Button>
+              {ownerTags.length > 0 && (
+                <select value="" disabled={busy} aria-label="ตั้งผู้ดูแลให้รายการที่เลือก"
+                  onChange={(e) => { const v = e.target.value; if (v) void patchTrackers(selectedIds, { ownerTagId: v === NO_OWNER ? "" : v }, "ตั้งผู้ดูแลแล้ว"); }}
+                  className="h-8 rounded-full border border-gray-200 px-3 text-xs bg-white">
+                  <option value="">ตั้งผู้ดูแล…</option>
+                  {ownerTags.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  <option value={NO_OWNER}>ล้างผู้ดูแล</option>
+                </select>
+              )}
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void removeMany(selectedIds, `${selectedIds.length} รายการที่เลือก`)}>
+                <Trash2 size={12} className="mr-1.5" /> เลิกติดตาม
+              </Button>
+              <button type="button" className="ml-auto text-xs text-gray-500 hover:text-brand-navy" onClick={() => setSelected(new Set())}>ยกเลิกการเลือก</button>
+            </div>
+          )}
+
+          {visibleTrackers.length === 0 ? (
+            <Panel>
+              <EmptyState
+                icon={<BookmarkPlus className="h-5 w-5" />}
+                title="ไม่มีรายการของผู้ดูแลนี้"
+                description="เลือกผู้ดูแลอื่น หรือระบุผู้ดูแลให้รายการที่ติดตามจากเมนูในแต่ละแถว"
+              />
+            </Panel>
+          ) : (
+            <Panel padded={false} bodyClassName="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-[11px] text-gray-500">
+                    <th className="w-9 px-3 py-2.5 text-left">
+                      <input type="checkbox" aria-label="เลือกทั้งหมด"
+                        checked={visibleTrackers.every((t) => selected.has(t.id))}
+                        onChange={(e) => toggleSelect(visibleTrackers.map((t) => t.id), e.target.checked)} />
+                    </th>
+                    <th className="px-2 py-2.5 text-left font-medium">Keyword / หน้า</th>
+                    <th className="w-10 px-2 py-2.5" />
+                    <th className="px-2 py-2.5 text-right font-medium">คลิก</th>
+                    <th className="px-2 py-2.5 text-right font-medium">การแสดงผล</th>
+                    <th className="px-2 py-2.5 text-right font-medium">CTR</th>
+                    <th className="px-2 py-2.5 text-center font-medium">อันดับเฉลี่ย</th>
+                    <th className="w-24 px-3 py-2.5" />
+                  </tr>
+                </thead>
+                {groups.map((g) => {
+                  const ids = g.items.map((t) => t.id);
+                  const isCollapsed = collapsedGroups.has(g.name);
+                  const sum = sumPerf(g.items.map((t) => perfById.get(t.id)));
+                  return (
+                    <tbody key={g.name || "__ungrouped__"}>
+                      <tr className="border-b border-gray-100 bg-gray-50/80">
+                        <td className="px-3 py-2">
+                          <input type="checkbox" aria-label={`เลือกทั้งกลุ่ม ${g.name || "ไม่มีกลุ่ม"}`}
+                            checked={ids.every((id) => selected.has(id))}
+                            onChange={(e) => toggleSelect(ids, e.target.checked)} />
+                        </td>
+                        <td className="px-2 py-2" colSpan={2}>
+                          <button type="button" onClick={() => toggleGroup(g.name)} aria-expanded={!isCollapsed}
+                            className="flex items-center gap-2 font-semibold text-brand-navy hover:text-brand-blue">
+                            <ChevronDown size={14} className={`text-gray-400 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+                            {isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
+                            <span>{g.name || "ไม่มีกลุ่ม"}</span>
+                            <span className="rounded-full bg-gray-200/80 px-2 py-0.5 text-[10px] font-medium text-gray-600">{g.items.length}</span>
+                          </button>
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums font-semibold">{sum ? fmtNum(sum.clicks) : "—"}</td>
+                        <td className="px-2 py-2 text-right tabular-nums font-semibold">{sum ? fmtNum(sum.impressions) : "—"}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{sum && sum.impressions > 0 ? fmtCtr(sum.ctr) : "—"}</td>
+                        <td className="px-2 py-2 text-center tabular-nums">{sum && sum.impressions > 0 ? fmtPos(sum.position) : "—"}</td>
+                        <td className="px-3 py-2 text-right">
+                          {g.name && (
+                            <button type="button" disabled={busy} onClick={() => void renameGroup(g.name, ids)}
+                              className="text-gray-400 hover:text-brand-blue disabled:opacity-50" title="เปลี่ยนชื่อกลุ่ม / เอาออกจากกลุ่ม">
+                              <Pencil size={13} />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {!isCollapsed && g.items.map((t) => {
+                        const p = perfById.get(t.id);
+                        const kind = trackerKind(t);
+                        const open = openRows.has(t.id);
+                        const owner = ownerName(effectiveOwner(t));
+                        const usable = p && !p.unresolved ? p : null;
+                        const hasImp = !!usable && usable.totals.impressions > 0;
+                        const prevImp = !!usable && usable.prevTotals.impressions > 0;
+                        return (
+                          <TrackerRowFragment key={t.id}>
+                            <tr className={`border-b border-gray-100 ${open ? "bg-brand-mist/40" : "hover:bg-gray-50/60"}`}>
+                              <td className="px-3 py-2 align-top">
+                                <input type="checkbox" aria-label="เลือกรายการนี้" checked={selected.has(t.id)}
+                                  onChange={(e) => toggleSelect([t.id], e.target.checked)} />
+                              </td>
+                              <td className="px-2 py-2 min-w-0 max-w-[22rem]">
+                                <button type="button" onClick={() => toggleRow(t.id)} aria-expanded={open}
+                                  title={open ? "ซ่อนกราฟ" : "ดูกราฟ"} className="flex items-center gap-2 min-w-0 w-full text-left">
+                                  <ChevronDown size={13} className={`shrink-0 text-gray-400 transition-transform ${open ? "" : "-rotate-90"}`} />
+                                  <span className="truncate text-brand-blue hover:underline">{kind === "page" ? (t.title || t.url) : t.keyword}</span>
+                                </button>
+                                <div className="ml-5 mt-0.5 flex flex-wrap items-center gap-1">
+                                  <span className="rounded-full bg-brand-mist px-1.5 py-px text-[10px] text-brand-navy">{KIND_BADGE[kind]}</span>
+                                  {ownerTags.length > 0 ? (
+                                    <select value={effectiveOwner(t)} disabled={busy} aria-label="ผู้ดูแลของรายการนี้"
+                                      onChange={(e) => void patchTrackers([t.id], { ownerTagId: e.target.value })}
+                                      className={`h-5 max-w-[9rem] rounded-full border-0 px-1.5 text-[10px] ${owner ? "bg-indigo-50 text-brand-blue font-medium" : "bg-gray-100 text-gray-500"}`}>
+                                      <option value="">ยังไม่ระบุผู้ดูแล</option>
+                                      {ownerTags.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                                    </select>
+                                  ) : null}
+                                  {kind === "pair" && t.title && <span className="truncate text-[10px] text-gray-500 max-w-[12rem]">{t.title}</span>}
+                                </div>
+                              </td>
+                              <td className="px-2 py-2 text-center">
+                                {t.url ? (
+                                  <a href={t.url} target="_blank" rel="noopener noreferrer" title={t.url} className="inline-flex text-brand-blue hover:opacity-70">
+                                    <Link2 size={15} />
+                                  </a>
+                                ) : <span className="text-[10px] text-gray-400" title="ทุกหน้าของเว็บ">ทั้งเว็บ</span>}
+                              </td>
+                              <td className="px-2 py-2 text-right tabular-nums">
+                                {usable ? <>{fmtNum(usable.totals.clicks)} <Arrow diff={usable.totals.clicks - usable.prevTotals.clicks} text={fmtNum(Math.abs(usable.totals.clicks - usable.prevTotals.clicks))} /></> : <CellPending loading={loading} unresolved={!!p?.unresolved} />}
+                              </td>
+                              <td className="px-2 py-2 text-right tabular-nums">
+                                {usable ? <>{fmtNum(usable.totals.impressions)} <Arrow diff={usable.totals.impressions - usable.prevTotals.impressions} text={fmtNum(Math.abs(usable.totals.impressions - usable.prevTotals.impressions))} /></> : null}
+                              </td>
+                              <td className="px-2 py-2 text-right tabular-nums">{hasImp ? fmtCtr(usable!.totals.ctr) : usable ? "—" : null}</td>
+                              <td className="px-1 py-1 text-center tabular-nums">
+                                {usable ? (
+                                  <span className={`inline-block min-w-[4.5rem] rounded-md px-2 py-1.5 ${hasImp ? positionTone(usable.totals.position) : "bg-gray-50 text-gray-400"}`}>
+                                    {hasImp ? fmtPos(usable.totals.position) : "—"}{" "}
+                                    {hasImp && prevImp && <Arrow lowerIsBetter diff={usable.totals.position - usable.prevTotals.position} text={Math.abs(usable.totals.position - usable.prevTotals.position).toFixed(1)} />}
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <button type="button" disabled={busy} onClick={() => remove(t)} title="เลิกติดตาม"
+                                  className="text-gray-400 hover:text-red-500 disabled:opacity-50">
+                                  <Trash2 size={13} />
+                                </button>
+                              </td>
+                            </tr>
+                            {open && (
+                              <tr className="border-b border-gray-100 bg-white/60">
+                                <td colSpan={8} className="px-4 py-4 md:px-6">
+                                  {p && p.matchUrl && p.matchUrl !== t.url && (
+                                    <p className="mb-2 truncate font-mono text-[10px] text-gray-500" title={p.matchUrl}>ใช้เทียบกับ: {p.matchUrl}</p>
+                                  )}
+                                  {!p ? (
+                                    <div className="py-10 flex justify-center text-gray-400">
+                                      {loading ? <Loader2 size={18} className="animate-spin" /> : <span className="text-xs">ยังไม่มีข้อมูล</span>}
+                                    </div>
+                                  ) : (
+                                    <TrackerBody p={p} kind={kind} metric={metric} name={name} />
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </TrackerRowFragment>
+                        );
+                      })}
+                    </tbody>
+                  );
+                })}
+              </table>
+            </Panel>
+          )}
         </>
       )}
     </div>
   );
 }
+
+/** ตัวครอบแถว (tr ข้อมูล + tr กราฟ) ให้ใส่ key ได้ */
+function TrackerRowFragment({ children }: { children: React.ReactNode }) { return <>{children}</>; }
+
+/** ลูกศรเปลี่ยนแปลงเทียบช่วงก่อนหน้า (เล็ก ๆ ข้างตัวเลข) — อันดับ: ลดลงคือดี */
+function Arrow({ diff, text, lowerIsBetter }: { diff: number; text: string; lowerIsBetter?: boolean }) {
+  if (!diff || !Number.isFinite(diff)) return null;
+  const good = lowerIsBetter ? diff < 0 : diff > 0;
+  const up = diff > 0;
+  return (
+    <span className={`whitespace-nowrap text-[11px] ${good ? "text-emerald-600" : "text-red-500"}`}>
+      {up ? "▲" : "▼"} {text}
+    </span>
+  );
+}
+
+function CellPending({ loading, unresolved }: { loading: boolean; unresolved: boolean }) {
+  if (unresolved) return <span className="text-[10px] text-amber-600" title="ลิงก์ ?p= ยังหา URL จริงไม่เจอ">รอ URL จริง</span>;
+  return loading ? <Loader2 size={12} className="inline animate-spin text-gray-300" /> : <span className="text-gray-300">—</span>;
+}
+
+/** สีพื้นช่องอันดับ: หน้าแรก = เขียว, หน้า 2 = เหลือง, ไกลกว่านั้น = เทา */
+function positionTone(pos: number): string {
+  if (pos <= 10) return "bg-emerald-50 text-emerald-800";
+  if (pos <= 20) return "bg-amber-50 text-amber-800";
+  return "bg-gray-50 text-gray-700";
+}
+
+/** ผลรวมของกลุ่ม — CTR/อันดับถ่วงตามการแสดงผล; ยังไม่มีข้อมูลสักแถว = null */
+function sumPerf(list: (GscTrackerPerformance | undefined)[]): { clicks: number; impressions: number; ctr: number; position: number } | null {
+  let clicks = 0, impressions = 0, posW = 0, any = false;
+  for (const p of list) {
+    if (!p || p.unresolved) continue;
+    any = true;
+    clicks += p.totals.clicks;
+    impressions += p.totals.impressions;
+    posW += p.totals.position * p.totals.impressions;
+  }
+  if (!any) return null;
+  return { clicks, impressions, ctr: impressions > 0 ? clicks / impressions : 0, position: impressions > 0 ? posW / impressions : 0 };
+}
+
 
 const NO_DATA_TEXT: Record<GscTrackerKind, string> = {
   keyword: "Search Console ไม่มีข้อมูลของ keyword นี้บนเว็บนี้ในช่วงที่เลือก",

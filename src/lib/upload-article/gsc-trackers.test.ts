@@ -4,7 +4,7 @@
  */
 import {
   addGscTracker, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
-  readGscTrackers, removeGscTracker, trackerKey, trackerKeys, trackerUrlKey,
+  readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type UploadGscTracker,
 } from './gsc-trackers';
 import { isHostAllowedForSite } from './gsc-tracker-resolve';
@@ -199,6 +199,41 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(past.daily.length === 10, 'lastDataDate: after the range end changes nothing');
   const bad = buildTrackerSeries(rows, url, '2026-03-01', '2026-03-10', 'nope');
   assert(bad.daily.length === 10, 'lastDataDate: invalid value ignored');
+}
+
+// ── owner ──
+{
+  const owners = new Set(['o1', 'o2']);
+  const a = addGscTracker([], { kind: 'keyword', keyword: 'seo', ownerTagId: 'o1' }, () => 'k1', '2026-11-16T00:00:00Z', owners);
+  assert(a.ok && a.tracker.ownerTagId === 'o1', 'owner: add keeps known owner');
+  const b = addGscTracker([], { kind: 'keyword', keyword: 'seo', ownerTagId: 'ghost' }, () => 'k1', '2026-11-16T00:00:00Z', owners);
+  assert(b.ok && b.tracker.ownerTagId === undefined, 'owner: add drops unknown owner');
+  const c = addGscTracker([], { kind: 'keyword', keyword: 'seo', ownerTagId: 'o1' }, () => 'k1', '2026-11-16T00:00:00Z');
+  assert(c.ok && c.tracker.ownerTagId === undefined, 'owner: add without owner set stores none');
+  if (a.ok) {
+    const round = readGscTrackers(JSON.parse(JSON.stringify(a.trackers)));
+    assert(round[0].ownerTagId === 'o1', 'owner: survives read round-trip');
+    const set2 = updateGscTrackers(a.trackers, ['k1'], { ownerTagId: 'o2' }, owners);
+    assert(set2 !== null && set2[0].ownerTagId === 'o2', 'owner: set changes owner');
+    assert(a.trackers[0].ownerTagId === 'o1', 'owner: set does not mutate input');
+    const cleared = updateGscTrackers(a.trackers, ['k1'], { ownerTagId: '' }, owners);
+    assert(cleared !== null && !('ownerTagId' in cleared[0]), 'owner: empty clears owner');
+    const unknown = updateGscTrackers(a.trackers, ['k1'], { ownerTagId: 'ghost' }, owners);
+    assert(unknown !== null && !('ownerTagId' in unknown[0]), 'owner: unknown owner clears');
+    assert(updateGscTrackers(a.trackers, ['nope'], { ownerTagId: 'o1' }, owners) === null, 'owner: missing tracker -> null');
+    const grouped = updateGscTrackers(a.trackers, ['k1'], { group: '  Blog 45  -  cpas ' }, owners);
+    assert(grouped !== null && grouped[0].group === 'Blog 45 - cpas' && grouped[0].ownerTagId === 'o1', 'group: set keeps owner, normalizes name');
+    const ungrouped = grouped && updateGscTrackers(grouped, ['k1'], { group: '' }, owners);
+    assert(!!ungrouped && !('group' in ungrouped[0]), 'group: empty removes group');
+  }
+  assert(readGscTrackers([{ id: 'x', keyword: 'a', url: '', ownerTagId: 42 }])[0].ownerTagId === undefined, 'owner: non-string ignored on read');
+  assert(normalizeTrackerGroup(5) === '' && normalizeTrackerGroup('x'.repeat(100)).length === 60, 'group: non-string empty, capped at 60');
+  const g = addGscTracker([], { kind: 'keyword', keyword: 'cpas', group: 'Blog 45' }, () => 'g1', '2026-11-16T00:00:00Z');
+  assert(g.ok && g.tracker.group === 'Blog 45' && readGscTrackers(g.trackers)[0].group === 'Blog 45', 'group: add stores group, survives read');
+  const many: UploadGscTracker[] = ['a', 'b', 'c'].map((id) => ({ id, keyword: id, url: '', createdAt: '' }));
+  const moved = updateGscTrackers(many, ['a', 'c', 'zzz'], { group: 'G' }, owners);
+  assert(!!moved && moved[0].group === 'G' && moved[1].group === undefined && moved[2].group === 'G', 'group: bulk move only listed ids');
+  assert(removeGscTrackers(many, ['a', 'b']).map((t) => t.id).join() === 'c', 'remove: bulk');
 }
 
 // ── isHostAllowedForSite ──
