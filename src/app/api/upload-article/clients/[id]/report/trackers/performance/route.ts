@@ -11,8 +11,8 @@ import {
   type RawGscRow, type ReportCompareMode, type ReportSearchType,
 } from '@/lib/upload-article/gsc-report'
 import {
-  buildTrackerPageRegex, buildTrackerSeries, chunkKeywordRegex, chunkSimilarRegex, isIdPermalinkUrl, normalizeTrackerKeyword,
-  pickSimilarKeywords, readGscTrackers, splitRowsByQuery, trackerKind,
+  assignSimilarKeywords, buildTrackerPageRegex, buildTrackerSeries, chunkKeywordRegex, chunkSimilarRegex, isIdPermalinkUrl, normalizeTrackerKeyword,
+  readGscTrackers, splitRowsByQuery, trackerKind,
   type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse,
 } from '@/lib/upload-article/gsc-trackers'
 import { hasForbiddenTerm } from '@/lib/wordgod/local/normalize'
@@ -250,6 +250,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // GSC ช้ากว่าวันจริง ~3 วัน: ช่วงที่กำหนดเองอาจลากถึงวันที่ข้อมูลยังไม่มา — ไม่เติม 0 หลังวันนั้น (ข้อมูลยังไม่มา ≠ 0)
   const lastDataDate = resolveReportPeriod({ days: 28, compare: 'previous' }).end
 
+  // คำค้นหนึ่งคำขึ้นใต้ keyword เดียว คือคำที่ใกล้ที่สุด (เช่น "... ig" ไม่ขึ้นใต้ "... tiktok")
+  const similarByKeyword = assignSimilarKeywords(similarCur, similarPrev, similarWords, { skip: trackedKeywords, exclude: hasForbiddenTerm })
+
   const out: GscTrackerPerformance[] = targets.map(({ tracker, kind, matchUrl, unresolved, key }) => {
     const rows = key ? rowsByKey.get(key) : undefined
     // ชนิด keyword: แถวไม่มีมิติ page → ส่ง url ว่างให้นับทุกแถว
@@ -268,7 +271,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       daily: cur.daily,
       dailyPrev: prev.daily,
       similar: key && kind !== 'page'
-        ? pickSimilarKeywords(similarCur, similarPrev, tracker.keyword, { skip: trackedKeywords, exclude: hasForbiddenTerm })
+        ? similarByKeyword.get(normalizeTrackerKeyword(tracker.keyword)) ?? []
         : undefined,
     }
   })

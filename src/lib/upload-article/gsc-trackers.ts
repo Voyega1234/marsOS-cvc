@@ -615,6 +615,7 @@ export function splitRowsByQuery(rows: readonly RawGscRow[]): Map<string, RawGsc
 // ── Similar keywords (shown automatically under each tracked keyword) ──────────
 // The team should not have to search for variants by hand: every keyword tracker gets the
 // site's GSC queries that share most of its words (e.g. "chatgpt ads รับทำ" for "รับทำ chatgpt ads").
+// A query is shown under one tracker only: the keyword it is closest to.
 
 /** Similar keywords kept per tracker, best first */
 export const SIMILAR_PER_TRACKER = 10
@@ -625,41 +626,102 @@ export interface GscSimilarKeyword {
   prevTotals: GscMetric
 }
 
-/**
- * Words of a keyword for similarity matching. Thai has no spaces, so Intl.Segmenter splits it
- * ("รับยิงแอด" → รับ, ยิง, แอด). Words shorter than 2 characters are dropped; longest first, at most 6.
- */
-export function similarTokens(keyword: string): string[] {
-  const text = normalizeTrackerKeyword(keyword)
-  if (!text) return []
-  const out = new Set<string>()
-  const seg = new Intl.Segmenter('th', { granularity: 'word' })
-  for (const s of Array.from(seg.segment(text))) {
-    const w = s.segment.trim()
-    if (!s.isWordLike || Array.from(w).length < 2) continue
-    out.add(w)
-  }
-  return Array.from(out).sort((a, b) => b.length - a.length || a.localeCompare(b)).slice(0, 6)
+/** Words kept per keyword for scoring; the GSC regex uses only the longest SIMILAR_REGEX_TOKENS */
+const SIMILAR_MAX_TOKENS = 12
+const SIMILAR_REGEX_TOKENS = 6
+
+let thaiWordSegmenter: Intl.Segmenter | null = null
+
+/** Latin letters or digits (keywords are lowercased) — in a Thai keyword these name the brand, platform or model */
+function isLatinToken(token: string): boolean {
+  return /^[a-z0-9]/.test(token)
 }
 
-/** Share of the keyword's words (weighted by length) found in the query, and how many words matched */
-export function similarMatch(query: string, tokens: readonly string[]): { score: number; matched: number } {
-  const q = normalizeTrackerKeyword(query)
+/**
+ * Every word of a normalized text, in order. Thai has no spaces, so Intl.Segmenter splits it
+ * ("รับยิงแอด" → รับ, ยิง, แอด); Thai glued to Latin ("โฆษณาtiktok") is split first. One-character
+ * Thai pieces are dropped as noise, one-character Latin/digits are kept ("iphone 5").
+ */
+function similarWords(text: string): string[] {
+  if (!text) return []
+  thaiWordSegmenter ??= new Intl.Segmenter('th', { granularity: 'word' })
+  const spaced = text.replace(/([฀-๿])([a-z0-9])/g, '$1 $2').replace(/([a-z0-9])([฀-๿])/g, '$1 $2')
+  const out: string[] = []
+  for (const s of Array.from(thaiWordSegmenter.segment(spaced))) {
+    const w = s.segment.trim()
+    if (!s.isWordLike || !w) continue
+    if (!isLatinToken(w) && Array.from(w).length < 2) continue
+    out.push(w)
+  }
+  return out
+}
+
+/** Distinct words of a keyword for similarity matching, longest first, at most 12 */
+export function similarTokens(keyword: string): string[] {
+  const words = Array.from(new Set(similarWords(normalizeTrackerKeyword(keyword))))
+  return words.sort((a, b) => b.length - a.length || a.localeCompare(b)).slice(0, SIMILAR_MAX_TOKENS)
+}
+
+/**
+ * How close a query is to a keyword: 0 = not similar, 1 = the same words. Rules, in order:
+ * - Latin/digit words must match a whole query word ("ig" is not inside "digital"); Thai words match as text.
+ * - A Thai keyword with Latin words (brand, platform, model) needs all of them: "รับยิงโฆษณา ig" is
+ *   not similar to "รับยิงโฆษณา tiktok".
+ * - At least two keyword words (the one word, for one-word keywords) and half the keyword by length.
+ * - A query that both drops keyword words and adds its own (a swap, e.g. another platform written
+ *   in Thai) must keep 70% of the keyword. Not applied once a Thai keyword's Latin words all match:
+ *   "รับยิงแอด ig" stays similar to "รับยิงโฆษณา ig".
+ * The score is matched length / (keyword length + length of the query's extra words).
+ */
+function scoreSimilar(query: string, queryWords: readonly string[], tokens: readonly string[]): number {
+  if (!tokens.length) return 0
+  const wordSet = new Set(queryWords)
+  const mixed = tokens.some(isLatinToken) && tokens.some((t) => !isLatinToken(t))
   let total = 0
   let hit = 0
   let matched = 0
   for (const t of tokens) {
     total += t.length
-    if (q.includes(t)) { hit += t.length; matched++ }
+    const latin = isLatinToken(t)
+    if (latin ? wordSet.has(t) : query.includes(t)) { hit += t.length; matched++ }
+    else if (latin && mixed) return 0
   }
-  return { score: total > 0 ? hit / total : 0, matched }
+  if (matched < Math.min(2, tokens.length) || hit * 2 < total) return 0
+  let extra = 0
+  for (const w of Array.from(wordSet)) {
+    const covered = isLatinToken(w)
+      ? tokens.includes(w)
+      : tokens.some((t) => !isLatinToken(t) && (t.includes(w) || w.includes(t)))
+    if (!covered) extra += w.length
+  }
+  if (!mixed && matched < tokens.length && extra > 0 && hit < total * 0.7) return 0
+  return hit / (total + extra)
+}
+
+/** Similarity of one query to a keyword's words (see scoreSimilar); 0 = not similar */
+export function similarScore(query: string, tokens: readonly string[]): number {
+  const q = normalizeTrackerKeyword(query)
+  return scoreSimilar(q, similarWords(q), tokens)
+}
+
+export function isSimilarQuery(query: string, tokens: readonly string[]): boolean {
+  return similarScore(query, tokens) > 0
 }
 
 /**
- * Word pairs strong enough to define "similar": together they cover half the keyword's length;
- * when no pair does, the pairs that include the longest word. At most 15, strongest first.
+ * Word pairs for the GSC pre-filter, strongest first, at most 15.
+ * - Thai keyword with Latin words: the longest Latin word with the next Latin word, or with each
+ *   Thai word when it is the only one (every similar query has it plus one more word).
+ * - Otherwise: pairs that cover half the keyword's length; when none does, pairs with the longest word.
  */
-function similarPairs(tokens: readonly string[]): [string, string][] {
+function similarPairs(all: readonly string[]): [string, string][] {
+  const latin = all.filter(isLatinToken)
+  const thai = all.filter((t) => !isLatinToken(t))
+  if (latin.length && thai.length) {
+    if (latin.length > 1) return [[latin[0], latin[1]]]
+    return thai.slice(0, SIMILAR_REGEX_TOKENS - 1).map((t): [string, string] => [latin[0], t])
+  }
+  const tokens = all.slice(0, SIMILAR_REGEX_TOKENS)
   const total = tokens.reduce((n, t) => n + t.length, 0)
   const pairs: [string, string, number][] = []
   for (let i = 0; i < tokens.length; i++) {
@@ -672,24 +734,8 @@ function similarPairs(tokens: readonly string[]): [string, string][] {
 }
 
 /**
- * A query counts as similar when it contains one of the strong word pairs (the one word, for
- * one-word keywords) and at least half the keyword by length. Same rule as the GSC regex, so a
- * query is judged the same whichever batch it came back in. Build once, test many queries.
- */
-export function similarMatcher(tokens: readonly string[]): (normalizedQuery: string) => boolean {
-  if (!tokens.length) return () => false
-  if (tokens.length === 1) return (q) => q.includes(tokens[0])
-  const pairs = similarPairs(tokens)
-  return (q) => pairs.some(([a, b]) => q.includes(a) && q.includes(b)) && similarMatch(q, tokens).score >= 0.5
-}
-
-export function isSimilarQuery(query: string, tokens: readonly string[]): boolean {
-  return similarMatcher(tokens)(normalizeTrackerKeyword(query))
-}
-
-/**
- * RE2 pre-filter for GSC (partial match, no flags): queries that contain a strong word pair
- * (similarPairs) in either order. The result is then checked with isSimilarQuery.
+ * RE2 pre-filter for GSC (partial match, no flags): queries that contain a word pair from
+ * similarPairs in either order. It only narrows what GSC returns; scoreSimilar decides.
  * Returns '' when the keyword has no usable words.
  */
 export function buildSimilarRegex(tokens: readonly string[]): string {
@@ -724,21 +770,32 @@ export function chunkSimilarRegex(keywords: readonly string[], maxCount = 15, ma
   return out
 }
 
+interface SimilarOptions {
+  limit?: number
+  skip?: ReadonlySet<string>
+  exclude?: (keyword: string) => boolean
+}
+
 /**
- * Similar queries of one keyword from GSC rows with dimension [query] (current + compare period).
- * Leaves out the keyword itself, `skip` (keywords already tracked on their own) and `exclude`
- * (forbidden words). Only queries seen in the current period; sorted by clicks, then impressions.
+ * Similar queries for a set of tracked keywords, from GSC rows with dimension [query] (current +
+ * compare period). Each query goes to one keyword only, so "ยิงแอด ig ราคา" sits under the ig
+ * keyword and not under every keyword about ads: first the keyword that shares the most Latin
+ * words (brand, platform) with the query, then the highest score.
+ * Leaves out the keywords themselves under their own row, `skip` (keywords already tracked on
+ * their own) and `exclude` (forbidden words). Only queries seen in the current period; each list
+ * is sorted by clicks, then impressions. The map is keyed by normalized keyword.
  */
-export function pickSimilarKeywords(
+export function assignSimilarKeywords(
   curRows: readonly RawGscRow[],
   prevRows: readonly RawGscRow[],
-  keyword: string,
-  opts: { limit?: number; skip?: ReadonlySet<string>; exclude?: (keyword: string) => boolean } = {},
-): GscSimilarKeyword[] {
-  const self = normalizeTrackerKeyword(keyword)
-  const tokens = similarTokens(self)
-  if (!tokens.length) return []
-  const isSimilar = similarMatcher(tokens)
+  keywords: readonly string[],
+  opts: SimilarOptions = {},
+): Map<string, GscSimilarKeyword[]> {
+  const targets = Array.from(new Set(keywords.map(normalizeTrackerKeyword).filter(Boolean)))
+    .map((keyword) => { const tokens = similarTokens(keyword); return { keyword, tokens, latin: tokens.filter(isLatinToken) } })
+    .filter((t) => t.tokens.length > 0)
+  const out = new Map<string, GscSimilarKeyword[]>(targets.map((t) => [t.keyword, []]))
+  if (!targets.length) return out
   const metric = (r?: RawGscRow): GscMetric => ({
     clicks: r?.clicks ?? 0, impressions: r?.impressions ?? 0, ctr: r?.ctr ?? 0, position: r?.position ?? 0,
   })
@@ -748,15 +805,40 @@ export function pickSimilarKeywords(
     if (k && !prev.has(k)) prev.set(k, r)
   }
   const seen = new Set<string>()
-  const out: GscSimilarKeyword[] = []
   for (const r of curRows) {
     const kw = normalizeTrackerKeyword(r.keys?.[0])
-    if (!kw || kw === self || seen.has(kw) || opts.skip?.has(kw) || opts.exclude?.(kw) || !isSimilar(kw)) continue
+    if (!kw || seen.has(kw)) continue
     seen.add(kw)
-    out.push({ keyword: kw, totals: metric(r), prevTotals: metric(prev.get(kw)) })
+    if (opts.skip?.has(kw) || opts.exclude?.(kw)) continue
+    const words = similarWords(kw)
+    let best = ''
+    let bestScore = 0
+    let bestLatin = 0
+    for (const t of targets) {
+      if (t.keyword === kw) continue
+      const score = scoreSimilar(kw, words, t.tokens)
+      if (score <= 0) continue
+      const latin = t.latin.filter((w) => words.includes(w)).length
+      if (latin > bestLatin || (latin === bestLatin && score > bestScore)) { best = t.keyword; bestScore = score; bestLatin = latin }
+    }
+    if (best) out.get(best)!.push({ keyword: kw, totals: metric(r), prevTotals: metric(prev.get(kw)) })
   }
-  out.sort((a, b) => b.totals.clicks - a.totals.clicks || b.totals.impressions - a.totals.impressions || a.keyword.localeCompare(b.keyword))
-  return out.slice(0, opts.limit ?? SIMILAR_PER_TRACKER)
+  const limit = opts.limit ?? SIMILAR_PER_TRACKER
+  for (const [keyword, list] of Array.from(out.entries())) {
+    list.sort((a, b) => b.totals.clicks - a.totals.clicks || b.totals.impressions - a.totals.impressions || a.keyword.localeCompare(b.keyword))
+    out.set(keyword, list.slice(0, limit))
+  }
+  return out
+}
+
+/** Similar queries of one keyword on its own (no other keywords to share the queries with) */
+export function pickSimilarKeywords(
+  curRows: readonly RawGscRow[],
+  prevRows: readonly RawGscRow[],
+  keyword: string,
+  opts: SimilarOptions = {},
+): GscSimilarKeyword[] {
+  return assignSimilarKeywords(curRows, prevRows, [keyword], opts).get(normalizeTrackerKeyword(keyword)) ?? []
 }
 
 /** Response of POST /report/trackers/query-series: one query's daily line, for the chart under a similar keyword */

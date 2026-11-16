@@ -4,7 +4,7 @@
  */
 import { createQueryBudget, GSC_TRACKER_QUERIES_PER_MINUTE } from './gsc-budget';
 import {
-  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
 } from './gsc-trackers';
@@ -379,6 +379,44 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(picked.map((x) => x.keyword).join('|') === 'chatgpt ads|chatgpt ads รับทำ', 'similar pick: self, skip, excluded and unrelated left out; sorted by clicks');
   assert(picked[0].prevTotals.clicks === 1 && picked[1].prevTotals.impressions === 0, 'similar pick: previous period joined, missing = 0');
   assert(pickSimilarKeywords(cur, prev, 'รับทำ chatgpt ads', { limit: 1 }).length === 1, 'similar pick: limit');
+
+  // A platform or brand word in a Thai keyword must be in the query
+  const tiktok = similarTokens('รับยิงโฆษณา tiktok');
+  assert(!isSimilarQuery('รับยิงโฆษณา ig', tiktok), 'similar: ig query is not similar to the tiktok keyword');
+  assert(!isSimilarQuery('รับยิงโฆษณา', tiktok), 'similar: query without the platform word');
+  assert(isSimilarQuery('ยิงโฆษณา tiktok ราคา', tiktok), 'similar: tiktok variant with an extra word');
+  assert(isSimilarQuery('รับยิงโฆษณาtiktok', tiktok), 'similar: Thai glued to Latin is split');
+  assert(!isSimilarQuery('digital โฆษณา รับยิง', similarTokens('รับยิงโฆษณา ig')), 'similar: Latin word must be a whole word');
+  assert(!isSimilarQuery('รับยิงโฆษณา เฟสบุ๊ค', similarTokens('รับยิงโฆษณา ติ๊กต๊อก')), 'similar: platform swapped in Thai');
+  assert(isSimilarQuery('บริษัท รับทำ seo กรุงเทพ', similarTokens('รับทำ seo')), 'similar: long-tail query that keeps every word');
+  assert(isSimilarQuery('top seo agency bangkok', similarTokens('best seo agency in bangkok')), 'similar: English keyword, one word swapped');
+  assert(!isSimilarQuery('facebook ads agency', similarTokens('tiktok ads agency')), 'similar: English keyword, brand swapped');
+  assert(!isSimilarQuery('iphone 16 ราคา', similarTokens('iphone 15 ราคา')), 'similar: model number must match');
+  assert(similarScore('รับยิงโฆษณา tiktok', tiktok) === 1 && similarScore('ยิงโฆษณา tiktok ราคา', tiktok) < 1, 'similar score: 1 for the same words, lower with changes');
+  const [mixed] = chunkSimilarRegex(['รับยิงโฆษณา tiktok']);
+  const mixedRe = new RegExp(mixed.regex.replace(/^\(\?i\)/, ''), 'i');
+  assert(mixedRe.test('ยิงโฆษณา tiktok ราคา') && !mixedRe.test('รับยิงโฆษณา ig'), 'similar regex: Thai keyword with a platform word asks GSC for that word only');
+
+  // Each query goes to the one keyword it is closest to
+  const pool: RawGscRow[] = [
+    { keys: ['ยิงโฆษณา ig ราคา'], clicks: 4, impressions: 40, ctr: 0.1, position: 6 },
+    { keys: ['ยิงโฆษณา tiktok ราคา'], clicks: 3, impressions: 30, ctr: 0.1, position: 7 },
+    { keys: ['รับยิงโฆษณา ราคา'], clicks: 2, impressions: 20, ctr: 0.1, position: 9 },
+    { keys: ['รับยิงโฆษณา ig'], clicks: 9, impressions: 90, ctr: 0.1, position: 2 },
+    { keys: ['รับยิงโฆษณา tiktok pantip'], clicks: 9, impressions: 90, ctr: 0.1, position: 2 },
+    { keys: ['รับทำเว็บไซต์'], clicks: 50, impressions: 900, ctr: 0.05, position: 4 },
+  ];
+  const assigned = assignSimilarKeywords(pool, [], ['รับยิงโฆษณา TikTok', 'รับยิงโฆษณา ig', 'รับยิงโฆษณา', 'รับยิงโฆษณา ig'], {
+    skip: new Set(['รับยิงโฆษณา tiktok', 'รับยิงโฆษณา ig', 'รับยิงโฆษณา']), exclude: (k) => k.includes('pantip'),
+  });
+  const names = (k: string) => (assigned.get(k) ?? []).map((x) => x.keyword).join('|');
+  assert(assigned.size === 3, 'similar assign: one list per distinct keyword');
+  assert(names('รับยิงโฆษณา tiktok') === 'ยิงโฆษณา tiktok ราคา', 'similar assign: tiktok keyword gets only tiktok queries');
+  assert(names('รับยิงโฆษณา ig') === 'ยิงโฆษณา ig ราคา', 'similar assign: ig query sits under the ig keyword');
+  assert(names('รับยิงโฆษณา') === 'รับยิงโฆษณา ราคา', 'similar assign: platform queries leave the general keyword for their own');
+  const synonym: RawGscRow[] = [{ keys: ['รับยิงแอด ig'], clicks: 1, impressions: 10, ctr: 0.1, position: 5 }];
+  assert(assignSimilarKeywords(synonym, [], ['ยิงแอด', 'รับยิงโฆษณา ig']).get('รับยิงโฆษณา ig')!.length === 1, 'similar assign: the keyword that shares the platform word wins over a closer general one');
+  assert(assignSimilarKeywords(pool, [], ['รับยิงโฆษณา']).get('รับยิงโฆษณา')!.length === 5, 'similar assign: with no closer keyword, the general one keeps them');
 }
 
 console.log(`\nAll ${passed} assertions passed`);

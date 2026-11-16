@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertCircle, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, Link2, Loader2, Pencil, RefreshCw, Trash2, Search } from "lucide-react";
+import { AlertCircle, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, Link2, ListTree, Loader2, Pencil, RefreshCw, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import GscKeywordSuggestDialog, { termFromGroupName } from "./GscKeywordSuggestDialog";
 import { AreaChart, EmptyState, Panel, Segmented } from "@/components/ds";
@@ -308,6 +308,17 @@ export default function GscTrackedKeywords({
     setOpenRows((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   }
 
+  // คำใกล้เคียงพับไว้ก่อนเสมอ (กินพื้นที่) — เปิดทีละรายการจากป้าย "คำใกล้เคียง N" หรือเปิด/ปิดทั้งหมดจากแถบบน
+  const [openSimilar, setOpenSimilar] = useState<Set<string>>(() => new Set());
+  function toggleSimilar(id: string) {
+    setOpenSimilar((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+  const similarIds = useMemo(
+    () => visibleTrackers.filter((t) => { const p = perfById.get(t.id); return !!p && !p.unresolved && (p.similar?.length ?? 0) > 0; }).map((t) => t.id),
+    [visibleTrackers, perfById],
+  );
+  const allSimilarOpen = similarIds.length > 0 && similarIds.every((id) => openSimilar.has(id));
+
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   // รายการที่ถูกลบ/ซ่อนด้วยตัวกรอง ไม่นับว่าเลือกอยู่
   useEffect(() => {
@@ -534,6 +545,11 @@ export default function GscTrackedKeywords({
                   <option value={NO_OWNER}>ยังไม่ระบุผู้ดูแล ({ownerCounts.get(NO_OWNER) ?? 0})</option>
                 </select>
               )}
+              {similarIds.length > 0 && (
+                <Button size="sm" variant="outline" onClick={() => setOpenSimilar(allSimilarOpen ? new Set() : new Set(similarIds))}>
+                  <ListTree size={12} className="mr-1.5" /> {allSimilarOpen ? "ซ่อนคำใกล้เคียง" : "แสดงคำใกล้เคียงทั้งหมด"}
+                </Button>
+              )}
               {groups.length > 0 && (
                 <Button size="sm" variant="outline" onClick={() => setAllGroups(!allGroupsCollapsed)}>
                   {allGroupsCollapsed
@@ -662,6 +678,8 @@ export default function GscTrackedKeywords({
                         const usable = p && !p.unresolved ? p : null;
                         const hasImp = !!usable && usable.totals.impressions > 0;
                         const prevImp = !!usable && usable.prevTotals.impressions > 0;
+                        const similarCount = usable?.similar?.length ?? 0;
+                        const similarOpen = similarCount > 0 && openSimilar.has(t.id);
                         return (
                           <TrackerRowFragment key={t.id}>
                             <tr className={`border-b border-gray-100 ${open ? "bg-brand-mist/40" : "hover:bg-gray-50/60"}`}>
@@ -686,6 +704,14 @@ export default function GscTrackedKeywords({
                                     </select>
                                   ) : null}
                                   {kind === "pair" && t.title && <span className="truncate text-[10px] text-gray-500 max-w-[12rem]">{t.title}</span>}
+                                  {similarCount > 0 && (
+                                    <button type="button" onClick={() => toggleSimilar(t.id)} aria-expanded={similarOpen}
+                                      title={similarOpen ? "ซ่อนคำใกล้เคียง" : "ดูคำใกล้เคียงที่ระบบหาให้"}
+                                      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] ${similarOpen ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                                      <ChevronDown size={10} className={`transition-transform ${similarOpen ? "" : "-rotate-90"}`} />
+                                      คำใกล้เคียง {similarCount}
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-2 py-2 text-center">
@@ -733,7 +759,7 @@ export default function GscTrackedKeywords({
                                 </td>
                               </tr>
                             )}
-                            {usable?.similar && usable.similar.length > 0 && (
+                            {similarOpen && usable?.similar && (
                               <SimilarRows key={periodKey} list={usable.similar} base={base} periodKey={periodKey} metric={metric} name={name} />
                             )}
                           </TrackerRowFragment>
