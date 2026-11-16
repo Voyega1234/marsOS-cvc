@@ -180,6 +180,11 @@ export async function getSheetsServiceAuth() {
   return getGoogleServiceOnlyAuth(["https://www.googleapis.com/auth/spreadsheets"]);
 }
 
+/** ตัวตน service เท่านั้น สำหรับอ่าน/เขียน Google Doc ที่ถูกแชร์ให้ service email (Compliance Checker) */
+export async function getDriveServiceAuth() {
+  return getGoogleServiceOnlyAuth(["https://www.googleapis.com/auth/drive"]);
+}
+
 // ดึง access token เป็น string ไม่ว่า auth จะเป็นแบบไหน (OAuth2 user token / GoogleAuth)
 export async function getGoogleAccessToken(
   auth: Awaited<ReturnType<typeof getGoogleAuth>>

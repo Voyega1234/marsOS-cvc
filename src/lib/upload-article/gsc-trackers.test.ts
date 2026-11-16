@@ -3,7 +3,7 @@
  * Run: npx tsx src/lib/upload-article/gsc-trackers.test.ts
  */
 import {
-  addGscTracker, buildTrackerSeries, isIdPermalinkUrl, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, trackerKey, trackerKeys, trackerUrlKey,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type UploadGscTracker,
 } from './gsc-trackers';
@@ -55,13 +55,16 @@ function near(a: number, b: number, eps = 1e-9): boolean {
     good,
     { ...good, id: 'a2' }, // duplicate key
     { id: 'a1', keyword: 'bar', url: 'https://example.com/b' }, // duplicate id
-    { id: 'a3', keyword: '', url: 'https://example.com/c' }, // broken
+    { id: 'a3', keyword: '', url: 'https://example.com/c' }, // page-only (valid)
+    { id: 'a5', keyword: 'kw', url: '' }, // keyword-only (valid)
+    { id: 'a6', keyword: '', url: '' }, // broken
     { id: 'a4', keyword: 'x', url: 'nope' }, // broken
     null,
     'str',
     { keyword: 'x', url: 'https://example.com/d' }, // no id
   ]);
-  assert(read.length === 1, 'read: drops broken and duplicate rows');
+  assert(read.length === 3, 'read: drops broken and duplicate rows, keeps single-field rows');
+  assert(trackerKind(read[1]) === 'page' && trackerKind(read[2]) === 'keyword' && trackerKind(read[0]) === 'pair', 'read: kinds');
   assert(read[0].keyword === 'foo' && read[0].title === 'My title', 'read: normalizes keyword and keeps title');
   assert(readGscTrackers('x').length === 0 && readGscTrackers(undefined).length === 0, 'read: non-array -> []');
   const many = Array.from({ length: 50 }, (_, i) => ({ id: `i${i}`, keyword: `k${i}`, url: 'https://example.com/p' }));
@@ -80,7 +83,7 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(r2.ok && r2.trackers[0].keyword === 'other' && r2.trackers.length === 2, 'add: newest first');
   if (r2.ok) assert(!('title' in r2.tracker), 'add: no title key when empty');
   const bad1 = addGscTracker([], { keyword: '  ', url: 'https://example.com' }, newId, 'n');
-  assert(!bad1.ok && bad1.error === 'invalid_keyword', 'add: invalid_keyword');
+  assert(bad1.ok && trackerKind(bad1.tracker) === 'page', 'add: blank keyword + url (no kind) -> page tracker');
   const bad2 = addGscTracker([], { keyword: 'a', url: 'x' }, newId, 'n');
   assert(!bad2.ok && bad2.error === 'invalid_url', 'add: invalid_url');
   const dup = addGscTracker(r1.trackers, { keyword: 'FOO bar', url: 'http://example.com/a/' }, newId, 'n');
@@ -88,9 +91,49 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   const full: UploadGscTracker[] = Array.from({ length: UPLOAD_MAX_GSC_TRACKERS }, (_, i) => ({ id: `f${i}`, keyword: `k${i}`, url: 'https://example.com/p', createdAt: '' }));
   const lim = addGscTracker(full, { keyword: 'new', url: 'https://example.com/p' }, newId, 'n');
   assert(!lim.ok && lim.error === 'limit', 'add: limit');
-  assert(Object.keys(GSC_TRACKER_ERROR_MESSAGES).length === 4, 'add: every error has a message');
+  assert(Object.keys(GSC_TRACKER_ERROR_MESSAGES).length === 7, 'add: every error has a message');
   assert(removeGscTracker(r2.ok ? r2.trackers : [], 'id1').length === 1, 'remove: removes by id');
   assert(removeGscTracker(r1.trackers, 'nope').length === 1, 'remove: unknown id is a no-op');
+}
+
+// ── kinds: keyword only / page only ──
+{
+  let n = 0;
+  const newId = () => `k${++n}`;
+  const kw = addGscTracker([], { kind: 'keyword', keyword: 'Foo', url: 'https://example.com/x', title: 'T' }, newId, 'n');
+  assert(kw.ok && kw.tracker.url === '' && !('title' in kw.tracker) && trackerKind(kw.tracker) === 'keyword', 'kind keyword: url and title dropped');
+  if (!kw.ok) throw new Error('unreachable');
+  const pg = addGscTracker(kw.trackers, { kind: 'page', keyword: 'ignored', url: 'example.com/a', title: 'Post' }, newId, 'n');
+  assert(pg.ok && pg.tracker.keyword === '' && pg.tracker.url === 'https://example.com/a' && pg.tracker.title === 'Post', 'kind page: keyword dropped');
+  if (!pg.ok) throw new Error('unreachable');
+  const pair = addGscTracker(pg.trackers, { kind: 'pair', keyword: 'foo', url: 'https://example.com/a' }, newId, 'n');
+  assert(pair.ok && pair.trackers.length === 3, 'kind pair: does not collide with keyword-only or page-only');
+  const dk = addGscTracker(kw.trackers, { kind: 'keyword', keyword: 'FOO' }, newId, 'n');
+  assert(!dk.ok && dk.error === 'duplicate_keyword', 'kind keyword: duplicate_keyword');
+  const dp = addGscTracker(pg.trackers, { kind: 'page', url: 'http://example.com/a/' }, newId, 'n');
+  assert(!dp.ok && dp.error === 'duplicate_page', 'kind page: duplicate_page');
+  const e1 = addGscTracker([], { kind: 'keyword', keyword: ' ' }, newId, 'n');
+  assert(!e1.ok && e1.error === 'invalid_keyword', 'kind keyword: needs keyword');
+  const e2 = addGscTracker([], { kind: 'page', url: '' }, newId, 'n');
+  assert(!e2.ok && e2.error === 'invalid_url', 'kind page: needs url');
+  const e3 = addGscTracker([], { kind: 'pair', keyword: 'a' }, newId, 'n');
+  assert(!e3.ok && e3.error === 'invalid_url', 'kind pair: needs url');
+  const e4 = addGscTracker([], {}, newId, 'n');
+  assert(!e4.ok && e4.error === 'empty', 'no kind, no fields: empty');
+  const d1 = addGscTracker([], { keyword: 'solo' }, newId, 'n');
+  assert(d1.ok && trackerKind(d1.tracker) === 'keyword', 'no kind: keyword alone -> keyword tracker');
+  const d2 = addGscTracker([], { url: 'https://example.com/z' }, newId, 'n');
+  assert(d2.ok && trackerKind(d2.tracker) === 'page', 'no kind: url alone -> page tracker');
+}
+
+// ── buildTrackerPageRegex ──
+{
+  const re = buildTrackerPageRegex('https://example.com/blog/ข่าว/');
+  const rx = new RegExp(re);
+  assert(rx.test('https://example.com/blog/ข่าว') && rx.test('http://example.com/blog/ข่าว/'), 'regex: decoded path, scheme + slash variants');
+  assert(rx.test('https://example.com/blog/%E0%B8%82%E0%B9%88%E0%B8%B2%E0%B8%A7/'), 'regex: encoded path');
+  assert(!rx.test('https://example.com/blog/ข่าว/more') && !rx.test('https://evil.com/blog/ข่าว'), 'regex: anchored');
+  assert(buildTrackerPageRegex('nope') === '', 'regex: invalid url -> empty');
 }
 
 // ── sourceUrl (the ?p=123 link the row was saved from) ──
@@ -138,6 +181,9 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   const idSeries = buildTrackerSeries(rows, 'https://example.com/?p=5', '2026-03-01', '2026-03-05');
   assert(idSeries.matchedPages.length === 0 && idSeries.totals.impressions === 0, 'series: id-permalink target matches nothing');
   assert(idSeries.daily.length === 5, 'series: empty match still zero-filled');
+  assert(s.hasData && !idSeries.hasData, 'series: hasData');
+  const site = buildTrackerSeries(rows, '', '2026-03-01', '2026-03-05');
+  assert(site.totals.clicks === 12 && site.totals.impressions === 144 && site.matchedPages.length === 0 && site.hasData, 'series: empty url counts every row (keyword site-wide)');
 }
 
 // ── buildTrackerSeries: lastDataDate (days GSC has not reported yet are not zero) ──

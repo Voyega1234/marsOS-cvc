@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Upload Article > Report > "Keyword ที่ติดตาม" — คู่ keyword + URL ที่ทีมกด "บันทึก Monitor" ไว้
- * แสดงผล GSC รายวันของแต่ละคู่เป็นกราฟเส้น (ดึงเฉพาะตอนแท็บนี้ถูกเปิด เพื่อไม่เปลืองโควตา GSC)
+ * Upload Article > Report > "Keyword ที่ติดตาม" — รายการที่ทีมกด "บันทึก Monitor" ไว้
+ * ติดตามได้ 3 แบบ: keyword อย่างเดียว (ทั้งเว็บ), บทความ/URL อย่างเดียว (ทุกคำค้นหา), หรือ keyword + หน้า
+ * แสดงผล GSC รายวันของแต่ละรายการเป็นกราฟเส้น (ดึงเฉพาะตอนแท็บนี้ถูกเปิด เพื่อไม่เปลืองโควตา GSC)
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -10,14 +11,36 @@ import { AlertCircle, BookmarkPlus, Loader2, RefreshCw, Trash2, Search } from "l
 import { Button } from "@/components/ui/button";
 import { AreaChart, EmptyState, Panel, Segmented } from "@/components/ds";
 import {
-  UPLOAD_MAX_GSC_TRACKERS, UPLOAD_MAX_TRACKER_KEYWORD, UPLOAD_MAX_TRACKER_URL,
-  type GscTrackerPerformance, type GscTrackerPerformanceResponse, type UploadGscTracker,
+  UPLOAD_MAX_GSC_TRACKERS, UPLOAD_MAX_TRACKER_KEYWORD, UPLOAD_MAX_TRACKER_URL, trackerKind,
+  type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse, type UploadGscTracker,
 } from "@/lib/upload-article/gsc-trackers";
 
 export interface TrackerArticleOption { title: string; url: string }
 export interface TrackerDraft { keyword: string; url?: string; title?: string }
 
 type Metric = "clicks" | "impressions";
+/** โหมดของฟอร์ม — "บทความ" กับ "URL" เก็บเป็นชนิด page เหมือนกัน ต่างกันแค่วิธีเลือกหน้า */
+type Mode = "keyword" | "article" | "url" | "pair";
+
+const MODE_OPTIONS: { value: Mode; label: string }[] = [
+  { value: "keyword", label: "Keyword" },
+  { value: "article", label: "บทความ" },
+  { value: "url", label: "URL" },
+  { value: "pair", label: "Keyword + หน้า" },
+];
+
+const MODE_HINT: Record<Mode, string> = {
+  keyword: "ดูผลของ keyword นี้ทั้งเว็บ (ทุกหน้าที่ติดอันดับ)",
+  article: "ดูผลของบทความนี้จากทุก keyword ที่คนค้นเจอ",
+  url: "ดูผลของหน้านี้จากทุก keyword — ใส่ลิงก์เต็มของหน้า",
+  pair: "ดูผลของ keyword นี้บนหน้านี้เท่านั้น",
+};
+
+const KIND_BADGE: Record<GscTrackerKind, string> = {
+  keyword: "Keyword · ทั้งเว็บ",
+  page: "หน้า · ทุก keyword",
+  pair: "Keyword + หน้า",
+};
 
 function fmtNum(n: number): string { return Math.round(n).toLocaleString(); }
 function fmtCtr(n: number): string { return `${(n * 100).toFixed(2)}%`; }
@@ -59,16 +82,31 @@ export default function GscTrackedKeywords({
   const base = `/api/upload-article/clients/${clientId}/report/trackers`;
 
   // ── ฟอร์มเพิ่ม ──
+  const [mode, setMode] = useState<Mode>("keyword");
   const [keyword, setKeyword] = useState("");
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // ปิดรายการบทความเมื่อคลิกนอกกล่อง / กด Esc
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPickerOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [pickerOpen]);
 
   // ร่างจากแท็บอื่น (เช่นกด "ติดตาม" ที่คำค้นหา) → เติมฟอร์มแล้วแจ้งผู้ปกครองว่าใช้แล้ว
   useEffect(() => {
     if (!draft) return;
+    setMode(draft.url ? "pair" : "keyword");
     setKeyword(draft.keyword);
     if (draft.url !== undefined) setUrl(draft.url);
     setTitle(draft.title ?? "");
@@ -81,16 +119,32 @@ export default function GscTrackedKeywords({
     return list.slice(0, 50);
   }, [articles, pickerQuery]);
 
+  function changeMode(m: Mode) {
+    setMode(m);
+    setPickerOpen(false);
+    // สลับระหว่าง "บทความ" กับ "URL": URL ที่พิมพ์เองไม่ใช่บทความที่เลือก จึงล้างทิ้ง
+    if (m === "article" && !title) setUrl("");
+  }
+
   async function submit() {
     if (saving) return;
-    if (!keyword.trim()) { toast.error("กรอก keyword ที่ต้องการติดตาม"); return; }
-    if (!url.trim()) { toast.error("เลือกบทความหรือกรอก URL ของหน้าที่ต้องการติดตาม"); return; }
+    const kw = keyword.trim();
+    const u = url.trim();
+    const needKeyword = mode === "keyword" || mode === "pair";
+    if (needKeyword && !kw) { toast.error("กรอก keyword ที่ต้องการติดตาม"); return; }
+    if (mode === "article" && !u) { toast.error("เลือกบทความที่ต้องการติดตาม"); return; }
+    if (mode === "url" && !u) { toast.error("กรอก URL ของหน้าที่ต้องการติดตาม"); return; }
+    if (mode === "pair" && !u) { toast.error("เลือกบทความหรือกรอก URL ของหน้าที่ต้องการติดตาม"); return; }
+    const kind: GscTrackerKind = mode === "keyword" ? "keyword" : mode === "pair" ? "pair" : "page";
+    const payload: Record<string, string> = { kind };
+    if (kind !== "page") payload.keyword = kw;
+    if (kind !== "keyword") { payload.url = u; if (title) payload.title = title; }
     setSaving(true);
     try {
       const r = await fetch(base, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: keyword.trim(), url: url.trim(), ...(title ? { title } : {}) }),
+        body: JSON.stringify(payload),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d?.error || "บันทึก Monitor ไม่สำเร็จ"); return; }
@@ -142,7 +196,11 @@ export default function GscTrackedKeywords({
   const perfById = useMemo(() => new Map(perf.map((p) => [p.id, p])), [perf]);
 
   async function remove(t: UploadGscTracker) {
-    if (!window.confirm(`เลิกติดตาม "${t.keyword}" ของหน้านี้?`)) return;
+    const kind = trackerKind(t);
+    const label = kind === "keyword" ? `keyword "${t.keyword}" (ทั้งเว็บ)`
+      : kind === "page" ? `หน้า "${t.title || t.url}"`
+      : `"${t.keyword}" ของหน้านี้`;
+    if (!window.confirm(`เลิกติดตาม ${label}?`)) return;
     try {
       const r = await fetch(`${base}?id=${encodeURIComponent(t.id)}`, { method: "DELETE" });
       const d = await r.json().catch(() => ({}));
@@ -159,79 +217,93 @@ export default function GscTrackedKeywords({
 
   return (
     <div className="space-y-4">
-      {/* ── ฟอร์มเพิ่ม ── */}
-      <div className="rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-3">
+      {/* ── ฟอร์มเพิ่ม ── relative + z-30: การ์ดนี้มี backdrop-blur (สร้าง stacking context) ไม่ยกชั้นไว้ รายการบทความที่เปิดลงมาจะโดนแผงถัดไปทับ */}
+      <div className="relative z-30 rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-semibold text-brand-navy">บันทึก Monitor</p>
-            <p className="text-xs text-gray-500 mt-0.5">เลือกบทความ (หรือกรอก URL เอง) คู่กับ keyword เพื่อดูผล Search Console รายวันของคู่นี้</p>
+            <p className="text-xs text-gray-500 mt-0.5">ติดตามแยกเป็น keyword, บทความ หรือ URL — หรือจับคู่ keyword กับหน้า</p>
           </div>
           <span className="text-[11px] text-gray-400 tabular-nums">{trackers.length}/{UPLOAD_MAX_GSC_TRACKERS}</span>
         </div>
 
+        <div className="space-y-1.5">
+          <Segmented size="sm" ariaLabel="ติดตามแบบ" value={mode} onChange={changeMode} options={MODE_OPTIONS} />
+          <p className="text-[11px] text-gray-500">{MODE_HINT[mode]}</p>
+        </div>
+
         <div className="flex items-start gap-2 flex-wrap">
-          <input
-            value={keyword}
-            maxLength={UPLOAD_MAX_TRACKER_KEYWORD}
-            onChange={(e) => setKeyword(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
-            placeholder="keyword ที่ต้องการติดตาม"
-            className={`${inputCls} w-full sm:w-64`}
-          />
+          {(mode === "keyword" || mode === "pair") && (
+            <input
+              value={keyword}
+              maxLength={UPLOAD_MAX_TRACKER_KEYWORD}
+              onChange={(e) => setKeyword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+              placeholder="keyword ที่ต้องการติดตาม"
+              className={`${inputCls} w-full sm:w-64`}
+            />
+          )}
 
-          <div className="relative w-full sm:w-72">
-            <button type="button" onClick={() => setPickerOpen((o) => !o)}
-              className={`${inputCls} w-full text-left truncate flex items-center gap-1.5 ${title ? "text-brand-navy" : "text-gray-500"}`}>
-              <Search size={12} className="shrink-0 text-gray-400" />
-              <span className="truncate">{title || "เลือกจากบทความที่อัปโหลด"}</span>
-            </button>
-            {pickerOpen && (
-              <div className="absolute z-20 mt-1 w-full sm:w-[28rem] max-w-[90vw] rounded-2xl border border-gray-200 bg-white shadow-lg p-2 space-y-1.5">
-                <input
-                  autoFocus
-                  value={pickerQuery}
-                  onChange={(e) => setPickerQuery(e.target.value)}
-                  placeholder="ค้นหาชื่อบทความหรือ URL"
-                  className="h-8 w-full rounded-full border border-gray-200 px-3 text-xs"
-                />
-                <div className="max-h-64 overflow-y-auto">
-                  {filteredArticles.length === 0 ? (
-                    <p className="px-2 py-3 text-xs text-gray-400">{articles.length === 0 ? "ยังไม่มีบทความที่เผยแพร่แล้ว — กรอก URL เองได้" : "ไม่พบบทความ"}</p>
-                  ) : filteredArticles.map((a) => (
-                    <button key={a.url} type="button"
-                      onClick={() => { setUrl(a.url); setTitle(a.title); setPickerOpen(false); setPickerQuery(""); }}
-                      className="block w-full text-left rounded-lg px-2 py-1.5 hover:bg-brand-mist">
-                      <span className="block text-xs font-medium text-brand-navy truncate">{a.title}</span>
-                      <span className="block text-[10px] font-mono text-gray-500 truncate">{a.url}</span>
-                    </button>
-                  ))}
+          {(mode === "article" || mode === "pair") && (
+            <div ref={pickerRef} className="relative w-full sm:w-72">
+              <button type="button" onClick={() => setPickerOpen((o) => !o)} aria-expanded={pickerOpen}
+                className={`${inputCls} w-full text-left truncate flex items-center gap-1.5 ${title ? "text-brand-navy" : "text-gray-500"}`}>
+                <Search size={12} className="shrink-0 text-gray-400" />
+                <span className="truncate">{title || "เลือกจากบทความที่อัปโหลด"}</span>
+              </button>
+              {pickerOpen && (
+                <div className="absolute left-0 top-full z-40 mt-1 w-full sm:w-[28rem] max-w-[90vw] rounded-2xl border border-gray-200 bg-white shadow-lg p-2 space-y-1.5">
+                  <input
+                    autoFocus
+                    value={pickerQuery}
+                    onChange={(e) => setPickerQuery(e.target.value)}
+                    placeholder="ค้นหาชื่อบทความหรือ URL"
+                    className="h-8 w-full rounded-full border border-gray-200 px-3 text-xs"
+                  />
+                  <div className="max-h-64 overflow-y-auto">
+                    {filteredArticles.length === 0 ? (
+                      <p className="px-2 py-3 text-xs text-gray-400">{articles.length === 0 ? "ยังไม่มีบทความที่เผยแพร่แล้ว — ใช้แบบ URL แทนได้" : "ไม่พบบทความ"}</p>
+                    ) : filteredArticles.map((a) => (
+                      <button key={a.url} type="button"
+                        onClick={() => { setUrl(a.url); setTitle(a.title); setPickerOpen(false); setPickerQuery(""); }}
+                        className="block w-full text-left rounded-lg px-2 py-1.5 hover:bg-brand-mist">
+                        <span className="block text-xs font-medium text-brand-navy truncate">{a.title}</span>
+                        <span className="block text-[10px] font-mono text-gray-500 truncate">{a.url}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
-          <input
-            value={url}
-            maxLength={UPLOAD_MAX_TRACKER_URL}
-            onChange={(e) => { setUrl(e.target.value); setTitle(""); }}
-            onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
-            placeholder="URL ของหน้า (แก้ไขเองได้)"
-            className={`${inputCls} w-full sm:w-72 font-mono text-xs`}
-          />
+          {(mode === "url" || mode === "pair") && (
+            <input
+              value={url}
+              maxLength={UPLOAD_MAX_TRACKER_URL}
+              onChange={(e) => { setUrl(e.target.value); setTitle(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+              placeholder={mode === "pair" ? "URL ของหน้า (แก้ไขเองได้)" : "https://example.com/blog/post"}
+              className={`${inputCls} w-full sm:w-72 font-mono text-xs`}
+            />
+          )}
 
           <Button size="sm" onClick={() => void submit()} disabled={saving}>
             {saving ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <BookmarkPlus size={12} className="mr-1.5" />}
             บันทึก Monitor
           </Button>
         </div>
+        {mode === "article" && url && (
+          <p className="text-[10px] font-mono text-gray-500 truncate" title={url}>{url}</p>
+        )}
       </div>
 
       {trackers.length === 0 ? (
         <Panel>
           <EmptyState
             icon={<BookmarkPlus className="h-5 w-5" />}
-            title="ยังไม่มี keyword ที่ติดตาม"
-            description="กรอก keyword แล้วเลือกบทความในฟอร์มด้านบน หรือกดปุ่ม บันทึก Monitor ที่แถว keyword ในแท็บอื่น ๆ ของ Report"
+            title="ยังไม่มีรายการที่ติดตาม"
+            description="เลือกติดตามแบบ Keyword, บทความ หรือ URL ในฟอร์มด้านบน หรือกดปุ่ม บันทึก Monitor ที่แถว keyword ในแท็บอื่น ๆ ของ Report"
           />
         </Panel>
       ) : (
@@ -262,15 +334,25 @@ export default function GscTrackedKeywords({
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {trackers.map((t) => {
               const p = perfById.get(t.id);
+              const kind = trackerKind(t);
               return (
                 <Panel
                   key={t.id}
-                  title={t.keyword}
+                  title={
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="truncate">{kind === "page" ? (t.title || t.url) : t.keyword}</span>
+                      <span className="shrink-0 rounded-full bg-brand-mist px-2 py-0.5 text-[10px] font-medium text-brand-navy">{KIND_BADGE[kind]}</span>
+                    </span>
+                  }
                   subtitle={
                     <span className="block min-w-0">
-                      {t.title && <span className="block truncate text-gray-600">{t.title}</span>}
-                      <a href={t.url} target="_blank" rel="noopener noreferrer"
-                        className="block truncate text-brand-blue font-mono text-[10px] hover:underline" title={t.url}>{t.url}</a>
+                      {kind === "pair" && t.title && <span className="block truncate text-gray-600">{t.title}</span>}
+                      {t.url ? (
+                        <a href={t.url} target="_blank" rel="noopener noreferrer"
+                          className="block truncate text-brand-blue font-mono text-[10px] hover:underline" title={t.url}>{t.url}</a>
+                      ) : (
+                        <span className="block text-gray-500">ทุกหน้าของเว็บ</span>
+                      )}
                       {p && p.matchUrl && p.matchUrl !== t.url && (
                         <a href={p.matchUrl} target="_blank" rel="noopener noreferrer"
                           className="block truncate text-gray-500 font-mono text-[10px] hover:underline" title={p.matchUrl}>ใช้เทียบกับ: {p.matchUrl}</a>
@@ -288,7 +370,7 @@ export default function GscTrackedKeywords({
                       {loading ? <Loader2 size={18} className="animate-spin" /> : <span className="text-xs">ยังไม่มีข้อมูล</span>}
                     </div>
                   ) : (
-                    <TrackerBody p={p} metric={metric} name={name} />
+                    <TrackerBody p={p} kind={kind} metric={metric} name={name} />
                   )}
                 </Panel>
               );
@@ -300,7 +382,13 @@ export default function GscTrackedKeywords({
   );
 }
 
-function TrackerBody({ p, metric, name }: { p: GscTrackerPerformance; metric: Metric; name: string }) {
+const NO_DATA_TEXT: Record<GscTrackerKind, string> = {
+  keyword: "Search Console ไม่มีข้อมูลของ keyword นี้บนเว็บนี้ในช่วงที่เลือก",
+  page: "Search Console ไม่มีข้อมูลของหน้านี้ในช่วงที่เลือก (หน้าอาจยังไม่ถูก index หรือ URL ไม่ตรงกับที่ Google เก็บ)",
+  pair: "Search Console ไม่มีข้อมูลของ keyword นี้บนหน้านี้ในช่วงที่เลือก",
+};
+
+function TrackerBody({ p, kind, metric, name }: { p: GscTrackerPerformance; kind: GscTrackerKind; metric: Metric; name: string }) {
   const cur = p.daily.map((d) => ({ label: fmtDm(d.date), value: metric === "clicks" ? d.clicks : d.impressions }));
   const prev = p.dailyPrev.map((d) => ({ label: fmtDm(d.date), value: metric === "clicks" ? d.clicks : d.impressions }));
   const total = p.totals[metric];
@@ -320,9 +408,9 @@ function TrackerBody({ p, metric, name }: { p: GscTrackerPerformance; metric: Me
 
   return (
     <div className="space-y-3">
-      {p.matchedPages.length === 0 ? (
+      {!p.hasData ? (
         <p className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-600">
-          Search Console ไม่มีข้อมูลของ keyword นี้บนหน้านี้ในช่วงที่เลือก
+          {NO_DATA_TEXT[kind]}
         </p>
       ) : null}
 

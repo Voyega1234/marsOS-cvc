@@ -2,10 +2,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff, isCtx, serverError, addEvent } from "@/lib/backlink-management/server";
 import {
-  MAX_FILE_BYTES, MAX_FILES_PER_REQUEST, formatBytes, isSameOriginRequest, validateUpload,
+  MAX_FILE_BYTES, MAX_FILES_PER_REQUEST, formatBytes, isSameOriginRequest, linkDisplayName, normalizeAttachmentLink,
+  validateUpload,
 } from "@/lib/backlink-management/attachments";
 import {
-  AttachmentError, createAttachment, findRequestRef, getAttachmentRow, listAttachments, pushPendingAttachments,
+  AttachmentError, createAttachment, createLinkAttachment, findRequestRef, getAttachmentRow, listAttachments, pushPendingAttachments,
 } from "@/lib/backlink-management/attachments-server";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,39 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       host: req.headers.get("host"),
     })) {
       return NextResponse.json({ error: "คำขอไม่ได้มาจากหน้า MarsOS" }, { status: 403 });
+    }
+    const isJson = (req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json");
+    if (isJson) {
+      let body: { link?: unknown; name?: unknown } | null = null;
+      try {
+        body = await req.json();
+      } catch {
+        return NextResponse.json({ error: "อ่านข้อมูลที่ส่งมาไม่ได้" }, { status: 400 });
+      }
+      const link = normalizeAttachmentLink(body?.link);
+      if (!link) {
+        return NextResponse.json({ error: "ลิงก์ต้องเป็น https ของ Google Drive หรือ Google Docs (docs.google.com / drive.google.com)" }, { status: 400 });
+      }
+      const jref = await findRequestRef(ctx.orgId, params.id);
+      if (!jref) return NextResponse.json({ error: "ไม่พบคำขอ" }, { status: 404 });
+      const name = linkDisplayName(body?.name, link.label);
+      const made = await createLinkAttachment({
+        orgId: ctx.orgId, requestId: jref.id, userId: ctx.userId, fileName: name, url: link.url,
+      });
+      await addEvent({
+        organizationId: ctx.orgId, requestId: jref.id, type: "NOTE",
+        note: `แนบลิงก์: ${name}`, actorId: ctx.userId,
+      }).catch(() => {});
+      let linkWarning: string | undefined;
+      if (jref.asanaTaskGid) {
+        const sent = await pushPendingAttachments(ctx.orgId, jref.id, 25_000, made.id);
+        if (sent.failed > 0) linkWarning = `บันทึกลิงก์ ${name} แล้ว แต่ส่งไป Asana ไม่สำเร็จ — กด "ส่งไป Asana อีกครั้ง" ได้`;
+        else if (sent.reason === "no_token") linkWarning = `บันทึกลิงก์ ${name} แล้ว แต่ยังไม่ได้ส่งไป Asana — ยังไม่ได้ตั้ง Asana token`;
+      }
+      const jfresh = await findRequestRef(ctx.orgId, jref.id);
+      const jatt = await getAttachmentRow(ctx.orgId, jref.id, made.id, jfresh?.asanaTaskGid ?? null, ctx);
+      if (!jatt) return NextResponse.json({ error: "ลิงก์ถูกลบไปแล้ว" }, { status: 409 });
+      return NextResponse.json({ attachment: jatt, ...(linkWarning ? { warning: linkWarning } : {}) });
     }
     const tooBig = NextResponse.json({ error: `ไฟล์ใหญ่เกิน ${formatBytes(MAX_FILE_BYTES)}` }, { status: 413 });
     const declared = Number(req.headers.get("content-length") ?? "");

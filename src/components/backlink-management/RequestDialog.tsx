@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Paperclip, X } from "lucide-react";
+import { Link as LinkIcon, Loader2, Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,12 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { LINK_TYPES } from "@/lib/backlink-management/types";
 import { PRICE_TYPES } from "@/lib/backlink-management/vendor-detail";
-import { ACCEPT_ATTR, ALLOWED_LABEL, MAX_FILE_BYTES, MAX_FILES_PER_REQUEST, formatBytes } from "@/lib/backlink-management/attachments";
+import { ACCEPT_ATTR, ALLOWED_LABEL, MAX_FILE_BYTES, MAX_FILES_PER_REQUEST, formatBytes, normalizeAttachmentLink } from "@/lib/backlink-management/attachments";
 import { api, dateInput, selectCls, type BlmRow, type Meta, type Vendor } from "./shared";
 import SearchSelect from "./SearchSelect";
 import AsanaProjectSelect from "./AsanaProjectSelect";
 import type { AsanaStatus } from "./AsanaDialog";
-import { checkAttachmentFile, uploadAttachment } from "./RequestAttachments";
+import { LINK_ERROR_TEXT, addAttachmentLink, checkAttachmentFile, uploadAttachment } from "./RequestAttachments";
 
 /** สร้าง / แก้ไขคำขอ (edit: ส่งแถวเดิมมา) */
 export default function RequestDialog({ open, onOpenChange, meta, edit, duplicateFrom, asana, defaultProjectId, defaultPeriod, onSaved }: {
@@ -37,6 +37,8 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
   });
   const [saving, setSaving] = useState(false);
   const [staged, setStaged] = useState<File[]>([]);
+  const [stagedLinks, setStagedLinks] = useState<{ url: string; label: string }[]>([]);
+  const [linkText, setLinkText] = useState("");
   const [asanaProjectGid, setAsanaProjectGid] = useState("");
   const dup = !edit ? duplicateFrom ?? null : null;
   const asanaOn = !!asana && asana.tokenSource !== "none";
@@ -106,6 +108,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
     if (!f.projectId) return toast.error("กรุณาเลือกโปรเจกต์");
     const keepEmptyUrl = !!edit && !edit.targetUrl.trim() && !f.targetUrl.trim();
     if (!keepEmptyUrl && !/^https?:\/\//i.test(f.targetUrl.trim())) return toast.error("URL หน้าลูกค้าต้องขึ้นต้นด้วย http:// หรือ https://");
+    if (!edit && asanaOn && !asana?.projectGid && !asanaProjectGid) return toast.error("เลือกโปรเจกต์ Asana ก่อน — ระบบไม่ได้ล็อกโปรเจกต์เริ่มต้น");
     setSaving(true);
     try {
       if (edit) {
@@ -130,7 +133,8 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
         });
         // คำขอถูกสร้างแล้ว — ไฟล์ที่แนบไม่ได้ต้องบอกชัด และไม่เปิดฟอร์มค้างไว้ (กดส่งซ้ำจะได้คำขอซ้ำ)
         let missed = 0;
-        if (staged.length > 0 && created?.request?.id) {
+        const totalStaged = staged.length + stagedLinks.length;
+        if (totalStaged > 0 && created?.request?.id) {
           setUploadingFiles(true);
           for (const file of staged) {
             try {
@@ -141,15 +145,24 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
               toast.error(`${file.name}: ${err instanceof Error ? err.message : "อัปโหลดไม่สำเร็จ"}`);
             }
           }
+          for (const link of stagedLinks) {
+            try {
+              const r = await addAttachmentLink(created.request.id, link.url);
+              if (r.warning) toast.warning(r.warning);
+            } catch (err) {
+              missed++;
+              toast.error(`${link.label}: ${err instanceof Error ? err.message : "แนบลิงก์ไม่สำเร็จ"}`);
+            }
+          }
           setUploadingFiles(false);
-        } else if (staged.length > 0) {
-          missed = staged.length;
+        } else if (totalStaged > 0) {
+          missed = totalStaged;
         }
         if (created?.request?.asanaSyncError) {
           toast.warning(`บันทึกคำขอแล้ว แต่ส่งเข้า Asana ไม่ได้: ${created.request.asanaSyncError}`, { duration: 10_000 });
         }
         if (missed > 0) {
-          toast.warning(`สร้างคำขอแล้ว แต่แนบไฟล์ไม่สำเร็จ ${missed} จาก ${staged.length} ไฟล์ — เปิดคำขอแล้วแนบไฟล์อีกครั้ง`, { duration: 10_000 });
+          toast.warning(`สร้างคำขอแล้ว แต่แนบไฟล์/ลิงก์ไม่สำเร็จ ${missed} จาก ${totalStaged} รายการ — เปิดคำขอแล้วแนบอีกครั้ง`, { duration: 10_000 });
         } else {
           toast.success("สร้างคำขอแล้ว");
         }
@@ -162,6 +175,15 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
       setSaving(false);
       setUploadingFiles(false);
     }
+  }
+
+  function stageLink() {
+    const link = normalizeAttachmentLink(linkText);
+    if (!link) return toast.error(LINK_ERROR_TEXT);
+    if (stagedLinks.some((x) => x.url === link.url)) { setLinkText(""); return; }
+    if (staged.length + stagedLinks.length >= MAX_FILES_PER_REQUEST) return toast.warning(`แนบได้สูงสุด ${MAX_FILES_PER_REQUEST} รายการ`);
+    setStagedLinks((p) => [...p, link]);
+    setLinkText("");
   }
 
   function stageFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -275,7 +297,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
           </div>
           {!edit && asanaOn ? (
             <div>
-              <Label>โปรเจกต์ Asana</Label>
+              <Label>โปรเจกต์ Asana{!asana?.projectGid ? <span className="text-red-600"> *</span> : null}</Label>
               <AsanaProjectSelect value={asanaProjectGid} onChange={setAsanaProjectGid} defaultProjectName={asana?.projectName} disabled={saving} />
             </div>
           ) : null}
@@ -284,13 +306,20 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
             <div>
               <Label>แนบไฟล์ (ไม่บังคับ)</Label>
               <div className="mt-1">
-                <Button type="button" size="sm" variant="outline" disabled={saving || staged.length >= MAX_FILES_PER_REQUEST} onClick={() => fileRef.current?.click()}>
+                <Button type="button" size="sm" variant="outline" disabled={saving || staged.length + stagedLinks.length >= MAX_FILES_PER_REQUEST} onClick={() => fileRef.current?.click()}>
                   <Paperclip className="mr-1 h-4 w-4" /> เลือกไฟล์
                 </Button>
                 <input ref={fileRef} type="file" multiple accept={ACCEPT_ATTR} className="hidden" aria-label="เลือกไฟล์แนบ" onChange={stageFiles} />
               </div>
-              <p className="mt-1 text-xs text-gray-400">{ALLOWED_LABEL} ไม่เกิน {formatBytes(MAX_FILE_BYTES)} ต่อไฟล์</p>
-              {staged.length > 0 ? (
+              <div className="mt-2 flex items-center gap-2">
+                <Input value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder="วางลิงก์ Google Drive / Google Docs" aria-label="ลิงก์ที่จะแนบ"
+                  disabled={saving} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); stageLink(); } }} />
+                <Button type="button" size="sm" variant="outline" disabled={saving || !linkText.trim()} onClick={stageLink}>
+                  <LinkIcon className="mr-1 h-4 w-4" /> แนบลิงก์
+                </Button>
+              </div>
+              <p className="mt-1 text-xs text-gray-400">{ALLOWED_LABEL} ไม่เกิน {formatBytes(MAX_FILE_BYTES)} ต่อไฟล์ หรือแนบลิงก์ Google Drive / Google Docs</p>
+              {staged.length + stagedLinks.length > 0 ? (
                 <ul className="mt-2 space-y-1">
                   {staged.map((file) => (
                     <li key={`${file.name}-${file.size}`} className="flex items-center gap-2 rounded-lg border border-gray-200 px-2 py-1 text-xs">
@@ -298,6 +327,17 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
                       <span className="shrink-0 text-gray-400">{formatBytes(file.size)}</span>
                       <button type="button" aria-label={`เอา ${file.name} ออก`} title="เอาออก" disabled={saving}
                         onClick={() => setStaged((p) => p.filter((x) => x !== file))}
+                        className="shrink-0 rounded p-1 text-gray-400 hover:text-red-600 disabled:opacity-50">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                  {stagedLinks.map((link) => (
+                    <li key={link.url} className="flex items-center gap-2 rounded-lg border border-gray-200 px-2 py-1 text-xs">
+                      <LinkIcon className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                      <span className="min-w-0 flex-1 truncate" title={link.url}>{link.label} · {link.url}</span>
+                      <button type="button" aria-label={`เอาลิงก์ ${link.label} ออก`} title="เอาออก" disabled={saving}
+                        onClick={() => setStagedLinks((p) => p.filter((x) => x !== link))}
                         className="shrink-0 rounded p-1 text-gray-400 hover:text-red-600 disabled:opacity-50">
                         <X className="h-3.5 w-3.5" />
                       </button>

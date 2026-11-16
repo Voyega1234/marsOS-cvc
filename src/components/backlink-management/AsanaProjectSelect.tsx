@@ -89,7 +89,9 @@ export default function AsanaProjectSelect({ value, onChange, defaultProjectName
         value={value}
         onChange={onChange}
         options={options}
-        emptyLabel={defaultProjectName ? `ค่าเริ่มต้น: ${defaultProjectName}` : "ค่าเริ่มต้นของระบบ"}
+        // ไม่มีโปรเจกต์เริ่มต้น (ตั้งเป็น "ทุกโปรเจกต์") = ไม่มีตัวเลือกค่าว่าง ต้องเลือกโปรเจกต์เอง
+        emptyLabel={defaultProjectName ? `ค่าเริ่มต้น: ${defaultProjectName}` : undefined}
+        placeholder="เลือกโปรเจกต์ Asana…"
         disabled={disabled}
         className={className}
         ariaLabel="โปรเจกต์ Asana"

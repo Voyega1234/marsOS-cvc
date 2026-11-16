@@ -3,6 +3,7 @@ import {
   ACCEPT_ATTR, ATTACHMENT_TYPES, MAX_FILE_BYTES, MAX_NAME_CHARS,
   asanaFileState, contentDisposition, formatBytes, isImageMime, isSameOriginRequest,
   matchesSignature, sanitizeFileName, validateUpload,
+  LINK_MIME, MAX_LINK_CHARS, isLinkMime, linkDisplayName, normalizeAttachmentLink,
 } from "./attachments";
 
 let n = 0;
@@ -240,6 +241,35 @@ const OLE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
   assert(!ACCEPT_ATTR.includes("svg"), "accept no svg");
   assert(!ACCEPT_ATTR.includes("html"), "accept no html");
   assert(!ACCEPT_ATTR.includes(".exe"), "accept no exe");
+}
+
+// ---- links
+{
+  const ok = (u: string, label: string) => {
+    const r = normalizeAttachmentLink(u);
+    assert(r !== null && r.label === label && r.url.startsWith("https://"), `link ok: ${u}`);
+  };
+  ok("https://docs.google.com/document/d/abc123/edit", "Google Docs");
+  ok("https://docs.google.com/spreadsheets/d/abc/edit#gid=0", "Google Sheets");
+  ok("https://docs.google.com/presentation/d/abc/edit", "Google Slides");
+  ok("https://docs.google.com/forms/d/abc/viewform", "Google Forms");
+  ok("https://drive.google.com/file/d/abc/view?usp=sharing", "Google Drive");
+  ok("  https://drive.google.com/drive/folders/xyz  ", "Google Drive");
+  ok("https://DOCS.GOOGLE.COM/document/d/abc", "Google Docs");
+  const bad = [
+    "http://docs.google.com/document/d/abc", "https://evil-google.com/document/d/abc",
+    "https://docs.google.com.evil.com/document/d/abc", "https://user@docs.google.com/document/d/abc",
+    "https://user:pw@docs.google.com/x", "https://docs.google.com:8443/x", "javascript:alert(1)",
+    "https://evildocs.google.com/x", "https://google.com/x", "", "   ", "not a url",
+    "https://docs.google.com/a b", "https://docs.google.com/document/d/abc\nHost: x",
+    "https://docs.google.com/" + "a".repeat(MAX_LINK_CHARS),
+  ];
+  for (const b of bad) assert(normalizeAttachmentLink(b) === null, `link rejected: ${b.slice(0, 40)}`);
+  assert(normalizeAttachmentLink(null) === null && normalizeAttachmentLink(42) === null, "non-string rejected");
+  assert(isLinkMime(LINK_MIME) && !isLinkMime("image/png"), "isLinkMime");
+  assert(linkDisplayName("  แผนงาน\u202E  Q4 ", "Google Docs") === "แผนงาน Q4", "display name sanitized");
+  assert(linkDisplayName("", "Google Docs") === "Google Docs", "display name fallback");
+  assert(linkDisplayName("x".repeat(500), "L").length === MAX_NAME_CHARS, "display name capped");
 }
 
 console.log(`${n} passed`);

@@ -28,6 +28,10 @@ interface ProjectOption { gid: string; name: string; workspaceName: string; team
 const MAX_VISIBLE = 300;
 
 /** ดึงเลขโปรเจกต์จากลิงก์ Asana (ทั้งรูปแบบเก่าและใหม่) หรือจากเลขล้วน */
+/** ค่าพิเศษของตัวเลือก = ไม่ล็อกโปรเจกต์เริ่มต้น (ส่งไป PUT เป็น projectGid: "all") */
+export const ALL_PROJECTS = "all";
+const ALL_PROJECTS_LABEL = "ทุกโปรเจกต์";
+
 export function projectGidFromInput(input: string): string {
   const t = input.trim();
   const m =
@@ -77,7 +81,8 @@ export default function AsanaDialog({ open, onOpenChange, status, canEdit, onCha
     if (!open) return;
     setToken("");
     setSearch("");
-    setProjectGid(status?.projectGid ?? "");
+    // มี token แต่ไม่มีโปรเจกต์เริ่มต้น = โหมด "ทุกโปรเจกต์"
+    setProjectGid(status?.projectGid || (status && status.tokenSource !== "none" ? ALL_PROJECTS : ""));
     if (canEdit && status && status.tokenSource !== "none") void loadProjects();
   }, [open, status, canEdit, loadProjects]);
 
@@ -92,12 +97,12 @@ export default function AsanaDialog({ open, onOpenChange, status, canEdit, onCha
     });
   }, [projects, search, pastedGid]);
   const visible = filtered.slice(0, MAX_VISIBLE);
-  const selected = projectGid ? projects.find((p) => p.gid === projectGid) : undefined;
+  const selected = projectGid && projectGid !== ALL_PROJECTS ? projects.find((p) => p.gid === projectGid) : undefined;
   const selectedLabel = selected
     ? projectLabel(selected)
     : projectGid === status?.projectGid && status?.projectName
       ? status.projectName
-      : projectGid ? `โปรเจกต์จากลิงก์ (${projectGid})` : "";
+      : projectGid === ALL_PROJECTS ? ALL_PROJECTS_LABEL : projectGid ? `โปรเจกต์จากลิงก์ (${projectGid})` : "";
 
   function onSearch(v: string) {
     setSearch(v);
@@ -137,7 +142,8 @@ export default function AsanaDialog({ open, onOpenChange, status, canEdit, onCha
     }
   }
 
-  const connected = !!status && status.tokenSource !== "none" && !!status.projectGid;
+  // เชื่อมแล้ว = มี token — โปรเจกต์เริ่มต้นไม่บังคับ (ไม่มี = ทุกคำขอเลือกโปรเจกต์เองในฟอร์ม)
+  const connected = !!status && status.tokenSource !== "none";
   const hookTone = status?.webhookState === "ACTIVE" ? "ok" : status?.webhookState === "PENDING" ? "warn" : "muted";
   const hookLabel = status?.webhookState === "ACTIVE" ? "Webhook ทำงาน (อัปเดตทันที)" : status?.webhookState === "PENDING" ? "กำลังเปิด webhook" : status?.webhookAvailable ? "ยังไม่ได้เปิด webhook" : "ไม่ใช้ webhook (อัปเดตอัตโนมัติทุก ~1 นาทีขณะเปิดหน้านี้)";
 
@@ -153,7 +159,7 @@ export default function AsanaDialog({ open, onOpenChange, status, canEdit, onCha
 
         <div className="space-y-3 text-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <Chip tone={connected ? "ok" : "warn"}>{connected ? `เชื่อมแล้ว · ${status?.projectName}` : "ยังไม่ได้เชื่อม"}</Chip>
+            <Chip tone={connected ? "ok" : "warn"}>{connected ? `เชื่อมแล้ว · ${status?.projectGid ? status.projectName : ALL_PROJECTS_LABEL}` : "ยังไม่ได้เชื่อม"}</Chip>
             <Chip tone={hookTone}>{hookLabel}</Chip>
           </div>
           <div className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1 text-xs text-gray-600">
@@ -170,7 +176,7 @@ export default function AsanaDialog({ open, onOpenChange, status, canEdit, onCha
                 <Input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="เว้นว่างได้ถ้าเซิร์ฟเวอร์ตั้ง ASANA_ACCESS_TOKEN ไว้แล้ว" />
               </div>
               <div>
-                <Label>โปรเจกต์ Asana ที่ใช้สร้างงาน</Label>
+                <Label>โปรเจกต์ Asana เริ่มต้น</Label>
                 <Input
                   className="mb-1.5"
                   value={search}
@@ -183,10 +189,11 @@ export default function AsanaDialog({ open, onOpenChange, status, canEdit, onCha
                   onChange={setProjectGid}
                   disabled={loadingProjects}
                   loading={loadingProjects}
-                  emptyLabel={loadingProjects ? "กำลังโหลด..." : "— เลือกโปรเจกต์ —"}
+                  placeholder={loadingProjects ? "กำลังโหลด..." : "— เลือกโปรเจกต์ —"}
                   ariaLabel="โปรเจกต์ Asana ที่ใช้สร้างงาน"
                   options={[
-                    ...(projectGid && !visible.some((p) => p.gid === projectGid) ? [{ value: projectGid, label: selectedLabel }] : []),
+                    { value: ALL_PROJECTS, label: ALL_PROJECTS_LABEL, hint: "ไม่ล็อกค่าเริ่มต้น — เลือกโปรเจกต์ตอนสร้างคำขอแต่ละรายการ" },
+                    ...(projectGid && projectGid !== ALL_PROJECTS && !visible.some((p) => p.gid === projectGid) ? [{ value: projectGid, label: selectedLabel }] : []),
                     ...visible.map((p) => ({ value: p.gid, label: p.name, hint: p.teamName || p.workspaceName, keywords: `${p.teamName ?? ""} ${p.workspaceName}` })),
                   ]}
                 />
@@ -196,6 +203,7 @@ export default function AsanaDialog({ open, onOpenChange, status, canEdit, onCha
                     {filtered.length > MAX_VISIBLE ? ` · แสดง ${MAX_VISIBLE} รายการแรก พิมพ์ค้นหาเพื่อให้รายการแคบลง` : ""}
                   </p>
                 ) : null}
+                {projectGid === ALL_PROJECTS ? <p className="mt-1 text-xs text-gray-500">ทุกคำขอต้องเลือกโปรเจกต์ Asana เองในฟอร์ม (เลือกได้จากทุกโปรเจกต์) — งานในโปรเจกต์อื่นอัปเดตสถานะแบบดึงเป็นรอบ ไม่ใช้ webhook</p> : null}
                 {pastedGid && !selected ? <p className="mt-1 text-xs text-gray-500">ใช้โปรเจกต์จากลิงก์ที่วาง — ระบบจะตรวจกับ Asana ตอนกดบันทึก</p> : null}
                 {truncated ? <p className="mt-1 text-xs text-amber-600">โปรเจกต์มีจำนวนมาก รายการนี้ยังไม่ครบ — ถ้าหาไม่เจอ ให้วางลิงก์โปรเจกต์จาก Asana ในช่องค้นหา</p> : null}
                 {projectsError ? <p className="mt-1 text-xs text-gray-500">{projectsError}</p> : null}

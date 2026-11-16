@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Loader2, Paperclip, Trash2 } from "lucide-react";
+import { FileText, Link as LinkIcon, Loader2, Paperclip, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ds";
 import {
-  ACCEPT_ATTR, ALLOWED_LABEL, MAX_FILE_BYTES, formatBytes, sanitizeFileName, type AttachmentRow,
+  ACCEPT_ATTR, ALLOWED_LABEL, MAX_FILE_BYTES, formatBytes, isLinkMime, normalizeAttachmentLink, sanitizeFileName, type AttachmentRow,
 } from "@/lib/backlink-management/attachments";
 import { api, fmtDate } from "./shared";
 
@@ -26,6 +27,13 @@ export async function uploadAttachment(requestId: string, file: File): Promise<{
   return api<{ attachment: AttachmentRow; warning?: string }>(baseUrl(requestId), { method: "POST", body: fd });
 }
 
+/** แนบลิงก์ Google Drive / Docs เข้าคำขอ (JSON `{ link }`) */
+export async function addAttachmentLink(requestId: string, link: string): Promise<{ attachment: AttachmentRow; warning?: string }> {
+  return api<{ attachment: AttachmentRow; warning?: string }>(baseUrl(requestId), { method: "POST", json: { link } });
+}
+
+export const LINK_ERROR_TEXT = "ลิงก์ต้องเป็น https ของ Google Drive หรือ Google Docs";
+
 /** ตรวจไฟล์ฝั่งเบราว์เซอร์ก่อนส่ง (เซิร์ฟเวอร์ตรวจซ้ำอีกครั้ง) — คืนข้อความไทยเมื่อไม่ผ่าน */
 export function checkAttachmentFile(file: File): string | null {
   if (!sanitizeFileName(file.name)) return `ไม่รองรับไฟล์ชนิดนี้ — แนบได้เฉพาะ ${ALLOWED_LABEL}`;
@@ -41,6 +49,8 @@ export function RequestAttachments({ requestId, onChanged }: { requestId: string
   const [uploading, setUploading] = useState("");
   const [syncing, setSyncing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [linkText, setLinkText] = useState("");
+  const [addingLink, setAddingLink] = useState(false);
   const seq = useRef(0);
   const requestIdRef = useRef(requestId);
   requestIdRef.current = requestId;
@@ -126,6 +136,23 @@ export function RequestAttachments({ requestId, onChanged }: { requestId: string
     if (ok > 0) onChanged?.();
   }
 
+  async function onAddLink() {
+    const rid = requestId;
+    if (!normalizeAttachmentLink(linkText)) return toast.error(LINK_ERROR_TEXT);
+    setAddingLink(true);
+    try {
+      const r = await addAttachmentLink(rid, linkText);
+      if (r.warning) toast.warning(r.warning);
+      setLinkText("");
+      if (requestIdRef.current === rid) await reload();
+      onChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "แนบลิงก์ไม่สำเร็จ");
+    } finally {
+      setAddingLink(false);
+    }
+  }
+
   async function remove(a: AttachmentRow) {
     if (!confirm(`ลบไฟล์แนบ "${a.fileName}"?`)) return;
     try {
@@ -158,6 +185,13 @@ export function RequestAttachments({ requestId, onChanged }: { requestId: string
         <input ref={inputRef} type="file" multiple accept={ACCEPT_ATTR} className="hidden" aria-label="เลือกไฟล์แนบ" onChange={onPick} />
       </div>
       <p className="text-xs text-gray-400">{ALLOWED_LABEL} ไม่เกิน {formatBytes(limits.maxBytes)} ต่อไฟล์</p>
+      <div className="mt-2 flex items-center gap-2">
+        <Input value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder="วางลิงก์ Google Drive / Google Docs" aria-label="ลิงก์ที่จะแนบ"
+          disabled={addingLink || full} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void onAddLink(); } }} />
+        <Button type="button" size="sm" variant="outline" disabled={addingLink || full || !linkText.trim()} onClick={() => void onAddLink()}>
+          {addingLink ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-1 h-4 w-4" />}แนบลิงก์
+        </Button>
+      </div>
       {asanaTaskGid ? <p className="text-xs text-gray-400">ไฟล์ที่แนบจะถูกส่งไปที่งานใน Asana ของคำขอนี้โดยอัตโนมัติ</p> : null}
       {uploading ? <p className="mt-1 text-xs text-gray-500">{uploading}</p> : null}
 
@@ -167,6 +201,31 @@ export function RequestAttachments({ requestId, onChanged }: { requestId: string
         <ul className="mt-2 space-y-2">
           {attachments.map((a) => {
             const url = `${baseUrl(requestId)}/${a.id}`;
+            if (isLinkMime(a.mimeType)) {
+              return (
+                <li key={a.id} className="flex items-center gap-2.5 rounded-xl border border-gray-200 p-2">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-mist/40 text-gray-500">
+                    <LinkIcon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <a href={a.linkUrl || undefined} target="_blank" rel="noopener noreferrer" title={a.linkUrl} className="block truncate text-sm text-brand-blue underline">{a.fileName}</a>
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-gray-400">
+                      <span>ลิงก์ · {a.uploadedByName || "—"} · {fmtDate(a.createdAt)}</span>
+                      {a.asana === "sent" ? <Chip tone="ok">ส่ง Asana แล้ว</Chip> : null}
+                      {a.asana === "pending" ? <Chip tone="muted">รอส่ง Asana</Chip> : null}
+                      {a.asana === "error" ? <Chip tone="warn" title={a.asanaError}>ส่ง Asana ไม่สำเร็จ</Chip> : null}
+                    </div>
+                    {a.asana === "error" && a.asanaError ? <div className="text-xs text-gray-400">{a.asanaError}</div> : null}
+                  </div>
+                  {a.canDelete ? (
+                    <button type="button" aria-label="ลบลิงก์แนบ" title="ลบลิงก์แนบ" onClick={() => void remove(a)}
+                      className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-red-600">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </li>
+              );
+            }
             return (
               <li key={a.id} className="flex items-center gap-2.5 rounded-xl border border-gray-200 p-2">
                 {a.isImage ? (

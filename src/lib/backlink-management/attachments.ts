@@ -7,6 +7,9 @@ export const MAX_FILE_BYTES = 4 * 1024 * 1024; // Vercel จำกัด body �
 export const MAX_FILES_PER_REQUEST = 10;
 export const ORG_QUOTA_BYTES = 300 * 1024 * 1024;
 export const MAX_NAME_CHARS = 120;
+/** แถวไฟล์แนบที่เป็นลิงก์ (Google Drive / Docs) — ไม่ใช่ไฟล์: sizeBytes = 0, URL เก็บเป็น UTF-8 ในตาราง blob */
+export const LINK_MIME = "text/x-uri";
+export const MAX_LINK_CHARS = 2000;
 
 type Kind = "image" | "pdf" | "text" | "ooxml" | "ole";
 
@@ -35,6 +38,10 @@ export const ALLOWED_EXTENSIONS = Object.keys(ATTACHMENT_TYPES);
 /** ค่า accept ของ <input type="file"> */
 export const ACCEPT_ATTR = ALLOWED_EXTENSIONS.map((e) => `.${e}`).join(",");
 export const ALLOWED_LABEL = "รูป (png, jpg, gif, webp), PDF, ข้อความ (txt, csv, md), Word, Excel, PowerPoint";
+
+export function isLinkMime(mime: string): boolean {
+  return mime === LINK_MIME;
+}
 
 export function isImageMime(mime: string): boolean {
   return mime.startsWith("image/");
@@ -75,6 +82,49 @@ export function sanitizeFileName(raw: unknown): { fileName: string; ext: string 
   const room = MAX_NAME_CHARS - ext.length - 1;
   const stem = stemChars.slice(0, room).join("").trim() || "file";
   return { fileName: `${stem}.${ext}`, ext };
+}
+
+/**
+ * ตรวจลิงก์แนบ: https เท่านั้น โฮสต์ต้องเป็น docs.google.com หรือ drive.google.com ตรงตัว (ไม่รับโดเมนเลียนแบบ/userinfo)
+ * คืน URL ที่ normalize แล้ว + ป้ายชื่อตามชนิดเอกสาร
+ */
+export function normalizeAttachmentLink(raw: unknown): { url: string; label: string } | null {
+  if (typeof raw !== "string") return null;
+  const text = raw.trim();
+  if (!text || text.length > MAX_LINK_CHARS) return null;
+  if (/[\u0000-\u001f\u007f-\u009f\s]/.test(text)) return null;
+  let u: URL;
+  try {
+    u = new URL(text);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:") return null;
+  if (u.username || u.password || u.port) return null;
+  const host = u.hostname.toLowerCase();
+  if (host !== "docs.google.com" && host !== "drive.google.com") return null;
+  const url = u.toString();
+  if (url.length > MAX_LINK_CHARS) return null;
+  let label = "Google Drive";
+  if (host === "docs.google.com") {
+    const path = u.pathname;
+    if (path.startsWith("/document/")) label = "Google Docs";
+    else if (path.startsWith("/spreadsheets/")) label = "Google Sheets";
+    else if (path.startsWith("/presentation/")) label = "Google Slides";
+    else if (path.startsWith("/forms/")) label = "Google Forms";
+    else label = "Google Docs";
+  }
+  return { url, label };
+}
+
+/** ชื่อแสดงของลิงก์: ใช้ชื่อที่ผู้ใช้ตั้ง (ล้างอักขระอันตราย) ไม่งั้นใช้ป้ายตามชนิดเอกสาร */
+export function linkDisplayName(name: unknown, label: string): string {
+  if (typeof name === "string") {
+    const clean = Array.from(name.normalize("NFC").replace(UNSAFE_CHARS, "").replace(/\s+/g, " ").trim())
+      .slice(0, MAX_NAME_CHARS).join("").trim();
+    if (clean) return clean;
+  }
+  return label;
 }
 
 function startsWith(bytes: Uint8Array, sig: number[], offset = 0): boolean {
@@ -180,4 +230,6 @@ export interface AttachmentRow {
   asana: AsanaFileState;
   asanaError: string;
   canDelete: boolean;
+  /** เฉพาะแถวลิงก์ (mimeType = LINK_MIME) */
+  linkUrl?: string;
 }

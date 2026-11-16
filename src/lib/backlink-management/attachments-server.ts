@@ -6,9 +6,10 @@
  * - ตารางยังไม่ถูกสร้างบน production ได้ (scripts/sql/add-blm-attachment-table.sql) — ทุกฟังก์ชันต้องทนกรณีนั้น
  */
 import { prisma } from "@/lib/prisma";
-import { AsanaError, deleteTaskAttachment, resolveToken, uploadTaskAttachment } from "./asana";
+import { AsanaError, deleteTaskAttachment, resolveToken, uploadTaskAttachment, uploadTaskLinkAttachment } from "./asana";
 import {
-  MAX_FILES_PER_REQUEST, ORG_QUOTA_BYTES, asanaFileState, formatBytes, isImageMime, type AttachmentRow,
+  LINK_MIME, MAX_FILES_PER_REQUEST, ORG_QUOTA_BYTES, asanaFileState, formatBytes, isImageMime, isLinkMime,
+  type AttachmentRow,
 } from "./attachments";
 import { isApprover } from "./types";
 
@@ -40,7 +41,9 @@ interface MetaRow {
   asanaAttachmentGid: string; asanaPushedTaskGid: string; asanaSyncError: string; createdAt: Date;
 }
 
-function toRow(m: MetaRow, taskGid: string | null, names: Map<string, string>, viewer: Viewer): AttachmentRow {
+function toRow(
+  m: MetaRow, taskGid: string | null, names: Map<string, string>, viewer: Viewer, linkUrl?: string,
+): AttachmentRow {
   const state = asanaFileState(m, taskGid);
   return {
     id: m.id,
@@ -54,7 +57,18 @@ function toRow(m: MetaRow, taskGid: string | null, names: Map<string, string>, v
     asana: state,
     asanaError: state === "error" ? m.asanaSyncError : "",
     canDelete: m.uploadedById === viewer.userId || isApprover(viewer.role),
+    ...(isLinkMime(m.mimeType) ? { linkUrl: linkUrl ?? "" } : {}),
   };
+}
+
+/** URL ของแถวลิงก์ (อ่านตาราง blob เฉพาะแถวลิงก์) */
+async function linkUrls(orgId: string, ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const blobs = await prisma.blmAttachmentBlob.findMany({
+    where: { organizationId: orgId, id: { in: ids } },
+    select: { id: true, data: true },
+  });
+  return new Map(blobs.map((b) => [b.id, Buffer.from(b.data).toString("utf8")]));
 }
 
 async function userNames(orgId: string, ids: string[]): Promise<Map<string, string>> {
@@ -85,7 +99,8 @@ export async function listAttachments(
       select: META_SELECT,
     });
     const names = await userNames(orgId, metas.map((m) => m.uploadedById));
-    return { available: true, rows: metas.map((m) => toRow(m, taskGid, names, viewer)) };
+    const urls = await linkUrls(orgId, metas.filter((m) => isLinkMime(m.mimeType)).map((m) => m.id));
+    return { available: true, rows: metas.map((m) => toRow(m, taskGid, names, viewer, urls.get(m.id))) };
   } catch (e) {
     if (isMissingStorage(e)) return { available: false, rows: [] };
     throw e;
@@ -98,7 +113,42 @@ export async function getAttachmentRow(
 ): Promise<AttachmentRow | null> {
   const m = await prisma.blmAttachment.findFirst({ where: { id, organizationId: orgId, requestId }, select: META_SELECT });
   if (!m) return null;
-  return toRow(m, taskGid, await userNames(orgId, [m.uploadedById]), viewer);
+  const urls = isLinkMime(m.mimeType) ? await linkUrls(orgId, [m.id]) : new Map<string, string>();
+  return toRow(m, taskGid, await userNames(orgId, [m.uploadedById]), viewer, urls.get(m.id));
+}
+
+/** บันทึกลิงก์ (ผ่าน normalizeAttachmentLink แล้วเท่านั้น) — ขนาด 0 ไม่กินโควตาไบต์ แต่นับรวมในเพดานจำนวนต่อคำขอ */
+export async function createLinkAttachment(input: {
+  orgId: string; requestId: string; userId: string; fileName: string; url: string;
+}): Promise<{ id: string }> {
+  const { orgId, requestId } = input;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const lockKey = `blm-attachment:${orgId}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      const req = await tx.blmRequest.findFirst({ where: { id: requestId, organizationId: orgId }, select: { id: true } });
+      if (!req) throw new AttachmentError(404, "ไม่พบคำขอ");
+      const count = await tx.blmAttachment.count({ where: { organizationId: orgId, requestId } });
+      if (count >= MAX_FILES_PER_REQUEST) {
+        throw new AttachmentError(409, `แนบได้ไม่เกิน ${MAX_FILES_PER_REQUEST} รายการต่อคำขอ — ลบรายการเดิมก่อน`);
+      }
+      const meta = await tx.blmAttachment.create({
+        data: {
+          organizationId: orgId, requestId, fileName: input.fileName, mimeType: LINK_MIME,
+          sizeBytes: 0, uploadedById: input.userId,
+        },
+        select: { id: true },
+      });
+      await tx.blmAttachmentBlob.create({
+        data: { id: meta.id, organizationId: orgId, data: Buffer.from(input.url, "utf8") },
+        select: { id: true },
+      });
+      return { id: meta.id };
+    }, { timeout: 20_000, maxWait: 5_000 });
+  } catch (e) {
+    if (isMissingStorage(e)) throw new AttachmentError(503, MISSING_STORAGE_MESSAGE);
+    throw e;
+  }
 }
 
 /**
@@ -276,10 +326,14 @@ export async function pushPendingAttachments(
       try {
         const blob = await prisma.blmAttachmentBlob.findFirst({ where: { id: file.id, organizationId: orgId }, select: { data: true } });
         if (!blob) throw new Error("ไม่พบตัวไฟล์ในฐานข้อมูล");
-        const sent = await uploadTaskAttachment(token, {
-          taskGid, fileName: file.fileName, mimeType: file.mimeType, data: blob.data,
-          timeoutMs: Math.min(20_000, deadline - Date.now()),
-        });
+        const timeoutMs = Math.min(20_000, deadline - Date.now());
+        const sent = isLinkMime(file.mimeType)
+          ? await uploadTaskLinkAttachment(token, {
+              taskGid, url: Buffer.from(blob.data).toString("utf8"), name: file.fileName, timeoutMs,
+            })
+          : await uploadTaskAttachment(token, {
+              taskGid, fileName: file.fileName, mimeType: file.mimeType, data: blob.data, timeoutMs,
+            });
         unrecordedGid = sent.gid;
         const record = () => prisma.blmAttachment.updateMany({
           where: { id: file.id, organizationId: orgId },

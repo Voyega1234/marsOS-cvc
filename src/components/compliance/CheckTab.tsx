@@ -12,9 +12,10 @@ import { Panel, Segmented, SearchPill, EmptyState } from "@/components/ds";
 import { BRAND_UNAVAILABLE_MESSAGE, type BrandSummary } from "@/lib/compliance/brand";
 import { api, fmtDateTime, type CheckFull, type IndustryOpt } from "./shared";
 import CheckResult from "./CheckResult";
+import type { GdocInfo } from "./GdocWriteButton";
 
 type Mode = "industry" | "brand";
-type Source = "sme" | "upload" | "manual" | "file";
+type Source = "sme" | "upload" | "manual" | "file" | "gdoc";
 interface ArticleOpt { id: string; title: string; ownerLabel: string; status: string; updatedAt: string }
 
 const TEXT_MAX = 200_000;
@@ -67,6 +68,12 @@ export default function CheckTab({ industries, userRole, onGoRules, onGoBrand }:
   const [result, setResult] = useState<CheckFull | null>(null);
   // ไฟล์ .docx ที่ใช้ตรวจรอบที่แสดงผลอยู่ — ส่งต่อให้ปุ่ม export ใส่คำแนะนำกลับลงไฟล์เดิม
   const [resultFile, setResultFile] = useState<File | null>(null);
+  // Google Docs: ลิงก์ที่วาง, เอกสารที่ดึงมา (ใช้ file/fileText ร่วมกับโหมดไฟล์ Word), และข้อมูลสำหรับเขียนกลับ
+  const [gdocUrl, setGdocUrl] = useState("");
+  const [gdocBusy, setGdocBusy] = useState(false);
+  const [gdocInfo, setGdocInfo] = useState<(GdocInfo & { name: string }) | null>(null);
+  const [gdocServiceEmail, setGdocServiceEmail] = useState("");
+  const [resultGdoc, setResultGdoc] = useState<GdocInfo | null>(null);
   const seq = useRef(0);
   const fileSeq = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -107,7 +114,7 @@ export default function CheckTab({ industries, userRole, onGoRules, onGoBrand }:
 
   // ค้นหาบทความแบบ debounce
   useEffect(() => {
-    if (source === "manual" || source === "file") return;
+    if (source === "manual" || source === "file" || source === "gdoc") return;
     const my = ++seq.current;
     setLoadingList(true);
     const t = setTimeout(async () => {
@@ -142,6 +149,41 @@ export default function CheckTab({ industries, userRole, onGoRules, onGoBrand }:
     }
   }
 
+  async function fetchGdoc() {
+    if (!gdocUrl.trim() || gdocBusy) return;
+    const my = ++fileSeq.current;
+    setGdocBusy(true);
+    setFile(null);
+    setFileText("");
+    setFileError("");
+    setGdocInfo(null);
+    try {
+      const { ok, data } = await api<{ fileId: string; name: string; version: string; canEdit: boolean; docxBase64: string; serviceEmail?: string }>(
+        "/api/compliance/gdoc",
+        { method: "POST", body: JSON.stringify({ url: gdocUrl.trim() }) },
+      );
+      if (my !== fileSeq.current) return;
+      if (data.serviceEmail) setGdocServiceEmail(data.serviceEmail);
+      if (!ok || !data.docxBase64) { setFileError(data.error || "ดึง Google Doc ไม่สำเร็จ"); return; }
+      const bin = atob(data.docxBase64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const safe = (data.name || "Google Doc").replace(/[\\/:*?"<>|]/g, "-").slice(0, 120);
+      const f = new File([bytes], `${safe}.docx`, { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+      const t = (await readWordText(f)).trim();
+      if (my !== fileSeq.current) return;
+      setFile(f);
+      if (t.length < TEXT_MIN) { setFileError("อ่านข้อความจากเอกสารได้น้อยเกินไป"); return; }
+      if (t.length > TEXT_MAX) { setFileError(`เนื้อหายาว ${t.length.toLocaleString("en-US")} ตัวอักษร เกินเพดาน ${TEXT_MAX.toLocaleString("en-US")} — แบ่งเอกสารก่อนตรวจ`); return; }
+      setFileText(t);
+      setGdocInfo({ fileId: data.fileId, version: data.version, canEdit: data.canEdit, name: data.name });
+    } catch (e) {
+      if (my === fileSeq.current) setFileError(e instanceof Error ? e.message : "ดึง Google Doc ไม่สำเร็จ");
+    } finally {
+      if (my === fileSeq.current) setGdocBusy(false);
+    }
+  }
+
   const cur = industries.find((i) => i.key === industry);
   const noRules = mode === "industry" && !!industry && !!cur && cur.active === 0;
   const curBrand = brands.find((b) => b.id === brandId);
@@ -149,18 +191,21 @@ export default function CheckTab({ industries, userRole, onGoRules, onGoBrand }:
   const scopeReady = mode === "industry" ? !!industry : brandsState === "ready" && !!brandId;
   const contentReady = source === "manual"
     ? text.trim().length >= TEXT_MIN
-    : source === "file" ? !!file && !fileBusy && fileText.length >= TEXT_MIN : !!picked;
+    : source === "file" ? !!file && !fileBusy && fileText.length >= TEXT_MIN
+    : source === "gdoc" ? !!gdocInfo && !gdocBusy && fileText.length >= TEXT_MIN : !!picked;
   const canRun = scopeReady && contentReady && !running;
 
   async function run() {
     setRunning(true);
     setResult(null);
     setResultFile(null);
-    const usedFile = source === "file" ? file : null;
+    setResultGdoc(null);
+    const usedFile = source === "file" || source === "gdoc" ? file : null;
+    const usedGdoc = source === "gdoc" && gdocInfo ? { fileId: gdocInfo.fileId, version: gdocInfo.version, canEdit: gdocInfo.canEdit } : null;
     const content = source === "manual"
       ? { source: "manual", title, text }
-      : source === "file"
-        ? { source: "manual", title: usedFile ? stripExt(usedFile.name) : "", text: fileText }
+      : source === "file" || source === "gdoc"
+        ? { source: "manual", title: source === "gdoc" ? (gdocInfo?.name ?? "") : usedFile ? stripExt(usedFile.name) : "", text: fileText }
         : { source, articleId: picked?.id };
     const { ok, data } = await api<{ check: CheckFull; notes?: string[] }>("/api/compliance/checks", {
       method: "POST",
@@ -177,6 +222,7 @@ export default function CheckTab({ industries, userRole, onGoRules, onGoBrand }:
     }
     setResult(data.check);
     setResultFile(usedFile && /\.docx$/i.test(usedFile.name) ? usedFile : null);
+    setResultGdoc(usedGdoc);
     if (data.check.aiError) toast.warning(`AI ตรวจบริบทไม่สำเร็จ ใช้ผลจากกฎอย่างเดียว: ${data.check.aiError}`);
     else toast.success("ตรวจเสร็จแล้ว");
     if (Array.isArray(data.notes)) for (const n of data.notes) toast.warning(n, { duration: 9000 });
@@ -282,6 +328,7 @@ export default function CheckTab({ industries, userRole, onGoRules, onGoBrand }:
                   { value: "upload", label: "Upload Article" },
                   { value: "manual", label: "วางข้อความ" },
                   { value: "file", label: "ไฟล์ Word" },
+                  { value: "gdoc", label: "ลิงก์ Google Docs" },
                 ]}
               />
             </div>
@@ -298,6 +345,34 @@ export default function CheckTab({ industries, userRole, onGoRules, onGoBrand }:
                 <Textarea id="cmp-text" rows={10} value={text} onChange={(e) => setText(e.target.value)} placeholder="วางข้อความบทความที่ต้องการตรวจ (อย่างน้อย 20 ตัวอักษร)" />
                 <p className="text-[11px] text-gray-400">{text.length.toLocaleString()} / 200,000 ตัวอักษร</p>
               </div>
+            </div>
+          ) : source === "gdoc" ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  aria-label="ลิงก์ Google Docs"
+                  className="sm:max-w-md"
+                  value={gdocUrl}
+                  onChange={(e) => { setGdocUrl(e.target.value); setGdocInfo(null); setFile(null); setFileText(""); setFileError(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") void fetchGdoc(); }}
+                  placeholder="https://docs.google.com/document/d/..."
+                />
+                <Button type="button" variant="outline" disabled={gdocBusy || !gdocUrl.trim()} onClick={() => void fetchGdoc()}>
+                  {gdocBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FileText className="mr-1.5 h-4 w-4" />}
+                  ดึงเอกสาร
+                </Button>
+              </div>
+              {gdocInfo && fileText && (
+                <p className="flex min-w-0 items-center gap-1.5 text-sm text-brand-navy">
+                  <FileText className="h-4 w-4 shrink-0" />
+                  <span className="break-all font-medium">{gdocInfo.name}</span>
+                  <span className="shrink-0 text-xs text-gray-500">· {fileText.length.toLocaleString("en-US")} ตัวอักษร{gdocInfo.canEdit ? "" : " · สิทธิ์ผู้ดูเท่านั้น (เขียนกลับไม่ได้)"}</span>
+                </p>
+              )}
+              {fileError && <p role="alert" className="text-xs text-red-700">{fileError}</p>}
+              <p className="text-xs text-gray-500">
+                แชร์ Doc ให้ service account{gdocServiceEmail ? ` (${gdocServiceEmail})` : ""} เป็น Editor — ระบบอ่านแล้วเขียนข้อเสนอแก้แบบ Suggesting กลับลงลิงก์เดิม
+              </p>
             </div>
           ) : source === "file" ? (
             <div className="space-y-2">
@@ -377,7 +452,7 @@ export default function CheckTab({ industries, userRole, onGoRules, onGoBrand }:
         </div>
       </Panel>
 
-      {result && <CheckResult check={result} userRole={userRole} onChange={setResult} originalFile={resultFile} />}
+      {result && <CheckResult check={result} userRole={userRole} onChange={setResult} originalFile={resultFile} gdoc={resultGdoc} />}
     </div>
   );
 }

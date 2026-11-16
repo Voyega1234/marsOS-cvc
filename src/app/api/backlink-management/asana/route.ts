@@ -60,7 +60,15 @@ export async function PUT(req: NextRequest) {
     const token = newToken || resolveToken(config);
     if (!token) return NextResponse.json({ error: "ยังไม่มี Asana token — กรอก token หรือให้ผู้ดูแลตั้ง ASANA_ACCESS_TOKEN บนเซิร์ฟเวอร์" }, { status: 400 });
 
-    if (newProject) {
+    // "all" = ไม่ล็อกโปรเจกต์เริ่มต้น — ทุกคำขอต้องเลือกโปรเจกต์ Asana เองในฟอร์ม
+    const clearProject = newProject === "all";
+    if (clearProject) {
+      if (config?.webhookGid) await deleteWebhook(token, config.webhookGid).catch(() => {});
+      Object.assign(patch, {
+        projectGid: "", projectName: "", hookToken: null, webhookGid: "", webhookSecretEnc: "",
+        webhookState: "NONE", pendingUntil: null,
+      });
+    } else if (newProject) {
       try {
         const p = await getProject(token, newProject);
         patch.projectGid = p.gid;
@@ -76,7 +84,7 @@ export async function PUT(req: NextRequest) {
 
     // ลงทะเบียน webhook ใหม่ (ถ้ามี URL สาธารณะ)
     const base = webhookBaseUrl();
-    if (base && config.projectGid) {
+    if (base && config.projectGid && (newProject || newToken)) {
       try {
         if (config.webhookGid) {
           await deleteWebhook(token, config.webhookGid).catch(() => {});

@@ -64,7 +64,7 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
 
   const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
   const canApprove = meta?.me.canApprove ?? ["ADMIN", "SEO_MANAGER"].includes(userRole);
-  const connected = !!asana && asana.tokenSource !== "none" && !!asana.projectGid;
+  const connected = !!asana && asana.tokenSource !== "none";
   const sheetConnected = !!sheet?.connected;
 
   // ซิงก์ลง Google Sheet เบื้องหลัง (เงียบ ไม่บล็อก UI) — เฉพาะเมื่อเชื่อมแล้ว
@@ -93,7 +93,7 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => setAsanaOpen(true)} aria-label="ตั้งค่า Asana">
               <Chip tone={connected ? "ok" : "warn"} dot>
-                {connected ? `Asana: เชื่อมแล้ว · ${asana?.projectName}` : "Asana: ยังไม่ได้เชื่อม"}
+                {connected ? `Asana: เชื่อมแล้ว · ${asana?.projectName || "ทุกโปรเจกต์"}` : "Asana: ยังไม่ได้เชื่อม"}
               </Chip>
             </button>
             <button type="button" onClick={() => setSheetOpen(true)} aria-label="ตั้งค่า Google Sheet">

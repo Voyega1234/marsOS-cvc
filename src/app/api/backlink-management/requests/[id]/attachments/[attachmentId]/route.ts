@@ -1,7 +1,7 @@
 /** ไฟล์แนบหนึ่งไฟล์ — GET ดาวน์โหลด, DELETE ลบ (ผู้แนบหรือผู้อนุมัติ) */
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff, isCtx, serverError, addEvent } from "@/lib/backlink-management/server";
-import { contentDisposition, isSameOriginRequest } from "@/lib/backlink-management/attachments";
+import { LINK_MIME, contentDisposition, normalizeAttachmentLink, isSameOriginRequest } from "@/lib/backlink-management/attachments";
 import { AttachmentError, deleteAttachment, readAttachment } from "@/lib/backlink-management/attachments-server";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,12 @@ export async function GET(_req: NextRequest, { params }: Params) {
   try {
     const file = await readAttachment(ctx.orgId, params.id, params.attachmentId);
     if (!file) return NextResponse.json({ error: "ไม่พบไฟล์แนบ" }, { status: 404 });
+    // แถวลิงก์: ไม่ส่งเป็นไฟล์ — เด้งไปยัง URL ที่ตรวจแล้วเท่านั้น
+    if (file.mimeType === LINK_MIME) {
+      const link = normalizeAttachmentLink(file.data.toString("utf8"));
+      if (!link) return NextResponse.json({ error: "ลิงก์ไม่ถูกต้อง" }, { status: 400 });
+      return NextResponse.redirect(link.url, 302);
+    }
     // ชนิดไฟล์มาจากรายการที่อนุญาตตอนอัปโหลด (ไม่มี html/svg) + ห้ามเบราว์เซอร์เดาชนิดเอง + sandbox กันรันสคริปต์
     return new NextResponse(new Uint8Array(file.data), {
       status: 200,

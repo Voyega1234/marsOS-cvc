@@ -11,12 +11,12 @@ import {
   type RawGscRow, type ReportCompareMode, type ReportSearchType,
 } from '@/lib/upload-article/gsc-report'
 import {
-  buildTrackerSeries, isIdPermalinkUrl, readGscTrackers,
-  type GscTrackerPerformance, type GscTrackerPerformanceResponse,
+  buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, readGscTrackers, trackerKind,
+  type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse,
 } from '@/lib/upload-article/gsc-trackers'
 import { resolveIdPermalink } from '@/lib/upload-article/gsc-tracker-resolve'
 
-// ─── Upload Article > Report > Monitor — ผลรายวันของ keyword + URL ที่บันทึกไว้ (service account เท่านั้น) ───
+// ─── Upload Article > Report > Monitor — ผลรายวันของรายการที่บันทึกไว้ (keyword / หน้า / keyword + หน้า) (service account เท่านั้น) ───
 // cache ในหน่วยความจำ 10 นาที เหมือน route report
 
 const CACHE_TTL_MS = 10 * 60 * 1000
@@ -37,8 +37,8 @@ function setCached(key: string, value: unknown) {
 }
 
 const SEARCH_TYPES: ReportSearchType[] = ['web', 'image', 'video', 'news', 'discover']
-/** จำนวน keyword ที่ยิง GSC พร้อมกัน */
-const KEYWORD_CONCURRENCY = 4
+/** จำนวน query ที่ยิง GSC พร้อมกัน */
+const QUERY_CONCURRENCY = 4
 
 function isForbiddenError(e: unknown): boolean {
   const err = e as { code?: number | string; response?: { status?: number } } | null
@@ -47,18 +47,34 @@ function isForbiddenError(e: unknown): boolean {
   return code === 403 || code === '403' || status === 403
 }
 
-async function runKeywordQuery(
-  sc: searchconsole_v1.Searchconsole, siteUrl: string, keyword: string,
+interface QuerySpec { key: string; dimensions: string[]; filter: { dimension: 'query' | 'page'; operator: 'equals' | 'includingRegex'; expression: string } }
+
+/** query ที่ต้องยิงของแต่ละรายการ — รายการที่ใช้ query เดียวกันจะแชร์ผลกัน (ยิงครั้งเดียว) */
+function specFor(kind: GscTrackerKind, keyword: string, matchUrl: string): QuerySpec | null {
+  if (kind === 'keyword') {
+    // คำนี้ทั้งเว็บ: ไม่แยกหน้า ตัวเลขจึงตรงกับแท็บคำค้นหาของ GSC (การแสดงผลไม่ถูกนับซ้ำหลายหน้า)
+    return { key: `k\u0001${keyword}`, dimensions: ['date'], filter: { dimension: 'query', operator: 'equals', expression: keyword } }
+  }
+  if (kind === 'page') {
+    const regex = buildTrackerPageRegex(matchUrl)
+    if (!regex) return null
+    return { key: `p\u0001${regex}`, dimensions: ['date', 'page'], filter: { dimension: 'page', operator: 'includingRegex', expression: regex } }
+  }
+  return { key: `q\u0001${keyword}`, dimensions: ['date', 'page'], filter: { dimension: 'query', operator: 'equals', expression: keyword } }
+}
+
+async function runQuery(
+  sc: searchconsole_v1.Searchconsole, siteUrl: string, spec: QuerySpec,
   startDate: string, endDate: string, searchType: ReportSearchType,
 ): Promise<RawGscRow[]> {
   const res = await sc.searchanalytics.query({
     siteUrl,
     requestBody: {
       startDate, endDate,
-      dimensions: ['date', 'page'],
+      dimensions: spec.dimensions,
       type: searchType,
       rowLimit: 25000,
-      dimensionFilterGroups: [{ filters: [{ dimension: 'query', operator: 'equals', expression: keyword }] }],
+      dimensionFilterGroups: [{ filters: [spec.filter] }],
     } as never,
   })
   return (res.data.rows ?? []) as RawGscRow[]
@@ -104,14 +120,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // หาลิงก์จริงของ ?p=123 (มี cache + ตรวจโฮสต์ในตัว) — ตัวที่หาไม่ได้ = unresolved ไม่ยิง Google
   const targets = await Promise.all(trackers.map(async (t) => {
-    const matchUrl = isIdPermalinkUrl(t.url) ? (await resolveIdPermalink(t.url, siteUrl)) ?? t.url : t.url
-    return { tracker: t, matchUrl, unresolved: isIdPermalinkUrl(matchUrl) }
+    const kind = trackerKind(t)
+    const matchUrl = t.url && isIdPermalinkUrl(t.url) ? (await resolveIdPermalink(t.url, siteUrl)) ?? t.url : t.url
+    const unresolved = !!matchUrl && isIdPermalinkUrl(matchUrl)
+    const spec = unresolved ? null : specFor(kind, t.keyword, matchUrl)
+    return { tracker: t, kind, matchUrl, unresolved, spec }
   }))
 
-  const keywords = Array.from(new Set(targets.filter((x) => !x.unresolved).map((x) => x.tracker.keyword)))
-  const rowsByKeyword = new Map<string, { cur: RawGscRow[]; prev: RawGscRow[] }>()
+  const specs = new Map<string, QuerySpec>()
+  for (const x of targets) if (x.spec) specs.set(x.spec.key, x.spec)
+  const rowsBySpec = new Map<string, { cur: RawGscRow[]; prev: RawGscRow[] }>()
 
-  if (keywords.length > 0) {
+  if (specs.size > 0) {
     let auth: Awaited<ReturnType<typeof getGSCServiceAuth>>
     try {
       auth = await getGSCServiceAuth()
@@ -119,15 +139,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: `เชื่อมต่อ Google ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 })
     }
     const sc = google.searchconsole({ version: 'v1', auth })
+    const list = Array.from(specs.values())
     try {
-      for (let i = 0; i < keywords.length; i += KEYWORD_CONCURRENCY) {
-        const chunk = keywords.slice(i, i + KEYWORD_CONCURRENCY)
-        await Promise.all(chunk.map(async (kw) => {
+      for (let i = 0; i < list.length; i += QUERY_CONCURRENCY) {
+        const chunk = list.slice(i, i + QUERY_CONCURRENCY)
+        await Promise.all(chunk.map(async (spec) => {
           const [cur, prev] = await Promise.all([
-            runKeywordQuery(sc, siteUrl, kw, period.start, period.end, searchType),
-            runKeywordQuery(sc, siteUrl, kw, period.compareStart, period.compareEnd, searchType),
+            runQuery(sc, siteUrl, spec, period.start, period.end, searchType),
+            runQuery(sc, siteUrl, spec, period.compareStart, period.compareEnd, searchType),
           ])
-          rowsByKeyword.set(kw, { cur, prev })
+          rowsBySpec.set(spec.key, { cur, prev })
         }))
       }
     } catch (e) {
@@ -144,14 +165,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // GSC ช้ากว่าวันจริง ~3 วัน: ช่วงที่กำหนดเองอาจลากถึงวันที่ข้อมูลยังไม่มา — ไม่เติม 0 หลังวันนั้น (ข้อมูลยังไม่มา ≠ 0)
   const lastDataDate = resolveReportPeriod({ days: 28, compare: 'previous' }).end
 
-  const out: GscTrackerPerformance[] = targets.map(({ tracker, matchUrl, unresolved }) => {
-    const rows = unresolved ? undefined : rowsByKeyword.get(tracker.keyword)
-    const cur = buildTrackerSeries(rows?.cur ?? [], matchUrl, period.start, period.end, lastDataDate)
-    const prev = buildTrackerSeries(rows?.prev ?? [], matchUrl, period.compareStart, period.compareEnd)
+  const out: GscTrackerPerformance[] = targets.map(({ tracker, kind, matchUrl, unresolved, spec }) => {
+    const rows = spec ? rowsBySpec.get(spec.key) : undefined
+    // ชนิด keyword: แถวไม่มีมิติ page → ส่ง url ว่างให้นับทุกแถว
+    const seriesUrl = kind === 'keyword' ? '' : matchUrl
+    const cur = buildTrackerSeries(rows?.cur ?? [], seriesUrl, period.start, period.end, lastDataDate)
+    const prev = buildTrackerSeries(rows?.prev ?? [], seriesUrl, period.compareStart, period.compareEnd)
     return {
       ...tracker,
+      kind,
       matchUrl,
       unresolved,
+      hasData: cur.hasData,
       matchedPages: cur.matchedPages,
       totals: cur.totals,
       prevTotals: prev.totals,

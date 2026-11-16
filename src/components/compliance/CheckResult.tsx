@@ -12,6 +12,7 @@ import {
 } from "@/lib/compliance/types";
 import { api, checkScopeLabel, fmtDateTime, riskTone, statusTone, type CheckFull } from "./shared";
 import SuggestExportButton from "./SuggestExportButton";
+import GdocWriteButton, { type GdocInfo } from "./GdocWriteButton";
 
 function verdictTone(v: Verdict): "bad" | "warn" | "ok" {
   return v === "violation" ? "bad" : v === "needs_review" ? "warn" : "ok";
@@ -31,9 +32,9 @@ function Excerpt({ excerpt, quote }: { excerpt: string; quote: string }) {
 }
 
 function FindingCard({ f }: { f: Finding }) {
-  async function copy() {
+  async function copy(value: string) {
     try {
-      await navigator.clipboard.writeText(f.suggestion);
+      await navigator.clipboard.writeText(value);
       toast.success("คัดลอกแล้ว");
     } catch {
       toast.error("คัดลอกไม่สำเร็จ");
@@ -51,22 +52,28 @@ function FindingCard({ f }: { f: Finding }) {
         <Excerpt excerpt={f.excerpt} quote={f.quote} />
       </p>
       {f.reason ? <p className="mt-2 text-sm text-gray-700">{f.reason}</p> : null}
-      {f.suggestion ? (
-        <div className="mt-2 flex items-start gap-2 rounded-xl border border-gray-100 px-3 py-2">
-          <div className="min-w-0 flex-1 text-sm">
-            <span className="text-xs font-semibold text-gray-500">แนะนำให้เขียน</span>
-            <p className="mt-0.5 break-words text-gray-800">{f.suggestion}</p>
+      {/* ข้อความที่ AI เขียนใหม่ให้แล้ว — คัดลอกไปวางแทนได้ทันที (และเป็นข้อเสนอแก้แบบ Suggesting ตอน export) */}
+      {f.fixTarget && f.replacement ? (
+        <div className="mt-2 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-sm">
+          <div className="min-w-0 flex-1">
+            <span className="text-xs font-semibold text-emerald-800">เขียนใหม่ให้แล้ว — ใช้แทนข้อความเดิมได้เลย</span>
+            <p className="mt-1 break-words text-red-700/80"><del>{f.fixTarget}</del></p>
+            <p className="mt-1 break-words font-medium text-emerald-800">{f.replacement}</p>
           </div>
-          <Button type="button" size="sm" variant="outline" onClick={copy} aria-label="คัดลอกคำแนะนำ">
+          <Button type="button" size="sm" variant="outline" onClick={() => copy(f.replacement as string)} aria-label="คัดลอกข้อความที่เขียนใหม่">
             <Copy className="h-3.5 w-3.5" />
           </Button>
         </div>
       ) : null}
-      {f.fixTarget && f.replacement ? (
-        <div className="mt-2 rounded-xl border border-gray-100 px-3 py-2 text-sm">
-          <span className="text-xs font-semibold text-gray-500">ข้อเสนอแก้ที่จะใส่ในไฟล์ Word (Suggesting)</span>
-          <p className="mt-0.5 break-words text-red-700/80"><del>{f.fixTarget}</del></p>
-          <p className="mt-0.5 break-words text-emerald-700">{f.replacement}</p>
+      {f.suggestion ? (
+        <div className="mt-2 flex items-start gap-2 rounded-xl border border-gray-100 px-3 py-2">
+          <div className="min-w-0 flex-1 text-sm">
+            <span className="text-xs font-semibold text-gray-500">{f.fixTarget && f.replacement ? "เหตุผลที่แก้" : "แนะนำให้เขียน"}</span>
+            <p className="mt-0.5 break-words text-gray-800">{f.suggestion}</p>
+          </div>
+          <Button type="button" size="sm" variant="outline" onClick={() => copy(f.suggestion)} aria-label="คัดลอกคำแนะนำ">
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
         </div>
       ) : null}
       <p className="mt-2 text-[11px] text-gray-500">
@@ -82,12 +89,14 @@ function FindingCard({ f }: { f: Finding }) {
   );
 }
 
-export default function CheckResult({ check, userRole, onChange, originalFile }: {
+export default function CheckResult({ check, userRole, onChange, originalFile, gdoc }: {
   check: CheckFull;
   userRole: string;
   onChange: (c: CheckFull) => void;
   /** ไฟล์ Word ที่ใช้ตรวจรอบนี้ (ถ้ามี) — ใช้ใส่คำแนะนำแบบ Suggesting กลับลงไฟล์เดิม */
   originalFile?: File | null;
+  /** ถ้าตรวจมาจากลิงก์ Google Docs — แสดงปุ่มเขียนข้อเสนอแก้กลับลง Doc เดิม */
+  gdoc?: GdocInfo | null;
 }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -145,6 +154,7 @@ export default function CheckResult({ check, userRole, onChange, originalFile }:
         </p>
         <div className="mt-4">
           <SuggestExportButton findings={check.findings} title={check.title} text={check.contentSnapshot} originalFile={originalFile} />
+          {gdoc && <div className="mt-3"><GdocWriteButton findings={check.findings} originalFile={originalFile ?? null} gdoc={gdoc} /></div>}
         </div>
       </Panel>
 

@@ -118,7 +118,14 @@ export default function SearchSelect({
           <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] min-w-[240px] p-0">
+      {/* รายการลอยอยู่นอก Dialog (portal) — ตัวล็อกสกอลล์ของ Dialog จะกินล้อเมาส์/การปัดที่นี่
+          จึงหยุด event ไว้ก่อนถึง document ให้รายการเลื่อนด้วยล้อเมาส์และนิ้วได้ */}
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-trigger-width)] min-w-[240px] p-0"
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center gap-2 border-b px-3">
           <Search className="h-4 w-4 shrink-0 opacity-50" />
           <input

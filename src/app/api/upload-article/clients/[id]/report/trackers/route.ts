@@ -29,7 +29,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ trackers: readGscTrackers(parsePrefs(client.pushPrefs).gscTrackers) })
 }
 
-/** POST body {keyword, url, title?} — เพิ่มรายการ (ลิงก์ ?p=123 จะถูกแปลงเป็นลิงก์จริงถ้าหาเจอ) */
+/**
+ * POST body {kind?, keyword?, url?, title?} — เพิ่มรายการ (ลิงก์ ?p=123 จะถูกแปลงเป็นลิงก์จริงถ้าหาเจอ)
+ * kind: 'keyword' (คำนี้ทั้งเว็บ) | 'page' (หน้านี้ทุกคำ) | 'pair' (คำนี้บนหน้านี้); ไม่ส่ง = ดูจากช่องที่กรอก
+ */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard()
   if ('res' in g) return g.res
@@ -37,7 +40,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
   const body = await req.json().catch(() => ({}))
-  const input: { keyword: unknown; url: unknown; title: unknown; sourceUrl?: string } = {
+  const input: { kind: unknown; keyword: unknown; url: unknown; title: unknown; sourceUrl?: string } = {
+    kind: body?.kind,
     keyword: body?.keyword,
     url: body?.url,
     title: body?.title,
@@ -45,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // แปลงลิงก์เลขโพสต์ "นอก" updatePrefs — ไม่ถือล็อกแถวระหว่างยิงเน็ต
   const siteUrl = (parsePrefs(client.pushPrefs).gscReport as UploadGscReportPrefs | undefined)?.siteUrl || ''
-  const normalized = normalizeTrackerUrl(input.url)
+  const normalized = input.kind === 'keyword' ? '' : normalizeTrackerUrl(input.url)
   if (normalized && siteUrl && isIdPermalinkUrl(normalized)) {
     const resolved = await resolveIdPermalink(normalized, siteUrl)
     // เก็บลิงก์จริงไว้เทียบข้อมูล และจำลิงก์ ?p= เดิมไว้ให้หน้าเว็บรู้ว่าแถวนั้นติดตามแล้ว
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!out.ok) {
     return NextResponse.json(
       { error: GSC_TRACKER_ERROR_MESSAGES[out.error], code: out.error },
-      { status: out.error === 'duplicate' ? 409 : 400 },
+      { status: out.error.startsWith('duplicate') ? 409 : 400 },
     )
   }
   return NextResponse.json({ trackers: out.trackers, tracker: out.tracker })

@@ -85,7 +85,13 @@ export async function POST(req: NextRequest) {
     // โปรเจกต์ Asana เฉพาะคำขอ (ไม่ใส่/ตรงกับค่าเริ่มต้น = ใช้ค่าเริ่มต้น) — ตรวจให้ครบก่อนสร้างคำขอ
     let asanaTarget: { gid: string; name: string } | null = null;
     const wantGid = typeof b.asanaProjectGid === "string" ? b.asanaProjectGid.trim() : "";
-    if (wantGid) {
+    if (!wantGid) {
+      // ตั้งค่า Asana เป็น "ทุกโปรเจกต์" (ไม่มีค่าเริ่มต้น) = คำขอต้องระบุโปรเจกต์เอง ไม่งั้นงานไม่ไปถึง Asana
+      const config = await prisma.blmAsanaConfig.findUnique({ where: { organizationId: ctx.orgId } });
+      if (resolveToken(config) && !config?.projectGid) {
+        return NextResponse.json({ error: "เลือกโปรเจกต์ Asana ก่อน — ระบบไม่ได้ล็อกโปรเจกต์เริ่มต้น" }, { status: 400 });
+      }
+    } else {
       const config = await prisma.blmAsanaConfig.findUnique({ where: { organizationId: ctx.orgId } });
       if (wantGid !== (config?.projectGid ?? "")) {
         if (!/^\d{1,32}$/.test(wantGid)) return NextResponse.json({ error: "รหัสโปรเจกต์ Asana ไม่ถูกต้อง" }, { status: 400 });
