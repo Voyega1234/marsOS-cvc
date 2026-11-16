@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { BarChart, DonutChart, KpiTile, Panel, downloadCsv } from "@/components/ds";
 import { STATUS_LABEL, type BlmStatus } from "@/lib/backlink-management/types";
 import { api, money } from "./shared";
+import ReportBudgetPanel, { type BudgetRow, type Totals } from "./ReportBudgetPanel";
+import QuotaSummaryPanel from "./QuotaSummaryPanel";
 
 interface Report {
   from: string; to: string;
@@ -17,11 +19,12 @@ interface Report {
   byStatus: { status: string; count: number }[];
 }
 
-export default function ReportTab({ period }: { period: string }) {
+export default function ReportTab({ period, projectId, onOpenQuota }: { period: string; projectId: string; onOpenQuota?: () => void }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState(period);
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
+  const budgetRef = useRef<{ period: string; rows: BudgetRow[]; totals: Totals } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +55,16 @@ export default function ReportTab({ period }: { period: string }) {
       ["เว็บ", "คำขอ", "เผยแพร่", "ลิงก์ปกติ", "ค่าใช้จ่ายจริง", "% ลิงก์ยังอยู่"],
       ...data.byVendor.map((v) => [v.domain, v.requests, v.published, v.live, v.spend, v.liveRate]),
     ];
+    const b = budgetRef.current;
+    if (b) {
+      const br = projectId ? b.rows.filter((r) => r.projectId === projectId) : b.rows;
+      rows.push(
+        [],
+        [`งบประมาณเดือน ${b.period}`],
+        ["โปรเจกต์", "งบที่อนุมัติ", "รออนุมัติ", "กันงบ", "ใช้จริง", "คงเหลือ"],
+        ...br.map((r) => [r.projectName, r.approved, r.pending, r.reserved, r.actual, r.remaining]),
+      );
+    }
     downloadCsv(`backlink-report-${data.from}_${data.to}.csv`, rows);
   }
 
@@ -74,6 +87,9 @@ export default function ReportTab({ period }: { period: string }) {
         <KpiTile label="ลิงก์ปกติ (ตรวจแล้ว)" value={t.verifiedLive.toLocaleString()} tone="mist" hint={`หาย ${t.lost} · nofollow ${t.nofollow}`} />
         <KpiTile label="ใช้จริง" value={money(t.spendActual)} tone="navy" hint={t.costPerLiveLink !== null ? `ต้นทุนต่อลิงก์ปกติ ${money(t.costPerLiveLink)}` : undefined} />
       </div>
+
+      <ReportBudgetPanel period={to || data.to} projectId={projectId} onData={(d) => { budgetRef.current = d; }} />
+      <QuotaSummaryPanel onOpenQuota={onOpenQuota} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Panel title="ค่าใช้จ่ายรายเดือน" className="lg:col-span-2">

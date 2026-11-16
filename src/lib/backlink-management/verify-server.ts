@@ -7,6 +7,13 @@ import { addEvent } from "./server";
 import { statusLabel } from "./types";
 
 export async function verifyRequest(orgId: string, actorId: string | null, row: BlmRequest) {
+  if (!row.targetUrl.trim()) {
+    await prisma.blmRequest.update({
+      where: { id: row.id },
+      data: { lastCheckedAt: new Date(), checkDetail: "ยังไม่ได้ใส่ URL หน้าลูกค้า จึงตรวจลิงก์ไม่ได้" },
+    });
+    return { checkStatus: row.checkStatus, status: row.status };
+  }
   const r = await checkBacklink(row.liveUrl, row.targetUrl);
   let newStatus = row.status;
   if ((r.status === "LIVE" || r.status === "NOFOLLOW") && (row.status === "PUBLISHED" || row.status === "LOST")) newStatus = "VERIFIED";

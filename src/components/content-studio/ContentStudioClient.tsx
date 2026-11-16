@@ -15,14 +15,17 @@ import { toast } from "sonner";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import ScopedEditable from "@/components/shared/ScopedEditable";
 import RestrictionWarningBox from "@/components/shared/RestrictionWarningBox";
+import { useUrlState } from "@/hooks/use-url-state";
 import StudioArticleSettings from "@/components/content-studio/StudioArticleSettings";
 import { defaultUploadCtaItem, UPLOAD_CTA_CHANNEL_TYPES, type UploadCtaChannelType, type UploadCtaSettings } from "@/lib/upload-article/cta";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type MainTab = "write" | "review" | "settings";
+const MAIN_TAB_VALUES: readonly MainTab[] = ["write", "review", "settings"];
 type ViewMode = "html" | "preview" | "text" | "edit";
 type ReviewTab = "suggestions" | "links" | "cta" | "prompt";
+const REVIEW_TAB_VALUES: readonly ReviewTab[] = ["suggestions", "links", "cta", "prompt"];
 type Priority = "High" | "Medium" | "Low";
 type Category = "SEO" | "E-E-A-T" | "Readability" | "Conversion";
 
@@ -209,7 +212,7 @@ function PrioBadge({ p }: { p: Priority }) {
 
 export function ContentStudioClient() {
   const searchParams = useSearchParams();
-  const [mainTab, setMainTab] = useState<MainTab>("write");
+  const [mainTab, setMainTab] = useUrlState<MainTab>("tab", "write", MAIN_TAB_VALUES);
   const [prefillTitle, setPrefillTitle] = useState("");
 
   // Write state
@@ -314,7 +317,7 @@ export function ContentStudioClient() {
   const [fileName, setFileName] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [reviewDone, setReviewDone] = useState(false);
-  const [reviewTab, setReviewTab] = useState<ReviewTab>("suggestions");
+  const [reviewTab, setReviewTab] = useUrlState<ReviewTab>("review", "suggestions", REVIEW_TAB_VALUES);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [links, setLinks] = useState<InternalLink[]>([]);
   const [siteUrl, setSiteUrl] = useState("");

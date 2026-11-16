@@ -6,6 +6,7 @@
  * Auth ฝั่งเซิร์ฟเวอร์ = service account เท่านั้น (เพิ่มอีเมลเป็นผู้ใช้ใน property ของเว็บนั้นที่ Search Console)
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import {
   AlertCircle, BarChart3, Loader2, RefreshCw,
 } from "lucide-react";
@@ -95,7 +96,7 @@ export function PbnMonitorTab({ onOpenSettings }: { onOpenSettings: () => void }
   const [compare, setCompare] = useState<ReportCompareMode>("previous");
   const [searchType, setSearchType] = useState<ReportSearchType>("web");
   const [dailyMetric, setDailyMetric] = useState<"clicks" | "impressions">("clicks");
-  const [subTab, setSubTab] = useState<SubTab>("overview");
+  const [subTab, setSubTab] = useUrlState<SubTab>("monitor", "overview", SUB_TABS);
 
   // ── ผลรายงาน ──
   const [reportLoading, setReportLoading] = useState(false);

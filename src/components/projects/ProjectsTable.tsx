@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { Chip, EmptyState, EntityCard, EntityGrid, MeterBar, Panel, Segmented, SearchPill } from "@/components/ds";
@@ -68,13 +69,15 @@ const STATUS_TONE: Record<string, ChipTone> = {
   ARCHIVED:  "bad",
 };
 
+const PROJECT_VIEWS: readonly ("cards" | "table")[] = ["cards", "table"];
+
 export default function ProjectsTable({ projects: initial, userRole }: { projects: ProjectRow[]; userRole: string }) {
   const [projects, setProjects] = useState(initial);
   const isClientViewer = useSession().data?.user?.role === "CLIENT";
   const [updating, setUpdating] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("ALL");
-  const [view, setView] = useState<"cards" | "table">("cards");
+  const [view, setView] = useUrlState<"cards" | "table">("view", "cards", PROJECT_VIEWS);
   // ผู้ดูแล: 'ALL' | 'NONE' (ยังไม่มีผู้ดูแล) | userId
   const [ownerFilter, setOwnerFilter] = useState("ALL");
   const [orgUsers, setOrgUsers] = useState<{ id: string; name: string | null }[]>([]);

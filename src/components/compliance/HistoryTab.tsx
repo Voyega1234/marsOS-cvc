@@ -6,8 +6,8 @@ import { Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Chip, EmptyState, Panel, SearchPill, Segmented } from "@/components/ds";
-import { CHECK_STATUS_LABEL, SEVERITY_LABEL, industryLabel, type CheckStatus } from "@/lib/compliance/types";
-import { api, fmtDateTime, riskTone, statusTone, type CheckFull, type CheckRow, type IndustryOpt } from "./shared";
+import { CHECK_STATUS_LABEL, SEVERITY_LABEL, type CheckStatus } from "@/lib/compliance/types";
+import { api, checkScopeLabel, fmtDateTime, riskTone, statusTone, type CheckFull, type CheckRow, type IndustryOpt } from "./shared";
 import CheckResult from "./CheckResult";
 
 type StatusFilter = "" | CheckStatus;
@@ -68,6 +68,7 @@ export default function HistoryTab({ industries, userRole }: { industries: Indus
         />
         <select value={industry} onChange={(e) => setIndustry(e.target.value)} aria-label="อุตสาหกรรม" className="h-9 rounded-full border border-gray-200 bg-white px-3 text-xs">
           <option value="">ทุกอุตสาหกรรม</option>
+          <option value="brand:">Brand Rule (ทุกแบรนด์)</option>
           {industries.map((i) => <option key={i.key} value={i.key}>{i.label}</option>)}
         </select>
         <SearchPill value={q} onChange={setQ} placeholder="ค้นหาชื่อบทความ" className="w-full sm:w-64" />
@@ -98,7 +99,7 @@ export default function HistoryTab({ industries, userRole }: { industries: Indus
                     <TableCell className="whitespace-nowrap text-xs">{fmtDateTime(r.createdAt)}</TableCell>
                     <TableCell className="min-w-[200px] font-medium text-brand-navy">{r.title || "—"}</TableCell>
                     <TableCell className="text-xs">{r.ownerLabel || "—"}</TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">{industryLabel(r.industry)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs">{checkScopeLabel(r)}</TableCell>
                     <TableCell><Chip tone={riskTone(r.riskLevel)}>{SEVERITY_LABEL[r.riskLevel]} · {r.riskScore}</Chip></TableCell>
                     <TableCell><Chip tone={statusTone(r.status)}>{CHECK_STATUS_LABEL[r.status]}</Chip></TableCell>
                     <TableCell className="whitespace-nowrap text-xs">{r.reviewedByName || r.createdByName || "—"}</TableCell>

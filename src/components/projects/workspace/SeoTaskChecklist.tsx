@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -123,7 +124,9 @@ export function SeoTaskChecklist({ projectId, area, categories, templates, readO
   const [tasks, setTasks] = useState<SeoTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<string>("overview");
+  const sectionIds = useMemo(() => ["overview", ...categories.map((c) => c.id)], [categories]);
+  // key แยกตามหมวดงาน (Technical / On-page / Indexing) — แต่ละหมวดจำหัวข้อของตัวเอง ไม่ปนกัน
+  const [section, setSection] = useUrlState<string>(`task-${area.toLowerCase()}`, "overview", sectionIds);
   const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
   const [evidencePromptTask, setEvidencePromptTask] = useState<SeoTask | null>(null);
   const [seedingTemplates, setSeedingTemplates] = useState(false);

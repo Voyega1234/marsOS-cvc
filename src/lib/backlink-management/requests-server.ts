@@ -1,7 +1,7 @@
 /** ตัวช่วยฝั่งเซิร์ฟเวอร์สำหรับแถวคำขอและงบ */
 import type { BlmRequest, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { projectInfo } from "./projects";
+import { isMissingTable, projectInfo } from "./projects";
 import { summarizeBudget, type BudgetSummary } from "./budget";
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -16,8 +16,22 @@ export async function enrichRows(orgId: string, rows: BlmRequest[]) {
       : Promise.resolve([] as { id: string; name: string | null; email: string }[]),
   ]);
   const um = new Map(users.map((u) => [u.id, u.name ?? u.email]));
+  // โปรเจกต์ Asana ที่เลือกเฉพาะคำขอ (ตารางอาจยังไม่ถูกสร้าง = ไม่ใส่ฟิลด์)
+  const am = new Map<string, string>();
+  if (rows.length) {
+    try {
+      const list = await prisma.blmRequestAsana.findMany({
+        where: { organizationId: orgId, requestId: { in: rows.map((r) => r.id) } },
+        select: { requestId: true, projectName: true },
+      });
+      for (const a of list) am.set(a.requestId, a.projectName);
+    } catch (e) {
+      if (!isMissingTable(e)) throw e;
+    }
+  }
   return rows.map((r) => ({
     ...r,
+    ...(am.has(r.id) ? { asanaProjectName: am.get(r.id) as string } : {}),
     projectName: pm.get(r.projectId)?.name ?? "",
     assigneeName: r.assigneeId ? um.get(r.assigneeId) ?? "" : "",
     requestedByName: um.get(r.requestedById) ?? "",

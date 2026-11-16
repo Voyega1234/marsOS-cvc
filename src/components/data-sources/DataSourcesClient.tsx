@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -73,10 +74,13 @@ const STATUS_STYLE: Record<string, string> = {
   DISCONNECTED: "chip chip-muted",
 };
 
+type DataSourcesTab = "analytics" | "databrain" | "ai";
+const DATA_SOURCES_TABS: readonly DataSourcesTab[] = ["analytics", "databrain", "ai"];
+
 export function DataSourcesClient({ dataSources, dataBrainFiles, projects }: Props) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<"analytics" | "databrain" | "ai">("analytics");
+  const [activeTab, setActiveTab] = useUrlState<DataSourcesTab>("tab", "analytics", DATA_SOURCES_TABS);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [formData, setFormData] = useState<Record<string, Record<string, string>>>({});
   const [uploading, setUploading] = useState(false);

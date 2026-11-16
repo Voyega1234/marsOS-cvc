@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -89,6 +90,9 @@ const LAYER_THAI: Record<string, string> = {
 };
 
 /** หมวดของเมนูซ้าย — ทุกแท็บยังอยู่ครบ แค่จัดกลุ่ม */
+/** ชื่อแท็บทั้งหมด — ใช้ตรวจค่า ?ce= จาก URL */
+export const CE_TAB_KEYS: readonly TabKey[] = TABS.map((t) => t.key);
+
 const TAB_GROUPS: { label: string; keys: TabKey[] }[] = [
   { label: "ภาพรวม", keys: ["overview"] },
   { label: "ข้อมูลธุรกิจ", keys: ["business-skills"] },
@@ -157,7 +161,9 @@ function countFiles(rows: LayerStatusRow[]): { restrictions: number; comments: n
 
 export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh, tab: tabProp, onTabChange, visibleTabs, hideHeader }: Props) {
   const router = useRouter();
-  const [innerTab, setInnerTab] = useState<TabKey>(() => visibleTabs?.[0] ?? "overview");
+  const ceTabValues = useMemo<readonly TabKey[]>(() => visibleTabs?.length ? visibleTabs : TABS.map((t) => t.key), [visibleTabs]);
+  // ผู้เรียกคุมแท็บเอง (tabProp) = ผู้เรียกเป็นคนจำแท็บใน URL — ตัวนี้ไม่แตะ URL กันเขียนทับกัน
+  const [innerTab, setInnerTab] = useUrlState<TabKey>("ce", visibleTabs?.[0] ?? "overview", ceTabValues, tabProp === undefined);
   const wanted = tabProp ?? innerTab;
   // แท็บที่ถูกซ่อน (เช่นกดจากการ์ดภาพรวม) — โชว์แท็บแรกที่เห็นแทน ผู้เรียกตัดสินเองผ่าน onTabChange
   const tab: TabKey = visibleTabs && visibleTabs.length && !visibleTabs.includes(wanted) ? visibleTabs[0] : wanted;

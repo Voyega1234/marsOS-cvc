@@ -5,7 +5,9 @@
  * Generate / Review / Push / Publish) + ปุ่มเฟือง "Project Setting" เปิดแท็บ settings (ไม่อยู่ในแถบ pill)
  * โหลดรายละเอียด client ด้วย fetch (ไม่พึ่ง prisma type ฝั่ง server) ตาม spec — 404 แสดงว่าไม่พบลูกค้า
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useIsoLayoutEffect } from "@/hooks/use-url-state";
+import { readAllowedParam, replaceUrlParams } from "@/lib/url-state";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -88,7 +90,6 @@ export default function UploadClientWorkspace({
   const router = useRouter();
   const isPbn = mode === "pbn";
   const tabOrder = isPbn ? PBN_TAB_ORDER : TAB_ORDER;
-  const basePath = isPbn ? "/pbn-backlinks" : `/upload-article/${clientId}`;
   const [client, setClient] = useState<UploadClientDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFoundFlag, setNotFoundFlag] = useState(false);
@@ -99,6 +100,22 @@ export default function UploadClientWorkspace({
 
   const [tab, setTab] = useState<TabId>(resolveInitialTab(initialTab, tabOrder));
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(resolveInitialSection(initialTab, initialSection));
+
+  // บทความที่เปิดค้างไว้ = ?article=<id> ใน URL — กด refresh แล้วกลับมาบทความเดิม
+  // (แท็บ / เมนูตั้งค่า อ่านจาก ?tab= / ?section= ผ่าน initialTab / initialSection อยู่แล้ว)
+  const [urlReady, setUrlReady] = useState(false);
+  const restoredArticleRef = useRef<string | null>(null);
+  useIsoLayoutEffect(() => {
+    const id = readAllowedParam(window.location.search, "article");
+    if (id) {
+      restoredArticleRef.current = id;
+      setSelectedId(id);
+    }
+    setUrlReady(true);
+  }, []);
+  useEffect(() => {
+    if (urlReady) replaceUrlParams({ article: selectedId });
+  }, [urlReady, selectedId]);
 
   // badge แจ้งเตือนบนปุ่ม Project Setting — ตรวจใหม่ทุกครั้งที่สลับแท็บ/เมนูตั้งค่า หรือข้อมูลลูกค้าเปลี่ยน (Upload เท่านั้น)
   const checklist = useUploadSetupChecklist(clientId, !isPbn, `${tab}|${settingsSection}|${client?.updatedAt ?? ""}`);
@@ -118,6 +135,12 @@ export default function UploadClientWorkspace({
     if (r.ok) {
       const list: UploadArticleDTO[] = await r.json();
       setArticles(list);
+      // บทความจาก ?article= ที่ไม่มีในรายการแล้ว (ถูกลบ / id ผิด) — เลิกเลือก ตรวจครั้งเดียวตอนโหลดแรก
+      const restored = restoredArticleRef.current;
+      if (restored) {
+        restoredArticleRef.current = null;
+        if (!list.some(a => a.id === restored)) setSelectedId(prev => (prev === restored ? null : prev));
+      }
     }
   }, [clientId]);
 
@@ -207,9 +230,9 @@ export default function UploadClientWorkspace({
     if (t === "settings") {
       const sec = section ?? settingsSection;
       setSettingsSection(sec);
-      router.replace(`${basePath}?tab=settings&section=${sec}`, { scroll: false });
+      replaceUrlParams({ tab: "settings", section: sec });
     } else {
-      router.replace(`${basePath}?tab=${t}`, { scroll: false });
+      replaceUrlParams({ tab: t, section: null });
     }
   };
 
@@ -217,7 +240,7 @@ export default function UploadClientWorkspace({
 
   const onSectionChange = (s: SettingsSection) => {
     setSettingsSection(s);
-    router.replace(`${basePath}?tab=settings&section=${s}`, { scroll: false });
+    replaceUrlParams({ tab: "settings", section: s });
   };
 
   return (

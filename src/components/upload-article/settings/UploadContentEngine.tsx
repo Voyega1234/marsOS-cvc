@@ -17,7 +17,8 @@ import { Loader2, Plus, RefreshCw, Settings2, Sparkles, Trash2, Wand2 } from "lu
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ContentEngineSettingsClient, type TabKey } from "@/components/settings/content-engine/ContentEngineSettingsClient";
+import { CE_TAB_KEYS, ContentEngineSettingsClient, type TabKey } from "@/components/settings/content-engine/ContentEngineSettingsClient";
+import { useUrlState } from "@/hooks/use-url-state";
 import type { PromptRow } from "@/components/settings/content-engine/types";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
 import { CE_RESTRICTION_FILE } from "@/lib/ce-restrictions";
@@ -181,7 +182,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
   const seedAttemptedRef = useRef(false);
   // โหมดขั้นสูง: เครื่องมือสร้าง/แก้ Master Prompt, ปุ่มรีเซ็ต, แท็บ CE ครบชุด — จำไว้ต่อเครื่อง
   const [advanced, setAdvancedState] = useState(false);
-  const [ceTab, setCeTab] = useState<TabKey>("client-comments");
+  const [ceTab, setCeTab] = useUrlState<TabKey>("ce", "client-comments", CE_TAB_KEYS);
   useEffect(() => {
     try { if (localStorage.getItem(ADVANCED_KEY) === "1") setAdvancedState(true); } catch { /* storage ปิด — ใช้โหมดปกติ */ }
   }, []);

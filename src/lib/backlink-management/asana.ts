@@ -184,3 +184,52 @@ export async function deleteWebhook(token: string, gid: string): Promise<void> {
     throw e;
   }
 }
+
+/**
+ * แนบไฟล์เข้างาน Asana (multipart) — แยกจาก call() เพราะ call() ส่งได้แค่ JSON
+ * ห้ามตั้ง Content-Type เอง: fetch ต้องใส่ boundary ให้
+ */
+export async function uploadTaskAttachment(
+  token: string,
+  input: { taskGid: string; fileName: string; mimeType: string; data: Uint8Array; timeoutMs?: number },
+): Promise<{ gid: string }> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), Math.max(1_000, input.timeoutMs ?? 20_000));
+  try {
+    const form = new FormData();
+    form.append("parent", input.taskGid);
+    form.append("file", new Blob([input.data as BlobPart], { type: input.mimeType }), input.fileName);
+    const res = await fetch(`${BASE}/attachments`, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      body: form,
+      cache: "no-store",
+    });
+    const text = await res.text();
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch { /* ไม่ใช่ JSON */ }
+    if (!res.ok) {
+      const msg = json?.errors?.[0]?.message ?? `Asana ตอบกลับสถานะ ${res.status}`;
+      throw new AsanaError(res.status, String(msg).slice(0, 300));
+    }
+    const gid = json?.data?.gid;
+    if (!gid) throw new AsanaError(0, "Asana ไม่ส่งรหัสไฟล์แนบกลับมา");
+    return { gid: String(gid) };
+  } catch (e) {
+    if (e instanceof AsanaError) throw e;
+    if (e instanceof Error && e.name === "AbortError") throw new AsanaError(0, "Asana ตอบช้าเกินกำหนด");
+    throw new AsanaError(0, "เชื่อมต่อ Asana ไม่ได้");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function deleteTaskAttachment(token: string, gid: string): Promise<void> {
+  try {
+    await call(token, "DELETE", `/attachments/${encodeURIComponent(gid)}`);
+  } catch (e) {
+    if (e instanceof AsanaError && e.status === 404) return;
+    throw e;
+  }
+}

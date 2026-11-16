@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, isCtx, serverError } from "@/lib/backlink-management/server";
 import { cleanProjectName } from "@/lib/backlink-management/project-name";
+import { createTask, resolveToken } from "@/lib/backlink-management/asana";
 import { isMissingTable, listManualProjects } from "@/lib/backlink-management/projects";
 
 export const dynamic = "force-dynamic";
@@ -50,9 +51,45 @@ export async function POST(req: NextRequest) {
     const project = await prisma.blmProject.create({
       data: { organizationId: ctx.orgId, name, clientName: text(b.clientName, 200), note: text(b.note, 500), createdById: ctx.userId },
     });
+    if (b.asana && typeof b.asana === "object") {
+      const asana = await createAsanaTask(ctx, b.asana, project.name, project.clientName);
+      return NextResponse.json({ project, asana });
+    }
     return NextResponse.json({ project });
   } catch (e) {
     if (isMissingTable(e)) return NextResponse.json({ error: MISSING_TABLE_MSG }, { status: 503 });
     return serverError(e);
+  }
+}
+
+/** สร้างงานแจ้งโปรเจกต์ใหม่ใน Asana — ไม่ throw (ห้ามทำให้การสร้างโปรเจกต์ล้ม) และไม่ติดตามงานนี้ */
+async function createAsanaTask(
+  ctx: { orgId: string; userId: string; userName: string },
+  opt: { projectGid?: unknown; assigneeId?: unknown },
+  name: string,
+  clientName: string,
+): Promise<{ ok: boolean; url?: string; error?: string; assigneeDropped?: boolean }> {
+  try {
+    const config = await prisma.blmAsanaConfig.findUnique({ where: { organizationId: ctx.orgId } });
+    const token = resolveToken(config);
+    if (!config || !token) return { ok: false, error: "ยังไม่ได้เชื่อม Asana" };
+    const gid = typeof opt.projectGid === "string" ? opt.projectGid.trim() : "";
+    const projectGid = /^\d{1,32}$/.test(gid) ? gid : config.projectGid;
+    if (!projectGid) return { ok: false, error: "ยังไม่ได้เลือกโปรเจกต์ Asana" };
+    let assigneeEmail: string | null = null;
+    if (typeof opt.assigneeId === "string" && opt.assigneeId) {
+      const u = await prisma.user.findFirst({ where: { id: opt.assigneeId, organizationId: ctx.orgId }, select: { email: true } });
+      assigneeEmail = u?.email ?? null;
+    }
+    const notes = [
+      `ชื่อโปรเจกต์: ${name}`,
+      clientName ? `ลูกค้า: ${clientName}` : "",
+      `สร้างโดย: ${ctx.userName}`,
+      "สร้างจาก MarsOS Backlink Management",
+    ].filter(Boolean).join("\n");
+    const t = await createTask(token, { projectGid, name: `[Backlink] โปรเจกต์ใหม่: ${name}`, notes, assigneeEmail });
+    return { ok: true, url: t.permalink_url || undefined, ...(t.assigneeDropped ? { assigneeDropped: true } : {}) };
+  } catch (e) {
+    return { ok: false, error: (e instanceof Error ? e.message : String(e)).slice(0, 200) };
   }
 }

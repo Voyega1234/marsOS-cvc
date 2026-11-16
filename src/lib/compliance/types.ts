@@ -41,6 +41,10 @@ export interface Finding {
   sourceName: string
   sourceRef: string
   sourceUrl: string
+  /** ข้อความในบทความที่ควรถูกแทน (ตรงกับบทความทุกตัวอักษร) — มีเฉพาะเมื่อ AI เสนอข้อความแทนได้ */
+  fixTarget?: string
+  /** ข้อความที่เสนอให้ใช้แทน fixTarget — ใช้ทำ Suggesting (tracked change) ตอน export Word ไม่แก้บทความเอง */
+  replacement?: string
 }
 
 export const BUILTIN_INDUSTRIES = [
@@ -61,7 +65,19 @@ export const BUILTIN_INDUSTRIES = [
   { key: 'general_consumer', label: 'สินค้าและบริการทั่วไป' },
 ]
 
+/** ผลตรวจแบบ Brand Rule เก็บช่อง industry เป็น `brand:<brandId>` — key อุตสาหกรรมจริงมีได้แค่ [a-z0-9_] จึงไม่ชนกัน */
+export const BRAND_INDUSTRY_PREFIX = 'brand:'
+
+export function isBrandIndustry(key: string): boolean {
+  return typeof key === 'string' && key.startsWith(BRAND_INDUSTRY_PREFIX)
+}
+
+export function brandIdOfIndustry(key: string): string {
+  return isBrandIndustry(key) ? key.slice(BRAND_INDUSTRY_PREFIX.length) : ''
+}
+
 export function industryLabel(key: string): string {
+  if (isBrandIndustry(key)) return 'Brand Rule'
   return BUILTIN_INDUSTRIES.find((i) => i.key === key)?.label ?? key
 }
 
@@ -109,6 +125,15 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   STARTER_IMPORT: 'นำเข้าชุดกฎตั้งต้น',
   AI_UPDATE_RUN: 'ให้ AI ตรวจอัปเดตกฎ',
   AI_FILL_RUN: 'ให้ AI อ่านลิงก์/ไฟล์กรอกกฎ',
+  BRAND_CREATE: 'สร้างแบรนด์',
+  BRAND_UPDATE: 'แก้ไขแบรนด์',
+  BRAND_STATUS: 'เปลี่ยนสถานะแบรนด์',
+  BRAND_RULE_ADD: 'เพิ่มกฎของแบรนด์',
+  BRAND_RULE_PULL: 'ดึงกฎจากคลังกฎเข้าแบรนด์',
+  BRAND_RULE_UPDATE: 'แก้ไขกฎของแบรนด์',
+  BRAND_RULE_REMOVE: 'ลบกฎของแบรนด์',
+  BRAND_FILE_ADD: 'อัปโหลดไฟล์ Brand voice',
+  BRAND_FILE_REMOVE: 'ลบไฟล์ Brand voice',
 }
 
 /** ---- ปุ่ม "ให้ AI ตรวจอัปเดตกฎ" — AI เสนอ คนกดยืนยันทีละข้อ (ไม่แก้กฎเอง) ---- */

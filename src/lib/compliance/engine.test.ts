@@ -112,6 +112,53 @@ function finding(over: Partial<Finding>): Finding {
   assert(bad.findings.length === hits.length && bad.dropped === 0, 'unknown AI shape ignored')
 }
 
+// mergeAiResult — ข้อเสนอแก้ (fixTarget / replacement) สำหรับ Suggesting
+{
+  const text = 'สินค้านี้ดีมาก  เราการันตีผลลัพธ์ 100% ทุกกรณี\nและมีโปรโมชันพิเศษสำหรับทุกคน ไม่การันตีผลในบางราย'
+  const rules = [
+    rule({ severity: 'HIGH', ruleType: 'RISKY_TERM' }),
+    rule({ id: 'r3', ruleType: 'CONTEXT', severity: 'HIGH', terms: [], code: 'BC-007' }),
+  ]
+  const hits = findTermHits(text, rules)
+  assert(hits.length >= 2, 'two hits for the fix test')
+  const m = mergeAiResult(text, hits, rules, {
+    adjudications: [
+      { hitId: hits[0].id, verdict: 'violation', reason: 'r', suggestion: 's', target: 'เราการันตีผลลัพธ์  100% ทุกกรณี', replacement: ' ผลลัพธ์ขึ้นอยู่กับ\nแต่ละบุคคล ' },
+      { hitId: hits[1].id, verdict: 'likely_ok', reason: 'ปฏิเสธ', suggestion: '', target: 'ไม่การันตีผลในบางราย', replacement: 'x' },
+    ],
+    findings: [
+      { ruleId: 'r3', quote: 'โปรโมชันพิเศษ', reason: 'x', suggestion: 'y', target: 'มีโปรโมชันพิเศษสำหรับทุกคน', replacement: 'มีข้อเสนอสำหรับลูกค้า' },
+      { ruleId: 'r3', quote: 'สินค้านี้ดีมาก', reason: 'x', suggestion: 'y', target: 'ข้อความที่ไม่มีในบทความ', replacement: 'สินค้านี้มีคุณภาพ' },
+      { ruleId: 'r3', quote: 'ทุกกรณี', reason: 'x', suggestion: 'y', replacement: 'ทุกกรณี' },
+    ],
+  })
+  const h0 = m.findings[0]
+  assert(h0.fixTarget === 'เราการันตีผลลัพธ์ 100% ทุกกรณี', 'hit target stored as the article text (whitespace collapsed)')
+  assert(h0.replacement === 'ผลลัพธ์ขึ้นอยู่กับ แต่ละบุคคล', 'replacement trimmed and kept on one line')
+  assert(m.findings[1].fixTarget === undefined && m.findings[1].replacement === undefined, 'likely_ok hit gets no fix')
+  const ai = m.findings.filter((f) => f.origin === 'ai')
+  assert(ai[0].fixTarget === 'มีโปรโมชันพิเศษสำหรับทุกคน' && ai[0].replacement === 'มีข้อเสนอสำหรับลูกค้า', 'AI finding keeps a valid target')
+  assert(ai[1].fixTarget === 'สินค้านี้ดีมาก' && ai[1].replacement === 'สินค้านี้มีคุณภาพ', 'unknown target falls back to the quote')
+  assert(ai[2].fixTarget === undefined && ai[2].replacement === undefined, 'replacement equal to the target is not a fix')
+
+  const loose = mergeAiResult(text, hits, rules, {
+    adjudications: [
+      { hitId: hits[0].id, verdict: 'violation', reason: 'r', suggestion: 's', target: 'มีโปรโมชันพิเศษสำหรับทุกคน', replacement: 'y' },
+    ],
+  })
+  assert(loose.findings[0].fixTarget === undefined, 'hit target that does not contain the hit is rejected')
+
+  const ctl = mergeAiResult(text, hits, rules, {
+    findings: [{ ruleId: 'r3', quote: 'โปรโมชันพิเศษ', reason: 'x', suggestion: 'y', target: 'มีโปรโมชันพิเศษสำหรับทุกคน', replacement: 'มีข้อเสนอ\u0001สำหรับ\u001Fลูกค้า\u0000' }],
+  })
+  const cf = ctl.findings.filter((f) => f.origin === 'ai')[0]
+  assert(cf.replacement === 'มีข้อเสนอ สำหรับ ลูกค้า', 'control characters in a replacement become spaces')
+  const noRep = mergeAiResult(text, hits, rules, {
+    adjudications: [{ hitId: hits[0].id, verdict: 'violation', reason: 'r', suggestion: 's', target: 'เราการันตีผลลัพธ์ 100% ทุกกรณี' }],
+  })
+  assert(noRep.findings[0].fixTarget === undefined, 'target without replacement is not a fix')
+}
+
 // activationProblems
 {
   assert(activationProblems(rule({})).length === 0, 'complete rule has no problems')

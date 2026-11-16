@@ -1137,6 +1137,42 @@ model BlmSheetConfig {
   @@schema("plans_seo_pipeline")
 }
 
+// นำเข้าจาก Google Sheet ของทีม (Sheet → MarsOS): 1 แถวต่อองค์กร — ชีทต้นทาง + เดือนของงบ + การจับคู่ชื่อโปรเจกต์
+model BlmSheetImportConfig {
+  id               String    @id @default(cuid())
+  organizationId   String    @unique
+  spreadsheetId    String
+  spreadsheetUrl   String    @default("")
+  title            String    @default("")
+  budgetPeriod     String    @default("") // "YYYY-MM" เดือนที่ Initial Budget ถูกตั้งเป็นงบ
+  projectMap       Json? // key ของชื่อในชีท → Project.id | "new" | "=<key อื่น>"
+  lastImportedAt   DateTime?
+  lastImportedById String    @default("")
+  lastSummary      Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
+}
+
+// จำว่าแถวไหนของ Expense Log ถูกนำเข้าเป็นคำขอไหน — นำเข้าซ้ำจึงไม่สร้างรายการซ้ำ
+model BlmSheetImportRow {
+  id             String @id @default(cuid())
+  organizationId String
+  rowKey         String // ตัวตนของแถวในชีท (URL / ชื่อเว็บ / ประเภท + ลำดับที่ซ้ำ)
+  requestId      String // BlmRequest.id
+  lastStatus     String @default("") // สถานะที่ตัวนำเข้าตั้งไว้ล่าสุด (PUBLISHED | CANCELLED) ว่าง = คำขอที่คนสร้างเองแล้วถูกจับคู่
+  spreadsheetId  String @default("") // ชีทที่แถวนี้มาจาก — รายการของชีทอื่นไม่ถูกนับว่า "หายจากชีท"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, rowKey])
+  @@index([organizationId, requestId])
+  @@schema("plans_seo_pipeline")
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Article Compliance Checker (โมดูลเสริม — เพิ่มเข้ามาใหม่ทั้งชุด)
 // แยกขาดจาก Content Engine / PromptTemplate: กฎรายอุตสาหกรรมอยู่ในตารางของตัวเอง
@@ -1234,5 +1270,192 @@ model ComplianceAuditLog {
   createdAt DateTime @default(now())
 
   @@index([organizationId, createdAt])
+  @@schema("plans_seo_pipeline")
+}
+
+// Compliance — Brand Rule: โปรไฟล์แบรนด์ของลูกค้า 1 ราย (Brand voice + กฎเฉพาะแบรนด์)
+// ตารางเสริม ไม่แตะตาราง Compliance เดิม — โค้ดต้องทนได้เมื่อตารางยังไม่ถูกสร้าง (P2021)
+model ComplianceBrand {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String // ชื่อลูกค้า / แบรนด์
+  industry       String @default("") // อุตสาหกรรมหลักของแบรนด์ (ไม่บังคับ)
+  voice          String @default("") // Brand voice ที่ทีมพิมพ์เอง
+  notes          String @default("")
+  status         String @default("ACTIVE") // ACTIVE | ARCHIVED (ไม่มีการลบจริง — ผลตรวจเก่ายังอ้างชื่อแบรนด์ได้)
+  createdById    String
+  updatedById    String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@schema("plans_seo_pipeline")
+}
+
+// กฎของแบรนด์ — libraryRuleId มีค่า = กฎที่ดึงจากคลังกฎ (ใช้เนื้อหาปัจจุบันของ ComplianceRule ตอนตรวจ)
+// libraryRuleId ว่าง = กฎที่แบรนด์เขียนเอง (ใช้ช่องเนื้อหาในแถวนี้)
+model ComplianceBrandRule {
+  id             String  @id @default(cuid())
+  organizationId String
+  brandId        String
+  libraryRuleId  String?
+  code           String  @default("")
+  title          String  @default("")
+  description    String  @default("")
+  ruleType       String  @default("PROHIBITED_TERM") // PROHIBITED_TERM | RISKY_TERM | CONTEXT
+  terms          String  @default("[]") // JSON string[]
+  severity       String  @default("MEDIUM") // CRITICAL | HIGH | MEDIUM | LOW
+  guidance       String  @default("")
+  sourceName     String  @default("") // เช่น ชื่อคู่มือแบรนด์
+  version        Int     @default(1)
+  status         String  @default("ACTIVE") // ACTIVE | INACTIVE
+  createdById    String
+  updatedById    String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([brandId, libraryRuleId])
+  @@index([organizationId, brandId])
+  @@schema("plans_seo_pipeline")
+}
+
+// ไฟล์ Brand voice ที่ทีมอัปโหลด — เก็บเฉพาะข้อความที่อ่านได้จากไฟล์ (อ่านในเบราว์เซอร์) ไม่เก็บตัวไฟล์
+model ComplianceBrandFile {
+  id             String @id @default(cuid())
+  organizationId String
+  brandId        String
+  fileName       String
+  text           String
+  chars          Int    @default(0)
+  createdById    String
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, brandId])
+  @@schema("plans_seo_pipeline")
+}
+
+// ไฟล์แนบของคำขอ Backlink (ข้อมูลกำกับ) — ตัวไฟล์อยู่ใน BlmAttachmentBlob แยกตาราง เพื่อให้การอ่านรายการไม่ดึงไบต์ขึ้นมา
+// ไม่มี relation โดยตั้งใจ: ทุกจุดที่อ่าน/เขียนต้องทนได้เมื่อยังไม่มีตาราง (ดู attachments-server.ts)
+model BlmAttachment {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  requestId          String
+  fileName           String
+  mimeType           String
+  sizeBytes          Int
+  uploadedById       String    @default("")
+  asanaAttachmentGid String    @default("")
+  asanaPushedTaskGid String    @default("") // งาน Asana ที่ส่งไฟล์นี้ไปแล้ว (ไม่ตรงกับงานปัจจุบัน = ยังต้องส่ง)
+  asanaPushStartedAt DateTime? // จองคิวส่ง กันส่งซ้ำ
+  asanaSyncError     String    @default("")
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, requestId])
+  @@schema("plans_seo_pipeline")
+}
+
+// ไบต์ของไฟล์แนบ (id = BlmAttachment.id) — อ่านจากจุดเดียวเท่านั้น
+model BlmAttachmentBlob {
+  id             String @id
+  organizationId String
+  data           Bytes
+
+  @@index([organizationId])
+  @@schema("plans_seo_pipeline")
+}
+
+// โปรเจกต์ Asana ที่คำขอนี้ถูกส่งไป (เมื่อผู้ใช้เลือกโปรเจกต์อื่นที่ไม่ใช่ค่าเริ่มต้นของ BlmAsanaConfig)
+// แยกตารางโดยตั้งใจ: ไม่เพิ่มคอลัมน์ใน BlmRequest เพื่อให้ระบบเดิมทำงานได้แม้ยังไม่ได้สร้างตารางนี้
+model BlmRequestAsana {
+  id             String    @id @default(cuid())
+  organizationId String
+  requestId      String    @unique
+  projectGid     String
+  projectName    String    @default("")
+  lastCheckedAt  DateTime? // ครั้งล่าสุดที่ถามสถานะงานจาก Asana ตรง ๆ (งานนอกโปรเจกต์เริ่มต้นไม่มี webhook)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
+}
+
+// Google Sheet โควต้า Backlink ที่เชื่อมไว้ (หลายลิงก์ต่อองค์กร) — อ่านและเขียนด้วย service account
+model BlmSheetSource {
+  id             String    @id @default(cuid())
+  organizationId String
+  spreadsheetId  String
+  spreadsheetUrl String    @default("")
+  title          String    @default("")
+  label          String    @default("")
+  tabs           Json? // ชื่อแท็บที่อ่านได้ครั้งล่าสุด (string[])
+  lastPulledAt   DateTime?
+  lastError      String    @default("")
+  addedById      String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, spreadsheetId])
+  @@schema("plans_seo_pipeline")
+}
+
+// แพ็กเกจโควต้า 1 ก้อนในชีท (สำเนาจากชีท — ตัวจริงอยู่ในชีท) data = ParsedPackage รวม slots
+model BlmQuotaPackage {
+  id             String  @id @default(cuid())
+  organizationId String
+  sourceId       String
+  packageKey     String // "<ชื่อแท็บ>#<ลำดับแพ็กเกจในแท็บ>"
+  tabTitle       String  @default("")
+  ordinal        Int     @default(0)
+  headerRow      Int     @default(1)
+  columns        Json // QuotaColumns: ช่องไหนอยู่คอลัมน์ไหน (ใช้ตอนเขียนกลับ)
+  data           Json // ParsedPackage
+  stale          Boolean @default(false) // ไม่พบในชีทแล้วตอนดึงครั้งล่าสุด
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sourceId, packageKey])
+  @@schema("plans_seo_pipeline")
+}
+
+// การจองโควต้า 1 ช่อง (ใครจอง ใช้กับเว็บไหน โปรเจกต์อะไร) — ข้อมูลของช่องเองเขียนลงชีท ส่วนนี้เก็บเฉพาะใน MarsOS
+model BlmQuotaReservation {
+  id             String @id @default(cuid())
+  organizationId String
+  packageId      String
+  slotIndex      Int // ลำดับช่องในแพ็กเกจ เริ่มที่ 0
+  reservedById   String
+  website        String @default("")
+  projectId      String @default("")
+  projectName    String @default("")
+  note           String @default("")
+  createdById    String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([packageId, slotIndex])
+  @@schema("plans_seo_pipeline")
+}
+
+// โปรเจกต์ Asana ที่ผู้ใช้วางลิงก์บันทึกไว้เอง (กรณีค้นหาในรายการไม่เจอ) — ครั้งต่อไปจะอยู่ในตัวเลือกเสมอ
+model BlmAsanaSavedProject {
+  id             String @id @default(cuid())
+  organizationId String
+  projectGid     String
+  projectName    String @default("")
+  workspaceName  String @default("")
+  addedById      String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, projectGid])
   @@schema("plans_seo_pipeline")
 }

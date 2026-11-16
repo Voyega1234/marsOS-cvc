@@ -159,6 +159,37 @@ function str(v: unknown, max = 1000): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : ''
 }
 
+const FIX_TARGET_MAX = 600
+const FIX_REPLACEMENT_MAX = 1000
+// ตัวอักษรควบคุมที่ไม่ใช่ช่องว่าง — ถ้าหลุดไปถึงไฟล์ Word จะทำให้ XML เสีย
+const CONTROL_CHARS = /[\u0000-\u0008\u000E-\u001F\u007F]/g
+
+/** ข้อเสนอแก้ของ AI (target → replacement) สำหรับทำ Suggesting ตอน export Word
+ *  target ต้องเป็นข้อความที่มีอยู่จริงในบทความ (เทียบแบบเดียวกับ quote) — หาไม่เจอ = ไม่มีข้อเสนอแก้ ไม่เดาเอง
+ *  mustContain: target ของคำที่จับได้ต้องครอบคำนั้น · fallback: ใช้แทนเมื่อ target ของ AI ใช้ไม่ได้ */
+function pickFix(
+  rec: Record<string, unknown>,
+  norm: string,
+  haystack: string,
+  opts: { mustContain?: string; fallback?: string },
+): { fixTarget: string; replacement: string } | null {
+  const replacement = collapse(str(rec.replacement, FIX_REPLACEMENT_MAX).replace(CONTROL_CHARS, ' '))
+  if (!replacement) return null
+  const must = opts.mustContain ? lowerSameLength(collapse(opts.mustContain)) : ''
+  const candidates = [typeof rec.target === 'string' ? collapse(rec.target) : '', opts.fallback ? collapse(opts.fallback) : '']
+  for (const c of candidates) {
+    if (c.length < 2 || c.length > FIX_TARGET_MAX) continue
+    const t = lowerSameLength(c)
+    if (must && !t.includes(must)) continue
+    const idx = haystack.indexOf(t)
+    if (idx < 0) continue
+    const fixTarget = norm.slice(idx, idx + t.length)
+    if (fixTarget === replacement) return null
+    return { fixTarget, replacement }
+  }
+  return null
+}
+
 export function mergeAiResult(
   text: string,
   hits: Finding[],
@@ -169,6 +200,8 @@ export function mergeAiResult(
   const ruleById = new Map(rules.map((r) => [r.id, r]))
   const findings: Finding[] = hits.map((h) => ({ ...h }))
   const byId = new Map(findings.map((f) => [f.id, f]))
+  const norm = collapse(text)
+  const haystack = lowerSameLength(norm)
 
   if (Array.isArray(raw.adjudications)) {
     for (const a of raw.adjudications) {
@@ -188,10 +221,11 @@ export function mergeAiResult(
         }
         hit.verdict = verdict
       }
+      const fix = hit.verdict === 'likely_ok' ? null : pickFix(rec, norm, haystack, { mustContain: hit.quote })
+      if (fix) { hit.fixTarget = fix.fixTarget; hit.replacement = fix.replacement }
     }
   }
 
-  const haystack = lowerSameLength(collapse(text))
   let dropped = 0
   let a = 0
   if (Array.isArray(raw.findings)) {
@@ -212,7 +246,7 @@ export function mergeAiResult(
       const idx = haystack.indexOf(q)
       const start = Math.max(0, idx - EXCERPT_RADIUS)
       const end = Math.min(haystack.length, idx + q.length + EXCERPT_RADIUS)
-      const norm = collapse(text)
+      const fix = pickFix(rec, norm, haystack, { fallback: quote })
       findings.push({
         id: `a${a}`,
         ruleId: rule.id,
@@ -230,6 +264,7 @@ export function mergeAiResult(
         sourceName: rule.sourceName,
         sourceRef: rule.sourceRef,
         sourceUrl: rule.sourceUrl,
+        ...(fix ? { fixTarget: fix.fixTarget, replacement: fix.replacement } : {}),
       })
     }
   }

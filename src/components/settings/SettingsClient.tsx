@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { useRouter, useSearchParams } from "next/navigation";
+import { replaceUrlParams } from "@/lib/url-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -340,7 +341,12 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
   const { mode, setMode } = useUIMode();
   const isAdmin = currentUser.role === "ADMIN";
   const searchParams = useSearchParams();
-  const defaultTab = searchParams.get("tab") ?? "profile";
+  // แท็บเริ่มจาก ?tab= และเขียนกลับ URL ทุกครั้งที่เปลี่ยน — กด refresh แล้วอยู่แท็บเดิม
+  const [settingsTab, setSettingsTab] = useState(() => searchParams.get("tab") ?? "profile");
+  const onSettingsTabChange = (v: string) => {
+    setSettingsTab(v);
+    replaceUrlParams({ tab: v === "profile" ? null : v });
+  };
   const { data: session } = useSession();
   const email = session?.user?.email ?? "";
   const displayName = currentUser.name?.trim() || email || "ผู้ใช้";
@@ -350,7 +356,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
     <div className="space-y-6">
       <PageHeader eyebrow="Settings" title="ตั้งค่า" subtitle={org?.name} />
 
-      <Tabs defaultValue={defaultTab}>
+      <Tabs value={settingsTab} onValueChange={onSettingsTabChange}>
         <TabsList className="w-full justify-start h-auto flex-wrap">
           <TabsTrigger value="profile" className="gap-2"><UserRound className="h-4 w-4" />โปรไฟล์</TabsTrigger>
           <TabsTrigger value="interface" className="gap-2"><Monitor className="h-4 w-4" />Interface Mode</TabsTrigger>

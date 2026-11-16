@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { Copy, Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,6 +44,10 @@ const LAYER_TAB: Record<string, TabKey> = {
 /** โหมดปกติเห็นแค่แท็บงานประจำ — ที่เหลืออยู่หลังโหมดขั้นสูง (เหมือน Upload Article) */
 const SIMPLE_TABS: TabKey[] = ["client-comments", "restrictions"];
 const ADVANCED_KEY = "mars_ce_advanced";
+const CE_TABS: readonly TabKey[] = [
+  "overview", "business-skills", "master-prompts", "article-briefs", "restrictions",
+  "client-comments", "validator-packs", "image-prompts", "prompt-composer", "versions-audit",
+];
 
 function resolveProjectId(explicit?: string): string | null {
   if (explicit) return explicit;
@@ -73,7 +78,7 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
   const [refreshKey, setRefreshKey] = useState(0);
   // โหมดขั้นสูง: แท็บ CE ครบชุด + ปุ่มคัดลอกจาก Studio — จำไว้ต่อเครื่อง (key เดียวกับ Upload Article)
   const [advanced, setAdvancedState] = useState(false);
-  const [ceTab, setCeTab] = useState<TabKey>("client-comments");
+  const [ceTab, setCeTab] = useUrlState<TabKey>("ce", "client-comments", CE_TABS);
   useEffect(() => {
     try { if (localStorage.getItem(ADVANCED_KEY) === "1") setAdvancedState(true); } catch { /* storage ปิด — ใช้โหมดปกติ */ }
   }, []);

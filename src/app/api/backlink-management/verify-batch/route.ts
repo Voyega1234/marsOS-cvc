@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     // before (ไม่บังคับ) = เวลาที่เริ่มรอบ "ตรวจทั้งหมด" — นับเฉพาะแถวที่ยังไม่ถูกตรวจตั้งแต่เวลานั้น เพื่อให้ remaining ลดลงจนเป็น 0
     const before = typeof b.before === "string" && !Number.isNaN(Date.parse(b.before)) ? new Date(b.before) : null;
     const baseWhere = {
-      organizationId: ctx.orgId, liveUrl: { not: "" }, status: { in: ["PUBLISHED", "VERIFIED", "LOST"] },
+      organizationId: ctx.orgId, liveUrl: { not: "" }, targetUrl: { not: "" }, status: { in: ["PUBLISHED", "VERIFIED", "LOST"] },
       ...(before ? { OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: before } }] } : {}),
     };
     let rows;

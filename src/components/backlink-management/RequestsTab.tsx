@@ -1,18 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, Loader2, Plus } from "lucide-react";
+import { Copy, ExternalLink, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chip, EmptyState, Panel, SearchPill } from "@/components/ds";
 import { STATUS_LABEL, STATUS_TONE, BLM_STATUSES, type BlmStatus } from "@/lib/backlink-management/types";
 import { api, fmtDate, money, selectCls, useAutoRefresh, type BlmRow } from "./shared";
 
-export default function RequestsTab({ projectId, period, refreshKey, onOpen, onCreate }: {
+export default function RequestsTab({ projectId, period, refreshKey, onOpen, onCreate, onDuplicate }: {
   projectId: string;
   period: string;
   refreshKey: number;
   onOpen: (id: string) => void;
   onCreate: () => void;
+  onDuplicate?: (row: BlmRow) => void;
 }) {
   const [rows, setRows] = useState<BlmRow[] | null>(null);
   const [error, setError] = useState("");
@@ -95,9 +96,10 @@ export default function RequestsTab({ projectId, period, refreshKey, onOpen, onC
                   <td>
                     <div className="flex flex-wrap items-center gap-1">
                       <Chip tone={STATUS_TONE[r.status as BlmStatus] ?? "muted"}>{STATUS_LABEL[r.status as BlmStatus] ?? r.status}</Chip>
-                      {r.asanaCompleted && !r.liveUrl && (r.status === "APPROVED" || r.status === "IN_PROGRESS") ? (
-                        <Chip tone="warn">Asana เสร็จแล้ว — รอใส่ URL ที่ลิงก์อยู่</Chip>
+                      {(r.asanaCompleted && !r.liveUrl && (r.status === "APPROVED" || r.status === "IN_PROGRESS")) || (r.status === "PUBLISHED" && !r.liveUrl) ? (
+                        <Chip tone="warn">{r.status === "PUBLISHED" ? "ยังไม่มีลิงก์ที่เผยแพร่ — ใส่ลิงก์เพื่อให้ระบบตรวจได้" : "Asana เสร็จแล้ว — รอใส่ URL ที่ลิงก์อยู่"}</Chip>
                       ) : null}
+                      {r.asanaCompleted && ["REQUESTED", "APPROVED", "IN_PROGRESS"].includes(r.status) ? <Chip tone="ok">Asana เสร็จแล้ว</Chip> : null}
                     </div>
                   </td>
                   <td className="whitespace-nowrap">{r.assigneeName || "—"}</td>
@@ -110,6 +112,12 @@ export default function RequestsTab({ projectId, period, refreshKey, onOpen, onC
                         </a>
                       ) : null}
                       {r.asanaSyncError ? <Chip tone="warn" title={r.asanaSyncError}>sync ผิดพลาด</Chip> : null}
+                      {onDuplicate ? (
+                        <button type="button" title="ทำซ้ำคำขอ" aria-label="ทำซ้ำคำขอ" className="rounded p-1 text-gray-400 hover:text-brand-navy"
+                          onClick={(e) => { e.stopPropagation(); onDuplicate(r); }}>
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

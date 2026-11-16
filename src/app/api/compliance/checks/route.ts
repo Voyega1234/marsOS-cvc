@@ -5,7 +5,9 @@ import { logAIJob } from '@/lib/logAIJob'
 import { audit, errMsg, parseJsonArray, requireStaff, toRuleLite, userNames } from '@/lib/compliance/server'
 import { contentHash, findTermHits, htmlToText, mergeAiResult, ruleSnapshot, scoreRisk } from '@/lib/compliance/engine'
 import { runAiContextCheck } from '@/lib/compliance/ai'
-import { industryLabel, type Finding } from '@/lib/compliance/types'
+import { brandIdOfIndustry, industryLabel, isBrandIndustry, type Finding, type RuleLite } from '@/lib/compliance/types'
+import { brandIndustryKey } from '@/lib/compliance/brand'
+import { brandError, brandNames, isMissingTable, loadBrandForCheck, type BrandCheckSet } from '@/lib/compliance/brand-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -24,7 +26,8 @@ export async function GET(req: NextRequest) {
       where: {
         organizationId: ctx.orgId,
         ...(status ? { status } : {}),
-        ...(industry ? { industry } : {}),
+        // 'brand:' = ผลตรวจแบบ Brand Rule ของทุกแบรนด์
+        ...(industry ? { industry: industry === 'brand:' ? { startsWith: 'brand:' } : industry } : {}),
         ...(q ? { title: { contains: q, mode: 'insensitive' as const } } : {}),
       },
       select: {
@@ -36,9 +39,11 @@ export async function GET(req: NextRequest) {
       take: 100,
     })
     const names = await userNames(rows.flatMap((r) => [r.createdById, r.reviewedById]))
+    const brands = await brandNames(ctx.orgId, rows.filter((r) => isBrandIndustry(r.industry)).map((r) => brandIdOfIndustry(r.industry)))
     return NextResponse.json({
       checks: rows.map((r) => ({
         ...r,
+        ...(isBrandIndustry(r.industry) ? { brandName: brands.get(brandIdOfIndustry(r.industry)) ?? '' } : {}),
         createdByName: names.get(r.createdById) ?? '',
         reviewedByName: r.reviewedById ? names.get(r.reviewedById) ?? '' : '',
       })),
@@ -53,9 +58,14 @@ export async function POST(req: NextRequest) {
     const ctx = await requireStaff()
     if (ctx instanceof NextResponse) return ctx
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
-    const industry = typeof body.industry === 'string' ? body.industry.trim() : ''
+    // mode 'brand' = ตรวจกับ Brand Rule ของลูกค้า 1 ราย · ไม่ส่ง mode = ตรวจระดับอุตสาหกรรมแบบเดิม
+    const brandMode = body.mode === 'brand'
+    const brandId = brandMode && typeof body.brandId === 'string' ? body.brandId.trim() : ''
+    let industry = brandMode ? '' : typeof body.industry === 'string' ? body.industry.trim() : ''
     const source = body.source
-    if (!industry) return NextResponse.json({ error: 'ต้องเลือกอุตสาหกรรม' }, { status: 400 })
+    if (brandMode && !brandId) return NextResponse.json({ error: 'ต้องเลือกแบรนด์' }, { status: 400 })
+    if (!brandMode && !industry) return NextResponse.json({ error: 'ต้องเลือกอุตสาหกรรม' }, { status: 400 })
+    if (!brandMode && isBrandIndustry(industry)) return NextResponse.json({ error: 'อุตสาหกรรมไม่ถูกต้อง' }, { status: 400 })
     if (source !== 'sme' && source !== 'upload' && source !== 'manual') return NextResponse.json({ error: 'source ไม่ถูกต้อง' }, { status: 400 })
     const useAi = body.useAi !== false
 
@@ -102,12 +112,41 @@ export async function POST(req: NextRequest) {
     if (text.length > MAX_SNAPSHOT) text = text.slice(0, MAX_SNAPSHOT)
 
     // ── กฎที่เปิดใช้ ──
-    const ruleRows = await prisma.complianceRule.findMany({
-      where: { organizationId: ctx.orgId, industry, status: 'ACTIVE' },
-      orderBy: { code: 'asc' },
-    })
-    if (!ruleRows.length) return NextResponse.json({ error: 'ยังไม่มีกฎที่เปิดใช้สำหรับอุตสาหกรรมนี้' }, { status: 400 })
-    const rules = ruleRows.map(toRuleLite)
+    let rules: RuleLite[]
+    let brand: BrandCheckSet | null = null
+    let voiceOn = false
+    const notes: string[] = []
+    if (brandMode) {
+      try {
+        brand = await loadBrandForCheck(ctx.orgId, brandId)
+      } catch (e) {
+        if (isMissingTable(e)) return brandError(e)
+        throw e
+      }
+      if (!brand) return NextResponse.json({ error: 'ไม่พบแบรนด์' }, { status: 404 })
+      if (brand.status !== 'ACTIVE') return NextResponse.json({ error: 'แบรนด์นี้ถูกเก็บเข้าคลังแล้ว เปิดใช้ก่อนจึงจะตรวจได้' }, { status: 400 })
+      voiceOn = useAi && !!brand.voiceRule
+      rules = brand.voiceRule && voiceOn ? [...brand.rules, brand.voiceRule] : brand.rules
+      if (!rules.length) {
+        return NextResponse.json({
+          error: brand.voiceRule
+            ? 'แบรนด์นี้มีแต่ Brand voice ยังไม่มีกฎที่เปิดใช้ — ต้องเปิด "ใช้ AI ตรวจบริบท" จึงจะตรวจกับ Brand voice ได้'
+            : 'แบรนด์นี้ยังไม่มีกฎที่เปิดใช้และยังไม่มี Brand voice',
+        }, { status: 400 })
+      }
+      industry = brandIndustryKey(brand.brandId)
+      if (!ownerLabel) ownerLabel = brand.brandName
+      if (brand.skippedLibrary > 0) notes.push(`ข้ามกฎจากคลังกฎ ${brand.skippedLibrary} ข้อ เพราะกฎต้นทางไม่ได้เปิดใช้หรือถูกลบแล้ว`)
+      if (brand.voiceRule && !voiceOn) notes.push('ปิด AI อยู่ — รอบนี้ไม่ได้ตรวจกับ Brand voice (ตรวจเฉพาะคำในกฎ)')
+      if (voiceOn && brand.guideTruncated) notes.push('Brand voice และไฟล์แนบยาวเกินงบที่ส่งให้ AI ได้ — ส่งเฉพาะส่วนต้น')
+    } else {
+      const ruleRows = await prisma.complianceRule.findMany({
+        where: { organizationId: ctx.orgId, industry, status: 'ACTIVE' },
+        orderBy: { code: 'asc' },
+      })
+      if (!ruleRows.length) return NextResponse.json({ error: 'ยังไม่มีกฎที่เปิดใช้สำหรับอุตสาหกรรมนี้' }, { status: 400 })
+      rules = ruleRows.map(toRuleLite)
+    }
 
     // ── จับคำ + AI ตรวจบริบท ──
     const hits = findTermHits(text, rules)
@@ -119,15 +158,20 @@ export async function POST(req: NextRequest) {
     if (useAi) {
       try {
         const ai = await runAiContextCheck({
-          text, rules, hits, industryLabel: industryLabel(industry),
+          text, rules, hits, industryLabel: brand ? `Brand Rule: ${brand.brandName}` : industryLabel(industry),
           client: ownerLabel ? slugifyClient(ownerLabel) || undefined : undefined,
+          ...(brand && voiceOn && brand.voiceRule ? { brandVoice: { ruleId: brand.voiceRule.id, guide: brand.guide } } : {}),
         })
         aiModel = ai.model
         const merged = mergeAiResult(text, hits, rules, ai.raw)
         findings = merged.findings
         summary = merged.summary
         aiUsed = true
-        if (ai.truncated) aiError = 'ส่งให้ AI ตรวจเฉพาะ 24,000 ตัวอักษรแรกของบทความ'
+        const aiNotes: string[] = []
+        if (ai.truncated) aiNotes.push('ส่งให้ AI ตรวจเฉพาะ 24,000 ตัวอักษรแรกของบทความ')
+        if (ai.partial) aiNotes.push('คำตอบของ AI ยาวเกินกำหนดและถูกตัด — ได้ผลตัดสินบางส่วน รายการที่เหลือเป็นผลจากการจับคำ')
+        if (ai.rulesOmitted > 0) aiNotes.push(`กฎมีจำนวนมากเกินที่ส่งให้ AI ได้ — AI ไม่ได้อ่านกฎ ${ai.rulesOmitted} ข้อ (คำในกฎยังถูกจับตามปกติ)`)
+        aiError = aiNotes.join(' · ')
         await logAIJob({
           organizationId: ctx.orgId, projectId, jobType: 'COMPLIANCE_CHECK', modelProvider: 'openrouter', modelName: ai.model,
           status: 'SUCCESS', tokenUsed: ai.usage.totalTokens, estimatedCost: ai.usage.costUsd, createdById: ctx.userId, inputSummary: title,
@@ -168,7 +212,10 @@ export async function POST(req: NextRequest) {
     })
     await audit({
       orgId: ctx.orgId, actorId: ctx.userId, action: 'CHECK_RUN', checkId: row.id,
-      detail: { industry, source, riskLevel: level, riskScore: score, findings: findings.length, aiUsed, aiError, rules: rules.length },
+      detail: {
+        industry, source, riskLevel: level, riskScore: score, findings: findings.length, aiUsed, aiError, rules: rules.length,
+        ...(brand ? { brandId: brand.brandId, brandName: brand.brandName, brandVoice: voiceOn, skippedLibrary: brand.skippedLibrary, guideTruncated: voiceOn && brand.guideTruncated } : {}),
+      },
     })
     const names = await userNames([row.createdById])
     return NextResponse.json({
@@ -178,7 +225,9 @@ export async function POST(req: NextRequest) {
         rulesSnapshot: parseJsonArray(row.rulesSnapshot),
         createdByName: names.get(row.createdById) ?? '',
         reviewedByName: '',
+        ...(brand ? { brandName: brand.brandName } : {}),
       },
+      ...(notes.length ? { notes } : {}),
     })
   } catch (e) {
     return NextResponse.json({ error: errMsg(e) }, { status: 500 })

@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useUrlState } from '@/hooks/use-url-state';
 import { toast } from 'sonner';
 import { KeywordResearchProgress } from './KeywordResearchProgress';
 import KeywordMemoryFields, { parseGuardLines } from '@/components/projects/keyword-guard/KeywordMemoryFields';
@@ -316,6 +317,8 @@ function SourcePill({ name, status, detail }: { name: string; status: string; de
 
 // ── คอลัมน์ + การเรียงของตารางหลัก ────────────────────────────────────────────
 
+type Tab = 'overview' | 'keywords' | 'wave1' | 'clusters' | 'sitemap' | 'sources' | 'method' | 'plan';
+const WGL_TABS: readonly Tab[] = ['overview', 'keywords', 'wave1', 'clusters', 'sitemap', 'sources', 'method', 'plan'];
 type SortKey = 'final' | 'sales' | 'traffic' | 'ref' | 'kd' | 'cpc';
 
 function sortValue(row: KeywordResearchResult, key: SortKey): number {
@@ -409,8 +412,7 @@ export default function WordGodLocalPanel({ project, onSendToBank, languageMode,
   );
 
   // ── Workspace: tabs + ตัวกรอง + เรียง + หน้า + drawer ──
-  type Tab = 'overview' | 'keywords' | 'wave1' | 'clusters' | 'sitemap' | 'sources' | 'method' | 'plan';
-  const [tab, setTab] = useState<Tab>('keywords');
+  const [tab, setTab] = useUrlState<Tab>('wgl', 'keywords', WGL_TABS);
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
   const [confidenceFilter, setConfidenceFilter] = useState('all');

@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useUrlState } from '@/hooks/use-url-state'
 import { COUNTRIES, DEFAULT_COUNTRY } from '@/lib/competitor-gap/locations'
 import type {
   DomainInventory, GapAction, GapReport, GapSnapshot, KeywordGapRow, Priority, RunStep, StructureFinding, StructurePillar,
@@ -29,6 +30,7 @@ const SECTIONS: { id: SectionId; label: string }[] = [
   { id: 'structure',     label: 'โครงสร้างบทความ' },
   { id: 'surpass',       label: 'แซง Top 5' },
 ]
+const SECTION_IDS: readonly SectionId[] = SECTIONS.map(s => s.id)
 
 const PRIORITY_STYLE: Record<Priority, string> = {
   P0: 'bg-red-100 text-red-700 border-red-200',
@@ -142,7 +144,7 @@ export default function CompetitorGapTab({ project }: { project: { id: string; w
   const [run, setRun] = useState<RunStatus | null>(null)
   const [running, setRunning] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [section, setSection] = useState<SectionId>('overview')
+  const [section, setSection] = useUrlState<SectionId>('gap', 'overview', SECTION_IDS)
   const cancelled = useRef(false)
   const driving = useRef(false)
   const [lastRunId, setLastRunId] = useState<string | null>(null)

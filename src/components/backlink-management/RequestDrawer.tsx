@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, Loader2, Pencil, ShieldCheck, Trash2 } from "lucide-react";
+import { Copy, ExternalLink, Loader2, Pencil, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,6 +13,7 @@ import { Chip } from "@/components/ds";
 import { CHECK_LABEL, CHECK_TONE, STATUS_LABEL, STATUS_TONE, type BlmStatus, type CheckStatus } from "@/lib/backlink-management/types";
 import { ACTION_LABEL, allowedActions, type BlmAction } from "@/lib/backlink-management/workflow";
 import { api, fmtDate, fmtDateTime, money, type BlmRow } from "./shared";
+import { RequestAttachments } from "./RequestAttachments";
 
 interface EventRow {
   id: string; type: string; fromStatus: string; toStatus: string; amount: number | null; note: string;
@@ -24,13 +25,14 @@ interface BudgetBlock {
   budget: { approved: number; reserved: number; actual: number; remaining: number; period: string; hasBudgetRow: boolean };
 }
 
-export default function RequestDrawer({ id, onClose, role, userId, onChanged, onEdit }: {
+export default function RequestDrawer({ id, onClose, role, userId, onChanged, onEdit, onDuplicate }: {
   id: string | null;
   onClose: () => void;
   role: string;
   userId: string;
   onChanged: () => void;
   onEdit: (row: BlmRow) => void;
+  onDuplicate?: (row: BlmRow) => void;
 }) {
   const [row, setRow] = useState<BlmRow | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -128,9 +130,10 @@ export default function RequestDrawer({ id, onClose, role, userId, onChanged, on
               <div className="flex flex-wrap items-center gap-2">
                 <Chip tone={tone(row.status)}>{STATUS_LABEL[row.status as BlmStatus] ?? row.status}</Chip>
                 {row.checkStatus ? <Chip tone={CHECK_TONE[row.checkStatus as CheckStatus] ?? "muted"} title={row.checkDetail}>{CHECK_LABEL[row.checkStatus as CheckStatus] ?? row.checkStatus}</Chip> : null}
-                {row.asanaCompleted && !row.liveUrl && (row.status === "APPROVED" || row.status === "IN_PROGRESS") ? (
-                  <Chip tone="warn">Asana เสร็จแล้ว — รอใส่ URL ที่ลิงก์อยู่</Chip>
+                {(row.asanaCompleted && !row.liveUrl && (row.status === "APPROVED" || row.status === "IN_PROGRESS")) || (row.status === "PUBLISHED" && !row.liveUrl) ? (
+                  <Chip tone="warn">{row.status === "PUBLISHED" ? "ยังไม่มีลิงก์ที่เผยแพร่ — ใส่ลิงก์เพื่อให้ระบบตรวจได้" : "Asana เสร็จแล้ว — รอใส่ URL ที่ลิงก์อยู่"}</Chip>
                 ) : null}
+                {row.asanaCompleted && ["REQUESTED", "APPROVED", "IN_PROGRESS"].includes(row.status) ? <Chip tone="ok">Asana เสร็จแล้ว</Chip> : null}
                 {row.asanaSyncError ? <Chip tone="warn" title={row.asanaSyncError}>Asana sync ผิดพลาด</Chip> : null}
               </div>
 
@@ -155,9 +158,12 @@ export default function RequestDrawer({ id, onClose, role, userId, onChanged, on
               </dl>
 
               {row.asanaTaskUrl ? (
-                <a href={row.asanaTaskUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-brand-blue underline">
-                  <ExternalLink className="h-3.5 w-3.5" /> เปิดงานใน Asana
-                </a>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <a href={row.asanaTaskUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-brand-blue underline">
+                    <ExternalLink className="h-3.5 w-3.5" /> เปิดงานใน Asana
+                  </a>
+                  {row.asanaProjectName ? <span className="text-xs text-gray-500">โปรเจกต์ Asana: {row.asanaProjectName}</span> : null}
+                </div>
               ) : null}
 
               <div className="flex flex-wrap gap-2">
@@ -175,10 +181,15 @@ export default function RequestDrawer({ id, onClose, role, userId, onChanged, on
                   <Button size="sm" variant="outline" disabled={busy} onClick={verify}><ShieldCheck className="mr-1 h-4 w-4" /> ตรวจลิงก์</Button>
                 ) : null}
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => onEdit(row)}><Pencil className="mr-1 h-4 w-4" /> แก้ไข</Button>
+                {onDuplicate ? (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => onDuplicate(row)}><Copy className="mr-1 h-4 w-4" /> ทำซ้ำ</Button>
+                ) : null}
                 {canDelete ? (
                   <Button size="sm" variant="outline" disabled={busy} onClick={remove}><Trash2 className="mr-1 h-4 w-4" /> ลบ</Button>
                 ) : null}
               </div>
+
+              <RequestAttachments requestId={row.id} onChanged={() => void load()} />
 
               <div>
                 <h3 className="mb-2 text-[13px] font-semibold text-brand-navy">ประวัติ</h3>

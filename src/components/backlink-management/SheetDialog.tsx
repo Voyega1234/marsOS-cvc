@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Chip } from "@/components/ds";
 import { api, fmtDateTime } from "./shared";
+import QuotaSources from "./QuotaSources";
 
 export interface SheetStatus {
   connected: boolean;
@@ -22,12 +23,14 @@ export interface SheetStatus {
   tableMissing?: boolean;
 }
 
-export default function SheetDialog({ open, onOpenChange, status, canEdit, onChanged }: {
+export default function SheetDialog({ open, onOpenChange, status, canEdit, onChanged, onSourcesChanged }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   status: SheetStatus | null;
   canEdit: boolean;
   onChanged: (s: SheetStatus) => void;
+  /** เรียกหลังเพิ่ม / ลบ / ดึงข้อมูลลิงก์ชีทโควต้า เพื่อให้หน้าโหลดแท็บโควต้าใหม่ */
+  onSourcesChanged?: () => void;
 }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -96,9 +99,11 @@ export default function SheetDialog({ open, onOpenChange, status, canEdit, onCha
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <QuotaSources open={open} onSourcesChanged={onSourcesChanged} />
+        <hr className="border-gray-200" />
         <DialogHeader>
-          <DialogTitle>Google Sheet</DialogTitle>
+          <DialogTitle>ส่งออกข้อมูลคำขอไป Google Sheet (ทางเดียว)</DialogTitle>
           <DialogDescription>
             ข้อมูลไหลทางเดียวจาก MarsOS ไปชีท แท็บที่ขึ้นต้นด้วย MarsOS (3 แท็บ) ถูกเขียนทับทุกครั้งที่ sync ห้ามแก้ใน 3 แท็บนี้ แท็บอื่นในไฟล์ไม่ถูกแตะ
           </DialogDescription>

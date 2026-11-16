@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import { useUrlState } from '@/hooks/use-url-state';
 import { toast } from 'sonner';
 import type { PipelineResult } from '@/lib/wordgod/pipeline/wordgodPipeline';
 import type { KeywordMetricMode } from '@/lib/wordgod/pipeline/keywordMetricPolicy';
@@ -16,6 +17,7 @@ import { threeMonthChange, formatPercentChange } from '@/lib/wordgod/pipeline/kp
 
 type Status = 'idle' | 'running' | 'done' | 'error';
 type Tab = 'keywords' | 'content' | 'pillars' | 'calendar' | 'qa' | 'competitors';
+const WG_TABS: readonly Tab[] = ['keywords', 'content', 'pillars', 'calendar', 'qa', 'competitors'];
 
 interface WordGodProject {
   id: string;
@@ -245,7 +247,7 @@ export default function WordGodTab({ project, onSendToBank }: Props) {
   const [statusMessage, setStatusMessage] = useState('');
   const [logs, setLogs] = useState<string[]>([]);
   const [result, setResult] = useState<PipelineResult | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('keywords');
+  const [activeTab, setActiveTab] = useUrlState<Tab>('wg', 'keywords', WG_TABS);
   const [sortBy, setSortBy] = useState<'priority' | 'volume' | 'kd'>('priority');
   const [query, setQuery] = useState('');
   const [savingToBank, setSavingToBank] = useState(false);

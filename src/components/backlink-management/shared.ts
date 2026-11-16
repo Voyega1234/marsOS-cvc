@@ -44,6 +44,8 @@ export interface BlmRow {
   asanaTaskUrl: string;
   asanaCompleted: boolean;
   asanaSyncError: string;
+  /** ชื่อโปรเจกต์ Asana ที่งานนี้ถูกส่งไป (มีเฉพาะเมื่อเลือกโปรเจกต์อื่นที่ไม่ใช่ค่าเริ่มต้น) */
+  asanaProjectName?: string;
   createdAt: string;
 }
 

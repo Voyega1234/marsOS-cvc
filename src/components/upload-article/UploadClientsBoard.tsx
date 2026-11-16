@@ -5,6 +5,7 @@
  * แต่ละการ์ด = ลูกค้าหนึ่งราย มี drop zone ของตัวเอง กันอัปโหลดผิดเว็บ
  */
 import { useEffect, useMemo, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -25,6 +26,7 @@ const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 type SortKey = "recent" | "name" | "imported" | "generated" | "reviewed" | "pushed";
 type SortDir = "asc" | "desc";
+const VIEW_VALUES = ["cards", "table"] as const;
 const SORT_STORAGE_KEY = "upload-article:clients-sort";
 const SORT_KEYS: SortKey[] = ["recent", "name", "imported", "generated", "reviewed", "pushed"];
 /** คอลัมน์ตาราง (md ขึ้นไป): ลูกค้า | ภาษา (xl) | 4 ตัวเลข | ปุ่ม */
@@ -46,7 +48,7 @@ export default function UploadClientsBoard() {
   const [clients, setClients] = useState<UploadClientDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"cards" | "table">("cards");
+  const [view, setView] = useUrlState<"cards" | "table">("view", "cards", VIEW_VALUES);
   // ตัวกรองฝั่งเบราว์เซอร์จากตัวเลขที่โหลดมาแล้ว
   const [statusFilter, setStatusFilter] = useState<"all" | "pushed" | "empty">("all");
 

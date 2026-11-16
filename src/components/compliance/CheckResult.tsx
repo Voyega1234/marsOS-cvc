@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Chip, KpiTile, Panel } from "@/components/ds";
 import {
-  CHECK_STATUS_LABEL, REVIEWER_ROLES, SEVERITIES, SEVERITY_LABEL, VERDICT_LABEL, industryLabel,
+  CHECK_STATUS_LABEL, REVIEWER_ROLES, SEVERITIES, SEVERITY_LABEL, VERDICT_LABEL,
   type Finding, type Verdict,
 } from "@/lib/compliance/types";
-import { api, fmtDateTime, riskTone, statusTone, type CheckFull } from "./shared";
+import { api, checkScopeLabel, fmtDateTime, riskTone, statusTone, type CheckFull } from "./shared";
+import SuggestExportButton from "./SuggestExportButton";
 
 function verdictTone(v: Verdict): "bad" | "warn" | "ok" {
   return v === "violation" ? "bad" : v === "needs_review" ? "warn" : "ok";
@@ -61,6 +62,13 @@ function FindingCard({ f }: { f: Finding }) {
           </Button>
         </div>
       ) : null}
+      {f.fixTarget && f.replacement ? (
+        <div className="mt-2 rounded-xl border border-gray-100 px-3 py-2 text-sm">
+          <span className="text-xs font-semibold text-gray-500">ข้อเสนอแก้ที่จะใส่ในไฟล์ Word (Suggesting)</span>
+          <p className="mt-0.5 break-words text-red-700/80"><del>{f.fixTarget}</del></p>
+          <p className="mt-0.5 break-words text-emerald-700">{f.replacement}</p>
+        </div>
+      ) : null}
       <p className="mt-2 text-[11px] text-gray-500">
         อ้างอิง:{" "}
         {/^https?:\/\//i.test(f.sourceUrl || "") ? (
@@ -74,10 +82,12 @@ function FindingCard({ f }: { f: Finding }) {
   );
 }
 
-export default function CheckResult({ check, userRole, onChange }: {
+export default function CheckResult({ check, userRole, onChange, originalFile }: {
   check: CheckFull;
   userRole: string;
   onChange: (c: CheckFull) => void;
+  /** ไฟล์ Word ที่ใช้ตรวจรอบนี้ (ถ้ามี) — ใช้ใส่คำแนะนำแบบ Suggesting กลับลงไฟล์เดิม */
+  originalFile?: File | null;
 }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -104,14 +114,15 @@ export default function CheckResult({ check, userRole, onChange }: {
     toast.success("บันทึกผลแล้ว");
     setNote("");
     setChanging(false);
-    onChange(data.check);
+    // คำตอบของ review ไม่มีชื่อแบรนด์ — คงค่าที่มีอยู่ไว้
+    onChange({ ...data.check, brandName: data.check.brandName ?? check.brandName, contentSnapshot: data.check.contentSnapshot ?? check.contentSnapshot });
   }
 
   return (
     <div className="space-y-4">
       <Panel
         title={check.title || "ผลตรวจ"}
-        subtitle={`${industryLabel(check.industry)} · ${check.ownerLabel || "—"} · ${fmtDateTime(check.createdAt)}`}
+        subtitle={[checkScopeLabel(check), check.brandName && check.ownerLabel === check.brandName ? "" : check.ownerLabel || "—", fmtDateTime(check.createdAt)].filter(Boolean).join(" · ")}
         actions={
           <>
             <Chip tone={riskTone(check.riskLevel)}>ความเสี่ยง: {SEVERITY_LABEL[check.riskLevel]} · {check.riskScore}/100</Chip>
@@ -132,6 +143,9 @@ export default function CheckResult({ check, userRole, onChange }: {
               ? `AI ตรวจบริบทไม่สำเร็จ: ${check.aiError} (ใช้ผลจากกฎอย่างเดียว)`
               : "ไม่ได้ใช้ AI — ตรวจจากกฎอย่างเดียว"}
         </p>
+        <div className="mt-4">
+          <SuggestExportButton findings={check.findings} title={check.title} text={check.contentSnapshot} originalFile={originalFile} />
+        </div>
       </Panel>
 
       {check.findings.length === 0 ? (

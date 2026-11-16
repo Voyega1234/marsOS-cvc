@@ -1,5 +1,6 @@
 import type { CheckStatus, Finding, RiskLevel } from "@/lib/compliance/types";
 import type { ChipTone } from "@/components/ds";
+import { industryLabel, isBrandIndustry } from "@/lib/compliance/types";
 
 export interface CheckRow {
   id: string;
@@ -20,11 +21,14 @@ export interface CheckRow {
   createdAt: string;
   createdByName: string;
   reviewedByName: string;
+  brandName?: string;
 }
 
 export interface CheckFull extends CheckRow {
   findings: Finding[];
   rulesSnapshot: unknown[];
+  /** ข้อความที่ถูกตรวจ — ใช้สร้างไฟล์ Word ตอน export */
+  contentSnapshot?: string;
 }
 
 export interface IndustryOpt {
@@ -70,4 +74,10 @@ export function fmtDateTime(s: string | null | undefined): string {
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" });
+}
+
+/** ป้ายขอบเขตของผลตรวจ: Brand Rule · ชื่อแบรนด์ หรือชื่ออุตสาหกรรม */
+export function checkScopeLabel(c: { industry: string; brandName?: string }): string {
+  if (isBrandIndustry(c.industry)) return `Brand Rule · ${c.brandName || "แบรนด์ที่ไม่พบแล้ว"}`;
+  return industryLabel(c.industry);
 }

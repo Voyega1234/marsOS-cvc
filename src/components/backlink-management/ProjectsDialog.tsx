@@ -7,22 +7,31 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "./shared";
+import { api, type MetaUser } from "./shared";
+import SearchSelect from "./SearchSelect";
+import AsanaProjectSelect from "./AsanaProjectSelect";
+import type { AsanaStatus } from "./AsanaDialog";
 
 interface ManualProject {
   id: string; name: string; clientName: string; note: string; createdById: string; requests: number; budgets: number;
 }
 
-export default function ProjectsDialog({ open, onOpenChange, onChanged }: {
+export default function ProjectsDialog({ open, onOpenChange, onChanged, users, asana }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onChanged: () => void;
+  users?: MetaUser[];
+  asana?: AsanaStatus | null;
 }) {
   const [list, setList] = useState<ManualProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [clientName, setClientName] = useState("");
+  const [sendAsana, setSendAsana] = useState(false);
+  const [asanaAssigneeId, setAsanaAssigneeId] = useState("");
+  const [asanaProjectGid, setAsanaProjectGid] = useState("");
+  const asanaOn = !!asana && asana.tokenSource !== "none";
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editClient, setEditClient] = useState("");
@@ -49,9 +58,25 @@ export default function ProjectsDialog({ open, onOpenChange, onChanged }: {
     if (!name.trim()) { toast.error("กรุณาระบุชื่อโปรเจกต์"); return; }
     setBusy(true);
     try {
-      await api("/api/backlink-management/projects", { method: "POST", json: { name, clientName } });
+      const withAsana = asanaOn && sendAsana;
+      const res = await api<{ asana?: { ok: boolean; url?: string; error?: string; assigneeDropped?: boolean } }>("/api/backlink-management/projects", {
+        method: "POST",
+        json: {
+          name, clientName,
+          ...(withAsana ? { asana: { ...(asanaProjectGid ? { projectGid: asanaProjectGid } : {}), ...(asanaAssigneeId ? { assigneeId: asanaAssigneeId } : {}) } } : {}),
+        },
+      });
       setName(""); setClientName("");
+      setSendAsana(false); setAsanaAssigneeId(""); setAsanaProjectGid("");
       toast.success("เพิ่มโปรเจกต์แล้ว");
+      if (withAsana && res?.asana) {
+        if (res.asana.ok) {
+          if (res.asana.assigneeDropped) toast.warning("สร้างงานแล้ว แต่มอบหมายไม่ได้ (อีเมลนี้ไม่มีใน Asana)");
+          else toast.success("สร้างงานใน Asana แล้ว");
+        } else {
+          toast.warning(`สร้างโปรเจกต์แล้ว แต่ส่งเข้า Asana ไม่ได้: ${res.asana.error ?? "ไม่ทราบสาเหตุ"}`);
+        }
+      }
       await load();
       onChanged();
     } catch (e) {
@@ -110,6 +135,32 @@ export default function ProjectsDialog({ open, onOpenChange, onChanged }: {
             <Input id="blm-proj-client" value={clientName} maxLength={200} onChange={(e) => setClientName(e.target.value)} />
           </div>
         </div>
+        {asanaOn ? (
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={sendAsana} onChange={(e) => setSendAsana(e.target.checked)} />
+              ส่งงานแจ้งใน Asana
+            </label>
+            {sendAsana ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>ส่งถึง</Label>
+                  <SearchSelect
+                    value={asanaAssigneeId}
+                    onChange={setAsanaAssigneeId}
+                    emptyLabel="ไม่ระบุ"
+                    ariaLabel="ส่งถึง"
+                    options={(users ?? []).map((u) => ({ value: u.id, label: u.name, hint: u.email }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>โปรเจกต์ Asana</Label>
+                  <AsanaProjectSelect value={asanaProjectGid} onChange={setAsanaProjectGid} defaultProjectName={asana?.projectName} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div>
           <Button type="button" onClick={add} disabled={busy}>
             {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}เพิ่มโปรเจกต์

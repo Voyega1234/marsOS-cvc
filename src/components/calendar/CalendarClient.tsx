@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, CalendarDays, List, Plus, Clock, CheckCircle2, AlertTriangle, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -64,6 +65,8 @@ function formatDayTitle(day: string) {
   return `วัน${DAY_FULL_TH[dow]}ที่ ${d} ${MONTH_TH[m - 1]} ${y + 543}`;
 }
 
+const CALENDAR_VIEW_VALUES: readonly ("month" | "list")[] = ["month", "list"];
+
 export function CalendarClient({
   articles,
   clients,
@@ -78,7 +81,7 @@ export function CalendarClient({
   const now = new Date();
   const [year, setYear]   = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
-  const [view, setView]   = useState<"month" | "list">("month");
+  const [view, setView]   = useUrlState<"month" | "list">("view", "month", CALENDAR_VIEW_VALUES);
   const [filter, setFilter] = useState<OverviewFilter>(EMPTY_OVERVIEW_FILTER);
   const [openDay, setOpenDay]       = useState<string | null>(null);
   const [editingId, setEditingId]   = useState<string | null>(null);

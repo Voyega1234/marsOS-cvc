@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useUIMode } from "@/contexts/UIModeContext";
@@ -44,10 +45,11 @@ const ALL_STATUSES: ArticleStatus[] = [
 ];
 
 type ProView = "table" | "kanban" | "funnel";
+const PRO_VIEWS: readonly ProView[] = ["table", "kanban", "funnel"];
 
 export function ArticlesTable({ articles, projects, users = [] }: Props) {
   const { mode } = useUIMode();
-  const [proView, setProView] = useState<ProView>("table");
+  const [proView, setProView] = useUrlState<ProView>("view", "table", PRO_VIEWS);
 
   if (mode === "simple") {
     return <SimpleArticleCards articles={articles} projects={projects} users={users} />;

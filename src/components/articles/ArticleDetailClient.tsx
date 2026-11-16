@@ -6,6 +6,7 @@ import { useUIMode } from "@/contexts/UIModeContext";
 import { WizardArticleDetail } from "@/components/simple/WizardArticleDetail";
 import { toast } from "sonner";
 import Link from "next/link";
+import { useUrlState } from "@/hooks/use-url-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -350,7 +351,11 @@ function BriefEditor({ article }: { article: { id: string; brief?: string | null
   );
 }
 
+const DETAIL_TAB_VALUES = ["brief", "outline", "article", "seo", "image", "audit", "review", "linking", "publish", "history"] as const;
+type DetailTab = (typeof DETAIL_TAB_VALUES)[number];
+
 export function ArticleDetailClient({ article, users, currentUser, projectArticles = [] }: Props) {
+  const [detailTab, setDetailTab] = useUrlState<DetailTab>("tab", "brief", DETAIL_TAB_VALUES)
   const { mode } = useUIMode();
   const router = useRouter();
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -696,7 +701,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
 
       {/* Tabs */}
       <div className="bg-white rounded-xl border">
-        <Tabs defaultValue="brief">
+        <Tabs value={detailTab} onValueChange={(v) => setDetailTab(v as DetailTab)}>
           <div className="px-5 border-b border-gray-100 overflow-x-auto">
             <TabsList className="h-auto bg-transparent p-0 gap-0 w-max">
               {[

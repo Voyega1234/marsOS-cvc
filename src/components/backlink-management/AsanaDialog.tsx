@@ -8,7 +8,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Chip } from "@/components/ds";
-import { api, fmtDateTime, selectCls } from "./shared";
+import { api, fmtDateTime } from "./shared";
+import SearchSelect from "./SearchSelect";
 
 export interface AsanaStatus {
   tokenSource: "db" | "env" | "none";
@@ -177,11 +178,18 @@ export default function AsanaDialog({ open, onOpenChange, status, canEdit, onCha
                   placeholder="ค้นหาชื่อโปรเจกต์หรือชื่อทีม เช่น SEO — หรือวางลิงก์โปรเจกต์จาก Asana"
                   aria-label="ค้นหาโปรเจกต์ Asana"
                 />
-                <select className={selectCls} value={projectGid} onChange={(e) => setProjectGid(e.target.value)} disabled={loadingProjects}>
-                  <option value="">{loadingProjects ? "กำลังโหลด..." : "— เลือกโปรเจกต์ —"}</option>
-                  {projectGid && !visible.some((p) => p.gid === projectGid) ? <option value={projectGid}>{selectedLabel}</option> : null}
-                  {visible.map((p) => <option key={p.gid} value={p.gid}>{projectLabel(p)}</option>)}
-                </select>
+                <SearchSelect
+                  value={projectGid}
+                  onChange={setProjectGid}
+                  disabled={loadingProjects}
+                  loading={loadingProjects}
+                  emptyLabel={loadingProjects ? "กำลังโหลด..." : "— เลือกโปรเจกต์ —"}
+                  ariaLabel="โปรเจกต์ Asana ที่ใช้สร้างงาน"
+                  options={[
+                    ...(projectGid && !visible.some((p) => p.gid === projectGid) ? [{ value: projectGid, label: selectedLabel }] : []),
+                    ...visible.map((p) => ({ value: p.gid, label: p.name, hint: p.teamName || p.workspaceName, keywords: `${p.teamName ?? ""} ${p.workspaceName}` })),
+                  ]}
+                />
                 {!loadingProjects && projects.length > 0 ? (
                   <p className="mt-1 text-xs text-gray-500">
                     {search.trim() ? `พบ ${filtered.length.toLocaleString("th-TH")} จาก ${projects.length.toLocaleString("th-TH")} โปรเจกต์` : `ทั้งหมด ${projects.length.toLocaleString("th-TH")} โปรเจกต์`}

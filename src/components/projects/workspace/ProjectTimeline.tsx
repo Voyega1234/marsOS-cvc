@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import {
   AlertTriangle,
   CalendarDays,
@@ -94,6 +95,7 @@ type SelectedDrawer =
   | null;
 
 type ViewMode = "gantt" | "list" | "kanban";
+const VIEW_MODES: readonly ViewMode[] = ["gantt", "list", "kanban"];
 
 // ── Status meta ──────────────────────────────────────────────────────────────
 
@@ -197,7 +199,7 @@ export function ProjectTimeline({ project, userRole }: Props) {
   const [savingPlan, setSavingPlan] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
 
-  const [viewMode, setViewMode] = useState<ViewMode>("gantt");
+  const [viewMode, setViewMode] = useUrlState<ViewMode>("tlview", "gantt", VIEW_MODES);
   const [statusFilter, setStatusFilter] = useState<DerivedStatus | "all">("all");
   const [monthFilter, setMonthFilter] = useState<string>("all");
   const [selected, setSelected] = useState<SelectedDrawer>(null);

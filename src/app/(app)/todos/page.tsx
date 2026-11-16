@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useUrlState } from '@/hooks/use-url-state'
 import type { MarsTask, TaskStatus } from '@/lib/mock-data/todos'
 import {
   CheckCircle2, Circle, AlertCircle, Clock, CalendarDays, List,
@@ -276,6 +277,8 @@ function AddTodoModal({ onClose, onAdd }: {
   )
 }
 
+const VIEW_VALUES: readonly ('list' | 'calendar')[] = ['list', 'calendar']
+
 // ─── Calendar view ────────────────────────────────────────────────────────────
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -375,7 +378,7 @@ function CalendarView({ tasks }: { tasks: MarsTask[] }) {
 export default function TodosPage() {
   const [tasks, setTasks]           = useState<MarsTask[]>([])
   const [loading, setLoading]       = useState(true)
-  const [view, setView]             = useState<'list' | 'calendar'>('list')
+  const [view, setView]             = useUrlState<'list' | 'calendar'>('view', 'list', VIEW_VALUES)
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [projectFilter, setProjectFilter] = useState<string>('all')
   const [showAdd, setShowAdd]       = useState(false)

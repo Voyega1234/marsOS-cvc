@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { markSheetDirty } from "@/lib/backlink-management/sheet-sync";
 import { prisma } from "@/lib/prisma";
-import { findProject } from "@/lib/backlink-management/projects";
-import { requireStaff, isCtx, serverError, addEvent, sleep, parseDateOnly } from "@/lib/backlink-management/server";
+import { findProject, isMissingTable } from "@/lib/backlink-management/projects";
+import { requireStaff, isCtx, serverError, sleep, parseDateOnly } from "@/lib/backlink-management/server";
 import { ensureAsanaTask, refreshFromAsana } from "@/lib/backlink-management/asana-sync";
+import { getProject, resolveToken } from "@/lib/backlink-management/asana";
 import { currentPeriod, isValidPeriod, round2 } from "@/lib/backlink-management/budget";
 import { enrichRows, enrichOne } from "@/lib/backlink-management/requests-server";
 import { isHttpUrl } from "@/lib/backlink-management/workflow";
@@ -81,27 +82,68 @@ export async function POST(req: NextRequest) {
     const due = b.dueDate ? parseDateOnly(b.dueDate) : null;
     if (b.dueDate && !due) return NextResponse.json({ error: "วันที่กำหนดส่งไม่ถูกต้อง" }, { status: 400 });
 
-    const row = await prisma.blmRequest.create({
-      data: {
-        organizationId: ctx.orgId,
-        projectId: project.id,
-        vendorSiteId, vendorDomain,
-        targetUrl: String(b.targetUrl).trim(),
-        anchorText: String(b.anchorText ?? "").trim().slice(0, 300),
-        keyword: String(b.keyword ?? "").trim().slice(0, 300),
-        linkType,
-        quotedPrice: round2(quoted),
-        budgetPeriod: period,
-        status: "REQUESTED",
-        requestedById: ctx.userId,
-        assigneeId,
-        dueDate: due,
-        notes: String(b.notes ?? "").trim().slice(0, 3000),
-      },
-    });
-    await addEvent({
-      organizationId: ctx.orgId, requestId: row.id, type: "CREATED", toStatus: "REQUESTED",
-      amount: row.quotedPrice, note: "สร้างคำขอ", actorId: ctx.userId,
+    // โปรเจกต์ Asana เฉพาะคำขอ (ไม่ใส่/ตรงกับค่าเริ่มต้น = ใช้ค่าเริ่มต้น) — ตรวจให้ครบก่อนสร้างคำขอ
+    let asanaTarget: { gid: string; name: string } | null = null;
+    const wantGid = typeof b.asanaProjectGid === "string" ? b.asanaProjectGid.trim() : "";
+    if (wantGid) {
+      const config = await prisma.blmAsanaConfig.findUnique({ where: { organizationId: ctx.orgId } });
+      if (wantGid !== (config?.projectGid ?? "")) {
+        if (!/^\d{1,32}$/.test(wantGid)) return NextResponse.json({ error: "รหัสโปรเจกต์ Asana ไม่ถูกต้อง" }, { status: 400 });
+        const token = resolveToken(config);
+        if (!token) return NextResponse.json({ error: "ยังไม่ได้เชื่อม Asana" }, { status: 400 });
+        try {
+          await prisma.blmRequestAsana.findFirst({ where: { organizationId: ctx.orgId }, select: { id: true } });
+        } catch (e) {
+          if (isMissingTable(e)) {
+            return NextResponse.json({
+              error: "ยังไม่ได้สร้างตารางสำหรับเลือกโปรเจกต์ Asana — ให้ผู้ดูแลรัน scripts/sql/add-blm-quota-asana-tables.sql ใน Supabase",
+              tableMissing: true,
+            }, { status: 503 });
+          }
+          throw e;
+        }
+        try {
+          const p = await getProject(token, wantGid);
+          asanaTarget = { gid: wantGid, name: String(p?.name ?? "").slice(0, 300) };
+        } catch {
+          return NextResponse.json({ error: "เปิดโปรเจกต์ Asana นี้ไม่ได้ ตรวจสิทธิ์ของ token" }, { status: 400 });
+        }
+      }
+    }
+
+    // สร้างคำขอ + ประวัติ + โปรเจกต์ Asana ที่เลือก ในธุรกรรมเดียว — ถ้าขั้นไหนพลาด จะไม่เหลือคำขอที่ไปผิดโปรเจกต์
+    const target = asanaTarget;
+    const row = await prisma.$transaction(async (tx) => {
+      const created = await tx.blmRequest.create({
+        data: {
+          organizationId: ctx.orgId,
+          projectId: project.id,
+          vendorSiteId, vendorDomain,
+          targetUrl: String(b.targetUrl).trim(),
+          anchorText: String(b.anchorText ?? "").trim().slice(0, 300),
+          keyword: String(b.keyword ?? "").trim().slice(0, 300),
+          linkType,
+          quotedPrice: round2(quoted),
+          budgetPeriod: period,
+          status: "REQUESTED",
+          requestedById: ctx.userId,
+          assigneeId,
+          dueDate: due,
+          notes: String(b.notes ?? "").trim().slice(0, 3000),
+        },
+      });
+      await tx.blmRequestEvent.create({
+        data: {
+          organizationId: ctx.orgId, requestId: created.id, type: "CREATED", fromStatus: "", toStatus: "REQUESTED",
+          amount: created.quotedPrice, note: "สร้างคำขอ", source: "user", actorId: ctx.userId,
+        },
+      });
+      if (target) {
+        await tx.blmRequestAsana.create({
+          data: { organizationId: ctx.orgId, requestId: created.id, projectGid: target.gid, projectName: target.name },
+        });
+      }
+      return created;
     });
     await ensureAsanaTask(ctx.orgId, row.id);
     await markSheetDirty(ctx.orgId);

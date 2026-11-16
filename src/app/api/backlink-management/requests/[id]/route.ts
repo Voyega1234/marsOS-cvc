@@ -7,6 +7,7 @@ import { isValidPeriod, round2 } from "@/lib/backlink-management/budget";
 import { budgetFor, enrichOne } from "@/lib/backlink-management/requests-server";
 import { isHttpUrl, resolveAction } from "@/lib/backlink-management/workflow";
 import { LINK_TYPES, isApprover, statusLabel } from "@/lib/backlink-management/types";
+import { deleteRequestAttachments } from "@/lib/backlink-management/attachments-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -134,7 +135,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data.linkType = b.linkType;
     }
     if (b.targetUrl !== undefined) {
-      if (!isHttpUrl(b.targetUrl)) return NextResponse.json({ error: "URL หน้าลูกค้าไม่ถูกต้อง" }, { status: 400 });
+      const keepEmpty = !String(b.targetUrl ?? "").trim() && !cur.targetUrl.trim();
+      if (!keepEmpty && !isHttpUrl(b.targetUrl)) return NextResponse.json({ error: "URL หน้าลูกค้าไม่ถูกต้อง" }, { status: 400 });
       data.targetUrl = String(b.targetUrl).trim();
     }
     if (b.liveUrl !== undefined) {
@@ -221,6 +223,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       await pushRequestChange(ctx.orgId, cur.id, `MarsOS: คำขอถูกลบโดย ${ctx.userName}`);
     }
     await prisma.blmRequest.delete({ where: { id: cur.id } });
+    await deleteRequestAttachments(ctx.orgId, cur.id); // ไม่ throw — ตารางไฟล์แนบอาจยังไม่มี
     await markSheetDirty(ctx.orgId);
     return NextResponse.json({ ok: true });
   } catch (e) {

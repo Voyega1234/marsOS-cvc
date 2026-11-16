@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import {
   LayoutDashboard, Plug, FileText, RefreshCw, Layers, ShieldCheck, Webhook, ScrollText,
 } from "lucide-react";
@@ -34,8 +35,10 @@ const TABS: { id: SettingsTabId; label: string; icon: typeof LayoutDashboard }[]
   { id: "logs", label: "Logs & Audit", icon: ScrollText },
 ];
 
+const SETTINGS_TAB_VALUES: readonly SettingsTabId[] = ["overview", "connections", "cms-publishing", "data-sync", "environments", "permissions", "webhooks", "logs"];
+
 export function WebsiteConnectionsClient({ wpConnections, projects }: Props) {
-  const [activeTab, setActiveTab] = useState<SettingsTabId>("overview");
+  const [activeTab, setActiveTab] = useUrlState<SettingsTabId>("tab", "overview", SETTINGS_TAB_VALUES);
   const [wizardOpen, setWizardOpen] = useState(false);
 
   const realRows = useMemo(() => buildRealConnectionRows(wpConnections, projects), [wpConnections, projects]);

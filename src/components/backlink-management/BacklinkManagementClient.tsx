@@ -1,41 +1,49 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { Chip, PageHeader, UnderlineTabs } from "@/components/ds";
 import AsanaDialog, { type AsanaStatus } from "./AsanaDialog";
 import SheetDialog, { type SheetStatus } from "./SheetDialog";
+import SheetImportDialog from "./SheetImportDialog";
 import BudgetTab from "./BudgetTab";
 import ReportTab from "./ReportTab";
 import ProjectsDialog from "./ProjectsDialog";
+import QuotaTab from "./QuotaTab";
 import RequestDialog from "./RequestDialog";
 import RequestDrawer from "./RequestDrawer";
 import RequestsTab from "./RequestsTab";
 import TrackingTab from "./TrackingTab";
 import VendorsTab from "./VendorsTab";
-import { api, selectCls, useAutoRefresh, type BlmRow, type Meta } from "./shared";
+import SearchSelect from "./SearchSelect";
+import { api, useAutoRefresh, type BlmRow, type Meta } from "./shared";
 
-type TabId = "requests" | "vendors" | "budget" | "tracking" | "report";
+type TabId = "requests" | "vendors" | "budget" | "tracking" | "report" | "quota";
 const TABS: { id: TabId; label: string }[] = [
-  { id: "requests", label: "คำขอ" },
-  { id: "vendors", label: "คลังเว็บ" },
-  { id: "budget", label: "งบประมาณ" },
-  { id: "tracking", label: "ติดตามลิงก์" },
-  { id: "report", label: "รายงาน" },
+  { id: "requests", label: "Requests" },
+  { id: "vendors", label: "Vendors" },
+  { id: "budget", label: "Budget" },
+  { id: "tracking", label: "Link Tracking" },
+  { id: "report", label: "Report" },
+  { id: "quota", label: "Quota" },
 ];
 
+const TAB_IDS: readonly TabId[] = TABS.map(t => t.id);
+
 export default function BacklinkManagementClient({ userRole }: { userRole: string }) {
-  const [tab, setTab] = useState<TabId>("requests");
+  const [tab, setTab] = useUrlState<TabId>("tab", "requests", TAB_IDS);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [projectId, setProjectId] = useState("");
   const [period, setPeriod] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<{ open: boolean; edit: BlmRow | null }>({ open: false, edit: null });
+  const [dialog, setDialog] = useState<{ open: boolean; edit: BlmRow | null; duplicate: BlmRow | null }>({ open: false, edit: null, duplicate: null });
   const [asana, setAsana] = useState<AsanaStatus | null>(null);
   const [asanaOpen, setAsanaOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [sheet, setSheet] = useState<SheetStatus | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetImportOpen, setSheetImportOpen] = useState(false);
 
   const loadMeta = useCallback(() => {
     api<Meta>("/api/backlink-management/meta")
@@ -93,6 +101,11 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
                 {sheetConnected ? "Google Sheet: เชื่อมแล้ว" : "Google Sheet: ยังไม่เชื่อม"}
               </Chip>
             </button>
+            {canApprove ? (
+              <button type="button" onClick={() => setSheetImportOpen(true)} className="rounded-full border border-gray-200 bg-white/80 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-white">
+                นำเข้าจาก Google Sheet
+              </button>
+            ) : null}
             <a href="/api/backlink-management/export" download className="rounded-full border border-gray-200 bg-white/80 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-white">
               Export Excel
             </a>
@@ -102,12 +115,16 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
 
       <UnderlineTabs tabs={TABS} value={tab} onChange={setTab} className="mb-4" />
 
-      {tab !== "vendors" ? (
+      {tab !== "vendors" && tab !== "quota" ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <select className={`${selectCls} !w-auto min-w-[180px]`} value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="โปรเจกต์">
-            <option value="">ทุกโปรเจกต์</option>
-            {meta?.projects.map((p) => <option key={p.id} value={p.id}>{p.manual ? `${p.name} (เพิ่มเอง)` : p.name}</option>)}
-          </select>
+          <SearchSelect
+            className="!w-auto min-w-[180px]"
+            value={projectId}
+            onChange={setProjectId}
+            emptyLabel="ทุกโปรเจกต์"
+            ariaLabel="โปรเจกต์"
+            options={(meta?.projects ?? []).map((p) => ({ value: p.id, label: p.manual ? `${p.name} (เพิ่มเอง)` : p.name, hint: p.clientName || undefined }))}
+          />
           <button type="button" className="text-xs text-gray-600 underline" onClick={() => setProjectsOpen(true)}>+ เพิ่มโปรเจกต์</button>
           {tab !== "report" ? (
             <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="เดือน"
@@ -118,12 +135,13 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
       ) : null}
 
       {tab === "requests" ? (
-        <RequestsTab projectId={projectId} period={period} refreshKey={refreshKey} onOpen={setOpenId} onCreate={() => setDialog({ open: true, edit: null })} />
+        <RequestsTab projectId={projectId} period={period} refreshKey={refreshKey} onOpen={setOpenId} onCreate={() => setDialog({ open: true, edit: null, duplicate: null })} onDuplicate={(row) => setDialog({ open: true, edit: null, duplicate: row })} />
       ) : null}
       {tab === "vendors" ? <VendorsTab /> : null}
-      {tab === "budget" ? <BudgetTab period={period || meta?.period || ""} projectId={projectId} meta={meta} refreshKey={refreshKey} /> : null}
+      {tab === "budget" ? <BudgetTab period={period} projectId={projectId} meta={meta} refreshKey={refreshKey} /> : null}
       {tab === "tracking" ? <TrackingTab projectId={projectId} period={period} refreshKey={refreshKey} onOpen={setOpenId} onChanged={bump} /> : null}
-      {tab === "report" ? <ReportTab period={meta?.period ?? ""} /> : null}
+      {tab === "report" ? <ReportTab period={meta?.period ?? ""} projectId={projectId} onOpenQuota={() => setTab("quota")} /> : null}
+      {tab === "quota" ? <QuotaTab meta={meta} refreshKey={refreshKey} onOpenSheets={() => setSheetOpen(true)} /> : null}
 
       <RequestDrawer
         id={openId}
@@ -131,19 +149,23 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
         role={userRole}
         userId={meta?.me.id ?? ""}
         onChanged={bump}
-        onEdit={(row) => setDialog({ open: true, edit: row })}
+        onEdit={(row) => setDialog({ open: true, edit: row, duplicate: null })}
+        onDuplicate={(row) => { setOpenId(null); setDialog({ open: true, edit: null, duplicate: row }); }}
       />
       <RequestDialog
         open={dialog.open}
         onOpenChange={(o) => setDialog((d) => ({ ...d, open: o }))}
         meta={meta}
         edit={dialog.edit}
+        duplicateFrom={dialog.duplicate}
+        asana={asana}
         defaultProjectId={projectId}
         defaultPeriod={period || meta?.period || ""}
         onSaved={bump}
       />
-      <ProjectsDialog open={projectsOpen} onOpenChange={setProjectsOpen} onChanged={() => { loadMeta(); bump(); }} />
-      <SheetDialog open={sheetOpen} onOpenChange={setSheetOpen} status={sheet} canEdit={canApprove && (sheet?.canEdit ?? true)} onChanged={setSheet} />
+      <ProjectsDialog open={projectsOpen} onOpenChange={setProjectsOpen} users={meta?.users} asana={asana} onChanged={() => { loadMeta(); bump(); }} />
+      <SheetDialog open={sheetOpen} onOpenChange={setSheetOpen} status={sheet} canEdit={canApprove && (sheet?.canEdit ?? true)} onChanged={setSheet} onSourcesChanged={bump} />
+      <SheetImportDialog open={sheetImportOpen} onClose={() => setSheetImportOpen(false)} onImported={bump} />
       <AsanaDialog open={asanaOpen} onOpenChange={setAsanaOpen} status={asana} canEdit={canApprove} onChanged={setAsana} />
     </div>
   );

@@ -6,15 +6,18 @@
  * เป็นผู้ใช้ในเว็บที่ Search Console แล้วเลือกเว็บที่นี่ ระบบดึงข้อมูลได้เลย
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { toast } from "sonner";
 import {
-  AlertCircle, BarChart3, Copy, ExternalLink, Loader2, RefreshCw,
+  AlertCircle, BarChart3, Bookmark, BookmarkPlus, Copy, ExternalLink, Loader2, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chip, EmptyState, Panel, Segmented, UnderlineTabs } from "@/components/ds";
 import GscTable, { type GscTableColumn } from "./GscTable";
 import { GscKpiRow, GscTrendPanel, GscBucketPanel } from "./GscCharts";
 import OwnerTagsEditor from "./OwnerTagsEditor";
+import GscTrackedKeywords, { type TrackerDraft } from "./GscTrackedKeywords";
+import { trackerKey, trackerKeys, type UploadGscTracker } from "@/lib/upload-article/gsc-trackers";
 import ArticleOwnerSelect from "@/components/upload-article/ArticleOwnerSelect";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
 import type {
@@ -50,15 +53,16 @@ const DAY_OPTIONS = [7, 28, 90, 180, 365] as const;
 const SEARCH_TYPE_LABELS: Record<ReportSearchType, string> = {
   web: "เว็บ", image: "รูปภาพ", video: "วิดีโอ", news: "ข่าว", discover: "Discover",
 };
-const SUB_TABS = ["overview", "queries", "pages", "articles", "opportunities", "cannibal", "devices"] as const;
+const SUB_TABS = ["overview", "tracked", "queries", "pages", "articles", "opportunities", "cannibal", "devices"] as const;
 type SubTab = (typeof SUB_TABS)[number];
 const SUB_TAB_LABELS: Record<SubTab, string> = {
-  overview: "ภาพรวม", queries: "คำค้นหา", pages: "หน้าเว็บ", articles: "บทความที่อัปโหลด",
+  overview: "ภาพรวม", tracked: "Keyword ที่ติดตาม", queries: "คำค้นหา", pages: "หน้าเว็บ", articles: "บทความที่อัปโหลด",
   opportunities: "โอกาส", cannibal: "Cannibalization", devices: "อุปกรณ์/ประเทศ",
 };
 
-function SUB_TAB_COUNTS(data: GscReportResponse, t: SubTab): number | undefined {
+function SUB_TAB_COUNTS(data: GscReportResponse, t: SubTab, trackedCount = 0): number | undefined {
   switch (t) {
+    case "tracked": return trackedCount;
     case "queries": return data.queries.length;
     case "pages": return data.pages.length;
     case "articles": return data.uploadedArticles.length;
@@ -74,6 +78,24 @@ function fmtPos(n: number): string { return n ? n.toFixed(1) : "—"; }
 function fmtDate(s: string): string {
   const p = s.split("-");
   return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : s;
+}
+
+type SaveTracker = (input: { keyword: string; url: string; title?: string }) => Promise<void>;
+
+/** ปุ่มเล็ก "บันทึก Monitor" — คู่ที่ติดตามอยู่แล้วแสดง "ติดตามแล้ว" (กดไม่ได้) */
+function TrackButton({ keyword, url, title, trackedKeys, onSave }: {
+  keyword: string; url: string; title?: string; trackedKeys: Set<string>; onSave?: SaveTracker;
+}) {
+  if (!onSave) return null;
+  if (trackedKeys.has(trackerKey(keyword, url))) {
+    return <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 whitespace-nowrap"><Bookmark size={11} /> ติดตามแล้ว</span>;
+  }
+  return (
+    <button type="button" onClick={(e) => { e.stopPropagation(); void onSave({ keyword, url, title }); }}
+      className="inline-flex items-center gap-1 text-[11px] text-brand-blue hover:underline whitespace-nowrap">
+      <BookmarkPlus size={11} /> บันทึก Monitor
+    </button>
+  );
 }
 
 function ChangeCell({ current, prev, isNew, isLost }: { current: number; prev: number; isNew?: boolean; isLost?: boolean }) {
@@ -110,7 +132,7 @@ export default function UploadGscReportTab({
   const [compare, setCompare] = useState<ReportCompareMode>("previous");
   const [searchType, setSearchType] = useState<ReportSearchType>("web");
   const [dailyMetric, setDailyMetric] = useState<"clicks" | "impressions">("clicks");
-  const [subTab, setSubTab] = useState<SubTab>("overview");
+  const [subTab, setSubTab] = useUrlState<SubTab>("report", "overview", SUB_TABS);
   // กรองทั้งหน้าตามผู้ดูแลบทความ ("" = ทั้งหมด)
   const [ownerFilter, setOwnerFilter] = useState("");
 
@@ -120,6 +142,37 @@ export default function UploadGscReportTab({
   const [data, setData] = useState<GscReportResponse | null>(null);
   // ลำดับคำขอ — ผลของคำขอเก่า (เช่นสลับผู้ดูแลรัว ๆ) มาช้ากว่าไม่ทับผลใหม่
   const reqSeq = useRef(0);
+
+  // ── Keyword ที่ติดตาม (บันทึก Monitor) ──
+  const [trackers, setTrackers] = useState<UploadGscTracker[]>([]);
+  const [trackerDraft, setTrackerDraft] = useState<TrackerDraft | null>(null);
+  const trackedKeys = useMemo(() => new Set(trackers.flatMap((t) => trackerKeys(t))), [trackers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTrackers([]);
+    fetch(`/api/upload-article/clients/${clientId}/report/trackers`)
+      .then((r) => r.json().catch(() => ({})))
+      .then((d) => { if (!cancelled && Array.isArray(d?.trackers)) setTrackers(d.trackers); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  const saveTracker: SaveTracker = useCallback(async ({ keyword, url, title }) => {
+    try {
+      const r = await fetch(`/api/upload-article/clients/${clientId}/report/trackers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword, url, ...(title ? { title } : {}) }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d?.error || "บันทึก Monitor ไม่สำเร็จ"); return; }
+      if (Array.isArray(d.trackers)) setTrackers(d.trackers);
+      toast.success("บันทึก Monitor แล้ว — ดูผลได้ที่แท็บ Keyword ที่ติดตาม");
+    } catch (e) {
+      toast.error(`บันทึก Monitor ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [clientId]);
 
   const loadSites = useCallback(async () => {
     setSitesLoading(true);
@@ -214,6 +267,18 @@ export default function UploadGscReportTab({
   const dailyPrevious = useMemo(
     () => (data?.dailyPrev ?? []).map((d) => ({ date: d.date, value: dailyMetric === "clicks" ? d.clicks : d.impressions })),
     [data, dailyMetric],
+  );
+
+  // ช่วงข้อมูลชุดเดียวกับที่ loadReport ส่ง (ไม่รวมตัวกรองผู้ดูแล)
+  const trackerPeriod = useMemo<Record<string, unknown>>(() => {
+    const body: Record<string, unknown> = { compare, searchType };
+    if (customRange && startDate && endDate) { body.startDate = startDate; body.endDate = endDate; }
+    else body.days = days;
+    return body;
+  }, [compare, searchType, customRange, startDate, endDate, days]);
+  const trackerArticles = useMemo(
+    () => (data?.uploadedArticles ?? []).map((a) => ({ title: a.title, url: a.url })),
+    [data],
   );
 
   if (sitesLoading) {
@@ -334,26 +399,37 @@ export default function UploadGscReportTab({
               <UnderlineTabs
                 value={subTab}
                 onChange={setSubTab}
-                tabs={SUB_TABS.map((t) => ({ id: t, label: SUB_TAB_LABELS[t], count: SUB_TAB_COUNTS(data, t) }))}
+                tabs={SUB_TABS.map((t) => ({ id: t, label: SUB_TAB_LABELS[t], count: SUB_TAB_COUNTS(data, t, trackers.length) }))}
               />
               <div className="space-y-4">
                 {subTab === "overview" && (
                   <OverviewSubTab data={data} />
                 )}
+                {subTab === "tracked" && (
+                  <GscTrackedKeywords
+                    clientId={clientId}
+                    trackers={trackers}
+                    onTrackersChange={setTrackers}
+                    articles={trackerArticles}
+                    periodParams={trackerPeriod}
+                    draft={trackerDraft}
+                    onDraftConsumed={() => setTrackerDraft(null)}
+                  />
+                )}
                 {subTab === "queries" && (
-                  <QueriesSubTab rows={data.queries} />
+                  <QueriesSubTab rows={data.queries} onTrack={(keyword) => { setTrackerDraft({ keyword }); setSubTab("tracked"); }} />
                 )}
                 {subTab === "pages" && (
                   <PagesSubTab rows={data.pages} />
                 )}
                 {subTab === "articles" && (
-                  <ArticlesSubTab rows={data.uploadedArticles} ownerTags={ownerTags} articleOwners={articleOwners} onOwnerChange={onOwnerChange} />
+                  <ArticlesSubTab rows={data.uploadedArticles} trackedKeys={trackedKeys} onSaveTracker={saveTracker} ownerTags={ownerTags} articleOwners={articleOwners} onOwnerChange={onOwnerChange} />
                 )}
                 {subTab === "opportunities" && (
-                  <OpportunitiesSubTab strikingDistance={data.opportunities.strikingDistance} lowCtr={data.opportunities.lowCtr} />
+                  <OpportunitiesSubTab strikingDistance={data.opportunities.strikingDistance} lowCtr={data.opportunities.lowCtr} trackedKeys={trackedKeys} onSaveTracker={saveTracker} />
                 )}
                 {subTab === "cannibal" && (
-                  <CannibalSubTab rows={data.cannibalization} />
+                  <CannibalSubTab rows={data.cannibalization} trackedKeys={trackedKeys} onSaveTracker={saveTracker} />
                 )}
                 {subTab === "devices" && (
                   <DevicesSubTab devices={data.devices} countries={data.countries} searchAppearance={data.searchAppearance} />
@@ -377,7 +453,7 @@ function OverviewSubTab({ data }: { data: GscReportResponse }) {
   return <GscBucketPanel buckets={data.positionBuckets} />;
 }
 
-function QueriesSubTab({ rows }: { rows: GscQueryRow[] }) {
+function QueriesSubTab({ rows, onTrack }: { rows: GscQueryRow[]; onTrack?: (keyword: string) => void }) {
   const columns: GscTableColumn<GscQueryRow>[] = [
     { key: "query", label: "คำค้นหา", sortValue: (r) => r.query, render: (r) => <span className="font-medium text-brand-navy">{r.query}</span> },
     { key: "clicks", label: "คลิก", align: "right", sortValue: (r) => r.clicks, csvValue: (r) => r.clicks },
@@ -385,6 +461,11 @@ function QueriesSubTab({ rows }: { rows: GscQueryRow[] }) {
     { key: "ctr", label: "CTR", align: "right", sortValue: (r) => r.ctr, render: (r) => fmtCtr(r.ctr), csvValue: (r) => fmtCtr(r.ctr) },
     { key: "position", label: "อันดับ", align: "right", sortValue: (r) => r.position, render: (r) => fmtPos(r.position), csvValue: (r) => r.position },
     { key: "change", label: "เปลี่ยนแปลง (คลิก)", align: "right", sortValue: (r) => r.changeClicks, render: (r) => <ChangeCell current={r.clicks} prev={r.prevClicks} isNew={r.isNew} isLost={r.isLost} />, csvValue: (r) => r.changeClicks },
+    ...(onTrack ? [{ key: "track", label: "", render: (r: GscQueryRow) => (
+      <button type="button" onClick={() => onTrack(r.query)} className="inline-flex items-center gap-1 text-[11px] text-brand-blue hover:underline whitespace-nowrap">
+        <BookmarkPlus size={11} /> ติดตาม
+      </button>
+    ) } satisfies GscTableColumn<GscQueryRow>] : []),
   ];
   return (
     <GscTable rows={rows} columns={columns} rowKey={(r) => r.query} searchText={(r) => r.query} csvFilename="gsc-queries.csv" />
@@ -403,8 +484,10 @@ function PagesSubTab({ rows }: { rows: GscPageRow[] }) {
   return <GscTable rows={rows} columns={columns} rowKey={(r) => r.page} searchText={(r) => r.page} csvFilename="gsc-pages.csv" />;
 }
 
-function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange }: {
+function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange, trackedKeys, onSaveTracker }: {
   rows: UploadedArticleReportRow[];
+  trackedKeys: Set<string>;
+  onSaveTracker: SaveTracker;
   ownerTags: UploadOwnerTag[];
   articleOwners: Record<string, string>;
   onOwnerChange: (articleId: string, tagId: string | null) => void;
@@ -438,7 +521,7 @@ function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange }: {
       renderExpanded={(r) => (
         r.topQueries.length === 0 ? <p className="text-xs text-gray-400">ไม่มีคำค้นหาในช่วงนี้</p> : (
           <table className="tbl tbl-sm">
-            <thead><tr><th>คำค้นหา</th><th className="num">คลิก</th><th className="num">การแสดงผล</th><th className="num">CTR</th><th className="num">อันดับ</th></tr></thead>
+            <thead><tr><th>คำค้นหา</th><th className="num">คลิก</th><th className="num">การแสดงผล</th><th className="num">CTR</th><th className="num">อันดับ</th><th></th></tr></thead>
             <tbody>
               {r.topQueries.map((q, i) => (
                 <tr key={i}>
@@ -447,6 +530,7 @@ function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange }: {
                   <td className="num">{fmtNum(q.impressions)}</td>
                   <td className="num">{fmtCtr(q.ctr)}</td>
                   <td className="num">{fmtPos(q.position)}</td>
+                  <td><TrackButton keyword={q.query} url={r.url} title={r.title} trackedKeys={trackedKeys} onSave={onSaveTracker} /></td>
                 </tr>
               ))}
             </tbody>
@@ -457,7 +541,9 @@ function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange }: {
   );
 }
 
-function OpportunitiesSubTab({ strikingDistance, lowCtr }: { strikingDistance: StrikingDistanceRow[]; lowCtr: LowCtrRow[] }) {
+function OpportunitiesSubTab({ strikingDistance, lowCtr, trackedKeys, onSaveTracker }: {
+  strikingDistance: StrikingDistanceRow[]; lowCtr: LowCtrRow[]; trackedKeys: Set<string>; onSaveTracker: SaveTracker;
+}) {
   const strikingCols: GscTableColumn<StrikingDistanceRow>[] = [
     { key: "query", label: "คำค้นหา", sortValue: (r) => r.query },
     { key: "position", label: "อันดับ", align: "right", sortValue: (r) => r.position, render: (r) => fmtPos(r.position), csvValue: (r) => r.position },
@@ -472,6 +558,7 @@ function OpportunitiesSubTab({ strikingDistance, lowCtr }: { strikingDistance: S
     { key: "bucketAvgCtr", label: "CTR เฉลี่ยของช่วงอันดับ", align: "right", sortValue: (r) => r.bucketAvgCtr, render: (r) => fmtCtr(r.bucketAvgCtr), csvValue: (r) => fmtCtr(r.bucketAvgCtr) },
     { key: "position", label: "อันดับ", align: "right", sortValue: (r) => r.position, render: (r) => fmtPos(r.position), csvValue: (r) => r.position },
     { key: "bestPage", label: "หน้าที่ดีที่สุด", sortValue: (r) => r.bestPage ?? "", render: (r) => r.bestPage ? <a href={r.bestPage} target="_blank" rel="noreferrer" className="text-brand-blue font-mono text-[10px] hover:underline break-all">{r.bestPage}</a> : "—" },
+    { key: "track", label: "", render: (r) => r.bestPage ? <TrackButton keyword={r.query} url={r.bestPage} trackedKeys={trackedKeys} onSave={onSaveTracker} /> : null },
   ];
   return (
     <div className="space-y-4">
@@ -487,7 +574,7 @@ function OpportunitiesSubTab({ strikingDistance, lowCtr }: { strikingDistance: S
   );
 }
 
-function CannibalSubTab({ rows }: { rows: CannibalRow[] }) {
+function CannibalSubTab({ rows, trackedKeys, onSaveTracker }: { rows: CannibalRow[]; trackedKeys: Set<string>; onSaveTracker: SaveTracker }) {
   const columns: GscTableColumn<CannibalRow>[] = [
     { key: "query", label: "คำค้นหา", sortValue: (r) => r.query },
     { key: "pagesCount", label: "จำนวนหน้าที่แข่งกัน", align: "right", sortValue: (r) => r.pages.length, csvValue: (r) => r.pages.length },
@@ -504,7 +591,7 @@ function CannibalSubTab({ rows }: { rows: CannibalRow[] }) {
       emptyText="ไม่พบคำค้นหาที่มีหลายหน้าแข่งกันเอง"
       renderExpanded={(r) => (
         <table className="tbl tbl-sm">
-          <thead><tr><th>หน้าเว็บ</th><th className="num">สัดส่วนการแสดงผล</th><th className="num">คลิก</th><th className="num">การแสดงผล</th><th className="num">อันดับ</th></tr></thead>
+          <thead><tr><th>หน้าเว็บ</th><th className="num">สัดส่วนการแสดงผล</th><th className="num">คลิก</th><th className="num">การแสดงผล</th><th className="num">อันดับ</th><th></th></tr></thead>
           <tbody>
             {r.pages.map((p, i) => (
               <tr key={i}>
@@ -513,6 +600,7 @@ function CannibalSubTab({ rows }: { rows: CannibalRow[] }) {
                 <td className="num">{fmtNum(p.clicks)}</td>
                 <td className="num">{fmtNum(p.impressions)}</td>
                 <td className="num">{fmtPos(p.position)}</td>
+                <td><TrackButton keyword={r.query} url={p.page} trackedKeys={trackedKeys} onSave={onSaveTracker} /></td>
               </tr>
             ))}
           </tbody>

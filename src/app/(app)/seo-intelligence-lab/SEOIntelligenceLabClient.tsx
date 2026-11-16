@@ -10,8 +10,10 @@ import {
 } from "lucide-react"
 import { DEMO_BRIEF } from "@/data/seoIntelligenceMockData"
 import { AreaChart } from "@/components/ds"
+import { useUrlState } from "@/hooks/use-url-state"
 
 type Tab = "overview" | "keywords" | "competitors" | "rankings" | "backlinks" | "audit" | "ai-visibility"
+const TAB_VALUES: readonly Tab[] = ["overview", "keywords", "competitors", "rankings", "backlinks", "audit", "ai-visibility"]
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "overview",      label: "Overview",      icon: <Zap size={12} /> },
@@ -207,7 +209,7 @@ function exportCSV(filename: string, headers: string[], rows: (string | number)[
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function SEOIntelligenceLabClient() {
-  const [tab, setTab]           = useState<Tab>("overview")
+  const [tab, setTab]           = useUrlState<Tab>("tab", "overview", TAB_VALUES)
   const [showBrief, setShowBrief] = useState(false)
   const [toast, setToast]       = useState<string | null>(null)
   const [domain, setDomain]     = useState("")

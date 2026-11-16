@@ -38,7 +38,12 @@ import type { ProjectData, KeywordRow, TimelineEntry, ArticleJob } from '@/compo
 import { useProjectArticleLook } from '@/components/projects/useProjectArticleLook'
 import { SmeReviewTab } from '@/components/projects/sme-review/SmeReviewTab'
 import SmeSettingsShell from '@/components/projects/settings/SmeSettingsShell'
-import { legacyTabToSection, type SmeSettingsSection } from '@/components/projects/settings/sme-settings-sections'
+import { legacyTabToSection, SME_LAB_SECTIONS, type SmeSettingsSection } from '@/components/projects/settings/sme-settings-sections'
+import { useIsoLayoutEffect } from '@/hooks/use-url-state'
+import { readAllowedParam, replaceUrlParams, type UrlParamChanges } from '@/lib/url-state'
+
+/** เมนูทั้งหมดใน settings drawer — ใช้ตรวจค่า ?settings= จาก URL */
+const SETTINGS_SECTION_VALUES: readonly SmeSettingsSection[] = ['checklist', 'website', 'google', 'engine', ...SME_LAB_SECTIONS]
 
 export type { ProjectData, KeywordRow }
 
@@ -4357,7 +4362,13 @@ const CLIENT_NAV: { id: Tab; label: string; hint: string }[] = [
 export default function ClientDetailTabs({ project: initialProject, userRole = 'MEMBER' }: { project: ProjectData; userRole?: string }) {
   const isClient = userRole === 'CLIENT'
   const storageKey = `mars-project-${initialProject.id}`
-  const [tab, setTab] = useState<Tab>(isClient ? 'timeline-view' : 'overview')
+  const defaultTab: Tab = isClient ? 'timeline-view' : 'overview'
+  const [tab, setTabState] = useState<Tab>(defaultTab)
+  // เปลี่ยนแท็บ = จำไว้ใน URL (?tab=) ด้วย กด refresh แล้วกลับมาแท็บเดิม
+  const setTab = useCallback((t: Tab) => {
+    setTabState(t)
+    replaceUrlParams({ tab: t === defaultTab ? null : t })
+  }, [defaultTab])
   const [keywords, setKeywords] = useState<KeywordRow[]>([])
   const [selectedKws, setSelectedKws] = useState<Set<string>>(new Set())
   const kwPriorityScorerRef = useRef<((kw: KeywordRow) => number) | undefined>(undefined)
@@ -4457,27 +4468,52 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
   // สถานะ checklist แบบเบา ๆ ไว้ทำ badge สีแดงบนฟันเฟือง — refetch ใหม่ทุกครั้งที่ drawer เปิด/ปิด
   const { status: checklistStatus, refresh: refreshChecklistStatus } = useSetupChecklistStatus(project.id, settingsDrawerOpen)
 
-  // Read ?tab= from URL on mount (client-only, avoids SSR/Suspense issues)
-  useEffect(() => {
+  // อ่านค่าจาก URL แล้วเท่านั้นจึงเริ่มเขียน URL กลับ (กัน effect ด้านล่างลบ param ก่อนอ่าน)
+  const [urlReady, setUrlReady] = useState(false)
+
+  // Read ?tab= / ?settings= from URL on mount (client-only, avoids SSR/Suspense issues)
+  // ทำก่อนเบราว์เซอร์วาดจอ — refresh แล้วไม่กระพริบไปแท็บแรก
+  useIsoLayoutEffect(() => {
+    setUrlReady(true)
     const p = new URLSearchParams(window.location.search)
     const t = p.get('tab') as Tab | null
+    // ?settings=<เมนู> — settings drawer ที่เปิดค้างไว้ก่อน refresh (เฉพาะทีมงาน)
+    const section = isClient ? null : readAllowedParam<SmeSettingsSection>(window.location.search, 'settings', SETTINGS_SECTION_VALUES)
+    if (section) {
+      setSettingsDrawerTab(section)
+      setSettingsDrawerOpen(true)
+    }
     // lab / proj-ce ย้ายไปอยู่ใน settings drawer แล้ว — ลิงก์เดิมเปิด drawer แทน
     if (t === 'proj-ce' || t === 'lab') {
-      setSettingsDrawerTab(legacyTabToSection(t === 'proj-ce' ? 'ce' : 'lab'))
-      setSettingsDrawerOpen(true)
+      if (!section) {
+        setSettingsDrawerTab(legacyTabToSection(t === 'proj-ce' ? 'ce' : 'lab'))
+        setSettingsDrawerOpen(true)
+      }
       return
     }
     // ?tab=settings (จาก ClientReportClient) → เปิด settings drawer ซึ่งเป็นหน้าตั้งค่าจริงของหน้านี้
     if (t === ('settings' as Tab) && !isClient) {
-      setSettingsDrawerTab('checklist')
-      setSettingsDrawerOpen(true)
+      if (!section) {
+        setSettingsDrawerTab('checklist')
+        setSettingsDrawerOpen(true)
+      }
       return
     }
     const allowed = isClient ? CLIENT_TABS : ['overview','timeline-view','competitor-gap','keyword-research','keywords','keyword-bank','content-map','articles','content-refresh','push','review','publish','request-index','report','on-page','technical','indexing']
     if (t && allowed.includes(t as Tab)) {
-      setTab(t as Tab)
+      setTabState(t as Tab)
     }
   }, [])
+
+  // settings drawer เปิดอยู่ = ?settings=<เมนู> ใน URL, ปิด = ลบออก
+  // ลิงก์แบบเก่า (?tab=proj-ce / lab / settings) ถูกแปลงเป็น ?settings= ในจังหวะเดียวกัน
+  useEffect(() => {
+    if (!urlReady) return
+    const changes: UrlParamChanges = { settings: settingsDrawerOpen ? settingsDrawerTab : null }
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (t === 'proj-ce' || t === 'lab' || t === 'settings') changes.tab = null
+    replaceUrlParams(changes)
+  }, [urlReady, settingsDrawerOpen, settingsDrawerTab])
 
   // โปรเจกต์ใหม่ (?setup=1 จากหน้าสร้างโปรเจกต์) — เปิด drawer ที่แท็บ checklist ทันที แล้วลบ param ออกจาก URL
   useEffect(() => {

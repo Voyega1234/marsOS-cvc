@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useUrlState } from '@/hooks/use-url-state';
 import KeywordMemoryFields, { parseGuardLines } from '@/components/projects/keyword-guard/KeywordMemoryFields';
 import { DECISION_LABEL_TH, MATCH_SOURCE_LABEL_TH } from '@/lib/keyword-guard/types';
 import { toast } from 'sonner';
@@ -334,6 +335,8 @@ function StepChecklist({ current, target }: { current: number; target: number })
 
 // ── คอลัมน์ + การเรียงของตารางหลัก ────────────────────────────────────────────
 
+type Tab = 'keywords' | 'wave1' | 'clusters' | 'blueprint' | 'sitemap' | 'sources' | 'plan';
+const WGO_TABS: readonly Tab[] = ['keywords', 'wave1', 'clusters', 'blueprint', 'sitemap', 'sources', 'plan'];
 type SortKey = 'final' | 'business' | 'seo' | 'aeo' | 'geo' | 'ref' | 'kd' | 'cpc' | 'journey';
 
 function sortValue(row: OnlineKeywordResult, key: SortKey): number {
@@ -492,8 +495,7 @@ export default function WordGodOnlinePanel({ project, onSendToBank, languageMode
   );
 
   // ── Workspace: tabs + ตัวกรอง + เรียง + หน้า + เลือก + drawer ──
-  type Tab = 'keywords' | 'wave1' | 'clusters' | 'blueprint' | 'sitemap' | 'sources' | 'plan';
-  const [tab, setTab] = useState<Tab>('keywords');
+  const [tab, setTab] = useUrlState<Tab>('wgo', 'keywords', WGO_TABS);
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
   const [confidenceFilter, setConfidenceFilter] = useState('all');

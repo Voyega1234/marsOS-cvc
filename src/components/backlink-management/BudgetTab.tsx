@@ -12,7 +12,7 @@ import { api, money, type Meta } from "./shared";
 interface BudgetRow {
   projectId: string; projectName: string; clientName: string; note: string;
   approved: number; pending: number; reserved: number; actual: number; remaining: number; overBudget: boolean;
-  counts: Record<string, number>;
+  counts: Record<string, number>; periods?: string[];
 }
 interface BudgetResp {
   period: string; rows: BudgetRow[];
@@ -24,15 +24,16 @@ export default function BudgetTab({ period, projectId, meta, refreshKey }: { per
   const [editing, setEditing] = useState<string | null>(null);
   const [val, setVal] = useState("");
   const [saving, setSaving] = useState(false);
-  const canEdit = !!meta?.me.canApprove;
+  const isAll = period === "";
+  const canEdit = !!meta?.me.canApprove && !isAll;
 
   const load = useCallback(async () => {
     try {
-      setData(await api<BudgetResp>(`/api/backlink-management/budgets?period=${period}`));
+      setData(await api<BudgetResp>(`/api/backlink-management/budgets?period=${isAll ? "all" : period}`));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "โหลดไม่สำเร็จ");
     }
-  }, [period]);
+  }, [period, isAll]);
   useEffect(() => { void load(); }, [load, refreshKey]);
 
   async function save(pid: string, note: string) {
@@ -66,9 +67,10 @@ export default function BudgetTab({ period, projectId, meta, refreshKey }: { per
         <KpiTile label="ใช้จริง" value={money(t.actual)} tone="mist" />
         <KpiTile label="คงเหลือ" value={money(t.remaining)} tone={t.remaining < 0 ? "warm" : "navy"} hint={t.remaining < 0 ? "เกินงบ" : undefined} />
       </div>
-      <Panel title={`งบรายโปรเจกต์ · ${period}`} padded={false} bodyClassName="p-4 pt-3 md:p-5 md:pt-4">
+      <Panel title={`งบรายโปรเจกต์ · ${isAll ? "ทุกเดือน" : period}`} padded={false} bodyClassName="p-4 pt-3 md:p-5 md:pt-4">
+        {isAll ? <p className="mb-2 text-xs text-gray-400">เลือกเดือนด้านบนเพื่อแก้งบของเดือนนั้น</p> : null}
         {rows.length === 0 && !selected ? (
-          <EmptyState title="ยังไม่มีงบหรือคำขอในเดือนนี้" description="เลือกโปรเจกต์ด้านบนเพื่อตั้งงบ หรือสร้างคำขอใหม่" />
+          <EmptyState title={isAll ? "ยังไม่มีงบหรือคำขอ" : "ยังไม่มีงบหรือคำขอในเดือนนี้"} description="เลือกโปรเจกต์ด้านบนเพื่อตั้งงบ หรือสร้างคำขอใหม่" />
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-white/80 bg-white/70 shadow-sm">
             <table className="tbl w-full text-xs">
@@ -100,6 +102,7 @@ export default function BudgetTab({ period, projectId, meta, refreshKey }: { per
                             ) : null}
                           </span>
                         )}
+                        {isAll && r.periods && r.periods.length > 0 ? <div className="text-[10px] font-normal text-gray-400">งบตั้งไว้ที่ {r.periods.join(", ")}</div> : null}
                       </td>
                       <td className="num whitespace-nowrap">{money(r.pending)}</td>
                       <td className="num whitespace-nowrap">{money(r.reserved)}</td>
@@ -119,7 +122,7 @@ export default function BudgetTab({ period, projectId, meta, refreshKey }: { per
             </table>
           </div>
         )}
-        {!canEdit ? <p className="mt-2 text-xs text-gray-400">เฉพาะ ADMIN / SEO Manager เท่านั้นที่ตั้งงบได้</p> : null}
+        {!meta?.me.canApprove ? <p className="mt-2 text-xs text-gray-400">เฉพาะ ADMIN / SEO Manager เท่านั้นที่ตั้งงบได้</p> : null}
       </Panel>
     </div>
   );

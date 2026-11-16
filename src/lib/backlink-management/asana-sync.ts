@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import {
   addComment, createTask, getTask, listProjectTasks, resolveToken, updateTask, type AsanaTask,
 } from "./asana";
-import { findProject } from "./projects";
+import { decideAsanaApply } from "./asana-apply";
+import { findProject, isMissingTable } from "./projects";
 import { addEvent } from "./server";
 import { markSheetDirty } from "./sheet-sync";
 import { statusLabel } from "./types";
@@ -51,9 +52,18 @@ export async function ensureAsanaTask(orgId: string, requestId: string): Promise
   try {
     const config = await getConfig(orgId);
     const token = resolveToken(config);
-    if (!config || !token || !config.projectGid) return;
+    if (!config || !token) return;
     const req = await prisma.blmRequest.findFirst({ where: { id: requestId, organizationId: orgId } });
     if (!req || req.asanaTaskGid) return;
+    // โปรเจกต์ Asana ที่เลือกเฉพาะคำขอนี้ (ตารางอาจยังไม่ถูกสร้าง = ใช้ค่าเริ่มต้น)
+    let target: { projectGid: string } | null = null;
+    try {
+      target = await prisma.blmRequestAsana.findUnique({ where: { requestId: req.id }, select: { projectGid: true } });
+    } catch (e) {
+      if (!isMissingTable(e)) throw e;
+    }
+    const projectGid = target?.projectGid || config.projectGid;
+    if (!projectGid) return;
     try {
       const project = await findProject(orgId, req.projectId);
       let assigneeEmail: string | null = null;
@@ -63,7 +73,7 @@ export async function ensureAsanaTask(orgId: string, requestId: string): Promise
       }
       const { name, notes } = buildTaskPayload(req, { name: project?.name ?? "-" }, req.vendorDomain, "");
       const t = await createTask(token, {
-        projectGid: config.projectGid, name, notes, assigneeEmail, dueOn: fmtDue(req.dueDate),
+        projectGid, name, notes, assigneeEmail, dueOn: fmtDue(req.dueDate),
       });
       await prisma.blmRequest.update({
         where: { id: req.id },
@@ -106,7 +116,17 @@ export async function pushRequestChange(orgId: string, requestId: string, note: 
         if (u?.email && (remote.assignee?.email ?? "").toLowerCase() !== u.email.toLowerCase()) fields.assignee = u.email;
       }
       const shouldComplete = COMPLETED_STATUSES.includes(req.status);
-      if (!!remote.completed !== shouldComplete) fields.completed = shouldComplete;
+      // งานถูกกดเสร็จใน Asana ขณะคำขอยังเปิดอยู่ และคำขอนี้ไม่เคยถูกปิดจากระบบเรา = มีคนกดเสร็จเอง
+      // → ไม่เปิดงานกลับ แล้วรับสถานะเสร็จเข้าระบบแทน (คำขอที่เคยถูกปฏิเสธ/ยกเลิกแล้วส่งใหม่ ยังเปิดงานกลับเหมือนเดิม)
+      let humanCompleted = false;
+      if (remote.completed && (req.status === "APPROVED" || req.status === "IN_PROGRESS")) {
+        const closedByUs = await prisma.blmRequestEvent.findFirst({
+          where: { organizationId: orgId, requestId: req.id, type: "STATUS", toStatus: { in: ["REJECTED", "CANCELLED"] } },
+          select: { id: true },
+        });
+        humanCompleted = !closedByUs;
+      }
+      if (!!remote.completed !== shouldComplete && !humanCompleted) fields.completed = shouldComplete;
       if (Object.keys(fields).length > 0) {
         try {
           await updateTask(token, req.asanaTaskGid, fields);
@@ -126,6 +146,7 @@ export async function pushRequestChange(orgId: string, requestId: string, note: 
         },
       });
       if ("completed" in fields) await markSheetDirty(orgId);
+      if (humanCompleted) await applyAsanaTask(orgId, remote);
     } catch (e) {
       await prisma.blmRequest.update({ where: { id: req.id }, data: { asanaSyncError: shortErr(e) } }).catch(() => {});
     }
@@ -154,7 +175,10 @@ export async function applyAsanaTask(
   const data: Record<string, unknown> = {};
   const notes: string[] = [];
 
-  const completed = !!task.completed;
+  const decision = decideAsanaApply({
+    status: req.status, liveUrl: req.liveUrl, asanaCompleted: req.asanaCompleted, taskCompleted: !!task.completed,
+  });
+  const completed = decision.asanaCompleted;
   if (completed !== req.asanaCompleted) {
     data.asanaCompleted = completed;
     notes.push(completed ? "งานใน Asana เสร็จแล้ว" : "งานใน Asana ถูกเปิดใหม่");
@@ -181,8 +205,8 @@ export async function applyAsanaTask(
   }
 
   let statusChange: { from: string; to: string } | null = null;
-  if (completed && (req.status === "APPROVED" || req.status === "IN_PROGRESS") && req.liveUrl) {
-    data.status = "PUBLISHED";
+  if (decision.nextStatus) {
+    data.status = decision.nextStatus;
     data.publishedAt = new Date();
     statusChange = { from: req.status, to: "PUBLISHED" };
   }
@@ -193,14 +217,20 @@ export async function applyAsanaTask(
   // เปลี่ยนเฉพาะ asanaSyncError (รีเซ็ต) = ไม่มีผลกับข้อมูลในชีท
   const sheetRelevant = Object.keys(data).some((k) => k !== "asanaSyncError");
   data.asanaSyncedAt = new Date();
-  await prisma.blmRequest.update({ where: { id: req.id }, data });
+  if (statusChange) {
+    // เปลี่ยนสถานะเฉพาะเมื่อสถานะยังเป็นค่าที่อ่านมา — กันเขียนทับการเปลี่ยนสถานะที่เกิดพร้อมกันในระบบ
+    const r = await prisma.blmRequest.updateMany({ where: { id: req.id, organizationId: orgId, status: req.status }, data });
+    if (r.count !== 1) return;
+  } else {
+    await prisma.blmRequest.update({ where: { id: req.id }, data });
+  }
   if (sheetRelevant) await markSheetDirty(orgId);
 
   if (statusChange) {
     await addEvent({
       organizationId: orgId, requestId: req.id, type: "STATUS", source: "asana",
       fromStatus: statusChange.from, toStatus: statusChange.to,
-      note: "Asana ทำเครื่องหมายว่าเสร็จ และมี URL ที่ลิงก์อยู่แล้ว",
+      note: decision.note,
     });
   }
   const other = notes.filter((n) => !(statusChange && n === "งานใน Asana เสร็จแล้ว"));
@@ -214,7 +244,7 @@ export async function refreshFromAsana(orgId: string, opts: { minIntervalMs?: nu
   try {
     const config = await getConfig(orgId);
     const token = resolveToken(config);
-    if (!config || !token || !config.projectGid) return;
+    if (!config || !token) return;
     const now = new Date();
     const claim = await prisma.blmAsanaConfig.updateMany({
       where: {
@@ -232,7 +262,7 @@ export async function refreshFromAsana(orgId: string, opts: { minIntervalMs?: nu
       const since = config.lastSyncAt
         ? new Date(config.lastSyncAt.getTime() - 10 * 60_000)
         : new Date(now.getTime() - 30 * 86_400_000);
-      const tasks = await listProjectTasks(token, config.projectGid, since.toISOString());
+      const tasks = config.projectGid ? await listProjectTasks(token, config.projectGid, since.toISOString()) : [];
       if (tasks.length) {
         const tracked = await prisma.blmRequest.findMany({
           where: { organizationId: orgId, asanaTaskGid: { in: tasks.map((t) => t.gid) } },
@@ -257,6 +287,7 @@ export async function refreshFromAsana(orgId: string, opts: { minIntervalMs?: nu
         if (Date.now() >= stopAt) break;
         await ensureAsanaTask(orgId, m.id);
       }
+      await pollOtherProjects(orgId, token, stopAt);
     } catch (e) {
       lastError = shortErr(e);
       // ดึงรายการงานไม่สำเร็จ — คืนเวลาซิงก์เดิม เพื่อให้รอบถัดไปดึงช่วงเวลาเดิมซ้ำ ไม่ข้ามการเปลี่ยนแปลง
@@ -267,5 +298,37 @@ export async function refreshFromAsana(orgId: string, opts: { minIntervalMs?: nu
     await prisma.blmAsanaConfig.update({ where: { organizationId: orgId }, data: { lastError } }).catch(() => {});
   } catch {
     /* ไม่ throw */
+  }
+}
+
+/** ดึงสถานะงานของคำขอที่อยู่ในโปรเจกต์ Asana อื่น (ไม่ใช่โปรเจกต์เริ่มต้น) ทีละไม่กี่งานต่อรอบ */
+async function pollOtherProjects(orgId: string, token: string, stopAt: number): Promise<void> {
+  try {
+    // เลือกคำขอที่ยังเปิดอยู่ก่อน — แถวของคำขอที่ปิดแล้วจะไม่มาแย่งคิวจนงานที่เปิดอยู่ไม่ถูกตรวจ
+    const active = await prisma.blmRequest.findMany({
+      where: { organizationId: orgId, asanaTaskGid: { not: null }, status: { in: ["REQUESTED", "APPROVED", "IN_PROGRESS"] } },
+      select: { id: true, asanaTaskGid: true },
+    });
+    if (!active.length) return;
+    const gidOf = new Map(active.map((r) => [r.id, r.asanaTaskGid]));
+    const rows = await prisma.blmRequestAsana.findMany({
+      where: { organizationId: orgId, requestId: { in: active.map((r) => r.id) } },
+      orderBy: [{ lastCheckedAt: { sort: "asc", nulls: "first" } }],
+      take: 8,
+    });
+    for (const row of rows) {
+      if (Date.now() >= stopAt) break;
+      const gid = gidOf.get(row.requestId);
+      if (!gid) continue;
+      try {
+        const task = await getTask(token, gid);
+        if (task) await applyAsanaTask(orgId, task);
+      } catch {
+        /* งานเดียวพลาดต้องไม่หยุดงานอื่น */
+      }
+      await prisma.blmRequestAsana.update({ where: { id: row.id }, data: { lastCheckedAt: new Date() } }).catch(() => {});
+    }
+  } catch (e) {
+    if (!isMissingTable(e)) { /* ไม่ throw */ }
   }
 }

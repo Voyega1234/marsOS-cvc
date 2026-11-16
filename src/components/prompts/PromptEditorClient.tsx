@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -152,12 +153,15 @@ function HighlightedPromptPreview({
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+type EditorTab = "edit" | "preview" | "versions" | "activity";
+const EDITOR_TABS: readonly EditorTab[] = ["edit", "preview", "versions", "activity"];
+
 export function PromptEditorClient({ prompt, orgId, userRole, versions = [], activity = [] }: Props) {
   const router = useRouter();
   const isAdmin = userRole === "ADMIN";
   const isNew = !prompt?.id;
 
-  const [tab, setTab] = useState<"edit" | "preview" | "versions" | "activity">("edit");
+  const [tab, setTab] = useUrlState<EditorTab>("tab", "edit", EDITOR_TABS);
   const [saving, setSaving] = useState(false);
   const [changeNote, setChangeNote] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);

@@ -6,6 +6,7 @@
  * ค่าเป็นระดับ studio (ใช้ร่วมกันทุกเครื่อง) — ตอนเขียนบทความ /api/article/write อ่านเอง ไม่ต้องส่งไปกับ request
  */
 import { useEffect, useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { toast } from "sonner";
 import { ImageIcon, Loader2, Megaphone, UserRound } from "lucide-react";
 import { CtaSettingsEditor } from "@/components/upload-article/settings/CtaSection";
@@ -16,6 +17,7 @@ import type { UploadCtaSettings } from "@/lib/upload-article/cta";
 import type { UploadAuthorSettings } from "@/lib/upload-article/author";
 
 type Section = "images" | "cta" | "author";
+const SECTION_VALUES: readonly Section[] = ["images", "cta", "author"];
 
 const SECTIONS: { id: Section; label: string; icon: typeof ImageIcon }[] = [
   { id: "images", label: "รูปภาพ", icon: ImageIcon },
@@ -70,7 +72,7 @@ function ImagesPane() {
 }
 
 export default function StudioArticleSettings({ accentColor, border }: { accentColor: string; border: string }) {
-  const [active, setActive] = useState<Section>("images");
+  const [active, setActive] = useUrlState<Section>("asec", "images", SECTION_VALUES);
 
   return (
     <div className="flex flex-col md:flex-row gap-4">
