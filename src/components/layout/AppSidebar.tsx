@@ -38,6 +38,7 @@ import {
   SearchCheck,
   Link2,
   ShieldCheck,
+  Radar,
 } from "lucide-react";
 import type { Route } from "./nav-main";
 import DashboardNavigation from "./nav-main";
@@ -104,6 +105,12 @@ function buildRoutes(briefBadge: number, role: UserRole): Route[] {
       title: "Compliance Checker",
       icon: <ShieldCheck className="size-4" />,
       link: "/compliance",
+    },
+    {
+      id: "brand-radar",
+      title: "Brand Radar",
+      icon: <Radar className="size-4" />,
+      link: "/brand-radar",
     },
     {
       id: "keyword-research",

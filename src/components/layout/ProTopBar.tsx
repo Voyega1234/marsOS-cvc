@@ -18,6 +18,7 @@ const PAGE_LABELS: Record<string, string> = {
   "/upload-article":       "Upload Article",
   "/pbn-backlinks":        "PBN Backlinks",
   "/keyword-research":     "Keyword Research",
+  "/brand-radar":          "Brand Radar",
   "/content-engine":       "Content Engine",
   "/image-studio":         "Image Studio",
   "/settings/ai-cost":     "AI Cost",

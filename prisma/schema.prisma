@@ -1459,3 +1459,243 @@ model BlmAsanaSavedProject {
   @@unique([organizationId, projectGid])
   @@schema("plans_seo_pipeline")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Brand Radar — AI visibility monitoring (own tables, own API, no relation to core models)
+// Every row carries organizationId + projectId. JSON is stored as text.
+// Production tables are created by scripts/sql/add-brand-radar-tables.sql
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Brand setup of one project (one row per project)
+model BrandRadarProfile {
+  id               String    @id @default(cuid())
+  organizationId   String
+  projectId        String    @unique
+  brandName        String    @default("")
+  aliases          String    @default("[]") // JSON string[]
+  contextTerms     String    @default("[]") // JSON string[] — required near an ambiguous alias
+  ambiguousAliases String    @default("[]") // JSON string[] — aliases that need a context term
+  primaryDomain    String    @default("")
+  ownedDomains     String    @default("[]") // JSON string[]
+  country          String    @default("TH")
+  language         String    @default("th")
+  industry         String    @default("")
+  products         String    @default("[]") // JSON string[]
+  providers        String    @default("[]") // JSON ProviderKey[] to monitor
+  promptSources    String    @default("[]") // JSON PromptSource[] enabled
+  schedule         String    @default("weekly") // manual | daily | weekly | monthly
+  nextRunAt        DateTime?
+  lastRunAt        DateTime?
+  monthlyBudgetUsd Float? // null = no budget set
+  maxPromptsPerRun Int       @default(50)
+  samplesPerPrompt Int       @default(10) // repeat asks per prompt per LLM provider (Google AI Mode/Overview: 1)
+  providerStatus   String    @default("{}") // JSON: ProviderKey -> { ok, model, testedAt, error }
+  createdById      String    @default("")
+  updatedById      String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([schedule, nextRunAt])
+  @@schema("plans_seo_pipeline")
+}
+
+model BrandRadarCompetitor {
+  id             String @id @default(cuid())
+  organizationId String
+  projectId      String
+  name           String
+  nameKey        String // normalized name, unique per project
+  aliases        String @default("[]") // JSON string[]
+  domains        String @default("[]") // JSON string[]
+  status         String @default("ACTIVE") // ACTIVE | INACTIVE
+  createdById    String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, nameKey])
+  @@index([organizationId, projectId])
+  @@schema("plans_seo_pipeline")
+}
+
+model BrandRadarPrompt {
+  id             String @id @default(cuid())
+  organizationId String
+  projectId      String
+  text           String
+  textKey        String // normalized text, unique per project (dedup)
+  topic          String @default("")
+  intent         String @default("informational")
+  journeyStage   String @default("awareness")
+  country        String @default("TH")
+  language       String @default("th")
+  source         String @default("manual") // gsc | keyword_database | paa_provider | ai_generated | manual | imported
+  keyword        String @default("")
+  searchVolume   Int? // null = unknown, never 0 as a placeholder
+  priority       String @default("medium") // high | medium | low
+  status         String @default("CANDIDATE") // CANDIDATE | ACTIVE | INACTIVE | REJECTED
+  note           String @default("")
+  createdById    String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, textKey])
+  @@index([organizationId, projectId, status])
+  @@schema("plans_seo_pipeline")
+}
+
+// One scan. periodKey is set for scheduled runs only: unique per project so a period is never scanned twice.
+model BrandRadarRun {
+  id               String    @id @default(cuid())
+  organizationId   String
+  projectId        String
+  trigger          String    @default("manual") // manual | schedule
+  status           String    @default("RUNNING") // RUNNING | COMPLETED | PARTIAL | FAILED | CANCELLED
+  providers        String    @default("[]") // JSON ProviderKey[]
+  promptCount      Int       @default(0)
+  samplesPerPrompt Int       @default(1)
+  promptSetHash    String    @default("")
+  totalTasks       Int       @default(0)
+  doneTasks        Int       @default(0)
+  failedTasks      Int       @default(0)
+  skippedTasks     Int       @default(0)
+  costUsd          Float     @default(0)
+  estimatedCostUsd Float?
+  periodKey        String?
+  error            String    @default("")
+  startedAt        DateTime  @default(now())
+  finishedAt       DateTime?
+  createdById      String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, periodKey])
+  @@index([organizationId, projectId, createdAt])
+  @@index([status])
+  @@schema("plans_seo_pipeline")
+}
+
+// One row per run x prompt x provider x sample. Also the task queue of a run.
+model BrandRadarResponse {
+  id               String    @id @default(cuid())
+  organizationId   String
+  projectId        String
+  runId            String
+  promptId         String
+  provider         String
+  sampleIndex      Int       @default(0) // 0..samplesPerPrompt-1: repeat asks of the same prompt in one run
+  status           String    @default("PENDING") // PENDING | RUNNING | DONE | FAILED | SKIPPED
+  attempts         Int       @default(0)
+  lockedAt         DateTime?
+  error            String    @default("")
+  promptText       String    @default("") // text as sent
+  country          String    @default("")
+  language         String    @default("")
+  model            String    @default("")
+  collectionMethod String    @default("api_simulated") // api_simulated | observed_serp | imported
+  responseText     String    @default("")
+  inputTokens      Int?
+  outputTokens     Int?
+  costUsd          Float?
+  brandMentioned   Boolean?
+  brandOccurrences Int?
+  brandRecommended Boolean?
+  ownedCited       Boolean?
+  citationCount    Int?
+  collectedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([runId, promptId, provider, sampleIndex])
+  @@index([organizationId, projectId, status, collectedAt])
+  @@index([runId, status])
+  @@index([promptId, collectedAt])
+  @@schema("plans_seo_pipeline")
+}
+
+// Brand or competitor found in one response: at most one row per entity per response.
+model BrandRadarMention {
+  id             String  @id @default(cuid())
+  organizationId String
+  projectId      String
+  runId          String
+  responseId     String
+  promptId       String
+  provider       String
+  entityType     String // brand | competitor
+  entityKey      String // "brand" or the competitor id
+  competitorId   String?
+  entityName     String  @default("")
+  occurrences    Int     @default(1) // raw count inside the response
+  matchedAliases String  @default("[]") // JSON string[]
+  recommended    Boolean @default(false)
+  compared       Boolean @default(false)
+  position       Int? // order of first appearance among tracked entities, 1 = first
+  snippet        String  @default("")
+
+  createdAt DateTime @default(now())
+
+  @@unique([responseId, entityKey])
+  @@index([organizationId, projectId, runId])
+  @@index([promptId])
+  @@schema("plans_seo_pipeline")
+}
+
+// A URL the response cited (a linked source). An unlinked mention is never a citation.
+model BrandRadarCitation {
+  id             String  @id @default(cuid())
+  organizationId String
+  projectId      String
+  runId          String
+  responseId     String
+  promptId       String
+  provider       String
+  url            String
+  normalizedUrl  String
+  host           String  @default("")
+  domain         String  @default("") // registrable domain
+  title          String  @default("")
+  ownerType      String  @default("external") // own | competitor | external
+  competitorId   String?
+  position       Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([responseId, normalizedUrl])
+  @@index([organizationId, projectId, runId])
+  @@index([projectId, domain])
+  @@index([promptId])
+  @@schema("plans_seo_pipeline")
+}
+
+model BrandRadarOpportunity {
+  id              String  @id @default(cuid())
+  organizationId  String
+  projectId       String
+  type            String
+  key             String // stable identity inside a type (prompt id, domain, ...)
+  title           String  @default("")
+  detail          String  @default("")
+  evidence        String  @default("{}") // JSON
+  priority        String  @default("medium") // high | medium | low
+  confidence      String  @default("low") // high | medium | low
+  score           Float   @default(0)
+  suggestedAction String  @default("")
+  status          String  @default("OPEN") // OPEN | DISMISSED | DONE
+  promptId        String?
+  domain          String?
+  competitorId    String?
+  lastSeenRunId   String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, type, key])
+  @@index([organizationId, projectId, status])
+  @@schema("plans_seo_pipeline")
+}
