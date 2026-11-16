@@ -226,6 +226,30 @@ export function PackageDialog({ open, onOpenChange, sources, pkg, typeOptions = 
     // รีเซ็ตฟอร์มเฉพาะตอนเปิด / เปลี่ยนแพ็กเกจ — ข้อมูลโหลดใหม่ระหว่างพิมพ์ต้องไม่ล้างสิ่งที่พิมพ์ค้างไว้
   }, [open, pkg?.id]);
 
+  // dropdown ของช่อง Type ในชีท (Data validation) — strict = ชีทปฏิเสธค่านอกรายการ
+  const [sheetTypes, setSheetTypes] = useState<{ options: string[]; strict: boolean } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setSheetTypes(null);
+    const url = pkg
+      ? `${BASE}/packages/${pkg.id}/options`
+      : sourceId && tabTitle
+        ? `${BASE}/packages/new/options?sourceId=${encodeURIComponent(sourceId)}&tabTitle=${encodeURIComponent(tabTitle)}`
+        : null;
+    if (!url) return;
+    let alive = true;
+    api<{ type: { options: string[]; strict: boolean } | null }>(url)
+      .then((r) => { if (alive) setSheetTypes(r.type && r.type.options.length ? r.type : null); })
+      .catch(() => { /* อ่านไม่ได้ = พิมพ์เองได้ตามเดิม */ });
+    return () => { alive = false; };
+  }, [open, pkg?.id, sourceId, tabTitle]);
+
+  const typeChoices = useMemo(() => {
+    const seen = new Set<string>();
+    return [...(sheetTypes?.options ?? []), ...typeOptions].filter((t) => (seen.has(t) ? false : (seen.add(t), true)));
+  }, [sheetTypes, typeOptions]);
+  const typeOutsideList = !!sheetTypes?.strict && type.trim() !== "" && !sheetTypes.options.includes(type.trim());
+
   const tabs = sources.find((s) => s.id === sourceId)?.tabs ?? [];
 
   function changeSource(id: string) {
@@ -236,6 +260,9 @@ export function PackageDialog({ open, onOpenChange, sources, pkg, typeOptions = 
   async function submit() {
     const n = units.trim() === "" ? null : Number(units);
     if (n !== null && (!Number.isInteger(n) || n < 1)) return toast.error("Unit ต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป");
+    if (typeOutsideList && (!pkg || type !== pkg.type)) {
+      return toast.error("Type นี้ไม่อยู่ใน dropdown ของชีท — เลือกจากรายการ หรือเพิ่มตัวเลือกในชีทก่อน");
+    }
     setBusy(true);
     try {
       let r: QuotaWriteResult;
@@ -300,12 +327,20 @@ export function PackageDialog({ open, onOpenChange, sources, pkg, typeOptions = 
               autoComplete="off"
               value={type}
               onChange={(e) => setType(e.target.value)}
-              placeholder={typeOptions.length ? "พิมพ์ หรือเลือกจากรายการ" : "เช่น Guest Post"}
+              placeholder={typeChoices.length ? "พิมพ์ หรือเลือกจากรายการ" : "เช่น Guest Post"}
             />
-            <datalist id="quota-pkg-type-options">{typeOptions.map((t) => <option key={t} value={t} />)}</datalist>
-            {typeOptions.length ? (
+            <datalist id="quota-pkg-type-options">{typeChoices.map((t) => <option key={t} value={t} />)}</datalist>
+            {sheetTypes ? (
+              <p className="mt-1 text-xs text-gray-500">
+                {sheetTypes.strict ? "ชีทนี้รับเฉพาะค่าใน dropdown — เลือกจากรายการด้านล่าง" : "รายการจาก dropdown ในชีท"}
+              </p>
+            ) : null}
+            {typeOutsideList ? (
+              <p className="mt-1 text-xs text-red-600">ค่านี้ไม่อยู่ใน dropdown ของชีท บันทึกไม่ได้ — เลือกจากรายการ หรือเพิ่มตัวเลือกในชีทก่อน</p>
+            ) : null}
+            {typeChoices.length ? (
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {typeOptions.slice(0, 12).map((t) => (
+                {(sheetTypes?.strict ? sheetTypes.options : typeChoices).slice(0, 16).map((t) => (
                   <button
                     key={t}
                     type="button"

@@ -344,6 +344,28 @@ async function main() {
     assert.equal(packageCellsHaveData(COLS, 3, 3, v, f), false);
     assert.ok(MERGE_SKIPPED_MSG.startsWith("ไม่ได้รวมเซลล์ของแพ็กเกจ"));
   });
+
+  await t("setting Type on a header-less package keeps the same package (same key, matched in place)", () => {
+    const rows: unknown[][] = [
+      FAKE_HEADER,
+      ["", "", "", "", "", "", "http://x/1", "", "Acme", "Published", ""],
+      ["", "", "", "", "", "", "http://x/2", "", "Beta", "On Process", ""],
+    ];
+    const before = parseQuotaTab(TAB, rows);
+    assert.ok(before);
+    const pkg = before.packages[0];
+    assert.equal(pkg.type, "");
+    const ups = packageUpdates(TAB, before.columns, pkg.rowNumber, { type: "Guest Post" });
+    assert.deepEqual(ups.map((u) => [u.range, u.values]), [[`'${TAB}'!A${pkg.rowNumber}`, [["Guest Post"]]]]);
+    const after = parseQuotaTab(TAB, [rows[0], ["Guest Post", ...rows[1].slice(1)], rows[2]]);
+    assert.ok(after);
+    assert.equal(after.packages.length, 1);
+    assert.equal(after.packages[0].type, "Guest Post");
+    assert.equal(after.packages[0].key, pkg.key);
+    assert.equal(after.packages[0].slots.length, 2);
+    const m = matchPackages([{ key: pkg.key, fingerprint: packageFingerprint(pkg) }], [{ key: after.packages[0].key, fingerprint: packageFingerprint(after.packages[0]) }]);
+    assert.deepEqual(m.pairs, [[0, 0]]);
+  });
   console.log(`\n${n} passed`);
 }
 

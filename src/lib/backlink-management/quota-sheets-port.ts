@@ -16,6 +16,42 @@ export interface SheetsPort {
   writeCells(spreadsheetId: string, updates: { range: string; values: (string | number)[][]; mode: "RAW" | "USER_ENTERED" }[]): Promise<void>;
   /** คำสั่งเชิงโครงสร้าง (insertDimension / appendDimension / mergeCells / copyPaste ...) */
   batchUpdate(spreadsheetId: string, requests: object[]): Promise<void>;
+  /**
+   * รายการ dropdown (Data validation แบบรายการ) ของเซลล์เดียว — null = เซลล์ไม่มี dropdown
+   * strict = ชีทตั้ง "ปฏิเสธข้อมูลที่ไม่ถูกต้อง" ไว้ เขียนค่านอกรายการไม่ได้
+   */
+  readCellOptions?(spreadsheetId: string, tabTitle: string, a1Cell: string): Promise<CellListOptions | null>;
+}
+
+export interface CellListOptions { options: string[]; strict: boolean }
+
+/** แปลง dataValidation ของ Sheets API เป็นรายการ — ONE_OF_RANGE คืน range ที่ต้องอ่านต่อ (ไม่มีชื่อแท็บ = แท็บเดียวกัน) */
+export function parseListValidation(
+  dv: { condition?: { type?: string | null; values?: { userEnteredValue?: string | null }[] | null } | null; strict?: boolean | null } | null | undefined,
+  tabTitle: string,
+): { options: string[]; range: string | null; strict: boolean } | null {
+  const type = dv?.condition?.type;
+  const raw = (dv?.condition?.values ?? []).map((v) => String(v?.userEnteredValue ?? "").trim());
+  const strict = dv?.strict === true;
+  if (type === "ONE_OF_LIST") return { options: uniqueOptions(raw), range: null, strict };
+  if (type === "ONE_OF_RANGE" && raw[0]) {
+    const ref = raw[0].replace(/^=/, "").replace(/\$/g, "").trim();
+    if (!ref) return null;
+    return { options: [], range: ref.includes("!") ? ref : `${quoteTab(tabTitle)}!${ref}`, strict };
+  }
+  return null;
+}
+
+export function uniqueOptions(values: unknown[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of values) {
+    const s = String(v ?? "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
 }
 
 const REQ_OPTS = { timeout: 20_000 };
@@ -82,6 +118,22 @@ export function googleSheetsPort(): SheetsPort {
       if (!requests.length) return;
       const sheets = await client();
       await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } }, REQ_OPTS);
+    },
+    async readCellOptions(spreadsheetId, tabTitle, a1Cell) {
+      const sheets = await client();
+      const res = await sheets.spreadsheets.get(
+        { spreadsheetId, ranges: [`${quoteTab(tabTitle)}!${a1Cell}`], fields: "sheets.data.rowData.values.dataValidation" },
+        REQ_OPTS,
+      );
+      const dv = res.data.sheets?.[0]?.data?.[0]?.rowData?.[0]?.values?.[0]?.dataValidation;
+      const parsed = parseListValidation(dv, tabTitle);
+      if (!parsed) return null;
+      if (!parsed.range) return { options: parsed.options, strict: parsed.strict };
+      const vals = await sheets.spreadsheets.values.get(
+        { spreadsheetId, range: parsed.range, valueRenderOption: "FORMATTED_VALUE" },
+        REQ_OPTS,
+      );
+      return { options: uniqueOptions((vals.data.values ?? []).flat()), strict: parsed.strict };
     },
   };
 }

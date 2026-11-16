@@ -12,8 +12,8 @@ import type { StaffCtx } from "./server";
 import { findProject, isMissingTable } from "./projects";
 import { parseSpreadsheetId } from "./sheet-tables";
 import { sheetErrorMessage } from "./sheet-sync";
-import { isQuotaTabCandidate, packageStats, parseQuotaTab } from "./quota-sheet";
-import type { SheetsPort, SheetTabInfo } from "./quota-sheets-port";
+import { columnLetter, isQuotaTabCandidate, packageStats, parseQuotaTab } from "./quota-sheet";
+import type { CellListOptions, SheetsPort, SheetTabInfo } from "./quota-sheets-port";
 import {
   QUOTA_DEFAULT_STATUSES, QUOTA_STATUS_IN_PROCESS,
   type ParsedPackage, type ParsedTab, type QuotaColumns, type QuotaPackageInput, type QuotaPackageView,
@@ -549,6 +549,42 @@ export async function updatePackage(ctx: StaffCtx, packageId: string, input: Quo
   }
   await writeCells(source, updates, deps);
   return finish(ctx, source, row.tabTitle, deps, warning);
+}
+
+/**
+ * รายการ dropdown ของช่อง Type ในชีท (ถ้าชีทตั้ง Data validation ไว้) — ใช้ในฟอร์มแพ็กเกจให้เลือกค่าที่ชีทยอมรับ
+ * แก้แพ็กเกจ: อ่านเซลล์ Type ของแถวแรกของก้อนนั้น · เพิ่มแพ็กเกจ: อ่านเซลล์ Type ของแพ็กเกจแรกในแท็บที่เลือก
+ * อ่านอย่างเดียว ไม่เขียนชีท · อ่านไม่ได้ = null (ฟอร์มยังพิมพ์เองได้)
+ */
+export async function packageTypeOptions(
+  ctx: StaffCtx,
+  q: { packageId?: string; sourceId?: string; tabTitle?: string },
+  deps: QuotaDeps,
+): Promise<{ type: CellListOptions | null }> {
+  if (!deps.port.readCellOptions) return { type: null };
+  let row: PackageRow | null = null;
+  let source: SourceRow;
+  if (q.packageId) {
+    ({ row, source } = await findPackage(ctx.orgId, q.packageId));
+  } else {
+    if (!q.sourceId || !q.tabTitle) return { type: null };
+    source = await findSource(ctx.orgId, q.sourceId);
+    row = await db(() => prisma.blmQuotaPackage.findFirst({
+      where: { organizationId: ctx.orgId, sourceId: source.id, tabTitle: q.tabTitle, stale: false },
+      orderBy: { ordinal: "asc" },
+    }));
+  }
+  if (!row) return { type: null };
+  const col = (row.columns as QuotaColumns | null)?.type;
+  const rowNumber = (row.data as { rowNumber?: unknown } | null)?.rowNumber;
+  if (col === undefined || typeof rowNumber !== "number") return { type: null };
+  try {
+    const cell = `${columnLetter(col)}${rowNumber}`;
+    return { type: await deps.port.readCellOptions(source.spreadsheetId, row.tabTitle, cell) };
+  } catch (e) {
+    console.error("[quota] read Type dropdown failed", e instanceof Error ? e.message : e);
+    return { type: null };
+  }
 }
 
 export async function createPackage(ctx: StaffCtx, input: QuotaPackageInput, deps: QuotaDeps): Promise<QuotaWriteResult> {

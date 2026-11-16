@@ -142,6 +142,10 @@ export function sheetErrorMessage(e: unknown, serviceEmail: string): string {
     return "ยังไม่ได้เปิด Google Sheets API ใน Google Cloud project ของ service account";
   }
   if (code === 403 || msg.includes("does not have permission")) return `ยังไม่ได้แชร์ชีทให้ ${serviceEmail} เป็น Editor`;
+  // ชีทตั้ง dropdown แบบ "ปฏิเสธข้อมูลที่ไม่ถูกต้อง" ไว้ → Google ตอบ 400 พร้อมข้อความ data validation (ไม่ใช่ชีทหาย)
+  if (/data validation|violates|input must/i.test(msg)) {
+    return "ค่านี้ไม่อยู่ใน dropdown ของชีท (Data validation) — เลือกค่าจากรายการในชีท หรือเพิ่มตัวเลือกในชีทก่อน";
+  }
   if (code === 404 || code === 400) return "ไม่พบชีทนี้ ตรวจลิงก์อีกครั้ง";
   return (msg || "เขียน Google Sheet ไม่สำเร็จ").slice(0, 200);
 }
