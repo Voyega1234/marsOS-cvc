@@ -47,6 +47,7 @@ function FindingCard({ f }: { f: Finding }) {
         <span className="text-sm font-semibold text-brand-navy">{f.ruleTitle}</span>
         <Chip tone={verdictTone(f.verdict)}>{VERDICT_LABEL[f.verdict]}</Chip>
         {f.origin === "ai" && <Chip tone="info">AI</Chip>}
+        {f.origin === "spelling" && <Chip tone="info">คำสะกด</Chip>}
       </div>
       <p className="mt-2 rounded-xl bg-brand-mist/60 px-3 py-2 text-sm leading-relaxed text-gray-700 break-words">
         <Excerpt excerpt={f.excerpt} quote={f.quote} />
@@ -106,7 +107,10 @@ export default function CheckResult({ check, userRole, onChange, originalFile, g
   const decided = check.status === "APPROVED" || check.status === "REJECTED";
   const canReview = isReviewer && (!decided || changing);
 
-  const counted = check.findings.filter((f) => f.verdict !== "likely_ok");
+  // คำสะกดผิดแสดงแยกกล่อง ไม่นับเป็นระดับความเสี่ยง
+  const ruleFindings = check.findings.filter((f) => f.origin !== "spelling");
+  const spelling = check.findings.filter((f) => f.origin === "spelling");
+  const counted = ruleFindings.filter((f) => f.verdict !== "likely_ok");
   const byTier = (s: string) => counted.filter((f) => f.severity === s);
 
   async function decide(decision: "APPROVED" | "CHANGES_REQUESTED" | "REJECTED" | "PENDING_REVIEW") {
@@ -158,11 +162,11 @@ export default function CheckResult({ check, userRole, onChange, originalFile, g
         </div>
       </Panel>
 
-      {check.findings.length === 0 ? (
+      {ruleFindings.length === 0 ? (
         <Panel><p className="text-sm text-gray-600">ไม่พบข้อความที่เข้าข่ายกฎที่เปิดใช้</p></Panel>
       ) : (
         SEVERITIES.map((s) => {
-          const list = check.findings.filter((f) => f.severity === s);
+          const list = ruleFindings.filter((f) => f.severity === s);
           if (!list.length) return null;
           return (
             <Panel key={s} title={`ความรุนแรง: ${SEVERITY_LABEL[s]}`} subtitle={`${list.length} รายการ`}>
@@ -173,6 +177,14 @@ export default function CheckResult({ check, userRole, onChange, originalFile, g
           );
         })
       )}
+
+      {spelling.length > 0 ? (
+        <Panel title="คำสะกดผิด / ไม่ตรงราชบัณฑิต" subtitle={`${spelling.length} รายการ · ไม่นับเป็นความเสี่ยง`}>
+          <div className="space-y-3">
+            {spelling.map((f) => <FindingCard key={f.id} f={f} />)}
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel title="การตรวจและอนุมัติ">
         {canReview ? (

@@ -269,7 +269,69 @@ export function mergeAiResult(
     }
   }
 
-  return { findings: findings.slice(0, MAX_FINDINGS), summary: str(raw.summary, 2000), dropped }
+  // คำสะกด: ต่อท้ายหลังผลตามกฎที่ตัดเพดานแล้ว — ไม่เบียดที่ของรายการตามกฎ
+  const spelling = parseSpelling(raw.spelling, norm, haystack)
+  dropped += spelling.dropped
+  return { findings: [...findings.slice(0, MAX_FINDINGS), ...spelling.findings], summary: str(raw.summary, 2000), dropped }
+}
+
+/** กฎเทียมของการตรวจคำสะกด — ไม่อยู่ในตารางกฎ ไม่นับคะแนนความเสี่ยง */
+export const SPELLING_RULE = {
+  id: '__spelling__',
+  code: 'SPELLING',
+  title: 'คำสะกดผิด / ไม่ตรงราชบัณฑิต',
+  sourceName: 'พจนานุกรมฉบับราชบัณฑิตยสถาน (ตรวจโดย AI)',
+  sourceUrl: 'https://dictionary.orst.go.th/',
+} as const
+const MAX_SPELLING = 20
+
+function parseSpelling(list: unknown, norm: string, haystack: string): { findings: Finding[]; dropped: number } {
+  const out: Finding[] = []
+  let dropped = 0
+  if (!Array.isArray(list)) return { findings: out, dropped }
+  const seen = new Set<string>()
+  for (const s of list) {
+    if (out.length >= MAX_SPELLING) break
+    if (!s || typeof s !== 'object') { dropped++; continue }
+    const rec = s as Record<string, unknown>
+    const quote = typeof rec.quote === 'string' ? collapse(rec.quote) : ''
+    const correct = collapse(str(rec.correct, 200).replace(CONTROL_CHARS, ' '))
+    const q = lowerSameLength(quote)
+    if (quote.length < 2 || quote.length > 80 || !correct || lowerSameLength(correct) === q || !haystack.includes(q)) { dropped++; continue }
+    // ข้อเสนอแก้ต้องครอบคำที่ผิด และต้องมีคำที่ถูกอยู่ในข้อความใหม่ — ไม่งั้นไม่ทำ tracked change
+    let fix = pickFix(rec, norm, haystack, { mustContain: quote })
+    if (fix && !lowerSameLength(fix.replacement).includes(lowerSameLength(correct))) fix = null
+    if (!fix) fix = pickFix({ replacement: correct }, norm, haystack, { fallback: quote })
+    const anchor = lowerSameLength(fix?.fixTarget ?? quote)
+    const key = `${anchor}\u0000${lowerSameLength(correct)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const idx = Math.max(0, haystack.indexOf(anchor))
+    const qi = haystack.indexOf(q, idx)
+    const at = qi >= 0 ? qi : haystack.indexOf(q)
+    const start = Math.max(0, at - EXCERPT_RADIUS)
+    const end = Math.min(haystack.length, at + q.length + EXCERPT_RADIUS)
+    out.push({
+      id: `s${out.length + 1}`,
+      ruleId: SPELLING_RULE.id,
+      ruleVersion: 1,
+      ruleCode: SPELLING_RULE.code,
+      ruleTitle: SPELLING_RULE.title,
+      severity: 'LOW',
+      origin: 'spelling',
+      term: '',
+      quote: norm.slice(at, at + q.length),
+      excerpt: `${start > 0 ? '…' : ''}${norm.slice(start, end)}${end < norm.length ? '…' : ''}`,
+      reason: str(rec.reason) || `ควรสะกดว่า "${correct}"`,
+      suggestion: `ควรสะกดว่า "${correct}"`,
+      verdict: 'needs_review',
+      sourceName: SPELLING_RULE.sourceName,
+      sourceRef: '',
+      sourceUrl: SPELLING_RULE.sourceUrl,
+      ...(fix ? { fixTarget: fix.fixTarget, replacement: fix.replacement } : {}),
+    })
+  }
+  return { findings: out, dropped }
 }
 
 const WEIGHT: Record<Severity, number> = { CRITICAL: 40, HIGH: 20, MEDIUM: 8, LOW: 3 }
@@ -279,7 +341,8 @@ export function scoreRisk(findings: Finding[]): { level: RiskLevel; score: numbe
   let sum = 0
   let top = -1
   for (const f of findings) {
-    if (f.verdict === 'likely_ok') continue
+    // คำสะกดผิดไม่ใช่ความเสี่ยงทางกฎหมาย
+    if (f.verdict === 'likely_ok' || f.origin === 'spelling') continue
     const w = WEIGHT[f.severity] ?? 0
     sum += f.verdict === 'needs_review' ? w / 2 : w
     const i = ORDER.indexOf(f.severity)

@@ -159,6 +159,48 @@ function finding(over: Partial<Finding>): Finding {
   assert(noRep.findings[0].fixTarget === undefined, 'target without replacement is not a fix')
 }
 
+// mergeAiResult — คำสะกด (spelling)
+{
+  const text = 'ดาวน์โหลดแอพของเราได้ฟรี ส่งอีเมล์มาหาเรา แอพนี้ใช้ง่าย'
+  const rules = [rule({ id: 'r1' })]
+  const m = mergeAiResult(text, [], rules, {
+    findings: [],
+    spelling: [
+      { quote: 'แอพ', correct: 'แอป', reason: 'ราชบัณฑิตกำหนดให้เขียน แอป', target: 'ดาวน์โหลดแอพของเรา', replacement: 'ดาวน์โหลดแอปของเรา' },
+      { quote: 'อีเมล์', correct: 'อีเมล', target: 'ส่งอีเมล์มาหา', replacement: 'ส่งอีเมลมาหาเธอ' },
+      { quote: 'แอพ', correct: 'แอป', target: 'แอพนี้ใช้ง่าย', replacement: 'แอปนี้ใช้ง่าย' },
+      { quote: 'แอพ', correct: 'แอป', target: 'ดาวน์โหลดแอพของเรา', replacement: 'ดาวน์โหลดแอปของเรา' },
+      { quote: 'ไม่มีในบทความ', correct: 'x' },
+      { quote: 'ฟรี', correct: 'ฟรี' },
+      { quote: 'แอพ', target: 'แอพนี้', replacement: 'แอปนี้' },
+    ],
+  })
+  const sp = m.findings.filter((f) => f.origin === 'spelling')
+  assert(sp.length === 3, 'spelling: 3 valid entries kept, duplicate place skipped')
+  assert(sp[0].ruleCode === 'SPELLING' && sp[0].severity === 'LOW' && sp[0].verdict === 'needs_review', 'spelling: pseudo rule fields')
+  assert(sp[0].fixTarget === 'ดาวน์โหลดแอพของเรา' && sp[0].replacement === 'ดาวน์โหลดแอปของเรา', 'spelling: phrase-level tracked change')
+  assert(sp[0].suggestion.includes('แอป') && sp[0].reason.includes('ราชบัณฑิต'), 'spelling: suggestion names correct form')
+  assert(sp[1].fixTarget!.includes('อีเมล์'), 'spelling: fixTarget contains the misspelling')
+  assert(sp[2].excerpt.includes('แอพนี้'), 'spelling: excerpt points at the reported place')
+  assert(m.dropped === 3, 'spelling: missing/unchanged/no-correct entries dropped')
+
+  const noFix = mergeAiResult(text, [], rules, { spelling: [{ quote: 'อีเมล์', correct: 'อีเมล', target: 'ไม่มีจริง', replacement: 'x' }] })
+  const nf = noFix.findings[0]
+  assert(nf.fixTarget === 'อีเมล์' && nf.replacement === 'อีเมล', 'spelling: falls back to word-level fix when target invalid')
+  const wrongRep = mergeAiResult(text, [], rules, { spelling: [{ quote: 'อีเมล์', correct: 'อีเมล', target: 'ส่งอีเมล์มาหา', replacement: 'ส่งจดหมายมาหา' }] })
+  assert(wrongRep.findings[0].fixTarget === 'อีเมล์', 'spelling: replacement without the correct word is not trusted')
+
+  // ผลตามกฎ 40 รายการไม่ถูกเบียด + คำสะกดไม่นับคะแนน
+  const manyHits = Array.from({ length: 45 }, (_, i) => finding({ id: `h${i}`, quote: 'การันตี' }))
+  const many = mergeAiResult('การันตี '.repeat(50), manyHits, rules, {
+    spelling: [{ quote: 'การันตี', correct: 'การันตี้' }],
+  })
+  assert(many.findings.filter((f) => f.origin !== 'spelling').length === 40 && many.findings.some((f) => f.origin === 'spelling'), 'spelling: appended after 40 rule findings')
+  assert(scoreRisk(sp).level === 'NONE' && scoreRisk(sp).score === 0, 'spelling: not counted in risk score')
+  const notSp = mergeAiResult(text, [], rules, { spelling: 'garbage' })
+  assert(notSp.findings.length === 0, 'spelling: non-array ignored')
+}
+
 // activationProblems
 {
   assert(activationProblems(rule({})).length === 0, 'complete rule has no problems')

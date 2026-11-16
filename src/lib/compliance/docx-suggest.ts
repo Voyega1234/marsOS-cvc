@@ -617,7 +617,7 @@ export function findingsToItems(findings: Finding[]): SuggestItem[] {
     if (f.verdict === 'likely_ok') continue
     const lines = [
       `[${f.ruleCode}] ${f.ruleTitle}`,
-      `ระดับ: ${SEVERITY_LABEL[f.severity]} · ${VERDICT_LABEL[f.verdict]}${f.origin === 'ai' ? ' · AI' : ''}`,
+      `ระดับ: ${SEVERITY_LABEL[f.severity]} · ${VERDICT_LABEL[f.verdict]}${f.origin === 'ai' ? ' · AI' : f.origin === 'spelling' ? ' · คำสะกด' : ''}`,
       f.reason ? `เหตุผล: ${f.reason}` : '',
       f.suggestion ? `คำแนะนำ: ${f.suggestion}` : '',
       f.replacement ? `ข้อความที่เสนอ: ${f.replacement}` : '',

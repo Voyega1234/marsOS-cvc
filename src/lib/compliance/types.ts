@@ -31,7 +31,8 @@ export interface Finding {
   ruleCode: string
   ruleTitle: string
   severity: Severity
-  origin: 'rule' | 'ai'
+  /** rule = จับจากคำในกฎ · ai = AI พบเองตามกฎ · spelling = คำสะกดผิด/ไม่ตรงราชบัณฑิต (ไม่ใช่กฎ ไม่นับคะแนนความเสี่ยง) */
+  origin: 'rule' | 'ai' | 'spelling'
   term: string
   quote: string
   excerpt: string

@@ -15,8 +15,14 @@ Hard rules:
 - Every reported "quote" MUST be an exact substring copied from the article text.
 - Write reason and suggestion in Thai. Keep each reason to one or two short sentences.
 - For the adjudications and findings that are NOT "likely_ok" (the 25 most severe when there are more), ALWAYS also give a ready-to-use edit a reviewer can accept as a tracked change — do the rewrite, do not only describe it: "target" = the exact passage of the article to replace (normally the whole sentence or phrase that contains the problem, copied character for character from the article, inside ONE paragraph, at most 400 characters) and "replacement" = the finished compliant text to put in its place, written in the SAME language as the article (an English article gets English text, a Thai article gets Thai), keeping the article's tone and meaning. For a pre-detected hit the "target" must contain the hit's quote. For a missing disclaimer or warning, "replacement" = the target sentence kept as it is plus the missing disclaimer written out in full (generic wording such as results varying between individuals, possible side effects, consulting a doctor before treatment) — never invent facts, numbers, licence numbers or names. Omit both fields only when the passage must simply be removed and nothing can replace it; then say so in "suggestion".
+- Separately from the rules, proofread the article for spelling and report problems in "spelling" (this is NOT a rule violation and must never appear in "findings" or affect the summary's risk wording):
+  - Thai: words not spelled as in the Royal Institute dictionary (พจนานุกรมฉบับราชบัณฑิตยสถาน) or the Royal Institute's transliteration of loanwords, e.g. แอพ→แอป, อีเมล์→อีเมล, เวป→เว็บ, ซีรี่ย์→ซีรีส์, คลีนิก→คลินิก, ไลค์→ไลก์, อนุญาติ→อนุญาต, โอกาศ→โอกาส; plus plain typos (missing or extra characters, wrong tone marks, swapped letters, words that do not exist).
+  - English and other languages: plain typos only.
+  - Do NOT report brand, product, company or person names, URLs, hashtags, code, text inside quotation marks, a deliberate style choice the article uses consistently for a proper noun, or a spelling that is only a matter of taste when the Royal Institute accepts both forms. Report only when you are confident.
+  - Each entry: "quote" = the misspelled word exactly as written (exact substring); "correct" = the correct spelling; "reason" = one short Thai sentence (e.g. "ราชบัณฑิตกำหนดให้เขียน แอป"); "target" = the misspelled word together with a few neighbouring words, copied character for character from ONE paragraph (at most 80 characters) so it points at one place; "replacement" = that same target with ONLY the spelling fixed.
+  - Report each place that needs fixing, at most 20 entries, in reading order. If nothing is wrong, return an empty array.
 - Reply with JSON only, no markdown, in exactly this shape:
-{"adjudications":[{"hitId":"h1","verdict":"violation|needs_review|likely_ok","reason":"...","suggestion":"...","target":"<exact substring>","replacement":"..."}],"findings":[{"ruleId":"<rule id>","quote":"<exact substring>","reason":"...","suggestion":"...","target":"<exact substring>","replacement":"..."}],"summary":"สรุปสั้น ๆ เป็นภาษาไทย"}`
+{"adjudications":[{"hitId":"h1","verdict":"violation|needs_review|likely_ok","reason":"...","suggestion":"...","target":"<exact substring>","replacement":"..."}],"findings":[{"ruleId":"<rule id>","quote":"<exact substring>","reason":"...","suggestion":"...","target":"<exact substring>","replacement":"..."}],"spelling":[{"quote":"<misspelled word>","correct":"<correct spelling>","reason":"...","target":"<exact substring>","replacement":"..."}],"summary":"สรุปสั้น ๆ เป็นภาษาไทย"}`
 
 /** เพิ่มเข้า system prompt เฉพาะการตรวจแบบ Brand Rule ที่มีเนื้อหา Brand voice */
 const BRAND_VOICE_PROMPT = `
@@ -77,7 +83,7 @@ export async function runAiContextCheck(params: {
     model,
     jsonMode: true,
     temperature: 0.1,
-    maxTokens: 10_000,
+    maxTokens: 12_000,
     timeoutMs: 100_000,
     messages: [
       { role: 'system', content: voice ? SYSTEM_PROMPT + BRAND_VOICE_PROMPT : SYSTEM_PROMPT },
