@@ -74,11 +74,15 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   SME_ARTICLE_META:            "SEO SME · Meta (AI)",
   UPLOAD_THEME_SCAN:           "Upload Article · สแกนธีมเว็บ",
   UPLOAD_SITE_SCAN:            "Upload Article · สแกนเว็บปลายทาง",
+  UPLOAD_ARTICLE_CONNECT_HELP: "Upload Article · AI ช่วยแก้การเชื่อมต่อ",
+  COMPLIANCE_CHECK:            "Compliance · ตรวจบทความ (AI)",
+  COMPLIANCE_RULE_UPDATE:      "Compliance · AI อัปเดตกฎ",
 };
 
 const PAGE_BADGE: Record<string, string> = {
   "Upload Article": "bg-violet-50 text-violet-700 border border-violet-100",
   Clients:          "bg-blue-50 text-brand-blue border border-blue-100",
+  Compliance:       "bg-amber-50 text-amber-700 border border-amber-100",
   Studio:           "bg-gray-100 text-gray-500",
 };
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Info, Loader2, Plus } from "lucide-react";
+import { Info, Loader2, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Chip, EmptyState, Panel, Segmented } from "@/components/ds";
@@ -12,6 +12,7 @@ import {
 } from "@/lib/compliance/types";
 import { api, type IndustryOpt } from "./shared";
 import RuleDialog from "./RuleDialog";
+import RuleUpdateDialog from "./RuleUpdateDialog";
 
 export type RuleRow = RuleLite & { status: RuleStatus };
 type StatusFilter = "" | RuleStatus;
@@ -29,6 +30,7 @@ export default function RulesTab({ industries, userRole, onChanged }: {
   const [dialog, setDialog] = useState<{ open: boolean; rule: RuleRow | null }>({ open: false, rule: null });
   const [busyId, setBusyId] = useState("");
   const [importing, setImporting] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,16 +63,27 @@ export default function RulesTab({ industries, userRole, onChanged }: {
     refresh();
   }
 
+  const updateList = industry
+    ? [{ key: industry, label: industryLabel(industry) }]
+    : industries.filter((i) => i.active + i.draft > 0).map((i) => ({ key: i.key, label: i.label }));
+
+  function startUpdate() {
+    if (updateList.length === 0) { toast.error("ยังไม่มีกฎให้ตรวจ — นำเข้าชุดกฎตั้งต้นก่อน"); return; }
+    setUpdating(true);
+  }
+
   async function importStarter() {
-    if (!industry) return;
     setImporting(true);
-    const { ok, data } = await api<{ created: number; skipped: number }>("/api/compliance/rules/starter", {
+    const { ok, data } = await api<{ created: number; skipped: number; activated?: number; drafts?: number }>("/api/compliance/rules/starter", {
       method: "POST",
-      body: JSON.stringify({ industry }),
+      body: JSON.stringify({ industry: industry || "all" }),
     });
     setImporting(false);
     if (!ok) { toast.error(data.error || "นำเข้าไม่สำเร็จ"); return; }
-    toast.success(`เพิ่มกฎฉบับร่าง ${data.created} ข้อ (ข้ามที่มีอยู่แล้ว ${data.skipped} ข้อ)`);
+    toast.success(
+      `เพิ่มกฎ ${data.created} ข้อ — เปิดใช้แล้ว ${data.activated ?? 0} ข้อ, ฉบับร่าง ${data.drafts ?? 0} ข้อ (ข้ามที่มีอยู่แล้ว ${data.skipped} ข้อ)`,
+      { duration: 9000 },
+    );
     refresh();
   }
 
@@ -78,7 +91,7 @@ export default function RulesTab({ industries, userRole, onChanged }: {
     <div className="space-y-4">
       <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-800">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
-        <p>กฎฉบับร่างยังไม่ถูกใช้ตรวจ — ต้องใส่แหล่งอ้างอิงและวันที่มีผลบังคับใช้ให้ครบก่อนเปิดใช้</p>
+        <p>ชุดกฎตั้งต้นที่มีแหล่งกฎหมายและวันที่มีผลบังคับใช้ครบจะเปิดใช้ทันที ข้อที่ยังยืนยันแหล่งไม่ได้จะเป็นฉบับร่าง — กฎฉบับร่างยังไม่ถูกใช้ตรวจ ต้องใส่แหล่งอ้างอิงและวันที่มีผลบังคับใช้ให้ครบก่อนเปิดใช้</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -99,9 +112,12 @@ export default function RulesTab({ industries, userRole, onChanged }: {
         />
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-            <Button size="sm" variant="outline" onClick={importStarter} disabled={!industry || importing} title={industry ? undefined : "เลือกอุตสาหกรรมก่อน"}>
+            <Button size="sm" variant="outline" onClick={startUpdate} title="AI อ่านแหล่งกฎหมายล่าสุดแล้วเสนอสิ่งที่ต้องอัปเดต">
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" /> ให้ AI ตรวจอัปเดตกฎ
+            </Button>
+            <Button size="sm" variant="outline" onClick={importStarter} disabled={importing} title={industry ? "นำเข้าเฉพาะอุตสาหกรรมที่เลือก" : "นำเข้าทุกอุตสาหกรรม"}>
               {importing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              เพิ่มชุดกฎตั้งต้น (ฉบับร่าง)
+              {industry ? "นำเข้าชุดกฎตั้งต้น" : "นำเข้าชุดกฎตั้งต้น (ทุกอุตสาหกรรม)"}
             </Button>
             <Button size="sm" onClick={() => setDialog({ open: true, rule: null })}>
               <Plus className="mr-1.5 h-3.5 w-3.5" /> เพิ่มกฎ
@@ -114,7 +130,7 @@ export default function RulesTab({ industries, userRole, onChanged }: {
         {loading ? (
           <EmptyState icon={<Loader2 className="h-5 w-5 animate-spin" />} title="กำลังโหลด..." />
         ) : rules.length === 0 ? (
-          <EmptyState title="ยังไม่มีกฎ" description={canEdit ? "เพิ่มกฎเอง หรือเลือกอุตสาหกรรมแล้วกด เพิ่มชุดกฎตั้งต้น" : "ผู้ดูแลระบบยังไม่ได้เพิ่มกฎ"} />
+          <EmptyState title="ยังไม่มีกฎ" description={canEdit ? "เพิ่มกฎเอง หรือกด นำเข้าชุดกฎตั้งต้น" : "ผู้ดูแลระบบยังไม่ได้เพิ่มกฎ"} />
         ) : (
           <div className="overflow-x-auto">
             <Table>
@@ -183,6 +199,9 @@ export default function RulesTab({ industries, userRole, onChanged }: {
           onClose={() => setDialog({ open: false, rule: null })}
           onSaved={() => { setDialog({ open: false, rule: null }); refresh(); }}
         />
+      )}
+      {updating && (
+        <RuleUpdateDialog industries={updateList} onClose={() => setUpdating(false)} onApplied={refresh} />
       )}
     </div>
   );

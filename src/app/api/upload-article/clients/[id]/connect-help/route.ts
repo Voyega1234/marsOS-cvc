@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { orChat } from '@/lib/openrouter'
+import { orChat, OR_MODELS } from '@/lib/openrouter'
+import { logAIJob } from '@/lib/logAIJob'
+import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { UPLOAD_PLATFORM_LABEL, type UploadPlatformId } from '@/lib/upload-article/platform-info'
 import { connectGuideText, redactSecrets } from '@/lib/upload-article/connect-guide'
@@ -80,6 +82,22 @@ ${error}
 คู่มือ:
 ${connectGuideText(platform)}`
 
+  // ลง AI Cost ใต้ลูกค้ารายนี้ของ Upload Article — logAIJob ไม่ throw จึงไม่กระทบคำตอบที่ส่งกลับ
+  const logCost = (status: 'SUCCESS' | 'FAILED', usage?: { totalTokens?: number; costUsd?: number }, errorMessage?: string) =>
+    logAIJob({
+      organizationId: session.user.organizationId!,
+      projectId: null,
+      inputSummary: uaJobInput(client.id),
+      jobType: 'UPLOAD_ARTICLE_CONNECT_HELP',
+      modelProvider: 'OPENROUTER',
+      modelName: OR_MODELS.default(),
+      status,
+      tokenUsed: usage?.totalTokens,
+      estimatedCost: usage?.costUsd,
+      errorMessage,
+      createdById: session.user.id,
+    })
+
   try {
     const r = await withOrClient(`upload-${slugifyClient(client.name)}`, () =>
       orChat({
@@ -94,9 +112,13 @@ ${connectGuideText(platform)}`
       }),
     )
     const parsed = parseHelp(r.text ?? '')
+    await logCost(parsed ? 'SUCCESS' : 'FAILED', r.usage, parsed ? undefined : `AI ตอบไม่ตรงรูปแบบ (output ${r.usage?.outputTokens ?? '?'} tokens, เพดาน 900)`)
     if (!parsed) return NextResponse.json({ error: FAIL_MSG }, { status: 502 })
     return NextResponse.json(parsed)
-  } catch {
+  } catch (e) {
+    // orChat แนบ usage มากับ error เมื่อโมเดลตอบว่าง — คำขอนั้นเสียเงินแล้ว จึงนับด้วย
+    const usage = (e as { usage?: { totalTokens?: number; costUsd?: number } }).usage
+    await logCost('FAILED', usage, e instanceof Error ? e.message : String(e))
     return NextResponse.json({ error: FAIL_MSG }, { status: 502 })
   }
 }

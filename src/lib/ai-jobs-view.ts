@@ -9,6 +9,9 @@ import { isUploadArticleJobType, uaClientIdFromJobInput, UPLOAD_ARTICLE_PAGE_LAB
 /** หน้า/เมนูที่สร้าง job — ผูก Project = เมนู Clients, ไม่ผูก = Studio */
 const CLIENTS_PAGE_LABEL = "Clients";
 const STUDIO_PAGE_LABEL = "Studio";
+/** งานของ Compliance Checker ที่ไม่ผูก Project (ตรวจบทความ Upload/วางเอง, AI อัปเดตกฎ) — แยกจาก Studio */
+const COMPLIANCE_PAGE_LABEL = "Compliance";
+const isComplianceJobType = (jobType: string) => jobType.startsWith("COMPLIANCE_");
 
 export async function loadAIJobsView(orgId: string) {
   const now = new Date();
@@ -66,6 +69,7 @@ export async function loadAIJobsView(orgId: string) {
     const uaId = uaClientIdFromJobInput(j.input);
     if (uaId) return { name: uploadClientNames[uaId] ?? "ลูกค้าที่ถูกลบ", page: UPLOAD_ARTICLE_PAGE_LABEL };
     if (isUploadArticleJobType(j.jobType)) return { name: null, page: UPLOAD_ARTICLE_PAGE_LABEL };
+    if (isComplianceJobType(j.jobType)) return { name: null, page: COMPLIANCE_PAGE_LABEL };
     return { name: null, page: STUDIO_PAGE_LABEL };
   }
 
@@ -73,10 +77,10 @@ export async function loadAIJobsView(orgId: string) {
   for (const j of monthUnlinked) {
     const src = jobSource(j);
     const uaId = uaClientIdFromJobInput(j.input);
-    const key = uaId ? `ua:${uaId}` : src.page === UPLOAD_ARTICLE_PAGE_LABEL ? "ua:unknown" : "none";
+    const key = uaId ? `ua:${uaId}` : src.page === UPLOAD_ARTICLE_PAGE_LABEL ? "ua:unknown" : src.page === COMPLIANCE_PAGE_LABEL ? "compliance" : "none";
     const g = unlinkedGroups.get(key) ?? {
       projectId: key,
-      projectName: src.name ?? (key === "ua:unknown" ? "ไม่ระบุลูกค้า (log ก่อนอัปเดต)" : "ไม่มี project"),
+      projectName: src.name ?? (key === "ua:unknown" ? "ไม่ระบุลูกค้า (log ก่อนอัปเดต)" : key === "compliance" ? "Compliance Checker" : "ไม่มี project"),
       page: src.page,
       cost: 0, tokens: 0, jobs: 0,
     };
