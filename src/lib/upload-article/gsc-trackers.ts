@@ -415,6 +415,8 @@ export interface GscTrackerPerformance extends UploadGscTracker {
   prevTotals: GscMetric
   daily: GscDailyPoint[]
   dailyPrev: GscDailyPoint[]
+  /** Site queries similar to this keyword (keyword and keyword+page trackers only), found automatically */
+  similar?: GscSimilarKeyword[]
 }
 
 export interface GscTrackerPerformanceResponse {
@@ -608,4 +610,161 @@ export function splitRowsByQuery(rows: readonly RawGscRow[]): Map<string, RawGsc
     if (list) list.push(row); else out.set(kw, [row])
   }
   return out
+}
+
+// ── Similar keywords (shown automatically under each tracked keyword) ──────────
+// The team should not have to search for variants by hand: every keyword tracker gets the
+// site's GSC queries that share most of its words (e.g. "chatgpt ads รับทำ" for "รับทำ chatgpt ads").
+
+/** Similar keywords kept per tracker, best first */
+export const SIMILAR_PER_TRACKER = 10
+
+export interface GscSimilarKeyword {
+  keyword: string
+  totals: GscMetric
+  prevTotals: GscMetric
+}
+
+/**
+ * Words of a keyword for similarity matching. Thai has no spaces, so Intl.Segmenter splits it
+ * ("รับยิงแอด" → รับ, ยิง, แอด). Words shorter than 2 characters are dropped; longest first, at most 6.
+ */
+export function similarTokens(keyword: string): string[] {
+  const text = normalizeTrackerKeyword(keyword)
+  if (!text) return []
+  const out = new Set<string>()
+  const seg = new Intl.Segmenter('th', { granularity: 'word' })
+  for (const s of Array.from(seg.segment(text))) {
+    const w = s.segment.trim()
+    if (!s.isWordLike || Array.from(w).length < 2) continue
+    out.add(w)
+  }
+  return Array.from(out).sort((a, b) => b.length - a.length || a.localeCompare(b)).slice(0, 6)
+}
+
+/** Share of the keyword's words (weighted by length) found in the query, and how many words matched */
+export function similarMatch(query: string, tokens: readonly string[]): { score: number; matched: number } {
+  const q = normalizeTrackerKeyword(query)
+  let total = 0
+  let hit = 0
+  let matched = 0
+  for (const t of tokens) {
+    total += t.length
+    if (q.includes(t)) { hit += t.length; matched++ }
+  }
+  return { score: total > 0 ? hit / total : 0, matched }
+}
+
+/**
+ * Word pairs strong enough to define "similar": together they cover half the keyword's length;
+ * when no pair does, the pairs that include the longest word. At most 15, strongest first.
+ */
+function similarPairs(tokens: readonly string[]): [string, string][] {
+  const total = tokens.reduce((n, t) => n + t.length, 0)
+  const pairs: [string, string, number][] = []
+  for (let i = 0; i < tokens.length; i++) {
+    for (let j = i + 1; j < tokens.length; j++) pairs.push([tokens[i], tokens[j], tokens[i].length + tokens[j].length])
+  }
+  pairs.sort((a, b) => b[2] - a[2])
+  let keep = pairs.filter((p) => p[2] * 2 >= total)
+  if (!keep.length) keep = pairs.filter((p) => p[0] === tokens[0] || p[1] === tokens[0])
+  return keep.slice(0, 15).map(([a, b]) => [a, b])
+}
+
+/**
+ * A query counts as similar when it contains one of the strong word pairs (the one word, for
+ * one-word keywords) and at least half the keyword by length. Same rule as the GSC regex, so a
+ * query is judged the same whichever batch it came back in. Build once, test many queries.
+ */
+export function similarMatcher(tokens: readonly string[]): (normalizedQuery: string) => boolean {
+  if (!tokens.length) return () => false
+  if (tokens.length === 1) return (q) => q.includes(tokens[0])
+  const pairs = similarPairs(tokens)
+  return (q) => pairs.some(([a, b]) => q.includes(a) && q.includes(b)) && similarMatch(q, tokens).score >= 0.5
+}
+
+export function isSimilarQuery(query: string, tokens: readonly string[]): boolean {
+  return similarMatcher(tokens)(normalizeTrackerKeyword(query))
+}
+
+/**
+ * RE2 pre-filter for GSC (partial match, no flags): queries that contain a strong word pair
+ * (similarPairs) in either order. The result is then checked with isSimilarQuery.
+ * Returns '' when the keyword has no usable words.
+ */
+export function buildSimilarRegex(tokens: readonly string[]): string {
+  if (tokens.length === 0) return ''
+  if (tokens.length === 1) return escapeRe2(tokens[0])
+  return similarPairs(tokens)
+    .map(([a, b]) => `${escapeRe2(a)}.*${escapeRe2(b)}|${escapeRe2(b)}.*${escapeRe2(a)}`)
+    .join('|')
+}
+
+/**
+ * Packs several keywords' similar regexes into one GSC call each (dimension query only, so rows
+ * stay few): (?i)(?:r1|r2|...). Keywords without usable words are skipped.
+ */
+export function chunkSimilarRegex(keywords: readonly string[], maxCount = 15, maxLen = 3500): { regex: string; keywords: string[] }[] {
+  const out: { regex: string; keywords: string[] }[] = []
+  let parts: string[] = []
+  let kws: string[] = []
+  let len = 0
+  const flush = () => {
+    if (parts.length) out.push({ regex: `(?i)(?:${parts.join('|')})`, keywords: kws })
+    parts = []; kws = []; len = 0
+  }
+  for (const kw of Array.from(new Set(keywords.map(normalizeTrackerKeyword).filter(Boolean)))) {
+    const re = buildSimilarRegex(similarTokens(kw))
+    if (!re || re.length > maxLen - 16) continue
+    const piece = `(?:${re})`
+    if (parts.length >= maxCount || (parts.length && len + piece.length + 1 > maxLen - 16)) flush()
+    parts.push(piece); kws.push(kw); len += piece.length + 1
+  }
+  flush()
+  return out
+}
+
+/**
+ * Similar queries of one keyword from GSC rows with dimension [query] (current + compare period).
+ * Leaves out the keyword itself, `skip` (keywords already tracked on their own) and `exclude`
+ * (forbidden words). Only queries seen in the current period; sorted by clicks, then impressions.
+ */
+export function pickSimilarKeywords(
+  curRows: readonly RawGscRow[],
+  prevRows: readonly RawGscRow[],
+  keyword: string,
+  opts: { limit?: number; skip?: ReadonlySet<string>; exclude?: (keyword: string) => boolean } = {},
+): GscSimilarKeyword[] {
+  const self = normalizeTrackerKeyword(keyword)
+  const tokens = similarTokens(self)
+  if (!tokens.length) return []
+  const isSimilar = similarMatcher(tokens)
+  const metric = (r?: RawGscRow): GscMetric => ({
+    clicks: r?.clicks ?? 0, impressions: r?.impressions ?? 0, ctr: r?.ctr ?? 0, position: r?.position ?? 0,
+  })
+  const prev = new Map<string, RawGscRow>()
+  for (const r of prevRows) {
+    const k = normalizeTrackerKeyword(r.keys?.[0])
+    if (k && !prev.has(k)) prev.set(k, r)
+  }
+  const seen = new Set<string>()
+  const out: GscSimilarKeyword[] = []
+  for (const r of curRows) {
+    const kw = normalizeTrackerKeyword(r.keys?.[0])
+    if (!kw || kw === self || seen.has(kw) || opts.skip?.has(kw) || opts.exclude?.(kw) || !isSimilar(kw)) continue
+    seen.add(kw)
+    out.push({ keyword: kw, totals: metric(r), prevTotals: metric(prev.get(kw)) })
+  }
+  out.sort((a, b) => b.totals.clicks - a.totals.clicks || b.totals.impressions - a.totals.impressions || a.keyword.localeCompare(b.keyword))
+  return out.slice(0, opts.limit ?? SIMILAR_PER_TRACKER)
+}
+
+/** Response of POST /report/trackers/query-series: one query's daily line, for the chart under a similar keyword */
+export interface GscQuerySeriesResponse {
+  keyword: string
+  hasData: boolean
+  totals: GscMetric
+  prevTotals: GscMetric
+  daily: GscDailyPoint[]
+  dailyPrev: GscDailyPoint[]
 }

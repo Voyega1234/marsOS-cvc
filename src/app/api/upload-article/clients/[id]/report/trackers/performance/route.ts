@@ -11,9 +11,11 @@ import {
   type RawGscRow, type ReportCompareMode, type ReportSearchType,
 } from '@/lib/upload-article/gsc-report'
 import {
-  buildTrackerPageRegex, buildTrackerSeries, chunkKeywordRegex, isIdPermalinkUrl, readGscTrackers, splitRowsByQuery, trackerKind,
+  buildTrackerPageRegex, buildTrackerSeries, chunkKeywordRegex, chunkSimilarRegex, isIdPermalinkUrl, normalizeTrackerKeyword,
+  pickSimilarKeywords, readGscTrackers, splitRowsByQuery, trackerKind,
   type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse,
 } from '@/lib/upload-article/gsc-trackers'
+import { hasForbiddenTerm } from '@/lib/wordgod/local/normalize'
 import { resolveIdPermalink } from '@/lib/upload-article/gsc-tracker-resolve'
 import { GSC_BUDGET_BUSY_MESSAGE, gscTrackerBudget } from '@/lib/upload-article/gsc-budget'
 
@@ -47,6 +49,11 @@ const QUERY_CONCURRENCY = 6
 const KEYWORD_BATCH = 25
 const PAIR_BATCH = 10
 const PAGE_BATCH = 10
+/**
+ * Similar keywords (word-order variants etc.) are found automatically for keyword and keyword+page
+ * trackers: one extra query-only call per 15 keywords and period, no date dimension, so it stays small.
+ */
+const SIMILAR_BATCH = 15
 
 function isForbiddenError(e: unknown): boolean {
   const err = e as { code?: number | string; response?: { status?: number } } | null
@@ -180,6 +187,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const keys = new Set<string>()
   for (const x of targets) if (x.key) keys.add(x.key)
   const rowsByKey = new Map<string, { cur: RawGscRow[]; prev: RawGscRow[] }>()
+  // คำใกล้เคียง: เฉพาะรายการที่มี keyword (keyword / keyword+หน้า) — คำที่ติดตามอยู่แล้วไม่ต้องแนะนำซ้ำ
+  const similarWords = Array.from(new Set(targets.filter((x) => x.key && x.kind !== 'page').map((x) => x.tracker.keyword)))
+  const trackedKeywords = new Set(targets.filter((x) => x.kind === 'keyword').map((x) => normalizeTrackerKeyword(x.tracker.keyword)))
+  const similarCur: RawGscRow[] = []
+  const similarPrev: RawGscRow[] = []
 
   if (keys.size > 0) {
     let auth: Awaited<ReturnType<typeof getGSCServiceAuth>>
@@ -190,22 +202,36 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     const sc = google.searchconsole({ version: 'v1', auth })
     const list = buildBatches(keys)
+    const similarSpecs: QuerySpec[] = chunkSimilarRegex(similarWords, SIMILAR_BATCH).map((c) => ({
+      key: `S\u0001${c.regex}`, dimensions: ['query'], filter: { dimension: 'query', operator: 'includingRegex', expression: c.regex },
+    }))
     // ช่วงปัจจุบัน + ช่วงเทียบ = 2 ครั้งต่อชุด — กันไม่ให้เกินส่วนแบ่งโควต้าของ service account
-    if (!gscTrackerBudget.take(list.length * 2)) return NextResponse.json({ error: GSC_BUDGET_BUSY_MESSAGE }, { status: 429 })
+    if (!gscTrackerBudget.take((list.length + similarSpecs.length) * 2)) return NextResponse.json({ error: GSC_BUDGET_BUSY_MESSAGE }, { status: 429 })
+    type Job = () => Promise<void>
+    const jobs: Job[] = [
+      ...list.map((batch): Job => async () => {
+        const [cur, prev] = await Promise.all([
+          runQuery(sc, siteUrl, batch.spec, period.start, period.end, searchType),
+          runQuery(sc, siteUrl, batch.spec, period.compareStart, period.compareEnd, searchType),
+        ])
+        const curByKey = batch.split(cur)
+        const prevByKey = batch.split(prev)
+        for (const k of Array.from(new Set([...Array.from(curByKey.keys()), ...Array.from(prevByKey.keys())]))) {
+          rowsByKey.set(k, { cur: curByKey.get(k) ?? [], prev: prevByKey.get(k) ?? [] })
+        }
+      }),
+      ...similarSpecs.map((spec): Job => async () => {
+        const [cur, prev] = await Promise.all([
+          runQuery(sc, siteUrl, spec, period.start, period.end, searchType),
+          runQuery(sc, siteUrl, spec, period.compareStart, period.compareEnd, searchType),
+        ])
+        similarCur.push(...cur)
+        similarPrev.push(...prev)
+      }),
+    ]
     try {
-      for (let i = 0; i < list.length; i += QUERY_CONCURRENCY) {
-        const chunk = list.slice(i, i + QUERY_CONCURRENCY)
-        await Promise.all(chunk.map(async (batch) => {
-          const [cur, prev] = await Promise.all([
-            runQuery(sc, siteUrl, batch.spec, period.start, period.end, searchType),
-            runQuery(sc, siteUrl, batch.spec, period.compareStart, period.compareEnd, searchType),
-          ])
-          const curByKey = batch.split(cur)
-          const prevByKey = batch.split(prev)
-          for (const k of Array.from(new Set([...Array.from(curByKey.keys()), ...Array.from(prevByKey.keys())]))) {
-            rowsByKey.set(k, { cur: curByKey.get(k) ?? [], prev: prevByKey.get(k) ?? [] })
-          }
-        }))
+      for (let i = 0; i < jobs.length; i += QUERY_CONCURRENCY) {
+        await Promise.all(jobs.slice(i, i + QUERY_CONCURRENCY).map((run) => run()))
       }
     } catch (e) {
       if (isForbiddenError(e)) {
@@ -241,6 +267,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       prevTotals: prev.totals,
       daily: cur.daily,
       dailyPrev: prev.daily,
+      similar: key && kind !== 'page'
+        ? pickSimilarKeywords(similarCur, similarPrev, tracker.keyword, { skip: trackedKeywords, exclude: hasForbiddenTerm })
+        : undefined,
     }
   })
 

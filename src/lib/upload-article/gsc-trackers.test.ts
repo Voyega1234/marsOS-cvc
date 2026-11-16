@@ -4,7 +4,7 @@
  */
 import { createQueryBudget, GSC_TRACKER_QUERIES_PER_MINUTE } from './gsc-budget';
 import {
-  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, splitRowsByQuery, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
 } from './gsc-trackers';
@@ -346,4 +346,39 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(b.take(8, 60_000) && b.used(60_000) === 10, 'budget: frees the oldest after the window');
   assert(GSC_TRACKER_QUERIES_PER_MINUTE * 2 <= 600, 'budget: two instances stay under half of 1,200/min');
 }
+// ── similar keywords (found automatically under each tracker) ──
+{
+  const tokens = similarTokens('รับทำ chatgpt ads');
+  assert(tokens.includes('chatgpt') && tokens.includes('ads') && tokens.includes('รับ') && tokens.includes('ทำ'), 'similar: Thai + English words segmented');
+  assert(isSimilarQuery('chatgpt ads รับทำ', tokens), 'similar: word order swapped');
+  assert(isSimilarQuery('chatgpt ads', tokens), 'similar: shorter variant');
+  assert(!isSimilarQuery('chatgpt', tokens), 'similar: one word is not enough');
+  assert(!isSimilarQuery('รับทำเว็บ', tokens), 'similar: unrelated query with the short words only');
+  assert(!isSimilarQuery('รับทำ ads facebook', tokens), 'similar: misses the strongest word');
+  assert(isSimilarQuery('CPAS คือ', similarTokens('cpas')), 'similar: one-word keyword, case-insensitive');
+
+  const [chunk] = chunkSimilarRegex(['รับทำ chatgpt ads', 'cpas']);
+  const re = new RegExp(chunk.regex.replace(/^\(\?i\)/, ''), 'i');
+  assert(chunk.keywords.length === 2 && chunk.regex.startsWith('(?i)'), 'similar regex: one batch, case-insensitive');
+  for (const q of ['chatgpt ads รับทำ', 'ads chatgpt', 'cpas คือ']) assert(re.test(q), `similar regex: matches "${q}"`);
+  assert(!re.test('รับทำเว็บ'), 'similar regex: skips unrelated query');
+  assert(chunkSimilarRegex(Array.from({ length: 20 }, (_, i) => `kw${i} test${i}`)).length === 2, 'similar regex: 15 keywords per batch');
+
+  const cur: RawGscRow[] = [
+    { keys: ['chatgpt ads รับทำ'], clicks: 2, impressions: 50, ctr: 0.04, position: 8 },
+    { keys: ['รับทำ chatgpt ads'], clicks: 9, impressions: 90, ctr: 0.1, position: 3 },
+    { keys: ['chatgpt ads'], clicks: 5, impressions: 200, ctr: 0.025, position: 12 },
+    { keys: ['chatgpt ads pantip'], clicks: 9, impressions: 99, ctr: 0.09, position: 2 },
+    { keys: ['รับทำ chatgpt ads ราคา'], clicks: 0, impressions: 10, ctr: 0, position: 30 },
+    { keys: ['รับทำเว็บ'], clicks: 50, impressions: 900, ctr: 0.05, position: 4 },
+  ];
+  const prev: RawGscRow[] = [{ keys: ['chatgpt ads'], clicks: 1, impressions: 80, ctr: 0.0125, position: 15 }];
+  const picked = pickSimilarKeywords(cur, prev, 'รับทำ ChatGPT ads', {
+    skip: new Set(['รับทำ chatgpt ads ราคา']), exclude: (k) => k.includes('pantip'),
+  });
+  assert(picked.map((x) => x.keyword).join('|') === 'chatgpt ads|chatgpt ads รับทำ', 'similar pick: self, skip, excluded and unrelated left out; sorted by clicks');
+  assert(picked[0].prevTotals.clicks === 1 && picked[1].prevTotals.impressions === 0, 'similar pick: previous period joined, missing = 0');
+  assert(pickSimilarKeywords(cur, prev, 'รับทำ chatgpt ads', { limit: 1 }).length === 1, 'similar pick: limit');
+}
+
 console.log(`\nAll ${passed} assertions passed`);

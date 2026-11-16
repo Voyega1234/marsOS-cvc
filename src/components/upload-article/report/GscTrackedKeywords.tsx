@@ -13,7 +13,8 @@ import GscKeywordSuggestDialog, { termFromGroupName } from "./GscKeywordSuggestD
 import { AreaChart, EmptyState, Panel, Segmented } from "@/components/ds";
 import {
   UPLOAD_MAX_GSC_TRACKERS, UPLOAD_MAX_TRACKER_GROUP, UPLOAD_MAX_TRACKER_KEYWORD, UPLOAD_MAX_TRACKER_URL, trackerKind,
-  type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse, type UploadGscTracker,
+  type GscQuerySeriesResponse, type GscSimilarKeyword, type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse,
+  type UploadGscTracker,
 } from "@/lib/upload-article/gsc-trackers";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
 
@@ -732,6 +733,9 @@ export default function GscTrackedKeywords({
                                 </td>
                               </tr>
                             )}
+                            {usable?.similar && usable.similar.length > 0 && (
+                              <SimilarRows key={periodKey} list={usable.similar} base={base} periodKey={periodKey} metric={metric} name={name} />
+                            )}
                           </TrackerRowFragment>
                         );
                       })}
@@ -744,6 +748,114 @@ export default function GscTrackedKeywords({
         </>
       )}
     </div>
+  );
+}
+
+/** How many similar keywords show under a tracker before "+ อีก N คำ" */
+const SIMILAR_SHOWN = 5;
+
+type SeriesState = { loading: true } | { loading: false; data?: GscQuerySeriesResponse; error?: string };
+
+/**
+ * Similar keywords that GSC returned for a tracker's keyword (found automatically by the performance
+ * route). Each one opens its own daily chart; the chart is fetched only when opened (2 GSC calls, cached).
+ */
+function SimilarRows({ list, base, periodKey, metric, name }: {
+  list: GscSimilarKeyword[]; base: string; periodKey: string; metric: Metric; name: string;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const [series, setSeries] = useState<Record<string, SeriesState>>({});
+
+  async function loadSeries(keyword: string) {
+    setSeries((prev) => ({ ...prev, [keyword]: { loading: true } }));
+    try {
+      const r = await fetch(`${base}/query-series`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...JSON.parse(periodKey), keyword }),
+      });
+      const d = await r.json().catch(() => ({}));
+      setSeries((prev) => ({ ...prev, [keyword]: r.ok ? { loading: false, data: d as GscQuerySeriesResponse } : { loading: false, error: d?.error || "ดึงกราฟไม่สำเร็จ" } }));
+    } catch (e) {
+      setSeries((prev) => ({ ...prev, [keyword]: { loading: false, error: `ดึงกราฟไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}` } }));
+    }
+  }
+  function toggle(keyword: string) {
+    const next = new Set(open);
+    if (next.has(keyword)) next.delete(keyword);
+    else {
+      next.add(keyword);
+      const st = series[keyword];
+      if (!st || (!st.loading && !st.data)) void loadSeries(keyword);
+    }
+    setOpen(next);
+  }
+
+  const shown = showAll ? list : list.slice(0, SIMILAR_SHOWN);
+  return (
+    <>
+      {shown.map((s) => {
+        const isOpen = open.has(s.keyword);
+        const t = s.totals;
+        const pt = s.prevTotals;
+        const hasImp = t.impressions > 0;
+        const st = series[s.keyword];
+        return (
+          <TrackerRowFragment key={s.keyword}>
+            <tr className={`border-b border-gray-50 text-[13px] ${isOpen ? "bg-brand-mist/30" : "bg-gray-50/40 hover:bg-gray-50"}`}>
+              <td className="px-3 py-1.5" />
+              <td className="px-2 py-1.5 min-w-0 max-w-[22rem]">
+                <button type="button" onClick={() => toggle(s.keyword)} aria-expanded={isOpen}
+                  title={isOpen ? "ซ่อนกราฟ" : "ดูกราฟ"} className="ml-5 flex items-center gap-1.5 min-w-0 w-[calc(100%-1.25rem)] text-left">
+                  <span className="shrink-0 text-gray-300">↳</span>
+                  <ChevronDown size={12} className={`shrink-0 text-gray-400 transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                  <span className="truncate text-gray-700 hover:text-brand-blue hover:underline">{s.keyword}</span>
+                  <span className="shrink-0 rounded-full bg-gray-100 px-1.5 py-px text-[10px] text-gray-500">คำใกล้เคียง</span>
+                </button>
+              </td>
+              <td className="px-2 py-1.5 text-center"><span className="text-[10px] text-gray-400" title="ทุกหน้าของเว็บ">ทั้งเว็บ</span></td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{fmtNum(t.clicks)} <Arrow diff={t.clicks - pt.clicks} text={fmtNum(Math.abs(t.clicks - pt.clicks))} /></td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{fmtNum(t.impressions)} <Arrow diff={t.impressions - pt.impressions} text={fmtNum(Math.abs(t.impressions - pt.impressions))} /></td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{hasImp ? fmtCtr(t.ctr) : "—"}</td>
+              <td className="px-1 py-1 text-center tabular-nums">
+                <span className={`inline-block min-w-[4.5rem] rounded-md px-2 py-1 ${hasImp ? positionTone(t.position) : "bg-gray-50 text-gray-400"}`}>
+                  {hasImp ? fmtPos(t.position) : "—"}{" "}
+                  {hasImp && pt.impressions > 0 && <Arrow lowerIsBetter diff={t.position - pt.position} text={Math.abs(t.position - pt.position).toFixed(1)} />}
+                </span>
+              </td>
+              <td className="px-3 py-1.5" />
+            </tr>
+            {isOpen && (
+              <tr className="border-b border-gray-100 bg-white/60">
+                <td colSpan={8} className="px-4 py-4 md:px-6">
+                  {!st || st.loading ? (
+                    <div className="py-10 flex justify-center text-gray-400"><Loader2 size={18} className="animate-spin" /></div>
+                  ) : st.error || !st.data ? (
+                    <p className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+                      {st.error || "ดึงกราฟไม่สำเร็จ"}{" "}
+                      <button type="button" onClick={() => void loadSeries(s.keyword)} className="underline">ลองใหม่</button>
+                    </p>
+                  ) : (
+                    <TrackerBody p={{ ...st.data, unresolved: false }} kind="keyword" metric={metric} name={name} />
+                  )}
+                </td>
+              </tr>
+            )}
+          </TrackerRowFragment>
+        );
+      })}
+      {list.length > SIMILAR_SHOWN && (
+        <tr className="border-b border-gray-100 bg-gray-50/40">
+          <td />
+          <td colSpan={7} className="px-2 py-1">
+            <button type="button" onClick={() => setShowAll(!showAll)} className="ml-5 text-[11px] text-brand-blue hover:underline">
+              {showAll ? "ย่อคำใกล้เคียง" : `+ คำใกล้เคียงอีก ${list.length - SIMILAR_SHOWN} คำ`}
+            </button>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -795,7 +907,9 @@ const NO_DATA_TEXT: Record<GscTrackerKind, string> = {
   pair: "Search Console ไม่มีข้อมูลของ keyword นี้บนหน้านี้ในช่วงที่เลือก",
 };
 
-function TrackerBody({ p, kind, metric, name }: { p: GscTrackerPerformance; kind: GscTrackerKind; metric: Metric; name: string }) {
+type TrackerBodyData = Pick<GscTrackerPerformance, "daily" | "dailyPrev" | "totals" | "prevTotals" | "hasData" | "unresolved">;
+
+function TrackerBody({ p, kind, metric, name }: { p: TrackerBodyData; kind: GscTrackerKind; metric: Metric; name: string }) {
   const cur = p.daily.map((d) => ({ label: fmtDm(d.date), value: dailyValue(d, metric) }));
   const prev = p.dailyPrev.map((d) => ({ label: fmtDm(d.date), value: dailyValue(d, metric) }));
   const t = p.totals;
