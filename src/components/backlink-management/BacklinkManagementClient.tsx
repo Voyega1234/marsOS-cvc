@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useUrlState } from "@/hooks/use-url-state";
 import { Chip, PageHeader, UnderlineTabs } from "@/components/ds";
 import AsanaDialog, { type AsanaStatus } from "./AsanaDialog";
@@ -60,6 +61,23 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
     loadMeta();
     api<AsanaStatus>("/api/backlink-management/asana").then(setAsana).catch(() => {});
     api<SheetStatus>("/api/backlink-management/sheet").then(setSheet).catch(() => {});
+  }, [loadMeta]);
+
+  // ชีท Backlink Budget Tracker = รายชื่อโปรเจกต์ล่าสุดของทีม — โปรเจกต์ที่เพิ่มในชีทถูกสร้างในระบบเบื้องหลัง (ไม่เกินทุก 10 นาทีต่อแท็บ)
+  useEffect(() => {
+    const KEY = "blm_tracker_project_sync";
+    try {
+      const last = Number(sessionStorage.getItem(KEY) || 0);
+      if (Date.now() - last < 10 * 60 * 1000) return;
+      sessionStorage.setItem(KEY, String(Date.now()));
+    } catch { /* ไม่มี sessionStorage = ซิงก์ทุกครั้งที่เปิดหน้า */ }
+    api<{ created: string[] }>("/api/backlink-management/budget-tracker/sync", { method: "POST", json: {} })
+      .then((r) => {
+        if (!r.created?.length) return;
+        loadMeta();
+        toast.success(`เพิ่มโปรเจกต์จากชีทงบ Backlink ${r.created.length} โปรเจกต์: ${r.created.join(", ")}`);
+      })
+      .catch(() => {});
   }, [loadMeta]);
 
   const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -140,7 +158,7 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
       {tab === "vendors" ? <VendorsTab /> : null}
       {tab === "budget" ? <BudgetTab period={period} projectId={projectId} meta={meta} refreshKey={refreshKey} /> : null}
       {tab === "tracking" ? <TrackingTab projectId={projectId} period={period} refreshKey={refreshKey} onOpen={setOpenId} onChanged={bump} /> : null}
-      {tab === "report" ? <ReportTab period={meta?.period ?? ""} projectId={projectId} onOpenQuota={() => setTab("quota")} /> : null}
+      {tab === "report" ? <ReportTab period={meta?.period ?? ""} projectId={projectId} onOpenQuota={() => setTab("quota")} onProjectsChanged={loadMeta} /> : null}
       {tab === "quota" ? <QuotaTab meta={meta} refreshKey={refreshKey} onOpenSheets={() => setSheetOpen(true)} /> : null}
 
       <RequestDrawer

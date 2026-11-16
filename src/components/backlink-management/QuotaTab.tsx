@@ -205,6 +205,8 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
   const reservePkg = view.packages.find((p) => p.id === reserve.pkgId) ?? null;
   const reserveSlot = reservePkg && reserve.slotIndex != null ? reservePkg.slots.find((s) => s.index === reserve.slotIndex) ?? null : null;
   const editPkg = pkgForm.pkg ? view.packages.find((p) => p.id === pkgForm.pkg!.id) ?? pkgForm.pkg : null;
+  const typeOptions = Array.from(new Set(view.packages.map((p) => p.type.trim().replace(/\s+/g, " ")).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, "th"));
 
   return (
     <div className="space-y-4">
@@ -438,6 +440,7 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
         open={pkgForm.open}
         onOpenChange={(v) => setPkgForm((s) => ({ ...s, open: v }))}
         sources={view.sources}
+        typeOptions={typeOptions}
         pkg={editPkg}
         onDone={setView}
       />

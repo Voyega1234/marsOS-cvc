@@ -6,8 +6,9 @@
  *  - a MarsOS reservation on one of its slots carries that project's id (Quota tab → จองช่อง);
  *  - the sheet's Clients column on one of its slots names the project (its name or its client name).
  *
- * For a bound package we offer the slots already tied to the project that have no link yet, plus one free slot
- * when the package still has usable quota. Expired or stale packages are never offered.
+ * Only slots whose sheet Status is "On Process" are offered: that status is how the team marks a slot as booked
+ * for a client (owner rule, 2026-11-16). Slots with a link or another status, and empty slots, are never offered.
+ * Expired or stale packages are never offered.
  */
 import type { QuotaPackageView, QuotaSlotView } from "./quota-types";
 
@@ -62,6 +63,12 @@ function slotOpen(s: QuotaSlotView): boolean {
   return !s.linkUrl && !s.published;
 }
 
+/** Status "On Process" (any case/spacing; "In Process" too) = the slot is booked and waiting for its link. */
+export function isOnProcessStatus(status: string | null | undefined): boolean {
+  const k = normalizeClientName(status);
+  return k === "onprocess" || k === "inprocess";
+}
+
 function pickWebsite(p: QuotaPackageView, s: QuotaSlotView | null): string {
   const reserved = s?.reservation?.website?.trim();
   if (reserved) return reserved;
@@ -85,30 +92,25 @@ function option(p: QuotaPackageView, s: QuotaSlotView | null, kind: QuotaOptionK
   };
 }
 
-/** Quota options for one project. Reserved slots first, then sheet-named slots, then one free slot per bound package. */
+/**
+ * Quota options for one project: booked ("On Process") slots with no link yet, tied to the project by a MarsOS
+ * reservation or by the sheet's Clients column. MarsOS reservations first, then sheet-named slots.
+ */
 export function quotaOptionsForProject(packages: QuotaPackageView[] | null | undefined, project: QuotaRequestProject | null | undefined): QuotaRequestOption[] {
   if (!project || !project.id || !Array.isArray(packages)) return [];
   const reserved: QuotaRequestOption[] = [];
   const sheet: QuotaRequestOption[] = [];
-  const free: QuotaRequestOption[] = [];
   for (const p of packages) {
     if (!p || p.stale || p.expired) continue;
     const slots = Array.isArray(p.slots) ? p.slots : [];
-    let bound = false;
     for (const s of slots) {
+      if (!slotOpen(s) || !isOnProcessStatus(s.status)) continue;
       const byReservation = s.reservation?.projectId === project.id;
-      const bySheet = !byReservation && clientMatchesProject(s.client, project);
-      if (!byReservation && !bySheet) continue;
-      bound = true;
-      if (!slotOpen(s)) continue;
-      (byReservation ? reserved : sheet).push(option(p, s, byReservation ? "reserved" : "sheet"));
-    }
-    if (bound && (p.usable ?? 0) > 0) {
-      const empty = slots.find((s) => !s.used && !s.reservation) ?? null;
-      free.push(option(p, empty, "free"));
+      if (byReservation) reserved.push(option(p, s, "reserved"));
+      else if (clientMatchesProject(s.client, project)) sheet.push(option(p, s, "sheet"));
     }
   }
-  return [...reserved, ...sheet, ...free];
+  return [...reserved, ...sheet];
 }
 
 /** A site name sent by the client for a quota request: one line, no control characters, at most 200 characters. */

@@ -19,7 +19,7 @@ interface Report {
   byStatus: { status: string; count: number }[];
 }
 
-export default function ReportTab({ period, projectId, onOpenQuota }: { period: string; projectId: string; onOpenQuota?: () => void }) {
+export default function ReportTab({ period, projectId, onOpenQuota, onProjectsChanged }: { period: string; projectId: string; onOpenQuota?: () => void; onProjectsChanged?: () => void }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState(period);
   const [data, setData] = useState<Report | null>(null);
@@ -94,7 +94,7 @@ export default function ReportTab({ period, projectId, onOpenQuota }: { period: 
         <KpiTile label="ใช้จริง" value={money(t.spendActual)} tone="navy" hint={t.costPerLiveLink !== null ? `ต้นทุนต่อลิงก์ปกติ ${money(t.costPerLiveLink)}` : undefined} />
       </div>
 
-      <BudgetTrackerPanel onData={(d) => { trackerRef.current = d; }} />
+      <BudgetTrackerPanel onData={(d) => { trackerRef.current = d; }} onProjectsChanged={onProjectsChanged} />
       <QuotaSummaryPanel onOpenQuota={onOpenQuota} />
 
       <div className="grid gap-4 lg:grid-cols-3">

@@ -23,7 +23,7 @@ import { LINK_ERROR_TEXT, addAttachmentLink, checkAttachmentFile, uploadAttachme
 import type { QuotaPackageView } from "@/lib/backlink-management/quota-types";
 import { quotaNoteLine, quotaOptionsForProject, withQuotaNote, type QuotaRequestOption } from "@/lib/backlink-management/quota-request";
 
-const QUOTA_KIND_LABEL: Record<QuotaRequestOption["kind"], string> = { reserved: "จองไว้แล้ว", sheet: "ชีทระบุลูกค้านี้", free: "ช่องว่าง" };
+const QUOTA_KIND_LABEL: Record<QuotaRequestOption["kind"], string> = { reserved: "จองไว้แล้ว (On Process · จองใน MarsOS)", sheet: "จองไว้แล้ว (On Process ในชีท)", free: "ช่องว่าง" };
 
 /** สร้าง / แก้ไขคำขอ (edit: ส่งแถวเดิมมา) */
 export default function RequestDialog({ open, onOpenChange, meta, edit, duplicateFrom, asana, defaultProjectId, defaultPeriod, onSaved }: {
@@ -321,7 +321,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
           ) : null}
           {useQuota ? (
             <div>
-              <Label>เว็บที่จะฝากลิงก์ (จากโควต้าของโปรเจกต์)</Label>
+              <Label>เว็บที่จะฝากลิงก์ (เฉพาะช่องโควต้าที่จองไว้ — สถานะ On Process)</Label>
               <SearchSelect
                 value={quotaKey}
                 onChange={pickQuota}

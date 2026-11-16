@@ -191,10 +191,12 @@ export function ReserveDialog({ open, onOpenChange, meta, view, pkg, slot, onDon
 }
 
 /** เพิ่ม / แก้แพ็กเกจ (ครบ 6 ช่องของชีท) */
-export function PackageDialog({ open, onOpenChange, sources, pkg, onDone }: {
+export function PackageDialog({ open, onOpenChange, sources, pkg, typeOptions = [], onDone }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   sources: QuotaSourceView[];
+  /** Type ที่เคยใช้ในชีท (ไว้เลือก) */
+  typeOptions?: string[];
   /** null = สร้างใหม่ */
   pkg: QuotaPackageView | null;
   onDone: (v: QuotaView) => void;
@@ -221,7 +223,8 @@ export function PackageDialog({ open, onOpenChange, sources, pkg, onDone }: {
     setUnits(pkg?.units != null ? String(pkg.units) : "");
     setStartDate(pkg?.startDate ?? "");
     setExpireDate(pkg?.expireDate ?? "");
-  }, [open, pkg, sources]);
+    // รีเซ็ตฟอร์มเฉพาะตอนเปิด / เปลี่ยนแพ็กเกจ — ข้อมูลโหลดใหม่ระหว่างพิมพ์ต้องไม่ล้างสิ่งที่พิมพ์ค้างไว้
+  }, [open, pkg?.id]);
 
   const tabs = sources.find((s) => s.id === sourceId)?.tabs ?? [];
 
@@ -290,8 +293,30 @@ export function PackageDialog({ open, onOpenChange, sources, pkg, onDone }: {
             </div>
           ) : null}
           <div>
-            <Label>Type</Label>
-            <Input value={type} onChange={(e) => setType(e.target.value)} />
+            <Label htmlFor="quota-pkg-type">Type</Label>
+            <Input
+              id="quota-pkg-type"
+              list="quota-pkg-type-options"
+              autoComplete="off"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              placeholder={typeOptions.length ? "พิมพ์ หรือเลือกจากรายการ" : "เช่น Guest Post"}
+            />
+            <datalist id="quota-pkg-type-options">{typeOptions.map((t) => <option key={t} value={t} />)}</datalist>
+            {typeOptions.length ? (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {typeOptions.slice(0, 12).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setType(t)}
+                    className={`rounded-full border px-2 py-0.5 text-xs ${type === t ? "border-[#1d48f3] bg-[#1d48f3] text-white" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           <div>
             <Label>Website</Label>

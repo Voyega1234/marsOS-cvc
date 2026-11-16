@@ -1,6 +1,6 @@
 /** Run: npx tsx src/lib/backlink-management/quota-request.test.ts */
 import assert from "node:assert/strict";
-import { cleanVendorDomain, clientMatchesProject, normalizeClientName, quotaNoteLine, quotaOptionsForProject, withQuotaNote } from "./quota-request";
+import { cleanVendorDomain, clientMatchesProject, isOnProcessStatus, normalizeClientName, quotaNoteLine, quotaOptionsForProject, withQuotaNote } from "./quota-request";
 import type { QuotaPackageView, QuotaSlotView } from "./quota-types";
 
 let n = 0;
@@ -25,6 +25,7 @@ function pkg(id: string, slots: QuotaSlotView[], over: Partial<QuotaPackageView>
   } as QuotaPackageView;
 }
 
+const OP = { status: "On Process" };
 const resv = (projectId: string, website = "") => ({ id: "r1", reservedById: "u", reservedByName: "U", website, projectId, projectName: "", note: "", createdAt: "" });
 const clicx = { id: "p1", name: "Clicx Bank", clientName: "Clicx" };
 
@@ -49,62 +50,67 @@ t("no project or no packages -> empty", () => {
 });
 
 t("unbound package is not offered", () => {
-  assert.deepEqual(quotaOptionsForProject([pkg("a", [slot(0, { client: "Other Co" }), slot(1)])], clicx), []);
+  assert.deepEqual(quotaOptionsForProject([pkg("a", [slot(0, { client: "Other Co", ...OP }), slot(1)])], clicx), []);
 });
 
-t("reserved slot, sheet slot and one free slot, in that order", () => {
+t("On Process status: any case or spacing, In Process too", () => {
+  assert.ok(isOnProcessStatus("On Process"));
+  assert.ok(isOnProcessStatus(" on  process "));
+  assert.ok(isOnProcessStatus("ON-PROCESS"));
+  assert.ok(isOnProcessStatus("In Process"));
+  assert.ok(!isOnProcessStatus("Published"));
+  assert.ok(!isOnProcessStatus(""));
+  assert.ok(!isOnProcessStatus(null));
+});
+
+t("only On Process slots: reservation first, then sheet-named; no free slots", () => {
   const p = pkg("a", [
-    slot(0, { client: "Clicx Bank", status: "On Process" }),
-    slot(1, { reservation: resv("p1", "dailynews.co.th") }),
+    slot(0, { client: "Clicx Bank", ...OP }),
+    slot(1, { reservation: resv("p1", "dailynews.co.th"), ...OP }),
     slot(2),
     slot(3),
   ]);
   const o = quotaOptionsForProject([p], clicx);
-  assert.deepEqual(o.map((x) => [x.kind, x.slotIndex]), [["reserved", 1], ["sheet", 0], ["free", 2]]);
+  assert.deepEqual(o.map((x) => [x.kind, x.slotIndex]), [["reserved", 1], ["sheet", 0]]);
   assert.equal(o[0].website, "dailynews.co.th");
   assert.equal(o[1].website, "terrabkk.com");
   assert.equal(o[0].pricePerLink, 3000);
   assert.equal(o[0].key, "a:1");
 });
 
-t("slots with a link or published are not offered, but still bind the package", () => {
+t("slots without On Process are not offered (blank, Done, Published, link set)", () => {
   const p = pkg("a", [
-    slot(0, { client: "Clicx", linkUrl: "https://x.com/a", status: "Published" }),
+    slot(0, { client: "Clicx", linkUrl: "https://x.com/a", ...OP }),
     slot(1, { client: "Clicx", status: "Published" }),
-    slot(2),
+    slot(2, { client: "Clicx", status: "Done" }),
+    slot(3, { reservation: resv("p1") }),
+    slot(4, { client: "Clicx" }),
+    slot(5),
   ]);
-  const o = quotaOptionsForProject([p], clicx);
-  assert.deepEqual(o.map((x) => [x.kind, x.slotIndex]), [["free", 2]]);
+  assert.deepEqual(quotaOptionsForProject([p], clicx), []);
 });
 
-t("expired, stale or full packages give no free slot", () => {
-  const bind = () => [slot(0, { reservation: resv("p1") }), slot(1)];
+t("expired or stale packages are not offered", () => {
+  const bind = () => [slot(0, { reservation: resv("p1"), ...OP }), slot(1)];
   assert.deepEqual(quotaOptionsForProject([pkg("a", bind(), { expired: true })], clicx), []);
   assert.deepEqual(quotaOptionsForProject([pkg("a", bind(), { stale: true })], clicx), []);
-  const full = quotaOptionsForProject([pkg("a", bind(), { usable: 0 })], clicx);
-  assert.deepEqual(full.map((x) => x.kind), ["reserved"]);
-});
-
-t("free slot with no empty row -> slotIndex null", () => {
-  const p = pkg("a", [slot(0, { client: "Clicx Bank", status: "On Process" })], { usable: 2 });
-  const o = quotaOptionsForProject([p], clicx);
-  assert.deepEqual(o.map((x) => [x.kind, x.slotIndex, x.key]), [["sheet", 0, "a:0"], ["free", null, "a:new"]]);
+  assert.deepEqual(quotaOptionsForProject([pkg("a", bind(), { usable: 0 })], clicx).map((x) => x.kind), ["reserved"]);
 });
 
 t("reservation for another project does not bind", () => {
-  const p = pkg("a", [slot(0, { reservation: resv("p2") }), slot(1)]);
+  const p = pkg("a", [slot(0, { reservation: resv("p2"), ...OP }), slot(1)]);
   assert.deepEqual(quotaOptionsForProject([p], clicx), []);
 });
 
 t("unknown price -> null, website falls back to vendor name", () => {
-  const p = pkg("a", [slot(0, { reservation: resv("p1") })], { pricePerLink: null, websites: [] });
+  const p = pkg("a", [slot(0, { reservation: resv("p1"), ...OP })], { pricePerLink: null, websites: [] });
   const [o] = quotaOptionsForProject([p], clicx);
   assert.equal(o.pricePerLink, null);
   assert.equal(o.website, "TerraBKK");
 });
 
 t("note line names site, sheet and slot", () => {
-  const p = pkg("a", [slot(0, { reservation: resv("p1", "dailynews.co.th") }), slot(1)]);
+  const p = pkg("a", [slot(0, { reservation: resv("p1", "dailynews.co.th"), ...OP }), slot(1, { client: "Clicx", ...OP })]);
   const [r, f] = quotaOptionsForProject([p], clicx);
   assert.equal(quotaNoteLine(r), "[โควต้า] dailynews.co.th · Backlink Quota / 2026 · ช่องที่ 1");
   assert.equal(quotaNoteLine(f), "[โควต้า] terrabkk.com · Backlink Quota / 2026 · ช่องที่ 2");
