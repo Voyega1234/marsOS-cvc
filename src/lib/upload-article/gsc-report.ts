@@ -41,8 +41,11 @@ function pct(cur: number, prev: number): number {
 }
 
 export function buildOverview(curRows: RawGscRow[], prevRows: RawGscRow[]): GscOverview {
-  const current = rowMetric(curRows[0])
-  const previous = rowMetric(prevRows[0])
+  return overviewFromMetrics(rowMetric(curRows[0]), rowMetric(prevRows[0]))
+}
+
+/** Overview จากผลรวมที่คำนวณไว้แล้ว (เช่น รวม Keyword ที่ติดตามของผู้ดูแล) — สูตร delta เดียวกับ buildOverview */
+export function overviewFromMetrics(current: GscMetric, previous: GscMetric): GscOverview {
   const deltaAbs: GscMetric = {
     clicks: current.clicks - previous.clicks,
     impressions: current.impressions - previous.impressions,

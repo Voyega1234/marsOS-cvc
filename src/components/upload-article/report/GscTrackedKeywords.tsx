@@ -263,18 +263,27 @@ export default function GscTrackedKeywords({
     for (const t of trackers) if (t.group) set.add(t.group);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "th", { numeric: true }));
   }, [trackers]);
+  // แถวที่ไม่มีกลุ่มแยกตามผู้ดูแล หัวเป็นชื่อผู้ดูแล — key ขึ้นต้นด้วยตัวคั่นที่ชื่อกลุ่มจริงมีไม่ได้ (ชื่อกลุ่มถูกตัดช่องว่างหัวท้าย) จึงไม่ชนกัน
+  // name = ชื่อกลุ่มจริง ('' = ไม่มีกลุ่ม), label = ข้อความบนหัว, key = ใช้จำการพับ
   const groups = useMemo(() => {
     const byName = new Map<string, UploadGscTracker[]>();
+    const byOwner = new Map<string, UploadGscTracker[]>();
+    const loose: UploadGscTracker[] = [];
     for (const t of visibleTrackers) {
-      const g = t.group || "";
-      const list = byName.get(g);
-      if (list) list.push(t); else byName.set(g, [t]);
+      const owner = effectiveOwner(t);
+      const [m, k] = t.group ? [byName, t.group] : owner ? [byOwner, owner] : [null, ""];
+      if (!m) { loose.push(t); continue; }
+      const list = m.get(k);
+      if (list) list.push(t); else m.set(k, [t]);
     }
-    const named = Array.from(byName.keys()).filter(Boolean).sort((a, b) => a.localeCompare(b, "th", { numeric: true }));
-    const out = named.map((g) => ({ name: g, items: byName.get(g)! }));
-    if (byName.has("")) out.push({ name: "", items: byName.get("")! });
+    const sortTh = (a: string, b: string) => a.localeCompare(b, "th", { numeric: true });
+    const out: { key: string; name: string; label: string; items: UploadGscTracker[] }[] = Array.from(byName.keys()).sort(sortTh)
+      .map((g) => ({ key: g, name: g, label: g, items: byName.get(g)! }));
+    const owners = Array.from(byOwner.keys()).map((id) => ({ id, label: ownerName(id) ?? "ผู้ดูแล" })).sort((a, b) => sortTh(a.label, b.label));
+    for (const o of owners) out.push({ key: ` owner:${o.id}`, name: "", label: o.label, items: byOwner.get(o.id)! });
+    if (loose.length) out.push({ key: "", name: "", label: "ไม่มีกลุ่ม", items: loose });
     return out;
-  }, [visibleTrackers]);
+  }, [visibleTrackers, effectiveOwner, ownerName]);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   useEffect(() => { setCollapsedGroups(readCollapsed(clientId)); }, [clientId]);
@@ -284,10 +293,10 @@ export default function GscTrackedKeywords({
     setCollapsedGroups(next);
     writeCollapsed(clientId, next);
   }
-  const allGroupsCollapsed = groups.length > 0 && groups.every((g) => collapsedGroups.has(g.name));
+  const allGroupsCollapsed = groups.length > 0 && groups.every((g) => collapsedGroups.has(g.key));
   function setAllGroups(collapse: boolean) {
     const next = new Set(collapsedGroups);
-    for (const g of groups) { if (collapse) next.add(g.name); else next.delete(g.name); }
+    for (const g of groups) { if (collapse) next.add(g.key); else next.delete(g.key); }
     setCollapsedGroups(next);
     writeCollapsed(clientId, next);
   }
@@ -585,22 +594,22 @@ export default function GscTrackedKeywords({
                 </thead>
                 {groups.map((g) => {
                   const ids = g.items.map((t) => t.id);
-                  const isCollapsed = collapsedGroups.has(g.name);
+                  const isCollapsed = collapsedGroups.has(g.key);
                   const sum = sumPerf(g.items.map((t) => perfById.get(t.id)));
                   return (
-                    <tbody key={g.name || "__ungrouped__"}>
+                    <tbody key={g.key || "__ungrouped__"}>
                       <tr className="border-b border-gray-100 bg-gray-50/80">
                         <td className="px-3 py-2">
-                          <input type="checkbox" aria-label={`เลือกทั้งกลุ่ม ${g.name || "ไม่มีกลุ่ม"}`}
+                          <input type="checkbox" aria-label={`เลือกทั้งกลุ่ม ${g.label}`}
                             checked={ids.every((id) => selected.has(id))}
                             onChange={(e) => toggleSelect(ids, e.target.checked)} />
                         </td>
                         <td className="px-2 py-2" colSpan={2}>
-                          <button type="button" onClick={() => toggleGroup(g.name)} aria-expanded={!isCollapsed}
+                          <button type="button" onClick={() => toggleGroup(g.key)} aria-expanded={!isCollapsed}
                             className="flex items-center gap-2 font-semibold text-brand-navy hover:text-brand-blue">
                             <ChevronDown size={14} className={`text-gray-400 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
                             {isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
-                            <span>{g.name || "ไม่มีกลุ่ม"}</span>
+                            <span>{g.label}</span>
                             <span className="rounded-full bg-gray-200/80 px-2 py-0.5 text-[10px] font-medium text-gray-600">{g.items.length}</span>
                           </button>
                         </td>
@@ -609,9 +618,9 @@ export default function GscTrackedKeywords({
                         <td className="px-2 py-2 text-right tabular-nums">{sum && sum.impressions > 0 ? fmtCtr(sum.ctr) : "—"}</td>
                         <td className="px-2 py-2 text-center tabular-nums">{sum && sum.impressions > 0 ? fmtPos(sum.position) : "—"}</td>
                         <td className="px-3 py-2 text-right">
-                          {g.name && (
+                          {g.key && (
                             <button type="button" disabled={busy} onClick={() => void renameGroup(g.name, ids)}
-                              className="text-gray-400 hover:text-brand-blue disabled:opacity-50" title="เปลี่ยนชื่อกลุ่ม / เอาออกจากกลุ่ม">
+                              className="text-gray-400 hover:text-brand-blue disabled:opacity-50" title={g.name ? "เปลี่ยนชื่อกลุ่ม / เอาออกจากกลุ่ม" : "ตั้งชื่อกลุ่มให้รายการของผู้ดูแลนี้"}>
                               <Pencil size={13} />
                             </button>
                           )}

@@ -3,9 +3,9 @@
  * Run: npx tsx src/lib/upload-article/gsc-trackers.test.ts
  */
 import {
-  addGscTracker, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
-  GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type UploadGscTracker,
+  GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
 } from './gsc-trackers';
 import { isHostAllowedForSite } from './gsc-tracker-resolve';
 import type { RawGscRow } from './gsc-report';
@@ -247,6 +247,44 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(!isHostAllowedForSite('blog.example.com', 'https://example.com/'), 'host: url-prefix subdomain rejected');
   assert(!isHostAllowedForSite('', 'sc-domain:example.com') && !isHostAllowedForSite('example.com', ''), 'host: empty rejected');
   assert(!isHostAllowedForSite('localhost', 'sc-domain:localhost'), 'host: dotless domain rejected');
+}
+
+// ── aggregateTrackerPerformance (KPI + กราฟของผู้ดูแล) ──
+{
+  const pt = (date: string, clicks: number, impressions: number, position: number) =>
+    ({ date, clicks, impressions, ctr: impressions ? clicks / impressions : 0, position });
+  const perf = (id: string, over: Partial<GscTrackerPerformance>): GscTrackerPerformance => ({
+    id, keyword: 'k', url: '', createdAt: '2026-11-01T00:00:00.000Z', kind: 'keyword', matchUrl: '',
+    hasData: true, unresolved: false, matchedPages: [],
+    totals: { clicks: 0, impressions: 0, ctr: 0, position: 0 },
+    prevTotals: { clicks: 0, impressions: 0, ctr: 0, position: 0 },
+    daily: [], dailyPrev: [], ...over,
+  });
+  const a = perf('a', {
+    totals: { clicks: 10, impressions: 100, ctr: 0.1, position: 4 },
+    prevTotals: { clicks: 5, impressions: 50, ctr: 0.1, position: 8 },
+    daily: [pt('2026-11-01', 6, 60, 3), pt('2026-11-02', 4, 40, 5.5)],
+    dailyPrev: [pt('2026-10-01', 5, 50, 8)],
+  });
+  const b = perf('b', {
+    totals: { clicks: 30, impressions: 300, ctr: 0.1, position: 12 },
+    prevTotals: { clicks: 15, impressions: 150, ctr: 0.1, position: 10 },
+    daily: [pt('2026-11-01', 30, 300, 12)],
+    dailyPrev: [pt('2026-10-01', 15, 150, 10)],
+  });
+  const skipped = perf('c', { unresolved: true, totals: { clicks: 999, impressions: 999, ctr: 1, position: 1 } });
+
+  const agg = aggregateTrackerPerformance([a, b, skipped])!;
+  assert(agg.count === 2, 'aggregate: unresolved trackers are skipped');
+  assert(agg.overview.current.clicks === 40 && agg.overview.current.impressions === 400, 'aggregate: clicks and impressions add up');
+  assert(near(agg.overview.current.ctr, 0.1), 'aggregate: CTR = clicks / impressions');
+  assert(near(agg.overview.current.position, (4 * 100 + 12 * 300) / 400), 'aggregate: position weighted by impressions');
+  assert(near(agg.overview.previous.position, (8 * 50 + 10 * 150) / 200), 'aggregate: previous period weighted the same way');
+  assert(agg.overview.deltaAbs.clicks === 20 && agg.overview.deltaPct.clicks === 100, 'aggregate: deltas use the buildOverview formula');
+  assert(agg.daily.length === 2 && agg.daily[0].date === '2026-11-01' && agg.daily[0].clicks === 36, 'aggregate: daily points with the same date are summed');
+  assert(near(agg.daily[0].position, (3 * 60 + 12 * 300) / 360), 'aggregate: daily position weighted by impressions');
+  assert(agg.daily[1].clicks === 4 && agg.dailyPrev.length === 1 && agg.dailyPrev[0].clicks === 20, 'aggregate: dates only one tracker has stay, previous series summed');
+  assert(aggregateTrackerPerformance([]) === null && aggregateTrackerPerformance([skipped]) === null, 'aggregate: nothing usable = null');
 }
 
 console.log(`\nAll ${passed} assertions passed`);

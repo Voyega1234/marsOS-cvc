@@ -17,7 +17,7 @@ import GscTable, { type GscTableColumn } from "./GscTable";
 import { GscKpiRow, GscTrendPanel, GscBucketPanel } from "./GscCharts";
 import OwnerTagsEditor from "./OwnerTagsEditor";
 import GscTrackedKeywords, { type TrackerDraft } from "./GscTrackedKeywords";
-import { trackerKey, trackerKeys, type UploadGscTracker } from "@/lib/upload-article/gsc-trackers";
+import { aggregateTrackerPerformance, trackerKey, trackerKeys, type GscTrackerPerformance, type UploadGscTracker } from "@/lib/upload-article/gsc-trackers";
 import ArticleOwnerSelect from "@/components/upload-article/ArticleOwnerSelect";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
 import type {
@@ -148,6 +148,47 @@ export default function UploadGscReportTab({
   const [trackerDraft, setTrackerDraft] = useState<TrackerDraft | null>(null);
   const trackedKeys = useMemo(() => new Set(trackers.flatMap((t) => trackerKeys(t))), [trackers]);
 
+  // ── เลือกผู้ดูแลที่มี Keyword ที่ติดตาม: KPI + กราฟด้านบน = ผลรวมของรายการที่ติด tag ผู้ดูแลนั้น ──
+  // ช่วงข้อมูลตามที่ "ดึงข้อมูล" ล่าสุด (ไม่ใช่ค่าที่เพิ่งเปลี่ยนใน dropdown) ให้ตรงกับรายงานบทความ — body เดียวกับแท็บ Keyword ที่ติดตาม จึงใช้ cache ฝั่ง server ร่วมกัน
+  const [reportPeriodKey, setReportPeriodKey] = useState("");
+  const ownerTrackerIds = useMemo(
+    () => (ownerFilter ? trackers.filter((t) => t.ownerTagId === ownerFilter).map((t) => t.id) : []),
+    [trackers, ownerFilter],
+  );
+  const ownerTrackerSig = ownerTrackerIds.join(",");
+  const [ownerPerf, setOwnerPerf] = useState<GscTrackerPerformance[] | null>(null);
+  const [ownerPerfLoading, setOwnerPerfLoading] = useState(false);
+  const [ownerPerfError, setOwnerPerfError] = useState("");
+  const ownerPerfSeq = useRef(0);
+  useEffect(() => {
+    const seq = ++ownerPerfSeq.current;
+    if (!ownerTrackerSig || !reportPeriodKey) { setOwnerPerf(null); setOwnerPerfLoading(false); setOwnerPerfError(""); return; }
+    setOwnerPerfLoading(true);
+    setOwnerPerfError("");
+    fetch(`/api/upload-article/clients/${clientId}/report/trackers/performance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: reportPeriodKey,
+    })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (seq !== ownerPerfSeq.current) return;
+        if (!r.ok) { setOwnerPerf(null); setOwnerPerfError(d?.error || "ดึงผล Keyword ที่ติดตามไม่สำเร็จ"); return; }
+        setOwnerPerf(Array.isArray(d?.trackers) ? d.trackers : []);
+      })
+      .catch((e) => {
+        if (seq !== ownerPerfSeq.current) return;
+        setOwnerPerf(null);
+        setOwnerPerfError(`ดึงผล Keyword ที่ติดตามไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      })
+      .finally(() => { if (seq === ownerPerfSeq.current) setOwnerPerfLoading(false); });
+  }, [clientId, ownerTrackerSig, reportPeriodKey]);
+  const ownerAgg = useMemo(() => {
+    if (!ownerPerf || !ownerTrackerIds.length) return null;
+    const ids = new Set(ownerTrackerIds);
+    return aggregateTrackerPerformance(ownerPerf.filter((p) => ids.has(p.id)));
+  }, [ownerPerf, ownerTrackerIds]);
+
   useEffect(() => {
     let cancelled = false;
     setTrackers([]);
@@ -229,6 +270,7 @@ export default function UploadGscReportTab({
       const body: Record<string, unknown> = { compare, searchType };
       if (customRange && startDate && endDate) { body.startDate = startDate; body.endDate = endDate; }
       else body.days = days;
+      setReportPeriodKey(JSON.stringify(body));
       if (ownerFilter) body.ownerTagId = ownerFilter;
       const r = await fetch(`/api/upload-article/clients/${clientId}/report`, {
         method: "POST",
@@ -260,13 +302,16 @@ export default function UploadGscReportTab({
     navigator.clipboard.writeText(serviceEmail).then(() => toast.success("คัดลอกแล้ว")).catch(() => toast.error("คัดลอกไม่สำเร็จ"));
   }
 
+  // ผู้ดูแลที่มี Keyword ที่ติดตาม = ใช้ผลรวมของรายการเหล่านั้นแทนผลของบทความ
+  const topDaily = ownerAgg ? ownerAgg.daily : data?.daily;
+  const topDailyPrev = ownerAgg ? ownerAgg.dailyPrev : data?.dailyPrev;
   const dailyCurrent = useMemo(
-    () => (data?.daily ?? []).map((d) => ({ date: d.date, value: dailyMetric === "clicks" ? d.clicks : d.impressions })),
-    [data, dailyMetric],
+    () => (topDaily ?? []).map((d) => ({ date: d.date, value: dailyMetric === "clicks" ? d.clicks : d.impressions })),
+    [topDaily, dailyMetric],
   );
   const dailyPrevious = useMemo(
-    () => (data?.dailyPrev ?? []).map((d) => ({ date: d.date, value: dailyMetric === "clicks" ? d.clicks : d.impressions })),
-    [data, dailyMetric],
+    () => (topDailyPrev ?? []).map((d) => ({ date: d.date, value: dailyMetric === "clicks" ? d.clicks : d.impressions })),
+    [topDailyPrev, dailyMetric],
   );
 
   // ช่วงข้อมูลชุดเดียวกับที่ loadReport ส่ง (ไม่รวมตัวกรองผู้ดูแล)
@@ -367,9 +412,23 @@ export default function UploadGscReportTab({
 
           {data?.ownerFilter && (
             <div className="bg-brand-mist/60 border border-brand-soft/40 rounded-xl px-4 py-2.5 text-xs text-brand-navy">
-              กรองเฉพาะบทความของ <span className="font-semibold">{ownerTags.find((t) => t.id === data.ownerFilter?.tagId)?.name ?? "ผู้ดูแลที่ถูกลบ"}</span>
-              {" "}— {data.ownerFilter.articles.toLocaleString()} บทความ, พบใน GSC {data.ownerFilter.pagesMatched.toLocaleString()} หน้า
-              {data.ownerFilter.articles === 0 && <span className="text-gray-500"> (ยังไม่มีบทความที่ Push แล้วภายใต้ผู้ดูแลนี้)</span>}
+              {ownerTrackerIds.length > 0 && ownerFilter === data.ownerFilter.tagId ? (
+                <>
+                  KPI และกราฟด้านบน = ผลรวม Keyword ที่ติดตาม <span className="font-semibold">{(ownerAgg?.count ?? ownerTrackerIds.length).toLocaleString()} รายการ</span>
+                  {" "}ของ <span className="font-semibold">{ownerTags.find((t) => t.id === data.ownerFilter?.tagId)?.name ?? "ผู้ดูแลที่ถูกลบ"}</span>
+                  {ownerPerfLoading && <Loader2 size={11} className="inline animate-spin ml-1.5 text-gray-400" />}
+                  {ownerPerfError && <span className="text-red-600"> — {ownerPerfError}</span>}
+                  <span className="text-gray-500">
+                    {" "}· แท็บอื่นกรองตามบทความที่ Push แล้ว {data.ownerFilter.articles.toLocaleString()} บทความ, พบใน GSC {data.ownerFilter.pagesMatched.toLocaleString()} หน้า
+                  </span>
+                </>
+              ) : (
+                <>
+                  กรองเฉพาะบทความของ <span className="font-semibold">{ownerTags.find((t) => t.id === data.ownerFilter?.tagId)?.name ?? "ผู้ดูแลที่ถูกลบ"}</span>
+                  {" "}— {data.ownerFilter.articles.toLocaleString()} บทความ, พบใน GSC {data.ownerFilter.pagesMatched.toLocaleString()} หน้า
+                  {data.ownerFilter.articles === 0 && <span className="text-gray-500"> (ยังไม่มีบทความที่ Push แล้วภายใต้ผู้ดูแลนี้)</span>}
+                </>
+              )}
             </div>
           )}
 
@@ -390,7 +449,7 @@ export default function UploadGscReportTab({
           {data && (
             <>
               {/* ── KPI ── */}
-              <GscKpiRow overview={data.overview} />
+              <GscKpiRow overview={ownerAgg?.overview ?? data.overview} />
 
               {/* ── กราฟรายวัน ── */}
               <GscTrendPanel current={dailyCurrent} previous={dailyPrevious} metric={dailyMetric} onMetricChange={setDailyMetric} />

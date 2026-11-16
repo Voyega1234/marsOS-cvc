@@ -3,8 +3,8 @@
 // เก็บใน UploadClient.pushPrefs.gscTrackers (JSON เดิม ไม่แก้ schema) เขียนผ่าน updatePrefs เท่านั้น
 
 import {
-  escapeRe2, normalizeReportUrl,
-  type GscDailyPoint, type GscMetric, type RawGscRow, type ReportPeriod, type ReportSearchType,
+  escapeRe2, normalizeReportUrl, overviewFromMetrics,
+  type GscDailyPoint, type GscMetric, type GscOverview, type RawGscRow, type ReportPeriod, type ReportSearchType,
 } from './gsc-report'
 
 /**
@@ -419,4 +419,71 @@ export interface GscTrackerPerformance extends UploadGscTracker {
 export interface GscTrackerPerformanceResponse {
   period: ReportPeriod & { siteUrl: string; searchType: ReportSearchType; fetchedAt: string }
   trackers: GscTrackerPerformance[]
+}
+
+// ── ผลรวมของหลายรายการ (เช่น ทุกรายการของผู้ดูแลคนหนึ่ง) สำหรับ KPI + กราฟด้านบนของ Report ──────────
+
+export interface GscTrackerAggregate {
+  /** จำนวนรายการที่นำมารวม (ไม่นับ unresolved) */
+  count: number
+  overview: GscOverview
+  daily: GscDailyPoint[]
+  dailyPrev: GscDailyPoint[]
+}
+
+function sumDaily(series: GscDailyPoint[][]): GscDailyPoint[] {
+  const byDate = new Map<string, { clicks: number; impressions: number; posWeighted: number }>()
+  for (const list of series) {
+    for (const p of list) {
+      const cur = byDate.get(p.date) ?? { clicks: 0, impressions: 0, posWeighted: 0 }
+      cur.clicks += p.clicks
+      cur.impressions += p.impressions
+      cur.posWeighted += p.position * p.impressions
+      byDate.set(p.date, cur)
+    }
+  }
+  return Array.from(byDate.keys()).sort().map((date) => {
+    const v = byDate.get(date)!
+    return {
+      date,
+      clicks: v.clicks,
+      impressions: v.impressions,
+      ctr: v.impressions > 0 ? v.clicks / v.impressions : 0,
+      position: v.impressions > 0 ? v.posWeighted / v.impressions : 0,
+    }
+  })
+}
+
+function sumMetric(list: GscMetric[]): GscMetric {
+  let clicks = 0
+  let impressions = 0
+  let posWeighted = 0
+  for (const m of list) {
+    clicks += m.clicks
+    impressions += m.impressions
+    posWeighted += m.position * m.impressions
+  }
+  return {
+    clicks,
+    impressions,
+    ctr: impressions > 0 ? clicks / impressions : 0,
+    position: impressions > 0 ? posWeighted / impressions : 0,
+  }
+}
+
+/**
+ * รวมผลของหลายรายการเป็นชุดเดียว: คลิก/การแสดงผลบวกกัน, CTR = คลิก/การแสดงผล, อันดับถ่วงตามการแสดงผล
+ * — สูตรเดียวกับผลรวมหัวกลุ่มในตาราง Keyword ที่ติดตาม ตัวเลขด้านบนจึงตรงกับตาราง
+ * รายการที่ซ้อนกัน (เช่น keyword เดียวกันทั้งเว็บ + บนหน้าหนึ่ง) ถูกนับซ้ำ เหมือนหัวกลุ่ม
+ * ไม่มีรายการที่ใช้ได้ = null
+ */
+export function aggregateTrackerPerformance(list: readonly GscTrackerPerformance[]): GscTrackerAggregate | null {
+  const usable = list.filter((p) => !p.unresolved)
+  if (!usable.length) return null
+  return {
+    count: usable.length,
+    overview: overviewFromMetrics(sumMetric(usable.map((p) => p.totals)), sumMetric(usable.map((p) => p.prevTotals))),
+    daily: sumDaily(usable.map((p) => p.daily)),
+    dailyPrev: sumDaily(usable.map((p) => p.dailyPrev)),
+  }
 }
