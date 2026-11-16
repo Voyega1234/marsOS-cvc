@@ -16,6 +16,10 @@ import SearchSelect from "./SearchSelect";
 import AsanaProjectSelect from "./AsanaProjectSelect";
 import type { AsanaStatus } from "./AsanaDialog";
 import { LINK_ERROR_TEXT, addAttachmentLink, checkAttachmentFile, uploadAttachment } from "./RequestAttachments";
+import type { QuotaPackageView } from "@/lib/backlink-management/quota-types";
+import { quotaNoteLine, quotaOptionsForProject, withQuotaNote, type QuotaRequestOption } from "@/lib/backlink-management/quota-request";
+
+const QUOTA_KIND_LABEL: Record<QuotaRequestOption["kind"], string> = { reserved: "จองไว้แล้ว", sheet: "ชีทระบุลูกค้านี้", free: "ช่องว่าง" };
 
 /** สร้าง / แก้ไขคำขอ (edit: ส่งแถวเดิมมา) */
 export default function RequestDialog({ open, onOpenChange, meta, edit, duplicateFrom, asana, defaultProjectId, defaultPeriod, onSaved }: {
@@ -35,6 +39,13 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
     projectId: "", vendorSiteId: "", targetUrl: "", anchorText: "", keyword: "", linkType: "dofollow",
     quotedPrice: "", budgetPeriod: "", assigneeId: "", dueDate: "", notes: "",
   });
+  /** แพ็กเกจโควต้า (อ่านจาก DB อย่างเดียว ไม่ดึงชีท); null = ยังไม่โหลด/โหลดไม่ได้ */
+  const [quotaPkgs, setQuotaPkgs] = useState<QuotaPackageView[] | null>(null);
+  /** แหล่งเว็บที่จะฝาก: คลังเว็บ หรือ ช่องโควต้าของโปรเจกต์ */
+  const [siteSource, setSiteSource] = useState<"vendor" | "quota">("vendor");
+  const [quotaKey, setQuotaKey] = useState("");
+  /** ผู้ใช้กดเลือกแหล่งเองแล้ว = ไม่สลับให้อัตโนมัติอีก */
+  const sourceTouched = useRef(false);
   const [saving, setSaving] = useState(false);
   const [staged, setStaged] = useState<File[]>([]);
   const [stagedLinks, setStagedLinks] = useState<{ url: string; label: string }[]>([]);
@@ -54,6 +65,13 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
     setAsanaProjectGid("");
     if (!open) return;
     api<{ vendors: Vendor[] }>("/api/backlink-management/vendors?status=ACTIVE").then((d) => setVendors(d.vendors)).catch(() => {});
+    // โควต้าเป็นตัวเลือกเสริม: โหลดไม่ได้ก็ใช้คลังเว็บตามเดิม
+    api<{ packages: QuotaPackageView[] }>("/api/backlink-management/quota?pull=0").then((d) => setQuotaPkgs(Array.isArray(d?.packages) ? d.packages : [])).catch(() => setQuotaPkgs(null));
+    sourceTouched.current = false;
+    setQuotaKey("");
+    // คำขอเดิมที่ไม่มีเว็บจากคลังแต่มีชื่อเว็บ = มาจากโควต้า
+    const src = edit ?? duplicateFrom ?? null;
+    setSiteSource(src && !src.vendorSiteId && src.vendorDomain ? "quota" : "vendor");
     autoPrice.current = !edit && duplicateFrom ? String(duplicateFrom.quotedPrice) : "";
     setF(edit ? {
       projectId: edit.projectId, vendorSiteId: edit.vendorSiteId ?? "", targetUrl: edit.targetUrl, anchorText: edit.anchorText,
@@ -104,11 +122,67 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
     }
   }
 
+  // โควต้าที่ผูกกับโปรเจกต์นี้ (จองไว้ใน MarsOS หรือชีทระบุชื่อลูกค้า)
+  const project = (meta?.projects ?? []).find((p) => p.id === f.projectId) ?? null;
+  const quotaOptions = useMemo(
+    () => (project ? quotaOptionsForProject(quotaPkgs, { id: project.id, name: project.name, clientName: project.clientName }) : []),
+    [quotaPkgs, project],
+  );
+  const pickedQuota = quotaOptions.find((o) => o.key === quotaKey) ?? null;
+  /** ชื่อเว็บโควต้าของคำขอเดิม (แก้ไข/ทำซ้ำ) เมื่อยังไม่ได้เลือกช่องใหม่ */
+  const srcQuotaDomain = srcRow && !srcRow.vendorSiteId ? srcRow.vendorDomain : "";
+  const showQuota = quotaOptions.length > 0 || (siteSource === "quota" && !!srcQuotaDomain);
+  const useQuota = showQuota && siteSource === "quota";
+
+  // โปรเจกต์มีโควต้า = เปิดตัวเลือกโควต้าให้ก่อน (ถ้าผู้ใช้ยังไม่ได้เลือกเว็บจากคลังหรือกดสลับเอง)
+  useEffect(() => {
+    if (!open || edit || sourceTouched.current) return;
+    if (quotaOptions.length > 0 && !f.vendorSiteId) setSiteSource("quota");
+    else if (quotaOptions.length === 0 && !srcQuotaDomain) setSiteSource("vendor");
+  }, [open, edit, quotaOptions.length, f.vendorSiteId, srcQuotaDomain]);
+
+  // เปลี่ยนโปรเจกต์ = ช่องโควต้าที่เลือกไว้ใช้ไม่ได้แล้ว
+  useEffect(() => {
+    if (quotaKey && !quotaOptions.some((o) => o.key === quotaKey)) {
+      setQuotaKey("");
+      setF((p) => ({ ...p, notes: withQuotaNote(p.notes, null) }));
+    }
+  }, [quotaOptions, quotaKey]);
+
+  function switchSource(next: "vendor" | "quota") {
+    sourceTouched.current = true;
+    setSiteSource(next);
+    if (next === "vendor") {
+      setQuotaKey("");
+      setF((p) => ({ ...p, notes: withQuotaNote(p.notes, null) }));
+    } else {
+      setF((p) => ({ ...p, vendorSiteId: "" }));
+    }
+  }
+
+  function pickQuota(key: string) {
+    setQuotaKey(key);
+    const o = quotaOptions.find((x) => x.key === key) ?? null;
+    setF((p) => {
+      const next = { ...p, vendorSiteId: "", notes: withQuotaNote(p.notes, o ? quotaNoteLine(o) : null) };
+      // ราคาต่อลิงก์ของแพ็กเกจ: เติมให้เมื่อราคาว่างหรือยังเป็นราคาที่ระบบเติม; ราคาที่ผู้ใช้พิมพ์เองไม่แตะ
+      if (o && o.pricePerLink != null && !locked) {
+        const prevAuto = autoPrice.current;
+        const price = String(o.pricePerLink);
+        if (!p.quotedPrice || (prevAuto !== "" && p.quotedPrice === prevAuto)) next.quotedPrice = price;
+        autoPrice.current = price;
+      }
+      return next;
+    });
+  }
+
   async function save() {
     if (!f.projectId) return toast.error("กรุณาเลือกโปรเจกต์");
     const keepEmptyUrl = !!edit && !edit.targetUrl.trim() && !f.targetUrl.trim();
     if (!keepEmptyUrl && !/^https?:\/\//i.test(f.targetUrl.trim())) return toast.error("URL หน้าลูกค้าต้องขึ้นต้นด้วย http:// หรือ https://");
     if (!edit && asanaOn && !asana?.projectGid && !asanaProjectGid) return toast.error("เลือกโปรเจกต์ Asana ก่อน — ระบบไม่ได้ล็อกโปรเจกต์เริ่มต้น");
+    // เว็บจากโควต้า: ช่องที่เลือกใหม่ หรือเว็บโควต้าเดิมของคำขอ
+    const quotaDomain = useQuota ? (pickedQuota?.website || srcQuotaDomain || "") : "";
     setSaving(true);
     try {
       if (edit) {
@@ -117,7 +191,11 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
           json: {
             targetUrl: f.targetUrl, anchorText: f.anchorText, keyword: f.keyword, linkType: f.linkType, notes: f.notes,
             assigneeId: f.assigneeId || null, dueDate: f.dueDate || null,
-            ...(locked ? {} : { vendorSiteId: f.vendorSiteId || null, quotedPrice: Number(f.quotedPrice || 0), budgetPeriod: f.budgetPeriod }),
+            ...(locked ? {} : {
+              vendorSiteId: useQuota ? null : f.vendorSiteId || null,
+              ...(useQuota ? { vendorDomain: quotaDomain } : {}),
+              quotedPrice: Number(f.quotedPrice || 0), budgetPeriod: f.budgetPeriod,
+            }),
           },
         });
         toast.success("บันทึกแล้ว");
@@ -125,7 +203,9 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
         const created = await api<{ request: { id: string; asanaSyncError?: string } }>("/api/backlink-management/requests", {
           method: "POST",
           json: {
-            projectId: f.projectId, vendorSiteId: f.vendorSiteId || undefined, targetUrl: f.targetUrl, anchorText: f.anchorText,
+            projectId: f.projectId, vendorSiteId: useQuota ? undefined : f.vendorSiteId || undefined,
+            ...(useQuota && quotaDomain ? { vendorDomain: quotaDomain } : {}),
+            targetUrl: f.targetUrl, anchorText: f.anchorText,
             keyword: f.keyword, linkType: f.linkType, quotedPrice: f.quotedPrice === "" ? undefined : Number(f.quotedPrice),
             budgetPeriod: f.budgetPeriod || undefined, assigneeId: f.assigneeId || undefined, dueDate: f.dueDate || undefined, notes: f.notes,
             ...(asanaOn && asanaProjectGid ? { asanaProjectGid } : {}),
@@ -222,6 +302,48 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
               options={(meta?.projects ?? []).map((p) => ({ value: p.id, label: `${p.name}${p.manual ? " (เพิ่มเอง)" : ""}`, hint: p.clientName || undefined }))}
             />
           </div>
+          {showQuota ? (
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="ที่มาของเว็บที่จะฝากลิงก์">
+              {([
+                ["quota", `ใช้โควต้า${quotaOptions.length > 0 ? ` (${quotaOptions.length})` : ""}`],
+                ["vendor", "เลือกจากคลังเว็บ"],
+              ] as const).map(([k, label]) => (
+                <button key={k} type="button" disabled={locked} aria-pressed={siteSource === k} onClick={() => switchSource(k)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-50 ${siteSource === k ? "border-brand-blue bg-brand-blue text-white" : "border-gray-200 bg-white text-gray-700 hover:bg-brand-mist"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {useQuota ? (
+            <div>
+              <Label>เว็บที่จะฝากลิงก์ (จากโควต้าของโปรเจกต์)</Label>
+              <SearchSelect
+                value={quotaKey}
+                onChange={pickQuota}
+                disabled={locked}
+                emptyLabel={srcQuotaDomain ? `${srcQuotaDomain} (เดิม)` : "— เลือกช่องโควต้า —"}
+                ariaLabel="ช่องโควต้า"
+                options={quotaOptions.map((o) => ({
+                  value: o.key,
+                  label: `${o.website}${o.pricePerLink != null ? ` · ${o.pricePerLink.toLocaleString("th-TH")} บาท/ลิงก์` : ""}`,
+                  hint: [
+                    QUOTA_KIND_LABEL[o.kind],
+                    [o.sourceTitle, o.tabTitle].filter(Boolean).join(" / "),
+                    o.expireDate ? `หมดอายุ ${o.expireDate.slice(0, 10)}` : "",
+                    o.usable != null ? `ใช้ได้ ${o.usable}` : "",
+                  ].filter(Boolean).join(" · "),
+                }))}
+              />
+              {pickedQuota ? (
+                <div className="mt-2 rounded-xl bg-brand-mist/40 p-2.5 text-xs text-gray-700">
+                  {QUOTA_KIND_LABEL[pickedQuota.kind]} · {pickedQuota.slotIndex === null ? "ช่องว่างใหม่ในแพ็กเกจ" : `ช่องที่ ${pickedQuota.slotIndex + 1}`}
+                  {pickedQuota.pricePerLink != null ? ` · ราคาต่อลิงก์ ${pickedQuota.pricePerLink.toLocaleString("th-TH")} บาท` : " · แพ็กเกจไม่มีราคาต่อลิงก์ ใส่ราคาเอง"}
+                  <div className="mt-1 text-gray-500">ระบบจดช่องโควต้าไว้ในหมายเหตุ ไม่เขียนลง Google Sheet</div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
           <div>
             <Label>เว็บที่จะฝากลิงก์ (จากคลังเว็บ)</Label>
             <SearchSelect
@@ -257,6 +379,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
               </div>
             ) : null}
           </div>
+          )}
           <div>
             <Label>URL หน้าลูกค้าที่ลิงก์ต้องชี้มา</Label>
             <Input value={f.targetUrl} onChange={(e) => set("targetUrl", e.target.value)} placeholder="https://" />
@@ -274,7 +397,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
             </div>
             <div>
               <Label>ราคา (บาท)</Label>
-              <Input type="number" min={0} value={f.quotedPrice} disabled={locked} onChange={(e) => set("quotedPrice", e.target.value)} placeholder="ใช้ราคาจากคลังเว็บ" />
+              <Input type="number" min={0} value={f.quotedPrice} disabled={locked} onChange={(e) => set("quotedPrice", e.target.value)} placeholder={useQuota ? "ราคาต่อลิงก์จากโควต้า" : "ใช้ราคาจากคลังเว็บ"} />
             </div>
             <div>
               <Label>ตัดงบเดือน</Label>

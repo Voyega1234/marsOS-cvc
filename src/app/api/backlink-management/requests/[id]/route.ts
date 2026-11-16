@@ -8,6 +8,7 @@ import { budgetFor, enrichOne } from "@/lib/backlink-management/requests-server"
 import { isHttpUrl, resolveAction } from "@/lib/backlink-management/workflow";
 import { LINK_TYPES, isApprover, statusLabel } from "@/lib/backlink-management/types";
 import { deleteRequestAttachments } from "@/lib/backlink-management/attachments-server";
+import { cleanVendorDomain } from "@/lib/backlink-management/quota-request";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -167,7 +168,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         const v = await prisma.blmVendorSite.findFirst({ where: { id: String(b.vendorSiteId), organizationId: ctx.orgId } });
         if (!v) return NextResponse.json({ error: "ไม่พบเว็บในคลัง" }, { status: 400 });
         data.vendorSiteId = v.id; data.vendorDomain = v.domain;
-      } else { data.vendorSiteId = null; data.vendorDomain = ""; }
+      } else {
+        // No library site: a quota site name may come with it; otherwise the site is cleared as before.
+        data.vendorSiteId = null;
+        data.vendorDomain = b.vendorDomain !== undefined ? cleanVendorDomain(b.vendorDomain) : "";
+      }
     }
     if (b.budgetPeriod !== undefined) {
       if (locked) return NextResponse.json({ error: lockedMsg }, { status: 403 });

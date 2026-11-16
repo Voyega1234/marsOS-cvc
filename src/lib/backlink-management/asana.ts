@@ -1,5 +1,6 @@
 /** ตัวเรียก Asana REST แบบบาง (เซิร์ฟเวอร์เท่านั้น) — ห้าม log token */
 import { decrypt } from "@/lib/crypto";
+import { pickOffPageSection } from "./asana-section";
 
 const BASE = "https://app.asana.com/api/1.0";
 const OPT_FIELDS = "name,completed,completed_at,due_on,assignee.email,permalink_url,modified_at";
@@ -110,6 +111,26 @@ export async function getProject(token: string, gid: string): Promise<{ gid: str
   return r.data;
 }
 
+/** gid of the project's "Off-Page SEO" section, or null when there is none or the lookup fails. */
+export async function findOffPageSectionGid(token: string, projectGid: string): Promise<string | null> {
+  try {
+    const r = await call(token, "GET", `/projects/${encodeURIComponent(projectGid)}/sections?opt_fields=name&limit=100`);
+    return pickOffPageSection(Array.isArray(r?.data) ? r.data : []);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move a freshly created task into the project's "Off-Page SEO" section. Best effort: any failure leaves the task
+ * where Asana put it (the first section) and never fails task creation.
+ */
+async function placeInOffPageSection(token: string, projectGid: string, taskGid: string): Promise<void> {
+  const sectionGid = await findOffPageSectionGid(token, projectGid);
+  if (!sectionGid) return;
+  await call(token, "POST", `/sections/${encodeURIComponent(sectionGid)}/addTask`, { task: taskGid }).catch(() => {});
+}
+
 export async function createTask(
   token: string,
   p: { projectGid: string; name: string; notes: string; assigneeEmail?: string | null; dueOn?: string | null },
@@ -118,18 +139,20 @@ export async function createTask(
   if (p.dueOn) base.due_on = p.dueOn;
   const q = "?opt_fields=permalink_url";
   let dropped = false;
+  let r: any;
   try {
-    const r = await call(token, "POST", `/tasks${q}`, p.assigneeEmail ? { ...base, assignee: p.assigneeEmail } : base);
-    return { gid: r.data.gid, permalink_url: r.data.permalink_url ?? "", assigneeDropped: false };
+    r = await call(token, "POST", `/tasks${q}`, p.assigneeEmail ? { ...base, assignee: p.assigneeEmail } : base);
   } catch (e) {
     if (p.assigneeEmail && e instanceof AsanaError && (e.status === 400 || e.status === 403) && /assignee/i.test(e.message)) {
       dropped = true;
+      r = await call(token, "POST", `/tasks${q}`, base);
     } else {
       throw e;
     }
   }
-  const r = await call(token, "POST", `/tasks${q}`, base);
-  return { gid: r.data.gid, permalink_url: r.data.permalink_url ?? "", assigneeDropped: dropped };
+  const gid: string = r.data.gid;
+  await placeInOffPageSection(token, p.projectGid, gid);
+  return { gid, permalink_url: r.data.permalink_url ?? "", assigneeDropped: dropped };
 }
 
 export async function updateTask(token: string, gid: string, fields: Record<string, unknown>): Promise<void> {

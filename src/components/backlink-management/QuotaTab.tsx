@@ -238,13 +238,8 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
                 <th className="text-left">ราคา</th>
                 <th className="num">Unit</th>
                 <th className="text-left">ใช้แล้ว</th>
-                <th className="num">เผยแพร่</th>
-                <th className="num">กำลังทำ</th>
-                <th className="num">จอง</th>
-                <th className="num">คงเหลือ</th>
                 <th className="num">ใช้ได้</th>
-                <th className="text-left">Start</th>
-                <th className="text-left">EXP.</th>
+                <th className="text-left">Start / EXP.</th>
                 <th className="text-left">สถานะ</th>
                 <th className="text-left">การทำงาน</th>
               </tr>
@@ -272,21 +267,25 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
                       </td>
                       <td className="whitespace-pre-line">{p.priceText || "—"}</td>
                       <td className="num">{p.units ?? "—"}</td>
-                      <td className="min-w-[90px]">
+                      <td className="min-w-[120px]">
                         <div>{p.used}{p.units != null ? ` / ${p.units}` : ""}</div>
                         {p.units != null ? (
                           <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-200" role="progressbar" aria-valuenow={p.used} aria-valuemax={p.units}>
                             <div className="h-full rounded-full bg-brand-blue" style={{ width: `${pct}%` }} />
                           </div>
                         ) : null}
+                        <div className="mt-1 whitespace-nowrap text-[11px] text-gray-500">
+                          เผยแพร่ {p.published} · ทำ {p.inProcess} · จอง {p.reserved}
+                        </div>
                       </td>
-                      <td className="num">{p.published}</td>
-                      <td className="num">{p.inProcess}</td>
-                      <td className="num">{p.reserved}</td>
-                      <td className="num">{p.remaining ?? "—"}</td>
-                      <td className="num font-medium">{p.usable ?? "—"}</td>
-                      <td className="whitespace-nowrap">{p.startDate ? fmtDate(p.startDate) : p.startText || "—"}</td>
-                      <td className="whitespace-nowrap">{p.expireDate ? fmtDate(p.expireDate) : p.expireText || "—"}</td>
+                      <td className="num">
+                        <div className="font-medium">{p.usable ?? "—"}</div>
+                        {p.remaining != null && p.remaining !== p.usable ? <div className="whitespace-nowrap text-[11px] text-gray-500">เหลือ {p.remaining}</div> : null}
+                      </td>
+                      <td className="whitespace-nowrap">
+                        <div>{p.startDate ? fmtDate(p.startDate) : p.startText || "—"}</div>
+                        <div className="text-gray-500">ถึง {p.expireDate ? fmtDate(p.expireDate) : p.expireText || "—"}</div>
+                      </td>
                       <td>
                         <div className="flex flex-wrap gap-1">
                           {p.expired ? <Chip tone="bad">หมดอายุ</Chip> : null}
@@ -305,17 +304,17 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
                         </div>
                       </td>
                       <td>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="outline" disabled={p.expired || full || p.stale} onClick={() => setReserve({ open: true, pkgId: p.id, slotIndex: null })}>จอง</Button>
+                        <div className="flex gap-1 whitespace-nowrap">
+                          <Button size="sm" variant="outline" className="h-8 px-2.5" disabled={p.expired || full || p.stale} onClick={() => setReserve({ open: true, pkgId: p.id, slotIndex: null })}>จอง</Button>
                           {view.canManage ? (
-                            <Button size="sm" variant="outline" disabled={p.stale} onClick={() => setPkgForm({ open: true, pkg: p })}><Pencil className="mr-1 h-3 w-3" />แก้ไข</Button>
+                            <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={p.stale} onClick={() => setPkgForm({ open: true, pkg: p })} aria-label="แก้ไขแพ็กเกจ" title="แก้ไข"><Pencil className="h-3.5 w-3.5" /></Button>
                           ) : null}
                         </div>
                       </td>
                     </tr>
                     {open ? (
                       <tr>
-                        <td colSpan={15} className="bg-white/50 p-2">
+                        <td colSpan={10} className="bg-white/50 p-2">
                           <div className="max-h-[60vh] overflow-auto">
                             <table className="w-full text-xs">
                               <thead>

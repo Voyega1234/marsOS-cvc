@@ -9,6 +9,7 @@ import { currentPeriod, isValidPeriod, round2 } from "@/lib/backlink-management/
 import { enrichRows, enrichOne } from "@/lib/backlink-management/requests-server";
 import { isHttpUrl } from "@/lib/backlink-management/workflow";
 import { LINK_TYPES } from "@/lib/backlink-management/types";
+import { cleanVendorDomain } from "@/lib/backlink-management/quota-request";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -67,6 +68,9 @@ export async function POST(req: NextRequest) {
       const v = await prisma.blmVendorSite.findFirst({ where: { id: String(b.vendorSiteId), organizationId: ctx.orgId } });
       if (!v) return NextResponse.json({ error: "ไม่พบเว็บในคลัง" }, { status: 400 });
       vendorSiteId = v.id; vendorDomain = v.domain; vendorPrice = v.price; vendorLinkType = v.linkType;
+    } else if (b.vendorDomain) {
+      // Site picked from a quota package (not from the vendor library): keep only its name.
+      vendorDomain = cleanVendorDomain(b.vendorDomain);
     }
     let assigneeId: string | null = null;
     if (b.assigneeId) {
