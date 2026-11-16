@@ -1,11 +1,11 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ExternalLink, Loader2, Pencil, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Chip, EmptyState, KpiTile } from "@/components/ds";
+import { Chip, EmptyState, Panel } from "@/components/ds";
 import type {
   QuotaPackageView,
   QuotaSlotInput,
@@ -13,6 +13,7 @@ import type {
   QuotaView,
   QuotaWriteResult,
 } from "@/lib/backlink-management/quota-types";
+import { QuotaDashboard } from "./QuotaDashboard";
 import { PackageDialog, ReserveDialog } from "./QuotaForms";
 import { OverwriteCancelled, quotaWrite, useOverwriteConfirm } from "./QuotaOverwriteConfirm";
 import { api, fmtDate, fmtDateTime, selectCls, type Meta } from "./shared";
@@ -82,6 +83,7 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const overwrite = useOverwriteConfirm();
+  const tableRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async (force = false) => {
     if (force) setRefreshing(true);
@@ -146,6 +148,13 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
 
   const toggle = (id: string) => setExpanded((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
 
+  /** จากการ์ด "ต้องจัดการ": ค้นหาแพ็กเกจนั้น ขยายแถว แล้วเลื่อนลงตาราง */
+  const focusPackage = (p: QuotaPackageView) => {
+    setSearch(p.vendorName || p.websiteText || "");
+    setExpanded((s) => new Set(s).add(p.id));
+    setTimeout(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+
   const packages = useMemo(() => {
     if (!view) return [];
     const q = search.trim().toLowerCase();
@@ -178,17 +187,12 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <KpiTile label="ซื้อมาแล้ว" value={n(t.bought)} />
-        <KpiTile label="ใช้ไปแล้ว" value={n(t.used)} hint={`เผยแพร่ ${n(t.published)} · กำลังทำ ${n(t.inProcess)}`} />
-        <KpiTile label="จองไว้" value={n(t.reserved)} />
-        <KpiTile label="คงเหลือ" value={n(t.remaining)} />
-        <KpiTile label="ใช้ได้จริง" value={n(t.usable)} hint="ไม่นับแพ็กเกจที่หมดอายุ" tone="blue" />
-        <KpiTile label="ใกล้หมดอายุใน 30 วัน" value={n(t.expiringSoon)} tone="warm" />
-      </div>
+      {view.sources.length > 0 && view.packages.length > 0 ? <QuotaDashboard view={view} onFocusPackage={focusPackage} /> : null}
       {t.unknownUnits > 0 ? <p className="text-xs text-amber-700">มี {t.unknownUnits} แพ็กเกจที่ยังไม่ระบุ Unit (ไม่ถูกนับ)</p> : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div ref={tableRef} className="scroll-mt-4">
+        <Panel title="แพ็กเกจทั้งหมด" subtitle={`แสดง ${packages.length} จาก ${view.packages.length} แพ็กเกจ`} padded={false} bodyClassName="pb-4 pt-3">
+      <div className="flex flex-wrap items-center gap-2 px-4 pb-3 md:px-5">
         <Input className="h-10 w-full sm:w-64" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหา vendor / เว็บ / Type / ลูกค้า / REMARK" aria-label="ค้นหาแพ็กเกจ" />
         {view.sources.length > 1 ? (
           <select className={`${selectCls} w-auto`} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} aria-label="กรองตามชีท">
@@ -215,7 +219,6 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
           ) : null}
         </div>
       </div>
-
       {view.sources.length === 0 ? (
         <EmptyState
           title="ยังไม่ได้เพิ่มลิงก์ชีทโควต้า"
@@ -225,7 +228,7 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
       ) : packages.length === 0 ? (
         <EmptyState title="ไม่พบแพ็กเกจ" description="ลองปรับคำค้นหาหรือตัวกรอง" />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-white/80 bg-white/70 shadow-sm">
+        <div className="max-h-[75vh] overflow-auto border-t border-gray-100 dark:border-white/10">
           <table className="tbl w-full text-xs">
             <thead>
               <tr>
@@ -253,7 +256,7 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
                 const pct = p.units ? Math.min(100, (p.used / p.units) * 100) : 0;
                 return (
                   <Fragment key={p.id}>
-                    <tr className={p.stale ? "opacity-60" : undefined}>
+                    <tr className={p.stale ? "opacity-60 hover:bg-white/60" : "hover:bg-white/60 dark:hover:bg-white/5"}>
                       <td>
                         <button type="button" onClick={() => toggle(p.id)} aria-label={open ? "ย่อ" : "ขยาย"} aria-expanded={open} className="p-1 text-gray-500">
                           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -389,6 +392,8 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
           </table>
         </div>
       )}
+        </Panel>
+      </div>
 
       <datalist id="quota-client-options-tab">{view.clientOptions.map((c) => <option key={c} value={c} />)}</datalist>
       <datalist id="quota-status-options-tab">{view.statusOptions.map((c) => <option key={c} value={c} />)}</datalist>

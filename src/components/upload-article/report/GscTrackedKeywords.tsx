@@ -18,7 +18,17 @@ import {
 export interface TrackerArticleOption { title: string; url: string }
 export interface TrackerDraft { keyword: string; url?: string; title?: string }
 
-type Metric = "clicks" | "impressions";
+type Metric = "clicks" | "impressions" | "ctr" | "position";
+
+const METRIC_NAME: Record<Metric, string> = { clicks: "คลิก", impressions: "การแสดงผล", ctr: "CTR", position: "อันดับเฉลี่ย" };
+
+/** ค่าของวันนั้นตามตัวชี้วัด — CTR/อันดับ ของวันที่ไม่มีการแสดงผลเป็นช่องว่าง (ไม่ใช่ 0 ที่ทำให้กราฟเข้าใจผิด) */
+function dailyValue(d: { clicks: number; impressions: number; ctr: number; position: number }, metric: Metric): number | null {
+  if (metric === "clicks") return d.clicks;
+  if (metric === "impressions") return d.impressions;
+  if (!(d.impressions > 0)) return null;
+  return metric === "ctr" ? d.ctr * 100 : d.position;
+}
 /** โหมดของฟอร์ม — "บทความ" กับ "URL" เก็บเป็นชนิด page เหมือนกัน ต่างกันแค่วิธีเลือกหน้า */
 type Mode = "keyword" | "article" | "url" | "pair";
 
@@ -212,7 +222,7 @@ export default function GscTrackedKeywords({
     }
   }
 
-  const name = metric === "clicks" ? "คลิก" : "การแสดงผล";
+  const name = METRIC_NAME[metric];
   const inputCls = "h-9 rounded-full border border-gray-200 px-3 text-sm bg-white";
 
   return (
@@ -314,7 +324,12 @@ export default function GscTrackedKeywords({
               ariaLabel="เลือกตัวชี้วัด"
               value={metric}
               onChange={setMetric}
-              options={[{ value: "clicks", label: "คลิก" }, { value: "impressions", label: "การแสดงผล" }]}
+              options={[
+                { value: "clicks", label: "คลิก" },
+                { value: "impressions", label: "การแสดงผล" },
+                { value: "ctr", label: "CTR" },
+                { value: "position", label: "อันดับเฉลี่ย" },
+              ]}
             />
             {loading && <Loader2 size={14} className="animate-spin text-gray-400" />}
           </div>
@@ -389,12 +404,18 @@ const NO_DATA_TEXT: Record<GscTrackerKind, string> = {
 };
 
 function TrackerBody({ p, kind, metric, name }: { p: GscTrackerPerformance; kind: GscTrackerKind; metric: Metric; name: string }) {
-  const cur = p.daily.map((d) => ({ label: fmtDm(d.date), value: metric === "clicks" ? d.clicks : d.impressions }));
-  const prev = p.dailyPrev.map((d) => ({ label: fmtDm(d.date), value: metric === "clicks" ? d.clicks : d.impressions }));
-  const total = p.totals[metric];
+  const cur = p.daily.map((d) => ({ label: fmtDm(d.date), value: dailyValue(d, metric) }));
+  const prev = p.dailyPrev.map((d) => ({ label: fmtDm(d.date), value: dailyValue(d, metric) }));
   const t = p.totals;
   const pt = p.prevTotals;
   const hasImp = t.impressions > 0;
+  const isRate = metric === "ctr" || metric === "position";
+  const headline =
+    metric === "ctr" ? (hasImp ? fmtCtr(t.ctr) : "—")
+    : metric === "position" ? (hasImp ? fmtPos(t.position) : "—")
+    : fmtNum(t[metric]);
+  const fmtAxis = metric === "ctr" ? (n: number) => `${n.toFixed(1)}%` : metric === "position" ? (n: number) => n.toFixed(1) : fmtNum;
+  const fmtTip = metric === "ctr" ? (n: number) => `${n.toFixed(2)}%` : fmtAxis;
 
   // ยังไม่รู้ URL จริง = ไม่ได้ถาม Google เลย — ไม่วาดกราฟ 0 ให้เข้าใจผิดว่าไม่มีคนค้น
   if (p.unresolved) {
@@ -415,14 +436,19 @@ function TrackerBody({ p, kind, metric, name }: { p: GscTrackerPerformance; kind
       ) : null}
 
       <div>
-        <p className="text-2xl font-semibold tabular-nums leading-tight text-brand-navy">{fmtNum(total)}</p>
-        <p className="text-xs text-gray-500">{name}รวมช่วงปัจจุบัน · ชี้หรือแตะบนกราฟเพื่อดูค่าของแต่ละวัน คลิกเพื่อค้างค่าไว้</p>
+        <p className="text-2xl font-semibold tabular-nums leading-tight text-brand-navy">{headline}</p>
+        <p className="text-xs text-gray-500">
+          {isRate ? `${name}ทั้งช่วงปัจจุบัน (ถ่วงตามการแสดงผล)` : `${name}รวมช่วงปัจจุบัน`} · ชี้หรือแตะบนกราฟเพื่อดูค่าของแต่ละวัน คลิกเพื่อค้างค่าไว้
+          {metric === "position" ? " · อันดับยิ่งน้อยยิ่งดี (แกนกลับหัว)" : ""}
+        </p>
       </div>
 
       <AreaChart
         height={240}
         showLegend
-        formatValue={fmtNum}
+        invertY={metric === "position"}
+        formatValue={fmtAxis}
+        formatTooltip={fmtTip}
         series={[
           { name: `${name} (ช่วงปัจจุบัน)`, points: cur },
           ...(prev.length >= 2 ? [{ name: `${name} (ช่วงเทียบ)`, dashed: true, fill: false, points: prev }] : []),

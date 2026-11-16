@@ -13,6 +13,7 @@ import { LINK_TYPES } from "@/lib/backlink-management/types";
 import { DATA_STATUS_LABEL, DATA_STATUSES, PRICE_TYPES, type PriceKey } from "@/lib/backlink-management/vendor-detail";
 import { api, money, selectCls, type Vendor } from "./shared";
 import VendorImportDialog from "./VendorImportDialog";
+import VendorsDashboard from "./VendorsDashboard";
 
 const NO_CATEGORY = "ไม่ระบุหมวด";
 const DETAILS_NOTICE = "ข้อมูลเสริม (ราคาแยกประเภท, Rate Card, อายุลิงก์ ฯลฯ) ยังใช้ไม่ได้ — ต้องรันไฟล์ scripts/sql/add-blm-vendor-detail-table.sql ใน Supabase โปรเจกต์ \"SEO PROJECT\" ก่อน ข้อมูลหลักของคลังเว็บใช้งานได้ตามปกติ";
@@ -284,18 +285,27 @@ export default function VendorsTab() {
   const COLS = 10;
   const pill = "rounded-full border px-3 py-1 text-xs";
 
+  function pickDomain(domain: string) {
+    setQ(domain);
+    setTimeout(() => document.getElementById("blm-vendor-table")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
   return (
-    <Panel
-      title="คลังเว็บ"
-      subtitle={rows ? `${rows.length.toLocaleString()} เว็บ` : undefined}
-      actions={
-        <>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-brand-navy dark:text-white">คลังเว็บ</h2>
+          {rows ? <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{`${rows.length.toLocaleString()} เว็บ`}</p> : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setImp(true)}><FileSpreadsheet className="mr-1 h-4 w-4" /> นำเข้าไฟล์</Button>
           <Button size="sm" variant="outline" onClick={() => setBulk(true)}><Upload className="mr-1 h-4 w-4" /> วางหลายแถว</Button>
           <Button size="sm" onClick={() => setDlg({ open: true, edit: null })}><Plus className="mr-1 h-4 w-4" /> เพิ่มเว็บ</Button>
-        </>
-      }
-    >
+        </div>
+      </div>
+      {rows && rows.length > 0 ? <VendorsDashboard rows={rows} onPick={pickDomain} /> : null}
+      <Panel title="รายการเว็บ" className="scroll-mt-4">
+      <div id="blm-vendor-table" className="scroll-mt-4" />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <SearchPill value={q} onChange={setQ} placeholder="ค้นหาโดเมน / รายละเอียด" className="w-full sm:w-64" />
         <select className={`${selectCls} !w-auto`} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="กรองสถานะ">
@@ -322,7 +332,7 @@ export default function VendorsTab() {
       ) : rows.length === 0 ? (
         <EmptyState title="ยังไม่มีเว็บในคลัง" description="เพิ่มทีละเว็บ วางหลายแถว หรือนำเข้าไฟล์ Excel / CSV" />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-white/80 bg-white/70 shadow-sm">
+        <div className="max-h-[70vh] overflow-auto rounded-2xl border border-white/80 bg-white/70 shadow-sm dark:border-white/10 dark:bg-white/5">
           <table className="tbl w-full text-xs">
             <thead>
               <tr>
@@ -338,10 +348,11 @@ export default function VendorsTab() {
           </table>
         </div>
       )}
+      </Panel>
       <VendorDialog open={dlg.open} onOpenChange={(o) => setDlg((p) => ({ ...p, open: o }))} edit={dlg.edit} onSaved={() => void load()} detailsAvailable={detailsAvailable} categories={categoryNames} />
       <BulkDialog open={bulk} onOpenChange={setBulk} onSaved={() => void load()} />
       <VendorImportDialog open={imp} onOpenChange={setImp} onSaved={() => void load()} />
-    </Panel>
+    </div>
   );
 
   function renderGroup(g: { name: string; items: Vendor[] }, showHeader: boolean) {
