@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { parsePrefs, updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadGscReportPrefs } from '@/lib/upload-article/types'
 import {
-  addGscTracker, readGscTrackers, removeGscTrackers, updateGscTrackers, UPLOAD_MAX_GSC_TRACKERS, normalizeTrackerUrl, isIdPermalinkUrl,
+  addGscTracker, addGscTrackersBulk, readGscTrackers, removeGscTrackers, updateGscTrackers, UPLOAD_MAX_GSC_TRACKERS, normalizeTrackerUrl, isIdPermalinkUrl,
   GSC_TRACKER_ERROR_MESSAGES, type AddGscTrackerResult,
 } from '@/lib/upload-article/gsc-trackers'
 import { readOwnerTags } from '@/lib/upload-article/owner-tags'
@@ -50,6 +50,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 /**
  * POST body {kind?, keyword?, url?, title?, ownerTagId?, group?} — เพิ่มรายการ (ลิงก์ ?p=123 จะถูกแปลงเป็นลิงก์จริงถ้าหาเจอ)
+ * หรือ {keywords: string[], group?, ownerTagId?} — เพิ่มหลายคำ (keyword ทั้งเว็บ) เข้ากลุ่มเดียวกัน
  * kind: 'keyword' (คำนี้ทั้งเว็บ) | 'page' (หน้านี้ทุกคำ) | 'pair' (คำนี้บนหน้านี้); ไม่ส่ง = ดูจากช่องที่กรอก
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -59,6 +60,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 
   const body = await req.json().catch(() => ({}))
+
+  // เพิ่มหลายคำพร้อมกัน (จาก "หาคำใกล้เคียง") — keyword ทั้งเว็บ, กลุ่ม/ผู้ดูแลเดียวกัน
+  if (Array.isArray(body?.keywords)) {
+    const keywords = (body.keywords as unknown[]).slice(0, UPLOAD_MAX_GSC_TRACKERS)
+    if (keywords.length === 0) return NextResponse.json({ error: 'ยังไม่ได้เลือกคำ' }, { status: 400 })
+    const bulk = await updatePrefs(params.id, g.orgId, (current) => {
+      const r = addGscTrackersBulk(readGscTrackers(current.gscTrackers), keywords, { group: body?.group, ownerTagId: body?.ownerTagId },
+        () => crypto.randomUUID().slice(0, 8), new Date().toISOString(), ownerIdSet(current))
+      if (r.added.length === 0) return { result: r }
+      const next: PrefsObject = { ...current, gscTrackers: r.trackers }
+      return { prefs: next, result: r }
+    })
+    if (!bulk) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+    const r = bulk.result
+    if (r.added.length === 0) {
+      const error = r.overLimit ? GSC_TRACKER_ERROR_MESSAGES.limit : r.duplicates ? 'คำที่เลือกติดตามอยู่แล้วทั้งหมด' : 'ไม่มีคำที่เพิ่มได้'
+      return NextResponse.json({ error, ...r, added: 0 }, { status: r.overLimit ? 400 : 409 })
+    }
+    return NextResponse.json({ trackers: r.trackers, added: r.added.length, duplicates: r.duplicates, invalid: r.invalid, overLimit: r.overLimit })
+  }
+
   const input: { kind: unknown; keyword: unknown; url: unknown; title: unknown; ownerTagId: unknown; group: unknown; sourceUrl?: string } = {
     kind: body?.kind,
     keyword: body?.keyword,

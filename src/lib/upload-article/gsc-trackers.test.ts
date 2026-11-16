@@ -2,8 +2,9 @@
  * Upload Article Report — Monitor (keyword + URL): normalize, key, add/remove, buildTrackerSeries, isHostAllowedForSite
  * Run: npx tsx src/lib/upload-article/gsc-trackers.test.ts
  */
+import { createQueryBudget, GSC_TRACKER_QUERIES_PER_MINUTE } from './gsc-budget';
 import {
-  addGscTracker, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, splitRowsByQuery, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
 } from './gsc-trackers';
@@ -67,7 +68,7 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(trackerKind(read[1]) === 'page' && trackerKind(read[2]) === 'keyword' && trackerKind(read[0]) === 'pair', 'read: kinds');
   assert(read[0].keyword === 'foo' && read[0].title === 'My title', 'read: normalizes keyword and keeps title');
   assert(readGscTrackers('x').length === 0 && readGscTrackers(undefined).length === 0, 'read: non-array -> []');
-  const many = Array.from({ length: 50 }, (_, i) => ({ id: `i${i}`, keyword: `k${i}`, url: 'https://example.com/p' }));
+  const many = Array.from({ length: UPLOAD_MAX_GSC_TRACKERS + 20 }, (_, i) => ({ id: `i${i}`, keyword: `k${i}`, url: 'https://example.com/p' }));
   assert(readGscTrackers(many).length === UPLOAD_MAX_GSC_TRACKERS, 'read: caps at limit');
 }
 
@@ -287,4 +288,62 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(aggregateTrackerPerformance([]) === null && aggregateTrackerPerformance([skipped]) === null, 'aggregate: nothing usable = null');
 }
 
+{
+  // ── หาคำใกล้เคียง + เพิ่มหลายคำ ──
+  const existing: UploadGscTracker[] = [
+    { id: 'e1', keyword: 'cpas', url: '', createdAt: '' },
+    { id: 'e2', keyword: 'cpas ads', url: 'https://example.com/a', createdAt: '' },
+  ];
+  let n = 0;
+  const bulk = addGscTrackersBulk(existing, ['CPAS คือ', 'cpas', '  ', 'cpas ads', 'cpas คือ'], { group: 'Blog 45 - cpas', ownerTagId: 'o1' }, () => `b${n++}`, 'now', new Set(['o1']));
+  assert(bulk.added.length === 2 && bulk.added[0].keyword === 'cpas คือ' && bulk.added[1].keyword === 'cpas ads', 'bulk: new keywords added, pair with same keyword is not a duplicate of keyword-only');
+  assert(bulk.duplicates === 2 && bulk.invalid === 1 && bulk.overLimit === 0, 'bulk: duplicates and empty counted');
+  assert(bulk.added.every((t) => t.group === 'Blog 45 - cpas' && t.ownerTagId === 'o1' && t.url === ''), 'bulk: group, owner, keyword-only');
+  assert(bulk.trackers[0].keyword === 'cpas คือ' && bulk.trackers[1].keyword === 'cpas ads' && bulk.trackers.length === 4, 'bulk: added in the given order on top');
+  assert(existing.length === 2, 'bulk: input not mutated');
+  const nearFull: UploadGscTracker[] = Array.from({ length: UPLOAD_MAX_GSC_TRACKERS - 1 }, (_, i) => ({ id: `f${i}`, keyword: `k${i}`, url: '', createdAt: '' }));
+  const capped = addGscTrackersBulk(nearFull, ['x1', 'x2', 'x3'], {}, () => `z${n++}`, 'now');
+  assert(capped.added.length === 1 && capped.overLimit === 2 && capped.trackers.length === UPLOAD_MAX_GSC_TRACKERS, 'bulk: stops at the limit');
+
+  const sugg = buildKeywordSuggestions(
+    [
+      { keys: ['cpas'], clicks: 5, impressions: 100, ctr: 0.05, position: 7 },
+      { keys: ['cpas คือ'], clicks: 9, impressions: 50, ctr: 0.18, position: 3 },
+      { keys: ['cpas pantip'], clicks: 50, impressions: 500, ctr: 0.1, position: 2 },
+      { keys: ['cpas ads'], clicks: 9, impressions: 80, ctr: 0.11, position: 6 },
+    ],
+    [{ keys: ['cpas คือ'], clicks: 4, impressions: 40, ctr: 0.1, position: 5 }],
+    existing,
+    { exclude: (k) => k.includes('pantip') },
+  );
+  assert(sugg.map((s) => s.keyword).join(',') === 'cpas ads,cpas คือ,cpas', 'suggest: sorted by clicks then impressions, excluded dropped');
+  assert(sugg[2].tracked && !sugg[0].tracked, 'suggest: keyword-only tracker marks tracked, pair does not');
+  assert(sugg[1].prevClicks === 4 && sugg[1].prevPosition === 5 && sugg[0].prevClicks === 0, 'suggest: previous period joined');
+
+  const chunks = chunkKeywordRegex(Array.from({ length: 30 }, (_, i) => `k.${i}`).concat(['k.0']));
+  assert(chunks.length === 2 && chunks[0].keywords.length === 25 && chunks[1].keywords.length === 5, 'chunk: 25 per batch, duplicates dropped');
+  assert(chunks[0].regex.startsWith('(?i)^(?:k\\.0|k\\.1|') && chunks[0].regex.endsWith(')$'), 'chunk: escaped, anchored, case-insensitive');
+  assert(chunkKeywordRegex(['a'.repeat(60), 'b'.repeat(60)], 25, 100).length === 2, 'chunk: split by length');
+
+  const split = splitRowsByQuery([
+    { keys: ['2026-11-01', 'CPAS'], clicks: 1, impressions: 10, position: 3 },
+    { keys: ['2026-11-02', 'cpas'], clicks: 2, impressions: 20, position: 4 },
+    { keys: ['2026-11-01', 'cpas คือ'], clicks: 3, impressions: 30, position: 5 },
+  ]);
+  assert(split.get('cpas')?.length === 2 && split.get('cpas')![0].keys!.length === 1, 'split: grouped by normalized query, keys = [date]');
+  const s2 = buildTrackerSeries(split.get('cpas')!, '', '2026-11-01', '2026-11-02');
+  assert(s2.totals.clicks === 3 && s2.totals.impressions === 30, 'split: feeds buildTrackerSeries');
+  const split3 = splitRowsByQuery([{ keys: ['2026-11-01', 'cpas', 'https://example.com/a/'], clicks: 4, impressions: 40, position: 2 }]);
+  assert(split3.get('cpas')![0].keys!.join('|') === '2026-11-01|https://example.com/a/', 'split: (date, query, page) -> (date, page)');
+  const s3 = buildTrackerSeries(split3.get('cpas')!, 'https://example.com/a', '2026-11-01', '2026-11-01');
+  assert(s3.totals.clicks === 4, 'split: pair rows match the page');
+}
+
+{
+  const b = createQueryBudget(10, 60_000);
+  assert(b.take(8, 0) && !b.take(3, 1000) && b.used(1000) === 8, 'budget: refuses over the limit and reserves nothing');
+  assert(b.take(2, 1000) && !b.take(1, 59_999), 'budget: full at the limit');
+  assert(b.take(8, 60_000) && b.used(60_000) === 10, 'budget: frees the oldest after the window');
+  assert(GSC_TRACKER_QUERIES_PER_MINUTE * 2 <= 600, 'budget: two instances stay under half of 1,200/min');
+}
 console.log(`\nAll ${passed} assertions passed`);

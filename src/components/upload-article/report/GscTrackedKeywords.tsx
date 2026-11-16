@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertCircle, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, Link2, Loader2, Pencil, RefreshCw, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import GscKeywordSuggestDialog, { termFromGroupName } from "./GscKeywordSuggestDialog";
 import { AreaChart, EmptyState, Panel, Segmented } from "@/components/ds";
 import {
   UPLOAD_MAX_GSC_TRACKERS, UPLOAD_MAX_TRACKER_GROUP, UPLOAD_MAX_TRACKER_KEYWORD, UPLOAD_MAX_TRACKER_URL, trackerKind,
@@ -367,6 +368,9 @@ export default function GscTrackedKeywords({
     void removeMany([t.id], label);
   }
 
+  // "หาคำใกล้เคียง": null = ปิด; term/group = ค่าเริ่มต้นตามปุ่มที่กด
+  const [suggest, setSuggest] = useState<{ term: string; group: string } | null>(null);
+
   async function renameGroup(oldName: string, ids: string[]) {
     const next = window.prompt("ชื่อกลุ่มใหม่ (เว้นว่าง = เอาออกจากกลุ่ม)", oldName);
     if (next === null || next.trim() === oldName) return;
@@ -385,6 +389,17 @@ export default function GscTrackedKeywords({
       <datalist id="tracker-group-names">
         {groupNames.map((g) => <option key={g} value={g} />)}
       </datalist>
+      <GscKeywordSuggestDialog
+        clientId={clientId}
+        open={!!suggest}
+        onOpenChange={(v) => { if (!v) setSuggest(null); }}
+        initialTerm={suggest?.term ?? ""}
+        initialGroup={suggest?.group ?? ""}
+        periodParams={periodParams}
+        ownerTags={ownerTags}
+        defaultOwnerTagId={formOwner}
+        onTrackersChange={onTrackersChange}
+      />
       {/* ── ฟอร์มเพิ่ม ── relative + z-30: การ์ดนี้มี backdrop-blur (สร้าง stacking context) ไม่ยกชั้นไว้ รายการบทความที่เปิดลงมาจะโดนแผงถัดไปทับ */}
       <div className="relative z-30 rounded-2xl border border-white/80 bg-white/70 shadow-sm backdrop-blur p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -392,7 +407,13 @@ export default function GscTrackedKeywords({
             <p className="text-sm font-semibold text-brand-navy">บันทึก Monitor</p>
             <p className="text-xs text-gray-500 mt-0.5">ติดตามแยกเป็น keyword, บทความ หรือ URL — หรือจับคู่ keyword กับหน้า</p>
           </div>
-          <span className="text-[11px] text-gray-400 tabular-nums">{trackers.length}/{UPLOAD_MAX_GSC_TRACKERS}</span>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" className="rounded-full h-8"
+              onClick={() => setSuggest({ term: formGroup.trim() ? termFromGroupName(formGroup.trim()) : "", group: formGroup.trim() })}>
+              <Search size={13} /> หาคำใกล้เคียง
+            </Button>
+            <span className="text-[11px] text-gray-400 tabular-nums">{trackers.length}/{UPLOAD_MAX_GSC_TRACKERS}</span>
+          </div>
         </div>
 
         <div className="space-y-1.5">
@@ -617,7 +638,13 @@ export default function GscTrackedKeywords({
                         <td className="px-2 py-2 text-right tabular-nums font-semibold">{sum ? fmtNum(sum.impressions) : "—"}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{sum && sum.impressions > 0 ? fmtCtr(sum.ctr) : "—"}</td>
                         <td className="px-2 py-2 text-center tabular-nums">{sum && sum.impressions > 0 ? fmtPos(sum.position) : "—"}</td>
-                        <td className="px-3 py-2 text-right">
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          {g.name && (
+                            <button type="button" onClick={() => setSuggest({ term: termFromGroupName(g.name), group: g.name })}
+                              className="mr-2 text-gray-400 hover:text-brand-blue" title={`หาคำใกล้เคียงเข้ากลุ่ม "${g.name}"`} aria-label={`หาคำใกล้เคียงเข้ากลุ่ม ${g.name}`}>
+                              <Search size={13} />
+                            </button>
+                          )}
                           {g.key && (
                             <button type="button" disabled={busy} onClick={() => void renameGroup(g.name, ids)}
                               className="text-gray-400 hover:text-brand-blue disabled:opacity-50" title={g.name ? "เปลี่ยนชื่อกลุ่ม / เอาออกจากกลุ่ม" : "ตั้งชื่อกลุ่มให้รายการของผู้ดูแลนี้"}>

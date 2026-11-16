@@ -63,7 +63,8 @@ export function trackerKeys(t: Pick<UploadGscTracker, 'keyword' | 'url' | 'sourc
   return keys
 }
 
-export const UPLOAD_MAX_GSC_TRACKERS = 30
+/** เพดานต่อลูกค้า — keyword ทั้งเว็บถูกรวมยิง GSC เป็นชุด (ดู chunkKeywordRegex) จึงขยับจาก 30 ได้ */
+export const UPLOAD_MAX_GSC_TRACKERS = 100
 export const UPLOAD_MAX_TRACKER_KEYWORD = 150
 export const UPLOAD_MAX_TRACKER_URL = 1000
 export const UPLOAD_MAX_TRACKER_TITLE = 200
@@ -486,4 +487,125 @@ export function aggregateTrackerPerformance(list: readonly GscTrackerPerformance
     daily: sumDaily(usable.map((p) => p.daily)),
     dailyPrev: sumDaily(usable.map((p) => p.dailyPrev)),
   }
+}
+
+// ── หาคำใกล้เคียง + เพิ่มหลายคำพร้อมกัน ──
+
+/**
+ * เพิ่ม keyword หลายคำ (ชนิด keyword ทั้งเว็บ) เข้ากลุ่มเดียวกัน — ข้ามคำที่ติดตามอยู่แล้ว/คำว่าง และหยุดเมื่อเต็มเพดาน
+ * ลำดับในรายการ = ลำดับที่ส่งมา (คำแรกอยู่บนสุด)
+ */
+export function addGscTrackersBulk(
+  existing: UploadGscTracker[],
+  keywords: readonly unknown[],
+  opts: { group?: unknown; ownerTagId?: unknown },
+  newId: () => string,
+  nowIso: string,
+  validOwnerIds?: ReadonlySet<string>,
+): { trackers: UploadGscTracker[]; added: UploadGscTracker[]; duplicates: number; invalid: number; overLimit: number } {
+  let trackers = existing
+  const added: UploadGscTracker[] = []
+  let duplicates = 0, invalid = 0, overLimit = 0
+  for (const kw of keywords) {
+    const r = addGscTracker(trackers, { kind: 'keyword', keyword: kw, group: opts.group, ownerTagId: opts.ownerTagId }, newId, nowIso, validOwnerIds)
+    if (r.ok) { trackers = r.trackers; added.push(r.tracker); continue }
+    if (r.error === 'limit') overLimit++
+    else if (r.error.startsWith('duplicate')) duplicates++
+    else invalid++
+  }
+  // addGscTracker ใส่ไว้บนสุดทีละคำ → เรียงคำที่เพิ่มใหม่ตามลำดับที่ส่งมา
+  if (added.length > 1) {
+    const ids = new Set(added.map((t) => t.id))
+    trackers = [...added, ...trackers.filter((t) => !ids.has(t.id))]
+  }
+  return { trackers, added, duplicates, invalid, overLimit }
+}
+
+export interface GscKeywordSuggestion extends GscMetric {
+  keyword: string
+  prevClicks: number
+  prevImpressions: number
+  prevPosition: number
+  /** ติดตามแบบ keyword ทั้งเว็บอยู่แล้ว */
+  tracked: boolean
+}
+
+export interface GscKeywordSuggestResponse {
+  term: string
+  suggestions: GscKeywordSuggestion[]
+  /** ช่องที่ยังเพิ่มได้ก่อนเต็มเพดาน */
+  remaining: number
+  limit: number
+}
+
+/**
+ * คำค้นหาจาก GSC ที่มีคำหลักอยู่ (แถวมิติ query) → รายการให้ติ๊กเลือก เรียงตามคลิก แล้วการแสดงผล
+ * exclude = คำที่ห้ามแสดง (เช่นคำต้องห้าม) — ตัดซ้ำตาม normalizeTrackerKeyword
+ */
+export function buildKeywordSuggestions(
+  curRows: readonly RawGscRow[],
+  prevRows: readonly RawGscRow[],
+  existing: readonly UploadGscTracker[],
+  opts: { limit?: number; exclude?: (keyword: string) => boolean } = {},
+): GscKeywordSuggestion[] {
+  const tracked = new Set(existing.filter((t) => trackerKind(t) === 'keyword').map((t) => t.keyword))
+  const prev = new Map<string, RawGscRow>()
+  for (const r of prevRows) {
+    const k = normalizeTrackerKeyword(r.keys?.[0])
+    if (k && !prev.has(k)) prev.set(k, r)
+  }
+  const seen = new Set<string>()
+  const out: GscKeywordSuggestion[] = []
+  for (const r of curRows) {
+    const keyword = normalizeTrackerKeyword(r.keys?.[0])
+    if (!keyword || seen.has(keyword) || opts.exclude?.(keyword)) continue
+    seen.add(keyword)
+    const p = prev.get(keyword)
+    out.push({
+      keyword,
+      clicks: r.clicks ?? 0, impressions: r.impressions ?? 0, ctr: r.ctr ?? 0, position: r.position ?? 0,
+      prevClicks: p?.clicks ?? 0, prevImpressions: p?.impressions ?? 0, prevPosition: p?.position ?? 0,
+      tracked: tracked.has(keyword),
+    })
+  }
+  out.sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions || a.keyword.localeCompare(b.keyword))
+  return out.slice(0, opts.limit ?? 200)
+}
+
+/**
+ * รวม keyword หลายคำเป็น regex ชุดละไม่เกิน maxCount คำ/maxLen ตัวอักษร: (?i)^(?:a|b)$
+ * ใช้ยิง GSC ครั้งเดียวต่อชุด (มิติ date+query) แทนยิงทีละคำ — 25 คำ × 365 วัน ยังไม่ถึง rowLimit 25,000
+ */
+export function chunkKeywordRegex(keywords: readonly string[], maxCount = 25, maxLen = 3500): { regex: string; keywords: string[] }[] {
+  const out: { regex: string; keywords: string[] }[] = []
+  let cur: string[] = []
+  let len = 0
+  const flush = () => {
+    if (cur.length) out.push({ regex: `(?i)^(?:${cur.map(escapeRe2).join('|')})$`, keywords: cur })
+    cur = []; len = 0
+  }
+  for (const kw of Array.from(new Set(keywords.filter(Boolean)))) {
+    const piece = escapeRe2(kw).length + 1
+    if (cur.length >= maxCount || (cur.length && len + piece > maxLen - 16)) flush()
+    cur.push(kw); len += piece
+  }
+  flush()
+  return out
+}
+
+/**
+ * แยกแถวที่มิติ query อยู่ลำดับที่ 2 ตาม keyword → แถวที่ตัดมิติ query ออก
+ * (date, query) → (date) สำหรับ keyword ทั้งเว็บ; (date, query, page) → (date, page) สำหรับ keyword + หน้า
+ */
+export function splitRowsByQuery(rows: readonly RawGscRow[]): Map<string, RawGscRow[]> {
+  const out = new Map<string, RawGscRow[]>()
+  for (const r of rows) {
+    const date = r.keys?.[0]
+    const kw = normalizeTrackerKeyword(r.keys?.[1])
+    if (!date || !kw) continue
+    const row: RawGscRow = { ...r, keys: [date, ...(r.keys ?? []).slice(2)] }
+    const list = out.get(kw)
+    if (list) list.push(row); else out.set(kw, [row])
+  }
+  return out
 }

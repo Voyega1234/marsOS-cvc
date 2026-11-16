@@ -11,10 +11,11 @@ import {
   type RawGscRow, type ReportCompareMode, type ReportSearchType,
 } from '@/lib/upload-article/gsc-report'
 import {
-  buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, readGscTrackers, trackerKind,
+  buildTrackerPageRegex, buildTrackerSeries, chunkKeywordRegex, isIdPermalinkUrl, readGscTrackers, splitRowsByQuery, trackerKind,
   type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse,
 } from '@/lib/upload-article/gsc-trackers'
 import { resolveIdPermalink } from '@/lib/upload-article/gsc-tracker-resolve'
+import { GSC_BUDGET_BUSY_MESSAGE, gscTrackerBudget } from '@/lib/upload-article/gsc-budget'
 
 // ─── Upload Article > Report > Monitor — ผลรายวันของรายการที่บันทึกไว้ (keyword / หน้า / keyword + หน้า) (service account เท่านั้น) ───
 // cache ในหน่วยความจำ 10 นาที เหมือน route report
@@ -38,7 +39,14 @@ function setCached(key: string, value: unknown) {
 
 const SEARCH_TYPES: ReportSearchType[] = ['web', 'image', 'video', 'news', 'discover']
 /** จำนวน query ที่ยิง GSC พร้อมกัน */
-const QUERY_CONCURRENCY = 4
+const QUERY_CONCURRENCY = 6
+/**
+ * คำต่อชุดเวลารวมยิง — ทุกลูกค้าใช้ service account ตัวเดียว (โควต้า GSC ~1,200 ครั้ง/นาที ต่อบัญชี)
+ * จึงรวม keyword หลายคำเป็น regex เดียวแทนยิงทีละคำ; keyword+หน้า มีมิติ page เพิ่ม แถวเยอะกว่า → ชุดเล็กกว่า
+ */
+const KEYWORD_BATCH = 25
+const PAIR_BATCH = 10
+const PAGE_BATCH = 10
 
 function isForbiddenError(e: unknown): boolean {
   const err = e as { code?: number | string; response?: { status?: number } } | null
@@ -47,20 +55,62 @@ function isForbiddenError(e: unknown): boolean {
   return code === 403 || code === '403' || status === 403
 }
 
+/** โควต้า GSC เต็ม (429 หรือ 403 ที่ reason เป็น rate/quota) */
+function isQuotaError(e: unknown): boolean {
+  const err = e as { code?: number | string; response?: { status?: number }; message?: string } | null
+  const status = Number(err?.response?.status ?? err?.code)
+  if (status === 429) return true
+  return /quota|rate ?limit|too many requests/i.test(err?.message ?? '')
+}
+
 interface QuerySpec { key: string; dimensions: string[]; filter: { dimension: 'query' | 'page'; operator: 'equals' | 'includingRegex'; expression: string } }
 
-/** query ที่ต้องยิงของแต่ละรายการ — รายการที่ใช้ query เดียวกันจะแชร์ผลกัน (ยิงครั้งเดียว) */
-function specFor(kind: GscTrackerKind, keyword: string, matchUrl: string): QuerySpec | null {
-  if (kind === 'keyword') {
-    // คำนี้ทั้งเว็บ: ไม่แยกหน้า ตัวเลขจึงตรงกับแท็บคำค้นหาของ GSC (การแสดงผลไม่ถูกนับซ้ำหลายหน้า)
-    return { key: `k\u0001${keyword}`, dimensions: ['date'], filter: { dimension: 'query', operator: 'equals', expression: keyword } }
-  }
+/** query ที่ต้องยิง — รวมหลายรายการเป็นชุด (regex) แล้วแยกผลกลับตาม key ของแต่ละรายการ */
+interface Batch { spec: QuerySpec; split: (rows: RawGscRow[]) => Map<string, RawGscRow[]> }
+
+/** key ของผลที่แต่ละรายการใช้ — รายการที่ซ้ำกันใช้ผลเดียวกัน */
+function resultKey(kind: GscTrackerKind, keyword: string, matchUrl: string): string | null {
+  if (kind === 'keyword') return `k\u0001${keyword}`
   if (kind === 'page') {
     const regex = buildTrackerPageRegex(matchUrl)
-    if (!regex) return null
-    return { key: `p\u0001${regex}`, dimensions: ['date', 'page'], filter: { dimension: 'page', operator: 'includingRegex', expression: regex } }
+    return regex ? `p\u0001${regex}` : null
   }
-  return { key: `q\u0001${keyword}`, dimensions: ['date', 'page'], filter: { dimension: 'query', operator: 'equals', expression: keyword } }
+  return `q\u0001${keyword}`
+}
+
+function buildBatches(keys: Iterable<string>): Batch[] {
+  const words: string[] = [], pairWords: string[] = [], pageRegexes: string[] = []
+  for (const key of Array.from(keys)) {
+    const [kind, value] = key.split('\u0001')
+    if (kind === 'k') words.push(value)
+    else if (kind === 'q') pairWords.push(value)
+    else if (kind === 'p') pageRegexes.push(value)
+  }
+  const batches: Batch[] = []
+  // keyword ทั้งเว็บ: มิติ date+query — ไม่แยกหน้า ตัวเลขจึงตรงกับแท็บคำค้นหาของ GSC
+  for (const c of chunkKeywordRegex(words, KEYWORD_BATCH)) {
+    batches.push({
+      spec: { key: `K\u0001${c.regex}`, dimensions: ['date', 'query'], filter: { dimension: 'query', operator: 'includingRegex', expression: c.regex } },
+      split: (rows) => new Map(Array.from(splitRowsByQuery(rows), ([kw, list]) => [`k\u0001${kw}`, list])),
+    })
+  }
+  // keyword + หน้า: มิติ date+query+page → แยกตามคำ เหลือ (date, page) ให้ buildTrackerSeries กรองหน้าเอง
+  for (const c of chunkKeywordRegex(pairWords, PAIR_BATCH)) {
+    batches.push({
+      spec: { key: `Q\u0001${c.regex}`, dimensions: ['date', 'query', 'page'], filter: { dimension: 'query', operator: 'includingRegex', expression: c.regex } },
+      split: (rows) => new Map(Array.from(splitRowsByQuery(rows), ([kw, list]) => [`q\u0001${kw}`, list])),
+    })
+  }
+  // หน้านี้ทุกคำ: รวม regex ของหลายหน้าด้วย | — buildTrackerSeries กรองเฉพาะหน้าของรายการนั้นเองอยู่แล้ว
+  for (let i = 0; i < pageRegexes.length; i += PAGE_BATCH) {
+    const group = pageRegexes.slice(i, i + PAGE_BATCH)
+    const expression = group.length === 1 ? group[0] : group.map((r) => `(?:${r})`).join('|')
+    batches.push({
+      spec: { key: `P\u0001${expression}`, dimensions: ['date', 'page'], filter: { dimension: 'page', operator: 'includingRegex', expression } },
+      split: (rows) => new Map(group.map((r) => [`p\u0001${r}`, rows])),
+    })
+  }
+  return batches
 }
 
 async function runQuery(
@@ -123,15 +173,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const kind = trackerKind(t)
     const matchUrl = t.url && isIdPermalinkUrl(t.url) ? (await resolveIdPermalink(t.url, siteUrl)) ?? t.url : t.url
     const unresolved = !!matchUrl && isIdPermalinkUrl(matchUrl)
-    const spec = unresolved ? null : specFor(kind, t.keyword, matchUrl)
-    return { tracker: t, kind, matchUrl, unresolved, spec }
+    const key = unresolved ? null : resultKey(kind, t.keyword, matchUrl)
+    return { tracker: t, kind, matchUrl, unresolved, key }
   }))
 
-  const specs = new Map<string, QuerySpec>()
-  for (const x of targets) if (x.spec) specs.set(x.spec.key, x.spec)
-  const rowsBySpec = new Map<string, { cur: RawGscRow[]; prev: RawGscRow[] }>()
+  const keys = new Set<string>()
+  for (const x of targets) if (x.key) keys.add(x.key)
+  const rowsByKey = new Map<string, { cur: RawGscRow[]; prev: RawGscRow[] }>()
 
-  if (specs.size > 0) {
+  if (keys.size > 0) {
     let auth: Awaited<ReturnType<typeof getGSCServiceAuth>>
     try {
       auth = await getGSCServiceAuth()
@@ -139,16 +189,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: `เชื่อมต่อ Google ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 })
     }
     const sc = google.searchconsole({ version: 'v1', auth })
-    const list = Array.from(specs.values())
+    const list = buildBatches(keys)
+    // ช่วงปัจจุบัน + ช่วงเทียบ = 2 ครั้งต่อชุด — กันไม่ให้เกินส่วนแบ่งโควต้าของ service account
+    if (!gscTrackerBudget.take(list.length * 2)) return NextResponse.json({ error: GSC_BUDGET_BUSY_MESSAGE }, { status: 429 })
     try {
       for (let i = 0; i < list.length; i += QUERY_CONCURRENCY) {
         const chunk = list.slice(i, i + QUERY_CONCURRENCY)
-        await Promise.all(chunk.map(async (spec) => {
+        await Promise.all(chunk.map(async (batch) => {
           const [cur, prev] = await Promise.all([
-            runQuery(sc, siteUrl, spec, period.start, period.end, searchType),
-            runQuery(sc, siteUrl, spec, period.compareStart, period.compareEnd, searchType),
+            runQuery(sc, siteUrl, batch.spec, period.start, period.end, searchType),
+            runQuery(sc, siteUrl, batch.spec, period.compareStart, period.compareEnd, searchType),
           ])
-          rowsBySpec.set(spec.key, { cur, prev })
+          const curByKey = batch.split(cur)
+          const prevByKey = batch.split(prev)
+          for (const k of Array.from(new Set([...Array.from(curByKey.keys()), ...Array.from(prevByKey.keys())]))) {
+            rowsByKey.set(k, { cur: curByKey.get(k) ?? [], prev: prevByKey.get(k) ?? [] })
+          }
         }))
       }
     } catch (e) {
@@ -158,6 +214,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           error: `ไม่มีสิทธิ์เข้าถึงเว็บนี้ใน Search Console — เพิ่ม ${identity.email || 'service account'} เป็นผู้ใช้ในเว็บนี้ก่อน แล้วลองใหม่`,
         }, { status: 403 })
       }
+      if (isQuotaError(e)) {
+        return NextResponse.json({ error: 'Google Search Console จำกัดจำนวนครั้งชั่วคราว (คนใช้พร้อมกันเยอะ) — รอ 1–2 นาทีแล้วกดรีเฟรช' }, { status: 429 })
+      }
       return NextResponse.json({ error: `ดึงข้อมูล GSC ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 })
     }
   }
@@ -165,8 +224,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // GSC ช้ากว่าวันจริง ~3 วัน: ช่วงที่กำหนดเองอาจลากถึงวันที่ข้อมูลยังไม่มา — ไม่เติม 0 หลังวันนั้น (ข้อมูลยังไม่มา ≠ 0)
   const lastDataDate = resolveReportPeriod({ days: 28, compare: 'previous' }).end
 
-  const out: GscTrackerPerformance[] = targets.map(({ tracker, kind, matchUrl, unresolved, spec }) => {
-    const rows = spec ? rowsBySpec.get(spec.key) : undefined
+  const out: GscTrackerPerformance[] = targets.map(({ tracker, kind, matchUrl, unresolved, key }) => {
+    const rows = key ? rowsByKey.get(key) : undefined
     // ชนิด keyword: แถวไม่มีมิติ page → ส่ง url ว่างให้นับทุกแถว
     const seriesUrl = kind === 'keyword' ? '' : matchUrl
     const cur = buildTrackerSeries(rows?.cur ?? [], seriesUrl, period.start, period.end, lastDataDate)
@@ -191,4 +250,4 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 120
