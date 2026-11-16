@@ -11,7 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { LINK_TYPES } from "@/lib/backlink-management/types";
 import { PRICE_TYPES } from "@/lib/backlink-management/vendor-detail";
 import { ACCEPT_ATTR, ALLOWED_LABEL, MAX_FILE_BYTES, MAX_FILES_PER_REQUEST, formatBytes, normalizeAttachmentLink } from "@/lib/backlink-management/attachments";
+import { VENDOR_RANK_LABEL, vendorRank } from "@/lib/backlink-management/vendor-rank";
 import { api, dateInput, selectCls, type BlmRow, type Meta, type Vendor } from "./shared";
+
+/** " · High Authority" / " · General" after the vendor price; nothing when the site has no price. */
+const rankSuffix = (price: number) => { const r = vendorRank(price); return r ? ` · ${VENDOR_RANK_LABEL[r]}` : ""; };
 import SearchSelect from "./SearchSelect";
 import AsanaProjectSelect from "./AsanaProjectSelect";
 import type { AsanaStatus } from "./AsanaDialog";
@@ -355,7 +359,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
               options={[
                 ...(missingVendor ? [missingVendor] : []),
                 ...vendorGroups.flatMap(([cat, list]) => list.map((v) => ({
-                  value: v.id, label: `${v.domain} · ${v.price.toLocaleString("th-TH")} บาท`, hint: cat,
+                  value: v.id, label: `${v.domain} · ${v.price.toLocaleString("th-TH")} บาท${rankSuffix(v.price)}`, hint: cat,
                 }))),
               ]}
             />

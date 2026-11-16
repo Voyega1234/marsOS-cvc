@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, BarChart3, ChevronRight, Gauge, Globe2, PauseCircle, PhoneOff, Tag, Wallet } from "lucide-react";
 import { BarChart, Chip, KpiTile, Panel, Segmented, StackedBar, chartColor, formatCompact } from "@/components/ds";
+import { VENDOR_RANKS, vendorRank } from "@/lib/backlink-management/vendor-rank";
 import { money, type Vendor } from "./shared";
 
 const NO_CATEGORY = "ไม่ระบุหมวด";
-type View = "category" | "dr" | "price";
+type View = "category" | "dr" | "price" | "rank";
 
 const avg = (a: number[]) => (a.length ? a.reduce((s, n) => s + n, 0) / a.length : 0);
 const median = (a: number[]) => {
@@ -51,6 +52,10 @@ export default function VendorsDashboard({ rows, onPick }: { rows: Vendor[]; onP
 
     const drBands = DR_BANDS.map((b) => ({ label: b.label, value: drs.filter((n) => n >= b.min && n < b.max).length }));
     const priceBands = PRICE_BANDS.map((b) => ({ label: b.label, value: prices.filter((n) => n >= b.min && n < b.max).length }));
+    const rankBands = [
+      ...VENDOR_RANKS.map((r) => ({ label: `${r.label} (${r.range})`, value: rows.filter((v) => vendorRank(v.price) === r.key).length })),
+      { label: "ยังไม่มีราคา", value: rows.filter((v) => vendorRank(v.price) === null).length },
+    ];
 
     const noContact = rows.filter((v) => !v.contactName && !v.contactChannel);
     const noPrice = rows.filter((v) => !(v.price > 0));
@@ -66,7 +71,7 @@ export default function VendorsDashboard({ rows, onPick }: { rows: Vendor[]; onP
       .sort((a, b) => a.per - b.per).slice(0, 5);
 
     return {
-      total, active, drs, traffics, prices, topTraffic, cats, drBands, priceBands, noContact, noPrice, noDr, inactive, outdated, topDr, value,
+      total, active, drs, traffics, prices, topTraffic, cats, drBands, priceBands, rankBands, noContact, noPrice, noDr, inactive, outdated, topDr, value,
       avgDr: avg(drs), medDr: median(drs), sumTraffic: traffics.reduce((a, n) => a + n, 0), avgPrice: avg(prices),
       minPrice: prices.length ? Math.min(...prices) : 0, maxPrice: prices.length ? Math.max(...prices) : 0,
     };
@@ -74,7 +79,7 @@ export default function VendorsDashboard({ rows, onPick }: { rows: Vendor[]; onP
 
   const chartData = view === "category"
     ? s.cats.slice(0, 12).map(([c, n], i) => ({ label: c || NO_CATEGORY, value: n, color: chartColor(i) }))
-    : view === "dr" ? s.drBands : s.priceBands;
+    : view === "dr" ? s.drBands : view === "rank" ? s.rankBands : s.priceBands;
 
   const todo: { icon: React.ReactNode; title: string; sub: string; domain: string }[] = [];
   const add = (list: Vendor[], icon: React.ReactNode, title: string) => {
@@ -109,7 +114,7 @@ export default function VendorsDashboard({ rows, onPick }: { rows: Vendor[]; onP
       <div className="grid gap-4 lg:grid-cols-3">
         <Panel className="lg:col-span-2" title="ภาพรวมคลังเว็บ" subtitle="จำนวนเว็บ"
           actions={<Segmented size="sm" ariaLabel="มุมมองกราฟ" value={view} onChange={setView}
-            options={[{ value: "category", label: "ตามหมวด" }, { value: "dr", label: "ตาม DR" }, { value: "price", label: "ตามราคา" }]} />}>
+            options={[{ value: "category", label: "ตามหมวด" }, { value: "dr", label: "ตาม DR" }, { value: "price", label: "ตามราคา" }, { value: "rank", label: "ตาม Rank" }]} />}>
           {chartData.some((d) => d.value > 0)
             ? <BarChart data={chartData} height={260} showValues ariaLabel="จำนวนเว็บ" />
             : <p className="py-10 text-center text-xs text-gray-500">ยังไม่มีข้อมูลสำหรับมุมมองนี้</p>}

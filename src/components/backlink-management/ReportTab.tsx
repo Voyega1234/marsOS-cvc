@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { BarChart, DonutChart, KpiTile, Panel, downloadCsv } from "@/components/ds";
 import { STATUS_LABEL, type BlmStatus } from "@/lib/backlink-management/types";
 import { api, money } from "./shared";
-import ReportBudgetPanel, { type BudgetRow, type Totals } from "./ReportBudgetPanel";
+import BudgetTrackerPanel, { type TrackerResp } from "./BudgetTrackerPanel";
 import QuotaSummaryPanel from "./QuotaSummaryPanel";
 
 interface Report {
@@ -24,7 +24,7 @@ export default function ReportTab({ period, projectId, onOpenQuota }: { period: 
   const [to, setTo] = useState(period);
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
-  const budgetRef = useRef<{ period: string; rows: BudgetRow[]; totals: Totals } | null>(null);
+  const trackerRef = useRef<TrackerResp | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,14 +55,20 @@ export default function ReportTab({ period, projectId, onOpenQuota }: { period: 
       ["เว็บ", "คำขอ", "เผยแพร่", "ลิงก์ปกติ", "ค่าใช้จ่ายจริง", "% ลิงก์ยังอยู่"],
       ...data.byVendor.map((v) => [v.domain, v.requests, v.published, v.live, v.spend, v.liveRate]),
     ];
-    const b = budgetRef.current;
-    if (b) {
-      const br = projectId ? b.rows.filter((r) => r.projectId === projectId) : b.rows;
+    const s = trackerRef.current;
+    if (s) {
       rows.push(
         [],
-        [`งบประมาณเดือน ${b.period}`],
-        ["โปรเจกต์", "งบที่อนุมัติ", "รออนุมัติ", "กันงบ", "ใช้จริง", "คงเหลือ"],
-        ...br.map((r) => [r.projectName, r.approved, r.pending, r.reserved, r.actual, r.remaining]),
+        [`งบ Backlink จาก Google Sheet: ${s.title}`],
+        ["Client", "Project", "Initial Budget", "Used Budget", "Remaining Budget", "% Used", "ลิงก์ Published", "Planned", "ประเภท", "Note"],
+        ...s.rows.map((r) => [
+          r.client, r.project, r.initial, r.used, r.remaining, r.usedPct, r.links, r.plannedLinks,
+          r.byType.map((x) => `${x.type} ${x.links}`).join(", "), r.note,
+        ]),
+        ["รวม", "", s.totals.initial, s.totals.used, s.totals.remaining, s.totals.usedPct, s.totals.links, s.totals.plannedLinks, "", ""],
+        [],
+        ["วันที่", "Client", "Project", "เว็บ", "URL", "ประเภท", "ราคา", "Anchor Text", "สถานะ", "Note"],
+        ...s.items.map((i) => [i.date ?? i.dateRaw, i.client, i.project, i.site, i.url, i.type, i.cost, i.anchor, i.status === "published" ? "Published" : "Planned", i.note]),
       );
     }
     downloadCsv(`backlink-report-${data.from}_${data.to}.csv`, rows);
@@ -88,7 +94,7 @@ export default function ReportTab({ period, projectId, onOpenQuota }: { period: 
         <KpiTile label="ใช้จริง" value={money(t.spendActual)} tone="navy" hint={t.costPerLiveLink !== null ? `ต้นทุนต่อลิงก์ปกติ ${money(t.costPerLiveLink)}` : undefined} />
       </div>
 
-      <ReportBudgetPanel period={to || data.to} projectId={projectId} onData={(d) => { budgetRef.current = d; }} />
+      <BudgetTrackerPanel onData={(d) => { trackerRef.current = d; }} />
       <QuotaSummaryPanel onOpenQuota={onOpenQuota} />
 
       <div className="grid gap-4 lg:grid-cols-3">

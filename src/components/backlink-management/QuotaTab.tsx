@@ -13,12 +13,18 @@ import type {
   QuotaView,
   QuotaWriteResult,
 } from "@/lib/backlink-management/quota-types";
+import { quotaPackageYear, quotaYears } from "@/lib/backlink-management/quota-year";
 import { QuotaDashboard } from "./QuotaDashboard";
 import { PackageDialog, ReserveDialog } from "./QuotaForms";
 import { OverwriteCancelled, quotaWrite, useOverwriteConfirm } from "./QuotaOverwriteConfirm";
 import { api, fmtDate, fmtDateTime, selectCls, type Meta } from "./shared";
 
 const BASE = "/api/backlink-management/quota";
+/** ค่าในตัวกรองปี: "" = ทุกปี, "none" = ไม่ระบุปี, อื่น ๆ = ปี ค.ศ. */
+const yearKey = (y: number | null) => (y == null ? "none" : String(y));
+const pill = "rounded-full border px-3 py-1 text-xs";
+const pillOn = "border-brand-navy bg-brand-navy text-white";
+const pillOff = "border-gray-200 bg-white/80 text-gray-600 hover:bg-brand-mist/60 dark:border-white/10 dark:bg-white/5 dark:text-gray-300";
 const n = (v: number | null | undefined) => (v ?? 0).toLocaleString("th-TH");
 
 type SlotField = keyof QuotaSlotInput;
@@ -76,6 +82,7 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
   const [hideDone, setHideDone] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [pkgForm, setPkgForm] = useState<{ open: boolean; pkg: QuotaPackageView | null }>({ open: false, pkg: null });
@@ -151,21 +158,35 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
   /** จากการ์ด "ต้องจัดการ": ค้นหาแพ็กเกจนั้น ขยายแถว แล้วเลื่อนลงตาราง */
   const focusPackage = (p: QuotaPackageView) => {
     setSearch(p.vendorName || p.websiteText || "");
+    // แพ็กเกจอาจอยู่คนละปีกับที่กรองไว้ → สลับไปปีของแพ็กเกจนั้น
+    setYearFilter((y) => (y ? yearKey(quotaPackageYear(p)) : y));
     setExpanded((s) => new Set(s).add(p.id));
     setTimeout(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
+
+  // Year pills count packages in the chosen sheet only, so the numbers match what the table can show.
+  const years = useMemo(
+    () => (view ? quotaYears(view.packages.filter((p) => !sourceFilter || p.sourceId === sourceFilter)) : []),
+    [view, sourceFilter],
+  );
+
+  // ปีที่เลือกหายไป (เปลี่ยนชีท / โหลดใหม่) → กลับไป "ทุกปี"
+  useEffect(() => {
+    if (yearFilter && !years.some((y) => yearKey(y.year) === yearFilter)) setYearFilter("");
+  }, [years, yearFilter]);
 
   const packages = useMemo(() => {
     if (!view) return [];
     const q = search.trim().toLowerCase();
     return view.packages.filter((p) => {
       if (sourceFilter && p.sourceId !== sourceFilter) return false;
+      if (yearFilter && yearKey(quotaPackageYear(p)) !== yearFilter) return false;
       if (hideDone && (p.expired || p.remaining === 0)) return false;
       if (!q) return true;
       const hay = [p.vendorName, p.websiteText, p.type, p.priceText, ...p.slots.flatMap((s) => [s.client, s.remark])].join("\n").toLowerCase();
       return hay.includes(q);
     });
-  }, [view, search, sourceFilter, hideDone]);
+  }, [view, search, sourceFilter, yearFilter, hideDone]);
 
   if (!view && !loadError) return <div className="flex justify-center py-10 text-gray-400"><Loader2 className="h-5 w-5 animate-spin" /></div>;
   if (!view) return <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{loadError}</div>;
@@ -219,6 +240,22 @@ export default function QuotaTab({ meta, refreshKey, onOpenSheets }: { meta: Met
           ) : null}
         </div>
       </div>
+      {years.length > 1 ? (
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3 md:px-5" role="group" aria-label="กรองตามปี">
+          <span className="mr-1 text-xs text-gray-500">ปี</span>
+          <button type="button" aria-pressed={yearFilter === ""} onClick={() => setYearFilter("")} className={`${pill} ${yearFilter === "" ? pillOn : pillOff}`}>
+            ทุกปี ({years.reduce((s, y) => s + y.count, 0)})
+          </button>
+          {years.map((y) => {
+            const k = yearKey(y.year);
+            return (
+              <button key={k} type="button" aria-pressed={yearFilter === k} onClick={() => setYearFilter(k)} className={`${pill} ${yearFilter === k ? pillOn : pillOff}`}>
+                {y.year ?? "ไม่ระบุปี"} ({y.count})
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       {view.sources.length === 0 ? (
         <EmptyState
           title="ยังไม่ได้เพิ่มลิงก์ชีทโควต้า"

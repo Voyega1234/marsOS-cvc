@@ -11,7 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Chip, EmptyState, Panel, SearchPill } from "@/components/ds";
 import { LINK_TYPES } from "@/lib/backlink-management/types";
 import { DATA_STATUS_LABEL, DATA_STATUSES, PRICE_TYPES, type PriceKey } from "@/lib/backlink-management/vendor-detail";
+import { VENDOR_RANKS, vendorRank, type VendorRank } from "@/lib/backlink-management/vendor-rank";
 import { api, money, selectCls, type Vendor } from "./shared";
+import RankChip from "./VendorRankChip";
+
+type RankFilter = "" | VendorRank | "NONE";
 import VendorImportDialog from "./VendorImportDialog";
 import VendorsDashboard from "./VendorsDashboard";
 
@@ -213,6 +217,7 @@ export default function VendorsTab() {
   const [dq, setDq] = useState("");
   const [status, setStatus] = useState("");
   const [category, setCategory] = useState<string | null>(null);
+  const [rank, setRank] = useState<RankFilter>("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dlg, setDlg] = useState<{ open: boolean; edit: Vendor | null }>({ open: false, edit: null });
   const [bulk, setBulk] = useState(false);
@@ -235,24 +240,39 @@ export default function VendorsTab() {
   }, [dq, status]);
   useEffect(() => { void load(); }, [load]);
 
+  // Rank filter is client-side: rank comes from the starting price, so no API change is needed.
+  const ranked = useMemo(() => {
+    if (!rows || rank === "") return rows;
+    return rows.filter((v) => (vendorRank(v.price) ?? "NONE") === rank);
+  }, [rows, rank]);
+
   const cats = useMemo(() => {
     const m = new Map<string, number>();
-    for (const v of rows ?? []) m.set(v.category, (m.get(v.category) ?? 0) + 1);
+    for (const v of ranked ?? []) m.set(v.category, (m.get(v.category) ?? 0) + 1);
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [rows]);
+  }, [ranked]);
 
   // หมวดที่เลือกหายไปหลังโหลดใหม่ → กลับไป "ทั้งหมด"
   useEffect(() => {
-    if (category !== null && rows && !cats.some(([c]) => c === category)) setCategory(null);
-  }, [cats, category, rows]);
+    if (category !== null && ranked && !cats.some(([c]) => c === category)) setCategory(null);
+  }, [cats, category, ranked]);
 
   const groups = useMemo(() => {
     const byDomain = (a: Vendor, b: Vendor) => a.domain.localeCompare(b.domain);
-    if (category !== null) return [{ name: category, items: (rows ?? []).filter((v) => v.category === category).sort(byDomain) }];
-    return cats.map(([name]) => ({ name, items: (rows ?? []).filter((v) => v.category === name).sort(byDomain) }));
-  }, [rows, cats, category]);
+    if (category !== null) return [{ name: category, items: (ranked ?? []).filter((v) => v.category === category).sort(byDomain) }];
+    return cats.map(([name]) => ({ name, items: (ranked ?? []).filter((v) => v.category === name).sort(byDomain) }));
+  }, [ranked, cats, category]);
 
-  const categoryNames = useMemo(() => cats.map(([c]) => c).filter(Boolean), [cats]);
+  const rankCounts = useMemo(() => {
+    const c: Record<RankFilter, number> = { "": 0, HIGH_AUTHORITY: 0, GENERAL: 0, NONE: 0 };
+    for (const v of rows ?? []) { c[""]++; c[vendorRank(v.price) ?? "NONE"]++; }
+    return c;
+  }, [rows]);
+
+  const categoryNames = useMemo(() => {
+    const s = new Set((rows ?? []).map((v) => v.category).filter(Boolean));
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
 
   function toggle(id: string) {
     setExpanded((p) => {
@@ -282,7 +302,7 @@ export default function VendorsTab() {
     }
   }
 
-  const COLS = 10;
+  const COLS = 11;
   const pill = "rounded-full border px-3 py-1 text-xs";
 
   function pickDomain(domain: string) {
@@ -311,12 +331,17 @@ export default function VendorsTab() {
         <select className={`${selectCls} !w-auto`} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="กรองสถานะ">
           <option value="">ทุกสถานะ</option><option value="ACTIVE">ใช้งาน</option><option value="INACTIVE">ไม่ใช้งาน</option>
         </select>
+        <select className={`${selectCls} !w-auto`} value={rank} onChange={(e) => setRank(e.target.value as RankFilter)} aria-label="กรอง Rank">
+          <option value="">ทุก Rank ({rankCounts[""]})</option>
+          {VENDOR_RANKS.map((r) => <option key={r.key} value={r.key}>{`${r.label} · ${r.range} (${rankCounts[r.key]})`}</option>)}
+          <option value="NONE">{`ยังไม่มีราคา (${rankCounts.NONE})`}</option>
+        </select>
       </div>
-      {rows && rows.length > 0 ? (
+      {ranked && ranked.length > 0 ? (
         <div className="mb-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="แบ่งหมวด">
           <button type="button" aria-pressed={category === null} onClick={() => setCategory(null)}
             className={`${pill} ${category === null ? "border-brand-navy bg-brand-navy text-white" : "border-gray-200 bg-white/80 text-gray-600 hover:bg-brand-mist/60"}`}>
-            ทั้งหมด ({rows.length})
+            ทั้งหมด ({ranked.length})
           </button>
           {cats.map(([c, n]) => (
             <button key={c || "__none"} type="button" aria-pressed={category === c} onClick={() => setCategory(c)}
@@ -331,12 +356,15 @@ export default function VendorsTab() {
         <div className="flex justify-center py-10 text-gray-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
       ) : rows.length === 0 ? (
         <EmptyState title="ยังไม่มีเว็บในคลัง" description="เพิ่มทีละเว็บ วางหลายแถว หรือนำเข้าไฟล์ Excel / CSV" />
+      ) : !ranked || ranked.length === 0 ? (
+        <EmptyState title="ไม่มีเว็บใน Rank นี้" description="เลือก Rank อื่น หรือเลือก ทุก Rank" />
       ) : (
         <div className="max-h-[70vh] overflow-auto rounded-2xl border border-white/80 bg-white/70 shadow-sm dark:border-white/10 dark:bg-white/5">
           <table className="tbl w-full text-xs">
             <thead>
               <tr>
                 <th /><th className="text-left">โดเมน</th><th className="num">DR / UR</th><th className="num">Traffic</th><th className="num">ราคาเริ่มต้น</th>
+                <th className="text-left" title="จัดจากราคาเริ่มต้น: General 0–7,999 บาท, High Authority 8,000+ บาท">Rank</th>
                 <th className="text-left">ราคาแยกประเภท</th><th className="text-left">ติดต่อ</th><th className="text-left">Rate Card</th><th className="text-left">สถานะ</th><th />
               </tr>
             </thead>
@@ -393,6 +421,7 @@ export default function VendorsTab() {
           <td className="num whitespace-nowrap">{v.domainRating ?? "—"} / {v.urlRating ?? "—"}</td>
           <td className="num">{v.traffic?.toLocaleString() ?? "—"}</td>
           <td className="num whitespace-nowrap">{v.price > 0 ? money(v.price) : "—"}</td>
+          <td className="whitespace-nowrap"><RankChip price={v.price} /></td>
           <td>
             {prices.length === 0 ? "—" : prices.map((p) => (
               <div key={p.key} className="whitespace-nowrap text-[11px] leading-4">{p.label} {(v[p.key] as number).toLocaleString()}</div>
