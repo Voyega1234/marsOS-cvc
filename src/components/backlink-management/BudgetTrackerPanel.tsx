@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, RefreshCw } from "lucide-react";
 import { Chip, EmptyState, KpiTile, MeterBar, Panel, SearchPill, UnderlineTabs } from "@/components/ds";
 import { affordableSites } from "@/lib/backlink-management/affordable";
+import { logoFor, type LogoIndex } from "@/lib/backlink-management/project-logos";
 import {
   ACTIVE_WINDOW_DAYS, NEAR_LIMIT_PCT,
   type TrackerHealth, type TrackerItem, type TrackerLink, type TrackerRow, type TrackerSummary, type TrackerTypeCount,
@@ -40,7 +41,17 @@ function avatarTone(key: string): string {
   return AVATAR_TONES[h % AVATAR_TONES.length];
 }
 
-function Avatar({ name, k, size = "h-10 w-10 text-sm" }: { name: string; k: string; size?: string }) {
+function Avatar({ name, k, src, size = "h-10 w-10 text-sm" }: { name: string; k: string; src?: string | null; size?: string }) {
+  const [broken, setBroken] = useState<string | null>(null);
+  // โลโก้ลูกค้า (อัปไว้ในระบบ หรือ favicon เว็บ) — โหลดไม่ขึ้นค่อยกลับไปใช้ตัวอักษร
+  if (src && broken !== src) {
+    return (
+      <span className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-100 bg-white ${size}`} aria-hidden>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-contain p-1" onError={() => setBroken(src)} />
+      </span>
+    );
+  }
   return (
     <span className={`inline-flex shrink-0 items-center justify-center rounded-full font-semibold ${size} ${avatarTone(k)}`} aria-hidden>
       {(name.trim()[0] || "?").toUpperCase()}
@@ -126,7 +137,7 @@ function RankPill({ rank }: { rank: TrackerItem["rank"] }) {
 }
 
 /** งบ Backlink จาก Google Sheet ของทีม — ลูกค้าที่ Active, งบ/ใช้ไป/คงเหลือของแต่ละเจ้า และเจาะดูว่าใช้อะไรไปบ้าง */
-export default function BudgetTrackerPanel({ onData, onProjectsChanged }: { onData?: (d: TrackerResp | null) => void; onProjectsChanged?: () => void }) {
+export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsChanged }: { projectId?: string; onData?: (d: TrackerResp | null) => void; onProjectsChanged?: () => void }) {
   const [data, setData] = useState<TrackerResp | null>(null);
   const [error, setError] = useState<{ message: string; url?: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -136,6 +147,7 @@ export default function BudgetTrackerPanel({ onData, onProjectsChanged }: { onDa
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [vendorsFailed, setVendorsFailed] = useState(false);
   const [buyChoice, setBuyChoice] = useState("");
+  const [logos, setLogos] = useState<LogoIndex | null>(null);
   const seq = useRef(0);
   const onDataRef = useRef(onData);
   onDataRef.current = onData;
@@ -176,7 +188,30 @@ export default function BudgetTrackerPanel({ onData, onProjectsChanged }: { onDa
     return () => { cancelled = true; };
   }, []);
 
+  // โลโก้โหลดแยก ไม่ขวางรายงาน — ล้มเหลวก็ใช้ตัวอักษรเหมือนเดิม
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const l = await api<LogoIndex>("/api/backlink-management/project-logos");
+        if (!cancelled) setLogos(l);
+      } catch { /* ไม่มีโลโก้ก็ยังใช้งานได้ */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // เปลี่ยนโปรเจกต์ด้านบน = กลับไปเริ่มที่รายการ/โปรเจกต์นั้นใหม่
+  useEffect(() => { setSelected(""); setBuyChoice(""); }, [projectId]);
+
   const rows = useMemo(() => data?.rows ?? [], [data]);
+  const logoOf = (r: TrackerRow) => logoFor(logos, data?.links?.[r.key]?.projectId, [r.project, r.client]);
+  // เลือกโปรเจกต์ด้านบน = ล็อกไว้ที่แถวในชีทที่ผูกกับโปรเจกต์นั้น
+  const lockedKey = useMemo(
+    () => (projectId ? rows.find((r) => data?.links?.[r.key]?.projectId === projectId)?.key ?? "" : ""),
+    [projectId, rows, data],
+  );
+  const locked = Boolean(projectId);
+  const activeKey = locked ? lockedKey : selected;
   const counts = useMemo(() => ({
     active: rows.filter((r) => r.active).length,
     all: rows.length,
@@ -190,7 +225,7 @@ export default function BudgetTrackerPanel({ onData, onProjectsChanged }: { onDa
       .filter((r) => !needle || `${r.project} ${r.client} ${r.note}`.toLowerCase().includes(needle));
   }, [rows, tab, q]);
 
-  const row: TrackerRow | null = useMemo(() => (selected ? rows.find((r) => r.key === selected) ?? null : null), [rows, selected]);
+  const row: TrackerRow | null = useMemo(() => (activeKey ? rows.find((r) => r.key === activeKey) ?? null : null), [rows, activeKey]);
   // ลำดับก่อน/ถัดไปตามรายการที่กำลังดู (ถ้าโปรเจกต์ไม่อยู่ในรายการ ใช้ทั้งหมด)
   const nav = useMemo(() => (row && listed.some((r) => r.key === row.key) ? listed : rows), [row, listed, rows]);
   const navIndex = row ? nav.findIndex((r) => r.key === row.key) : -1;
@@ -206,7 +241,7 @@ export default function BudgetTrackerPanel({ onData, onProjectsChanged }: { onDa
     return groups;
   }, [items]);
 
-  const budgetRows = useMemo(() => rows.filter((r) => r.remaining !== null), [rows]);
+  const budgetRows = useMemo(() => rows.filter((r) => r.remaining !== null && (!locked || r.key === lockedKey)), [rows, locked, lockedKey]);
   const buyId = useMemo(() => {
     if (budgetRows.some((r) => r.key === buyChoice)) return buyChoice;
     if (row && row.remaining !== null) return row.key;
@@ -240,6 +275,18 @@ export default function BudgetTrackerPanel({ onData, onProjectsChanged }: { onDa
   const fetched = new Date(data.fetchedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
   const totalPct = t.initial > 0 ? Math.min(100, (t.used / t.initial) * 100) : 0;
   const link = row ? data.links?.[row.key] : undefined;
+
+  if (locked && !row) {
+    return (
+      <Panel title={title} subtitle={`${data.title || "Backlink Budget Tracker"} · ดึงล่าสุด ${fetched}`} actions={<>{sheetLink(data.url)}{refresh}</>}>
+        <EmptyState
+          title="โปรเจกต์นี้ยังไม่มีในชีทงบ Backlink"
+          description="ชีท Backlink Budget Tracker ยังไม่มีแถวที่ผูกกับโปรเจกต์นี้ — เพิ่มในชีทแล้วกด ดึงใหม่ หรือเลือก ทุกโปรเจกต์ เพื่อดูลูกค้าทั้งหมด"
+        />
+        {error ? <p className="mt-2 text-xs text-red-600">{`ดึงใหม่ไม่สำเร็จ: ${error.message}`}</p> : null}
+      </Panel>
+    );
+  }
 
   const affordable = (
     <Panel title="งบที่เหลือซื้ออะไรได้บ้าง" subtitle="ใช้งบคงเหลือตามชีท เทียบกับราคาในคลังเว็บ">
@@ -300,21 +347,30 @@ export default function BudgetTrackerPanel({ onData, onProjectsChanged }: { onDa
     const over = row.remaining !== null && row.remaining < 0;
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setSelected("")} className="inline-flex items-center gap-1 rounded-lg border border-input bg-white/90 px-2.5 py-1.5 text-xs hover:bg-gray-50">
-            <ArrowLeft className="h-3.5 w-3.5" /> ลูกค้าทั้งหมด
-          </button>
-          <div className="flex-1" />
-          <span className="text-xs text-gray-500">{`${navIndex + 1} จาก ${nav.length}`}</span>
-          <button type="button" aria-label="ก่อนหน้า" disabled={navIndex <= 0} onClick={() => setSelected(nav[navIndex - 1].key)} className="rounded-lg border border-input bg-white/90 p-1.5 hover:bg-gray-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
-          <button type="button" aria-label="ถัดไป" disabled={navIndex < 0 || navIndex >= nav.length - 1} onClick={() => setSelected(nav[navIndex + 1].key)} className="rounded-lg border border-input bg-white/90 p-1.5 hover:bg-gray-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
-        </div>
+        {locked ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-500">{`งบ Backlink จากชีท · ดึงล่าสุด ${fetched}`}</span>
+            <div className="flex-1" />
+            {sheetLink(data.url)}{refresh}
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setSelected("")} className="inline-flex items-center gap-1 rounded-lg border border-input bg-white/90 px-2.5 py-1.5 text-xs hover:bg-gray-50">
+              <ArrowLeft className="h-3.5 w-3.5" /> ลูกค้าทั้งหมด
+            </button>
+            <div className="flex-1" />
+            <span className="text-xs text-gray-500">{`${navIndex + 1} จาก ${nav.length}`}</span>
+            <button type="button" aria-label="ก่อนหน้า" disabled={navIndex <= 0} onClick={() => setSelected(nav[navIndex - 1].key)} className="rounded-lg border border-input bg-white/90 p-1.5 hover:bg-gray-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+            <button type="button" aria-label="ถัดไป" disabled={navIndex < 0 || navIndex >= nav.length - 1} onClick={() => setSelected(nav[navIndex + 1].key)} className="rounded-lg border border-input bg-white/90 p-1.5 hover:bg-gray-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+          </div>
+        )}
+        {locked && error ? <p className="text-xs text-red-600">{`ดึงใหม่ไม่สำเร็จ: ${error.message}`}</p> : null}
 
         <Panel padded={false} bodyClassName="p-4 md:p-6">
           <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
             <div className="space-y-4">
               <div className="flex items-start gap-3">
-                <Avatar name={row.project} k={row.key} size="h-12 w-12 text-lg" />
+                <Avatar name={row.project} k={row.key} src={logoOf(row)} size="h-12 w-12 text-lg" />
                 <div className="min-w-0">
                   <h3 className="truncate text-lg font-semibold text-[#000E3F]">{row.project}</h3>
                   <p className="text-xs text-gray-500">
@@ -455,7 +511,7 @@ export default function BudgetTrackerPanel({ onData, onProjectsChanged }: { onDa
                     return (
                       <li key={r.key}>
                         <button type="button" onClick={() => setSelected(r.key)} className="grid w-full grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 px-3 py-3 text-left hover:bg-sky-50/60 md:grid-cols-[auto_minmax(0,1.3fr)_minmax(0,1.4fr)_auto_auto] md:px-4">
-                          <Avatar name={r.project} k={r.key} />
+                          <Avatar name={r.project} k={r.key} src={logoOf(r)} />
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-semibold text-[#000E3F]">{r.project}</span>
                             <span className="block truncate text-xs text-gray-500">

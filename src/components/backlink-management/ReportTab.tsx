@@ -19,32 +19,37 @@ interface Report {
   byStatus: { status: string; count: number }[];
 }
 
-export default function ReportTab({ period, projectId, onOpenQuota, onProjectsChanged }: { period: string; projectId: string; onOpenQuota?: () => void; onProjectsChanged?: () => void }) {
+export default function ReportTab({ period, projectId, projectName = "", onOpenQuota, onProjectsChanged }: { period: string; projectId: string; projectName?: string; onOpenQuota?: () => void; onProjectsChanged?: () => void }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState(period);
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const trackerRef = useRef<TrackerResp | null>(null);
+  const seq = useRef(0);
 
   const load = useCallback(async () => {
+    // สลับโปรเจกต์เร็ว ๆ ห้ามให้ผลของโปรเจกต์ก่อนหน้ามาทับ
+    const my = ++seq.current;
     setLoading(true);
     try {
       const p = new URLSearchParams();
       if (from) p.set("from", from);
       if (to) p.set("to", to);
-      setData(await api<Report>(`/api/backlink-management/report?${p}`));
+      if (projectId) p.set("projectId", projectId);
+      const d = await api<Report>(`/api/backlink-management/report?${p}`);
+      if (my === seq.current) setData(d);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "โหลดไม่สำเร็จ");
+      if (my === seq.current) toast.error(e instanceof Error ? e.message : "โหลดไม่สำเร็จ");
     } finally {
-      setLoading(false);
+      if (my === seq.current) setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, projectId]);
   useEffect(() => { void load(); }, [load]);
 
   function exportCsv() {
     if (!data) return;
     const rows: (string | number | null)[][] = [
-      [`รายงาน Backlink ${data.from} ถึง ${data.to}`],
+      [`รายงาน Backlink ${data.from} ถึง ${data.to}${projectName ? ` · ${projectName}` : ""}`],
       [],
       ["เดือน", "คำขอ", "เผยแพร่", "ลิงก์ปกติ", "ค่าใช้จ่ายจริง"],
       ...data.byMonth.map((m) => [m.period, m.requests, m.published, m.live, m.spend]),
@@ -56,22 +61,27 @@ export default function ReportTab({ period, projectId, onOpenQuota, onProjectsCh
       ...data.byVendor.map((v) => [v.domain, v.requests, v.published, v.live, v.spend, v.liveRate]),
     ];
     const s = trackerRef.current;
+    // เลือกโปรเจกต์ = CSV มีเฉพาะแถวในชีทที่ผูกกับโปรเจกต์นั้น
+    const keys = s && projectId ? new Set(s.rows.filter((r) => s.links?.[r.key]?.projectId === projectId).map((r) => r.key)) : null;
+    const sheetRows = s ? (keys ? s.rows.filter((r) => keys.has(r.key)) : s.rows) : [];
+    const sheetItems = s ? (keys ? s.items.filter((i) => keys.has(i.key)) : s.items) : [];
     if (s) {
       rows.push(
         [],
         [`งบ Backlink จาก Google Sheet: ${s.title}`],
         ["Client", "Project", "Initial Budget", "Used Budget", "Remaining Budget", "% Used", "ลิงก์ Published", "Planned", "ประเภท", "Note"],
-        ...s.rows.map((r) => [
+        ...sheetRows.map((r) => [
           r.client, r.project, r.initial, r.used, r.remaining, r.usedPct, r.links, r.plannedLinks,
           r.byType.map((x) => `${x.type} ${x.links}`).join(", "), r.note,
         ]),
-        ["รวม", "", s.totals.initial, s.totals.used, s.totals.remaining, s.totals.usedPct, s.totals.links, s.totals.plannedLinks, "", ""],
+        ...(keys ? [] : [["รวม", "", s.totals.initial, s.totals.used, s.totals.remaining, s.totals.usedPct, s.totals.links, s.totals.plannedLinks, "", ""]]),
         [],
         ["วันที่", "Client", "Project", "เว็บ", "URL", "ประเภท", "ราคา", "Anchor Text", "สถานะ", "Note"],
-        ...s.items.map((i) => [i.date ?? i.dateRaw, i.client, i.project, i.site, i.url, i.type, i.cost, i.anchor, i.status === "published" ? "Published" : "Planned", i.note]),
+        ...sheetItems.map((i) => [i.date ?? i.dateRaw, i.client, i.project, i.site, i.url, i.type, i.cost, i.anchor, i.status === "published" ? "Published" : "Planned", i.note]),
       );
     }
-    downloadCsv(`backlink-report-${data.from}_${data.to}.csv`, rows);
+    const slug = projectName ? `-${projectName.replace(/[\s/\\?%*:|"<>.,()]+/g, "-").replace(/^-|-$/g, "").slice(0, 40)}` : "";
+    downloadCsv(`backlink-report${slug}-${data.from}_${data.to}.csv`, rows);
   }
 
   if (!data) return <div className="flex justify-center py-10 text-gray-400"><Loader2 className="h-5 w-5 animate-spin" /></div>;
@@ -94,8 +104,9 @@ export default function ReportTab({ period, projectId, onOpenQuota, onProjectsCh
         <KpiTile label="ใช้จริง" value={money(t.spendActual)} tone="navy" hint={t.costPerLiveLink !== null ? `ต้นทุนต่อลิงก์ปกติ ${money(t.costPerLiveLink)}` : undefined} />
       </div>
 
-      <BudgetTrackerPanel onData={(d) => { trackerRef.current = d; }} onProjectsChanged={onProjectsChanged} />
-      <QuotaSummaryPanel onOpenQuota={onOpenQuota} />
+      <BudgetTrackerPanel projectId={projectId} onData={(d) => { trackerRef.current = d; }} onProjectsChanged={onProjectsChanged} />
+      {/* โควต้าเป็นแพ็กเกจรวมของทีม ไม่ผูกโปรเจกต์ — เลือกโปรเจกต์แล้วทั้งหน้าต้องเป็นของโปรเจกต์นั้น จึงแสดงเฉพาะตอน ทุกโปรเจกต์ */}
+      {projectId ? null : <QuotaSummaryPanel onOpenQuota={onOpenQuota} />}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Panel title="ค่าใช้จ่ายรายเดือน" className="lg:col-span-2">
@@ -106,7 +117,7 @@ export default function ReportTab({ period, projectId, onOpenQuota, onProjectsCh
         </Panel>
       </div>
 
-      <Panel title="รายโปรเจกต์" padded={false} bodyClassName="p-4 pt-3 md:p-5 md:pt-4">
+      {projectId ? null : <Panel title="รายโปรเจกต์" padded={false} bodyClassName="p-4 pt-3 md:p-5 md:pt-4">
         <div className="overflow-x-auto rounded-2xl border border-white/80 bg-white/70 shadow-sm">
           <table className="tbl w-full text-xs">
             <thead><tr><th className="text-left">โปรเจกต์</th><th className="num">คำขอ</th><th className="num">เผยแพร่</th><th className="num">ปกติ</th><th className="num">หาย</th><th className="num">ใช้จริง</th><th className="num">ต้นทุน/ลิงก์ปกติ</th></tr></thead>
@@ -117,7 +128,7 @@ export default function ReportTab({ period, projectId, onOpenQuota, onProjectsCh
             </tbody>
           </table>
         </div>
-      </Panel>
+      </Panel>}
 
       <Panel title="เว็บที่ใช้จ่ายสูงสุด 20 อันดับ" padded={false} bodyClassName="p-4 pt-3 md:p-5 md:pt-4">
         <div className="overflow-x-auto rounded-2xl border border-white/80 bg-white/70 shadow-sm">

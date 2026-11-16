@@ -25,9 +25,11 @@ export async function GET(req: NextRequest) {
     if (!isValidPeriod(to)) to = cur;
     if (!isValidPeriod(from)) from = shiftPeriod(to, -5);
     if (from > to) [from, to] = [to, from];
+    // เลือกโปรเจกต์ = รายงานเฉพาะโปรเจกต์นั้น · ว่าง = ทุกโปรเจกต์
+    const projectId = (sp.get("projectId") ?? "").trim().slice(0, 100);
 
     const rows = await prisma.blmRequest.findMany({
-      where: { organizationId: ctx.orgId, budgetPeriod: { gte: from, lte: to } },
+      where: { organizationId: ctx.orgId, budgetPeriod: { gte: from, lte: to }, ...(projectId ? { projectId } : {}) },
       select: {
         projectId: true, vendorDomain: true, budgetPeriod: true, status: true, quotedPrice: true,
         actualPrice: true, checkStatus: true,
@@ -77,7 +79,7 @@ export async function GET(req: NextRequest) {
     for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
     const byStatus = Object.entries(counts).map(([status, count]) => ({ status, count }));
 
-    return NextResponse.json({ from, to, totals, byMonth, byProject, byVendor, byStatus });
+    return NextResponse.json({ from, to, projectId, totals, byMonth, byProject, byVendor, byStatus });
   } catch (e) {
     return serverError(e);
   }

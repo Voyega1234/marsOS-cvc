@@ -158,7 +158,7 @@ export default function BacklinkManagementClient({ userRole }: { userRole: strin
       {tab === "vendors" ? <VendorsTab /> : null}
       {tab === "budget" ? <BudgetTab period={period} projectId={projectId} meta={meta} refreshKey={refreshKey} /> : null}
       {tab === "tracking" ? <TrackingTab projectId={projectId} period={period} refreshKey={refreshKey} onOpen={setOpenId} onChanged={bump} /> : null}
-      {tab === "report" ? <ReportTab period={meta?.period ?? ""} projectId={projectId} onOpenQuota={() => setTab("quota")} onProjectsChanged={loadMeta} /> : null}
+      {tab === "report" ? <ReportTab period={meta?.period ?? ""} projectId={projectId} projectName={meta?.projects?.find((p) => p.id === projectId)?.name ?? ""} onOpenQuota={() => setTab("quota")} onProjectsChanged={loadMeta} /> : null}
       {tab === "quota" ? <QuotaTab meta={meta} refreshKey={refreshKey} onOpenSheets={() => setSheetOpen(true)} /> : null}
 
       <RequestDrawer
