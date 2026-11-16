@@ -108,6 +108,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   CHECK_REVIEW: 'ตัดสินผลตรวจ',
   STARTER_IMPORT: 'นำเข้าชุดกฎตั้งต้น',
   AI_UPDATE_RUN: 'ให้ AI ตรวจอัปเดตกฎ',
+  AI_FILL_RUN: 'ให้ AI อ่านลิงก์/ไฟล์กรอกกฎ',
 }
 
 /** ---- ปุ่ม "ให้ AI ตรวจอัปเดตกฎ" — AI เสนอ คนกดยืนยันทีละข้อ (ไม่แก้กฎเอง) ---- */

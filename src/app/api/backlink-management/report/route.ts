@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, isCtx, serverError } from "@/lib/backlink-management/server";
+import { projectInfo } from "@/lib/backlink-management/projects";
 import { currentPeriod, isValidPeriod, round2 } from "@/lib/backlink-management/budget";
 
 export const dynamic = "force-dynamic";
@@ -56,15 +57,12 @@ export async function GET(req: NextRequest) {
     });
 
     const projIds = Array.from(new Set(rows.map((r) => r.projectId)));
-    const projects = projIds.length
-      ? await prisma.project.findMany({ where: { organizationId: ctx.orgId, id: { in: projIds } }, select: { id: true, name: true } })
-      : [];
-    const pm = new Map(projects.map((p) => [p.id, p.name]));
+    const pm = await projectInfo(ctx.orgId, projIds);
     const byProject = projIds.map((id) => {
       const rs = rows.filter((r) => r.projectId === id);
       const sp2 = rs.reduce((a, r) => a + spend(r), 0);
       const lv = rs.filter(isLive).length;
-      return { projectId: id, projectName: pm.get(id) ?? "(ลบแล้ว)", requests: rs.length, published: rs.filter((r) => SPENT.includes(r.status)).length, live: lv, lost: rs.filter((r) => r.status === "LOST").length, spend: round2(sp2), costPerLive: lv ? round2(sp2 / lv) : null };
+      return { projectId: id, projectName: pm.get(id)?.name ?? "(ลบแล้ว)", requests: rs.length, published: rs.filter((r) => SPENT.includes(r.status)).length, live: lv, lost: rs.filter((r) => r.status === "LOST").length, spend: round2(sp2), costPerLive: lv ? round2(sp2 / lv) : null };
     }).sort((a, b) => b.spend - a.spend);
 
     const vendors = Array.from(new Set(rows.filter((r) => r.vendorDomain).map((r) => r.vendorDomain)));

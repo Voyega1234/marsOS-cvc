@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { markSheetDirty } from "@/lib/backlink-management/sheet-sync";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, isCtx, serverError } from "@/lib/backlink-management/server";
 import { verifyRequest } from "@/lib/backlink-management/verify-server";
@@ -48,6 +49,7 @@ export async function POST(req: NextRequest) {
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
+    await markSheetDirty(ctx.orgId);
     return NextResponse.json({ checked: results.length, results, remaining });
   } catch (e) {
     return serverError(e);

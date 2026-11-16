@@ -9,6 +9,7 @@ import {
   Eye, EyeOff,
 } from "lucide-react"
 import { DEMO_BRIEF } from "@/data/seoIntelligenceMockData"
+import { AreaChart } from "@/components/ds"
 
 type Tab = "overview" | "keywords" | "competitors" | "rankings" | "backlinks" | "audit" | "ai-visibility"
 
@@ -66,19 +67,9 @@ function Toast({ msg, onClose }: { msg: string; onClose: () => void }) {
   )
 }
 
-// ── Mini sparkline chart (SVG) ────────────────────────────────────────────────
+// ── Search Trends chart (กราฟกลางของระบบ — ชี้/คลิกดูค่าแต่ละเดือนได้) ─────────────────
 function TrendsChart({ data, keyword }: { data: TrendPoint[]; keyword: string }) {
   if (!data.length) return null
-  const W = 480; const H = 100; const PAD = 8
-  const max = Math.max(...data.map(d => d.value), 1)
-  const pts = data.map((d, i) => {
-    const x = PAD + (i / (data.length - 1)) * (W - PAD * 2)
-    const y = H - PAD - (d.value / max) * (H - PAD * 2)
-    return `${x},${y}`
-  })
-  const polyline = pts.join(" ")
-  // Area fill
-  const area = `${PAD},${H - PAD} ${polyline} ${W - PAD},${H - PAD}`
   const recent = data.slice(-3)
   const prev = data.slice(-6, -3)
   const avgRecent = recent.reduce((a, b) => a + b.value, 0) / recent.length
@@ -98,23 +89,12 @@ function TrendsChart({ data, keyword }: { data: TrendPoint[]; keyword: string })
           {trend === "flat" && <><Minus size={13} className="text-gray-400" /><span className="text-xs text-gray-500 font-semibold">Stable</span></>}
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-24" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#1d48f3" stopOpacity="0.25" />
-              <stop offset="100%" stopColor="#1d48f3" stopOpacity="0.03" />
-            </linearGradient>
-          </defs>
-          <polygon points={area} fill="url(#trendGrad)" />
-          <polyline points={polyline} fill="none" stroke="#1d48f3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          {data.map((d, i) => {
-            const x = PAD + (i / (data.length - 1)) * (W - PAD * 2)
-            const y = H - PAD - (d.value / max) * (H - PAD * 2)
-            return <circle key={i} cx={x} cy={y} r="2.5" fill="#1d48f3" />
-          })}
-        </svg>
-      </div>
+      <AreaChart
+        height={200}
+        ariaLabel={`Search Trends — ${keyword}`}
+        formatTooltip={(v) => String(Math.round(v))}
+        series={[{ name: "Interest", points: data.map(d => ({ label: d.month, value: d.value })) }]}
+      />
       <div className="flex items-center gap-4 text-[10px] text-gray-400 flex-wrap">
         {data.slice(-6).map((d, i) => (
           <div key={i} className="flex items-center gap-1">
@@ -600,30 +580,30 @@ export default function SEOIntelligenceLabClient() {
                   </div>
                 </div>
                 <div className="overflow-x-auto bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm">
-                  <table className="w-full text-xs">
-                    <thead><tr className="border-b border-gray-100 bg-white/50 text-gray-500">
-                      <th className="text-left px-4 py-3 font-medium">Keyword</th>
-                      <th className="text-right px-4 py-3 font-medium">
+                  <table className="tbl text-xs">
+                    <thead><tr>
+                      <th>Keyword</th>
+                      <th className="num">
                         <button className="flex items-center gap-1 ml-auto" onClick={() => toggleSort("volume")}>Vol <SortIcon col="volume" /></button>
                       </th>
-                      <th className="text-right px-4 py-3 font-medium">CPC</th>
-                      <th className="text-center px-4 py-3 font-medium">Comp.</th>
-                      <th className="text-left px-4 py-3 font-medium">
+                      <th className="num">CPC</th>
+                      <th className="text-center">Comp.</th>
+                      <th>
                         <button className="flex items-center gap-1" onClick={() => toggleSort("difficulty")}>Difficulty <SortIcon col="difficulty" /></button>
                       </th>
-                      <th className="text-center px-4 py-3 font-medium">Intent</th>
-                      <th className="text-center px-4 py-3 font-medium">Actions</th>
+                      <th className="text-center">Intent</th>
+                      <th className="text-center">Actions</th>
                     </tr></thead>
                     <tbody>
                       {filtered.map((k, i) => (
-                        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 group">
-                          <td className="px-4 py-3 font-medium text-brand-navy">{k.keyword}</td>
-                          <td className="px-4 py-3 text-right text-gray-700">{k.volume.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right text-gray-600">${k.cpc.toFixed(2)}</td>
-                          <td className="px-4 py-3 text-center"><CompBadge v={k.competition} /></td>
-                          <td className="px-4 py-3"><DiffBar v={k.difficulty} /></td>
-                          <td className="px-4 py-3 text-center"><IntentBadge v={k.intent} /></td>
-                          <td className="px-4 py-3 text-center">
+                        <tr key={i} className="group">
+                          <td className="font-medium text-brand-navy">{k.keyword}</td>
+                          <td className="num text-gray-700">{k.volume.toLocaleString()}</td>
+                          <td className="num text-gray-600">${k.cpc.toFixed(2)}</td>
+                          <td className="text-center"><CompBadge v={k.competition} /></td>
+                          <td><DiffBar v={k.difficulty} /></td>
+                          <td className="text-center"><IntentBadge v={k.intent} /></td>
+                          <td className="text-center">
                             <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button onClick={() => runTrends(k.keyword)} title="Trends"
                                 className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded">
@@ -637,7 +617,7 @@ export default function SEOIntelligenceLabClient() {
                           </td>
                         </tr>
                       ))}
-                      {filtered.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">ไม่พบผลลัพธ์</td></tr>}
+                      {filtered.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-gray-400">ไม่พบผลลัพธ์</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -736,25 +716,25 @@ export default function SEOIntelligenceLabClient() {
                   <p className="text-xs font-semibold text-gray-700">SERP Positions</p>
                   <CostBadge cost={rankCost} />
                 </div>
-                <table className="w-full text-xs">
-                  <thead><tr className="border-b border-gray-100 bg-white/50 text-gray-500">
-                    <th className="text-left px-4 py-3 font-medium">Keyword</th>
-                    <th className="text-center px-4 py-3 font-medium">Position</th>
-                    <th className="text-left px-4 py-3 font-medium">Your URL</th>
-                    <th className="text-left px-4 py-3 font-medium">Top 3</th>
-                    <th className="text-center px-4 py-3 font-medium">SERP</th>
+                <table className="tbl text-xs">
+                  <thead><tr>
+                    <th>Keyword</th>
+                    <th className="text-center">Position</th>
+                    <th>Your URL</th>
+                    <th>Top 3</th>
+                    <th className="text-center">SERP</th>
                   </tr></thead>
                   <tbody>
                     {rankRows.map((r, i) => (
-                      <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-brand-navy">{r.keyword}</td>
-                        <td className="px-4 py-3 text-center">
+                      <tr key={i}>
+                        <td className="font-medium text-brand-navy">{r.keyword}</td>
+                        <td className="text-center">
                           {r.position
                             ? <span className={`font-bold text-sm ${r.position <= 3 ? "text-green-600" : r.position <= 10 ? "text-brand-blue" : "text-gray-500"}`}>#{r.position}</span>
                             : <span className="text-gray-300 text-xs">—</span>}
                         </td>
-                        <td className="px-4 py-3 text-brand-blue truncate max-w-[180px] font-mono text-[10px]">{r.url || "—"}</td>
-                        <td className="px-4 py-3">
+                        <td className="text-brand-blue truncate max-w-[180px] font-mono text-[10px]">{r.url || "—"}</td>
+                        <td>
                           <div className="space-y-0.5">
                             {r.top3.map((t, j) => (
                               <div key={j} className="flex items-center gap-1.5 text-[10px] text-gray-500">
@@ -764,7 +744,7 @@ export default function SEOIntelligenceLabClient() {
                             ))}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-center">
+                        <td className="text-center">
                           <button onClick={() => runSerp(r.keyword)} className="p-1 text-gray-300 hover:text-brand-blue hover:bg-blue-50 rounded" title="SERP Analysis">
                             <Search size={11} />
                           </button>
@@ -828,26 +808,26 @@ export default function SEOIntelligenceLabClient() {
                 {blDomains.length > 0 && (
                   <div className="overflow-x-auto bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm">
                     <p className="text-xs font-semibold text-gray-700 px-4 py-3 border-b border-gray-100">Top Referring Domains</p>
-                    <table className="w-full text-xs">
-                      <thead><tr className="border-b border-gray-100 bg-white/50 text-gray-500">
-                        <th className="text-left px-4 py-3 font-medium">Domain</th>
-                        <th className="text-center px-4 py-3 font-medium">Rank</th>
-                        <th className="text-center px-4 py-3 font-medium">Backlinks</th>
-                        <th className="text-center px-4 py-3 font-medium">Status</th>
-                        <th className="text-left px-4 py-3 font-medium">First Seen</th>
+                    <table className="tbl text-xs">
+                      <thead><tr>
+                        <th>Domain</th>
+                        <th className="text-center">Rank</th>
+                        <th className="text-center">Backlinks</th>
+                        <th className="text-center">Status</th>
+                        <th>First Seen</th>
                       </tr></thead>
                       <tbody>
                         {blDomains.map((d, i) => (
-                          <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                            <td className="px-4 py-3 font-medium text-brand-navy">{d.domain}</td>
-                            <td className="px-4 py-3 text-center font-bold text-gray-700">{d.rank}</td>
-                            <td className="px-4 py-3 text-center text-gray-600">{d.backlinks}</td>
-                            <td className="px-4 py-3 text-center">
+                          <tr key={i}>
+                            <td className="font-medium text-brand-navy">{d.domain}</td>
+                            <td className="text-center font-bold text-gray-700">{d.rank}</td>
+                            <td className="text-center text-gray-600">{d.backlinks}</td>
+                            <td className="text-center">
                               {d.isNew  && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-700">New</span>}
                               {d.isLost && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700">Lost</span>}
                               {!d.isNew && !d.isLost && <span className="text-[10px] text-gray-400">Active</span>}
                             </td>
-                            <td className="px-4 py-3 text-gray-400 font-mono text-[10px]">{d.firstSeen}</td>
+                            <td className="text-gray-400 font-mono text-[10px]">{d.firstSeen}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -914,20 +894,20 @@ export default function SEOIntelligenceLabClient() {
                 </div>
                 {auditResult.issues.length > 0 ? (
                   <div className="overflow-x-auto bg-white/70 backdrop-blur border border-white/80 rounded-2xl shadow-sm">
-                    <table className="w-full text-xs">
-                      <thead><tr className="border-b border-gray-100 bg-white/50 text-gray-500">
-                        <th className="text-left px-4 py-3 font-medium">Issue</th>
-                        <th className="text-center px-4 py-3 font-medium">Severity</th>
-                        <th className="text-left px-4 py-3 font-medium">Detail</th>
-                        <th className="text-left px-4 py-3 font-medium">Fix</th>
+                    <table className="tbl text-xs">
+                      <thead><tr>
+                        <th>Issue</th>
+                        <th className="text-center">Severity</th>
+                        <th>Detail</th>
+                        <th>Fix</th>
                       </tr></thead>
                       <tbody>
                         {auditResult.issues.map((a, i) => (
-                          <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                            <td className="px-4 py-3 font-medium text-brand-navy">{a.issue}</td>
-                            <td className="px-4 py-3 text-center"><SeverityBadge s={a.severity} /></td>
-                            <td className="px-4 py-3 text-gray-600">{a.detail}</td>
-                            <td className="px-4 py-3 text-gray-600">{a.fix}</td>
+                          <tr key={i}>
+                            <td className="font-medium text-brand-navy">{a.issue}</td>
+                            <td className="text-center"><SeverityBadge s={a.severity} /></td>
+                            <td className="text-gray-600">{a.detail}</td>
+                            <td className="text-gray-600">{a.fix}</td>
                           </tr>
                         ))}
                       </tbody>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus, X, Check, Eye, EyeOff, KeyRound, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { CLIENT_LOGIN_EMAIL_DOMAIN } from "@/lib/client-login";
 
 interface UserProject {
   projectId: string;
@@ -24,6 +25,27 @@ interface ProjectOption {
   id: string;
   name: string;
   clientName: string;
+}
+
+interface LoginCheckResult {
+  ok: boolean;
+  code: string;
+  message: string;
+  detail?: string;
+  username: string;
+  repairable: boolean;
+  repaired?: boolean;
+}
+
+type LoginCheckState = { loading?: "check" | "repair"; result?: LoginCheckResult };
+
+function isPasswordClient(u: { role: string; email: string }): boolean {
+  return u.role === "CLIENT" && u.email.toLowerCase().endsWith("@" + CLIENT_LOGIN_EMAIL_DOMAIN);
+}
+
+function emailLocalPart(email: string): string {
+  const i = email.lastIndexOf("@");
+  return i >= 0 ? email.slice(0, i) : email;
 }
 
 interface Props {
@@ -70,6 +92,44 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
   const [resetting, setResetting] = useState(false);
   const [savedPw, setSavedPw] = useState<{ userId: string; pw: string } | null>(null);
   const [showSavedPw, setShowSavedPw] = useState<Record<string, boolean>>({});
+
+  // ผลตรวจ login ต่อ user (key = user id) — ใช้แสดงในแถวของลูกค้าที่ login ด้วย username
+  const [loginChecks, setLoginChecks] = useState<Record<string, LoginCheckState>>({});
+
+  function setLoginCheck(userId: string, next: LoginCheckState | null) {
+    setLoginChecks((prev) => {
+      const copy = { ...prev };
+      if (next) copy[userId] = next;
+      else delete copy[userId];
+      return copy;
+    });
+  }
+
+  async function runLoginCheck(userId: string, action: "check" | "repair") {
+    setLoginChecks((prev) => ({ ...prev, [userId]: { ...prev[userId], loading: action } }));
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/login-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(typeof data?.error === "string" ? data.error : action === "check" ? "ตรวจ login ไม่สำเร็จ" : "ซ่อมไม่สำเร็จ");
+        setLoginChecks((prev) => ({ ...prev, [userId]: { result: prev[userId]?.result } }));
+        return;
+      }
+      const result = data as LoginCheckResult;
+      setLoginCheck(userId, { result });
+      if (action === "repair") {
+        if (result.ok) toast.success("ซ่อมแล้ว — login ได้");
+        else toast.warning(result.message);
+      }
+    } catch {
+      toast.error(action === "check" ? "ตรวจ login ไม่สำเร็จ" : "ซ่อมไม่สำเร็จ");
+      setLoginChecks((prev) => ({ ...prev, [userId]: { result: prev[userId]?.result } }));
+    }
+  }
 
   function resetForm() {
     setName("");
@@ -118,6 +178,22 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       const loginReady = !isClient || data.loginReady !== false;
       const loginError = typeof data.loginError === "string" ? data.loginError : undefined;
       setCreatedInfo({ username: name.trim(), pw: password, isClient, loginReady, loginError });
+      if (isClient && data.user && isPasswordClient(data.user)) {
+        if (data.loginReady === false) {
+          setLoginCheck(data.user.id, {
+            result: {
+              ok: false,
+              code: "sync_failed",
+              message: "ระบบ login ยังไม่พร้อม: " + (loginError ?? "ไม่ทราบสาเหตุ") + " — กด “ตรวจ login” เพื่อดูว่าพังที่ขั้นไหน",
+              username: emailLocalPart(data.user.email),
+              // ยังไม่รู้สาเหตุ (เช่น เซิร์ฟเวอร์ไม่มี key) — ซ่อมซ้ำจะพังแบบเดิม ให้ตรวจก่อน ผลตรวจจะบอกเองว่าซ่อมได้หรือไม่
+              repairable: false,
+            },
+          });
+        } else if (data.loginReady === true) {
+          setLoginCheck(data.user.id, null);
+        }
+      }
       if (!loginReady) toast.warning(`สร้าง User แล้ว แต่ระบบ login ยังไม่พร้อม${loginError ? `: ${loginError}` : ""}`);
       setShowCreatedPw(false);
       setName("");
@@ -142,9 +218,26 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: resetPw }),
       });
-      if (!res.ok) throw new Error("ไม่สามารถรีเซ็ตรหัสผ่านได้");
       // CLIENT: เซิร์ฟเวอร์ตั้งรหัสเดียวกันในระบบ login ด้วย — loginReady false = บันทึกแล้วแต่ยัง login ไม่ได้
       const data = await res.json().catch(() => ({}));
+      // เซิร์ฟเวอร์บอกเหตุที่ไม่รับรหัส (สั้น/ยาวเกิน) — แสดงตามนั้น ไม่ใช่ข้อความรวม
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "ไม่สามารถรีเซ็ตรหัสผ่านได้");
+      const target = users.find((u) => u.id === resetUserId);
+      if (target && isPasswordClient(target)) {
+        if (data?.loginReady === false) {
+          setLoginCheck(target.id, {
+            result: {
+              ok: false,
+              code: "sync_failed",
+              message: "ระบบ login ยังไม่พร้อม: " + (typeof data.loginError === "string" ? data.loginError : "ไม่ทราบสาเหตุ") + " — กด “ตรวจ login” เพื่อดูว่าพังที่ขั้นไหน",
+              username: emailLocalPart(target.email),
+              repairable: false,
+            },
+          });
+        } else if (data?.loginReady === true) {
+          setLoginCheck(target.id, null);
+        }
+      }
       if (data?.loginReady === false) {
         toast.warning(`บันทึกรหัสผ่านแล้ว แต่ระบบ login ยังไม่พร้อม${typeof data.loginError === "string" ? `: ${data.loginError}` : ""}`);
       } else {
@@ -154,8 +247,8 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       setUsers(prev => prev.map(u => u.id === resetUserId ? { ...u, passwordPlain: resetPw } : u));
       setResetUserId(null);
       setResetPw("");
-    } catch {
-      toast.error("เกิดข้อผิดพลาด");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error && err.message ? err.message : "เกิดข้อผิดพลาด");
     } finally {
       setResetting(false);
     }
@@ -416,6 +509,11 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                   {u.email && !u.email.endsWith("@mars.local") && (
                     <p className="text-xs text-gray-500">{u.email}</p>
                   )}
+                  {isPasswordClient(u) && (
+                    <p className="text-xs text-gray-500">
+                      ชื่อผู้ใช้สำหรับ login: <span className="font-mono text-gray-700">{emailLocalPart(u.email)}</span>
+                    </p>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <span className={roleBadge[u.role] ?? "chip chip-muted"}>
@@ -474,6 +572,15 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                     >
                       {u.status === "ACTIVE" ? "ระงับ" : "เปิดใช้"}
                     </button>
+                    {isPasswordClient(u) && (
+                      <button
+                        onClick={() => runLoginCheck(u.id, "check")}
+                        disabled={!!loginChecks[u.id]?.loading}
+                        className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-60 transition-colors"
+                      >
+                        {loginChecks[u.id]?.loading === "check" ? "กำลังตรวจ…" : "ตรวจ login"}
+                      </button>
+                    )}
                     {u.role === "CLIENT" && (
                       <button
                         onClick={() => handleDelete(u.id, u.name)}
@@ -484,6 +591,29 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                       </button>
                     )}
                   </div>
+                  {isPasswordClient(u) && loginChecks[u.id]?.result && (() => {
+                    const r = loginChecks[u.id].result!;
+                    const loading = loginChecks[u.id].loading;
+                    return r.ok ? (
+                      <div className="mt-1.5">
+                        <span className="chip chip-ok">login ได้</span>
+                      </div>
+                    ) : (
+                      <div className="mt-1.5 max-w-xs rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 space-y-1">
+                        <p className="text-xs font-medium text-amber-800">{r.message}</p>
+                        {r.detail && <p className="text-[10px] text-gray-500 break-words">{r.detail}</p>}
+                        {r.repairable && (
+                          <button
+                            onClick={() => runLoginCheck(u.id, "repair")}
+                            disabled={!!loading}
+                            className="text-xs font-medium text-amber-800 px-2 py-1 rounded hover:bg-amber-100 disabled:opacity-60 transition-colors"
+                          >
+                            {loading === "repair" ? "กำลังซ่อม…" : "ซ่อม"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}

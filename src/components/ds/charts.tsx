@@ -4,8 +4,8 @@
  * กราฟ SVG/CSS ล้วน (ไม่มี chart lib) — ตัวเลขทุกจุดผ่าน safe() กัน NaN/Infinity
  */
 
-import { useEffect, useId, useRef, useState } from "react";
-import type { ReactNode, RefObject } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { KeyboardEvent, ReactNode, RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 // สีที่ต้องสลับตามโหมดสว่าง/มืดใช้ตัวแปร CSS (--chart-* ใน globals.css) — โหมดสว่างได้ค่าเดิมทุกตัว
@@ -118,10 +118,27 @@ export interface AreaSeries {
   points: { label: string; value: number | null }[];
 }
 
-export function AreaChart({ series, height = 240, formatValue = formatCompact, yTickCount = 4, showLegend = false, invertY = false, className, ariaLabel }: {
+/** แถวเสริมในกล่องค่าของจุด (เช่น ตัวชี้วัดอื่นของวันเดียวกันที่ไม่ได้วาดเป็นเส้น) */
+export interface ChartTipRow {
+  label: string;
+  value: string;
+  color?: string;
+}
+
+/**
+ * กราฟพื้นที่เส้นโค้ง แกนเดียว
+ * - ชี้ / แตะ = เส้นนำสายตา + จุดวงแหวน + กล่องค่าปักเหนือจุด (ทุกเส้นของตำแหน่งนั้นอยู่ในกล่องเดียว)
+ * - คลิก / แตะ = ค้างค่าของจุดนั้นไว้ (คลิกซ้ำที่เดิม หรือกด Esc เพื่อปล่อย)
+ * - โฟกัสแล้วกดลูกศรซ้าย/ขวา Home End เพื่อไล่ดูทีละจุด
+ */
+export function AreaChart({ series, height = 240, formatValue = formatCompact, formatTooltip, tooltipRows, yTickCount = 4, showLegend = false, invertY = false, className, ariaLabel }: {
   series: AreaSeries[];
   height?: number;
   formatValue?: (n: number) => string;
+  /** รูปแบบตัวเลขในกล่องค่า — ไม่ส่ง = ใช้ formatValue */
+  formatTooltip?: (n: number) => string;
+  /** แถวเสริมต่อท้ายในกล่องค่า ตามลำดับจุด */
+  tooltipRows?: (index: number) => ChartTipRow[];
   yTickCount?: number;
   showLegend?: boolean;
   invertY?: boolean;
@@ -130,8 +147,20 @@ export function AreaChart({ series, height = 240, formatValue = formatCompact, y
 }) {
   const uid = useId().replace(/:/g, "");
   const wrapRef = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const width = useWidth(wrapRef);
   const [hover, setHover] = useState<number | null>(null);
+  const [pinned, setPinned] = useState<number | null>(null);
+  const [tipSize, setTipSize] = useState<{ w: number; h: number }>({ w: 150, h: 60 });
+
+  // วัดขนาดกล่องค่าจริงหลังวาด เพื่อจัดตำแหน่งไม่ให้ล้นขอบ
+  useLayoutEffect(() => {
+    const el = tipRef.current;
+    if (!el) return;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    setTipSize((p) => (p.w === w && p.h === h ? p : { w, h }));
+  });
 
   const n = series.reduce((m, s) => Math.max(m, s.points.length), 0);
   const main = series[0];
@@ -180,7 +209,7 @@ export function AreaChart({ series, height = 240, formatValue = formatCompact, y
   const range = hi - lo || 1;
   const ticks = Array.from({ length: ticksN + 1 }, (_, i) => lo + (range * i) / ticksN);
 
-  const PT = 10, PB = 26, PR = 12;
+  const PT = 12, PB = 28, PR = 14;
   const maxLabel = Math.max(...ticks.map((t) => formatValue(t).length));
   const PL = Math.max(30, maxLabel * 6.2 + 12);
   const plotW = Math.max(10, width - PL - PR);
@@ -193,6 +222,8 @@ export function AreaChart({ series, height = 240, formatValue = formatCompact, y
     return invertY ? PT + t * plotH : PT + (1 - t) * plotH;
   };
   const f1 = (x: number) => x.toFixed(1);
+  const isNum = (v: number | null | undefined): v is number => v !== null && v !== undefined && Number.isFinite(v);
+  const fmtTip = formatTooltip ?? formatValue;
 
   // แยกเส้นเป็นช่วง ๆ ตามค่า null
   const runsOf = (s: AreaSeries): { x: number; y: number }[][] => {
@@ -217,40 +248,94 @@ export function AreaChart({ series, height = 240, formatValue = formatCompact, y
     return d;
   };
 
-  // ป้ายแกน X: ไม่เกิน 6 และห่างกันอย่างน้อย ~72px
-  const labelCount = Math.max(2, Math.min(6, Math.floor(plotW / 72), n));
-  const labelIdx = Array.from(new Set(Array.from({ length: labelCount }, (_, i) => Math.round((i * (n - 1)) / (labelCount - 1)))));
+  // ป้ายแกน X: ระยะห่างเท่ากันทุกป้าย นับถอยจากจุดสุดท้าย (จุดล่าสุดมีป้ายเสมอ) ห่างกันอย่างน้อย ~46px
+  const maxLabels = Math.max(2, Math.floor(plotW / 46));
+  const step = Math.max(1, Math.ceil((n - 1) / (maxLabels - 1)));
+  const labelIdx: number[] = [];
+  for (let i = n - 1; i >= 0; i -= step) labelIdx.unshift(i);
   const labelOf = (i: number) => main.points[i]?.label ?? series.find((s) => s.points[i])?.points[i]?.label ?? "";
 
-  const onMove = (clientX: number, el: SVGSVGElement) => {
+  const clampIdx = (i: number) => Math.max(0, Math.min(n - 1, i));
+  const idxAt = (clientX: number, el: SVGSVGElement) => {
     const rect = el.getBoundingClientRect();
-    const px = clientX - rect.left - PL;
-    const idx = Math.round((px / plotW) * (n - 1));
-    setHover(Math.max(0, Math.min(n - 1, idx)));
+    return clampIdx(Math.round(((clientX - rect.left - PL) / plotW) * (n - 1)));
   };
 
-  const hx = hover === null ? 0 : xAt(hover);
-  const tipW = 176;
-  const tipLeft = hover === null ? 0 : Math.max(0, Math.min(width - tipW, hx + 12 + tipW > width ? hx - 12 - tipW : hx + 12));
+  // จุดที่กำลังแสดงค่า: ชี้อยู่ > ค้างไว้
+  const active = hover !== null ? clampIdx(hover) : pinned !== null ? clampIdx(pinned) : null;
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    let next: number | null = null;
+    if (e.key === "ArrowRight") next = active === null ? 0 : clampIdx(active + 1);
+    else if (e.key === "ArrowLeft") next = active === null ? n - 1 : clampIdx(active - 1);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = n - 1;
+    else if (e.key === "Escape") { setPinned(null); setHover(null); return; }
+    if (next === null) return;
+    e.preventDefault();
+    setHover(null);
+    setPinned(next);
+  };
+
+  // ตำแหน่งกล่องค่า: ปักเหนือจุดของเส้นหลัก — ที่ไม่พอให้ย้ายไปข้างจุดแทน
+  const hx = active === null ? 0 : xAt(active);
+  const anchorVal = active === null ? null : series.map((s) => s.points[active]?.value).find(isNum) ?? null;
+  const hy = anchorVal === null ? PT : yAt(anchorVal);
+  const GAP = 14;
+  let tipLeft = 0;
+  let tipTop = 0;
+  if (active !== null) {
+    if (hy - GAP - tipSize.h >= 0) {
+      tipLeft = hx - tipSize.w / 2;
+      tipTop = hy - GAP - tipSize.h;
+    } else {
+      tipLeft = hx + GAP + tipSize.w <= width ? hx + GAP : hx - GAP - tipSize.w;
+      tipTop = hy - tipSize.h / 2;
+    }
+    tipLeft = Math.max(0, Math.min(width - tipSize.w, tipLeft));
+    tipTop = Math.max(0, Math.min(height - tipSize.h, tipTop));
+  }
+
+  const extraRows = active !== null && tooltipRows ? tooltipRows(active) : [];
+  const compactTip = series.length === 1 && extraRows.length === 0;
+  const mainLabel = active === null ? "" : labelOf(active);
+  const srText = active === null
+    ? ""
+    : [
+        mainLabel,
+        ...series.map((s) => { const v = s.points[active]?.value; return `${s.name} ${isNum(v) ? fmtTip(v) : "–"}`; }),
+        ...extraRows.map((r) => `${r.label} ${r.value}`),
+      ].join(" · ");
 
   return (
     <div className={cn("w-full", className)}>
-      <div ref={wrapRef} className="relative w-full min-w-0 overflow-hidden" style={{ height }}>
+      <div
+        ref={wrapRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className="relative w-full min-w-0 overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40"
+        style={{ height }}
+      >
         <svg
           width={width}
           height={height}
           viewBox={`0 0 ${width} ${height}`}
           role="img"
           aria-label={ariaLabel}
-          className="block touch-pan-y select-none tabular-nums"
-          onPointerMove={(e) => onMove(e.clientX, e.currentTarget)}
-          onPointerDown={(e) => onMove(e.clientX, e.currentTarget)}
+          className="block cursor-crosshair touch-pan-y select-none tabular-nums"
+          onPointerMove={(e) => setHover(idxAt(e.clientX, e.currentTarget))}
+          onPointerDown={(e) => setHover(idxAt(e.clientX, e.currentTarget))}
           onPointerLeave={() => setHover(null)}
           onPointerCancel={() => setHover(null)}
+          onClick={(e) => {
+            const idx = idxAt(e.clientX, e.currentTarget);
+            setPinned((p) => (p === idx ? null : idx));
+          }}
         >
           <defs>
             <linearGradient id={`${uid}-fill`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={cols[0]} stopOpacity="0.28" />
+              <stop offset="0%" stopColor={cols[0]} stopOpacity="0.26" />
+              <stop offset="70%" stopColor={cols[0]} stopOpacity="0.06" />
               <stop offset="100%" stopColor={cols[0]} stopOpacity="0" />
             </linearGradient>
           </defs>
@@ -260,14 +345,15 @@ export function AreaChart({ series, height = 240, formatValue = formatCompact, y
               <text x={PL - 8} y={yAt(t) + 3.5} textAnchor="end" fontSize="10.5" fill={AXIS}>{formatValue(t)}</text>
             </g>
           ))}
-          {labelIdx.map((i, k) => (
+          {labelIdx.map((i) => (
             <text
               key={i}
               x={xAt(i)}
-              y={height - 7}
+              y={height - 8}
               fontSize="10.5"
-              fill={AXIS}
-              textAnchor={k === 0 ? "start" : k === labelIdx.length - 1 ? "end" : "middle"}
+              fill={i === active ? "var(--chart-ink)" : AXIS}
+              fontWeight={i === active ? 600 : 400}
+              textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"}
             >
               {labelOf(i)}
             </text>
@@ -288,7 +374,7 @@ export function AreaChart({ series, height = 240, formatValue = formatCompact, y
                   d={linePath(r)}
                   fill="none"
                   stroke={cols[si]}
-                  strokeWidth={si === 0 ? 2.25 : 1.75}
+                  strokeWidth={si === 0 ? 2.5 : 1.75}
                   strokeDasharray={s.dashed ? "5 4" : undefined}
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -298,39 +384,68 @@ export function AreaChart({ series, height = 240, formatValue = formatCompact, y
               ),
             );
           })}
-          {hover !== null ? (
-            <g>
-              <line x1={hx} x2={hx} y1={PT} y2={base} stroke="var(--chart-cursor)" strokeWidth="1" />
+          {active !== null ? (
+            <g pointerEvents="none">
+              <line x1={hx} x2={hx} y1={PT} y2={base} stroke="var(--chart-cursor)" strokeWidth="1" strokeDasharray="3 4" />
               {series.map((s, si) => {
-                const v = s.points[hover]?.value;
-                if (v === null || v === undefined || !Number.isFinite(v)) return null;
-                return <circle key={si} cx={hx} cy={yAt(v)} r={4} fill="var(--chart-surface)" stroke={cols[si]} strokeWidth="2" />;
+                const v = s.points[active]?.value;
+                if (!isNum(v)) return null;
+                return (
+                  <g key={si}>
+                    {si === 0 ? <circle cx={hx} cy={yAt(v)} r={10} fill={cols[si]} opacity="0.16" /> : null}
+                    <circle cx={hx} cy={yAt(v)} r={si === 0 ? 5 : 4} fill="var(--chart-surface)" stroke={cols[si]} strokeWidth={si === 0 ? 2.5 : 2} />
+                  </g>
+                );
               })}
             </g>
           ) : null}
         </svg>
-        {hover !== null ? (
+        {active !== null ? (
           <div
-            className="pointer-events-none absolute top-1 z-10 rounded-xl border border-gray-100 bg-white px-3 py-2 text-xs shadow-lg"
-            style={{ left: tipLeft, width: tipW }}
+            ref={tipRef}
+            className="pointer-events-none absolute z-10 whitespace-nowrap rounded-2xl border px-3 py-2 text-xs shadow-[0_14px_32px_-14px_rgba(0,14,63,0.45)]"
+            style={{ left: tipLeft, top: tipTop, background: "var(--chart-surface)", borderColor: "var(--chart-grid)", color: "var(--chart-ink)" }}
           >
-            <div className="mb-1 font-semibold text-brand-navy">{labelOf(hover)}</div>
-            {series.map((s, si) => {
-              const v = s.points[hover]?.value;
-              return (
-                <div key={si} className="flex items-center justify-between gap-2 py-0.5">
-                  <span className="flex min-w-0 items-center gap-1.5 text-gray-600">
-                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: cols[si] }} />
-                    <span className="truncate">{s.name}</span>
-                  </span>
-                  <span className="font-semibold tabular-nums text-brand-navy">
-                    {v === null || v === undefined || !Number.isFinite(v) ? "–" : formatValue(v)}
-                  </span>
+            {compactTip ? (
+              <div className="text-center">
+                <div className="text-[15px] font-semibold leading-tight tabular-nums">{isNum(anchorVal) ? fmtTip(anchorVal) : "–"}</div>
+                <div className="mt-0.5 text-[11px] leading-tight" style={{ color: AXIS }}>{mainLabel}</div>
+              </div>
+            ) : (
+              <>
+                <div className="mb-1.5 text-[11px] font-medium leading-tight" style={{ color: AXIS }}>{mainLabel}</div>
+                <div className="grid grid-cols-[auto_auto_auto] items-center gap-x-2 gap-y-1">
+                  {series.map((s, si) => {
+                    const p = s.points[active];
+                    const v = p?.value;
+                    const own = p?.label && p.label !== mainLabel ? p.label : "";
+                    return (
+                      <Fragment key={`s-${si}`}>
+                        <svg width="14" height="8" viewBox="0 0 14 8" aria-hidden className="shrink-0">
+                          <line x1="1" x2="13" y1="4" y2="4" stroke={cols[si]} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={s.dashed ? "4 3" : undefined} />
+                        </svg>
+                        <span className="text-right text-[13px] font-semibold tabular-nums">{isNum(v) ? fmtTip(v) : "–"}</span>
+                        <span style={{ color: AXIS }}>{s.name}{own ? ` · ${own}` : ""}</span>
+                      </Fragment>
+                    );
+                  })}
+                  {extraRows.map((r, ri) => (
+                    <Fragment key={`x-${ri}`}>
+                      {r.color ? (
+                        <span className="mx-auto h-2 w-2 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
+                      ) : (
+                        <span aria-hidden />
+                      )}
+                      <span className="text-right text-[13px] font-semibold tabular-nums">{r.value}</span>
+                      <span style={{ color: AXIS }}>{r.label}</span>
+                    </Fragment>
+                  ))}
                 </div>
-              );
-            })}
+              </>
+            )}
           </div>
         ) : null}
+        <span className="sr-only" aria-live="polite">{srText}</span>
       </div>
       {legend}
     </div>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { markSheetDirty } from "@/lib/backlink-management/sheet-sync";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, isCtx, serverError, normalizeDomain } from "@/lib/backlink-management/server";
 
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
         skipped.push({ line, reason: e instanceof Error ? e.message.slice(0, 120) : "บันทึกไม่สำเร็จ" });
       }
     }
+    await markSheetDirty(ctx.orgId);
     return NextResponse.json({ created, updated, skipped });
   } catch (e) {
     return serverError(e);

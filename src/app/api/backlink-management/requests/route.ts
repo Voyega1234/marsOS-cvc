@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { markSheetDirty } from "@/lib/backlink-management/sheet-sync";
 import { prisma } from "@/lib/prisma";
+import { findProject } from "@/lib/backlink-management/projects";
 import { requireStaff, isCtx, serverError, addEvent, sleep, parseDateOnly } from "@/lib/backlink-management/server";
 import { ensureAsanaTask, refreshFromAsana } from "@/lib/backlink-management/asana-sync";
 import { currentPeriod, isValidPeriod, round2 } from "@/lib/backlink-management/budget";
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest) {
   if (!isCtx(ctx)) return ctx;
   try {
     const b = await req.json().catch(() => ({}));
-    const project = await prisma.project.findFirst({ where: { id: String(b.projectId ?? ""), organizationId: ctx.orgId }, select: { id: true } });
+    const project = await findProject(ctx.orgId, String(b.projectId ?? ""));
     if (!project) return NextResponse.json({ error: "ไม่พบโปรเจกต์" }, { status: 400 });
     if (!isHttpUrl(b.targetUrl)) return NextResponse.json({ error: "URL หน้าลูกค้าต้องขึ้นต้นด้วย http:// หรือ https://" }, { status: 400 });
 
@@ -102,6 +104,7 @@ export async function POST(req: NextRequest) {
       amount: row.quotedPrice, note: "สร้างคำขอ", actorId: ctx.userId,
     });
     await ensureAsanaTask(ctx.orgId, row.id);
+    await markSheetDirty(ctx.orgId);
     return NextResponse.json({ request: await enrichOne(ctx.orgId, row.id) });
   } catch (e) {
     return serverError(e);

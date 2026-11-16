@@ -866,44 +866,7 @@ function HBarList({ items, color = CI.blue, linkPrefix }: {
   );
 }
 
-// กราฟหลายเส้นสไตล์ GSC — แต่ละ series สเกลตาม max ตัวเอง (เหมือนแกนคู่ของ GSC)
-function MLChart({ data, series }: {
-  data: Record<string, number | string>[];
-  series: { key: string; color: string; invert?: boolean }[];
-}) {
-  const W = 560, H = 330, PT = 10, PB = 26; const TH = H + PT + PB;
-  if (!data || data.length < 2 || !series.length) {
-    return <div className="w-full flex items-center justify-center text-[12px] text-gray-400" style={{ height: TH }}>ยังไม่มีข้อมูลกราฟ</div>;
-  }
-  const toX = (i: number) => (i / (data.length - 1)) * W;
-  const paths = series.map(s => {
-    const vals = data.map(d => Number(d[s.key] ?? 0));
-    const max = Math.max(...vals, 1e-6);
-    const toY = (v: number) => s.invert ? PT + H * (v / max) : PT + H * (1 - v / max);
-    return { color: s.color, d: vals.map((v, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ") };
-  });
-  const dateLabels = [0, Math.floor((data.length - 1) / 2), data.length - 1].map(i => {
-    const raw = String(data[i]?.date ?? "");
-    if (raw.length === 8) return `${parseInt(raw.slice(6))}/${parseInt(raw.slice(4, 6))}`;
-    if (raw.includes("-")) { const p = raw.split("-"); return `${parseInt(p[2])}/${parseInt(p[1])}`; }
-    return raw;
-  });
-  return (
-    <div className="relative w-full" style={{ height: TH }}>
-      <svg viewBox={`0 0 ${W} ${TH}`} className="w-full h-full" preserveAspectRatio="none">
-        {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
-          <line key={i} x1={0} y1={PT + H * f} x2={W} y2={PT + H * f} stroke="currentColor" className="text-gray-200" strokeWidth="0.8" />
-        ))}
-        {paths.map((p, i) => (
-          <path key={i} d={p.d} fill="none" stroke={p.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-        ))}
-      </svg>
-      <div className="absolute left-0 right-0 flex justify-between text-[10px] text-gray-400" style={{ top: PT + H + 6 }}>
-        {dateLabels.map((d, i) => <span key={i}>{d}</span>)}
-      </div>
-    </div>
-  );
-}
+type GscMetricKey = "clicks" | "impressions" | "ctr" | "position";
 
 function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoading, gscError, ga4Error, days, periodLabel, calm = false }: {
   calm?: boolean
@@ -918,9 +881,8 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   const [psiMode, setPsiMode]     = useState<"mobile" | "desktop">("mobile");
   const [gscTable, setGscTable]   = useState<"queries" | "pages" | "devices">("queries");
   const [evFilter, setEvFilter]   = useState("");  // "" = รวมทุก event (ใช้เฉพาะโหมด Events)
-  const [gscSeries, setGscSeries] = useState<Record<"clicks" | "impressions" | "ctr" | "position", boolean>>({
-    clicks: true, impressions: true, ctr: true, position: true,
-  });
+  // กราฟ Search performance แสดงทีละตัวชี้วัด (แกนเดียว อ่านค่าจริงได้) — ค่าของตัวอื่นดูได้ในกล่องค่าของแต่ละวัน
+  const [gscMetric, setGscMetric] = useState<GscMetricKey>("clicks");
 
   const loading = gscLoading || ga4Loading;
 
@@ -1042,13 +1004,12 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
   ] : [];
 
   // ── GSC chart series/tiles ──
-  const GSC_METRICS = [
-    { key: "clicks" as const,      label: "Total clicks",      color: CI.blue,   value: fmtNum(clicks),      delta: clicksD },
-    { key: "impressions" as const, label: "Total impressions", color: CI.dark,   value: fmtNum(impressions), delta: impressionsD },
-    { key: "ctr" as const,         label: "Average CTR",       color: CI.sage,   value: `${ctr}%`,           delta: ctrD },
-    { key: "position" as const,    label: "Average position",  color: CI.salmon, value: position.toFixed(1), delta: positionD, invert: true },
+  const GSC_METRICS: { key: GscMetricKey; label: string; short: string; color: string; value: string; delta: number; invert?: boolean }[] = [
+    { key: "clicks",      label: "Total clicks",      short: "Clicks",      color: CI.blue,              value: fmtNum(clicks),      delta: clicksD },
+    { key: "impressions", label: "Total impressions", short: "Impressions", color: "var(--chart-navy)", value: fmtNum(impressions), delta: impressionsD },
+    { key: "ctr",         label: "Average CTR",       short: "CTR",         color: CI.sage,              value: `${ctr}%`,           delta: ctrD },
+    { key: "position",    label: "Average position",  short: "Position",    color: CI.salmon,            value: position.toFixed(1), delta: positionD, invert: true },
   ];
-  const activeSeries = GSC_METRICS.filter(m => gscSeries[m.key]).map(m => ({ key: m.key, color: m.color, invert: m.key === "position" }));
 
   const gscRows: { name: string; clicks: number; impressions: number; ctr: number; position: number; href?: string }[] =
     gscTable === "queries"
@@ -1265,54 +1226,73 @@ function SimpleReport({ project, gsc, ga4, psi, gscLoading, ga4Loading, psiLoadi
         </CCard>
       </div>
 
-      {/* ══ ROW 4 — Search performance (GSC-style tiles + multi-line chart) ══ */}
+      {/* ══ ROW 4 — Search performance (เลือกตัวชี้วัดทีละตัว + กราฟแกนเดียว ชี้/คลิกดูค่ารายวันได้) ══ */}
       <CCard title={`Search performance — ${periodLabel ?? `last ${days} days`}`} pad={false}>
-        <div className="px-5 pt-2 pb-1 grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div role="radiogroup" aria-label="เลือกตัวชี้วัดที่จะแสดงในกราฟ" className="px-5 pt-2 pb-1 grid grid-cols-2 lg:grid-cols-4 gap-3">
           {GSC_METRICS.map(m => {
-            const on = gscSeries[m.key];
+            const on = gscMetric === m.key;
+            const good = m.invert ? m.delta < 0 : m.delta > 0;
             return (
-              <button key={m.key}
-                onClick={() => setGscSeries(s => ({ ...s, [m.key]: !s[m.key] }))}
-                className="rounded-2xl px-3.5 py-3 text-left transition-opacity"
-                style={{ backgroundColor: on ? m.color : "rgba(255,255,255,0.7)", opacity: on ? 1 : 0.9 }}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className={`w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center text-[9px] leading-none ${on ? "bg-white/25 border-white/70 text-white" : "border-gray-300 text-transparent bg-white"}`}>✓</span>
-                  <p className={`text-[11.5px] ${on ? "text-white/90" : "text-gray-500"}`}>{m.label}</p>
-                </div>
-                <p className={`text-[1.5rem] leading-none font-bold tabular-nums ${on ? "text-white" : "text-gray-400"}`}>{m.value}</p>
+              <button key={m.key} type="button" role="radio" aria-checked={on}
+                onClick={() => setGscMetric(m.key)}
+                className={`kpi items-start text-left transition-[box-shadow,border-color,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 ${on ? "" : "opacity-70 hover:opacity-100"}`}
+                style={on ? { borderColor: m.color, boxShadow: `inset 0 0 0 1px ${m.color}, var(--kpi-shadow)` } : undefined}>
+                <span className="flex items-center gap-2">
+                  <span aria-hidden className="h-1 w-4 rounded-full" style={{ backgroundColor: m.color }} />
+                  <span className="kpi-label">{m.label}</span>
+                </span>
+                <span className="kpi-value">{m.value}</span>
                 {m.delta !== 0 && (
-                  <p className={`text-[11px] mt-1 ${on ? "text-white/80" : "text-gray-400"}`}>
-                    {(m.invert ? m.delta < 0 : m.delta > 0) ? "▲" : "▼"} {Math.abs(m.delta)}{m.key === "position" ? "" : "%"} vs prev
-                  </p>
+                  <span className="mt-1 flex items-center gap-1.5">
+                    <span className={good ? "delta-up" : "delta-down"}>{good ? "▲" : "▼"} {Math.abs(m.delta)}{m.key === "position" ? "" : "%"}</span>
+                    <span className="kpi-hint">vs prev</span>
+                  </span>
                 )}
               </button>
             );
           })}
         </div>
         <div className="px-5 pt-3 pb-2">
-          {activeSeries.length === 1 && gscDaily.length >= 2 ? (() => {
-            // series เดียว = แกนเดียว ใช้ AreaChart ค่าจริง (position กลับด้านเหมือนเดิม)
-            const one = activeSeries[0];
-            const meta = GSC_METRICS.find(m => m.key === one.key)!;
+          {(() => {
+            const meta = GSC_METRICS.find(m => m.key === gscMetric) ?? GSC_METRICS[0];
             const dl = (raw: string) => {
               if (raw.length === 8) return `${parseInt(raw.slice(6))}/${parseInt(raw.slice(4, 6))}`;
               if (raw.includes("-")) { const q = raw.split("-"); return `${parseInt(q[2])}/${parseInt(q[1])}`; }
               return raw;
             };
+            // อันดับ 0 = วันนั้นไม่มีข้อมูล (ไม่ใช่อันดับจริง) จึงเว้นช่องว่างแทนการลากเส้นไปที่ 0
+            const valueOf = (d: GscDailyRow | undefined, key: GscMetricKey): number | null => {
+              const v = Number((d as unknown as Record<string, number> | undefined)?.[key] ?? 0);
+              if (!Number.isFinite(v)) return null;
+              return key === "position" && v <= 0 ? null : v;
+            };
+            const exact = (key: GscMetricKey, v: number | null) =>
+              v === null ? "–" : key === "ctr" ? `${v.toFixed(2)}%` : key === "position" ? v.toFixed(1) : Math.round(v).toLocaleString();
+            // ป้ายแกนต้องตรงกับตำแหน่งเส้นกริดจริง (เช่น 3.75% ห้ามปัดเป็น 3.8%)
+            const axis = gscMetric === "ctr"
+              ? (v: number) => `${+v.toFixed(2)}%`
+              : gscMetric === "position"
+                ? (v: number) => String(+v.toFixed(2))
+                : undefined;
             return (
-              <AreaChart
-                height={300}
-                invertY={one.key === "position"}
-                series={[{
-                  name: meta.label,
-                  color: meta.color,
-                  points: gscDaily.map(d => ({ label: dl(String(d.date ?? "")), value: Number((d as unknown as Record<string, number>)[one.key] ?? 0) })),
-                }]}
-              />
+              <>
+                <p className="mb-1 text-[11px] text-gray-400">ชี้หรือแตะบนกราฟเพื่อดูค่าของแต่ละวัน · คลิกเพื่อค้างค่าไว้</p>
+                <AreaChart
+                  height={300}
+                  ariaLabel={`${meta.label} รายวัน`}
+                  invertY={gscMetric === "position"}
+                  formatValue={axis}
+                  formatTooltip={(v) => exact(gscMetric, v)}
+                  tooltipRows={(i) => GSC_METRICS.filter(m => m.key !== gscMetric).map(m => ({ label: m.short, value: exact(m.key, valueOf(gscDaily[i], m.key)) }))}
+                  series={[{
+                    name: meta.short,
+                    color: meta.color,
+                    points: gscDaily.map(d => ({ label: dl(String(d.date ?? "")), value: valueOf(d, gscMetric) })),
+                  }]}
+                />
+              </>
             );
-          })() : (
-            <MLChart data={gscDaily as unknown as Record<string, number | string>[]} series={activeSeries} />
-          )}
+          })()}
         </div>
         <div className="px-4 pb-3 flex items-center justify-between flex-wrap gap-2">
           <p className="text-[10px] text-gray-400">Average position ใช้สเกลกลับด้าน (เส้นอยู่สูง = อันดับดี) · Source: Search Console</p>

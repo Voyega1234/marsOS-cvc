@@ -1,13 +1,18 @@
 "use client";
 
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useEffect, useTransition, Fragment } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { th } from "date-fns/locale";
-import { KpiTile, Panel, DonutChart, MeterBar, EmptyState } from "@/components/ds";
+import { KpiTile, Panel, DonutChart, MeterBar, EmptyState, Segmented } from "@/components/ds";
 import {
   Zap, DollarSign, Cpu, AlertCircle, CheckCircle2,
-  XCircle, Clock, ChevronDown, ChevronUp, Filter,
+  XCircle, Clock, ChevronDown, ChevronUp, Filter, CalendarDays, Loader2,
 } from "lucide-react";
+import {
+  AI_COST_PRESETS, AI_COST_PRESET_LABEL, aiCostRangeQuery, isDateKey,
+  type AiCostPreset, type AiCostRange,
+} from "@/lib/ai-cost-range";
 
 interface Job {
   id: string;
@@ -41,9 +46,16 @@ interface CostByProject {
 }
 
 interface Props {
+  /** รายการล่าสุดในช่วงที่เลือก (จำกัดจำนวน) — ยอดรวมใช้ total* ด้านล่าง ไม่ได้บวกจากรายการนี้ */
   jobs: Job[];
-  totalCostMonth: number;
-  totalTokensMonth: number;
+  /** ช่วงเวลาที่เลือกอยู่ — เปลี่ยนแล้วหน้าโหลดข้อมูลใหม่จากเซิร์ฟเวอร์ */
+  range: AiCostRange;
+  totalCostRange: number;
+  totalTokensRange: number;
+  totalJobsRange: number;
+  totalFailedRange: number;
+  /** ยอดรวมตั้งแต่เริ่มใช้ระบบ ไม่ขึ้นกับช่วงที่เลือก */
+  totalCostAll: number;
   jobCountByType: { jobType: string; count: number; cost: number }[];
   costByProject: CostByProject[];
 }
@@ -77,6 +89,7 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   UPLOAD_ARTICLE_CONNECT_HELP: "Upload Article · AI ช่วยแก้การเชื่อมต่อ",
   COMPLIANCE_CHECK:            "Compliance · ตรวจบทความ (AI)",
   COMPLIANCE_RULE_UPDATE:      "Compliance · AI อัปเดตกฎ",
+  COMPLIANCE_RULE_FILL:        "Compliance · AI อ่านลิงก์/ไฟล์กรอกกฎ",
 };
 
 const PAGE_BADGE: Record<string, string> = {
@@ -115,22 +128,54 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 const USD_TO_THB = 33;
 
 function fmt(n: number) {
+  if (n === 0) return "$0";
   return n < 0.0001 ? "<$0.0001" : `$${n.toFixed(4)}`;
 }
 function fmtTHB(n: number) {
   const baht = n * USD_TO_THB;
+  if (baht === 0) return "฿0";
   return baht < 0.01 ? "<฿0.01" : `฿${baht.toFixed(2)}`;
 }
 
-export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountByType, costByProject }: Props) {
+const PRESET_OPTIONS = AI_COST_PRESETS.map((p) => ({ value: p, label: AI_COST_PRESET_LABEL[p] }));
+/** กันช่อง date ยิงค่าระหว่างพิมพ์ปี (เช่น 0002-11-03) */
+const MIN_DATE = "2020-01-01";
+
+export function AIJobsClient({
+  jobs, range, totalCostRange, totalTokensRange, totalJobsRange, totalFailedRange, totalCostAll,
+  jobCountByType, costByProject,
+}: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [loadingRange, startRangeChange] = useTransition();
+
   const [filterType, setFilterType]     = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterSource, setFilterSource] = useState("all");
   const [expandedId, setExpandedId]     = useState<string | null>(null);
+  const [fromInput, setFromInput]       = useState(range.from ?? "");
+  const [toInput, setToInput]           = useState(range.to ?? "");
+
+  // ช่วงเวลาเปลี่ยน = ข้อมูลชุดใหม่: ช่องวันที่ตามช่วงจริง และล้างตัวกรองที่อาจไม่มีในชุดใหม่
+  useEffect(() => {
+    setFromInput(range.from ?? "");
+    setToInput(range.to ?? "");
+    setFilterType("all");
+    setFilterStatus("all");
+    setFilterSource("all");
+    setExpandedId(null);
+  }, [range.preset, range.from, range.to]);
+
+  const goRange = (query: string) => startRangeChange(() => router.replace(`${pathname}${query}`, { scroll: false }));
+  const onDateChange = (which: "from" | "to", value: string) => {
+    const from = which === "from" ? value : fromInput;
+    const to   = which === "to"   ? value : toInput;
+    if (which === "from") setFromInput(value); else setToInput(value);
+    const ok = (v: string) => v === "" || (isDateKey(v) && v >= MIN_DATE);
+    if ((from || to) && ok(from) && ok(to)) goRange(aiCostRangeQuery({ from, to }));
+  };
 
   const jobTotalCost = (j: Job) => (j.estimatedCost ?? 0) + (j.externalCost ?? 0);
-  const totalCostAll = jobs.reduce((s, j) => s + jobTotalCost(j), 0);
-  const totalFailed  = jobs.filter(j => j.status === "FAILED").length;
 
   const filtered = useMemo(() => jobs.filter(j => {
     if (filterType   !== "all" && j.jobType !== filterType)   return false;
@@ -148,22 +193,52 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
     .map(t => ({ label: JOB_TYPE_LABEL[t.jobType] ?? t.jobType, value: t.cost }));
 
   return (
-    <div className="space-y-5 max-w-6xl">
+    <div className="space-y-5">
+
+      {/* ช่วงเวลา — เปลี่ยนแล้วทุกตัวเลขในหน้าคิดใหม่ตามช่วงนั้น */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-white/80 bg-white/70 px-4 py-2.5 shadow-sm">
+        <CalendarDays size={14} className="shrink-0 text-gray-400" />
+        <Segmented
+          size="sm"
+          ariaLabel="ช่วงเวลา"
+          options={PRESET_OPTIONS}
+          value={range.preset as AiCostPreset}
+          onChange={(p) => goRange(aiCostRangeQuery({ preset: p }))}
+        />
+        <div className="flex items-center gap-2">
+          <input type="date" aria-label="ตั้งแต่วันที่" value={fromInput} min={MIN_DATE} max={toInput || undefined}
+            onChange={e => onDateChange("from", e.target.value)}
+            className="field-input !w-auto !py-1.5 text-xs" />
+          <span className="text-xs text-gray-400">ถึง</span>
+          <input type="date" aria-label="ถึงวันที่" value={toInput} min={fromInput || MIN_DATE}
+            onChange={e => onDateChange("to", e.target.value)}
+            className="field-input !w-auto !py-1.5 text-xs" />
+        </div>
+        {loadingRange && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-gray-400" role="status">
+            <Loader2 size={13} className="animate-spin" /> กำลังโหลด
+          </span>
+        )}
+      </div>
+
+      <div className={`space-y-5 transition-opacity ${loadingRange ? "opacity-50 pointer-events-none" : ""}`} aria-busy={loadingRange}>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiTile tone="blue" icon={<DollarSign size={16} />} label="ค่าใช้จ่ายเดือนนี้" value={fmt(totalCostMonth)}
-          hint={`${fmtTHB(totalCostMonth)} · AI + API รวมกัน`} />
+        <KpiTile tone="blue" icon={<DollarSign size={16} />} label={`ค่าใช้จ่าย · ${range.label}`} value={fmt(totalCostRange)}
+          hint={`${fmtTHB(totalCostRange)} · AI + API รวมกัน`} />
         <KpiTile tone="sky" icon={<DollarSign size={16} />} label="ค่าใช้จ่ายทั้งหมด" value={fmt(totalCostAll)}
-          hint={`${fmtTHB(totalCostAll)} · all time`} />
-        <KpiTile tone="mist" icon={<Cpu size={16} />} label="Tokens เดือนนี้" value={totalTokensMonth.toLocaleString()} hint="tokens" />
-        <KpiTile tone={totalFailed > 0 ? "warm" : "plain"} icon={<AlertCircle size={16} />} label="ล้มเหลว" value={totalFailed} hint="need attention" />
+          hint={`${fmtTHB(totalCostAll)} · ตั้งแต่เริ่มใช้ระบบ`} />
+        <KpiTile tone="mist" icon={<Cpu size={16} />} label={`Tokens · ${range.label}`} value={totalTokensRange.toLocaleString()}
+          hint={`${totalJobsRange.toLocaleString()} jobs`} />
+        <KpiTile tone={totalFailedRange > 0 ? "warm" : "plain"} icon={<AlertCircle size={16} />} label={`ล้มเหลว · ${range.label}`} value={totalFailedRange}
+          hint={totalFailedRange > 0 ? "need attention" : "ไม่มีงานล้มเหลว"} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Cost by project */}
         {costByProject.length > 0 && (
-          <Panel title="ค่าใช้จ่ายตาม Client (เดือนนี้)">
+          <Panel title={`ค่าใช้จ่ายตาม Client (${range.label})`}>
             <div className="space-y-2.5">
               {[...costByProject].sort((a, b) => b.cost - a.cost).map(p => {
                 const maxCost = Math.max(...costByProject.map(x => x.cost), 0.0001);
@@ -192,7 +267,7 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
 
         {/* Cost by type */}
         {jobCountByType.length > 0 && (
-          <Panel title="ค่าใช้จ่ายตามประเภท">
+          <Panel title={`ค่าใช้จ่ายตามประเภท (${range.label})`}>
             {typeSegments.some(t => t.value > 0) && (
               <div className="mb-4 flex justify-center">
                 <DonutChart segments={typeSegments} size={160} showLegend={false} formatValue={(v) => fmt(v)} />
@@ -230,7 +305,9 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
           <option value="all">ทุกโปรเจกต์ / หน้า</option>
           {allSources.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
-        <span className="text-xs text-gray-400">{filtered.length} jobs</span>
+        <span className="text-xs text-gray-400">
+          {filtered.length} jobs{totalJobsRange > jobs.length ? ` (ล่าสุดจาก ${totalJobsRange.toLocaleString()})` : ""}
+        </span>
         <span className="text-xs font-mono text-brand-navy">{fmt(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
         <span className="text-xs font-semibold text-red-500">{fmtTHB(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
         <span className="text-xs text-purple-500">{filtered.reduce((s, j) => s + (j.tokenUsed ?? 0), 0).toLocaleString()} tokens</span>
@@ -341,9 +418,21 @@ export function AIJobsClient({ jobs, totalCostMonth, totalTokensMonth, jobCountB
             </table>
           </div>
         </div>
+      ) : jobs.length > 0 ? (
+        <EmptyState icon={<Filter size={22} />} title="ไม่มี job ตรงกับตัวกรอง" description="ลองเปลี่ยนประเภท Status หรือโปรเจกต์" />
+      ) : range.preset !== "all" ? (
+        <EmptyState icon={<CalendarDays size={22} />} title={`ไม่มี AI Jobs ในช่วง ${range.label}`} description="ลองเลือกช่วงเวลาอื่น หรือกด ทั้งหมด" />
       ) : (
         <EmptyState icon={<Zap size={22} />} title="ยังไม่มี AI Jobs" description="เมื่อเขียนบทความหรือสร้างรูป จะแสดง cost ที่นี่อัตโนมัติ" />
       )}
+
+      {totalJobsRange > jobs.length && (
+        <p className="text-xs text-gray-400">
+          ตารางแสดง {jobs.length.toLocaleString()} รายการล่าสุด จากทั้งหมด {totalJobsRange.toLocaleString()} jobs ในช่วงนี้ — ยอดรวมด้านบนคิดครบทุก job เลือกช่วงให้แคบลงเพื่อดูรายการที่เหลือ
+        </p>
+      )}
+
+      </div>
     </div>
   );
 }

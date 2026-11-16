@@ -10,7 +10,7 @@ export function vendorData(b: Record<string, unknown>) {
   if (b.traffic !== undefined) { const n = num(b.traffic); d.traffic = n === null ? null : Math.round(n); }
   if (b.linkType !== undefined && ["dofollow", "nofollow", "sponsored"].includes(String(b.linkType))) d.linkType = String(b.linkType);
   if (b.contactName !== undefined) d.contactName = str(b.contactName, 200) ?? "";
-  if (b.contactChannel !== undefined) d.contactChannel = str(b.contactChannel, 300) ?? "";
+  if (b.contactChannel !== undefined) d.contactChannel = str(b.contactChannel, 1000) ?? "";
   if (b.notes !== undefined) d.notes = str(b.notes, 2000) ?? "";
   if (b.status !== undefined && ["ACTIVE", "INACTIVE"].includes(String(b.status))) d.status = String(b.status);
   return d;

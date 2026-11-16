@@ -5,7 +5,8 @@ import { REVIEWER_ROLES } from '@/lib/compliance/types'
 
 export const dynamic = 'force-dynamic'
 
-const DECISIONS = ['APPROVED', 'CHANGES_REQUESTED', 'REJECTED']
+// PENDING_REVIEW = เปิดผลตรวจกลับมารอตรวจใหม่ (เช่น กดตัดสินผิด) — ล้างผู้ตรวจออก ประวัติอยู่ใน Audit Log
+const DECISIONS = ['APPROVED', 'CHANGES_REQUESTED', 'REJECTED', 'PENDING_REVIEW']
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -23,13 +24,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: 'การอนุมัติผลตรวจที่มีความเสี่ยงสูง/วิกฤต ต้องเขียนเหตุผลอย่างน้อย 10 ตัวอักษร' }, { status: 400 })
     }
 
+    const reopen = decision === 'PENDING_REVIEW'
+    if (reopen && check.status === 'PENDING_REVIEW') {
+      return NextResponse.json({ error: 'ผลตรวจนี้อยู่ในสถานะรอตรวจอยู่แล้ว' }, { status: 400 })
+    }
+
     const row = await prisma.complianceCheck.update({
       where: { id: check.id },
-      data: { status: decision, reviewedById: ctx.userId, reviewedAt: new Date(), reviewNote: note },
+      data: reopen
+        ? { status: decision, reviewedById: null, reviewedAt: null, reviewNote: '' }
+        : { status: decision, reviewedById: ctx.userId, reviewedAt: new Date(), reviewNote: note },
     })
     await audit({
       orgId: ctx.orgId, actorId: ctx.userId, action: 'CHECK_REVIEW', checkId: row.id,
-      detail: { decision, riskLevel: row.riskLevel, note },
+      detail: { decision, from: check.status, riskLevel: row.riskLevel, note },
     })
     const names = await userNames([row.createdById, row.reviewedById])
     return NextResponse.json({

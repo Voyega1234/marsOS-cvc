@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { markSheetDirty } from "@/lib/backlink-management/sheet-sync";
 import { prisma } from "@/lib/prisma";
+import { findProject, projectInfo } from "@/lib/backlink-management/projects";
 import { requireStaff, isCtx, serverError } from "@/lib/backlink-management/server";
 import { currentPeriod, isValidPeriod, round2, summarizeBudget } from "@/lib/backlink-management/budget";
 import { isApprover } from "@/lib/backlink-management/types";
@@ -20,10 +22,7 @@ export async function GET(req: NextRequest) {
       }),
     ]);
     const ids = Array.from(new Set([...budgets.map((b) => b.projectId), ...requests.map((r) => r.projectId)]));
-    const projects = ids.length
-      ? await prisma.project.findMany({ where: { organizationId: ctx.orgId, id: { in: ids } }, select: { id: true, name: true, clientName: true } })
-      : [];
-    const pm = new Map(projects.map((x) => [x.id, x]));
+    const pm = await projectInfo(ctx.orgId, ids);
     const rows = ids
       .filter((id) => pm.has(id))
       .map((id) => {
@@ -64,7 +63,7 @@ export async function PUT(req: NextRequest) {
     if (!isValidPeriod(b.period)) return NextResponse.json({ error: "เดือนไม่ถูกต้อง" }, { status: 400 });
     const amount = Number(b.approvedAmount);
     if (!Number.isFinite(amount) || amount < 0) return NextResponse.json({ error: "งบต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป" }, { status: 400 });
-    const project = await prisma.project.findFirst({ where: { id: String(b.projectId ?? ""), organizationId: ctx.orgId }, select: { id: true } });
+    const project = await findProject(ctx.orgId, String(b.projectId ?? ""));
     if (!project) return NextResponse.json({ error: "ไม่พบโปรเจกต์" }, { status: 400 });
     const note = typeof b.note === "string" ? b.note.trim().slice(0, 500) : "";
     const row = await prisma.blmBudget.upsert({
@@ -72,6 +71,7 @@ export async function PUT(req: NextRequest) {
       create: { organizationId: ctx.orgId, projectId: project.id, period: b.period, approvedAmount: round2(amount), note, setById: ctx.userId },
       update: { approvedAmount: round2(amount), note, setById: ctx.userId },
     });
+    await markSheetDirty(ctx.orgId);
     return NextResponse.json({ budget: row });
   } catch (e) {
     return serverError(e);

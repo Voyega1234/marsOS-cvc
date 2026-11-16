@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { clientLoginUsername, clientPasswordProblem } from "@/lib/client-login";
 import { isClientLoginEmail, syncClientLoginAccount } from "@/lib/supabase/admin";
 
 export async function POST(req: NextRequest) {
@@ -20,6 +21,16 @@ export async function POST(req: NextRequest) {
 
   if (!email || !password || !role) {
     return NextResponse.json({ error: "ข้อมูลไม่ครบ" }, { status: 400 });
+  }
+
+  // บัญชีลูกค้าที่เข้าด้วยรหัสผ่าน: ชื่อผู้ใช้กับรหัสต้องเป็นแบบที่ระบบ login รับได้ — กติกาเดียวกับฟอร์มในหน้า Users
+  // ตรวจที่นี่ด้วย กันคำขอที่ไม่ผ่านฟอร์มสร้างบัญชีที่ login ไม่ได้ตั้งแต่ต้น
+  if (role === "CLIENT" && isClientLoginEmail(email)) {
+    if (clientLoginUsername(email) === null) {
+      return NextResponse.json({ error: "Username ใช้ได้เฉพาะ a-z 0-9 . _ -" }, { status: 400 });
+    }
+    const passwordProblem = clientPasswordProblem(password);
+    if (passwordProblem) return NextResponse.json({ error: passwordProblem }, { status: 400 });
   }
 
   const existing = await prisma.user.findFirst({

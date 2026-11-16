@@ -75,12 +75,5 @@ export function dateOnlyString(d: Date | null | undefined): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
 }
 
-export function normalizeDomain(raw: string): string {
-  return raw
-    .trim()
-    .toLowerCase()
-    .replace(/^[a-z]+:\/\//, "")
-    .replace(/^www\./, "")
-    .split(/[\/?#]/)[0]
-    .replace(/:\d+$/, "");
-}
+// ย้ายไป domain.ts (ไฟล์บริสุทธิ์) เพื่อให้ตัวนำเข้าไฟล์ใช้ร่วมได้ — export เดิมยังอยู่ตรงนี้
+export { normalizeDomain } from "./domain";

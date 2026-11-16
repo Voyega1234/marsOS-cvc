@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { getTask, resolveToken } from "@/lib/backlink-management/asana";
 import { applyAsanaTask } from "@/lib/backlink-management/asana-sync";
+import { syncSheetWithin } from "@/lib/backlink-management/sheet-sync";
 
 // ถูกเรียกโดย Asana — ไม่ใช้ session; ยืนยันด้วย token ใน URL + ลายเซ็น HMAC
 export const dynamic = "force-dynamic";
@@ -90,5 +91,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   await prisma.blmAsanaConfig
     .update({ where: { organizationId: orgId }, data: { lastEventAt: new Date(), ...(lastError ? { lastError } : {}) } })
     .catch(() => {});
+  // อัปเดตชีทต่อท้าย (ไม่ throw, รอไม่เกิน 4 วินาที เพราะ Asana รอคำตอบได้ราว 10 วินาที) — ไม่กระทบผลตอบกลับ
+  // ถ้าไม่ทัน ธง dirtyAt ยังอยู่ ชีทจะถูกเขียนตอนมีคนเปิดหน้า Backlink Management ครั้งถัดไป
+  await syncSheetWithin(orgId, 4000);
   return new NextResponse(null, { status: 200 });
 }

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { isUploadArticleJobType, uaClientIdFromJobInput, UPLOAD_ARTICLE_PAGE_LABEL } from "@/lib/upload-article/ai-job-source";
+import { aiCostCreatedAtFilter, resolveAiCostRange, type AiCostRange } from "@/lib/ai-cost-range";
 
 /**
  * ข้อมูลหน้า AI Jobs + Settings → AI Cost — ใช้ร่วมกันสองหน้า กันโค้ดแยกกันแล้วเพี้ยน
@@ -13,47 +14,60 @@ const STUDIO_PAGE_LABEL = "Studio";
 const COMPLIANCE_PAGE_LABEL = "Compliance";
 const isComplianceJobType = (jobType: string) => jobType.startsWith("COMPLIANCE_");
 
-export async function loadAIJobsView(orgId: string) {
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+/** ตารางรายการแสดงได้ไม่เกินเท่านี้ — ยอดรวมด้านบนคิดจากทุก job ในช่วง ไม่ได้คิดจากตาราง */
+export const AI_JOBS_LIST_LIMIT = 200;
 
-  const [jobs, monthStats, jobsByType, costByProject, monthUnlinked] = await Promise.all([
+/**
+ * @param range ช่วงเวลาที่เลือก (ไม่ส่ง = เดือนนี้) — ทุกตัวเลขยกเว้น totalCostAll คิดในช่วงนี้
+ */
+export async function loadAIJobsView(orgId: string, range: AiCostRange = resolveAiCostRange(undefined)) {
+  const createdAt = aiCostCreatedAtFilter(range);
+  const inRange = { organizationId: orgId, ...(createdAt ? { createdAt } : {}) };
+
+  const [jobs, rangeStats, failedCount, allTimeStats, jobsByType, costByProject, rangeUnlinked] = await Promise.all([
     prisma.aIJob.findMany({
-      where: { organizationId: orgId },
+      where: inRange,
       include: {
         article: { select: { id: true, title: true } },
         createdBy: { select: { name: true } },
         project: { select: { name: true, clientName: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: 200,
+      take: AI_JOBS_LIST_LIMIT,
     }),
     prisma.aIJob.aggregate({
-      where: { organizationId: orgId, createdAt: { gte: startOfMonth } },
+      where: inRange,
       _sum: { estimatedCost: true, tokenUsed: true, externalCost: true },
+      _count: { id: true },
+    }),
+    prisma.aIJob.count({ where: { ...inRange, status: "FAILED" } }),
+    // ยอดรวมตั้งแต่เริ่มใช้ระบบ — ไม่ขึ้นกับช่วงที่เลือก
+    prisma.aIJob.aggregate({
+      where: { organizationId: orgId },
+      _sum: { estimatedCost: true, externalCost: true },
     }),
     prisma.aIJob.groupBy({
       by: ["jobType"],
-      where: { organizationId: orgId },
+      where: inRange,
       _count: { id: true },
       _sum: { estimatedCost: true, externalCost: true },
     }),
     prisma.aIJob.groupBy({
       by: ["projectId"],
-      where: { organizationId: orgId, createdAt: { gte: startOfMonth } },
+      where: inRange,
       _sum: { estimatedCost: true, externalCost: true, tokenUsed: true },
       _count: { id: true },
     }),
-    // งานที่ไม่ผูก Project เดือนนี้ — แยกต่อเป็น Upload Article (ตามลูกค้า) กับ Studio
+    // งานที่ไม่ผูก Project ในช่วงที่เลือก — แยกต่อเป็น Upload Article (ตามลูกค้า) กับ Studio
     prisma.aIJob.findMany({
-      where: { organizationId: orgId, createdAt: { gte: startOfMonth }, projectId: null },
+      where: { ...inRange, projectId: null },
       select: { jobType: true, input: true, estimatedCost: true, externalCost: true, tokenUsed: true },
     }),
   ]);
 
   const uploadClientIds = new Set<string>();
   for (const j of jobs) { const id = uaClientIdFromJobInput(j.input); if (id) uploadClientIds.add(id); }
-  for (const j of monthUnlinked) { const id = uaClientIdFromJobInput(j.input); if (id) uploadClientIds.add(id); }
+  for (const j of rangeUnlinked) { const id = uaClientIdFromJobInput(j.input); if (id) uploadClientIds.add(id); }
   const uploadClientNames: Record<string, string> = {};
   if (uploadClientIds.size > 0) {
     const clients = await prisma.uploadClient.findMany({
@@ -74,7 +88,7 @@ export async function loadAIJobsView(orgId: string) {
   }
 
   const unlinkedGroups = new Map<string, { projectId: string; projectName: string; page: string; cost: number; tokens: number; jobs: number }>();
-  for (const j of monthUnlinked) {
+  for (const j of rangeUnlinked) {
     const src = jobSource(j);
     const uaId = uaClientIdFromJobInput(j.input);
     const key = uaId ? `ua:${uaId}` : src.page === UPLOAD_ARTICLE_PAGE_LABEL ? "ua:unknown" : src.page === COMPLIANCE_PAGE_LABEL ? "compliance" : "none";
@@ -122,8 +136,14 @@ export async function loadAIJobsView(orgId: string) {
         sourcePage: src.page,
       };
     }),
-    totalCostMonth: (monthStats._sum.estimatedCost ?? 0) + ((monthStats._sum as any).externalCost ?? 0),
-    totalTokensMonth: monthStats._sum.tokenUsed ?? 0,
+    range: { preset: range.preset, from: range.from, to: range.to, label: range.label },
+    /** ยอดของช่วงที่เลือก — คิดจากทุก job ในช่วง ไม่ใช่แค่ที่แสดงในตาราง */
+    totalCostRange: (rangeStats._sum.estimatedCost ?? 0) + ((rangeStats._sum as any).externalCost ?? 0),
+    totalTokensRange: rangeStats._sum.tokenUsed ?? 0,
+    totalJobsRange: rangeStats._count.id,
+    totalFailedRange: failedCount,
+    /** ยอดรวมตั้งแต่เริ่มใช้ระบบ */
+    totalCostAll: (allTimeStats._sum.estimatedCost ?? 0) + ((allTimeStats._sum as any).externalCost ?? 0),
     jobCountByType: jobsByType.map((jt) => ({
       jobType: jt.jobType,
       count: jt._count.id,

@@ -969,6 +969,33 @@ model BlmVendorSite {
   @@schema("plans_seo_pipeline")
 }
 
+// ข้อมูลเสริมของเว็บในคลัง (1 แถวต่อ 1 เว็บ) — แยกตารางเพื่อไม่ต้องแก้ BlmVendorSite
+// ไม่มี relation: โค้ดอ่านแยก query และทนได้ถ้าตารางนี้ยังไม่ถูกสร้าง (P2021)
+model BlmVendorDetail {
+  id                  String @id @default(cuid())
+  organizationId      String
+  vendorSiteId        String @unique // BlmVendorSite.id
+  language            String @default("") // TH | EN
+  urlRating           Float?
+  priceBacklink       Float? // Only Backlink
+  pricePublisherWeb   Float? // Publisher write WEB
+  pricePublisherWebFb Float? // Publisher write WEB+FB
+  priceCvcWeb         Float? // CVC write WEB
+  priceCvcWebFb       Float? // CVC write WEB+FB
+  pricePr             Float? // PR
+  priceNote           String @default("") // ข้อความราคาที่ไม่ใช่ตัวเลขล้วน เช่น "8000 - 15,000"
+  expiration          String @default("") // อายุลิงก์ เช่น Forever / 1 Year
+  rateCardUrl         String @default("")
+  dataStatus          String @default("") // "" | UPDATED | OUTDATED
+  refId               String @default("") // ID ในชีตต้นทางของทีม
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@schema("plans_seo_pipeline")
+}
+
 // งบ backlink ที่อนุมัติ ต่อโปรเจกต์ ต่อเดือน
 model BlmBudget {
   id             String @id @default(cuid())
@@ -1069,6 +1096,40 @@ model BlmAsanaConfig {
   lastEventAt      DateTime?
   lastError        String    @default("")
   updatedById      String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@schema("plans_seo_pipeline")
+}
+
+/// โปรเจกต์ที่เพิ่มเองใน Backlink Management (ลูกค้าที่ไม่มีในเมนู Clients) — ไม่ผูกกับตาราง Project
+model BlmProject {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String
+  clientName     String @default("")
+  note           String @default("")
+  createdById    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, name])
+  @@schema("plans_seo_pipeline")
+}
+
+/// การเชื่อม Google Sheet ของ Backlink Management (1 แถวต่อองค์กร) — MarsOS เขียนลงชีททางเดียว
+model BlmSheetConfig {
+  id             String    @id @default(cuid())
+  organizationId String    @unique
+  spreadsheetId  String
+  spreadsheetUrl String    @default("")
+  title          String    @default("")
+  dirtyAt        DateTime? // มีการเปลี่ยนแปลงที่ยังไม่ได้เขียนลงชีท
+  lastSyncedAt   DateTime?
+  lastError      String    @default("")
+  connectedById  String    @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

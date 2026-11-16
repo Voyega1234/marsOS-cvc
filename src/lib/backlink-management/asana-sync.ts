@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import {
   addComment, createTask, getTask, listProjectTasks, resolveToken, updateTask, type AsanaTask,
 } from "./asana";
+import { findProject } from "./projects";
 import { addEvent } from "./server";
+import { markSheetDirty } from "./sheet-sync";
 import { statusLabel } from "./types";
 
 const COMPLETED_STATUSES = ["PUBLISHED", "VERIFIED", "CANCELLED", "REJECTED"];
@@ -53,7 +55,7 @@ export async function ensureAsanaTask(orgId: string, requestId: string): Promise
     const req = await prisma.blmRequest.findFirst({ where: { id: requestId, organizationId: orgId } });
     if (!req || req.asanaTaskGid) return;
     try {
-      const project = await prisma.project.findFirst({ where: { id: req.projectId, organizationId: orgId }, select: { name: true } });
+      const project = await findProject(orgId, req.projectId);
       let assigneeEmail: string | null = null;
       if (req.assigneeId) {
         const u = await prisma.user.findFirst({ where: { id: req.assigneeId, organizationId: orgId }, select: { email: true } });
@@ -93,6 +95,7 @@ export async function pushRequestChange(orgId: string, requestId: string, note: 
           where: { id: req.id },
           data: { asanaTaskGid: null, asanaTaskUrl: "", asanaSyncError: "งานถูกลบใน Asana" },
         });
+        await markSheetDirty(orgId);
         return;
       }
       const fields: Record<string, unknown> = {};
@@ -122,6 +125,7 @@ export async function pushRequestChange(orgId: string, requestId: string, note: 
           ...("completed" in fields ? { asanaCompleted: shouldComplete } : {}),
         },
       });
+      if ("completed" in fields) await markSheetDirty(orgId);
     } catch (e) {
       await prisma.blmRequest.update({ where: { id: req.id }, data: { asanaSyncError: shortErr(e) } }).catch(() => {});
     }
@@ -142,6 +146,7 @@ export async function applyAsanaTask(
       where: { id: req.id },
       data: { asanaTaskGid: null, asanaTaskUrl: "", asanaSyncError: "งานถูกลบใน Asana" },
     });
+    await markSheetDirty(orgId);
     await addEvent({ organizationId: orgId, requestId: req.id, type: "ASANA", source: "asana", note: "งานถูกลบใน Asana" });
     return;
   }
@@ -185,8 +190,11 @@ export async function applyAsanaTask(
   if (req.asanaSyncError) data.asanaSyncError = "";
 
   if (Object.keys(data).length === 0) return;
+  // เปลี่ยนเฉพาะ asanaSyncError (รีเซ็ต) = ไม่มีผลกับข้อมูลในชีท
+  const sheetRelevant = Object.keys(data).some((k) => k !== "asanaSyncError");
   data.asanaSyncedAt = new Date();
   await prisma.blmRequest.update({ where: { id: req.id }, data });
+  if (sheetRelevant) await markSheetDirty(orgId);
 
   if (statusChange) {
     await addEvent({

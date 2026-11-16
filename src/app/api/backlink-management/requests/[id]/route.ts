@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { markSheetDirty } from "@/lib/backlink-management/sheet-sync";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, isCtx, serverError, addEvent, parseDateOnly } from "@/lib/backlink-management/server";
 import { pushRequestChange } from "@/lib/backlink-management/asana-sync";
@@ -117,6 +118,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         fromStatus: cur.status, toStatus: to, amount, note: eventNote, actorId: ctx.userId,
       });
       await pushRequestChange(ctx.orgId, cur.id, `MarsOS: สถานะเปลี่ยนเป็น ${statusLabel(to)} โดย ${ctx.userName}`);
+      await markSheetDirty(ctx.orgId);
       return NextResponse.json({ request: await enrichOne(ctx.orgId, cur.id) });
     }
 
@@ -194,6 +196,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await addEvent({ organizationId: ctx.orgId, requestId: cur.id, type: "ASSIGN", note: u ? `มอบหมายให้ ${u.name ?? u.email}` : "ยกเลิกผู้รับผิดชอบ", actorId: ctx.userId });
     }
     if ("dueDate" in data || assigneeChanged) await pushRequestChange(ctx.orgId, cur.id, "");
+    await markSheetDirty(ctx.orgId);
     return NextResponse.json({ request: await enrichOne(ctx.orgId, cur.id) });
   } catch (e) {
     return serverError(e);
@@ -218,6 +221,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       await pushRequestChange(ctx.orgId, cur.id, `MarsOS: คำขอถูกลบโดย ${ctx.userName}`);
     }
     await prisma.blmRequest.delete({ where: { id: cur.id } });
+    await markSheetDirty(ctx.orgId);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return serverError(e);

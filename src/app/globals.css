@@ -360,14 +360,19 @@
   /* ── ตารางแบบรายงาน ── */
   .tbl { @apply w-full text-sm; }
   .tbl thead th {
-    @apply px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 whitespace-nowrap
-           border-b border-gray-200/80;
+    @apply px-4 py-3 text-left text-xs font-medium text-gray-500 whitespace-nowrap border-b border-gray-200/70;
   }
-  .tbl tbody td { @apply px-4 py-3 border-b border-gray-100 align-middle; }
+  .tbl tbody td { @apply px-4 py-3.5 border-b border-gray-100/80 align-middle; }
   .tbl tbody tr:last-child td { @apply border-b-0; }
   .tbl tbody tr { @apply transition-colors; }
-  .tbl tbody tr:hover { @apply bg-brand-mist/70; }
+  .tbl tbody tr:hover { @apply bg-brand-mist/60; }
   .tbl .num { @apply text-right tabular-nums; }
+  /* ตารางย่อ — ใช้กับตารางซ้อนในแถวที่กางออก หรือพื้นที่แคบ */
+  .tbl.tbl-sm { @apply text-xs; }
+  .tbl-sm thead th { @apply px-3 py-2 text-[11px]; }
+  .tbl-sm tbody td { @apply px-3 py-2; }
+/* ตารางย่อที่ซ้อนอยู่ในแถวสุดท้ายของตารางใหญ่ต้องยังมีเส้นคั่นแถวของตัวเอง */
+.tbl-sm tbody tr:not(:last-child) td { @apply border-b border-gray-100/80; }
 
   /* ── แถบวัดในแถว (meter) ── */
   .meter { @apply relative h-1.5 w-full rounded-full bg-gray-200/80 overflow-visible; }

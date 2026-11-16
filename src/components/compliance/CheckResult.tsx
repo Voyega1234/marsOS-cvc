@@ -81,12 +81,16 @@ export default function CheckResult({ check, userRole, onChange }: {
 }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const canReview = REVIEWER_ROLES.includes(userRole) && (check.status === "PENDING_REVIEW" || check.status === "CHANGES_REQUESTED");
+  // ผลที่ตัดสินไปแล้ว (อนุมัติ/ไม่อนุมัติ) ผู้ตรวจกด "เปลี่ยนสถานะ" เพื่อแก้ได้ — ทุกครั้งลง Audit Log
+  const [changing, setChanging] = useState(false);
+  const isReviewer = REVIEWER_ROLES.includes(userRole);
+  const decided = check.status === "APPROVED" || check.status === "REJECTED";
+  const canReview = isReviewer && (!decided || changing);
 
   const counted = check.findings.filter((f) => f.verdict !== "likely_ok");
   const byTier = (s: string) => counted.filter((f) => f.severity === s);
 
-  async function decide(decision: "APPROVED" | "CHANGES_REQUESTED" | "REJECTED") {
+  async function decide(decision: "APPROVED" | "CHANGES_REQUESTED" | "REJECTED" | "PENDING_REVIEW") {
     setBusy(true);
     const { ok, data } = await api<{ check: CheckFull }>(`/api/compliance/checks/${check.id}/review`, {
       method: "POST",
@@ -99,6 +103,7 @@ export default function CheckResult({ check, userRole, onChange }: {
     }
     toast.success("บันทึกผลแล้ว");
     setNote("");
+    setChanging(false);
     onChange(data.check);
   }
 
@@ -151,13 +156,25 @@ export default function CheckResult({ check, userRole, onChange }: {
             {check.status === "CHANGES_REQUESTED" && check.reviewNote ? (
               <p className="text-xs text-gray-500">ขอให้แก้ไขล่าสุดโดย {check.reviewedByName || "—"}: {check.reviewNote}</p>
             ) : null}
+            {decided ? (
+              <p className="text-xs text-gray-500">
+                สถานะตอนนี้: <span className="font-semibold">{CHECK_STATUS_LABEL[check.status]}</span>
+                {check.reviewedAt ? ` โดย ${check.reviewedByName || "—"} · ${fmtDateTime(check.reviewedAt)}` : ""} — เลือกสถานะใหม่ด้านล่าง
+              </p>
+            ) : null}
             <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="บันทึกเหตุผล (จำเป็นอย่างน้อย 10 ตัวอักษรเมื่ออนุมัติผลที่เสี่ยงสูง/วิกฤต)" />
             <div className="flex flex-wrap gap-2">
-              <Button disabled={busy} onClick={() => decide("APPROVED")}>
+              <Button disabled={busy || check.status === "APPROVED"} onClick={() => decide("APPROVED")}>
                 {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}อนุมัติ
               </Button>
               <Button disabled={busy} variant="outline" onClick={() => decide("CHANGES_REQUESTED")}>ขอให้แก้ไข</Button>
-              <Button disabled={busy} variant="destructive" onClick={() => decide("REJECTED")}>ไม่อนุมัติ</Button>
+              <Button disabled={busy || check.status === "REJECTED"} variant="destructive" onClick={() => decide("REJECTED")}>ไม่อนุมัติ</Button>
+              {decided ? (
+                <>
+                  <Button disabled={busy} variant="outline" onClick={() => decide("PENDING_REVIEW")}>กลับเป็นรอตรวจ</Button>
+                  <Button disabled={busy} variant="ghost" onClick={() => { setChanging(false); setNote(""); }}>ยกเลิก</Button>
+                </>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -165,6 +182,9 @@ export default function CheckResult({ check, userRole, onChange }: {
             <p>สถานะ: <span className="font-semibold">{CHECK_STATUS_LABEL[check.status]}</span></p>
             {check.reviewedAt ? <p>ผู้ตรวจ: {check.reviewedByName || "—"} · {fmtDateTime(check.reviewedAt)}</p> : <p className="text-gray-500">ยังไม่มีผู้ตรวจ</p>}
             {check.reviewNote ? <p>บันทึก: {check.reviewNote}</p> : null}
+            {isReviewer && decided ? (
+              <Button className="mt-2" size="sm" variant="outline" onClick={() => setChanging(true)}>เปลี่ยนสถานะ</Button>
+            ) : null}
           </div>
         )}
         <p className="mt-4 rounded-xl bg-brand-mist/60 px-3 py-2 text-xs text-gray-600">

@@ -5,10 +5,15 @@ import NextImage from "next/image";
 import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { safeNextPath } from "@/lib/safe-redirect";
-import { clientLoginEmail } from "@/lib/client-login";
+import {
+  classifyPasswordSignInError,
+  clientLoginEmail,
+  passwordSessionDeniedMessage,
+  passwordSignInMessage,
+} from "@/lib/client-login";
 
-/** ข้อความเดียวทุกกรณีของทางรหัสผ่าน — ไม่บอกว่าชื่อผู้ใช้มีอยู่หรือไม่ */
-const CLIENT_LOGIN_ERROR = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
+/** ชื่อผู้ใช้หรือรหัสผ่านผิด — ข้อความเดียว ไม่บอกว่าชื่อผู้ใช้มีอยู่หรือไม่ (สาเหตุอื่นมีข้อความของตัวเองใน client-login.ts) */
+const CLIENT_LOGIN_ERROR = passwordSignInMessage("credentials");
 
 // ทีม: เข้าด้วย Google เท่านั้น (@convertcake.com) — ต้องเป็น user ที่มีในระบบ + สถานะ ACTIVE
 // ลูกค้า: ชื่อผู้ใช้ + รหัสผ่านที่ทีมสร้างให้ในหน้า "จัดการ Users" (ตรวจซ้ำที่ /auth/password และ src/lib/auth.ts)
@@ -30,17 +35,31 @@ function LoginForm() {
     setError(null);
     setPwLoading(true);
     const supabase = createSupabaseBrowser();
+    // ข้อความแยกตามสาเหตุ — เดิมทุกกรณีขึ้นว่า "รหัสผ่านไม่ถูกต้อง" ทั้งที่บางกรณีลูกค้าพิมพ์ถูกแต่ระบบไม่ให้เข้า
+    // message = ข้อความของขั้นที่กำลังทำอยู่ ถ้าขั้นนั้น throw จะได้ข้อความที่ตรงกับขั้น
+    let message = passwordSignInMessage("unknown");
     try {
       const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-      if (err) throw err;
+      if (err) {
+        const kind = classifyPasswordSignInError(err);
+        message = passwordSignInMessage(kind);
+        if (kind !== "credentials") console.warn(`[login] password sign-in failed: ${kind} (${err.code ?? err.status ?? "no code"})`);
+        throw err;
+      }
       // ให้เซิร์ฟเวอร์ตรวจว่าเป็นบัญชีลูกค้าจริง + เริ่มนับเวลาใช้งาน ก่อนเข้าหน้าใด ๆ
+      message = passwordSessionDeniedMessage(0);
       const res = await fetch("/auth/password", { method: "POST" });
-      if (!res.ok) throw new Error("denied");
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
+        message = passwordSessionDeniedMessage(res.status, body?.code);
+        console.warn(`[login] /auth/password denied: ${res.status} ${typeof body?.code === "string" ? body.code : ""}`);
+        throw new Error("denied");
+      }
       window.location.assign(safeNextPath(searchParams.get("next")) ?? "/projects");
     } catch {
       await supabase.auth.signOut({ scope: "local" }).catch(() => {});
       setPassword("");
-      setError(CLIENT_LOGIN_ERROR);
+      setError(message);
       setPwLoading(false);
     }
   }

@@ -175,6 +175,11 @@ export async function getIndexingServiceAuth() {
   return getGoogleServiceOnlyAuth(["https://www.googleapis.com/auth/indexing"]);
 }
 
+/** ตัวตน service เท่านั้น สำหรับเขียน Google Sheet ที่ถูกแชร์ให้ service email (Backlink Management) */
+export async function getSheetsServiceAuth() {
+  return getGoogleServiceOnlyAuth(["https://www.googleapis.com/auth/spreadsheets"]);
+}
+
 // ดึง access token เป็น string ไม่ว่า auth จะเป็นแบบไหน (OAuth2 user token / GoogleAuth)
 export async function getGoogleAccessToken(
   auth: Awaited<ReturnType<typeof getGoogleAuth>>

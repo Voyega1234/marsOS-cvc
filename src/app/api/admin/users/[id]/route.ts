@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { clientPasswordProblem } from "@/lib/client-login";
 import { deleteClientLoginAccount, isClientLoginEmail, syncClientLoginAccount } from "@/lib/supabase/admin";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -19,6 +20,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json();
 
   if (body.password) {
+    // บัญชีลูกค้าที่เข้าด้วยรหัสผ่าน: รหัสสั้นหรือยาวเกินที่ระบบ login รับ — ปฏิเสธก่อนบันทึก ไม่ให้รหัสใน MarsOS กับระบบ login ต่างกัน
+    if (scoped.role === "CLIENT" && isClientLoginEmail(scoped.email)) {
+      const passwordProblem = clientPasswordProblem(body.password);
+      if (passwordProblem) return NextResponse.json({ error: passwordProblem }, { status: 400 });
+    }
     const hashed = await bcrypt.hash(body.password, 12);
     await prisma.user.update({ where: { id: params.id }, data: { password: hashed, passwordPlain: body.password } });
     // ลูกค้า login ด้วยรหัสผ่านผ่าน Supabase Auth — ตั้งรหัสเดียวกันที่นั่นด้วย (สร้างบัญชีให้ถ้ายังไม่มี)

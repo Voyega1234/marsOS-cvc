@@ -201,28 +201,28 @@ export default function RequestIndexTable({
       )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="tbl">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500">
-              <th className="px-3 py-2.5 w-8"><input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={selectable.length === 0} /></th>
-              <th className="text-left px-3 py-2.5">บทความ / URL</th>
-              <th className="text-left px-3 py-2.5">Request Index ล่าสุด</th>
-              <th className="text-right px-3 py-2.5">Clicks</th>
-              <th className="text-right px-3 py-2.5">Impressions</th>
-              <th className="text-right px-3 py-2.5">CTR</th>
-              <th className="text-right px-3 py-2.5">Position</th>
-              <th className="px-3 py-2.5"></th>
+            <tr>
+              <th className="w-8"><input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={selectable.length === 0} /></th>
+              <th>บทความ / URL</th>
+              <th>Request Index ล่าสุด</th>
+              <th className="num">Clicks</th>
+              <th className="num">Impressions</th>
+              <th className="num">CTR</th>
+              <th className="num">Position</th>
+              <th></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody>
             {list.map(row => {
               const ir = records[row.key];
               const p = perf[row.key];
               const url = row.url || ir?.url || "";
               return (
-                <tr key={row.key} className="hover:bg-gray-50/60 align-top">
-                  <td className="px-3 py-3"><input type="checkbox" checked={selected.has(row.key)} onChange={() => toggle(row.key)} disabled={!row.canRequest} /></td>
-                  <td className="px-3 py-3 max-w-sm">
+                <tr key={row.key} className="align-top">
+                  <td><input type="checkbox" checked={selected.has(row.key)} onChange={() => toggle(row.key)} disabled={!row.canRequest} /></td>
+                  <td className="max-w-sm">
                     <p className="font-medium text-brand-navy truncate">{row.title}</p>
                     {row.sub && <p className="text-[11px] text-gray-500">{row.sub}</p>}
                     {url ? (
@@ -231,7 +231,7 @@ export default function RequestIndexTable({
                       </a>
                     ) : <p className="text-[11px] text-gray-400">ยังไม่มีลิงก์</p>}
                   </td>
-                  <td className="px-3 py-3 text-xs">
+                  <td className="text-xs">
                     {!ir ? <span className="text-gray-400">ยังไม่เคยส่ง</span>
                       : ir.ok ? <span className="text-emerald-600">ส่งแล้ว · {fmtDateTime(ir.at)}</span>
                       : (
@@ -243,15 +243,15 @@ export default function RequestIndexTable({
                   </td>
                   {p ? (
                     <>
-                      <td className="px-3 py-3 text-right tabular-nums">{fmtNum(p.clicks)}<Delta cur={p.clicks} prev={p.prevClicks} /></td>
-                      <td className="px-3 py-3 text-right tabular-nums">{fmtNum(p.impressions)}<Delta cur={p.impressions} prev={p.prevImpressions} /></td>
-                      <td className="px-3 py-3 text-right tabular-nums">{fmtCtr(p.ctr)}</td>
-                      <td className="px-3 py-3 text-right tabular-nums">{fmtPos(p.position)}{p.position > 0 && p.prevPosition > 0 && <Delta cur={p.position} prev={p.prevPosition} invert />}</td>
+                      <td className="num">{fmtNum(p.clicks)}<Delta cur={p.clicks} prev={p.prevClicks} /></td>
+                      <td className="num">{fmtNum(p.impressions)}<Delta cur={p.impressions} prev={p.prevImpressions} /></td>
+                      <td className="num">{fmtCtr(p.ctr)}</td>
+                      <td className="num">{fmtPos(p.position)}{p.position > 0 && p.prevPosition > 0 && <Delta cur={p.position} prev={p.prevPosition} invert />}</td>
                     </>
                   ) : (
-                    <td colSpan={4} className="px-3 py-3 text-right text-xs text-gray-300">{perfLoading ? "กำลังโหลด…" : "—"}</td>
+                    <td colSpan={4} className="num text-xs text-gray-300">{perfLoading ? "กำลังโหลด…" : "—"}</td>
                   )}
-                  <td className="px-3 py-3 text-right">
+                  <td className="num">
                     {row.canRequest ? (
                       <Button size="sm" variant="outline" onClick={() => requestOne(row.key)} disabled={!!busy[row.key] || bulkRunning}>
                         {busy[row.key] ? <Loader2 size={11} className="mr-1 animate-spin" /> : <SearchCheck size={11} className="mr-1" />}
@@ -263,7 +263,7 @@ export default function RequestIndexTable({
               );
             })}
             {list.length === 0 && (
-              <tr><td colSpan={8} className="px-3 py-8 text-center text-xs text-gray-400">ไม่มีรายการในตัวกรองนี้</td></tr>
+              <tr><td colSpan={8} className="py-8 text-center text-xs text-gray-400">ไม่มีรายการในตัวกรองนี้</td></tr>
             )}
           </tbody>
         </table>

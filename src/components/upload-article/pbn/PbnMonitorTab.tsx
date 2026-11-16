@@ -353,16 +353,16 @@ function ArticlesSubTab({ rows }: { rows: UploadedArticleReportRow[] }) {
       emptyText="ยังไม่มีบทความที่ push ขึ้นเว็บนี้"
       renderExpanded={(r) => (
         r.topQueries.length === 0 ? <p className="text-xs text-gray-400">ไม่มีคำค้นหาในช่วงนี้</p> : (
-          <table className="w-full text-[11px]">
-            <thead><tr className="text-gray-400"><th className="text-left py-1">คำค้นหา</th><th className="text-right py-1">คลิก</th><th className="text-right py-1">การแสดงผล</th><th className="text-right py-1">CTR</th><th className="text-right py-1">อันดับ</th></tr></thead>
+          <table className="tbl tbl-sm">
+            <thead><tr><th>คำค้นหา</th><th className="num">คลิก</th><th className="num">การแสดงผล</th><th className="num">CTR</th><th className="num">อันดับ</th></tr></thead>
             <tbody>
               {r.topQueries.map((q, i) => (
-                <tr key={i} className="border-t border-gray-100">
-                  <td className="py-1">{q.query}</td>
-                  <td className="text-right py-1">{fmtNum(q.clicks)}</td>
-                  <td className="text-right py-1">{fmtNum(q.impressions)}</td>
-                  <td className="text-right py-1">{fmtCtr(q.ctr)}</td>
-                  <td className="text-right py-1">{fmtPos(q.position)}</td>
+                <tr key={i}>
+                  <td>{q.query}</td>
+                  <td className="num">{fmtNum(q.clicks)}</td>
+                  <td className="num">{fmtNum(q.impressions)}</td>
+                  <td className="num">{fmtCtr(q.ctr)}</td>
+                  <td className="num">{fmtPos(q.position)}</td>
                 </tr>
               ))}
             </tbody>
@@ -419,16 +419,16 @@ function CannibalSubTab({ rows }: { rows: CannibalRow[] }) {
       csvFilename="gsc-cannibalization.csv"
       emptyText="ไม่พบคำค้นหาที่มีหลายหน้าแข่งกันเอง"
       renderExpanded={(r) => (
-        <table className="w-full text-[11px]">
-          <thead><tr className="text-gray-400"><th className="text-left py-1">หน้าเว็บ</th><th className="text-right py-1">สัดส่วนการแสดงผล</th><th className="text-right py-1">คลิก</th><th className="text-right py-1">การแสดงผล</th><th className="text-right py-1">อันดับ</th></tr></thead>
+        <table className="tbl tbl-sm">
+          <thead><tr><th>หน้าเว็บ</th><th className="num">สัดส่วนการแสดงผล</th><th className="num">คลิก</th><th className="num">การแสดงผล</th><th className="num">อันดับ</th></tr></thead>
           <tbody>
             {r.pages.map((p, i) => (
-              <tr key={i} className="border-t border-gray-100">
-                <td className="py-1"><a href={p.page} target="_blank" rel="noreferrer" className="text-brand-blue font-mono hover:underline break-all">{p.page}</a></td>
-                <td className="text-right py-1">{(p.share * 100).toFixed(1)}%</td>
-                <td className="text-right py-1">{fmtNum(p.clicks)}</td>
-                <td className="text-right py-1">{fmtNum(p.impressions)}</td>
-                <td className="text-right py-1">{fmtPos(p.position)}</td>
+              <tr key={i}>
+                <td><a href={p.page} target="_blank" rel="noreferrer" className="text-brand-blue font-mono hover:underline break-all">{p.page}</a></td>
+                <td className="num">{(p.share * 100).toFixed(1)}%</td>
+                <td className="num">{fmtNum(p.clicks)}</td>
+                <td className="num">{fmtNum(p.impressions)}</td>
+                <td className="num">{fmtPos(p.position)}</td>
               </tr>
             ))}
           </tbody>

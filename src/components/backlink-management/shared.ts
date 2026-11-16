@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { VendorDetail } from "@/lib/backlink-management/vendor-detail";
 
-export interface MetaProject { id: string; name: string; clientName: string }
+export interface MetaProject { id: string; name: string; clientName: string; manual?: boolean }
 export interface MetaUser { id: string; name: string; email: string; role: string }
 export interface Meta {
   projects: MetaProject[];
@@ -46,7 +47,8 @@ export interface BlmRow {
   createdAt: string;
 }
 
-export interface Vendor {
+/** แถวคลังเว็บจาก GET /vendors = ฟิลด์เดิมของ BlmVendorSite + ข้อมูลเสริม (ว่าง/null เมื่อยังไม่มี) */
+export interface Vendor extends VendorDetail {
   id: string; domain: string; siteUrl: string; category: string; price: number; domainRating: number | null;
   traffic: number | null; linkType: string; contactName: string; contactChannel: string; notes: string; status: string;
 }

@@ -142,6 +142,8 @@ export function GscTrendPanel({ current, previous, metric, onMetricChange }: {
   onMetricChange: (m: "clicks" | "impressions") => void;
 }) {
   const name = metric === "clicks" ? "คลิก" : "การแสดงผล";
+  // ยอดรวมของเส้นที่กำลังแสดง (ช่วงปัจจุบัน) — ตัวเลขชุดเดียวกับที่วาดในกราฟ
+  const total = current.reduce((sum, d) => sum + d.value, 0);
   return (
     <Panel
       title="แนวโน้มรายวัน"
@@ -155,6 +157,12 @@ export function GscTrendPanel({ current, previous, metric, onMetricChange }: {
         />
       }
     >
+      {current.length > 0 && (
+        <div className="mb-3">
+          <p className="text-2xl font-semibold tabular-nums leading-tight text-brand-navy">{fmtNumK(total)}</p>
+          <p className="text-xs text-gray-500">{name}รวมช่วงปัจจุบัน · ชี้หรือแตะบนกราฟเพื่อดูค่าของแต่ละวัน คลิกเพื่อค้างค่าไว้</p>
+        </div>
+      )}
       <AreaChart
         height={260}
         showLegend

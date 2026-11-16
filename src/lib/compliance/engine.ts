@@ -8,12 +8,51 @@ const NAMED_ENTITIES: Record<string, string> = {
   nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'",
 }
 
+/**
+ * Replace every `<tag ...>...</tag>` block with one space.
+ * Same result as `/<tag[\s\S]*?<\/tag\s*>/gi`, but one pass: that regex rescans the rest of the
+ * document from every opening tag that has no closing tag, which is quadratic on hostile HTML.
+ */
+function stripBlocks(s: string, tag: 'script' | 'style'): string {
+  const open = new RegExp(`<${tag}`, 'gi')
+  const close = new RegExp(`</${tag}\\s*>`, 'gi')
+  let out = ''
+  let pos = 0
+  for (;;) {
+    open.lastIndex = pos
+    const start = open.exec(s)
+    if (!start) break
+    close.lastIndex = start.index + tag.length + 1
+    const end = close.exec(s)
+    // No closing tag after this opening tag means none after any later one either
+    if (!end) break
+    out += s.slice(pos, start.index) + ' '
+    pos = close.lastIndex
+  }
+  return pos === 0 ? s : out + s.slice(pos)
+}
+
+/** Remove every `<...>` tag. Same result as `/<[^>]*>/g`, in one pass (see stripBlocks). */
+function stripTags(s: string): string {
+  let out = ''
+  let pos = 0
+  for (;;) {
+    const start = s.indexOf('<', pos)
+    if (start < 0) break
+    const end = s.indexOf('>', start + 1)
+    if (end < 0) break
+    out += s.slice(pos, start)
+    pos = end + 1
+  }
+  return pos === 0 ? s : out + s.slice(pos)
+}
+
 export function htmlToText(html: string): string {
   let s = String(html ?? '')
-  s = s.replace(/<script[\s\S]*?<\/script\s*>/gi, ' ').replace(/<style[\s\S]*?<\/style\s*>/gi, ' ')
+  s = stripBlocks(stripBlocks(s, 'script'), 'style')
   s = s.replace(/<br\s*\/?>/gi, '\n')
   s = s.replace(/<\/(p|div|h[1-6]|li|ul|ol|tr|table|section|article|blockquote|header|footer|figure|figcaption|details|summary)\s*>/gi, '\n')
-  s = s.replace(/<[^>]*>/g, '')
+  s = stripTags(s)
   s = s.replace(/&#(\d+);/g, (_m, n: string) => {
     const code = Number(n)
     try { return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : ' ' } catch { return ' ' }

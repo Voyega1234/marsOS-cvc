@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { LINK_TYPES } from "@/lib/backlink-management/types";
+import { PRICE_TYPES } from "@/lib/backlink-management/vendor-detail";
 import { api, dateInput, selectCls, type BlmRow, type Meta, type Vendor } from "./shared";
 
 /** สร้าง / แก้ไขคำขอ (edit: ส่งแถวเดิมมา) */
@@ -42,6 +43,15 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, defaultP
       quotedPrice: "", budgetPeriod: defaultPeriod, assigneeId: "", dueDate: "", notes: "",
     });
   }, [open, edit, defaultProjectId, defaultPeriod]);
+
+  // คลังเว็บ → ฟอร์มคำขอ: จัดกลุ่มตามหมวดเดียวกับหน้าคลังเว็บ และดึงราคาแยกประเภทของเว็บที่เลือกมาให้กดใช้
+  const vendorGroups = useMemo(() => {
+    const m = new Map<string, Vendor[]>();
+    for (const v of vendors) { const k = v.category || "ไม่ระบุหมวด"; m.set(k, [...(m.get(k) ?? []), v]); }
+    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0], "th"));
+  }, [vendors]);
+  const picked = vendors.find((x) => x.id === f.vendorSiteId) ?? null;
+  const pickedPrices = picked ? PRICE_TYPES.filter((p) => typeof picked[p.key] === "number") : [];
 
   function pickVendor(id: string) {
     set("vendorSiteId", id);
@@ -98,15 +108,38 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, defaultP
             <Label>โปรเจกต์</Label>
             <select className={selectCls} value={f.projectId} disabled={!!edit} onChange={(e) => set("projectId", e.target.value)}>
               <option value="">— เลือกโปรเจกต์ —</option>
-              {meta?.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.clientName ? ` · ${p.clientName}` : ""}</option>)}
+              {meta?.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.manual ? " (เพิ่มเอง)" : ""}{p.clientName ? ` · ${p.clientName}` : ""}</option>)}
             </select>
           </div>
           <div>
             <Label>เว็บที่จะฝากลิงก์ (จากคลังเว็บ)</Label>
             <select className={selectCls} value={f.vendorSiteId} disabled={locked} onChange={(e) => pickVendor(e.target.value)}>
               <option value="">— ยังไม่เลือกเว็บ —</option>
-              {vendors.map((v) => <option key={v.id} value={v.id}>{v.domain} · {v.price.toLocaleString("th-TH")} บาท</option>)}
+              {vendorGroups.map(([cat, list]) => (
+                <optgroup key={cat} label={`${cat} (${list.length})`}>
+                  {list.map((v) => <option key={v.id} value={v.id}>{v.domain} · {v.price.toLocaleString("th-TH")} บาท</option>)}
+                </optgroup>
+              ))}
             </select>
+            {picked && (pickedPrices.length > 0 || picked.contactChannel || picked.expiration) ? (
+              <div className="mt-2 space-y-1.5 rounded-xl bg-brand-mist/40 p-2.5 text-xs text-gray-700">
+                {pickedPrices.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-gray-500">ราคาในคลังเว็บ:</span>
+                    {pickedPrices.map((p) => (
+                      <button key={p.key} type="button" disabled={locked} onClick={() => set("quotedPrice", String(picked[p.key]))}
+                        className="rounded-full border border-gray-200 bg-white px-2 py-0.5 hover:bg-brand-mist disabled:opacity-50"
+                        title="กดเพื่อใช้ราคานี้">
+                        {p.label} {(picked[p.key] as number).toLocaleString("th-TH")}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {picked.priceNote ? <div className="text-gray-500">หมายเหตุราคา: {picked.priceNote}</div> : null}
+                {picked.expiration ? <div>อายุลิงก์: {picked.expiration}</div> : null}
+                {picked.contactChannel ? <div className="line-clamp-3 whitespace-pre-line">ติดต่อ: {picked.contactName ? `${picked.contactName} · ` : ""}{picked.contactChannel}</div> : null}
+              </div>
+            ) : null}
           </div>
           <div>
             <Label>URL หน้าลูกค้าที่ลิงก์ต้องชี้มา</Label>

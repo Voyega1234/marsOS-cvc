@@ -198,6 +198,7 @@ export default function RulesTab({ industries, userRole, onChanged }: {
           defaultIndustry={industry}
           onClose={() => setDialog({ open: false, rule: null })}
           onSaved={() => { setDialog({ open: false, rule: null }); refresh(); }}
+          onCreated={refresh}
         />
       )}
       {updating && (

@@ -157,3 +157,67 @@ export async function safeFetchText(url: string): Promise<string | null> {
   const r = await safeFetchHtml(url)
   return r.ok ? r.html : null
 }
+
+export interface SafeDocumentResult {
+  ok: boolean
+  status: number
+  bytes: Uint8Array
+  contentType: string
+  finalUrl: string
+  blocked: boolean
+  error: string | null
+}
+
+const EMPTY_DOC: SafeDocumentResult = { ok: false, status: 0, bytes: new Uint8Array(0), contentType: '', finalUrl: '', blocked: false, error: null }
+
+/**
+ * ดึงไฟล์เอกสาร (PDF / HTML / text) เป็นไบต์ดิบ ผ่าน SSRF guard ทุก hop
+ * - เพดานเวลาเดียวครอบทุก hop และการอ่าน body · เกิน maxBytes = error 'too large'
+ * - ไม่กรองชนิดไฟล์ที่นี่ ให้ผู้เรียกตัดสินเอง
+ */
+export async function safeFetchDocument(url: string, maxBytes: number, timeoutMs = 25_000): Promise<SafeDocumentResult> {
+  try {
+    let current = url
+    const signal = AbortSignal.timeout(timeoutMs)
+    // เริ่มที่ https แล้ว redirect ห้ามถอยไป http · พอร์ตต้อง 80/443 ทุก hop
+    const startUrl = new URL(url)
+    if (startUrl.protocol !== 'http:' && startUrl.protocol !== 'https:') return { ...EMPTY_DOC, finalUrl: current, blocked: true, error: 'blocked: protocol' }
+    const startHttps = startUrl.protocol === 'https:'
+    for (let hop = 0; hop <= MAX_HOPS; hop++) {
+      const cu = new URL(current)
+      if (cu.protocol !== 'http:' && cu.protocol !== 'https:') return { ...EMPTY_DOC, finalUrl: current, blocked: true, error: 'blocked: protocol' }
+      if (startHttps && cu.protocol !== 'https:') return { ...EMPTY_DOC, finalUrl: current, blocked: true, error: 'blocked: redirect to http' }
+      if (!portAllowed(cu, startHttps)) return { ...EMPTY_DOC, finalUrl: current, blocked: true, error: 'blocked: port not allowed' }
+      const guard = await assertCrawlable(current)
+      if (!guard.ok) return { ...EMPTY_DOC, finalUrl: current, blocked: true, error: `blocked: ${guard.reason}` }
+      const res = await fetch(current, { cache: 'no-store', redirect: 'manual', signal, headers: BROWSER_HEADERS })
+      if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        await res.body?.cancel().catch(() => {})
+        current = new URL(res.headers.get('location') as string, current).toString()
+        continue
+      }
+      const status = res.status
+      if (status === 401 || status === 403 || status === 429) {
+        await res.body?.cancel().catch(() => {})
+        return { ...EMPTY_DOC, status, finalUrl: current, blocked: true, error: `HTTP ${status}` }
+      }
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {})
+        return { ...EMPTY_DOC, status, finalUrl: current, error: `HTTP ${status}` }
+      }
+      const declared = Number(res.headers.get('content-length'))
+      if (Number.isFinite(declared) && declared > maxBytes) {
+        await res.body?.cancel().catch(() => {})
+        return { ...EMPTY_DOC, status, finalUrl: current, error: 'too large' }
+      }
+      const contentType = res.headers.get('content-type') ?? ''
+      const bytes = await readCapped(res, maxBytes + 1)
+      if (bytes.byteLength > maxBytes) return { ...EMPTY_DOC, status, finalUrl: current, error: 'too large' }
+      return { ok: true, status, bytes, contentType, finalUrl: current, blocked: false, error: null }
+    }
+    return { ...EMPTY_DOC, finalUrl: current, error: 'too many redirects' }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ...EMPTY_DOC, finalUrl: url, error: /timeout|abort/i.test(msg) ? 'timeout' : msg.slice(0, 120) }
+  }
+}

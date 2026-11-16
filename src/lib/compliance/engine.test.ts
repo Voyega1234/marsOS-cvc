@@ -31,6 +31,19 @@ function finding(over: Partial<Finding>): Finding {
   assert(!t.includes('a{}') && !t.includes('x()'), 'htmlToText drops script/style')
   assert(t.includes('สวัสดี &<ครับ'), 'htmlToText decodes entities')
   assert(t.includes('\n') && t.includes("A'"), 'htmlToText block newlines + numeric entities')
+
+  // Malformed HTML keeps the behaviour of the regexes the one-pass version replaced
+  assert(htmlToText('a<SCRIPT type="x">1</ScRiPt >b<style>2</STYLE\n>c') === 'a b c', 'htmlToText script/style blocks are case-insensitive')
+  assert(htmlToText('a<script>1</script>b<script>2') === 'a b2', 'htmlToText unclosed script: only the tag is dropped')
+  assert(htmlToText('a<b>c</b> d < e') === 'ac d < e', 'htmlToText lone "<" is kept')
+  assert(htmlToText('x<a href="1>2">y') === 'x2">y', 'htmlToText tag ends at the first ">"')
+
+  // Hostile pages (unclosed tags repeated) must not take quadratic time
+  const started = Date.now()
+  htmlToText('<script'.repeat(300_000))
+  htmlToText('<style '.repeat(300_000))
+  htmlToText('<'.repeat(2_000_000))
+  assert(Date.now() - started < 5000, 'htmlToText stays linear on repeated unclosed tags')
 }
 
 // parseTerms

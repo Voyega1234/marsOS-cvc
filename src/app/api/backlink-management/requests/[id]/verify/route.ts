@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { markSheetDirty } from "@/lib/backlink-management/sheet-sync";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, isCtx, serverError } from "@/lib/backlink-management/server";
 import { verifyRequest } from "@/lib/backlink-management/verify-server";
@@ -15,6 +16,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (!row) return NextResponse.json({ error: "ไม่พบคำขอ" }, { status: 404 });
     if (!row.liveUrl) return NextResponse.json({ error: "ยังไม่มี URL ที่ลิงก์อยู่ กรุณาระบุก่อนตรวจ" }, { status: 400 });
     await verifyRequest(ctx.orgId, ctx.userId, row);
+    await markSheetDirty(ctx.orgId);
     return NextResponse.json({ request: await enrichOne(ctx.orgId, row.id) });
   } catch (e) {
     return serverError(e);
