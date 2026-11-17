@@ -58,6 +58,8 @@ const ALLOWED_EMAILS = new Set([
  */
 const ADMIN_EMAILS = new Set([
   "apps@convertcake.com",
+  "top@convertcake.com",
+  "karn@convertcake.com",
 ]);
 
 function toSession(user: {
