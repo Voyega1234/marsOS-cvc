@@ -11,11 +11,12 @@ import { Button } from "@/components/ui/button";
 import { AreaChart, Chip, EmptyState, Gauge, MeterBar, Panel, Segmented } from "@/components/ds";
 import type { AnswerFeedDTO } from "@/lib/brand-radar/types";
 import { SENTIMENT_TONE_LABEL } from "@/lib/brand-radar/types";
-import { ANSWER_ZONE_CAPTION, fmtDate, fmtNum, fmtZoneBrief, providerLabelFor, type TabId, type TabProps } from "./shared";
+import { ANSWER_ZONE_CAPTION, fmtDate, fmtNum, fmtZoneBrief, providerLabelFor, zoneMethodNote, type TabId, type TabProps } from "./shared";
 import { ProviderLogo } from "./ProviderLogo";
 import { pct } from "./ReportCards";
 import { TONE_CHIP, ToneBar, dominantTone } from "./InsightSections";
 import { BrandLogo } from "./BrandLogo";
+import type { ViewerTarget } from "./ResponseViewer";
 
 type Dto = AnswerFeedDTO;
 type Filters = TabProps["filters"];
@@ -214,7 +215,7 @@ export function HeroRow({ dto, filters, clientView }: { dto: Dto; filters: Filte
 
 // ── 3. Bottom row ────────────────────────────────────────────────────────────
 
-function SentimentCard({ dto, clientView }: { dto: Dto; clientView?: boolean }) {
+function SentimentCard({ dto, clientView, onOpenAnswer }: { dto: Dto; clientView?: boolean; onOpenAnswer?: (target: ViewerTarget) => void }) {
   const t = dto.totals;
   const ms = t?.mentionStyle;
   const insight = dto.insight;
@@ -239,7 +240,7 @@ function SentimentCard({ dto, clientView }: { dto: Dto; clientView?: boolean }) 
       ) : analyzed === 0 ? (
         <p className="text-sm text-gray-500">ยังไม่มีคำตอบที่วิเคราะห์แล้ว</p>
       ) : (
-        <div><ToneBar tones={brandEntity?.tones} total={brandEntity?.answers ?? 0} /></div>
+        <div><ToneBar tones={brandEntity?.tones} total={brandEntity?.answers ?? 0} examples={brandEntity?.toneAnswers ?? {}} onOpenAnswer={onOpenAnswer} clientView={clientView} /></div>
       )}
       <div className="mt-auto pt-3">
         <div className="grid grid-cols-2 gap-2">
@@ -249,6 +250,7 @@ function SentimentCard({ dto, clientView }: { dto: Dto; clientView?: boolean }) 
         <div className="mt-2 rounded-2xl border border-gray-100 bg-white/70 px-3 py-2">
           <div className="text-[11px] leading-snug text-gray-500">{ANSWER_ZONE_CAPTION}</div>
           <div className="mt-0.5 break-words text-sm font-semibold tabular-nums text-brand-navy">{fmtZoneBrief(ms?.zones) ?? "ยังไม่มีข้อมูล"}</div>
+          {zoneMethodNote(ms?.zones) ? <div className="mt-1 break-words text-[11px] leading-snug text-gray-500">{zoneMethodNote(ms?.zones)}</div> : null}
         </div>
       </div>
     </Panel>
@@ -334,10 +336,10 @@ function HistoryCard({ dto }: { dto: Dto }) {
   );
 }
 
-export function BottomRow({ dto, clientView, actions }: { dto: Dto; clientView?: boolean; actions?: ReactNode }) {
+export function BottomRow({ dto, clientView, actions, onOpenAnswer }: { dto: Dto; clientView?: boolean; actions?: ReactNode; onOpenAnswer?: (target: ViewerTarget) => void }) {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <div className="min-w-0"><SentimentCard dto={dto} clientView={clientView} /></div>
+      <div className="min-w-0"><SentimentCard dto={dto} clientView={clientView} onOpenAnswer={onOpenAnswer} /></div>
       <div className="min-w-0"><MentionStyleCard dto={dto} /></div>
       <div className="min-w-0 md:col-span-2 xl:col-span-1"><HistoryCard dto={dto} /></div>
       {actions ? <div className="min-w-0 md:col-span-2 xl:col-span-3">{actions}</div> : null}

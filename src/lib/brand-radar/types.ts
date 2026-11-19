@@ -253,7 +253,7 @@ export interface ProfileDTO {
   lastRunAt: string | null
   monthlyBudgetUsd: number | null
   maxPromptsPerRun: number
-  /** repeat asks per prompt per LLM provider; one of SAMPLE_OPTIONS */
+  /** repeat asks per prompt per LLM provider; a whole number from SAMPLES_MIN to SAMPLES_MAX */
   samplesPerPrompt: number
   updatedAt: string
 }
@@ -640,6 +640,25 @@ export const SENTIMENT_FACTOR_LABEL: Record<SentimentFactor, string> = {
   other: 'อื่น ๆ',
 }
 
+/** What an answer has to talk about to be counted under a factor, in one short line for the report */
+export const SENTIMENT_FACTOR_HINT: Record<SentimentFactor, string> = {
+  price: 'ราคา ค่าใช้จ่าย หรือความคุ้มค่า',
+  quality: 'คุณภาพของสินค้า บริการ หรือผลงาน',
+  service: 'การดูแลลูกค้าและการให้บริการ',
+  trust: 'ชื่อเสียง ประสบการณ์ ความโปร่งใส หรือความน่าไว้วางใจ',
+  expertise: 'ความรู้ ความชำนาญ หรือความเชี่ยวชาญเฉพาะด้าน',
+  reviews: 'รีวิว คะแนน หรือเสียงจากผู้ใช้จริง',
+  convenience: 'ความสะดวก ใช้ง่าย เข้าถึงง่าย',
+  variety: 'ตัวเลือกหรือบริการที่หลากหลาย',
+  innovation: 'เทคโนโลยี เครื่องมือ หรือสิ่งใหม่',
+  safety: 'ความปลอดภัย ใบรับรอง หรือมาตรฐาน',
+  speed: 'ความเร็วในการทำงานหรือการส่งมอบ',
+  after_sales: 'การดูแลหลังซื้อ การรับประกัน หรือการซัพพอร์ต',
+  promotion: 'ส่วนลด โปรโมชัน หรือข้อเสนอพิเศษ',
+  location: 'ที่ตั้ง สาขา หรือพื้นที่ให้บริการ',
+  other: 'เรื่องอื่นที่ไม่เข้ากลุ่มข้างต้น',
+}
+
 export type FactorPolarity = 'positive' | 'negative' | 'neutral'
 
 /** How one answer talks about one tracked entity */
@@ -680,6 +699,34 @@ export interface InsightQuote {
   polarity?: FactorPolarity
 }
 
+/** One answer counted under a factor of "what the AI weighs". `prompt` is untrusted text (user input). */
+export interface FactorExample {
+  responseId: string
+  promptId: string
+  runId?: string
+  provider?: ProviderKey
+  /** when the answer was collected (ms since epoch); 0 = unknown */
+  at: number
+  /** the question that was asked */
+  prompt: string
+}
+
+/** One analysed answer behind a tone count. Every string is untrusted text (AI output / user input). */
+export interface ToneExample {
+  responseId: string
+  promptId: string
+  runId?: string
+  provider?: ProviderKey
+  /** when the answer was collected (ms since epoch); 0 = unknown */
+  at: number
+  /** the question that was asked */
+  prompt: string
+  /** one sentence from the analysis on how the answer talks about the entity */
+  summary: string
+  /** what the answer counts for / against the entity, with the words copied from the answer when stored */
+  points: Array<{ code: SentimentFactor; label: string; polarity: FactorPolarity; quote?: string }>
+}
+
 export interface InsightEntityDTO {
   entityType: 'brand' | 'competitor'
   key: string
@@ -696,6 +743,8 @@ export interface InsightEntityDTO {
   summaries: string[]
   /** the short labels the AI gives the entity, most answers first (capped) */
   descriptors: Array<{ text: string; answers: number; quotes?: InsightQuote[] }>
+  /** the newest answers behind each tone count (capped); absent for an entity whose details are not shown */
+  toneAnswers?: Partial<Record<SentimentTone, ToneExample[]>>
 }
 
 /** AI search queries that are about the same thing, counted together */
@@ -719,7 +768,7 @@ export interface AnswerInsightDTO {
   /** answers with a sentiment analysis */
   analyzed: number
   /** what the AI weighs across all analysed answers, most answers first; rate = answers / analyzed */
-  factors: Array<{ code: SentimentFactor; label: string; answers: number; rate: number | null }>
+  factors: Array<{ code: SentimentFactor; label: string; answers: number; rate: number | null; /** the newest answers counted here (capped) */ examples?: FactorExample[] }>
   /** tone over every entity judgement (brand + competitors) */
   overallTones: Record<SentimentTone, number>
   /** brand first, then competitors by answers */
@@ -1211,8 +1260,21 @@ export const DEFAULT_SAMPLES = 10
 /** Below this many responses a percentage is shown with a "small sample" warning */
 export const SMALL_SAMPLE_N = 10
 
+/** A count typed by hand may be any whole number in this range; SAMPLE_OPTIONS are only the listed shortcuts. */
+export const SAMPLES_MIN = 1
+export const SAMPLES_MAX = 50
+
 export function isSampleOption(v: unknown): v is number {
   return typeof v === 'number' && (SAMPLE_OPTIONS as readonly number[]).includes(v)
+}
+
+export function isValidSamples(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= SAMPLES_MIN && v <= SAMPLES_MAX
+}
+
+/** Worst-case 95% margin of a share measured from n asks, in whole percent (10 asks = 31) */
+export function sampleMarginPct(n: number): number {
+  return n > 0 ? Math.round(98 / Math.sqrt(n)) : 100
 }
 
 /** Observed SERP providers (Google AI Mode / AI Overview) return the same page for repeat asks
@@ -1223,9 +1285,9 @@ export function samplesFor(provider: ProviderKey, profileSamples: number): numbe
   return normalizeSamples(profileSamples)
 }
 
-/** A stored value outside SAMPLE_OPTIONS (edited by hand) falls back to the default */
+/** A stored value outside the allowed range falls back to the default */
 export function normalizeSamples(n: number): number {
-  return isSampleOption(n) ? n : DEFAULT_SAMPLES
+  return isValidSamples(n) ? n : DEFAULT_SAMPLES
 }
 
 export function isProviderKey(v: unknown): v is ProviderKey {

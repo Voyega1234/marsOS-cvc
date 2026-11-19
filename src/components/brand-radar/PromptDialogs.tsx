@@ -17,11 +17,14 @@ import {
   type CitedDomainRow, type EntityShare, type JourneyStage, type Priority, type PromptCandidate,
   type PromptDTO, type PromptGenerateRes, type PromptInput, type PromptIntent, type PromptSaveRes, type PromptSource, type PromptStatus,
 } from "@/lib/brand-radar/types";
+import { detectPromptLanguage } from "@/lib/brand-radar/language";
 import { ColumnHelp } from "./ColumnHelp";
 import { ProviderLogo } from "./ProviderLogo";
 import { ANSWER_ZONE_LEGEND, api, clearRadarCache, domainHref, fmtNum, fmtPct, fmtZoneShare, postJson, providerShort, radarCacheGeneration, radarCacheGet, radarCacheSet } from "./shared";
 
 export const SELECT_CLS = "h-9 rounded-full border border-gray-200 bg-white px-3 text-xs";
+/** Language choice "Thai + English": never stored, the question's own text decides which of the two it is */
+const LANGUAGE_AUTO = "auto";
 const INPUT_CLS = "h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm";
 
 // ── data hook + state box ────────────────────────────────────────────────────
@@ -387,7 +390,8 @@ export function PromptFormDialog({ projectId, prompt, topics, onClose, onSaved }
     if (intent) body.intent = intent as PromptIntent;
     // when editing, send country/language only if changed so a stored legacy code never blocks saving
     if (country && (!editing || country !== prompt?.country)) body.country = country;
-    if (language && (!editing || language !== prompt?.language)) body.language = language;
+    const lang = language === LANGUAGE_AUTO ? detectPromptLanguage(t) : language;
+    if (lang && (!editing || lang !== prompt?.language)) body.language = lang;
     setBusy(true);
     if (editing && prompt) {
       const r = await api(`/api/brand-radar/prompts/${prompt.id}`, postJson({ projectId, ...body }, "PATCH"));
@@ -456,6 +460,7 @@ export function PromptFormDialog({ projectId, prompt, topics, onClose, onSaved }
                 {!editing ? <option value="">ใช้ค่าจากโปรไฟล์ตอนนี้</option> : null}
                 {editing && language && !LANGUAGES.some((l) => l.code === language) ? <option value={language}>{language}</option> : null}
                 {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+                <option value={LANGUAGE_AUTO}>Thai + English (ดูจากข้อความคำถาม)</option>
               </select>
             </label>
             {!editing ? (

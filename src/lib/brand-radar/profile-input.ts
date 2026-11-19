@@ -5,7 +5,7 @@ import { hostOf, stripInvisible } from './normalize'
 import { cleanStrings } from './server'
 import { isProfileLanguage } from './language'
 import {
-  COUNTRIES, LIMITS, PROMPT_SOURCES, PROVIDER_KEYS, SAMPLE_OPTIONS, formatSchedule, isProviderKey, isSampleOption, parseSchedule,
+  COUNTRIES, LIMITS, PROMPT_SOURCES, PROVIDER_KEYS, SAMPLES_MAX, SAMPLES_MIN, formatSchedule, isProviderKey, isValidSamples, parseSchedule,
   type PromptSource, type ProviderKey, type Schedule,
 } from './types'
 
@@ -109,7 +109,7 @@ export function cleanProfileInput(r: Record<string, unknown>): { ok: true; data:
   }
   if ('samplesPerPrompt' in r) {
     const n = Number(r.samplesPerPrompt)
-    if (!isSampleOption(n)) return { ok: false, error: `Samples per prompt must be one of ${SAMPLE_OPTIONS.join(', ')}` }
+    if (!isValidSamples(n)) return { ok: false, error: `Samples per prompt must be a whole number from ${SAMPLES_MIN} to ${SAMPLES_MAX}` }
     d.samplesPerPrompt = n
   }
   return { ok: true, data: d }

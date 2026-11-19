@@ -16,6 +16,7 @@ import PromptDetail from "./PromptDetail";
 import { brandTermsOf } from "@/lib/brand-radar/highlight";
 import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
 import { ColumnHelp } from "./ColumnHelp";
+import { ColumnGroup, ResizableHead, useColumnWidths, type ColumnSpec } from "./ResizableColumns";
 import {
   GeneratePromptsDialog, ImportPromptsDialog, LoadState, Pager, PromptFormDialog, SELECT_CLS, useApiData,
 } from "./PromptDialogs";
@@ -29,6 +30,24 @@ const STATUS_LABEL: Record<PromptStatus, string> = {
 const STATUS_TONE: Record<PromptStatus, "ok" | "info" | "muted" | "bad"> = {
   ACTIVE: "ok", CANDIDATE: "info", INACTIVE: "muted", REJECTED: "bad",
 };
+/** Default column widths of the prompt table; the viewer can drag every column except the checkbox and the buttons. */
+const PROMPT_COLUMNS: readonly ColumnSpec[] = [
+  { key: "select", width: 44, fixed: true },
+  { key: "prompt", width: 320, min: 160 },
+  { key: "topic", width: 180, min: 90 },
+  { key: "intent", width: 140 },
+  { key: "source", width: 130 },
+  { key: "volume", width: 96 },
+  { key: "priority", width: 96 },
+  { key: "status", width: 124 },
+  { key: "responses", width: 108 },
+  { key: "mentionRate", width: 116 },
+  { key: "topCompetitor", width: 170 },
+  { key: "lastScan", width: 150 },
+  { key: "actions", width: 200, fixed: true },
+];
+const PROMPT_COLUMNS_KEY = "mars_brand_radar_prompt_columns";
+
 const SORTS = [
   { value: "recent", label: "ล่าสุด" },
   { value: "mention_rate_asc", label: "Mention rate ต่ำ → สูง" },
@@ -73,6 +92,7 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
   const [viewing, setViewing] = useState<ViewerTarget | null>(null);
   const [editing, setEditing] = useState<PromptRowDTO | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const cols = useColumnWidths(PROMPT_COLUMNS_KEY, PROMPT_COLUMNS);
   const [bulkPriority, setBulkPriority] = useState<Priority>("high");
 
   useEffect(() => {
@@ -212,28 +232,29 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
         ) : (
           <>
             <div className="overflow-x-auto">
-              <Table className="min-w-[900px]">
+              <Table className="table-fixed [&_td]:overflow-hidden [&_td]:text-ellipsis [&_td]:break-words" style={{ width: cols.total, minWidth: "100%" }}>
+                <ColumnGroup columns={PROMPT_COLUMNS} widths={cols.widths} />
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-8"><input type="checkbox" aria-label="เลือกทั้งหมด" checked={allOn} onChange={() => setSelected(allOn ? new Set() : new Set(rows.map((r) => r.id)))} /></TableHead>
-                    <TableHead className="min-w-[260px]"><ColumnHelp k="promptText">Prompt</ColumnHelp></TableHead>
-                    <TableHead><ColumnHelp k="promptTopic">Topic</ColumnHelp></TableHead>
-                    <TableHead><ColumnHelp k="promptIntent">Intent</ColumnHelp></TableHead>
-                    <TableHead><ColumnHelp k="promptSource">Source</ColumnHelp></TableHead>
-                    <TableHead className="text-right"><ColumnHelp k="promptVolume" align="end">Volume</ColumnHelp></TableHead>
-                    <TableHead><ColumnHelp k="promptPriority">Priority</ColumnHelp></TableHead>
-                    <TableHead><ColumnHelp k="promptStatus">Status</ColumnHelp></TableHead>
-                    <TableHead className="text-right"><ColumnHelp k="promptResponses" align="end">Responses</ColumnHelp></TableHead>
-                    <TableHead className="text-right"><ColumnHelp k="promptMentionRate" align="end">Our mention rate</ColumnHelp></TableHead>
-                    <TableHead><ColumnHelp k="promptTopCompetitor">Top competitor</ColumnHelp></TableHead>
-                    <TableHead><ColumnHelp k="promptLastScan">Last scan</ColumnHelp></TableHead>
+                    <TableHead className="px-3"><input type="checkbox" aria-label="เลือกทั้งหมด" checked={allOn} onChange={() => setSelected(allOn ? new Set() : new Set(rows.map((r) => r.id)))} /></TableHead>
+                    <ResizableHead col="prompt" label="Prompt" cols={cols}><ColumnHelp k="promptText">Prompt</ColumnHelp></ResizableHead>
+                    <ResizableHead col="topic" label="Topic" cols={cols}><ColumnHelp k="promptTopic">Topic</ColumnHelp></ResizableHead>
+                    <ResizableHead col="intent" label="Intent" cols={cols}><ColumnHelp k="promptIntent">Intent</ColumnHelp></ResizableHead>
+                    <ResizableHead col="source" label="Source" cols={cols}><ColumnHelp k="promptSource">Source</ColumnHelp></ResizableHead>
+                    <ResizableHead col="volume" label="Volume" cols={cols} className="text-right"><ColumnHelp k="promptVolume" align="end">Volume</ColumnHelp></ResizableHead>
+                    <ResizableHead col="priority" label="Priority" cols={cols}><ColumnHelp k="promptPriority">Priority</ColumnHelp></ResizableHead>
+                    <ResizableHead col="status" label="Status" cols={cols}><ColumnHelp k="promptStatus">Status</ColumnHelp></ResizableHead>
+                    <ResizableHead col="responses" label="Responses" cols={cols} className="text-right"><ColumnHelp k="promptResponses" align="end">Responses</ColumnHelp></ResizableHead>
+                    <ResizableHead col="mentionRate" label="Our mention rate" cols={cols} className="text-right"><ColumnHelp k="promptMentionRate" align="end">Our mention rate</ColumnHelp></ResizableHead>
+                    <ResizableHead col="topCompetitor" label="Top competitor" cols={cols}><ColumnHelp k="promptTopCompetitor">Top competitor</ColumnHelp></ResizableHead>
+                    <ResizableHead col="lastScan" label="Last scan" cols={cols}><ColumnHelp k="promptLastScan">Last scan</ColumnHelp></ResizableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell><input type="checkbox" aria-label="เลือกแถว" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></TableCell>
+                      <TableCell className="px-3"><input type="checkbox" aria-label="เลือกแถว" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></TableCell>
                       <TableCell>
                         <button type="button" onClick={() => onOpen(r.id)} className="text-left font-medium text-brand-blue hover:underline">{r.text}</button>
                         {r.runChange === "gained" ? <Chip tone="ok" className="ml-1.5 align-middle" title={`รอบก่อนหน้าไม่ถูกพูดถึง รอบล่าสุดถูกพูดถึง${changeProviders(r, "gained", clientView)}`}>ได้ใหม่</Chip> : null}

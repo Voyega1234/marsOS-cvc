@@ -7,8 +7,8 @@ import { Switch } from "@/components/ui/switch";
 import { BarChart, Chip, EmptyState, MeterBar, Panel, Segmented } from "@/components/ds";
 import { LANGUAGE_BOTH, PROFILE_LANGUAGES } from "@/lib/brand-radar/language";
 import {
-  COUNTRIES, DEFAULT_SAMPLES, LIMITS, PROMPT_SOURCES, PROMPT_SOURCE_LABEL, PROVIDER_KEYS, SAMPLE_OPTIONS, SCHEDULE_LIMITS,
-  costPerCall, formatSchedule, isManualProjectId, parseSchedule,
+  COUNTRIES, DEFAULT_SAMPLES, LIMITS, PROMPT_SOURCES, PROMPT_SOURCE_LABEL, PROVIDER_KEYS, SAMPLE_OPTIONS, SAMPLES_MAX, SAMPLES_MIN, SCHEDULE_LIMITS,
+  costPerCall, formatSchedule, isManualProjectId, parseSchedule, sampleMarginPct,
   type AutoScanDTO, type CompetitorDTO, type ProfileInput, type ProfileRes, type PromptSource, type ProviderKey,
   type ProviderStatusDTO, type ProvidersRes, type Schedule, type ScheduleKind, type ScheduleSpec, type UsageDTO,
 } from "@/lib/brand-radar/types";
@@ -153,6 +153,63 @@ function Section({ n, id, title, why, optional, children }: { n: number; id: str
     >
       <div className="mt-4">{children}</div>
     </Panel>
+  );
+}
+
+const SAMPLES_CUSTOM = "custom";
+
+/** The listed counts, plus "กำหนดเอง" for any whole number in the allowed range. */
+function SamplesInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const listed = (SAMPLE_OPTIONS as readonly number[]).includes(value);
+  const [custom, setCustom] = useState(!listed);
+  const [text, setText] = useState(String(value));
+  // A value that arrives from outside (profile loaded, form reset) decides the mode again.
+  const seen = useRef(value);
+  useEffect(() => {
+    if (seen.current === value) return;
+    seen.current = value;
+    setText(String(value));
+    setCustom(!(SAMPLE_OPTIONS as readonly number[]).includes(value));
+  }, [value]);
+
+  const commit = (raw: string) => {
+    const n = Math.floor(Number(raw));
+    if (!raw.trim() || !Number.isFinite(n)) return;
+    const next = Math.min(SAMPLES_MAX, Math.max(SAMPLES_MIN, n));
+    seen.current = next;
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-2">
+        <select className={`${inputCls} min-w-0 flex-1`} aria-label="จำนวนรอบถามต่อ prompt" value={custom ? SAMPLES_CUSTOM : value}
+          onChange={(e) => {
+            if (e.target.value === SAMPLES_CUSTOM) { setCustom(true); setText(String(value)); return; }
+            const n = Number(e.target.value);
+            setCustom(false);
+            seen.current = n;
+            onChange(n);
+          }}>
+          {SAMPLE_OPTIONS.map((n) => (
+            <option key={n} value={n}>{n === DEFAULT_SAMPLES ? `${n} รอบ (แนะนำ)` : `${n} รอบ`}</option>
+          ))}
+          <option value={SAMPLES_CUSTOM}>กำหนดเอง…</option>
+        </select>
+        {custom && (
+          // inputCls carries w-full, so the width lives on a wrapper.
+          <div className="w-28 shrink-0">
+            <input type="number" inputMode="numeric" min={SAMPLES_MIN} max={SAMPLES_MAX} step={1} aria-label="ระบุจำนวนรอบเอง"
+              className={inputCls} value={text}
+              onChange={(e) => { setText(e.target.value); commit(e.target.value); }}
+              onBlur={() => setText(String(value))} />
+          </div>
+        )}
+      </div>
+      {custom && (
+        <p className="text-xs text-gray-500">ใส่ได้ {SAMPLES_MIN}–{SAMPLES_MAX} รอบ · {value} รอบ คลาดประมาณ ±{sampleMarginPct(value)}%</p>
+      )}
+    </div>
   );
 }
 
@@ -737,12 +794,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
                     onChange={(e) => patch({ budget: e.target.value })} />
                 </Field>
                 <Field label="จำนวนรอบถามต่อ prompt" help="AI ตอบไม่เหมือนกันทุกครั้ง ถามซ้ำหลายรอบแล้วนับเป็น % ยิ่งมากยิ่งแม่น: 10 รอบ คลาด ±31%, 20 รอบ ±22%, 30 รอบ ±18% · ค่าใช้จ่ายและเวลาเพิ่มตามจำนวนรอบ · Google AI Mode / AI Overview ถาม 1 รอบเสมอ (ผลหน้าเดียวกัน)">
-                  <select className={inputCls} value={form.samplesPerPrompt ?? DEFAULT_SAMPLES}
-                    onChange={(e) => patch({ samplesPerPrompt: Number(e.target.value) })}>
-                    {SAMPLE_OPTIONS.map((n) => (
-                      <option key={n} value={n}>{n === DEFAULT_SAMPLES ? `${n} รอบ (แนะนำ)` : `${n} รอบ`}</option>
-                    ))}
-                  </select>
+                  <SamplesInput value={form.samplesPerPrompt ?? DEFAULT_SAMPLES} onChange={(n) => patch({ samplesPerPrompt: n })} />
                 </Field>
                 <Field label="ประเทศ">
                   <select className={inputCls} value={form.country ?? "TH"} onChange={(e) => patch({ country: e.target.value })}>

@@ -12,7 +12,7 @@ import type { Dataset } from './metrics'
 import {
   BRAND_POSITIONINGS, BRAND_POSITIONING_LABEL, answerZone, SEARCH_QUERY_SUPPORT, SENTIMENT_FACTORS, SENTIMENT_FACTOR_LABEL,
   type AnswerInsightDTO, type AnswerSentiment, type AnswerSentimentEntity, type BrandPositioning, type CitationOwner, type EntityShare, type FactorPolarity,
-  type InsightEntityDTO, type InsightQuote, type MentionStyleCounts, type ProviderKey, type QueryGroupDTO, type SentimentFactor, type SentimentTone,
+  type FactorExample, type InsightEntityDTO, type InsightQuote, type MentionStyleCounts, type ProviderKey, type QueryGroupDTO, type SentimentFactor, type SentimentTone, type ToneExample,
 } from './types'
 
 export const INSIGHT_LIMITS = {
@@ -20,6 +20,11 @@ export const INSIGHT_LIMITS = {
   queriesPerAnswer: 20,
   groupNameMax: 60,
   summaryMax: 240,
+  /** answers listed per tone, per entity (brand / tracked competitor) */
+  toneAnswersBrand: 12,
+  toneAnswersCompetitor: 4,
+  /** answers listed per factor of "what the AI weighs" */
+  factorExamples: 5,
   descriptorMax: 40,
   descriptorsPerEntity: 3,
   /** longest stored example passage */
@@ -279,6 +284,8 @@ interface EntityAcc {
   name: string
   answers: number
   tones: Record<SentimentTone, number>
+  /** the rows behind each tone count */
+  toneRows: Record<SentimentTone, Array<{ row: InsightRow; entity: AnswerSentimentEntity }>>
   positioning: Map<BrandPositioning, number>
   factors: Map<SentimentFactor, { answers: number; positive: number; negative: number; neutral: number }>
   summaries: Array<{ at: number; text: string }>
@@ -353,25 +360,32 @@ export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
   // Sentiment
   let analyzed = 0
   const factorAnswers = new Map<SentimentFactor, number>()
+  const factorRows = new Map<SentimentFactor, InsightRow[]>()
   const overallTones = emptyTones()
   const entityAcc = new Map<string, EntityAcc>()
   for (const r of input.rows) {
     const s = r.sentiment
     if (!s) continue
     analyzed++
-    for (const f of s.factors) factorAnswers.set(f, (factorAnswers.get(f) || 0) + 1)
+    for (const f of s.factors) {
+      factorAnswers.set(f, (factorAnswers.get(f) || 0) + 1)
+      const list = factorRows.get(f)
+      if (list) list.push(r)
+      else factorRows.set(f, [r])
+    }
     for (const e of s.entities) {
       let acc = entityAcc.get(e.key)
       if (!acc) {
         acc = {
           entityType: e.entityType, key: e.key, name: input.entityNames.get(e.key) || e.name || e.key, answers: 0,
-          tones: emptyTones(), positioning: new Map(), factors: new Map(), summaries: [], descriptors: new Map(),
+          tones: emptyTones(), toneRows: { positive: [], neutral: [], negative: [], mixed: [] }, positioning: new Map(), factors: new Map(), summaries: [], descriptors: new Map(),
           factorQuotes: new Map(), descriptorQuotes: new Map(),
         }
         entityAcc.set(e.key, acc)
       }
       acc.answers++
       acc.tones[e.tone]++
+      acc.toneRows[e.tone].push({ row: r, entity: e })
       overallTones[e.tone]++
       for (const p of e.positioning) acc.positioning.set(p, (acc.positioning.get(p) || 0) + 1)
       for (const f of e.factors) {
@@ -406,8 +420,38 @@ export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
         if (!summaries.includes(s.text)) summaries.push(s.text)
         if (summaries.length >= INSIGHT_LIMITS.summariesShown) break
       }
+      // Answer lists only for the brand and currently tracked competitors
+      let toneAnswers: Partial<Record<SentimentTone, ToneExample[]>> | undefined
+      if (a.entityType === 'brand' || input.entityNames.has(a.key)) {
+        const cap = a.entityType === 'brand' ? INSIGHT_LIMITS.toneAnswersBrand : INSIGHT_LIMITS.toneAnswersCompetitor
+        const order: Record<FactorPolarity, number> = { positive: 0, negative: 1, neutral: 2 }
+        const built: Partial<Record<SentimentTone, ToneExample[]>> = {}
+        for (const tone of Object.keys(a.toneRows) as SentimentTone[]) {
+          const rows = a.toneRows[tone]
+          if (rows.length === 0) continue
+          built[tone] = [...rows]
+            .sort((x, y) => y.row.at - x.row.at || (x.row.responseId < y.row.responseId ? -1 : x.row.responseId > y.row.responseId ? 1 : 0))
+            .slice(0, cap)
+            .map(({ row, entity }): ToneExample => ({
+              responseId: row.responseId, promptId: row.promptId, runId: row.runId, provider: row.provider, at: row.at,
+              prompt: input.promptText.get(row.promptId) ?? '',
+              summary: oneLine(entity.summary, INSIGHT_LIMITS.summaryMax),
+              points: entity.factors
+                .map((f, i) => ({ f, i }))
+                .sort((x, y) => order[x.f.polarity] - order[y.f.polarity] || x.i - y.i)
+                .slice(0, INSIGHT_LIMITS.factorsPerAnswer)
+                .map(({ f }) => {
+                  const quote = cleanQuote(f.quote)
+                  const label = SENTIMENT_FACTOR_LABEL[f.code] ?? f.code
+                  return quote ? { code: f.code, label, polarity: f.polarity, quote } : { code: f.code, label, polarity: f.polarity }
+                }),
+            }))
+        }
+        if (Object.keys(built).length > 0) toneAnswers = built
+      }
       return {
         entityType: a.entityType, key: a.key, name: a.name, answers: a.answers, tones: a.tones,
+        ...(toneAnswers ? { toneAnswers } : {}),
         positioning: Array.from(a.positioning.entries())
           .sort((x, y) => y[1] - x[1])
           .map(([code, n]) => ({ code, label: BRAND_POSITIONING_LABEL[code], answers: n, rate: rate(n, a.answers) })),
@@ -433,7 +477,13 @@ export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
     analyzed,
     factors: Array.from(factorAnswers.entries())
       .sort((a, b) => b[1] - a[1])
-      .map(([code, n]) => ({ code, label: SENTIMENT_FACTOR_LABEL[code], answers: n, rate: rate(n, analyzed) })),
+      .map(([code, n]) => {
+        const examples: FactorExample[] = [...(factorRows.get(code) ?? [])]
+          .sort((x, y) => y.at - x.at || (x.responseId < y.responseId ? -1 : x.responseId > y.responseId ? 1 : 0))
+          .slice(0, INSIGHT_LIMITS.factorExamples)
+          .map((row) => ({ responseId: row.responseId, promptId: row.promptId, runId: row.runId, provider: row.provider, at: row.at, prompt: input.promptText.get(row.promptId) ?? '' }))
+        return { code, label: SENTIMENT_FACTOR_LABEL[code], answers: n, rate: rate(n, analyzed), examples }
+      }),
     overallTones,
     entities,
     answersWithQueries,

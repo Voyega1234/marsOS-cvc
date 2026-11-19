@@ -4,7 +4,7 @@ import {
   parseStoredFoundSources, parseStoredQueries, parseStoredSentiment, sanitizeSentiment, type InsightRow, type SentimentEntityRef,
 } from './insight'
 import type { Dataset } from './metrics'
-import { answerZone, type AnswerSentiment, type EntityShare } from './types'
+import { SENTIMENT_FACTOR_LABEL, answerZone, type AnswerSentiment, type EntityShare } from './types'
 
 let passed = 0
 function ok(cond: boolean, msg: string) {
@@ -144,7 +144,8 @@ eq(agg.queryGroups[0].prompts, [{ promptId: 'p1', text: 'Which CRM?', searches: 
 eq(agg.queryGroups[0].queries, [{ query: 'Best CRM', searches: 3 }], 'aggregate: first spelling kept')
 eq(agg.queryGroups[0].providers, ['openai'], 'aggregate: providers')
 eq(agg.analyzed, 2, 'aggregate: analyzed')
-eq(agg.factors, [{ code: 'price', label: agg.factors[0].label, answers: 2, rate: 1 }, { code: 'quality', label: agg.factors[1].label, answers: 1, rate: 0.5 }], 'aggregate: factor counts + rates')
+eq(agg.factors.map((f) => ({ code: f.code, label: f.label, answers: f.answers, rate: f.rate })), [{ code: 'price', label: agg.factors[0].label, answers: 2, rate: 1 }, { code: 'quality', label: agg.factors[1].label, answers: 1, rate: 0.5 }], 'aggregate: factor counts + rates')
+eq(agg.factors[0].examples!.map((x) => [x.responseId, x.prompt]), [['r3', 'CRM cost?'], ['r1', 'Which CRM?']], 'aggregate: factor examples newest first')
 eq(agg.overallTones, { positive: 1, neutral: 0, negative: 1, mixed: 1 }, 'aggregate: overall tones')
 eq(agg.entities.map((e) => [e.key, e.name, e.answers]), [['brand', 'Acme', 2], ['c1', 'Rival', 1]], 'aggregate: brand first, current name wins')
 eq(agg.entities[0].tones, { positive: 1, neutral: 0, negative: 0, mixed: 1 }, 'aggregate: brand tones')
@@ -310,5 +311,60 @@ const startLine = 'Acme ' + 'b'.repeat(400)
 const w2 = fallbackQuote(startLine, { brandTerms: ['acme'] })!
 ok(!w2.text.startsWith('…') && w2.text.endsWith('…') && w2.text.length <= 201, 'fallback: ellipsis only on the cut side')
 eq(fallbackQuote('', { brandTerms: ['acme'] }), null, 'fallback: empty answer')
+
+// toneAnswers
+const tRow = (id: string, at: number, tone: 'positive' | 'mixed' | 'negative' | 'neutral', extra: Partial<AnswerSentiment['entities'][number]> = {}, comp?: { key: string; tone: 'positive' | 'mixed' }): InsightRow => ({
+  responseId: id, promptId: 'p1', runId: 'run1', provider: 'openai', at, searchQueries: [],
+  sentiment: {
+    factors: [],
+    entities: [
+      { entityType: 'brand', key: 'brand', name: 'Acme', tone, positioning: [], factors: [], summary: 'sum ' + id, descriptors: [], ...extra },
+      ...(comp ? [{ entityType: 'competitor' as const, key: comp.key, name: comp.key, tone: comp.tone, positioning: [], factors: [], summary: 'c ' + id, descriptors: [] }] : []),
+    ],
+  },
+})
+const tInput = (rs: InsightRow[], names: Array<[string, string]> = [['brand', 'Acme']]) =>
+  aggregateInsight({ available: true, rows: rs, groups: new Map(), promptText: new Map([['p1', 'Which CRM?']]), entityNames: new Map(names) })
+const tBrand = tInput([
+  tRow('a', 1, 'positive'),
+  tRow('b', 5, 'mixed', { summary: '  mixed new  ', factors: [{ code: 'quality', polarity: 'negative', quote: '  said so ' }, { code: 'price', polarity: 'positive' }, { code: 'service', polarity: 'neutral' }] }),
+  tRow('c', 3, 'mixed'),
+]).entities[0]
+eq(tBrand.toneAnswers!.mixed!.map((x) => x.responseId), ['b', 'c'], 'toneAnswers: mixed answers, newest first')
+eq(tBrand.toneAnswers!.mixed![0], {
+  responseId: 'b', promptId: 'p1', runId: 'run1', provider: 'openai', at: 5, prompt: 'Which CRM?', summary: 'mixed new',
+  points: [
+    { code: 'price', label: SENTIMENT_FACTOR_LABEL.price, polarity: 'positive' },
+    { code: 'quality', label: SENTIMENT_FACTOR_LABEL.quality, polarity: 'negative', quote: 'said so' },
+    { code: 'service', label: SENTIMENT_FACTOR_LABEL.service, polarity: 'neutral' },
+  ],
+}, 'toneAnswers: fields, point order, quote only when stored')
+eq(tBrand.toneAnswers!.positive!.map((x) => x.responseId), ['a'], 'toneAnswers: positive list')
+ok(!('negative' in tBrand.toneAnswers!) && !('neutral' in tBrand.toneAnswers!), 'toneAnswers: tone with no answers is absent')
+const manyRows: InsightRow[] = []
+for (let i = 0; i < INSIGHT_LIMITS.toneAnswersBrand + 3; i++) manyRows.push(tRow('m' + String(i).padStart(2, '0'), i, 'negative'))
+const tMany = tInput(manyRows).entities[0]
+eq(tMany.toneAnswers!.negative!.length, INSIGHT_LIMITS.toneAnswersBrand, 'toneAnswers: brand list capped')
+eq(tMany.tones.negative, INSIGHT_LIMITS.toneAnswersBrand + 3, 'toneAnswers: tone count keeps the full number')
+const compRows: InsightRow[] = []
+for (let i = 0; i < INSIGHT_LIMITS.toneAnswersCompetitor + 3; i++) compRows.push(tRow('k' + i, i, 'positive', {}, { key: 'c1', tone: 'mixed' }))
+const tComp = tInput(compRows, [['brand', 'Acme'], ['c1', 'Rival']]).entities.find((x) => x.key === 'c1')!
+eq(tComp.toneAnswers!.mixed!.length, INSIGHT_LIMITS.toneAnswersCompetitor, 'toneAnswers: tracked competitor capped')
+eq(tComp.tones.mixed, INSIGHT_LIMITS.toneAnswersCompetitor + 3, 'toneAnswers: competitor count is full')
+const tUntracked = tInput(compRows).entities.find((x) => x.key === 'c1')!
+eq(tUntracked.toneAnswers, undefined, 'toneAnswers: untracked competitor has none')
+
+// factor examples: the answers counted under "what the AI weighs"
+const fRows: InsightRow[] = []
+for (let i = 0; i < INSIGHT_LIMITS.factorExamples + 2; i++) {
+  fRows.push({ responseId: 'f' + i, promptId: 'p1', runId: 'run1', provider: 'openai', at: i, searchQueries: [], sentiment: { factors: i === 0 ? ['trust', 'price'] : ['trust'], entities: [] } })
+}
+const fOut = tInput(fRows).factors
+const fTrust = fOut.find((x) => x.code === 'trust')!
+eq(fTrust.answers, INSIGHT_LIMITS.factorExamples + 2, 'factor examples: count is full')
+eq(fTrust.examples!.length, INSIGHT_LIMITS.factorExamples, 'factor examples: capped')
+eq(fTrust.examples![0].responseId, 'f' + (INSIGHT_LIMITS.factorExamples + 1), 'factor examples: newest first')
+eq(fTrust.examples![0].prompt, 'Which CRM?', 'factor examples: carries the question')
+eq(fOut.find((x) => x.code === 'price')!.examples!.map((x) => x.responseId), ['f0'], 'factor examples: only answers that weigh the factor')
 
 console.log(`insight.test.ts: ${passed} checks passed`)

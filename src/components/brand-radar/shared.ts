@@ -204,6 +204,13 @@ export function fmtZoneShare(zones: ZoneCounts | null | undefined): string | nul
 /** What the zone percentages measure, as a short caption that needs no further explanation */
 export const ANSWER_ZONE_CAPTION = 'AI เอ่ยชื่อแบรนด์ช่วงไหนของคำตอบ'
 
+/** How the zone percentages are worked out, in one line; `answers` = answers that name the brand and carry a position */
+export function zoneMethodNote(zones: ZoneCounts | null | undefined): string | null {
+  const s = zoneShares(zones)
+  if (!s) return null
+  return `วิธีคิด: แบ่งคำตอบเป็น 3 ส่วนเท่ากัน แล้วดูว่าชื่อแบรนด์ปรากฏครั้งแรกในส่วนไหน · นับจาก ${s.total.toLocaleString('th-TH')} คำตอบที่เอ่ยชื่อแบรนด์`
+}
+
 /** Self-explaining zone names, e.g. "ต้นคำตอบ 60% · กลางคำตอบ 30% · ท้ายคำตอบ 10%"; null when not recorded */
 export function fmtZoneBrief(zones: ZoneCounts | null | undefined): string | null {
   const s = zoneShares(zones)

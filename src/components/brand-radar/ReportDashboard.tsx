@@ -156,7 +156,7 @@ export default function ReportDashboard({ projectId, filters, refreshKey, onGoTa
 
       <HeroRow dto={data} filters={filters} clientView={clientView} />
 
-      <BottomRow dto={data} clientView={clientView} />
+      <BottomRow dto={data} clientView={clientView} onOpenAnswer={setViewing} />
 
 
       <ScanProgressSection scans={data.scans ?? []} />

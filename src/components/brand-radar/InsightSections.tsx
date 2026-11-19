@@ -11,10 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Chip, Panel } from "@/components/ds";
 import type { ChipTone } from "@/components/ds";
 import {
-  BRAND_POSITIONING_LABEL, SEARCH_QUERY_SUPPORT, SENTIMENT_TONES, SENTIMENT_TONE_LABEL,
-  type AnswerInsightDTO, type InsightEntityDTO, type InsightQuote, type QueryGroupDTO, type SentimentTone,
+  BRAND_POSITIONING_LABEL, SEARCH_QUERY_SUPPORT, SENTIMENT_FACTOR_HINT, SENTIMENT_TONES, SENTIMENT_TONE_LABEL,
+  type AnswerInsightDTO, type FactorExample, type FactorPolarity, type InsightEntityDTO, type InsightQuote, type QueryGroupDTO, type SentimentFactor, type SentimentTone, type ToneExample,
 } from "@/lib/brand-radar/types";
-import { fmtNum, fmtPct, providerLabelFor } from "./shared";
+import { fmtDate, fmtNum, fmtPct, providerLabelFor } from "./shared";
 import type { ViewerTarget } from "./ResponseViewer";
 
 /** DOM id of the sentiment block, used by the "ควรดูต่อ" panel to scroll here */
@@ -52,8 +52,81 @@ function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNod
   );
 }
 
-/** Four-tone bar (positive / neutral / mixed / negative); `legend` adds the count list under it */
-export function ToneBar({ tones, total, legend = true }: { tones: Record<SentimentTone, number> | undefined; total: number; legend?: boolean }) {
+/** An answer in a tone list; `entityName` is set where one list mixes several brands */
+export type ToneListItem = ToneExample & { entityName?: string };
+export type ToneLists = Partial<Record<SentimentTone, ToneListItem[]>>;
+
+const POLARITY_CHIP: Record<FactorPolarity, { label: string; tone: ChipTone }> = {
+  positive: { label: "บวก", tone: "ok" },
+  negative: { label: "ลบ", tone: "bad" },
+  neutral: { label: "กลาง", tone: "muted" },
+};
+
+/** The answers behind one tone count. Model text: rendered as text nodes only. */
+function ToneAnswerList({ tone, items, count, onOpenAnswer, clientView }: {
+  tone: SentimentTone; items: ToneListItem[]; count: number; onOpenAnswer?: (target: ViewerTarget) => void; clientView?: boolean;
+}) {
+  return (
+    <div className="mt-2 rounded-lg bg-gray-50 p-2.5">
+      <p className="mb-1.5 text-[11px] font-medium text-gray-600">
+        {SENTIMENT_TONE_LABEL[tone]}: {items.length < count ? `แสดง ${fmtNum(items.length)} คำตอบล่าสุด จาก ${fmtNum(count)}` : `${fmtNum(count)} คำตอบ`}
+      </p>
+      {items.length === 0 ? <p className="text-xs text-gray-500">ไม่มีรายละเอียดของคำตอบกลุ่มนี้</p> : (
+        <ul className="max-h-96 space-y-2 overflow-y-auto pr-1">
+          {items.map((x, i) => {
+            const points = x.points ?? [];
+            return (
+              <li key={`${x.responseId}-${x.entityName ?? ""}-${i}`} className="rounded-lg border border-gray-100 bg-white/80 p-2.5 text-xs text-gray-700">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500">
+                  {x.entityName ? <b className="text-brand-navy">{x.entityName}</b> : null}
+                  {x.provider ? <span>{providerLabelFor(x.provider, clientView)}</span> : null}
+                  {x.at > 0 ? <span>{fmtDate(new Date(x.at).toISOString())}</span> : null}
+                </div>
+                {x.prompt ? <p className="mt-1 break-words font-medium text-brand-navy">{x.prompt}</p> : null}
+                {x.summary ? <p className="mt-1 break-words">{x.summary}</p> : null}
+                {points.length > 0 ? (
+                  <ul className="mt-1.5 space-y-1">
+                    {points.map((pt, j) => {
+                      const chip = POLARITY_CHIP[pt.polarity] ?? POLARITY_CHIP.neutral;
+                      return (
+                        <li key={`${pt.code}-${j}`} className="flex items-start gap-1.5">
+                          <Chip tone={chip.tone} className="shrink-0">{chip.label}</Chip>
+                          <span className="min-w-0 break-words pt-0.5">
+                            <b className="font-medium">{pt.label || pt.code}</b>
+                            {pt.quote ? <span className="text-gray-600"> &ldquo;{pt.quote}&rdquo;</span> : null}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+                {onOpenAnswer && x.promptId ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenAnswer({ promptId: x.promptId, runId: x.runId || undefined, provider: x.provider || undefined, responseId: x.responseId || undefined })}
+                    className="mt-1.5 block text-[11px] text-brand-blue hover:underline"
+                  >ดูคำตอบเต็ม</button>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Four-tone bar (positive / neutral / mixed / negative); `legend` adds the count list under it.
+ * With `examples` each count becomes a button that lists the answers behind it.
+ */
+export function ToneBar({ tones, total, legend = true, examples, onOpenAnswer, clientView }: {
+  tones: Record<SentimentTone, number> | undefined; total: number; legend?: boolean;
+  examples?: ToneLists; onOpenAnswer?: (target: ViewerTarget) => void; clientView?: boolean;
+}) {
+  const [open, setOpen] = useState<SentimentTone | null>(null);
+  // a tone whose count dropped to zero after a filter change closes by itself
+  const shown = open && (tones?.[open] ?? 0) > 0 ? open : null;
   return (
     <>
       <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-gray-100" role="img" aria-label="สัดส่วนโทน">
@@ -63,21 +136,56 @@ export function ToneBar({ tones, total, legend = true }: { tones: Record<Sentime
         })}
       </div>
       {legend ? (
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+        <div className={`mt-2 flex flex-wrap gap-y-1 text-xs text-gray-600 ${examples ? "gap-x-1.5" : "gap-x-4"}`}>
           {SENTIMENT_TONES.map((t) => {
             const n = tones?.[t] ?? 0;
-            return (
-              <span key={t} className="inline-flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${TONE_COLOR[t]}`} />
+            const body = (
+              <>
+                <span className={`h-2 w-2 shrink-0 rounded-full ${TONE_COLOR[t]}`} />
                 {SENTIMENT_TONE_LABEL[t]} <b className="tabular-nums">{fmtNum(n)}</b> ({total > 0 ? fmtPct(n / total) : "—"})
-              </span>
+              </>
+            );
+            if (!examples) return <span key={t} className="inline-flex items-center gap-1.5">{body}</span>;
+            if (n <= 0) return <span key={t} className="inline-flex items-center gap-1.5 px-2 py-0.5">{body}</span>;
+            const on = shown === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                aria-expanded={on}
+                title="กดเพื่อดูคำตอบ"
+                onClick={() => setOpen(on ? null : t)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-left transition-colors ${on ? "border-brand-blue/50 bg-brand-blue/10 text-brand-navy" : "border-gray-200 hover:border-brand-blue/50"}`}
+              >
+                {body}
+                {on ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+              </button>
             );
           })}
         </div>
       ) : null}
+      {legend && examples && shown ? (
+        <ToneAnswerList tone={shown} items={examples[shown] ?? []} count={tones?.[shown] ?? 0} onOpenAnswer={onOpenAnswer} clientView={clientView} />
+      ) : null}
     </>
   );
 }
+
+/** One list per tone across every brand that carries answer details, newest first */
+function mergeToneLists(entities: InsightEntityDTO[], cap: number): ToneLists {
+  const out: ToneLists = {};
+  for (const t of SENTIMENT_TONES) {
+    const all: ToneListItem[] = [];
+    for (const e of entities) {
+      for (const x of e.toneAnswers?.[t] ?? []) all.push({ ...x, entityName: e.name });
+    }
+    all.sort((a, b) => b.at - a.at || (a.responseId < b.responseId ? -1 : a.responseId > b.responseId ? 1 : 0));
+    out[t] = all.slice(0, cap);
+  }
+  return out;
+}
+/** Answers listed per tone under the all-brands bar */
+const OVERALL_TONE_ANSWERS = 20;
 
 /** Split bar for one factor: positive (green) / neutral (gray) / negative (red) */
 function FactorSplit({ positive, neutral, negative }: { positive: number; neutral: number; negative: number }) {
@@ -123,11 +231,53 @@ function QuoteList({ quotes, onOpenAnswer }: { quotes: InsightQuote[]; onOpenAns
   );
 }
 
-/** A ranked-list row; with quotes the whole head becomes a button that opens the example passages */
-function ExampleRow({ head, bar, quotes, onOpenAnswer }: { head: ReactNode; bar: ReactNode; quotes?: InsightQuote[]; onOpenAnswer?: (target: ViewerTarget) => void }) {
+/** What a factor row counts. "answer" = the answer as a whole weighs it; "brand" = the answer ties it to our brand. */
+function factorHint(code: SentimentFactor, scope: "answer" | "brand"): string | undefined {
+  const topic = SENTIMENT_FACTOR_HINT[code];
+  if (!topic) return undefined;
+  return scope === "answer"
+    ? `นับคำตอบที่ AI ใช้เรื่องนี้เป็นเกณฑ์ตัดสินหรือแนะนำ: ${topic}`
+    : `นับคำตอบที่ AI พูดถึงแบรนด์เราในเรื่องนี้: ${topic}`;
+}
+
+/** Answers counted under a factor, for a factor with no passage to quote */
+function FactorExampleList({ items, onOpenAnswer, clientView }: { items: FactorExample[]; onOpenAnswer?: (target: ViewerTarget) => void; clientView?: boolean }) {
+  return (
+    <div className="mt-1.5">
+      <p className="mb-1 text-[11px] font-medium text-gray-600">ตัวอย่างคำตอบที่นับ</p>
+      <ul className="space-y-2">
+        {items.map((x) => (
+          <li key={x.responseId} className="border-l-2 border-gray-200 pl-2 text-xs text-gray-700">
+            <span className="block text-[11px] text-gray-500">
+              {[x.provider ? providerLabelFor(x.provider, clientView) : "", x.at > 0 ? fmtDate(new Date(x.at).toISOString()) : ""].filter(Boolean).join(" · ")}
+            </span>
+            <span className="break-words">{x.prompt || "(ไม่พบข้อความคำถาม)"}</span>
+            {onOpenAnswer ? (
+              <button type="button" onClick={() => onOpenAnswer({ promptId: x.promptId, runId: x.runId, provider: x.provider, responseId: x.responseId })} className="mt-0.5 block text-[11px] text-brand-blue hover:underline">ดูคำตอบเต็ม</button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * A ranked-list row. With anything to show (what the row measures, example passages, example answers)
+ * the whole head becomes a button that opens it.
+ */
+function ExampleRow({ head, bar, quotes, hint, examples, onOpenAnswer, clientView }: {
+  head: ReactNode; bar: ReactNode; quotes?: InsightQuote[];
+  /** one line on what an answer has to talk about to be counted in this row */
+  hint?: string;
+  /** answers counted in this row, shown when there is no passage to quote */
+  examples?: FactorExample[];
+  onOpenAnswer?: (target: ViewerTarget) => void; clientView?: boolean;
+}) {
   const [open, setOpen] = useState(false);
-  const has = !!quotes && quotes.length > 0;
-  if (!has) {
+  const hasQuotes = !!quotes && quotes.length > 0;
+  const hasExamples = !!examples && examples.length > 0;
+  if (!hasQuotes && !hasExamples && !hint) {
     return (
       <li>
         {head}
@@ -146,7 +296,13 @@ function ExampleRow({ head, bar, quotes, onOpenAnswer }: { head: ReactNode; bar:
           </span>
         </span>
       </button>
-      {open && quotes ? <QuoteList quotes={quotes} onOpenAnswer={onOpenAnswer} /> : null}
+      {open && hint ? <p className="mt-1.5 rounded-lg bg-gray-50 px-2.5 py-2 text-[11px] leading-snug text-gray-600">{hint}</p> : null}
+      {open && hasQuotes && quotes ? <QuoteList quotes={quotes} onOpenAnswer={onOpenAnswer} /> : null}
+      {open && !hasQuotes && hasExamples && examples ? (
+        <div className="mt-1.5 rounded-lg bg-gray-50 px-2.5 pb-2.5 pt-1">
+          <FactorExampleList items={examples} onOpenAnswer={onOpenAnswer} clientView={clientView} />
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -190,7 +346,7 @@ function DescriptorList({ items, onOpenAnswer }: { items: InsightEntityDTO["desc
   );
 }
 
-function BrandBlock({ e, onOpenAnswer }: { e: InsightEntityDTO; onOpenAnswer?: (target: ViewerTarget) => void }) {
+function BrandBlock({ e, onOpenAnswer, clientView }: { e: InsightEntityDTO; onOpenAnswer?: (target: ViewerTarget) => void; clientView?: boolean }) {
   const positioning = e.positioning ?? [];
   const factors = e.factors ?? [];
   const descriptors = e.descriptors ?? [];
@@ -201,7 +357,7 @@ function BrandBlock({ e, onOpenAnswer }: { e: InsightEntityDTO; onOpenAnswer?: (
         <span className="text-sm font-semibold text-brand-navy">{e.name}</span>
         <Chip tone="ok">{fmtNum(e.answers)} คำตอบ</Chip>
       </div>
-      <ToneBar tones={e.tones} total={e.answers} />
+      <ToneBar tones={e.tones} total={e.answers} examples={e.toneAnswers ?? {}} onOpenAnswer={onOpenAnswer} clientView={clientView} />
       {positioning.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {positioning.map((p) => (
@@ -222,6 +378,7 @@ function BrandBlock({ e, onOpenAnswer }: { e: InsightEntityDTO; onOpenAnswer?: (
               <ExampleRow
                 key={f.code}
                 quotes={f.quotes}
+                hint={factorHint(f.code, "brand")}
                 onOpenAnswer={onOpenAnswer}
                 head={
                   <span className="flex items-start justify-between gap-3 text-xs text-gray-700">
@@ -331,6 +488,9 @@ export function SentimentSection({ insight, clientView, onOpenAnswer }: { insigh
                   <ExampleRow
                     key={f.code}
                     quotes={brand?.factors?.find((x) => x.code === f.code)?.quotes}
+                    hint={factorHint(f.code, "answer")}
+                    examples={f.examples}
+                    clientView={clientView}
                     onOpenAnswer={onOpenAnswer}
                     head={
                       <span className="flex items-start justify-between gap-3 text-xs text-gray-700">
@@ -350,7 +510,7 @@ export function SentimentSection({ insight, clientView, onOpenAnswer }: { insigh
           </div>
           <div>
             <SectionTitle>แบรนด์เรา</SectionTitle>
-            {brand ? <BrandBlock e={brand} onOpenAnswer={onOpenAnswer} /> : <p className="text-xs text-gray-500">AI ยังไม่ได้พูดถึงแบรนด์เราในคำตอบที่วิเคราะห์</p>}
+            {brand ? <BrandBlock e={brand} onOpenAnswer={onOpenAnswer} clientView={clientView} /> : <p className="text-xs text-gray-500">AI ยังไม่ได้พูดถึงแบรนด์เราในคำตอบที่วิเคราะห์</p>}
           </div>
           <div>
             <SectionTitle>คู่แข่ง</SectionTitle>
@@ -363,7 +523,7 @@ export function SentimentSection({ insight, clientView, onOpenAnswer }: { insigh
         </div>
         <div className="mt-5 border-t border-gray-100 pt-4">
           <SectionTitle>โทนโดยรวมทุกแบรนด์</SectionTitle>
-          <ToneBar tones={insight.overallTones} total={overallTotal} />
+          <ToneBar tones={insight.overallTones} total={overallTotal} examples={mergeToneLists(insight.entities ?? [], OVERALL_TONE_ANSWERS)} onOpenAnswer={onOpenAnswer} clientView={clientView} />
         </div>
       </Panel>
     </div>
