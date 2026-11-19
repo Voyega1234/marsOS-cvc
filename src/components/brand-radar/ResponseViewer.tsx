@@ -12,10 +12,12 @@ import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Info } from "luci
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Chip } from "@/components/ds";
+import { Chip, EntityAvatar } from "@/components/ds";
+import { faviconUrl } from "@/lib/backlink-management/project-logos";
 import { cn } from "@/lib/utils";
-import type { CitationOwner, RadarFilters, ResponseDTO, ResponseViewerDTO } from "@/lib/brand-radar/types";
-import { fmtDateTime, fmtPct, fmtRange, fmtUsd, isSmallSample, providerShort, radarQuery } from "./shared";
+import { BRAND_POSITIONING_LABEL, SENTIMENT_TONE_LABEL, type CitationOwner, type RadarFilters, type ResponseDTO, type ResponseViewerDTO } from "@/lib/brand-radar/types";
+import { ProviderLogo } from "./ProviderLogo";
+import { ANSWER_ZONE_LEGEND, fmtAnswerPos, fmtDateTime, fmtPct, fmtRange, fmtUsd, fmtZoneShare, isSmallSample, providerShort, radarQuery } from "./shared";
 import { LoadState, useApiData } from "./PromptDialogs";
 
 export interface ViewerTarget {
@@ -38,7 +40,10 @@ const COMPETITOR_MARKS = [
   "bg-teal-100 text-teal-900 ring-1 ring-teal-200",
 ];
 
-interface EntityStyle { key: string; name: string; brand: boolean; cls: string }
+// Brands the AI named that are not on our tracked list: dotted underline only
+const OTHER_MARK = "underline decoration-dotted decoration-gray-400 underline-offset-4";
+
+interface EntityStyle { key: string; name: string; brand: boolean; cls: string; other?: boolean; category?: string }
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -55,6 +60,12 @@ export function buildHighlighter(r: ResponseDTO, styles: Map<string, EntityStyle
       const k = t.trim().toLowerCase();
       if (k.length >= 2 && !byAlias.has(k)) byAlias.set(k, st);
     }
+  }
+  // Other brands the AI named: tracked aliases always win
+  for (const o of r.otherEntities ?? []) {
+    const k = (o.name ?? "").trim().toLowerCase();
+    if (k.length < 2 || byAlias.has(k)) continue;
+    byAlias.set(k, { key: "other:" + k, name: o.name, brand: false, cls: OTHER_MARK, other: true, category: o.category });
   }
   const terms = Array.from(byAlias.keys()).sort((a, b) => b.length - a.length);
   if (terms.length === 0) return null;
@@ -84,6 +95,8 @@ interface RenderCtx {
   seenEntity: Set<string>
 }
 
+const LATIN = /[A-Za-z0-9À-ɏ]/;
+
 function highlightText(text: string, ctx: RenderCtx, keyBase: string): ReactNode[] {
   if (!ctx.hl || !text) return [text];
   const out: ReactNode[] = [];
@@ -95,9 +108,25 @@ function highlightText(text: string, ctx: RenderCtx, keyBase: string): ReactNode
     if (m[0].length === 0) { re.lastIndex += 1; continue; }
     const st = ctx.hl.byAlias.get(m[0].toLowerCase());
     if (!st) continue;
+    // Latin names must match whole words; Thai text has no spaces so it matches inside running text
+    const before = m.index > 0 ? text[m.index - 1] : "";
+    const after = text[m.index + m[0].length] ?? "";
+    if ((LATIN.test(m[0][0]) && before && LATIN.test(before)) || (LATIN.test(m[0][m[0].length - 1]) && after && LATIN.test(after))) {
+      re.lastIndex = m.index + 1;
+      continue;
+    }
     if (m.index > last) out.push(text.slice(last, m.index));
     const first = !ctx.seenEntity.has(st.key);
     ctx.seenEntity.add(st.key);
+    if (st.other) {
+      out.push(
+        <span key={`${keyBase}-h${i++}`} title={`แบรนด์อื่นที่ AI พูดถึง: ${st.name}${st.category ? ` (${st.category})` : ""}`}
+          data-entity={first ? st.key : undefined}
+          className={cn(st.cls)}>{m[0]}</span>,
+      );
+      last = m.index + m[0].length;
+      continue;
+    }
     out.push(
       <mark key={`${keyBase}-h${i++}`} title={st.brand ? `แบรนด์เรา: ${st.name}` : `คู่แข่ง: ${st.name}`}
         data-entity={first ? st.key : undefined}
@@ -125,16 +154,34 @@ function LinkChip({ href, label, no }: { href: string; label: string; no: number
   );
 }
 
-// [text](url) | bare url | **bold** | `code`
-const INLINE_RE = /\[([^\]\n]{0,300})\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()\]]+[^\s<>()\].,;:!?'"])|\*\*([^*\n]+)\*\*|`([^`\n]+)`/gi;
+// Alternation order: [text](url) | bare url | ***bold italic*** | **bold** | `code` | ~~strike~~ | *italic*
+const INLINE_BASE =
+  "\\[([^\\]\\n]{0,300})\\]\\((https?:\\/\\/[^\\s)]+)\\)" +
+  "|(https?:\\/\\/[^\\s<>()\\]]+[^\\s<>()\\].,;:!?'\"])" +
+  "|\\*\\*\\*([^*\\n]+)\\*\\*\\*" +
+  "|\\*\\*([^*\\n]+)\\*\\*" +
+  "|`([^`\\n]+)`" +
+  "|~~([^~\\n]+)~~" +
+  "|\\*(?![\\s*])([^*\\n]*[^*\\s])\\*(?!\\*)";
+// Underscore emphasis never fires inside words (snake_case) or URLs; it needs lookbehind, so it is built at runtime
+const INLINE_UNDERSCORE = "|(?<![A-Za-z0-9_])(__|_)(?!\\s)([^_\\n]*[^_\\s])\\9(?![A-Za-z0-9_])";
+const INLINE_SRC: { src: string; underscore: boolean } = (() => {
+  try {
+    new RegExp(INLINE_BASE + INLINE_UNDERSCORE, "gi");
+    return { src: INLINE_BASE + INLINE_UNDERSCORE, underscore: true };
+  } catch {
+    return { src: INLINE_BASE, underscore: false };
+  }
+})();
 
 function renderInline(text: string, ctx: RenderCtx, keyBase: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = new RegExp(INLINE_RE.source, "gi");
+  const re = new RegExp(INLINE_SRC.src, "gi");
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
   while ((m = re.exec(text)) !== null) {
+    if (m[0].length === 0) { re.lastIndex += 1; continue; }
     if (m.index > last) out.push(...highlightText(text.slice(last, m.index), ctx, `${keyBase}-t${i}`));
     const k = `${keyBase}-i${i++}`;
     if (m[2]) {
@@ -144,9 +191,19 @@ function renderInline(text: string, ctx: RenderCtx, keyBase: string): ReactNode[
     } else if (m[3]) {
       out.push(<LinkChip key={k} href={m[3]} label={hostLabel(m[3])} no={ctx.citeNo.get(urlKey(m[3]))} />);
     } else if (m[4]) {
-      out.push(<strong key={k} className="font-semibold">{renderInline(m[4], ctx, k)}</strong>);
+      out.push(<strong key={k} className="font-semibold"><em>{renderInline(m[4], ctx, k)}</em></strong>);
     } else if (m[5]) {
-      out.push(<code key={k} className="rounded bg-gray-100 px-1 text-[0.9em]">{m[5]}</code>);
+      out.push(<strong key={k} className="font-semibold">{renderInline(m[5], ctx, k)}</strong>);
+    } else if (m[6]) {
+      out.push(<code key={k} className="rounded bg-gray-100 px-1 text-[0.9em]">{m[6]}</code>);
+    } else if (m[7]) {
+      out.push(<del key={k}>{renderInline(m[7], ctx, k)}</del>);
+    } else if (m[8]) {
+      out.push(<em key={k}>{renderInline(m[8], ctx, k)}</em>);
+    } else if (INLINE_SRC.underscore && m[10] !== undefined) {
+      out.push(m[9] === "__"
+        ? <strong key={k} className="font-semibold">{renderInline(m[10], ctx, k)}</strong>
+        : <em key={k}>{renderInline(m[10], ctx, k)}</em>);
     }
     last = m.index + m[0].length;
   }
@@ -183,8 +240,16 @@ export function renderMarkdown(src: string, ctx: RenderCtx): ReactNode[] {
     }
     const h = /^\s*(#{1,6})\s+(.*)$/.exec(line);
     if (h) {
-      blocks.push(<p key={key} className={cn("mt-4 first:mt-0", HEADING_CLS[h[1].length])}>{renderInline(h[2].replace(/\s*#+\s*$/, ""), ctx, key)}</p>);
+      const lvl = h[1].length;
+      const HTag = lvl <= 2 ? "h3" : lvl <= 4 ? "h4" : "h5";
+      blocks.push(<HTag key={key} className={cn("mt-4 first:mt-0", HEADING_CLS[lvl])}>{renderInline(h[2].replace(/\s*#+\s*$/, ""), ctx, key)}</HTag>);
       i++;
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const quoted: string[] = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) quoted.push(lines[i++].replace(/^\s*>\s?/, ""));
+      blocks.push(<blockquote key={key} className="my-2 border-l-2 border-gray-200 pl-3 text-gray-600">{renderMarkdown(quoted.join("\n"), ctx)}</blockquote>);
       continue;
     }
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { blocks.push(<hr key={key} className="my-3 border-gray-100" />); i++; continue; }
@@ -231,7 +296,7 @@ export function renderMarkdown(src: string, ctx: RenderCtx): ReactNode[] {
     }
     // paragraph: consecutive plain lines
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^\s*(#{1,6}\s|```|[-*•+]\s|\d{1,3}[.)]\s)/.test(lines[i]) && !(isTable(lines[i]) && i + 1 < lines.length && isSep(lines[i + 1]))) {
+    while (i < lines.length && lines[i].trim() && !/^\s*(#{1,6}\s|```|>|[-*•+]\s|\d{1,3}[.)]\s)/.test(lines[i]) && !(isTable(lines[i]) && i + 1 < lines.length && isSep(lines[i + 1]))) {
       para.push(lines[i].trim());
       i++;
     }
@@ -243,6 +308,23 @@ export function renderMarkdown(src: string, ctx: RenderCtx): ReactNode[] {
     );
   }
   return blocks;
+}
+
+/** Renders one answer's text (markdown-lite + brand / competitor highlighting) from the answer's own mentions. */
+export function AnswerBody({ response, className }: { response: ResponseDTO; className?: string }) {
+  const nodes = useMemo(() => {
+    if (!response.responseText) return null;
+    const styles = new Map<string, EntityStyle>();
+    let c = 0;
+    for (const m of response.mentions) {
+      if (!styles.has(m.key)) styles.set(m.key, { key: m.key, name: m.name, brand: m.entityType === "brand", cls: m.entityType === "brand" ? BRAND_MARK : COMPETITOR_MARKS[c++ % COMPETITOR_MARKS.length] });
+    }
+    const citeNo = new Map<string, number>();
+    response.citations.forEach((ci, i) => { const k = urlKey(ci.url); if (!citeNo.has(k)) citeNo.set(k, i + 1); });
+    return renderMarkdown(response.responseText, { hl: buildHighlighter(response, styles), citeNo, seenEntity: new Set() });
+  }, [response]);
+  if (!nodes || nodes.length === 0) return <p className="text-sm text-gray-500">คำตอบว่าง</p>;
+  return <article className={cn("text-[14px] leading-7 text-gray-800", className)}>{nodes}</article>;
 }
 
 // ── Side panel pieces ────────────────────────────────────────────────────────
@@ -258,6 +340,16 @@ function pathOf(u: string): string {
   } catch {
     return "";
   }
+}
+
+function Favicon({ domain, label, size = 20 }: { domain?: string | null; label?: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const src = faviconUrl(domain);
+  if (src && !failed) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="shrink-0 rounded" style={{ width: size, height: size }} />;
+  }
+  return <EntityAvatar label={label || domain || "?"} size={size} />;
 }
 
 function Section({ title, count, children, note }: { title: string; count?: number; children: ReactNode; note?: string }) {
@@ -283,7 +375,9 @@ function VendorChips({ vendor, isOwnPbn }: { vendor: ResponseDTO["citations"][nu
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function ResponseViewer({ projectId, filters, target, onClose }: {
+export default function ResponseViewer({ projectId, filters, target, onClose, clientView }: {
+  /** true = customer login: no cost, model, error text or backlink-vendor chips */
+  clientView?: boolean
   projectId: string
   filters: RadarFilters
   /** null = closed */
@@ -309,8 +403,13 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
     ? `/api/brand-radar/prompts/${encodeURIComponent(target.promptId)}/responses?${radarQuery(projectId, filters, { runId, viewProvider: provider })}`
     : "";
   const { data: raw, loading, error, reload } = useApiData<ResponseViewerDTO>(url, 0);
-  // the hook keeps the previous payload while a new one loads: never show another prompt's answers
-  const data = raw && target && raw.prompt.id === target.promptId ? raw : null;
+  // the hook keeps the previous payload while a new one loads: never show another prompt's answers,
+  // nor answers loaded for other filters. Switching AI / run inside the viewer keeps the dimmed old view.
+  const scopeKey = target ? `${target.promptId}|${radarQuery(projectId, filters)}` : "";
+  const loadedRaw = useRef<unknown>(null);
+  const loadedScope = useRef("");
+  if (raw !== loadedRaw.current) { loadedRaw.current = raw; loadedScope.current = scopeKey; }
+  const data = raw && target && raw.prompt.id === target.promptId && loadedScope.current === scopeKey ? raw : null;
 
   const samples = useMemo(() => data?.samples ?? [], [data]);
   const current = useMemo(() => {
@@ -322,7 +421,7 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
   const styles = useMemo(() => {
     const map = new Map<string, EntityStyle>();
     let c = 0;
-    for (const e of data?.summary.entities ?? []) {
+    for (const e of data?.summary?.entities ?? []) {
       map.set(e.key, { key: e.key, name: e.name, brand: e.entityType === "brand", cls: e.entityType === "brand" ? BRAND_MARK : COMPETITOR_MARKS[c++ % COMPETITOR_MARKS.length] });
     }
     for (const s of samples) {
@@ -380,30 +479,38 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
   const sum = data?.summary;
   const brandRate = sum && sum.asked > 0 ? sum.brandMentioned / sum.asked : null;
   const mentionsSorted = current ? [...current.mentions].sort((a, b) => (a.position ?? 999) - (b.position ?? 999)) : [];
+  const otherEntities = current?.otherEntities ?? [];
   const unlinked = mentionsSorted.filter((m) => !m.linked);
-  const isObserved = current?.collectionMethod === "observed_serp";
+  // Read from the row, not from PROVIDERS: answers collected before a platform changed source keep their own method
+  const method = current?.collectionMethod;
+  const methodChip = method === "observed_serp" ? "Google จริง" : method === "observed_chat" ? "คำตอบจริงจากแอป" : method === "imported" ? "นำเข้า" : "API";
+  const methodNote =
+    method === "observed_serp" ? "ข้อความนี้เก็บจากหน้า Google จริงผ่าน DataForSEO"
+    : method === "observed_chat" ? "คำตอบนี้อ่านจากหน้าแอปจริงผ่าน DataForSEO แบบผู้ใช้ที่ไม่ได้ login คำตอบของผู้ใช้ที่ login อาจต่างออกไป"
+    : method === "imported" ? "คำตอบนี้นำเข้าจากไฟล์"
+    : "คำตอบนี้ได้จากการถาม AI ผ่าน API พร้อมค้นเว็บ อาจไม่ตรงกับที่ผู้ใช้เห็นในแอปทุกคำ";
 
   return (
     <Sheet open={!!target} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-[min(1200px,96vw)]">
+      <SheetContent side="right" className="flex w-full max-w-full flex-col gap-0 overflow-x-hidden p-0 sm:max-w-[min(1200px,96vw)]">
         {/* Header */}
         <div className="space-y-3 border-b border-gray-100 px-5 pb-3 pt-4 pr-12">
-          <SheetTitle className="text-base font-semibold leading-snug">{data?.prompt.text ?? "คำตอบของ AI"}</SheetTitle>
+          <SheetTitle className="break-words text-base font-semibold leading-snug">{data?.prompt.text ?? "คำตอบของ AI"}</SheetTitle>
           <SheetDescription className="sr-only">คำตอบเต็มของ AI สำหรับ Prompt นี้ พร้อมชื่อแบรนด์ที่ถูกพูดถึงและลิงก์อ้างอิง</SheetDescription>
           {data ? (
             <div className="flex flex-wrap items-center gap-2">
               <Select value={data.provider ?? ""} onValueChange={(v) => { setProvider(v); setSampleId(""); }}>
-                <SelectTrigger className="h-8 w-auto min-w-[11rem] text-xs"><SelectValue placeholder="เลือก AI" /></SelectTrigger>
+                <SelectTrigger className="h-9 w-auto min-w-[9rem] max-w-full text-xs sm:min-w-[11rem]"><SelectValue placeholder="เลือก AI" /></SelectTrigger>
                 <SelectContent>
                   {data.providers.map((p) => (
                     <SelectItem key={p.provider} value={p.provider} className="text-xs">
-                      {providerShort(p.provider)} · เราขึ้น {p.brandMentions}/{p.responses}
+                      <span className="inline-flex items-center gap-1.5"><ProviderLogo provider={p.provider} size={16} />{providerShort(p.provider)} · เราขึ้น {p.brandMentions}/{p.responses}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Select value={data.runId ?? ""} onValueChange={(v) => { setRunId(v); setSampleId(""); }}>
-                <SelectTrigger className="h-8 w-auto min-w-[10rem] text-xs"><SelectValue placeholder="เลือกรอบสแกน" /></SelectTrigger>
+                <SelectTrigger className="h-9 w-auto min-w-[9rem] max-w-full text-xs sm:min-w-[10rem]"><SelectValue placeholder="เลือกรอบสแกน" /></SelectTrigger>
                 <SelectContent>
                   {data.runs.map((r) => (
                     <SelectItem key={r.runId} value={r.runId} className="text-xs">สแกน {fmtDateTime(r.date)} · {r.providers.length} AI</SelectItem>
@@ -414,7 +521,7 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
               {data.prompt.topic ? <Chip tone="muted">{data.prompt.topic}</Chip> : null}
             </div>
           ) : null}
-          {/* Summary across repeat asks (what Ahrefs does not show) */}
+          {/* Summary across repeat asks */}
           {sum && sum.asked > 0 ? (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-700">
               <span>
@@ -429,7 +536,7 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
         </div>
 
         {!data ? (
-          <div className="p-6"><LoadState loading={loading} error={error} onRetry={reload} /></div>
+          <div className="p-6"><LoadState loading={loading} error={error} onRetry={reload} clientView={clientView} /></div>
         ) : samples.length === 0 || !current ? (
           <p className="p-6 text-sm text-gray-500">
             {data.runs.length === 0 ? "ยังไม่มีคำตอบของ Prompt นี้ในช่วงวันที่ / ประเทศ / ภาษาที่เลือก" : "AI ตัวนี้ไม่มีคำตอบในรอบสแกนที่เลือก"}
@@ -437,19 +544,19 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
         ) : (
           <div className={cn("grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]", loading && "opacity-60")}>
             {/* Answer */}
-            <div ref={bodyRef} className="min-h-0 overflow-y-auto px-5 py-4">
+            <div ref={bodyRef} className="min-h-0 min-w-0 overflow-y-auto px-4 py-4 sm:px-5">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 {samples.length > 1 ? (
                   <div className="flex items-center gap-1">
-                    <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => go(-1)} aria-label="คำตอบก่อนหน้า"><ChevronLeft className="h-4 w-4" /></Button>
+                    <Button size="sm" variant="outline" className="h-9 w-9 p-0 sm:h-7 sm:w-7" onClick={() => go(-1)} aria-label="คำตอบก่อนหน้า"><ChevronLeft className="h-4 w-4" /></Button>
                     <div className="flex flex-wrap gap-1">
                       {samples.map((s, i) => {
                         const failed = s.status !== "DONE";
                         return (
                           <button key={s.id} type="button" onClick={() => { setSampleId(s.id); bodyRef.current?.scrollTo({ top: 0 }); }}
-                            title={failed ? `ครั้งที่ ${i + 1}: ${s.status}` : s.brandMentioned ? `ครั้งที่ ${i + 1}: พูดถึงเรา` : `ครั้งที่ ${i + 1}: ไม่พูดถึงเรา`}
+                            title={failed ? (clientView ? `ครั้งที่ ${i + 1}: ยังไม่พร้อมแสดง` : `ครั้งที่ ${i + 1}: ${s.status}`) : s.brandMentioned ? `ครั้งที่ ${i + 1}: พูดถึงเรา` : `ครั้งที่ ${i + 1}: ไม่พูดถึงเรา`}
                             className={cn(
-                              "h-7 min-w-7 rounded-lg border px-1.5 text-xs tabular-nums",
+                              "h-9 min-w-9 rounded-lg border px-1.5 text-xs tabular-nums sm:h-7 sm:min-w-7",
                               s.id === current.id ? "border-brand-blue bg-brand-blue text-white" : "border-gray-200 bg-white hover:bg-gray-50",
                             )}>
                             <span className="inline-flex items-center gap-1">
@@ -460,40 +567,58 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
                         );
                       })}
                     </div>
-                    <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => go(1)} aria-label="คำตอบถัดไป"><ChevronRight className="h-4 w-4" /></Button>
+                    <Button size="sm" variant="outline" className="h-9 w-9 p-0 sm:h-7 sm:w-7" onClick={() => go(1)} aria-label="คำตอบถัดไป"><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                 ) : null}
                 <div className="ml-auto flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500">
-                  <span>{current.model || "-"}</span>
-                  <Chip tone="muted">{isObserved ? "Google จริง" : "API"}</Chip>
+                  {clientView ? null : <span>{current.model || "-"}</span>}
+                  {clientView ? null : <Chip tone={method === "observed_chat" || method === "observed_serp" ? "info" : "muted"}>{methodChip}</Chip>}
                   <span>{fmtDateTime(current.collectedAt)}</span>
-                  {current.costUsd !== null ? <span>{fmtUsd(current.costUsd)}</span> : null}
+                  {!clientView && current.costUsd !== null ? <span>{fmtUsd(current.costUsd)}</span> : null}
                   <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={copy} disabled={!current.responseText}>
                     {copied ? <Check className="mr-1 h-3.5 w-3.5" /> : <Copy className="mr-1 h-3.5 w-3.5" />}{copied ? "คัดลอกแล้ว" : "คัดลอก"}
                   </Button>
                 </div>
               </div>
-              <p className="mb-3 flex items-start gap-1.5 text-[11px] leading-4 text-gray-500">
-                <Info className="mt-px h-3.5 w-3.5 shrink-0" />
-                {isObserved
-                  ? "ข้อความนี้เก็บจากหน้า Google จริงผ่าน DataForSEO"
-                  : "คำตอบนี้ได้จากการถาม AI ผ่าน API พร้อมค้นเว็บ อาจไม่ตรงกับที่ผู้ใช้เห็นในแอปทุกคำ"}
-              </p>
+              {clientView ? null : (
+                <p className="mb-3 flex items-start gap-1.5 text-[11px] leading-4 text-gray-500">
+                  <Info className="mt-px h-3.5 w-3.5 shrink-0" />
+                  {methodNote}
+                </p>
+              )}
+              {(current.searchQueries ?? []).length > 0 ? (
+                <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+                  <span>AI ค้นหาด้วยคำว่า</span>
+                  {(current.searchQueries ?? []).map((q, i) => <Chip key={`${q}-${i}`} tone="info">{q}</Chip>)}
+                </div>
+              ) : null}
+              {current.sentiment && (current.sentiment.entities ?? []).length > 0 ? (
+                <ul className="mb-3 space-y-1 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                  {current.sentiment.entities.map((e) => (
+                    <li key={e.key} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <b>{e.name}</b>
+                      <Chip tone={e.tone === "positive" ? "ok" : e.tone === "negative" ? "bad" : e.tone === "mixed" ? "warn" : "muted"}>{SENTIMENT_TONE_LABEL[e.tone] ?? e.tone}</Chip>
+                      {(e.positioning ?? []).map((p) => <Chip key={p} tone="muted">{BRAND_POSITIONING_LABEL[p] ?? p}</Chip>)}
+                      {e.summary ? <span className="text-gray-600">{e.summary}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {current.status !== "DONE" ? (
-                <p className="rounded-xl bg-red-50 p-3 text-xs text-red-700">{current.status}: {current.error || "ไม่มีรายละเอียดข้อผิดพลาด"}</p>
+                <p className="rounded-xl bg-red-50 p-3 text-xs text-red-700">{clientView ? "คำตอบนี้ยังไม่พร้อมแสดง" : `${current.status}: ${current.error || "ไม่มีรายละเอียดข้อผิดพลาด"}`}</p>
               ) : rendered && rendered.length > 0 ? (
-                <article className="text-[14px] leading-7 text-gray-800">{rendered}</article>
+                <article className="break-words text-[14px] leading-7 text-gray-800">{rendered}</article>
               ) : (
                 <p className="text-sm text-gray-500">คำตอบว่าง</p>
               )}
             </div>
 
             {/* Side panel */}
-            <aside className="min-h-0 space-y-5 overflow-y-auto border-t border-gray-100 bg-gray-50/50 px-4 py-4 lg:border-l lg:border-t-0">
+            <aside className="min-h-0 min-w-0 space-y-5 overflow-y-auto border-t border-gray-100 bg-gray-50/50 px-4 py-4 lg:border-l lg:border-t-0">
               <div className="flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
                 {([["answer", `คำตอบที่ ${curIdx + 1}`], ["all", `รวม ${sum?.asked ?? 0} คำตอบ`]] as const).map(([k, label]) => (
                   <button key={k} type="button" onClick={() => setSideTab(k)}
-                    className={cn("flex-1 rounded-md px-2 py-1", sideTab === k ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-50")}>{label}</button>
+                    className={cn("min-h-[36px] flex-1 rounded-md px-2 py-1", sideTab === k ? "bg-brand-blue text-white" : "text-gray-600 hover:bg-gray-50")}>{label}</button>
                 ))}
               </div>
 
@@ -509,10 +634,12 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
                           return (
                             <li key={m.key}>
                               <button type="button" onClick={() => jumpTo(m.key)}
-                                className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs hover:bg-white">
+                                className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg px-1.5 py-1 text-left text-xs hover:bg-white">
                                 <span className="w-4 shrink-0 text-right tabular-nums text-gray-400">{i + 1}</span>
+                                <Favicon domain={data.entityDomains?.[m.key]} label={m.name} />
                                 <span className={cn("truncate rounded px-1.5 py-0.5 font-medium", st?.cls)}>{m.name}</span>
                                 <span className="text-gray-500">×{m.occurrences}</span>
+                                <span className="text-[11px] text-gray-500">{fmtAnswerPos(m.positionPct)}</span>
                                 <span className="ml-auto flex shrink-0 gap-1">
                                   {m.recommended ? <Chip tone="ok">แนะนำ</Chip> : null}
                                   {m.compared ? <Chip tone="muted">เทียบ</Chip> : null}
@@ -525,34 +652,92 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
                     )}
                   </Section>
 
+                  {otherEntities.length === 0 ? null : (
+                    <Section title="แบรนด์อื่นที่ AI พูดถึง" count={otherEntities.length}
+                      note="ชื่อแบรนด์ที่ AI เอ่ยถึงแต่ไม่อยู่ในรายการติดตาม กดเพื่อเลื่อนไปจุดนั้น">
+                      <ul className="space-y-1">
+                        {otherEntities.map((o, i) => (
+                          <li key={`${o.name}-${i}`}>
+                            <button type="button" onClick={() => jumpTo("other:" + o.name.trim().toLowerCase())}
+                              className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg px-1.5 py-1 text-left text-xs hover:bg-white">
+                              <Favicon domain={o.domain || undefined} label={o.name} />
+                              <span className={cn("min-w-0 truncate", OTHER_MARK)}>{o.name}</span>
+                              {o.category ? <Chip tone="muted">{o.category}</Chip> : null}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </Section>
+                  )}
+
                   <Section title="หน้าที่ถูกอ้างอิง" count={current.citations.length}>
                     {current.citations.length === 0 ? (
                       <p className="text-xs text-gray-500">คำตอบนี้ไม่มีลิงก์อ้างอิง</p>
                     ) : (
-                      <ol className="space-y-1.5">
+                      <ol className="space-y-2">
                         {current.citations.map((c, i) => {
                           const safe = /^https?:\/\//i.test(c.url);
                           const path = pathOf(c.url);
                           return (
-                            <li key={`${c.url}-${i}`} className="flex gap-2 text-xs">
-                              <span className="w-4 shrink-0 text-right tabular-nums text-gray-400">{i + 1}</span>
+                            <li key={`${c.url}-${i}`} className="flex items-start gap-2 text-xs">
+                              <span className="w-4 shrink-0 pt-0.5 text-right tabular-nums text-gray-400">{i + 1}</span>
+                              <Favicon domain={c.domain} label={c.domain} />
                               <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-1">
-                                  {safe ? (
-                                    <a href={c.url} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1 font-medium text-brand-blue hover:underline">
-                                      {c.domain}<ExternalLink className="h-3 w-3" />
-                                    </a>
-                                  ) : <span className="font-medium">{c.domain}</span>}
+                                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                  <div className="flex min-w-0 max-w-full items-baseline gap-1">
+                                    {safe ? (
+                                      <a href={c.url} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-blue hover:underline">
+                                        {c.domain}<ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    ) : <span className="shrink-0 font-medium">{c.domain}</span>}
+                                    {path ? <span className="min-w-0 truncate text-gray-400" title={path}>{path}</span> : null}
+                                  </div>
                                   <Chip tone={OWNER_TONE[c.ownerType]}>{OWNER_LABEL[c.ownerType]}</Chip>
-                                  <VendorChips vendor={c.vendor} isOwnPbn={c.isOwnPbn} />
+                                  {clientView ? null : <VendorChips vendor={c.vendor} isOwnPbn={c.isOwnPbn} />}
                                 </div>
                                 {c.title ? <p className="truncate text-gray-600" title={c.title}>{c.title}</p> : null}
-                                {path ? <p className="truncate text-gray-400" title={path}>{path}</p> : null}
                               </div>
                             </li>
                           );
                         })}
                       </ol>
+                    )}
+                  </Section>
+
+                  <Section title="เจอแต่ไม่ได้อ้างอิง" count={(current.foundSources ?? []).length}
+                    note="หน้าที่ AI ค้นเจอระหว่างหาคำตอบ แต่ไม่ได้นำมาอ้างอิงในคำตอบ">
+                    {(current.foundSources ?? []).length === 0 ? (
+                      <p className="text-xs text-gray-500">
+                        {current.provider === "openai"
+                          ? "คำตอบนี้ไม่มีหน้าที่ค้นเจอแต่ไม่ได้นำมาอ้างอิง"
+                          : "แพลตฟอร์มนี้ไม่ส่งรายการหน้าที่ค้นเจอแต่ไม่ได้อ้างอิงมาให้ จึงไม่แสดงแทนด้วยการเดา"}
+                      </p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {(current.foundSources ?? []).map((f, i) => {
+                          const safe = /^https?:\/\//i.test(f.url);
+                          const path = pathOf(f.url);
+                          return (
+                            <li key={`${f.url}-${i}`} className="flex items-start gap-2 text-xs">
+                              <Favicon domain={f.domain} label={f.domain} />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                  <div className="flex min-w-0 max-w-full items-baseline gap-1">
+                                    {safe ? (
+                                      <a href={f.url} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-blue hover:underline">
+                                        {f.domain}<ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    ) : <span className="shrink-0 font-medium">{f.domain}</span>}
+                                    {path ? <span className="min-w-0 truncate text-gray-400" title={path}>{path}</span> : null}
+                                  </div>
+                                  {f.ownerType === "own" || f.ownerType === "competitor" ? <Chip tone={OWNER_TONE[f.ownerType]}>{OWNER_LABEL[f.ownerType]}</Chip> : null}
+                                </div>
+                                {f.title ? <p className="truncate text-gray-600" title={f.title}>{f.title}</p> : null}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     )}
                   </Section>
 
@@ -566,16 +751,15 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
                       </div>
                     )}
                   </Section>
-                  <p className="text-[11px] leading-4 text-gray-400">
-                    หมายเหตุ: Ahrefs มีรายการ &quot;Found but not cited&quot; (หน้าที่ AI ค้นเจอแต่ไม่ได้อ้าง) — API ที่เราใช้ไม่ส่งข้อมูลนี้มา จึงไม่แสดงแทนด้วยการเดา
-                  </p>
                 </>
               ) : sum ? (
                 <>
-                  <Section title="ใครถูกพูดถึงบ่อยแค่ไหน" count={sum.entities.length} note={`นับจาก ${sum.asked} คำตอบของ ${providerShort(data.provider ?? "")} ในรอบนี้`}>
-                    {sum.entities.length === 0 ? <p className="text-xs text-gray-500">ไม่มี</p> : (
+                  <Section title="ใครถูกพูดถึงบ่อยแค่ไหน" count={sum.entities?.length ?? 0} note={`นับจาก ${sum.asked} คำตอบของ ${providerShort(data.provider ?? "")} ในรอบนี้`}>
+                    {(sum.entities ?? []).length === 0 ? <p className="text-xs text-gray-500">ไม่มี</p> : (
+                      <>
+                      <p className="mb-1.5 text-[11px] leading-4 text-gray-500">ตำแหน่งในคำตอบ = % ของคำตอบที่ AI เริ่มพูดถึงชื่อนั้นในแต่ละช่วง ({ANSWER_ZONE_LEGEND})</p>
                       <ul className="space-y-1.5">
-                        {sum.entities.map((e) => {
+                        {(sum.entities ?? []).map((e) => {
                           const rate = sum.asked > 0 ? e.answers / sum.asked : 0;
                           return (
                             <li key={e.key} className="text-xs">
@@ -589,20 +773,24 @@ export default function ResponseViewer({ projectId, filters, target, onClose }: 
                               <p className="mt-0.5 text-[11px] text-gray-500">
                                 แนะนำ {e.recommended} ครั้ง{e.avgPosition !== null ? ` · ลำดับที่ปรากฏเฉลี่ย ${e.avgPosition.toFixed(1)}` : ""}
                               </p>
+                              {fmtZoneShare(e.zones) ? (
+                                <p className="mt-0.5 text-[11px] text-gray-500">ตำแหน่งในคำตอบ: {fmtZoneShare(e.zones)}</p>
+                              ) : null}
                             </li>
                           );
                         })}
                       </ul>
+                      </>
                     )}
                   </Section>
-                  <Section title="เว็บที่ถูกอ้างอิง" count={sum.domains.length} note="จำนวนคำตอบที่มีลิงก์ไปเว็บนั้น">
-                    {sum.domains.length === 0 ? <p className="text-xs text-gray-500">ไม่มีลิงก์อ้างอิง</p> : (
+                  <Section title="เว็บที่ถูกอ้างอิง" count={sum.domains?.length ?? 0} note="จำนวนคำตอบที่มีลิงก์ไปเว็บนั้น">
+                    {(sum.domains ?? []).length === 0 ? <p className="text-xs text-gray-500">ไม่มีลิงก์อ้างอิง</p> : (
                       <ul className="space-y-1">
-                        {sum.domains.map((d) => (
+                        {(sum.domains ?? []).map((d) => (
                           <li key={d.domain} className="flex flex-wrap items-center gap-1 text-xs">
-                            <span className="font-medium">{d.domain}</span>
+                            <span className="min-w-0 break-all font-medium">{d.domain}</span>
                             <Chip tone={OWNER_TONE[d.ownerType]}>{OWNER_LABEL[d.ownerType]}</Chip>
-                            <VendorChips vendor={d.vendor} isOwnPbn={d.isOwnPbn} />
+                            {clientView ? null : <VendorChips vendor={d.vendor} isOwnPbn={d.isOwnPbn} />}
                             <span className="ml-auto tabular-nums text-gray-600">{d.answers}/{sum.asked}</span>
                           </li>
                         ))}

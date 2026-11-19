@@ -19,14 +19,17 @@ export type ProviderKey = (typeof PROVIDER_KEYS)[number]
 /**
  * api_simulated = the model was called through an API with web search on. It approximates,
  *                 and is NOT, what the consumer app (ChatGPT, Gemini app, ...) shows a user.
+ * observed_chat = the answer was read from the real chat product (ChatGPT, Gemini) by a licensed scraper
+ *                 (DataForSEO LLM Scraper). It is what the web app showed a logged-out visitor in that country;
+ *                 answers differ between asks, so the provider is asked several times like an API provider.
  * observed_serp = the AI answer was read from a live search results page by a licensed SERP provider.
  * imported      = rows brought in from a file.
  */
-export type CollectionMethod = 'api_simulated' | 'observed_serp' | 'imported'
+export type CollectionMethod = 'api_simulated' | 'observed_chat' | 'observed_serp' | 'imported'
 
 export interface ProviderInfo {
   key: ProviderKey
-  /** Honest label: names the API, never the consumer product */
+  /** Honest label: says how the answer is collected (API call, or read from the real product by a scraper) */
   label: string
   vendor: string
   method: CollectionMethod
@@ -39,14 +42,12 @@ export interface ProviderInfo {
 
 export const PROVIDERS: Record<ProviderKey, ProviderInfo> = {
   openai: {
-    key: 'openai', label: 'OpenAI GPT (API + web search)', vendor: 'OpenAI', method: 'api_simulated', via: 'openrouter',
-    modelEnv: 'BRAND_RADAR_MODEL_OPENAI',
-    note: 'API call with web search. Approximates ChatGPT answers; it is not the ChatGPT app.',
+    key: 'openai', label: 'ChatGPT (real answer, DataForSEO)', vendor: 'OpenAI', method: 'observed_chat', via: 'dataforseo',
+    note: 'Answer read from the ChatGPT web app by DataForSEO LLM Scraper, with web search on. It is what a logged-out visitor sees; a logged-in user with memory or a paid plan can get a different answer.',
   },
   gemini: {
-    key: 'gemini', label: 'Google Gemini (API + web search)', vendor: 'Google', method: 'api_simulated', via: 'openrouter',
-    modelEnv: 'BRAND_RADAR_MODEL_GEMINI',
-    note: 'API call with web search. Approximates Gemini answers; it is not the Gemini app.',
+    key: 'gemini', label: 'Google Gemini (real answer, DataForSEO)', vendor: 'Google', method: 'observed_chat', via: 'dataforseo',
+    note: 'Answer read from the Gemini web app by DataForSEO LLM Scraper. It is what a logged-out visitor sees. Gemini does not return the pages it found but did not cite, nor its search queries.',
   },
   perplexity: {
     key: 'perplexity', label: 'Perplexity Sonar (API)', vendor: 'Perplexity', method: 'api_simulated', via: 'openrouter',
@@ -80,7 +81,7 @@ export const PROVIDERS: Record<ProviderKey, ProviderInfo> = {
 
 /** Platforms people ask for that have no authorized API here. Shown as "Unsupported", never faked. */
 export const UNSUPPORTED_PLATFORMS: ReadonlyArray<{ label: string; reason: string }> = [
-  { label: 'ChatGPT app (logged-in consumer product)', reason: 'No official API returns what the consumer app shows. Use OpenAI GPT (API) as an approximation.' },
+  { label: 'ChatGPT / Gemini for a logged-in user (memory, paid plan)', reason: 'Answers are read as a logged-out visitor. No authorized source returns what a specific logged-in account sees.' },
   { label: 'Microsoft Copilot', reason: 'No authorized API for Copilot answers.' },
   { label: 'Meta AI', reason: 'No authorized API for Meta AI answers.' },
 ]
@@ -94,7 +95,7 @@ export interface ProviderStatusDTO {
   method: CollectionMethod
   via: 'openrouter' | 'dataforseo'
   note: string
-  /** model slug that will be called ('' for dataforseo) */
+  /** model slug that will be called ('' for dataforseo: the product picks its own model) */
   model: string
   /**
    * NOT_CONNECTED = credentials missing on the server
@@ -151,8 +152,56 @@ export const PRIORITIES = ['high', 'medium', 'low'] as const
 export type Priority = (typeof PRIORITIES)[number]
 export type Confidence = Priority
 
+/** The fixed schedules. `every:N` and `days:…` (below) are stored in the same text column. */
 export const SCHEDULES = ['manual', 'daily', 'weekly', 'monthly'] as const
-export type Schedule = (typeof SCHEDULES)[number]
+export type SchedulePreset = (typeof SCHEDULES)[number]
+/**
+ * A stored schedule value:
+ *   manual | daily | weekly | monthly
+ *   every:N      scan every N days (N = 2..SCHEDULE_LIMITS.intervalMax)
+ *   days:1,3     scan on those weekdays (ISO numbers: 1 = Monday … 7 = Sunday, ascending)
+ */
+export type Schedule = SchedulePreset | `every:${number}` | `days:${string}`
+
+export const SCHEDULE_LIMITS = { intervalMin: 2, intervalMax: 90 } as const
+
+export type ScheduleSpec =
+  | { kind: SchedulePreset }
+  | { kind: 'interval'; days: number }
+  | { kind: 'weekdays'; days: number[] }
+export type ScheduleKind = ScheduleSpec['kind']
+
+/** Stored value -> spec. Null when the value is not a schedule this version understands. */
+export function parseSchedule(value: unknown): ScheduleSpec | null {
+  if (typeof value !== 'string') return null
+  const v = value.trim()
+  if ((SCHEDULES as readonly string[]).includes(v)) return { kind: v as SchedulePreset }
+  const every = /^every:(\d{1,3})$/.exec(v)
+  if (every) {
+    const n = Number(every[1])
+    if (n === 1) return { kind: 'daily' }
+    return n >= SCHEDULE_LIMITS.intervalMin && n <= SCHEDULE_LIMITS.intervalMax ? { kind: 'interval', days: n } : null
+  }
+  const days = /^days:([1-7](?:,[1-7]){0,6})$/.exec(v)
+  if (days) {
+    const list = Array.from(new Set(days[1].split(',').map(Number))).sort((a, b) => a - b)
+    return list.length === 7 ? { kind: 'daily' } : { kind: 'weekdays', days: list }
+  }
+  return null
+}
+
+/** Spec -> the one canonical stored value (every 1 day and all 7 weekdays are both `daily`) */
+export function formatSchedule(spec: ScheduleSpec): Schedule {
+  if (spec.kind === 'interval') return spec.days === 1 ? 'daily' : `every:${spec.days}`
+  if (spec.kind === 'weekdays') return spec.days.length === 7 ? 'daily' : `days:${[...spec.days].sort((a, b) => a - b).join(',')}`
+  return spec.kind
+}
+
+/** Any stored value -> canonical schedule, or the fallback when it cannot be read */
+export function normalizeSchedule(value: unknown, fallback: Schedule): Schedule {
+  const spec = parseSchedule(value)
+  return spec ? formatSchedule(spec) : fallback
+}
 
 export type RunStatus = 'RUNNING' | 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'CANCELLED'
 export type RunTrigger = 'manual' | 'schedule'
@@ -223,17 +272,88 @@ export interface CompetitorDTO {
 
 export interface CompetitorInput { name?: string; aliases?: string[]; domains?: string[]; status?: 'ACTIVE' | 'INACTIVE' }
 
-/** Client picker row: an existing Project of the organization */
+/**
+ * A project created inside Brand Radar ("manual project"). It has no row in the Project table: its
+ * BrandRadarProfile is the project (name = brandName, website = primaryDomain), and its id carries this prefix.
+ * Project ids from the Project table are cuids and never start with it.
+ */
+export const MANUAL_PROJECT_PREFIX = 'brm_'
+
+export function isManualProjectId(id: unknown): id is string {
+  return typeof id === 'string' && id.startsWith(MANUAL_PROJECT_PREFIX)
+}
+
+/**
+ * The project id to store on an AIJob row. AIJob.projectId is a foreign key to the Project table, so a manual
+ * project is logged with null (the cost is still recorded, without a project).
+ */
+export function aiJobProjectId(projectId: string): string | null {
+  return isManualProjectId(projectId) ? null : projectId
+}
+
+/** Client picker row: an existing Project of the organization, or a manual project created in Brand Radar */
 export interface ProjectOptDTO {
   id: string
   name: string
   clientName: string
   website: string
+  /** true = created inside Brand Radar; exists only in this module */
+  manual: boolean
   hasProfile: boolean
   activePrompts: number
   schedule: Schedule | null
   lastRunAt: string | null
   nextRunAt: string | null
+}
+
+/**
+ * State of one monitored brand on the landing list:
+ *  needs_setup = the profile exists but no prompt is active, so nothing can be scanned yet
+ *  scanning    = a scan is running now
+ *  no_data     = prompts are ready but no answer was collected inside the window
+ *  active      = answers exist inside the window
+ */
+export const BRAND_STATUSES = ['active', 'scanning', 'no_data', 'needs_setup'] as const
+export type BrandStatus = (typeof BRAND_STATUSES)[number]
+
+export const BRAND_STATUS_LABEL: Record<BrandStatus, string> = {
+  active: 'กำลังติดตาม',
+  scanning: 'กำลังสแกน',
+  no_data: 'ยังไม่มีผล',
+  needs_setup: 'ตั้งค่าไม่ครบ',
+}
+
+/** One row of the Brand Radar landing list: a brand that already has a monitor (= a saved profile) */
+export interface BrandSummaryDTO {
+  id: string
+  /** Brand name of the profile */
+  name: string
+  /** Client / project name in MarsOS; '' for a project created inside Brand Radar */
+  clientName: string
+  website: string
+  manual: boolean
+  providers: ProviderKey[]
+  /** Active competitors monitored next to the brand */
+  competitors: number
+  /** The competitor named in the most answers of the window; null when no competitor was named */
+  topCompetitor: { name: string; answers: number; mentionRate: number | null } | null
+  activePrompts: number
+  /** Answers collected inside the window */
+  asked: number
+  /** Answers that name the brand */
+  mentioned: number
+  mentionRate: number | null
+  /** Mention rate of the newer half of the window minus the older half; null when either half has no answer */
+  change: number | null
+  /** Answers that cite a website of the brand */
+  ownedCited: number
+  citationRate: number | null
+  /** Mention rate per day that has answers, oldest first (Asia/Bangkok days) */
+  spark: Array<{ date: string; asked: number; rate: number | null }>
+  schedule: Schedule | null
+  lastRunAt: string | null
+  nextRunAt: string | null
+  status: BrandStatus
 }
 
 // ── Prompts ──────────────────────────────────────────────────────────────────
@@ -293,7 +413,10 @@ export interface PromptStats {
   lastCollectedAt: string | null
 }
 
-export interface PromptRowDTO extends PromptDTO { stats: PromptStats }
+/** gained = brand absent in the earlier run, present in the latest; lost = the opposite (two latest runs that asked the prompt) */
+export type PromptRunChange = 'gained' | 'lost'
+
+export interface PromptRowDTO extends PromptDTO { stats: PromptStats; runChange?: PromptRunChange | null; runChangeProviders?: { gained: ProviderKey[]; lost: ProviderKey[] } }
 
 export interface PromptListDTO {
   rows: PromptRowDTO[]
@@ -321,6 +444,10 @@ export interface EntityShare {
   occurrences: number
   /** mean order of first appearance among tracked entities, null when never mentioned */
   avgPosition: number | null
+  /** mean share of the answer where the first mention starts (0 = start, 1 = end), null when unknown */
+  avgPositionPct: number | null
+  /** answers by the part of the answer where the entity first appears; rows with unknown position are not counted */
+  zones: { early: number; middle: number; late: number }
 }
 
 export interface CitedDomainRow {
@@ -344,6 +471,9 @@ export interface CitedDomainRow {
   isOwnPbn: boolean
 }
 
+/** A brand / product the AI platform itself tagged in one answer (DataForSEO scraper brand_entities). Not our tracked list. */
+export interface OtherEntity { name: string; category: string; domain: string }
+
 export interface ResponseDTO {
   id: string
   runId: string
@@ -366,7 +496,7 @@ export interface ResponseDTO {
   /** repeat-ask number inside the run (0-based) */
   sampleIndex: number
   mentions: Array<{
-    entityType: 'brand' | 'competitor'; key: string; name: string; occurrences: number; recommended: boolean; compared: boolean; position: number | null; snippet: string
+    entityType: 'brand' | 'competitor'; key: string; name: string; occurrences: number; recommended: boolean; compared: boolean; position: number | null; positionPct: number | null; snippet: string
     /** the exact names / aliases found in the text (lowercase), used to highlight them */
     aliases: string[]
     /** true when the answer also links to this entity's own website */
@@ -379,6 +509,17 @@ export interface ResponseDTO {
     /** true when the cited domain is one of the organization's own PBN sites */
     isOwnPbn: boolean
   }>
+  /**
+   * What the AI typed into its own web search before answering. Empty when the platform does not expose it
+   * (see SEARCH_QUERY_SUPPORT) or the answer was collected before this was recorded.
+   */
+  /** Pages the AI found while searching but did not cite; empty for platforms that do not expose them */
+  foundSources: Array<{ url: string; domain: string; title: string; ownerType: CitationOwner }>
+  searchQueries: string[]
+  /** How the AI talks about the brand and the competitors in this answer; null when not analysed */
+  sentiment: AnswerSentiment | null
+  /** Other names the AI platform tagged in this answer, beyond the tracked brand and competitors; absent when not captured */
+  otherEntities?: OtherEntity[]
 }
 
 /** Full-answer viewer: one prompt, one run, one AI platform, every repeat ask */
@@ -393,6 +534,8 @@ export interface ResponseViewerDTO {
   provider: ProviderKey | null
   /** every attempt for the selected run + platform, by sampleIndex */
   samples: ResponseDTO[]
+  /** mention key (ResponseDTO.mentions[].key) -> website domain, used for logos */
+  entityDomains?: Record<string, string>
   /** counts over the DONE samples above */
   summary: {
     asked: number
@@ -400,10 +543,304 @@ export interface ResponseViewerDTO {
     brandRecommended: number
     ownedCited: number
     /** brand first, then competitors by answers mentioning them */
-    entities: Array<{ key: string; name: string; entityType: 'brand' | 'competitor'; answers: number; recommended: number; avgPosition: number | null }>
+    entities: Array<{ key: string; name: string; entityType: 'brand' | 'competitor'; answers: number; recommended: number; avgPosition: number | null; avgPositionPct: number | null; zones?: { early: number; middle: number; late: number } }>
     /** domains cited across samples, most answers first */
     domains: Array<{ domain: string; ownerType: CitationOwner; answers: number; vendor: CitedDomainRow['vendor']; isOwnPbn: boolean }>
   }
+}
+
+// ── AI search queries + brand sentiment (one BrandRadarInsight row per answer) ──
+
+/** Whether a platform tells us the search queries it ran */
+export type SearchQuerySupport = 'exposed' | 'prompt' | 'hidden'
+
+/**
+ * exposed = the platform returns the queries it searched with;
+ * prompt  = Google answers the question itself, so the search query is the question;
+ * hidden  = the platform searches but does not return its queries.
+ */
+export const SEARCH_QUERY_SUPPORT: Record<ProviderKey, SearchQuerySupport> = {
+  openai: 'exposed',
+  claude: 'exposed',
+  gemini: 'hidden',
+  perplexity: 'hidden',
+  grok: 'hidden',
+  deepseek: 'hidden',
+  google_ai_mode: 'prompt',
+  google_ai_overview: 'prompt',
+}
+
+export type SentimentTone = 'positive' | 'neutral' | 'negative' | 'mixed'
+
+export const SENTIMENT_TONES: readonly SentimentTone[] = ['positive', 'neutral', 'mixed', 'negative']
+
+export const SENTIMENT_TONE_LABEL: Record<SentimentTone, string> = {
+  positive: 'เชิงบวก',
+  neutral: 'เป็นกลาง',
+  mixed: 'มีทั้งบวกและลบ',
+  negative: 'เชิงลบ',
+}
+
+/** What kind of brand the AI presents an entity as. Fixed list so it can be counted. */
+export const BRAND_POSITIONINGS = [
+  'leader', 'premium', 'value', 'specialist', 'trusted', 'innovative', 'convenient', 'popular', 'alternative', 'niche', 'general',
+] as const
+
+export type BrandPositioning = (typeof BRAND_POSITIONINGS)[number]
+
+export const BRAND_POSITIONING_LABEL: Record<BrandPositioning, string> = {
+  leader: 'ผู้นำตลาด',
+  premium: 'พรีเมียม',
+  value: 'คุ้มค่า / ราคาประหยัด',
+  specialist: 'เชี่ยวชาญเฉพาะทาง',
+  trusted: 'น่าเชื่อถือ / มีชื่อเสียงมานาน',
+  innovative: 'ทันสมัย / มีนวัตกรรม',
+  convenient: 'สะดวก ใช้งานง่าย',
+  popular: 'เป็นที่นิยม',
+  alternative: 'ทางเลือกรอง',
+  niche: 'เฉพาะกลุ่ม',
+  general: 'ทั่วไป ไม่มีจุดเด่นชัด',
+}
+
+/** What the AI weighs when it answers. Fixed list so it can be counted. */
+export const SENTIMENT_FACTORS = [
+  'price', 'quality', 'service', 'trust', 'expertise', 'reviews', 'convenience', 'variety',
+  'innovation', 'safety', 'speed', 'after_sales', 'promotion', 'location', 'other',
+] as const
+
+export type SentimentFactor = (typeof SENTIMENT_FACTORS)[number]
+
+export const SENTIMENT_FACTOR_LABEL: Record<SentimentFactor, string> = {
+  price: 'ราคา / ความคุ้มค่า',
+  quality: 'คุณภาพ',
+  service: 'การบริการ',
+  trust: 'ความน่าเชื่อถือ',
+  expertise: 'ความเชี่ยวชาญ',
+  reviews: 'รีวิว / เสียงผู้ใช้',
+  convenience: 'ความสะดวก',
+  variety: 'ความหลากหลาย',
+  innovation: 'นวัตกรรม / เทคโนโลยี',
+  safety: 'ความปลอดภัย / มาตรฐาน',
+  speed: 'ความรวดเร็ว',
+  after_sales: 'บริการหลังการขาย',
+  promotion: 'โปรโมชัน',
+  location: 'ทำเล / สาขา',
+  other: 'อื่น ๆ',
+}
+
+export type FactorPolarity = 'positive' | 'negative' | 'neutral'
+
+/** How one answer talks about one tracked entity */
+export interface AnswerSentimentEntity {
+  entityType: 'brand' | 'competitor'
+  /** 'brand' or competitor id */
+  key: string
+  name: string
+  tone: SentimentTone
+  positioning: BrandPositioning[]
+  /** factors the answer ties to this entity, each as a plus, a minus or a plain statement */
+  factors: Array<{ code: SentimentFactor; polarity: FactorPolarity }>
+  /** one short sentence, in the answer's language, on how the AI describes the entity */
+  summary: string
+  /** up to 3 short labels (2-4 words) the answer gives the entity, e.g. "performance agency"; free text, lowercase */
+  descriptors: string[]
+}
+
+export interface AnswerSentiment {
+  /** what the answer as a whole weighs, most important first */
+  factors: SentimentFactor[]
+  /** tracked entities the answer talks about */
+  entities: AnswerSentimentEntity[]
+}
+
+export interface InsightEntityDTO {
+  entityType: 'brand' | 'competitor'
+  key: string
+  name: string
+  /** analysed answers that talk about this entity */
+  answers: number
+  /** answers per tone; adds up to `answers` */
+  tones: Record<SentimentTone, number>
+  /** how the AI presents the entity, most answers first */
+  positioning: Array<{ code: BrandPositioning; label: string; answers: number; rate: number | null }>
+  /** what the AI ties to the entity, most answers first; positive + negative + neutral = answers */
+  factors: Array<{ code: SentimentFactor; label: string; answers: number; positive: number; negative: number; neutral: number }>
+  /** up to 3 recent one-sentence descriptions taken from the analysis */
+  summaries: string[]
+  /** the short labels the AI gives the entity, most answers first (capped) */
+  descriptors: Array<{ text: string; answers: number }>
+}
+
+/** AI search queries that are about the same thing, counted together */
+export interface QueryGroupDTO {
+  group: string
+  /** times a query of this group was searched (one answer can search several) */
+  searches: number
+  /** answers that searched at least one query of this group */
+  answers: number
+  providers: ProviderKey[]
+  /** the questions that led to these searches, most searches first (capped) */
+  prompts: Array<{ promptId: string; text: string; searches: number }>
+  /** the queries inside the group, most searches first (capped) */
+  queries: Array<{ query: string; searches: number }>
+}
+
+/** Aggregates over the answers inside the filters that have an insight row */
+export interface AnswerInsightDTO {
+  /** false when the insight table is not there yet (SQL not run) */
+  available: boolean
+  /** answers with a sentiment analysis */
+  analyzed: number
+  /** what the AI weighs across all analysed answers, most answers first; rate = answers / analyzed */
+  factors: Array<{ code: SentimentFactor; label: string; answers: number; rate: number | null }>
+  /** tone over every entity judgement (brand + competitors) */
+  overallTones: Record<SentimentTone, number>
+  /** brand first, then competitors by answers */
+  entities: InsightEntityDTO[]
+  /** answers that carry at least one search query the AI ran itself */
+  answersWithQueries: number
+  /** total searches counted in `queryGroups` */
+  searches: number
+  /** the AIs' own search queries sorted into topic groups, most searches first (capped) */
+  queryGroups: QueryGroupDTO[]
+}
+
+/** How the brand is brought up in the answers that name it. recommended + compared + listed = answers naming the brand. */
+export type AnswerZone = 'early' | 'middle' | 'late'
+
+/** Beginning / middle / end of an answer from a 0..1 share; null when unknown. */
+export function answerZone(pct: number | null | undefined): AnswerZone | null {
+  if (pct === null || pct === undefined || !Number.isFinite(pct)) return null
+  if (pct < 1 / 3) return 'early'
+  if (pct < 2 / 3) return 'middle'
+  return 'late'
+}
+
+export interface MentionStyleCounts {
+  /** the answer recommends the brand */
+  recommended: number
+  /** the answer compares the brand with others without recommending it */
+  compared: number
+  /** the answer just names the brand */
+  listed: number
+  /** the brand is the first tracked name in the answer (can overlap the three above) */
+  first: number
+  /** answers by where in the answer the brand first appears; rows with unknown position are not counted */
+  zones: { early: number; middle: number; late: number }
+}
+
+/**
+ * How one answer carries the brand:
+ *   both          = names the brand AND links to one of our sites
+ *   mention_only  = names the brand, no link to our sites
+ *   citation_only = links to one of our sites, the text never names the brand
+ *   none          = neither
+ */
+export type AnswerKind = 'both' | 'mention_only' | 'citation_only' | 'none'
+
+export const ANSWER_KINDS: readonly AnswerKind[] = ['both', 'mention_only', 'citation_only', 'none']
+
+export function answerKind(brandMentioned: boolean | null | undefined, ownedCited: boolean | null | undefined): AnswerKind {
+  const m = brandMentioned === true
+  const c = ownedCited === true
+  return m && c ? 'both' : m ? 'mention_only' : c ? 'citation_only' : 'none'
+}
+
+export type AnswerKindCounts = Record<AnswerKind, number>
+
+/**
+ * Which question x AI groups the answer list shows.
+ * A kind keeps the groups with at least one answer of that kind; `none` keeps the groups where no answer
+ * names or links the brand; `competitor_only` is `none` plus at least one answer naming a tracked competitor.
+ */
+export type AnswerMentionFilter = 'all' | AnswerKind | 'competitor_only'
+
+export const ANSWER_MENTION_FILTERS: readonly AnswerMentionFilter[] = ['all', 'both', 'mention_only', 'citation_only', 'none', 'competitor_only']
+
+/** One question on one AI platform: how often the brand came up across the repeat asks, plus one real answer to read */
+export interface AnswerFeedItem {
+  promptId: string
+  promptText: string
+  topic: string
+  provider: ProviderKey
+  providerLabel: string
+  /** DONE answers inside the filters */
+  asked: number
+  /** answers that name the brand */
+  mentioned: number
+  mentionRate: number | null
+  recommended: number
+  /** answers that link to one of our sites */
+  ownedCited: number
+  /** answers per kind; the four numbers add up to `asked` */
+  kinds: AnswerKindCounts
+  /** times the brand name appears across these answers */
+  occurrences: number
+  /** how the brand is brought up in the answers that name it */
+  mentionStyle: MentionStyleCounts
+  /** answers that name at least one tracked competitor */
+  competitorAnswers: number
+  /** tracked competitors named in these answers, most answers first */
+  competitors: Array<{ key: string; name: string; answers: number }>
+  lastCollectedAt: string | null
+  /** the answer shown: the newest of the best kind present (both, then name only, then link only), or of the kind being filtered */
+  answer: ResponseDTO | null
+}
+
+/** Result-first report: how often AI answers name the brand and the competitors, with the answers themselves */
+export interface AnswerFeedDTO {
+  configured: boolean
+  hasData: boolean
+  brandName: string
+  /** counted exactly like the Overview KPIs (DONE answers inside the filters) */
+  totals: {
+    asked: number
+    mentioned: number
+    mentionRate: number | null
+    recommended: number
+    /** answers that link to one of our sites */
+    ownedCited: number
+    citationRate: number | null
+    /** answers that name the brand or link to our sites */
+    appeared: number
+    appearRate: number | null
+    /** answers per kind; the four numbers add up to `asked` */
+    kinds: AnswerKindCounts
+    /** times the brand name appears across all answers */
+    occurrences: number
+    /** how the brand is brought up in the answers that name it */
+    mentionStyle: MentionStyleCounts
+    /** mean order of the brand among tracked names (1 = named first), null when never named */
+    avgPosition: number | null
+    /** mean share of the answer where the brand's first mention starts (0 = start, 1 = end), null when unknown */
+    avgPositionPct: number | null
+    /** mention rate of the newest day minus the oldest day inside the filters (a fraction, 0.05 = +5 points); null with fewer than 2 days */
+    change: number | null
+    /** questions with at least one answer */
+    prompts: number
+    /** questions where at least one answer names the brand */
+    promptsMentioned: number
+  }
+  /** brand first, then tracked competitors by answers mentioning them */
+  entities: EntityShare[]
+  /** per entity key: mention rate of the newest day minus the oldest day; null with fewer than 2 days */
+  entityChange: Record<string, number | null>
+  byProvider: Array<{ provider: ProviderKey; label: string; asked: number; mentioned: number; mentionRate: number | null; ownedCited: number; kinds: AnswerKindCounts }>
+  /** share of answers naming each entity per day (Bangkok time), oldest first; values line up with `series` */
+  trend: {
+    series: Array<{ key: string; name: string; entityType: 'brand' | 'competitor' }>
+    points: Array<{ date: string; asked: number; values: Array<number | null> }>
+  }
+  /** websites the answers cite, most answers first (capped); rate = answers citing the domain / asked */
+  sources: Array<{ domain: string; ownerType: CitationOwner; competitorName: string; answers: number; rate: number | null }>
+  /** AI search queries + brand sentiment over the answers inside the filters */
+  insight: AnswerInsightDTO
+  /** question x AI groups per filter value, after the text search */
+  counts: Record<AnswerMentionFilter, number>
+  items: AnswerFeedItem[]
+  page: number
+  pageSize: number
+  total: number
 }
 
 /** Per-prompt page: how often we appear, how often each competitor appears, who gets recommended, which sites are cited */
@@ -525,18 +962,13 @@ export interface OverviewDTO {
   /** false = no DONE response inside the filters */
   hasData: boolean
   kpis: Kpis
-  /** same KPIs for the previous period of equal length; null when there is none */
-  previous: Kpis | null
-  trend: TrendPoint[]
-  /** brand + competitors, for the Share of Voice chart */
-  entities: EntityShare[]
   byProvider: Array<{ provider: ProviderKey; label: string; method: CollectionMethod; responses: number; mentionRate: number | null; citationRate: number | null; shareOfVoice: number | null }>
   byIntent: Array<{ intent: PromptIntent; label: string; prompts: number; responses: number; mentionRate: number | null }>
-  byTopic: Array<{ topic: string; prompts: number; responses: number; mentionRate: number | null; citationRate: number | null }>
   /** rows = topics (max 12), columns = providers present */
   heat: { rows: string[]; columns: string[]; values: Array<Array<number | null>> }
-  citationOwners: Array<{ ownerType: CitationOwner; citations: number }>
-  topCitedDomains: CitedDomainRow[]
+  /** metrics helpers still build these; the Overview response no longer sends them */
+  byTopic?: Array<{ topic: string; prompts: number; responses: number; mentionRate: number | null; citationRate: number | null }>
+  citationOwners?: Array<{ ownerType: CitationOwner; citations: number }>
   /** best and worst prompts by mention rate (min 1 response) */
   topPrompts: PromptRowDTO[]
   weakPrompts: PromptRowDTO[]
@@ -555,6 +987,16 @@ export interface CompetitorInsightsDTO {
   byTopic: { rows: string[]; columns: string[]; values: Array<Array<number | null>> }
   /** top cited domains per competitor */
   domains: Array<{ competitorId: string; name: string; domains: Array<{ domain: string; citations: number }> }>
+  /** answers split by who is named in them (our brand / tracked competitors) */
+  mentionSplit?: MentionSplit
+}
+
+export interface MentionSplit {
+  total: number
+  onlyBrand: number
+  brandAndCompetitor: number
+  onlyCompetitor: number
+  nobody: number
 }
 
 export type CitationView = 'own' | 'competitor' | 'external' | 'gap'
@@ -566,6 +1008,35 @@ export interface CitationsDTO {
   page: number
   pageSize: number
   totals: { own: number; competitor: number; external: number; gap: number; citations: number; responsesWithCitations: number; responses: number }
+  /** top cited pages (same view / search filters as the domain rows) */
+  pages?: CitedPageRow[]
+  /** comparison with the previous period of equal length; available=false means show no new / lost marks */
+  comparison?: CitationComparison
+}
+
+export interface CitedPageRow {
+  url: string
+  title: string
+  domain: string
+  ownerType: CitationOwner
+  competitorName: string
+  /** distinct answers citing the page */
+  answers: number
+  /** distinct AI platforms citing the page */
+  platforms: number
+  isNew: boolean
+}
+
+export interface CitationComparison {
+  available: boolean
+  previousFrom: string
+  previousTo: string
+  /** domains cited now but not in the previous period */
+  newDomains: string[]
+  /** total number of new domains before newDomains is capped at 1000 */
+  newDomainCount?: number
+  /** domains cited in the previous period but not now (top 20) */
+  lostDomains: Array<{ domain: string; ownerType: CitationOwner; competitorName: string; answers: number }>
 }
 
 export interface OpportunityDTO {
@@ -673,7 +1144,8 @@ export function isSampleOption(v: unknown): v is number {
 }
 
 /** Observed SERP providers (Google AI Mode / AI Overview) return the same page for repeat asks
- *  and are billed per request, so they are always sampled once; LLM providers use the profile setting. */
+ *  and are billed per request, so they are always sampled once; LLM providers use the profile setting.
+ *  observed_chat providers (ChatGPT / Gemini scraper) answer differently each ask, so they use the profile setting too. */
 export function samplesFor(provider: ProviderKey, profileSamples: number): number {
   if (PROVIDERS[provider].method === 'observed_serp') return 1
   return normalizeSamples(profileSamples)
@@ -733,7 +1205,19 @@ export function isProviderKey(v: unknown): v is ProviderKey {
 // GET    usage?projectId                                                 -> UsageDTO
 // GET    cron   (Authorization: Bearer CRON_SECRET; no session)          -> { started: number; stepped: number }
 
+// POST   projects {name, website, providers?, competitors?: [{name, domain?}]} -> CreateProjectRes (409: the name is taken)
+// GET    responses ?projectId&filters&mention&q&page&pageSize             -> AnswerFeedDTO
+// GET    brands                                                           -> BrandsRes   (brands that have a monitor; last 30 days)
+
 export interface ProjectsRes { projects: ProjectOptDTO[] }
+
+export interface CreateProjectRes { project: ProjectOptDTO }
+
+export interface BrandsRes {
+  /** Length of the window the numbers cover, in days */
+  windowDays: number
+  brands: BrandSummaryDTO[]
+}
 
 export interface ProfileRes {
   /** null = Brand Radar is not set up for this client yet */

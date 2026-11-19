@@ -22,8 +22,9 @@ import type { AsanaStatus } from "./AsanaDialog";
 import { LINK_ERROR_TEXT, addAttachmentLink, checkAttachmentFile, uploadAttachment } from "./RequestAttachments";
 import type { QuotaPackageView } from "@/lib/backlink-management/quota-types";
 import { quotaNoteLine, quotaOptionsForProject, withQuotaNote, type QuotaRequestOption } from "@/lib/backlink-management/quota-request";
+import { OverwriteCancelled, quotaWrite, useOverwriteConfirm } from "./QuotaOverwriteConfirm";
 
-const QUOTA_KIND_LABEL: Record<QuotaRequestOption["kind"], string> = { reserved: "จองไว้แล้ว (On Process · จองใน MarsOS)", sheet: "จองไว้แล้ว (On Process ในชีท)", free: "ช่องว่าง" };
+const QUOTA_KIND_LABEL: Record<QuotaRequestOption["kind"], string> = { reserved: "จองไว้แล้ว (On Process · จองใน MarsOS)", sheet: "จองไว้แล้ว (On Process ในชีท)", free: "ช่องว่าง — ระบบจองให้ตอนส่งคำขอ" };
 
 /** สร้าง / แก้ไขคำขอ (edit: ส่งแถวเดิมมา) */
 export default function RequestDialog({ open, onOpenChange, meta, edit, duplicateFrom, asana, defaultProjectId, defaultPeriod, onSaved }: {
@@ -127,11 +128,15 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
   }
 
   // โควต้าที่ผูกกับโปรเจกต์นี้ (จองไว้ใน MarsOS หรือชีทระบุชื่อลูกค้า)
+  // + ช่องว่างของทุกแพ็กเกจ (เฉพาะตอนสร้างคำขอ): เลือกแล้วกดส่ง ระบบจองช่องในหน้า Quota / Google Sheet ให้
   const project = (meta?.projects ?? []).find((p) => p.id === f.projectId) ?? null;
   const quotaOptions = useMemo(
-    () => (project ? quotaOptionsForProject(quotaPkgs, { id: project.id, name: project.name, clientName: project.clientName }) : []),
-    [quotaPkgs, project],
+    () => (project ? quotaOptionsForProject(quotaPkgs, { id: project.id, name: project.name, clientName: project.clientName }, { free: !edit }) : []),
+    [quotaPkgs, project, edit],
   );
+  /** ช่องที่จองให้โปรเจกต์นี้อยู่แล้ว — ช่องว่างไม่นับ (ไม่ใช่เหตุให้สลับมาโหมดโควต้าเอง) */
+  const bookedCount = quotaOptions.filter((o) => o.kind !== "free").length;
+  const overwrite = useOverwriteConfirm();
   const pickedQuota = quotaOptions.find((o) => o.key === quotaKey) ?? null;
   /** ชื่อเว็บโควต้าของคำขอเดิม (แก้ไข/ทำซ้ำ) เมื่อยังไม่ได้เลือกช่องใหม่ */
   const srcQuotaDomain = srcRow && !srcRow.vendorSiteId ? srcRow.vendorDomain : "";
@@ -141,9 +146,9 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
   // โปรเจกต์มีโควต้า = เปิดตัวเลือกโควต้าให้ก่อน (ถ้าผู้ใช้ยังไม่ได้เลือกเว็บจากคลังหรือกดสลับเอง)
   useEffect(() => {
     if (!open || edit || sourceTouched.current) return;
-    if (quotaOptions.length > 0 && !f.vendorSiteId) setSiteSource("quota");
-    else if (quotaOptions.length === 0 && !srcQuotaDomain) setSiteSource("vendor");
-  }, [open, edit, quotaOptions.length, f.vendorSiteId, srcQuotaDomain]);
+    if (bookedCount > 0 && !f.vendorSiteId) setSiteSource("quota");
+    else if (bookedCount === 0 && !srcQuotaDomain) setSiteSource("vendor");
+  }, [open, edit, bookedCount, f.vendorSiteId, srcQuotaDomain]);
 
   // เปลี่ยนโปรเจกต์ = ช่องโควต้าที่เลือกไว้ใช้ไม่ได้แล้ว
   useEffect(() => {
@@ -204,17 +209,22 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
         });
         toast.success("บันทึกแล้ว");
       } else {
-        const created = await api<{ request: { id: string; asanaSyncError?: string } }>("/api/backlink-management/requests", {
-          method: "POST",
-          json: {
-            projectId: f.projectId, vendorSiteId: useQuota ? undefined : f.vendorSiteId || undefined,
-            ...(useQuota && quotaDomain ? { vendorDomain: quotaDomain } : {}),
-            targetUrl: f.targetUrl, anchorText: f.anchorText,
-            keyword: f.keyword, linkType: f.linkType, quotedPrice: f.quotedPrice === "" ? undefined : Number(f.quotedPrice),
-            budgetPeriod: f.budgetPeriod || undefined, assigneeId: f.assigneeId || undefined, dueDate: f.dueDate || undefined, notes: f.notes,
-            ...(asanaOn && asanaProjectGid ? { asanaProjectGid } : {}),
-          },
-        });
+        // ช่องว่างของแพ็กเกจ: เซิร์ฟเวอร์จองช่องในหน้า Quota + Google Sheet ไปพร้อมกับการสร้างคำขอ
+        const bookQuota = useQuota && pickedQuota?.kind === "free" ? pickedQuota : null;
+        const json = {
+          projectId: f.projectId, vendorSiteId: useQuota ? undefined : f.vendorSiteId || undefined,
+          ...(useQuota && quotaDomain ? { vendorDomain: quotaDomain } : {}),
+          ...(bookQuota ? { quota: { packageId: bookQuota.packageId } } : {}),
+          targetUrl: f.targetUrl, anchorText: f.anchorText,
+          keyword: f.keyword, linkType: f.linkType, quotedPrice: f.quotedPrice === "" ? undefined : Number(f.quotedPrice),
+          budgetPeriod: f.budgetPeriod || undefined, assigneeId: f.assigneeId || undefined, dueDate: f.dueDate || undefined, notes: f.notes,
+          ...(asanaOn && asanaProjectGid ? { asanaProjectGid } : {}),
+        };
+        type Created = { request: { id: string; asanaSyncError?: string }; quotaWarning?: string };
+        const created = bookQuota
+          ? await quotaWrite<Created>("/api/backlink-management/requests", { method: "POST", json }, overwrite.ask)
+          : await api<Created>("/api/backlink-management/requests", { method: "POST", json });
+        if (created?.quotaWarning) toast.warning(created.quotaWarning, { duration: 10_000 });
         // คำขอถูกสร้างแล้ว — ไฟล์ที่แนบไม่ได้ต้องบอกชัด และไม่เปิดฟอร์มค้างไว้ (กดส่งซ้ำจะได้คำขอซ้ำ)
         let missed = 0;
         const totalStaged = staged.length + stagedLinks.length;
@@ -248,13 +258,14 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
         if (missed > 0) {
           toast.warning(`สร้างคำขอแล้ว แต่แนบไฟล์/ลิงก์ไม่สำเร็จ ${missed} จาก ${totalStaged} รายการ — เปิดคำขอแล้วแนบอีกครั้ง`, { duration: 10_000 });
         } else {
-          toast.success("สร้างคำขอแล้ว");
+          toast.success(bookQuota ? "สร้างคำขอและจองโควต้าแล้ว" : "สร้างคำขอแล้ว");
         }
       }
       onSaved();
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+      // กด Cancel ใน popup เขียนทับ = ยังไม่ได้สร้างคำขอและยังไม่ได้เขียนชีท ฟอร์มเปิดค้างไว้
+      if (!(e instanceof OverwriteCancelled)) toast.error(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
     } finally {
       setSaving(false);
       setUploadingFiles(false);
@@ -286,6 +297,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <DialogHeader>
@@ -309,7 +321,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
           {showQuota ? (
             <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="ที่มาของเว็บที่จะฝากลิงก์">
               {([
-                ["quota", `ใช้โควต้า${quotaOptions.length > 0 ? ` (${quotaOptions.length})` : ""}`],
+                ["quota", `ใช้โควต้า${bookedCount > 0 ? ` (${bookedCount})` : ""}`],
                 ["vendor", "เลือกจากคลังเว็บ"],
               ] as const).map(([k, label]) => (
                 <button key={k} type="button" disabled={locked} aria-pressed={siteSource === k} onClick={() => switchSource(k)}
@@ -321,7 +333,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
           ) : null}
           {useQuota ? (
             <div>
-              <Label>เว็บที่จะฝากลิงก์ (เฉพาะช่องโควต้าที่จองไว้ — สถานะ On Process)</Label>
+              <Label>{edit ? "เว็บที่จะฝากลิงก์ (เฉพาะช่องโควต้าที่จองไว้ — สถานะ On Process)" : "เว็บที่จะฝากลิงก์ (ช่องที่จองไว้แล้ว หรือช่องว่างที่ให้ระบบจองให้)"}</Label>
               <SearchSelect
                 value={quotaKey}
                 onChange={pickQuota}
@@ -343,7 +355,11 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
                 <div className="mt-2 rounded-xl bg-brand-mist/40 p-2.5 text-xs text-gray-700">
                   {QUOTA_KIND_LABEL[pickedQuota.kind]} · {pickedQuota.slotIndex === null ? "ช่องว่างใหม่ในแพ็กเกจ" : `ช่องที่ ${pickedQuota.slotIndex + 1}`}
                   {pickedQuota.pricePerLink != null ? ` · ราคาต่อลิงก์ ${pickedQuota.pricePerLink.toLocaleString("th-TH")} บาท` : " · แพ็กเกจไม่มีราคาต่อลิงก์ ใส่ราคาเอง"}
-                  <div className="mt-1 text-gray-500">ระบบจดช่องโควต้าไว้ในหมายเหตุ ไม่เขียนลง Google Sheet</div>
+                  <div className="mt-1 text-gray-500">
+                    {pickedQuota.kind === "free"
+                      ? "กดบันทึกแล้วระบบจองช่องว่างถัดไปของแพ็กเกจนี้ให้ (สถานะ On Process) ทั้งในหน้า Quota และ Google Sheet"
+                      : "ช่องนี้จองไว้แล้ว ระบบจดช่องโควต้าไว้ในหมายเหตุ ไม่เขียนลง Google Sheet"}
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -481,5 +497,7 @@ export default function RequestDialog({ open, onOpenChange, meta, edit, duplicat
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {overwrite.dialog}
+    </>
   );
 }

@@ -2,6 +2,7 @@ import { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
+import { clientRadarProjectIds } from "@/lib/brand-radar/server";
 import { prisma } from "@/lib/prisma";
 import { timelineEntries } from "@/lib/project-timeline";
 import { CreateProjectButton } from "@/components/projects/CreateProjectButton";
@@ -24,7 +25,16 @@ export default async function ProjectsPage() {
       select: { projectId: true },
     });
     if (access?.projectId) redirect(`/projects/${access.projectId}`);
-    return null;
+    if (session.user.organizationId) {
+      const radarIds = await clientRadarProjectIds(session.user.id, session.user.organizationId);
+      if (radarIds.length > 0) redirect("/brand-radar");
+    }
+    return (
+      <div className="mx-auto flex min-h-[50vh] max-w-md flex-col items-center justify-center gap-2 px-4 text-center">
+        <h1 className="text-lg font-semibold text-foreground">ยังไม่มีสิทธิ์เข้าดูรายงาน</h1>
+        <p className="text-sm text-muted-foreground">บัญชีนี้ยังไม่ได้รับสิทธิ์ดูรายงานใด กรุณาติดต่อทีมงานที่ดูแลคุณ</p>
+      </div>
+    );
   }
   const orgId = session.user.organizationId;
 

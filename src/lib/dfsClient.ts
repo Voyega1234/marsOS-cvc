@@ -15,12 +15,12 @@ export function hasDfsCreds(): boolean {
   return !!(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD)
 }
 
-export async function dfsPost<T = unknown>(path: string, body: unknown): Promise<T> {
+export async function dfsPost<T = unknown>(path: string, body: unknown, timeoutMs = 30_000): Promise<T> {
   const res = await fetch(`${DFS_BASE}${path}`, {
     method:  'POST',
     headers: { Authorization: dfsAuth(), 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),
-    signal:  AbortSignal.timeout(30_000),
+    signal:  AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok) throw new Error(`DFS HTTP ${res.status}`)
   const json = await res.json()

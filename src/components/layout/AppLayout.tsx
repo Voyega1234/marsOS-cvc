@@ -6,7 +6,7 @@ import { AppSidebar, SidebarProvider, SidebarTrigger } from "./AppSidebar";
 import { ProTopBar } from "./ProTopBar";
 import { ClientTopBar } from "@/components/client-portal/ClientTopBar";
 
-export function AppLayout({ children }: { children: React.ReactNode }) {
+export function AppLayout({ children, clientNav }: { children: React.ReactNode; clientNav?: { articles: boolean; brandRadar: boolean } }) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isChat = pathname === "/chat";
@@ -15,8 +15,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   // CLIENT — no sidebar, minimal top bar
   if (isClient) {
     return (
-      <div className="relative flex flex-1 flex-col min-w-0 min-h-svh overflow-hidden">
-        <ClientTopBar />
+      <div className="relative flex flex-1 flex-col min-w-0 min-h-svh overflow-x-clip">
+        <ClientTopBar nav={clientNav} />
         <main className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 overflow-auto">{children}</main>
       </div>
     );

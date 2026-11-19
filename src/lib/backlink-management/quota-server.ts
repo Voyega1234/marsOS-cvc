@@ -10,6 +10,7 @@ import { getServiceIdentity } from "@/lib/google-auth";
 import { isApprover } from "./types";
 import type { StaffCtx } from "./server";
 import { findProject, isMissingTable } from "./projects";
+import { requestIdFromNote, requestMarker, requestReservationNote, sheetClientForProject, stripRequestMarker } from "./quota-request";
 import { parseSpreadsheetId } from "./sheet-tables";
 import { sheetErrorMessage } from "./sheet-sync";
 import { columnLetter, isQuotaTabCandidate, packageStats, parseQuotaTab } from "./quota-sheet";
@@ -669,6 +670,99 @@ async function checkUser(orgId: string, id: string): Promise<void> {
   if (!u) throw new QuotaError(400, "ไม่พบผู้จองในองค์กร");
 }
 
+/** ช่องที่เลือกแล้วพร้อมเขียน — ยังไม่ได้แตะ DB หรือชีท */
+interface SlotBooking {
+  row: PackageRow;
+  source: SourceRow;
+  fresh: FreshTab;
+  parsed: ParsedTab;
+  pkg: ParsedPackage;
+  index: number;
+  plan: SlotPlan;
+  updates: CellUpdate[];
+}
+
+interface SlotBookingInput {
+  /** ไม่ระบุ = ระบบเลือกช่องว่างช่องแรก (หรือเพิ่มแถวถ้าแพ็กเกจยังโตได้) */
+  slotIndex?: number | null;
+  client: string;
+  status: string;
+  remark?: string;
+  /** ข้ามช่องที่มีคนกำลังจองอยู่ (แถวจองใน DB ที่ยังไม่พ้นช่วง grace) ตอนให้ระบบเลือกช่องเอง */
+  skipClaimed?: boolean;
+}
+
+/** ขั้นวางแผน: อ่านชีทสด หาแพ็กเกจ เลือกช่อง ตรวจการเขียนทับ — อ่านอย่างเดียว ไม่เขียนอะไร */
+async function planBooking(ctx: StaffCtx, row: PackageRow, source: SourceRow, input: SlotBookingInput, deps: QuotaDeps): Promise<SlotBooking> {
+  const fresh = await freshTab(source, row.tabTitle, deps);
+  const { parsed, pkg, next } = await locateOrSync(ctx, source, fresh, row);
+  if (pkg.expireDate && pkg.expireDate < todayBangkok()) throw new QuotaError(400, "แพ็กเกจหมดอายุแล้ว");
+  let index: number;
+  if (input.slotIndex !== undefined && input.slotIndex !== null) {
+    index = input.slotIndex;
+    if (pkg.slots[index]?.used) throw new QuotaError(409, "ช่องนี้ถูกใช้ไปแล้ว — โหลดใหม่");
+  } else {
+    const claimed = new Set<number>();
+    if (input.skipClaimed) {
+      const live = await db(() => prisma.blmQuotaReservation.findMany({
+        where: { packageId: row.id, createdAt: { gte: new Date(Date.now() - RESERVATION_GRACE_MS) } },
+        select: { slotIndex: true },
+      }));
+      for (const r of live) claimed.add(r.slotIndex);
+    }
+    const free = pkg.slots.find((s) => !s.used && !claimed.has(s.index));
+    if (free) index = free.index;
+    else if (mayGrow(pkg, !next)) {
+      index = pkg.slots.length;
+      // ช่องใหม่ท้ายแพ็กเกจมีคนกำลังจองอยู่พอดี — ให้ลองใหม่หลังชีทของอีกคนเขียนเสร็จ
+      if (claimed.has(index)) throw new QuotaError(409, SLOT_TAKEN_MSG);
+    } else throw new QuotaError(400, "โควต้าแพ็กเกจนี้เต็มแล้ว");
+  }
+  const plan = planSlot(pkg, next, index, fresh.tab.rowCount);
+  if (!plan) throw new QuotaError(400, "โควต้าแพ็กเกจนี้เต็มแล้ว");
+  const updates = slotUpdates(row.tabTitle, parsed.columns, plan.row, {
+    client: input.client,
+    status: input.status,
+    ...(input.remark !== undefined ? { remark: input.remark } : {}),
+  });
+  assertOverwritesApproved(plan.insertAt0 !== null ? [] : findOverwrites(row.tabTitle, parsed.columns, fresh.rows, updates, fresh.formulas), deps.confirmOverwrite);
+  return { row, source, fresh, parsed, pkg, index, plan, updates };
+}
+
+interface SlotClaimData {
+  reservedById: string;
+  website: string;
+  projectId: string;
+  projectName: string;
+  note: string;
+}
+
+/**
+ * จองช่องในฐานข้อมูล (unique packageId+slotIndex กันสองคนจองช่องเดียวกัน) — รับ transaction client ได้
+ * ชน unique = throw P2002 ให้ผู้เรียกแปลงเป็น 409 (ใน transaction ต้องปล่อยให้ rollback ก่อน)
+ */
+async function claimSlot(tx: Prisma.TransactionClient, ctx: StaffCtx, b: SlotBooking, data: SlotClaimData): Promise<string> {
+  await tx.blmQuotaReservation.deleteMany({
+    where: { packageId: b.row.id, slotIndex: b.index, createdAt: { lt: new Date(Date.now() - RESERVATION_GRACE_MS) } },
+  });
+  const created = await tx.blmQuotaReservation.create({
+    data: {
+      organizationId: ctx.orgId, packageId: b.row.id, slotIndex: b.index, reservedById: data.reservedById,
+      website: data.website, projectId: data.projectId, projectName: data.projectName,
+      note: data.note, createdById: ctx.userId,
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+/** เขียนช่องลงชีท (เพิ่มแถวก่อนถ้าต้องเพิ่ม) — คืนคำเตือนของขั้นเพิ่มแถว (ถ้ามี) */
+async function writeBooking(b: SlotBooking, deps: QuotaDeps): Promise<string | undefined> {
+  const warning = await prepareSlot(b.source, b.fresh, b.parsed.columns, b.pkg, b.plan, deps);
+  await writeCells(b.source, b.updates, deps);
+  return warning;
+}
+
 export async function createReservation(ctx: StaffCtx, input: QuotaReservationInput, deps: QuotaDeps): Promise<QuotaWriteResult> {
   const client = cleanText(input.client);
   if (!client) throw new QuotaError(400, "ต้องระบุ Clients");
@@ -676,64 +770,143 @@ export async function createReservation(ctx: StaffCtx, input: QuotaReservationIn
   const { row, source } = await findLivePackage(ctx.orgId, input.packageId);
   const project = input.projectId ? await db(() => findProject(ctx.orgId, cleanText(input.projectId))) : null;
   if (input.projectId && !project) throw new QuotaError(400, "ไม่พบโปรเจกต์");
-
-  const fresh = await freshTab(source, row.tabTitle, deps);
-  const { parsed, pkg, next } = await locateOrSync(ctx, source, fresh, row);
-  if (pkg.expireDate && pkg.expireDate < todayBangkok()) throw new QuotaError(400, "แพ็กเกจหมดอายุแล้ว");
-
-  let index: number;
-  if (input.slotIndex !== undefined && input.slotIndex !== null) {
-    index = input.slotIndex;
-    if (pkg.slots[index]?.used) throw new QuotaError(409, "ช่องนี้ถูกใช้ไปแล้ว — โหลดใหม่");
-  } else {
-    const free = pkg.slots.find((s) => !s.used);
-    if (free) index = free.index;
-    else if (mayGrow(pkg, !next)) index = pkg.slots.length;
-    else throw new QuotaError(400, "โควต้าแพ็กเกจนี้เต็มแล้ว");
-  }
-  const plan = planSlot(pkg, next, index, fresh.tab.rowCount);
-  if (!plan) throw new QuotaError(400, "โควต้าแพ็กเกจนี้เต็มแล้ว");
-  const updates = slotUpdates(row.tabTitle, parsed.columns, plan.row, {
+  const booking = await planBooking(ctx, row, source, {
+    slotIndex: input.slotIndex,
     client,
     status: cleanText(input.status) || QUOTA_STATUS_IN_PROCESS,
     ...(input.remark !== undefined ? { remark: cleanText(input.remark) } : {}),
-  });
-  // ตรวจการเขียนทับก่อนจอง: รอบที่ต้องถามผู้ใช้ (409 + overwrites) ต้องไม่ทิ้งการจองไว้ใน DB
-  assertOverwritesApproved(plan.insertAt0 !== null ? [] : findOverwrites(row.tabTitle, parsed.columns, fresh.rows, updates, fresh.formulas), deps.confirmOverwrite);
-
-  // จองใน DB ก่อนแตะชีท: unique (packageId, slotIndex) เป็นตัวตัดสินว่าใครได้ช่อง — คนที่แพ้ยังไม่ได้เขียนอะไรลงชีท
+  }, deps);
+  // จองใน DB ก่อนเขียนชีท: unique (packageId, slotIndex) กันสองคนจองช่องเดียวกันพร้อมกัน
   let claimId: string;
   try {
-    claimId = await db(async () => {
-      // ช่องนี้ว่างในชีท (ตรวจแล้วข้างบน) แต่ cache ยังมีการจองเก่าค้าง (ถูกล้างในชีทไปแล้ว ยังไม่ถึงรอบกวาด) → ลบของเก่าก่อน
-      // การจองที่เพิ่งสร้างไม่เกิน RESERVATION_GRACE_MS ไม่ถูกลบ — นั่นคือคนที่กำลังเขียนชีทอยู่
-      await prisma.blmQuotaReservation.deleteMany({
-        where: { packageId: row.id, slotIndex: index, createdAt: { lt: new Date(Date.now() - RESERVATION_GRACE_MS) } },
-      });
-      const created = await prisma.blmQuotaReservation.create({
-        data: {
-          organizationId: ctx.orgId, packageId: row.id, slotIndex: index, reservedById: cleanText(input.reservedById),
-          website: cleanText(input.website, 500), projectId: project?.id ?? "", projectName: project?.name ?? "",
-          note: cleanText(input.note, 1000), createdById: ctx.userId,
-        },
-        select: { id: true },
-      });
-      return created.id;
-    });
+    claimId = await db(() => claimSlot(prisma, ctx, booking, {
+      reservedById: cleanText(input.reservedById),
+      website: cleanText(input.website, 500), projectId: project?.id ?? "", projectName: project?.name ?? "",
+      note: cleanText(input.note, 1000),
+    }));
   } catch (e) {
     if (isUniqueViolation(e)) throw new QuotaError(409, SLOT_TAKEN_MSG);
     throw e;
   }
   let warning: string | undefined;
   try {
-    warning = await prepareSlot(source, fresh, parsed.columns, pkg, plan, deps);
-    await writeCells(source, updates, deps);
+    warning = await writeBooking(booking, deps);
   } catch (e) {
-    // เขียนชีทไม่สำเร็จ → ถอนการจองใน DB คืน (ไม่เขียนล้างเซลล์ในชีท: ไม่รู้แล้วว่าเซลล์นั้นตอนนี้เป็นข้อมูลของใคร)
     await prisma.blmQuotaReservation.deleteMany({ where: { id: claimId } }).catch(() => {});
     throw e;
   }
   return finish(ctx, source, row.tabTitle, deps, warning);
+}
+
+// ───────────────────────── คำขอ backlink จองโควต้า ─────────────────────────
+// กดส่งคำขอที่เลือก "ช่องว่าง" ของแพ็กเกจ = ระบบจองช่องให้ด้วย (คำสั่งเจ้าของ 2026-11-17)
+// ลำดับที่ route ของคำขอใช้: planRequestQuota (อ่านอย่างเดียว) → transaction เดียว สร้างคำขอ + claimRequestQuota
+// → writeRequestQuota (เขียนชีท) → refreshRequestQuota (อัปเดตสำเนา) ; เขียนชีทพัง = ผู้เรียกลบคำขอ + แถวจองทิ้ง
+
+/** ช่องโควต้าที่วางแผนไว้ให้คำขอ — ส่งต่อให้ขั้น claim / write / refresh */
+export interface RequestQuotaBooking {
+  /** ลำดับช่องในแพ็กเกจ (เริ่มที่ 0) ที่ระบบเลือกให้ */
+  slotIndex: number;
+  /** เว็บที่ใช้ของแพ็กเกจ (ที่คำขอระบุ หรือเว็บแรกของแพ็กเกจ) */
+  website: string;
+  vendorName: string;
+  pricePerLink: number | null;
+  sourceTitle: string;
+  tabTitle: string;
+  /** ชื่อที่เขียนลงคอลัมน์ Clients */
+  client: string;
+  project: { id: string; name: string };
+  /** ภายใน — ผู้เรียกไม่ต้องอ่าน */
+  booking: SlotBooking;
+}
+
+/**
+ * วางแผนจองช่องว่างของแพ็กเกจให้คำขอ — อ่านอย่างเดียว (throw QuotaError ถ้าจองไม่ได้ ยังไม่มีอะไรถูกสร้าง)
+ * browser ส่งมาแค่ packageId: ลูกค้า โปรเจกต์ ผู้จอง สถานะ และช่อง ระบบเป็นคนกำหนดเอง
+ */
+export async function planRequestQuota(
+  ctx: StaffCtx,
+  input: { packageId: string; project: { id: string; name: string; clientName?: string | null }; website: string },
+  deps: QuotaDeps,
+): Promise<RequestQuotaBooking> {
+  const { row, source } = await findLivePackage(ctx.orgId, cleanText(input.packageId));
+  // ตัวสะกดชื่อลูกค้าที่มีในชีทอยู่แล้ว (จากสำเนาทุกแพ็กเกจ) — ใช้ซ้ำเฉพาะที่ตรงกับโปรเจกต์นี้พอดี
+  const cached = await db(() => prisma.blmQuotaPackage.findMany({ where: { organizationId: ctx.orgId, stale: false }, select: { data: true } }));
+  const known = new Set<string>();
+  for (const c of cached) {
+    const data = c.data as unknown as ParsedPackage | null;
+    for (const s of data?.slots ?? []) if (s?.client) known.add(s.client);
+  }
+  const client = cleanText(sheetClientForProject(input.project, Array.from(known)));
+  if (!client) throw new QuotaError(400, "โปรเจกต์ไม่มีชื่อลูกค้าให้ใส่ในคอลัมน์ Clients");
+  const booking = await planBooking(ctx, row, source, { client, status: QUOTA_STATUS_IN_PROCESS, skipClaimed: true }, deps);
+  const pkg = booking.pkg;
+  const sites = (pkg.websites ?? []).map((w) => String(w ?? "").trim()).filter(Boolean);
+  const wanted = cleanText(input.website, 500);
+  const website = sites.find((w) => w.toLowerCase() === wanted.toLowerCase()) ?? (wanted || sites[0] || cleanText(pkg.vendorName) || cleanText(pkg.websiteText));
+  return {
+    slotIndex: booking.index, website, vendorName: String(pkg.vendorName ?? ""),
+    pricePerLink: typeof pkg.pricePerLink === "number" && Number.isFinite(pkg.pricePerLink) ? pkg.pricePerLink : null,
+    sourceTitle: source.label || source.title, tabTitle: row.tabTitle, client,
+    project: { id: input.project.id, name: input.project.name }, booking,
+  };
+}
+
+/**
+ * จองช่องให้คำขอใน transaction เดียวกับการสร้างคำขอ — ผู้จอง = ผู้ส่งคำขอ, หมายเหตุขึ้นต้นด้วย marker ของคำขอ
+ * ช่องชนกับคนอื่น = throw P2002 (transaction ถูก rollback ทั้งก้อน) ผู้เรียกเช็คด้วย isQuotaSlotTaken
+ */
+export async function claimRequestQuota(
+  tx: Prisma.TransactionClient, ctx: StaffCtx, plan: RequestQuotaBooking, request: { id: string; targetUrl: string },
+): Promise<string> {
+  return claimSlot(tx, ctx, plan.booking, {
+    reservedById: ctx.userId, website: cleanText(plan.website, 500), projectId: plan.project.id, projectName: plan.project.name,
+    note: requestReservationNote(request.id, request.targetUrl),
+  });
+}
+
+/** error ของ transaction ที่มี claimRequestQuota: ช่องเพิ่งถูกคนอื่นจอง → QuotaError 409, ตารางไม่มี → 503, อื่น ๆ คืนตัวเดิม */
+export function requestQuotaClaimError(e: unknown): unknown {
+  if (isUniqueViolation(e)) return new QuotaError(409, SLOT_TAKEN_MSG);
+  if (isMissingTable(e)) return missingTable();
+  return e;
+}
+
+/** เขียนช่องของคำขอลงชีท — คืนคำเตือน (ถ้ามี) ; throw = ผู้เรียกต้องลบคำขอ + แถวจองทิ้ง */
+export async function writeRequestQuota(plan: RequestQuotaBooking, deps: QuotaDeps): Promise<string | undefined> {
+  return writeBooking(plan.booking, deps);
+}
+
+/** อัปเดตสำเนาของแท็บหลังเขียนชีท — พังไม่ถือว่าจองล้มเหลว (ชีทเขียนไปแล้ว) คืนเป็นคำเตือนแทน */
+export async function refreshRequestQuota(ctx: StaffCtx, plan: RequestQuotaBooking, deps: QuotaDeps): Promise<string | undefined> {
+  const { source, row } = plan.booking;
+  try {
+    const rows = await sheetCall(deps, () => deps.port.readTabs(source.spreadsheetId, [row.tabTitle]));
+    const parsed = parseQuotaTab(row.tabTitle, rows[row.tabTitle] ?? []);
+    await db(() => applyTab(ctx.orgId, source.id, row.tabTitle, parsed));
+    return undefined;
+  } catch {
+    return "จองโควต้าในชีทแล้ว แต่หน้า Quota ยังไม่อัปเดต — กด ดึงข้อมูลชีท ในหน้า Quota";
+  }
+}
+
+/**
+ * คำขอถูกลบ: เอา marker ของคำขอออกจากหมายเหตุของการจอง (ช่องยังจองอยู่ในชีทตามเดิม เลือกใช้กับคำขอใหม่ได้)
+ * ไม่ throw — ตารางโควต้าอาจยังไม่มี
+ */
+export async function clearRequestMarker(orgId: string, requestId: string): Promise<void> {
+  try {
+    const rows = await prisma.blmQuotaReservation.findMany({
+      where: { organizationId: orgId, note: { startsWith: requestMarker(requestId) } },
+      select: { id: true, note: true },
+    });
+    for (const r of rows) {
+      if (requestIdFromNote(r.note) !== requestId) continue;
+      await prisma.blmQuotaReservation.update({ where: { id: r.id }, data: { note: stripRequestMarker(r.note) } });
+    }
+  } catch {
+    /* ตารางไม่มี / DB สะดุด — ไม่ขวางการลบคำขอ */
+  }
 }
 
 export async function updateReservation(

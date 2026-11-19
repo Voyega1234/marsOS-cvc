@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageViewTracker } from "@/components/layout/PageViewTracker";
 import { NoAccessScreen } from "@/components/layout/NoAccessScreen";
+import { prisma } from "@/lib/prisma";
+import { clientRadarProjectIds } from "@/lib/brand-radar/server";
 import { getSessionRaw } from "@/lib/auth";
 import { isClientPageAllowed } from "@/lib/client-access";
 
@@ -26,8 +28,19 @@ export default async function AppGroupLayout({ children }: { children: React.Rea
     if (!isClientPageAllowed(pathname)) redirect("/projects");
   }
 
+  let clientNav: { articles: boolean; brandRadar: boolean } | undefined;
+  if (session.user.role === "CLIENT") {
+    const userId = session.user.id;
+    const orgId = session.user.organizationId;
+    const [access, radarIds] = await Promise.all([
+      prisma.clientProjectAccess.findFirst({ where: { userId }, select: { id: true } }),
+      orgId ? clientRadarProjectIds(userId, orgId) : Promise.resolve([] as string[]),
+    ]);
+    clientNav = { articles: !!access, brandRadar: radarIds.length > 0 };
+  }
+
   return (
-    <AppLayout>
+    <AppLayout {...(clientNav ? { clientNav } : {})}>
       <PageViewTracker />
       {children}
     </AppLayout>

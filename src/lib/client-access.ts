@@ -32,6 +32,9 @@ export const CLIENT_VISIBLE_COMMENT_WHERE = {
 const CLIENT_PAGE_PATTERNS: RegExp[] = [
   /^\/projects$/,
   /^\/projects\/[^/]+$/,
+  // Brand Radar report (read-only). The page and every endpoint below also check BrandRadarClientAccess:
+  // this list only opens the door, it grants no project.
+  /^\/brand-radar$/,
 ];
 
 /** API ที่ CLIENT เรียกได้ แยกตาม method — นอกลิสต์นี้คือ 401 ทั้งหมด */
@@ -42,6 +45,11 @@ const CLIENT_API_RULES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^\/api\/report\/(gsc|gsc-ai|gsc-insights|ga4|pagespeed)$/, methods: ["POST"] },
   // จด Activity Log ของตัวเอง (เปิดหน้า / ออกจากระบบ) — เขียนได้แค่ log ของ session ตัวเอง อ่านอะไรไม่ได้
   { pattern: /^\/api\/activity-logs\/track$/,           methods: ["POST"] },
+  // Brand Radar: the read-only report endpoints, GET only. Each one calls requireReader / requireProjectReader,
+  // which limits a client to the projects in BrandRadarClientAccess. Scans, prompts, settings, cost stay staff-only.
+  { pattern: /^\/api\/brand-radar\/(projects|brands|profile|overview|responses|citations)$/, methods: ["GET"] },
+  { pattern: /^\/api\/brand-radar\/competitors\/insights$/,                                 methods: ["GET"] },
+  { pattern: /^\/api\/brand-radar\/prompts\/[^/]+\/(detail|responses)$/,                    methods: ["GET"] },
 ];
 
 function normalize(pathname: string): string {

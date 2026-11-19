@@ -3,7 +3,7 @@
  * All period boundaries are Asia/Bangkok, fixed offset +07:00 (no DST).
  */
 import { createHash } from 'node:crypto'
-import type { Schedule } from './types'
+import { parseSchedule } from './types'
 
 const OFFSET_MS = 7 * 3600_000
 const DAY_MS = 86_400_000
@@ -33,11 +33,25 @@ function isoWeek(l: Local): { year: number; week: number } {
   return { year, week }
 }
 
-export function periodKey(schedule: Schedule, at: Date): string | null {
+/** ISO weekday of a Bangkok calendar date: 1 = Monday … 7 = Sunday */
+function isoWeekday(l: Local): number {
+  return ((new Date(Date.UTC(l.y, l.m - 1, l.d)).getUTCDay() + 6) % 7) + 1
+}
+
+/**
+ * The period a scheduled scan belongs to. One period is scanned at most once per project.
+ * `schedule` is the stored text value; a value this version cannot read counts as manual (null).
+ * "Every N days" and "chosen weekdays" use the Bangkok day, the same key as daily.
+ */
+export function periodKey(schedule: string, at: Date): string | null {
+  const spec = parseSchedule(schedule)
+  if (!spec) return null
   const l = bangkokDate(at)
-  switch (schedule) {
+  switch (spec.kind) {
     case 'manual': return null
-    case 'daily': return `${l.y}-${p2(l.m)}-${p2(l.d)}`
+    case 'daily':
+    case 'interval':
+    case 'weekdays': return `${l.y}-${p2(l.m)}-${p2(l.d)}`
     case 'weekly': {
       const w = isoWeek(l)
       return `${w.year}-W${p2(w.week)}`
@@ -46,21 +60,34 @@ export function periodKey(schedule: Schedule, at: Date): string | null {
   }
 }
 
-export function nextRunAfter(schedule: Schedule, at: Date): Date | null {
+/**
+ * When the next scheduled scan becomes due, counted from `at` (always 00:00 Bangkok of a later day).
+ *   every N days    -> N days after the Bangkok day of `at`
+ *   chosen weekdays -> the next chosen weekday strictly after the Bangkok day of `at`
+ */
+export function nextRunAfter(schedule: string, at: Date): Date | null {
+  const spec = parseSchedule(schedule)
+  if (!spec) return null
   const l = bangkokDate(at)
-  switch (schedule) {
+  switch (spec.kind) {
     case 'manual': return null
     case 'daily': return bangkokMidnight(l.y, l.m, l.d + 1)
-    case 'weekly': {
-      const dow = (new Date(Date.UTC(l.y, l.m - 1, l.d)).getUTCDay() + 6) % 7
-      return bangkokMidnight(l.y, l.m, l.d - dow + 7)
-    }
+    case 'weekly': return bangkokMidnight(l.y, l.m, l.d - (isoWeekday(l) - 1) + 7)
     case 'monthly': return bangkokMidnight(l.y, l.m + 1, 1)
+    case 'interval': return bangkokMidnight(l.y, l.m, l.d + spec.days)
+    case 'weekdays': {
+      const today = isoWeekday(l)
+      for (let step = 1; step <= 7; step++) {
+        if (spec.days.includes(((today - 1 + step) % 7) + 1)) return bangkokMidnight(l.y, l.m, l.d + step)
+      }
+      return null
+    }
   }
 }
 
-export function isDue(schedule: Schedule, nextRunAt: Date | null, now: Date): boolean {
-  if (schedule === 'manual') return false
+export function isDue(schedule: string, nextRunAt: Date | null, now: Date): boolean {
+  const spec = parseSchedule(schedule)
+  if (!spec || spec.kind === 'manual') return false
   return nextRunAt === null || nextRunAt.getTime() <= now.getTime()
 }
 

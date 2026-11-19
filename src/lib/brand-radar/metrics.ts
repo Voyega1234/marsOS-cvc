@@ -3,8 +3,8 @@
  * Rule: a metric that cannot be computed is null, never 0.
  */
 import {
-  PROMPT_INTENT_LABEL, PROMPT_INTENTS, PROVIDERS, PROVIDER_KEYS,
-  type CitationOwner, type CompetitorInsightsDTO, type EntityShare, type CitedDomainRow, type Kpis,
+  PROMPT_INTENT_LABEL, PROMPT_INTENTS, PROVIDERS, PROVIDER_KEYS, answerZone,
+  type CitationOwner, type CitedPageRow, type CompetitorInsightsDTO, type MentionSplit, type PromptRunChange, type EntityShare, type CitedDomainRow, type Kpis,
   type OverviewDTO, type Priority, type PromptDetailDTO, type PromptIntent, type PromptStats, type ProviderKey, type TrendPoint,
 } from './types'
 
@@ -14,11 +14,13 @@ export interface RespRow {
 }
 export interface MentionRow {
   responseId: string; runId: string; promptId: string; provider: ProviderKey; entityType: 'brand' | 'competitor'
-  entityKey: string; competitorId: string | null; entityName: string; occurrences: number; recommended: boolean; compared: boolean; position: number | null
+  entityKey: string; competitorId: string | null; entityName: string; occurrences: number; recommended: boolean; compared: boolean; position: number | null; positionPct?: number | null
 }
 export interface CitationRow {
   responseId: string; runId: string; promptId: string; provider: ProviderKey; url: string; normalizedUrl: string
   domain: string; title: string; ownerType: CitationOwner; competitorId: string | null; createdAt: Date | null
+  /** Place in the answer's citation list, 0-based as stored. Optional: only loaders that need it select it. */
+  position?: number
 }
 export interface PromptLite { id: string; text: string; topic: string; intent: PromptIntent; searchVolume: number | null; priority: Priority }
 export interface CompLite { id: string; name: string }
@@ -148,6 +150,20 @@ function mean(xs: number[]): number | null {
   return xs.length === 0 ? null : xs.reduce((a, b) => a + b, 0) / xs.length
 }
 
+function isNum(p: number | null | undefined): p is number {
+  return typeof p === 'number' && Number.isFinite(p)
+}
+
+/** Rows per part of the answer (beginning / middle / end); rows without a recorded position are skipped */
+function zonesOf(rows: Array<{ positionPct?: number | null }>): EntityShare['zones'] {
+  const out = { early: 0, middle: 0, late: 0 }
+  for (const m of rows) {
+    const zone = answerZone(m.positionPct)
+    if (zone) out[zone]++
+  }
+  return out
+}
+
 export function entityShares(ds: Dataset): EntityShare[] {
   const total = ds.responses.length
   const brandRows = ds.mentions.filter((m) => m.entityType === 'brand')
@@ -163,6 +179,8 @@ export function entityShares(ds: Dataset): EntityShare[] {
     cited: ownCitedResp.size,
     occurrences: ds.responses.reduce((a, r) => a + (r.brandOccurrences ?? 0), 0),
     avgPosition: mean(brandRows.map((m) => m.position).filter((p): p is number => p !== null)),
+    avgPositionPct: mean(brandRows.map((m) => m.positionPct).filter(isNum)),
+    zones: zonesOf(brandRows),
   }
 
   const comps: EntityShare[] = ds.competitors.map((c) => {
@@ -180,6 +198,8 @@ export function entityShares(ds: Dataset): EntityShare[] {
       cited: cited.size,
       occurrences: rows.reduce((a, m) => a + m.occurrences, 0),
       avgPosition: mean(rows.map((m) => m.position).filter((p): p is number => p !== null)),
+      avgPositionPct: mean(rows.map((m) => m.positionPct).filter(isNum)),
+      zones: zonesOf(rows),
     }
   })
   comps.sort((a, b) => b.mentions - a.mentions)
@@ -299,10 +319,10 @@ function topicOf(ds: Dataset): Map<string, string> {
   return new Map(ds.prompts.map((p) => [p.id, p.topic.trim() === '' ? NO_TOPIC : p.topic]))
 }
 
-export function byTopic(ds: Dataset): OverviewDTO['byTopic'] {
+export function byTopic(ds: Dataset): NonNullable<OverviewDTO['byTopic']> {
   const tmap = topicOf(ds)
   const groups = groupBy(ds.responses.filter((r) => tmap.has(r.promptId)), (r) => tmap.get(r.promptId)!)
-  const out: OverviewDTO['byTopic'] = []
+  const out: NonNullable<OverviewDTO['byTopic']> = []
   for (const [topic, rs] of Array.from(groups.entries())) {
     const owned = rs.filter((r) => r.ownedCited === true).length
     out.push({
@@ -327,7 +347,7 @@ export function topicProviderHeat(ds: Dataset): OverviewDTO['heat'] {
   return { rows: topics, columns: providers.map(providerShort), values }
 }
 
-export function citationOwners(ds: Dataset): OverviewDTO['citationOwners'] {
+export function citationOwners(ds: Dataset): NonNullable<OverviewDTO['citationOwners']> {
   const owners: CitationOwner[] = ['own', 'competitor', 'external']
   return owners.map((ownerType) => ({ ownerType, citations: ds.citations.filter((c) => c.ownerType === ownerType).length }))
 }
@@ -456,4 +476,103 @@ export function promptEntityTrend(ds: Dataset, runs: RunLite[]): PromptDetailDTO
       topCompetitorRate: sets.length === 0 ? null : rate(Math.max(...sets.map((s) => s.size)), total),
     }
   })
+}
+
+// ── Cited pages, period comparison, mention split, prompt run change ─────────
+
+/** Individual cited URLs ranked by the number of distinct answers citing them (own > competitor > external for the owner). */
+export function citedPages(ds: Dataset, limit = 50, allowedDomains?: ReadonlySet<string>): Omit<CitedPageRow, 'isNew'>[] {
+  const compName = new Map(ds.competitors.map((c) => [c.id, c.name]))
+  const cites = allowedDomains ? ds.citations.filter((c) => allowedDomains.has(c.domain)) : ds.citations
+  const out: Array<Omit<CitedPageRow, 'isNew'> & { key: string; citations: number }> = []
+  for (const [key, cs] of Array.from(groupBy(cites, (c: CitationRow) => c.normalizedUrl || c.url).entries())) {
+    const ownerType: CitationOwner = cs.some((c) => c.ownerType === 'own') ? 'own'
+      : cs.some((c) => c.ownerType === 'competitor') ? 'competitor' : 'external'
+    const compId = ownerType === 'competitor' ? (cs.find((c) => c.ownerType === 'competitor' && c.competitorId)?.competitorId ?? null) : null
+    out.push({
+      key, url: cs[0].url, title: cs.find((c) => c.title)?.title ?? '', domain: cs[0].domain, ownerType,
+      competitorName: compId ? (compName.get(compId) ?? '') : '',
+      answers: new Set(cs.map((c) => c.responseId)).size,
+      platforms: new Set(cs.map((c) => c.provider)).size,
+      citations: cs.length,
+    })
+  }
+  return out
+    .sort((a, b) => b.answers - a.answers || b.citations - a.citations || a.url.localeCompare(b.url))
+    .slice(0, limit)
+    .map(({ key: _k, citations: _c, ...row }) => row)
+}
+
+/**
+ * Compare two sets of keys. `previous` null (no bounded range) or empty (no data) means there is nothing to compare
+ * against, so nothing is "new" and nothing is "lost".
+ */
+export function diffPeriods(current: Iterable<string>, previous: Iterable<string> | null): { available: boolean; added: Set<string>; lost: string[] } {
+  const prev = previous === null ? null : new Set(previous)
+  if (prev === null || prev.size === 0) return { available: false, added: new Set(), lost: [] }
+  const cur = new Set(current)
+  const added = new Set<string>()
+  cur.forEach((k) => { if (!prev.has(k)) added.add(k) })
+  const lost: string[] = []
+  prev.forEach((k) => { if (!cur.has(k)) lost.push(k) })
+  return { available: true, added, lost }
+}
+
+/** Answers split by who is named: only the brand / brand with a competitor / only competitors / nobody tracked. */
+export function mentionSplit(ds: Dataset): MentionSplit {
+  const compIds = new Set(ds.competitors.map((c) => c.id))
+  const withComp = new Set<string>()
+  for (const m of ds.mentions) if (m.entityType === 'competitor' && compIds.has(compIdOf(m))) withComp.add(m.responseId)
+  const out: MentionSplit = { total: ds.responses.length, onlyBrand: 0, brandAndCompetitor: 0, onlyCompetitor: 0, nobody: 0 }
+  for (const r of ds.responses) {
+    const b = r.brandMentioned === true
+    const c = withComp.has(r.id)
+    if (b && c) out.brandAndCompetitor++
+    else if (b) out.onlyBrand++
+    else if (c) out.onlyCompetitor++
+    else out.nobody++
+  }
+  return out
+}
+
+export interface PromptRunChangeDetail { change: PromptRunChange; gained: ProviderKey[]; lost: ProviderKey[] }
+
+/**
+ * Per prompt and provider: compare the two most recent runs in which that provider has decided answers.
+ * A (prompt, provider, run) counts as mentioned when mentioned answers / answered asks >= 0.5, so one noisy answer
+ * among several repeat asks does not flip it. Prompt result: gained = some provider went not-mentioned -> mentioned and
+ * none went the other way; lost = the reverse; disagreement or no change = no entry.
+ */
+export function promptRunChangeDetails(ds: Dataset, runs: RunLite[]): Map<string, PromptRunChangeDetail> {
+  const startOf = new Map(runs.map((r) => [r.id, r.startedAt.getTime()]))
+  const out = new Map<string, PromptRunChangeDetail>()
+  for (const [promptId, rs] of Array.from(groupBy(ds.responses, (r) => r.promptId).entries())) {
+    const gained: ProviderKey[] = []
+    const lost: ProviderKey[] = []
+    for (const [provider, prs] of Array.from(groupBy(rs, (r) => r.provider).entries())) {
+      const byRun = new Map<string, { asked: number; mentioned: number }>()
+      for (const r of prs) {
+        if (!startOf.has(r.runId) || r.brandMentioned === null) continue // undecided answers do not count as asks
+        const c = byRun.get(r.runId) ?? { asked: 0, mentioned: 0 }
+        c.asked++
+        if (r.brandMentioned === true) c.mentioned++
+        byRun.set(r.runId, c)
+      }
+      const ordered = Array.from(byRun.entries()).sort((a, b) => (startOf.get(b[0]) ?? 0) - (startOf.get(a[0]) ?? 0) || b[0].localeCompare(a[0]))
+      if (ordered.length < 2) continue
+      const latest = ordered[0][1].mentioned / ordered[0][1].asked >= 0.5
+      const earlier = ordered[1][1].mentioned / ordered[1][1].asked >= 0.5
+      if (latest && !earlier) gained.push(provider)
+      else if (!latest && earlier) lost.push(provider)
+    }
+    if (gained.length > 0 && lost.length === 0) out.set(promptId, { change: 'gained', gained, lost })
+    else if (lost.length > 0 && gained.length === 0) out.set(promptId, { change: 'lost', gained, lost })
+  }
+  return out
+}
+
+export function promptRunChanges(ds: Dataset, runs: RunLite[]): Map<string, PromptRunChange> {
+  const out = new Map<string, PromptRunChange>()
+  promptRunChangeDetails(ds, runs).forEach((d, id) => out.set(id, d.change))
+  return out
 }

@@ -4,6 +4,8 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { AdminUsersClient } from "@/components/admin/AdminUsersClient";
 import { PageHeader } from "@/components/ds";
+import { buildProjectOptions } from "@/lib/brand-radar/queries";
+import { isMissingTable } from "@/lib/brand-radar/server";
 
 export const metadata: Metadata = { title: "จัดการ Users" };
 
@@ -31,6 +33,28 @@ export default async function AdminUsersPage() {
     }),
   ]);
 
+  // Brand Radar projects with a profile; the page must render even if this fails
+  let radarProjects: { id: string; name: string }[] = [];
+  try {
+    const opts = await buildProjectOptions(orgId);
+    radarProjects = opts.filter((o) => o.hasProfile).map((o) => ({ id: o.id, name: o.name }));
+  } catch (e) {
+    console.error("[admin/users] Brand Radar project list failed", e);
+    radarProjects = [];
+  }
+
+  let radarAccess: { userId: string; projectId: string }[] = [];
+  try {
+    radarAccess = await prisma.brandRadarClientAccess.findMany({
+      where: { organizationId: orgId },
+      select: { userId: true, projectId: true },
+      orderBy: { createdAt: "asc" },
+    });
+  } catch (e) {
+    if (!isMissingTable(e)) throw e;
+  }
+  const radarById = new Map(radarProjects.map((p) => [p.id, p]));
+
   return (
     <div className="space-y-5">
       <PageHeader eyebrow="Admin" title="จัดการ Users" subtitle={`${users.length} users ในองค์กร`} />
@@ -47,7 +71,11 @@ export default async function AdminUsersPage() {
             projectId: a.projectId,
             projectName: a.project.name,
           })),
+          radarProjects: radarAccess
+            .filter((r) => r.userId === u.id && radarById.has(r.projectId))
+            .map((r) => radarById.get(r.projectId)!),
         }))}
+        radarProjects={radarProjects}
         projects={projects.map((p) => ({
           id: p.id,
           name: p.name,

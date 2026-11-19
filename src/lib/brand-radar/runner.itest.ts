@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import type { ProviderCaller, ProviderCallResult } from './providers'
+import type { InsightAnalyzer } from './sentiment'
 
 // The post-run opportunity refresh loads server.ts, which pulls in auth (react.cache, missing under tsx)
 const react = createRequire(`${process.cwd()}/`)('react') as { cache?: unknown }
@@ -19,10 +20,12 @@ async function main() {
     console.error('Refused: DATABASE_URL and DIRECT_URL must both point at 127.0.0.1 (local database)')
     process.exit(1)
   }
-  // The scan needs "connected" credentials to consider OpenRouter providers usable; the caller is fake so nothing is sent.
+  // The scan needs "connected" credentials to consider a provider usable; the caller is fake so nothing is sent.
+  // ChatGPT and Gemini are DataForSEO scraper calls, so the DataForSEO pair must look connected for the whole test.
+  // Fixed placeholder values, set before anything can load an env file: a real credential is never picked up here.
   process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || 'itest-not-a-real-key'
-  delete process.env.DATAFORSEO_LOGIN
-  delete process.env.DATAFORSEO_PASSWORD
+  process.env.DATAFORSEO_LOGIN = 'itest-not-real'
+  process.env.DATAFORSEO_PASSWORD = 'itest-not-real'
 
   const { prisma } = await import('@/lib/prisma')
   const r = await import('./runner')
@@ -86,12 +89,12 @@ async function main() {
     const p2 = await prisma.brandRadarPrompt.create({ data: { organizationId: orgId, projectId, text: 'top vendors', textKey: 'top vendors', status: 'ACTIVE', priority: 'high' } })
     await prisma.brandRadarPrompt.create({ data: { organizationId: orgId, projectId, text: 'candidate only', textKey: 'candidate only', status: 'CANDIDATE' } })
 
-    // estimate: no cost history yet -> null total (no google_ai_mode here)
+    // estimate: no cost history yet -> the DataForSEO list price per ask (ChatGPT and Gemini are scraper calls)
     let est = await r.estimateRun(ctx)
     assert.equal(est.prompts, 2)
     assert.deepEqual(est.providers, ['openai', 'gemini'])
     assert.equal(est.tasks, 4)
-    assert.equal(est.estimatedCostUsd, null)
+    assert.equal(est.estimatedCostUsd, 0.016)
     assert.equal(est.allowed, true)
     ok('estimate without history')
 
@@ -223,8 +226,6 @@ async function main() {
     ok('usage')
 
     // repeat samples: LLM providers ask N times, observed SERP providers once; sample-major order
-    process.env.DATAFORSEO_LOGIN = 'itest-not-real'
-    process.env.DATAFORSEO_PASSWORD = 'itest-not-real'
     await prisma.brandRadarProfile.update({
       where: { id: profile.id }, data: { samplesPerPrompt: 3, providers: '["openai","gemini","google_ai_mode"]' },
     })
@@ -254,9 +255,132 @@ async function main() {
     // each sample is its own response with its own mentions (no unique clash across samples)
     assert.equal(await prisma.brandRadarMention.count({ where: { runId: run8.id, entityType: 'brand' } }), 14)
     await prisma.brandRadarProfile.update({ where: { id: profile.id }, data: { samplesPerPrompt: 1, providers: '["openai","gemini"]' } })
-    delete process.env.DATAFORSEO_LOGIN
-    delete process.env.DATAFORSEO_PASSWORD
     ok('repeat samples per prompt (LLM x3, Google AI Mode x1)')
+
+    // insight: search queries + sentiment + Search Query Groups (own runs, fake analyzer: nothing leaves the machine)
+    await prisma.brandRadarRun.updateMany({ where: { projectId, status: 'RUNNING' }, data: { status: 'CANCELLED' } })
+    await prisma.brandRadarProfile.update({ where: { id: profile.id }, data: { monthlyBudgetUsd: null } })
+    const withQueries: ProviderCaller = async (key, input) => ({
+      ...okResult(key, input.prompt),
+      searchQueries: [`${input.prompt} reviews`, `  ${input.prompt.toUpperCase()}   REVIEWS `, 'acme pricing'],
+    })
+    const seen = { sentiment: 0, group: 0, grouped: [] as string[] }
+    const fakeAnalyzer: InsightAnalyzer = {
+      async sentiment(input) {
+        seen.sentiment++
+        const brand = input.targets.find((t) => t.entityType === 'brand')
+        return {
+          model: 'fake/analyzer', costUsd: 0.002, tokens: 5,
+          sentiment: {
+            factors: ['price'],
+            entities: brand
+              ? [{ entityType: 'brand', key: 'brand', name: brand.name, tone: 'positive', positioning: ['trusted'], factors: [{ code: 'price', polarity: 'positive' }], summary: 'Recommended first', descriptors: ['top pick'] }]
+              : [],
+          },
+        }
+      },
+      async groupQueries(input) {
+        seen.group++
+        seen.grouped.push(...input.queries)
+        return { model: 'fake/analyzer', costUsd: 0.001, tokens: 3, groups: input.queries.map((q) => ({ query: q, groupName: q.includes('pricing') ? 'Pricing' : 'Reviews' })) }
+      },
+    }
+
+    // without an analyzer: the queries are stored, no analysis call is made
+    const s9 = await r.startRun(ctx, 'manual')
+    assert.equal(s9.kind, 'started')
+    const run9 = (s9 as { run: { id: string } }).run
+    await drain(ctx, run9.id, withQueries)
+    const plain = await prisma.brandRadarInsight.findMany({ where: { runId: run9.id } })
+    assert.equal(plain.length, 4)
+    assert.ok(plain.every((i) => i.sentiment === null && i.sentimentModel === ''))
+    assert.ok(plain.every((i) => (JSON.parse(i.searchQueries) as string[]).includes('acme pricing')))
+    assert.ok(plain.every((i) => (JSON.parse(i.searchQueries) as string[]).length === 2), 'the same query in another spelling is stored once')
+    assert.equal(seen.sentiment + seen.group, 0)
+    assert.equal(await prisma.brandRadarQueryGroup.count({ where: { projectId } }), 0)
+    const d9 = await prisma.brandRadarRun.findUniqueOrThrow({ where: { id: run9.id } })
+    assert.ok(Math.abs(d9.costUsd - 0.04) < 1e-9)
+    ok('search queries stored without an analyzer (no analysis call)')
+
+    // with an analyzer: sentiment per answer, one grouping call, cost carried by the answers
+    const s10 = await r.startRun(ctx, 'manual')
+    assert.equal(s10.kind, 'started')
+    const run10 = (s10 as { run: { id: string } }).run
+    for (let i = 0; i < 40; i++) {
+      const st = await r.stepRun({ orgId, userId, projectId }, run10.id, withQueries, new Date(), fakeAnalyzer)
+      assert.ok(st)
+      if (st!.done) break
+    }
+    const d10 = await prisma.brandRadarRun.findUniqueOrThrow({ where: { id: run10.id } })
+    assert.equal(d10.status, 'COMPLETED')
+    const analysed = await prisma.brandRadarInsight.findMany({ where: { runId: run10.id } })
+    assert.equal(analysed.length, 4)
+    assert.equal(seen.sentiment, 4)
+    for (const i of analysed) {
+      const sent = JSON.parse(i.sentiment || 'null') as { factors: string[]; entities: Array<{ key: string; tone: string }> }
+      assert.deepEqual(sent.factors, ['price'])
+      assert.equal(sent.entities[0].key, 'brand')
+      assert.equal(sent.entities[0].tone, 'positive')
+      assert.equal(i.sentimentModel, 'fake/analyzer')
+    }
+    // only providers that expose their real searches feed the groups (openai here, not gemini): 2 prompts + 1 shared query
+    assert.equal(seen.group, 1)
+    assert.equal(seen.grouped.length, 3)
+    const groups = await prisma.brandRadarQueryGroup.findMany({ where: { projectId }, orderBy: { queryKey: 'asc' } })
+    assert.deepEqual(groups.map((g) => g.queryKey), ['acme pricing', 'best acme alternative reviews', 'top vendors reviews'])
+    assert.deepEqual(groups.map((g) => g.groupName), ['Pricing', 'Reviews', 'Reviews'])
+    assert.ok(groups.every((g) => g.organizationId === orgId))
+    // 4 answers x 0.01 + 4 sentiment calls x 0.002 + 1 grouping call x 0.001
+    const sum10 = await prisma.brandRadarResponse.aggregate({ where: { runId: run10.id }, _sum: { costUsd: true } })
+    assert.ok(Math.abs((sum10._sum.costUsd || 0) - 0.049) < 1e-9)
+    assert.ok(Math.abs(d10.costUsd - 0.049) < 1e-9)
+    assert.equal(await prisma.aIJob.count({ where: { organizationId: orgId, jobType: 'BRAND_RADAR_SENTIMENT', status: 'SUCCESS' } }), 4)
+    assert.equal(await prisma.aIJob.count({ where: { organizationId: orgId, jobType: 'BRAND_RADAR_QUERY_GROUPS', status: 'SUCCESS' } }), 1)
+    ok('sentiment + Search Query Groups stored, cost added to the answers')
+
+    // a second scan with the same queries makes no new grouping call; a failing analyzer never fails the answer
+    const s11 = await r.startRun(ctx, 'manual')
+    assert.equal(s11.kind, 'started')
+    const run11 = (s11 as { run: { id: string } }).run
+    const broken: InsightAnalyzer = {
+      async sentiment() { throw new Error('analysis down') },
+      async groupQueries(input) { return fakeAnalyzer.groupQueries(input) },
+    }
+    for (let i = 0; i < 40; i++) {
+      const st = await r.stepRun({ orgId, userId, projectId }, run11.id, withQueries, new Date(), broken)
+      assert.ok(st)
+      if (st!.done) break
+    }
+    const d11 = await prisma.brandRadarRun.findUniqueOrThrow({ where: { id: run11.id } })
+    assert.equal(d11.status, 'COMPLETED')
+    assert.equal(d11.doneTasks, 4)
+    assert.equal(seen.group, 1)
+    assert.equal(await prisma.brandRadarQueryGroup.count({ where: { projectId } }), 3)
+    assert.equal(await prisma.brandRadarInsight.count({ where: { runId: run11.id, sentiment: null } }), 4)
+    assert.equal(await prisma.aIJob.count({ where: { organizationId: orgId, jobType: 'BRAND_RADAR_SENTIMENT', status: 'FAILED' } }), 4)
+    ok('known queries are not regrouped; analysis failure leaves the answer DONE')
+
+    // found but not cited: classified like citations, a page that is also cited is not stored as found
+    const withFound: ProviderCaller = async (key, input) => ({
+      ...okResult(key, input.prompt),
+      foundSources: [
+        { url: 'https://acme.test/found', title: 'Our page' },
+        { url: 'https://elsewhere.test/found', title: 'Elsewhere' },
+        { url: 'https://news.test/a', title: 'News' }, // also cited -> must not be stored
+        { url: 'javascript:alert(1)', title: 'bad' },
+      ],
+    })
+    const s12 = await r.startRun(ctx, 'manual')
+    assert.equal(s12.kind, 'started')
+    const run12 = (s12 as { run: { id: string } }).run
+    await drain(ctx, run12.id, withFound)
+    const foundRows = await prisma.brandRadarInsight.findMany({ where: { runId: run12.id } })
+    assert.ok(foundRows.length > 0)
+    for (const i of foundRows) {
+      const f = JSON.parse(i.foundSources) as Array<{ url: string; ownerType: string }>
+      assert.deepEqual(f.map((x) => [x.url, x.ownerType]), [['https://acme.test/found', 'own'], ['https://elsewhere.test/found', 'external']])
+    }
+    ok('found-but-not-cited pages stored with owner type; cited and non-http pages left out')
 
     // runDue idempotent
     const due = await prisma.brandRadarProfile.update({ where: { id: profile.id }, data: { nextRunAt: null, monthlyBudgetUsd: null } })
@@ -276,10 +400,38 @@ async function main() {
     assert.equal(await prisma.brandRadarRun.count({ where: { projectId, trigger: 'schedule' } }), 1)
     ok('runDue idempotent')
 
+    // chosen weekdays: Tuesday noon in Bangkok -> a scan starts, next one is Wednesday 00:00 Bangkok
+    await prisma.brandRadarRun.updateMany({ where: { projectId, status: 'RUNNING' }, data: { status: 'CANCELLED' } })
+    await prisma.brandRadarProfile.update({ where: { id: profile.id }, data: { schedule: 'days:1,3', nextRunAt: null } })
+    const tuesday = new Date('2026-11-17T05:00:00Z')
+    const w1 = await r.runDue(ctx, tuesday)
+    assert.equal(w1.reason, 'Scheduled scan started')
+    assert.equal((await prisma.brandRadarProfile.findUniqueOrThrow({ where: { id: profile.id } })).nextRunAt?.toISOString(), '2026-11-17T17:00:00.000Z')
+    assert.equal((await r.runDue(ctx, tuesday)).reason, 'Not due yet')
+    ok('weekday schedule: starts when due, next run on the next chosen weekday')
+
+    // every 3 days: counted from the Bangkok day the scan ran
+    await prisma.brandRadarRun.updateMany({ where: { projectId, status: 'RUNNING' }, data: { status: 'CANCELLED' } })
+    await prisma.brandRadarProfile.update({ where: { id: profile.id }, data: { schedule: 'every:3', nextRunAt: null } })
+    const friday = new Date('2026-11-20T05:00:00Z')
+    const e1 = await r.runDue(ctx, friday)
+    assert.equal(e1.reason, 'Scheduled scan started')
+    assert.equal((await prisma.brandRadarProfile.findUniqueOrThrow({ where: { id: profile.id } })).nextRunAt?.toISOString(), '2026-11-22T17:00:00.000Z')
+    assert.equal((await r.runDue(ctx, new Date('2026-11-22T16:59:00Z'))).reason, 'Not due yet')
+    ok('interval schedule: next run N days after the scan day')
+
+    // a stored value this version cannot read never starts a scan
+    await prisma.brandRadarRun.updateMany({ where: { projectId, status: 'RUNNING' }, data: { status: 'CANCELLED' } })
+    await prisma.brandRadarProfile.update({ where: { id: profile.id }, data: { schedule: 'every:0', nextRunAt: null } })
+    assert.equal((await r.runDue(ctx)).reason, 'Schedule is manual')
+    ok('unreadable schedule counts as manual')
+
     void p1; void p2
     console.log(`runner.itest.ts: ${n} checks passed`)
   } finally {
     const where = { organizationId: orgId }
+    await prisma.brandRadarInsight.deleteMany({ where })
+    await prisma.brandRadarQueryGroup.deleteMany({ where })
     await prisma.brandRadarCitation.deleteMany({ where })
     await prisma.brandRadarMention.deleteMany({ where })
     await prisma.brandRadarResponse.deleteMany({ where })

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { bad, isRadarCtx, requireProject } from '@/lib/brand-radar/server'
-import { toCompetitorDTO, toProfileDTO } from '@/lib/brand-radar/queries'
+import { bad, isRadarCtx, requireProject, requireProjectReader } from '@/lib/brand-radar/server'
+import { toClientProfileDTO, toCompetitorDTO, toProfileDTO } from '@/lib/brand-radar/queries'
 import { DEFAULT_PROVIDERS, cleanProfileInput } from '@/lib/brand-radar/profile-input'
 import { nextRunAfter } from '@/lib/brand-radar/schedule'
 import type { ProfileRes, Schedule } from '@/lib/brand-radar/types'
@@ -9,7 +9,7 @@ import type { ProfileRes, Schedule } from '@/lib/brand-radar/types'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  const ctx = await requireProject(req.nextUrl.searchParams.get('projectId'))
+  const ctx = await requireProjectReader(req.nextUrl.searchParams.get('projectId'))
   if (!isRadarCtx(ctx)) return ctx
   const where = { organizationId: ctx.orgId, projectId: ctx.project.id }
   const [profile, competitors] = await Promise.all([
@@ -17,8 +17,8 @@ export async function GET(req: NextRequest) {
     prisma.brandRadarCompetitor.findMany({ where, orderBy: { createdAt: 'asc' } }),
   ])
   const res: ProfileRes = {
-    profile: profile ? toProfileDTO(profile) : null,
-    competitors: competitors.map(toCompetitorDTO),
+    profile: profile ? (ctx.clientView ? toClientProfileDTO(profile) : toProfileDTO(profile)) : null,
+    competitors: (ctx.clientView ? competitors.filter((c) => c.status === 'ACTIVE') : competitors).map(toCompetitorDTO),
     project: ctx.project,
   }
   return NextResponse.json(res)

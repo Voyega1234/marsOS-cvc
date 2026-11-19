@@ -4,7 +4,7 @@
 import { hostOf, stripInvisible } from './normalize'
 import { cleanStrings } from './server'
 import {
-  COUNTRIES, LANGUAGES, LIMITS, PROMPT_SOURCES, PROVIDER_KEYS, SAMPLE_OPTIONS, SCHEDULES, isProviderKey, isSampleOption,
+  COUNTRIES, LANGUAGES, LIMITS, PROMPT_SOURCES, PROVIDER_KEYS, SAMPLE_OPTIONS, formatSchedule, isProviderKey, isSampleOption, parseSchedule,
   type PromptSource, type ProviderKey, type Schedule,
 } from './types'
 
@@ -82,8 +82,9 @@ export function cleanProfileInput(r: Record<string, unknown>): { ok: true; data:
     d.promptSources = PROMPT_SOURCES.filter((k) => list.includes(k))
   }
   if ('schedule' in r) {
-    if (typeof r.schedule !== 'string' || !(SCHEDULES as readonly string[]).includes(r.schedule)) return { ok: false, error: 'Invalid schedule' }
-    d.schedule = r.schedule as Schedule
+    const spec = parseSchedule(r.schedule)
+    if (!spec) return { ok: false, error: 'Invalid schedule' }
+    d.schedule = formatSchedule(spec)
   }
   if ('monthlyBudgetUsd' in r) {
     const v = r.monthlyBudgetUsd

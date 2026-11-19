@@ -1,5 +1,5 @@
 // เทสช่วงเวลาของหน้า AI Cost: npx tsx src/lib/ai-cost-range.test.ts
-import { aiCostCreatedAtFilter, aiCostRangeQuery, bangkokDateKey, isDateKey, resolveAiCostRange } from './ai-cost-range'
+import { aiCostCreatedAtFilter, aiCostRangeDays, aiCostRangeQuery, bangkokDateKey, eachDateKey, isDateKey, previousAiCostRange, resolveAiCostRange } from './ai-cost-range'
 
 let passed = 0
 function eq(actual: unknown, expected: unknown, msg: string) {
@@ -58,3 +58,22 @@ eq(aiCostRangeQuery({ preset: '7d' }), '?range=7d', 'preset')
 eq(aiCostRangeQuery({ from: '2026-11-03', to: '2026-11-09' }), '?from=2026-11-03&to=2026-11-09', 'กำหนดวันเอง')
 
 console.log(`ai-cost-range: ${passed} passed`)
+
+// ช่วงก่อนหน้า (ไว้เทียบ) + รายวัน
+eq(previousAiCostRange({ from: '2026-11-01', to: '2026-11-16' }), { from: '2026-10-16', to: '2026-10-31' }, 'ช่วงก่อนหน้ายาวเท่ากัน 16 วัน')
+eq(previousAiCostRange({ from: '2026-11-16', to: '2026-11-16' }), { from: '2026-11-15', to: '2026-11-15' }, 'วันเดียว = เมื่อวาน')
+eq(previousAiCostRange({ from: null, to: null }), null, 'ทั้งหมด = ไม่มีช่วงก่อนหน้า')
+eq(aiCostRangeDays({ from: '2026-11-10', to: '2026-11-16' }), 7, 'นับรวมสองฝั่ง')
+eq(eachDateKey('2026-02-27', '2026-03-02'), ['2026-02-27', '2026-02-28', '2026-03-01', '2026-03-02'], 'ข้ามเดือน')
+eq(eachDateKey('2020-01-01', '2026-01-01'), [], 'ยาวเกินเพดาน = ว่าง')
+console.log(`ai-cost-range extra checks passed`)
+
+// URL แปลก ๆ: ก่อน 2020 ไม่รับ, อนาคตตัดเหลือวันนี้
+const crafted = resolveAiCostRange({ from: '0001-01-01', to: '2026-11-16' }, NOW)
+eq(crafted.from, null, 'from ก่อน 2020 = ไม่รับ')
+eq(crafted.to, '2026-11-16', 'to ปกติยังอยู่')
+eq(previousAiCostRange(crafted), null, 'ไม่มี from = ไม่มีช่วงก่อนหน้า')
+const future = resolveAiCostRange({ from: '2026-11-01', to: '2099-01-01' }, NOW)
+eq(future.to, '2026-11-16', 'to อนาคต = วันนี้')
+eq(previousAiCostRange({ from: '0001-01-01', to: '2026-11-16' }), null, 'ช่วงก่อนหน้าต่ำกว่าปี 0 = null')
+console.log(`ai-cost-range crafted checks passed`)

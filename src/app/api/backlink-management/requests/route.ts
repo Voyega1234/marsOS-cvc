@@ -9,7 +9,14 @@ import { currentPeriod, isValidPeriod, round2 } from "@/lib/backlink-management/
 import { enrichRows, enrichOne } from "@/lib/backlink-management/requests-server";
 import { isHttpUrl } from "@/lib/backlink-management/workflow";
 import { LINK_TYPES } from "@/lib/backlink-management/types";
-import { cleanVendorDomain } from "@/lib/backlink-management/quota-request";
+import { cleanVendorDomain, quotaNoteLine, withQuotaNote } from "@/lib/backlink-management/quota-request";
+import { googleSheetsPort } from "@/lib/backlink-management/quota-sheets-port";
+import {
+  QuotaError, claimRequestQuota, planRequestQuota, refreshRequestQuota, requestQuotaClaimError, writeRequestQuota,
+  type QuotaDeps, type RequestQuotaBooking,
+} from "@/lib/backlink-management/quota-server";
+import { readConfirmOverwrite } from "@/lib/backlink-management/quota-write";
+import { quotaFail } from "@/lib/backlink-management/quota-route";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -51,6 +58,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/** เขียนชีทไม่สำเร็จหลังสร้างคำขอ + จองช่องแล้ว: ลบทั้งหมดทิ้ง ไม่ให้เหลือคำขอที่อ้างช่องโควต้าที่ไม่มีจริง */
+async function undoQuotaRequest(orgId: string, requestId: string, claimId: string): Promise<void> {
+  await prisma.blmQuotaReservation.deleteMany({ where: { id: claimId, organizationId: orgId } }).catch(() => {});
+  await prisma.blmRequestAsana.deleteMany({ where: { organizationId: orgId, requestId } }).catch(() => {});
+  await prisma.blmRequestEvent.deleteMany({ where: { organizationId: orgId, requestId } }).catch(() => {});
+  await prisma.blmRequest.deleteMany({ where: { id: requestId, organizationId: orgId } }).catch(() => {});
+}
+
 export async function POST(req: NextRequest) {
   const ctx = await requireStaff();
   if (!isCtx(ctx)) return ctx;
@@ -72,6 +87,12 @@ export async function POST(req: NextRequest) {
       // Site picked from a quota package (not from the vendor library): keep only its name.
       vendorDomain = cleanVendorDomain(b.vendorDomain);
     }
+    // เลือก "ช่องว่าง" ของแพ็กเกจโควต้า = ระบบจองช่องให้ตอนส่งคำขอ (คำสั่งเจ้าของ 2026-11-17)
+    // รับจาก browser แค่ packageId — ลูกค้า โปรเจกต์ ผู้จอง สถานะ และช่อง ระบบกำหนดเอง
+    const quotaPackageId = b.quota && typeof b.quota === "object" && typeof b.quota.packageId === "string" ? b.quota.packageId.trim() : "";
+    if (quotaPackageId && vendorSiteId) {
+      return NextResponse.json({ error: "เลือกเว็บจากคลัง หรือจากโควต้า อย่างใดอย่างหนึ่ง" }, { status: 400 });
+    }
     let assigneeId: string | null = null;
     if (b.assigneeId) {
       const u = await prisma.user.findFirst({ where: { id: String(b.assigneeId), organizationId: ctx.orgId }, select: { id: true } });
@@ -80,7 +101,8 @@ export async function POST(req: NextRequest) {
     }
     const period = b.budgetPeriod ? String(b.budgetPeriod) : currentPeriod();
     if (!isValidPeriod(period)) return NextResponse.json({ error: "เดือนที่ตัดงบไม่ถูกต้อง" }, { status: 400 });
-    const quoted = b.quotedPrice === undefined || b.quotedPrice === null || b.quotedPrice === "" ? vendorPrice : Number(b.quotedPrice);
+    const priceGiven = !(b.quotedPrice === undefined || b.quotedPrice === null || b.quotedPrice === "");
+    let quoted = priceGiven ? Number(b.quotedPrice) : vendorPrice;
     if (!Number.isFinite(quoted) || quoted < 0) return NextResponse.json({ error: "ราคาไม่ถูกต้อง" }, { status: 400 });
     const linkType = LINK_TYPES.includes(b.linkType) ? String(b.linkType) : vendorLinkType ?? "dofollow";
     const due = b.dueDate ? parseDateOnly(b.dueDate) : null;
@@ -121,8 +143,31 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // สร้างคำขอ + ประวัติ + โปรเจกต์ Asana ที่เลือก ในธุรกรรมเดียว — ถ้าขั้นไหนพลาด จะไม่เหลือคำขอที่ไปผิดโปรเจกต์
+    // วางแผนจองโควต้าก่อนสร้างคำขอ (อ่านชีทอย่างเดียว) — จองไม่ได้ / ต้องยืนยันเขียนทับ = ตอบกลับเลย ยังไม่มีอะไรถูกสร้าง
+    const quotaDeps: QuotaDeps | null = quotaPackageId
+      ? { port: googleSheetsPort(), confirmOverwrite: readConfirmOverwrite(b.confirmOverwrite) }
+      : null;
+    let quotaPlan: RequestQuotaBooking | null = null;
+    let notes = String(b.notes ?? "").trim().slice(0, 3000);
+    let createdNote = "สร้างคำขอ";
+    if (quotaDeps) {
+      quotaPlan = await planRequestQuota(ctx, { packageId: quotaPackageId, project, website: vendorDomain }, quotaDeps);
+      vendorDomain = cleanVendorDomain(quotaPlan.website) || vendorDomain;
+      if (!priceGiven && quotaPlan.pricePerLink !== null && quotaPlan.pricePerLink >= 0) quoted = quotaPlan.pricePerLink;
+      // หมายเหตุของคำขอบอกช่องจริงที่ระบบจองให้ (ทับบรรทัด [โควต้า] ที่ฟอร์มใส่มา)
+      const line = quotaNoteLine({
+        website: quotaPlan.website, vendorName: quotaPlan.vendorName,
+        sourceTitle: quotaPlan.sourceTitle, tabTitle: quotaPlan.tabTitle, slotIndex: quotaPlan.slotIndex,
+      });
+      notes = withQuotaNote(notes.slice(0, 2800), line).slice(0, 3000);
+      createdNote = `สร้างคำขอ · จองโควต้า ${quotaPlan.website || quotaPlan.vendorName} ช่องที่ ${quotaPlan.slotIndex + 1}`.slice(0, 500);
+    }
+
+    // สร้างคำขอ + ประวัติ + โปรเจกต์ Asana ที่เลือก (+ จองช่องโควต้า) ในธุรกรรมเดียว — ถ้าขั้นไหนพลาด จะไม่เหลือคำขอที่ไปผิดโปรเจกต์
+    // ช่องโควต้าชนกับคนอื่น (unique) = ธุรกรรมถูกยกเลิกทั้งก้อน ไม่มีคำขอค้าง
     const target = asanaTarget;
+    const plan = quotaPlan;
+    let claimId = "";
     const row = await prisma.$transaction(async (tx) => {
       const created = await tx.blmRequest.create({
         data: {
@@ -139,13 +184,13 @@ export async function POST(req: NextRequest) {
           requestedById: ctx.userId,
           assigneeId,
           dueDate: due,
-          notes: String(b.notes ?? "").trim().slice(0, 3000),
+          notes,
         },
       });
       await tx.blmRequestEvent.create({
         data: {
           organizationId: ctx.orgId, requestId: created.id, type: "CREATED", fromStatus: "", toStatus: "REQUESTED",
-          amount: created.quotedPrice, note: "สร้างคำขอ", source: "user", actorId: ctx.userId,
+          amount: created.quotedPrice, note: createdNote, source: "user", actorId: ctx.userId,
         },
       });
       if (target) {
@@ -153,12 +198,27 @@ export async function POST(req: NextRequest) {
           data: { organizationId: ctx.orgId, requestId: created.id, projectGid: target.gid, projectName: target.name },
         });
       }
+      if (plan) claimId = await claimRequestQuota(tx, ctx, plan, { id: created.id, targetUrl: created.targetUrl });
       return created;
-    });
+    }).catch((e) => { throw plan ? requestQuotaClaimError(e) : e; });
+
+    // เขียนช่องลงชีท — พัง = ลบคำขอ + แถวจองทิ้ง แล้วตอบ error (ผู้ใช้กดส่งใหม่ได้)
+    let quotaWarning: string | undefined;
+    if (plan && quotaDeps) {
+      try {
+        quotaWarning = await writeRequestQuota(plan, quotaDeps);
+      } catch (e) {
+        await undoQuotaRequest(ctx.orgId, row.id, claimId);
+        throw e;
+      }
+      const stale = await refreshRequestQuota(ctx, plan, quotaDeps);
+      quotaWarning = [quotaWarning, stale].filter(Boolean).join(" · ") || undefined;
+    }
     await ensureAsanaTask(ctx.orgId, row.id);
     await markSheetDirty(ctx.orgId);
-    return NextResponse.json({ request: await enrichOne(ctx.orgId, row.id) });
+    return NextResponse.json({ request: await enrichOne(ctx.orgId, row.id), ...(quotaWarning ? { quotaWarning } : {}) });
   } catch (e) {
-    return serverError(e);
+    // QuotaError (จองไม่ได้ / ต้องยืนยันเขียนทับ) ตอบแบบเดียวกับหน้า Quota ; error อื่นไป serverError ตามเดิม
+    return e instanceof QuotaError ? quotaFail(e) : serverError(e);
   }
 }

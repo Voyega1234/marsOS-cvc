@@ -9,6 +9,7 @@ import { isHttpUrl, resolveAction } from "@/lib/backlink-management/workflow";
 import { LINK_TYPES, isApprover, statusLabel } from "@/lib/backlink-management/types";
 import { deleteRequestAttachments } from "@/lib/backlink-management/attachments-server";
 import { cleanVendorDomain } from "@/lib/backlink-management/quota-request";
+import { clearRequestMarker } from "@/lib/backlink-management/quota-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -228,6 +229,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       await pushRequestChange(ctx.orgId, cur.id, `MarsOS: คำขอถูกลบโดย ${ctx.userName}`);
     }
     await prisma.blmRequest.delete({ where: { id: cur.id } });
+    // ช่องโควต้าที่คำขอนี้จองไว้: เอา marker ออก (ช่องยังจองอยู่ในชีท เลือกใช้กับคำขอใหม่ได้ / ปล่อยได้ที่หน้า Quota)
+    await clearRequestMarker(ctx.orgId, cur.id);
     await deleteRequestAttachments(ctx.orgId, cur.id); // ไม่ throw — ตารางไฟล์แนบอาจยังไม่มี
     await markSheetDirty(ctx.orgId);
     return NextResponse.json({ ok: true });

@@ -1,6 +1,9 @@
 /** Run: npx tsx src/lib/backlink-management/quota-request.test.ts */
 import assert from "node:assert/strict";
-import { cleanVendorDomain, clientMatchesProject, isOnProcessStatus, normalizeClientName, quotaNoteLine, quotaOptionsForProject, withQuotaNote } from "./quota-request";
+import {
+  cleanVendorDomain, clientMatchesProject, hasRequestMarker, isOnProcessStatus, normalizeClientName, quotaNoteLine, quotaOptionsForProject,
+  requestIdFromNote, requestMarker, requestReservationNote, sheetClientForProject, stripRequestMarker, withQuotaNote,
+} from "./quota-request";
 import type { QuotaPackageView, QuotaSlotView } from "./quota-types";
 
 let n = 0;
@@ -130,6 +133,99 @@ t("withQuotaNote replaces or drops only the quota line", () => {
   assert.equal(withQuotaNote("ส่งด่วน\n[โควต้า] a\n", "[โควต้า] b"), "ส่งด่วน\n[โควต้า] b");
   assert.equal(withQuotaNote("ส่งด่วน\n[โควต้า] a", null), "ส่งด่วน");
   assert.equal(withQuotaNote("  บรรทัดแรก\nบรรทัดสอง", null), "  บรรทัดแรก\nบรรทัดสอง");
+});
+
+// ───────────────────────── free room (a request books the slot on submit) ─────────────────────────
+
+t("free room is offered only when asked for", () => {
+  const p = pkg("a", [slot(0, { client: "Other", ...OP }), slot(1)]);
+  assert.deepEqual(quotaOptionsForProject([p], clicx), []);
+  const free = quotaOptionsForProject([p], clicx, { free: true });
+  assert.deepEqual(free.map((x) => [x.kind, x.key, x.slotIndex, x.website]), [["free", "a:new:0", null, "terrabkk.com"]]);
+  assert.equal(free[0].pricePerLink, 3000);
+});
+
+t("free room: one option per website, duplicates dropped, fallback site when the package lists none", () => {
+  const many = pkg("a", [slot(0)], { websites: ["a.com", "A.com", " b.com ", ""] });
+  assert.deepEqual(quotaOptionsForProject([many], clicx, { free: true }).map((x) => [x.key, x.website]), [["a:new:0", "a.com"], ["a:new:1", "b.com"]]);
+  const none = pkg("b", [slot(0)], { websites: [] });
+  assert.deepEqual(quotaOptionsForProject([none], clicx, { free: true }).map((x) => [x.key, x.website]), [["b:new:0", "TerraBKK"]]);
+  const nameless = pkg("c", [slot(0)], { websites: [], vendorName: "", websiteText: "" });
+  assert.deepEqual(quotaOptionsForProject([nameless], clicx, { free: true }), []);
+});
+
+t("free room: expired, stale and full packages are not offered", () => {
+  const cfg = { free: true };
+  assert.deepEqual(quotaOptionsForProject([pkg("a", [slot(0)], { expired: true })], clicx, cfg), []);
+  assert.deepEqual(quotaOptionsForProject([pkg("a", [slot(0)], { stale: true })], clicx, cfg), []);
+  const full = pkg("a", [slot(0, { client: "X", ...OP }), slot(1, { client: "Y", ...OP })], { units: 2 });
+  assert.deepEqual(quotaOptionsForProject([full], clicx, cfg), []);
+  // every row used, but the unit count leaves room for one more row
+  const grows = pkg("a", [slot(0, { client: "X", ...OP })], { units: 2 });
+  assert.equal(quotaOptionsForProject([grows], clicx, cfg).length, 1);
+  // a slot held by a reservation only (sheet row still blank) is not free
+  const held = pkg("a", [slot(0, { reservation: resv("p2"), used: false })], { units: 1 });
+  assert.deepEqual(quotaOptionsForProject([held], clicx, cfg), []);
+});
+
+t("free room: a package without a unit count grows only when it is the last in its tab", () => {
+  const usedSlot = () => [slot(0, { client: "X", ...OP })];
+  const first = pkg("a", usedSlot(), { units: null, ordinal: 1 });
+  const last = pkg("b", usedSlot(), { units: null, ordinal: 2 });
+  const otherTab = pkg("c", usedSlot(), { units: null, ordinal: 1, tabTitle: "2027" });
+  assert.deepEqual(quotaOptionsForProject([first, last, otherTab], clicx, { free: true }).map((x) => x.packageId), ["b", "c"]);
+  // a stale package below does not count as the last one
+  const staleLast = pkg("d", usedSlot(), { units: null, ordinal: 3, stale: true });
+  assert.deepEqual(quotaOptionsForProject([first, last, staleLast], clicx, { free: true }).map((x) => x.packageId), ["b"]);
+});
+
+t("booked slots come before free room", () => {
+  const p = pkg("a", [slot(0, { reservation: resv("p1"), ...OP }), slot(1, { client: "Clicx", ...OP }), slot(2)]);
+  assert.deepEqual(quotaOptionsForProject([p], clicx, { free: true }).map((x) => x.kind), ["reserved", "sheet", "free"]);
+});
+
+// ───────────────────────── request marker ─────────────────────────
+
+t("request marker: build, read, strip", () => {
+  assert.equal(requestMarker("req1"), "[คำขอ req1]");
+  assert.equal(requestReservationNote("req1", " https://x.test/page "), "[คำขอ req1] https://x.test/page");
+  assert.equal(requestReservationNote("req1", ""), "[คำขอ req1]");
+  assert.equal(requestReservationNote("req1", "x".repeat(2000)).length, 1000);
+  assert.equal(requestIdFromNote("[คำขอ req1] https://x.test"), "req1");
+  assert.equal(requestIdFromNote("  [คำขอ req1]"), "req1");
+  assert.equal(requestIdFromNote("ดู [คำขอ req1]"), null);
+  assert.equal(requestIdFromNote("[คำขอ] x"), null);
+  assert.equal(requestIdFromNote(""), null);
+  assert.equal(requestIdFromNote(null), null);
+  assert.equal(hasRequestMarker("[คำขอ req1] x"), true);
+  assert.equal(hasRequestMarker("จองไว้ให้ Clicx"), false);
+  assert.equal(stripRequestMarker("[คำขอ req1] https://x.test"), "https://x.test");
+  assert.equal(stripRequestMarker("[คำขอ req1]"), "");
+  assert.equal(stripRequestMarker("จองไว้"), "จองไว้");
+});
+
+t("a slot already taken by a request is not offered again (neither as reserved nor as sheet)", () => {
+  const taken = { ...resv("p1"), note: "[คำขอ req1] https://x.test" };
+  const p = pkg("a", [slot(0, { reservation: taken, client: "Clicx", ...OP }), slot(1, { reservation: resv("p1"), ...OP })]);
+  assert.deepEqual(quotaOptionsForProject([p], clicx).map((x) => x.key), ["a:1"]);
+  // the marker of a deleted request is gone: the slot is offered again
+  const freed = { ...resv("p1"), note: stripRequestMarker(taken.note) };
+  const p2 = pkg("a", [slot(0, { reservation: freed, client: "Clicx", ...OP })]);
+  assert.deepEqual(quotaOptionsForProject([p2], clicx).map((x) => x.kind), ["reserved"]);
+});
+
+t("sheetClientForProject: reuse an existing spelling only on an exact match", () => {
+  assert.equal(sheetClientForProject(clicx, ["Acme", " CLICX "]), "CLICX");
+  assert.equal(sheetClientForProject(clicx, ["Clicx Bank"]), "Clicx Bank"); // equals the project name
+  assert.equal(sheetClientForProject(clicx, ["Clicx Thailand"]), "Clicx"); // containment is not enough
+  assert.equal(sheetClientForProject({ id: "p", name: "Solo" }, []), "Solo");
+  assert.equal(sheetClientForProject({ id: "p", name: " ", clientName: null }, ["X"]), "");
+});
+
+t("note line for free room has no slot number yet", () => {
+  const [o] = quotaOptionsForProject([pkg("a", [slot(0)])], clicx, { free: true });
+  assert.equal(quotaNoteLine(o), "[โควต้า] terrabkk.com · Backlink Quota / 2026 · ช่องว่างใหม่");
+  assert.equal(quotaNoteLine({ ...o, slotIndex: 2 }), "[โควต้า] terrabkk.com · Backlink Quota / 2026 · ช่องที่ 3");
 });
 
 console.log(`\n${n} passed`);

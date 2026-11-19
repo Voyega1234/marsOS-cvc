@@ -17,6 +17,9 @@ export const AI_COST_PRESET_LABEL: Record<AiCostPreset, string> = {
   all: "ทั้งหมด",
 };
 
+/** วันที่เก่าสุดที่รับจาก URL */
+export const AI_COST_MIN_DATE = "2020-01-01";
+
 export interface AiCostRange {
   /** preset ที่เลือก — "custom" = กำหนดวันเอง */
   preset: AiCostPreset | "custom";
@@ -84,6 +87,11 @@ export function resolveAiCostRange(
   let to = first(params?.to);
   if (!isDateKey(from)) from = "";
   if (!isDateKey(to)) to = "";
+  // ก่อน 2020 = ไม่รับ, หลังวันนี้ = ตัดเหลือวันนี้
+  if (from && from < AI_COST_MIN_DATE) from = "";
+  if (to && to < AI_COST_MIN_DATE) to = "";
+  if (from && from > today) from = today;
+  if (to && to > today) to = today;
 
   if (from || to) {
     if (from && to && from > to) [from, to] = [to, from];
@@ -113,4 +121,31 @@ export function aiCostRangeQuery(sel: { preset: AiCostPreset } | { from: string;
   if (sel.to) q.set("to", sel.to);
   const s = q.toString();
   return s ? `?${s}` : "";
+}
+
+/** จำนวนวัน (รวมวันแรกและวันสุดท้าย) ของช่วงที่มีทั้ง from และ to — ไม่ครบ = null */
+export function aiCostRangeDays(range: Pick<AiCostRange, "from" | "to">): number | null {
+  if (!range.from || !range.to) return null;
+  const ms = Date.parse(`${range.to}T00:00:00.000Z`) - Date.parse(`${range.from}T00:00:00.000Z`);
+  return Math.round(ms / 86_400_000) + 1;
+}
+
+/** ช่วงก่อนหน้าที่ยาวเท่ากัน (ติดกับ from) ไว้เทียบ — ช่วงที่ไม่มีวันครบสองฝั่ง = null */
+export function previousAiCostRange(range: Pick<AiCostRange, "from" | "to">): { from: string; to: string } | null {
+  const days = aiCostRangeDays(range);
+  if (!days || !range.from) return null;
+  const from = addDays(range.from, -days);
+  const to = addDays(range.from, -1);
+  if (!isDateKey(from) || !isDateKey(to)) return null;
+  return { from, to };
+}
+
+/** ทุกวัน YYYY-MM-DD จาก from ถึง to (รวมสองฝั่ง) — ยาวเกิน max คืนอาเรย์ว่าง */
+export function eachDateKey(from: string, to: string, max = 400): string[] {
+  const out: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    out.push(d);
+    if (out.length > max) return [];
+  }
+  return out;
 }

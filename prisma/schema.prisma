@@ -85,6 +85,7 @@ model User {
   mediaAssets         MediaAsset[]
   projectMemberships  ProjectMember[]
   clientAccess        ClientProjectAccess[]
+  brandRadarClientAccess BrandRadarClientAccess[]
   notifications       Notification[]
   backlinkEntries     BacklinkEntry[]
   contentRefreshItems ContentRefreshItem[]
@@ -582,6 +583,23 @@ model ClientProjectAccess {
   createdAt DateTime @default(now())
 
   @@unique([userId, projectId])
+  @@schema("plans_seo_pipeline")
+}
+
+// CLIENT role: which Brand Radar projects a CLIENT user can view (read-only report).
+// Separate from ClientProjectAccess: that one opens the article portal, this one opens Brand Radar only.
+// projectId has no FK to Project because a Brand Radar project can be a manual one (no Project row).
+// Production table is created by scripts/sql/add-brand-radar-client-access.sql.
+model BrandRadarClientAccess {
+  id             String   @id @default(cuid())
+  userId         String
+  projectId      String
+  organizationId String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, projectId])
+  @@index([organizationId, projectId])
   @@schema("plans_seo_pipeline")
 }
 
@@ -1636,6 +1654,7 @@ model BrandRadarMention {
   recommended    Boolean @default(false)
   compared       Boolean @default(false)
   position       Int? // order of first appearance among tracked entities, 1 = first
+  positionPct    Float? // where the first mention starts, as a share of the answer length: 0 = start, 1 = end; null = scanned before this was recorded
   snippet        String  @default("")
 
   createdAt DateTime @default(now())
@@ -1673,6 +1692,50 @@ model BrandRadarCitation {
   @@schema("plans_seo_pipeline")
 }
 
+// What was learned from one answer beyond brand names and links: the queries the AI typed into its own
+// web search, and how the answer talks about the tracked brands. One row per response, written right after
+// the answer is stored. A separate table (not columns on BrandRadarResponse) so a scan keeps working while
+// this table does not exist yet.
+model BrandRadarInsight {
+  id             String  @id @default(cuid())
+  organizationId String
+  projectId      String
+  runId          String
+  responseId     String  @unique
+  promptId       String
+  provider       String
+  searchQueries  String  @default("[]") // JSON string[]: queries the AI searched with (Google sources: the prompt itself)
+  sentiment      String? // JSON AnswerSentiment; null = not analysed
+  sentimentModel String  @default("")
+  // JSON array of { url, domain, title, ownerType }: pages the AI found while searching but did not cite.
+  // Only platforms that expose their search results (ChatGPT) fill it.
+  foundSources   String  @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, projectId, runId])
+  @@index([promptId])
+  @@schema("plans_seo_pipeline")
+}
+
+// Topic group of one AI search query, per project. Filled automatically while a scan runs; a query keeps
+// its group across scans so the counts stay comparable over time.
+model BrandRadarQueryGroup {
+  id             String @id @default(cuid())
+  organizationId String
+  projectId      String
+  queryKey       String // lower-cased, whitespace-collapsed query
+  query          String @default("")
+  groupName      String @default("")
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, queryKey])
+  @@index([organizationId, projectId])
+  @@schema("plans_seo_pipeline")
+}
+
 model BrandRadarOpportunity {
   id              String  @id @default(cuid())
   organizationId  String
@@ -1697,5 +1760,24 @@ model BrandRadarOpportunity {
 
   @@unique([projectId, type, key])
   @@index([organizationId, projectId, status])
+  @@schema("plans_seo_pipeline")
+}
+
+// Brand / product names the AI platform itself tagged in one answer (DataForSEO scraper brand_entities).
+// Arrives with scripts/sql/add-brand-radar-answer-extra.sql; the app works without the table.
+model BrandRadarAnswerExtra {
+  id             String  @id @default(cuid())
+  organizationId String
+  projectId      String
+  runId          String
+  responseId     String  @unique
+  promptId       String
+  provider       String
+  entities       String  @default("[]") // JSON array of { name, category, domain }
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, projectId, runId])
   @@schema("plans_seo_pipeline")
 }

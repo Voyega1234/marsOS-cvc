@@ -8,33 +8,34 @@ import { AreaChart, BarChart, Chip, EmptyState, KpiTile, Panel } from "@/compone
 import {
   PROMPT_INTENT_LABEL, PROMPT_SOURCE_LABEL, type PromptDetailDTO, type RadarFilters, type ResponseDTO,
 } from "@/lib/brand-radar/types";
+import { ProviderLogo } from "./ProviderLogo";
 import { fmtDateTime, fmtNum, fmtPct, fmtRange, isSmallSample, methodLabel, providerShort, radarQuery } from "./shared";
 import { CitedDomainsTable, EntityTable, LoadState, exportCitedCsv, useApiData } from "./PromptDialogs";
 import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
 
-function ResponseItem({ r, onView }: { r: ResponseDTO; onView: () => void }) {
+function ResponseItem({ r, onView, clientView }: { r: ResponseDTO; onView: () => void; clientView?: boolean }) {
   const [open, setOpen] = useState(false);
   const failed = r.status === "FAILED" || r.status === "SKIPPED";
   return (
     <li className="rounded-2xl border border-gray-100 bg-white/70">
-      <div className="flex items-center gap-2 pr-2">
+      <div className="flex flex-wrap items-center gap-2 pr-2">
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
           className="flex min-w-0 flex-1 flex-wrap items-center gap-2 px-3 py-2 text-left text-sm">
           {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-          <span className="font-medium">{r.providerLabel || providerShort(r.provider)}</span>
-          <span className="text-xs text-gray-500">{r.model || "-"}</span>
+          <ProviderLogo provider={r.provider} title={r.providerLabel || providerShort(r.provider)} />
+          {clientView ? null : <span className="text-xs text-gray-500">{r.model || "-"}</span>}
           <Chip tone="muted">{methodLabel(r.collectionMethod)}</Chip>
           <span className="text-xs text-gray-500">{fmtDateTime(r.collectedAt)}</span>
-          <Chip tone={failed ? "bad" : r.status === "DONE" ? "ok" : "muted"}>{r.status}</Chip>
+          {clientView ? null : <Chip tone={failed ? "bad" : r.status === "DONE" ? "ok" : "muted"}>{r.status}</Chip>}
           {r.status === "DONE" ? <Chip tone={r.brandMentioned ? "ok" : "muted"}>{r.brandMentioned ? "พูดถึงเรา" : "ไม่พูดถึงเรา"}</Chip> : null}
         </button>
-        <Button size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" onClick={onView}>
+        <Button size="sm" variant="outline" className="h-9 shrink-0 px-2 text-xs sm:h-7" onClick={onView}>
           <Eye className="mr-1 h-3.5 w-3.5" /> ดูคำตอบแบบเต็ม
         </Button>
       </div>
       {open ? (
         <div className="space-y-3 border-t border-gray-100 px-3 py-3 text-sm">
-          {failed ? <p className="rounded-xl bg-red-50 p-2 text-xs text-red-700">{r.error || "ไม่มีรายละเอียดข้อผิดพลาด"}</p> : null}
+          {failed ? <p className="rounded-xl bg-red-50 p-2 text-xs text-red-700">{clientView ? "คำตอบนี้ยังไม่พร้อมแสดง" : (r.error || "ไม่มีรายละเอียดข้อผิดพลาด")}</p> : null}
           {r.responseText ? <p className="whitespace-pre-wrap break-words">{r.responseText}</p> : null}
           {r.mentions.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
@@ -66,7 +67,8 @@ function ResponseItem({ r, onView }: { r: ResponseDTO; onView: () => void }) {
   );
 }
 
-export default function PromptDetail({ projectId, filters, promptId, refreshKey, onBack }: {
+export default function PromptDetail({ projectId, filters, promptId, refreshKey, onBack, clientView }: {
+  clientView?: boolean;
   projectId: string;
   filters: RadarFilters;
   promptId: string;
@@ -74,7 +76,7 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
   onBack: () => void;
 }) {
   const url = `/api/brand-radar/prompts/${encodeURIComponent(promptId)}/detail?${radarQuery(projectId, filters)}`;
-  const { data, loading, error, reload } = useApiData<PromptDetailDTO>(url, refreshKey);
+  const { data, loading, error, reload } = useApiData<PromptDetailDTO>(url, refreshKey, true);
   const [buyableOnly, setBuyableOnly] = useState(false);
   const [viewing, setViewing] = useState<ViewerTarget | null>(null);
 
@@ -82,7 +84,7 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
     <div className="flex flex-wrap items-center gap-2">
       <Button size="sm" variant="outline" onClick={onBack}><ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> กลับไปรายการ Prompt</Button>
       <Button size="sm" onClick={() => setViewing({ promptId })}><Eye className="mr-1.5 h-3.5 w-3.5" /> ดูคำตอบของ AI</Button>
-      <ResponseViewer projectId={projectId} filters={filters} target={viewing} onClose={() => setViewing(null)} />
+      <ResponseViewer clientView={clientView} projectId={projectId} filters={filters} target={viewing} onClose={() => setViewing(null)} />
     </div>
   );
 
@@ -97,10 +99,10 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
 
   const { prompt } = data;
   const brand = data.entities.find((e) => e.entityType === "brand");
-  const domains = buyableOnly ? data.citedDomains.filter((d) => d.vendor) : data.citedDomains;
+  const domains = buyableOnly && !clientView ? data.citedDomains.filter((d) => d.vendor) : data.citedDomains;
 
   function exportDomains() {
-    exportCitedCsv(`brand-radar-cited-websites-${promptId}.csv`, data!.citedDomains.filter((d) => d.ownerType !== "own"));
+    exportCitedCsv(`brand-radar-cited-websites-${promptId}.csv`, data!.citedDomains.filter((d) => d.ownerType !== "own"), clientView);
   }
 
   return (
@@ -110,11 +112,15 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
         <h2 className="break-words text-lg font-semibold text-brand-navy">{prompt.text}</h2>
         <div className="flex flex-wrap items-center gap-1.5">
           <Chip tone="muted">{PROMPT_INTENT_LABEL[prompt.intent]}</Chip>
-          <Chip tone={prompt.source === "ai_generated" ? "warn" : "muted"}>
-            {prompt.source === "ai_generated" ? "AI generated (ไม่ใช่คำถามจริงของผู้ใช้)" : PROMPT_SOURCE_LABEL[prompt.source]}
-          </Chip>
-          <Chip tone={prompt.status === "ACTIVE" ? "ok" : "muted"}>{prompt.status}</Chip>
-          <Chip tone="muted">Volume {fmtNum(prompt.searchVolume)}</Chip>
+          {clientView ? null : (
+            <>
+              <Chip tone={prompt.source === "ai_generated" ? "warn" : "muted"}>
+                {prompt.source === "ai_generated" ? "AI generated (ไม่ใช่คำถามจริงของผู้ใช้)" : PROMPT_SOURCE_LABEL[prompt.source]}
+              </Chip>
+              <Chip tone={prompt.status === "ACTIVE" ? "ok" : "muted"}>{prompt.status}</Chip>
+              <Chip tone="muted">Volume {fmtNum(prompt.searchVolume)}</Chip>
+            </>
+          )}
           {prompt.topic ? <Chip tone="muted">{prompt.topic}</Chip> : null}
         </div>
       </div>
@@ -125,7 +131,7 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
         </Panel>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <KpiTile label="Responses" value={fmtNum(data.responses)} hint="จำนวนคำตอบ AI ที่เก็บได้" />
             <KpiTile
               label="เราขึ้น" tone="blue" value={fmtPct(brand?.mentionRate ?? null)}
@@ -152,10 +158,10 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
             </div>
           </Panel>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Panel title="By AI platform" padded={false}>
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="min-w-[480px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>AI platform</TableHead>
@@ -168,7 +174,7 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
                   <TableBody>
                     {data.byProvider.map((p) => (
                       <TableRow key={p.provider}>
-                        <TableCell className="whitespace-nowrap">{p.label || providerShort(p.provider)}</TableCell>
+                        <TableCell className="whitespace-nowrap"><ProviderLogo provider={p.provider} title={p.label || providerShort(p.provider)} /></TableCell>
                         <TableCell className="text-right tabular-nums">{fmtNum(p.responses)}</TableCell>
                         <TableCell className="text-right tabular-nums">
                           {fmtPct(p.mentionRate)}
@@ -212,10 +218,12 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
             subtitle="เว็บไซต์ที่ AI ใส่ลิงก์อ้างอิงเมื่อตอบ Prompt นี้ — เว็บจะอยู่ในตารางนี้ก็ต่อเมื่อคำตอบของ AI มีลิงก์ไปหาเว็บนั้นจริง ๆ"
             actions={
               <>
-                <label className="flex items-center gap-1.5 text-xs">
-                  <input type="checkbox" checked={buyableOnly} onChange={(e) => setBuyableOnly(e.target.checked)} />
-                  เฉพาะเว็บที่ซื้อ backlink ได้
-                </label>
+                {clientView ? null : (
+                  <label className="flex items-center gap-1.5 text-xs">
+                    <input type="checkbox" checked={buyableOnly} onChange={(e) => setBuyableOnly(e.target.checked)} />
+                    เฉพาะเว็บที่ซื้อ backlink ได้
+                  </label>
+                )}
                 <Button size="sm" variant="outline" onClick={exportDomains} disabled={data.citedDomains.length === 0}>
                   <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
                 </Button>
@@ -224,8 +232,8 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
             padded={false}
           >
             {domains.length === 0 ? (
-              <EmptyState title={buyableOnly ? "ไม่มีเว็บในคลัง Backlink ที่ถูกอ้างอิง" : "ยังไม่มีเว็บที่ถูกอ้างอิง"} description={buyableOnly ? "ปิดตัวกรองเพื่อดูเว็บทั้งหมด" : undefined} />
-            ) : <CitedDomainsTable rows={domains} />}
+              <EmptyState title={buyableOnly && !clientView ? "ไม่มีเว็บในคลัง Backlink ที่ถูกอ้างอิง" : "ยังไม่มีเว็บที่ถูกอ้างอิง"} description={buyableOnly ? "ปิดตัวกรองเพื่อดูเว็บทั้งหมด" : undefined} />
+            ) : <CitedDomainsTable rows={domains} clientView={clientView} />}
           </Panel>
         </>
       )}
@@ -236,7 +244,7 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
         ) : (
           <ul className="space-y-2">
             {data.history.map((r) => (
-              <ResponseItem key={r.id} r={r} onView={() => setViewing({ promptId, runId: r.runId, provider: r.provider, responseId: r.id })} />
+              <ResponseItem key={r.id} r={r} clientView={clientView} onView={() => setViewing({ promptId, runId: r.runId, provider: r.provider, responseId: r.id })} />
             ))}
           </ul>
         )}

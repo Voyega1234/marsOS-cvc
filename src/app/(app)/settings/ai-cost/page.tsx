@@ -2,34 +2,39 @@ import { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { getSession } from "@/lib/auth";
-import { loadAIJobsView } from "@/lib/ai-jobs-view";
 import { resolveAiCostRange } from "@/lib/ai-cost-range";
+import { loadAiCostView } from "@/lib/ai-cost-data";
+import { parseAiCostFilters, parseAiCostPage, parseAiCostSort } from "@/lib/ai-cost-filters";
 import { PageHeader } from "@/components/ds";
-import { AIJobsClient } from "@/components/professional/AIJobsClient";
+import { AiCostClient } from "@/components/ai-cost/AiCostClient";
 
 export const metadata: Metadata = { title: "AI Cost · Settings" };
 
-// หน้า AI (track cost ทั้งหมด) ย้ายมาเป็น subpage ของ Settings
-// แยกค่าใช้จ่ายต่อ project (Clients), ลูกค้า Upload Article และงาน Studio — ข้อมูลชุดเดียวกับหน้า AI Jobs
-export default async function SettingsAiCostPage({ searchParams }: {
-  searchParams?: { range?: string | string[]; from?: string | string[]; to?: string | string[] };
-}) {
+// หน้า AI Cost (Settings → AI Cost) — แยกค่าใช้จ่ายตามระบบ ประเภทงาน โมเดล โปรเจกต์ ผู้ใช้
+// ตัวกรองทั้งหมดอยู่ใน URL (?range= &module= &type= &model= &source= &user= &status= &sort= &page=)
+// หน้า /ai-jobs ยังเป็นรายการ job เดิม (AIJobsClient) ไม่เปลี่ยน
+type SP = Record<string, string | string[] | undefined>;
+
+export default async function SettingsAiCostPage({ searchParams }: { searchParams?: SP }) {
   const session = await getSession();
   const orgId = session?.user?.organizationId;
   if (!orgId) redirect("/setup");
-  if (!["ADMIN", "SEO_MANAGER"].includes(session!.user.role)) redirect("/settings");
+  // ADMIN only: the owner decided on 2026-11-18 that SEO_MANAGER must not see AI cost
+  if (session!.user.role !== "ADMIN") redirect("/settings");
 
-  // ช่วงเวลาอยู่ใน URL (?range=7d หรือ ?from=&to=) — ไม่ส่ง = เดือนนี้
-  const view = await loadAIJobsView(orgId, resolveAiCostRange(searchParams));
+  const range = resolveAiCostRange(searchParams);
+  const filters = parseAiCostFilters(searchParams);
+  const sort = parseAiCostSort(searchParams);
+  const view = await loadAiCostView(orgId, range, filters, { sort, page: parseAiCostPage(searchParams) });
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <PageHeader
         eyebrow="Settings"
         title="AI Cost"
-        subtitle={`ค่าใช้จ่าย AI ทั้งหมด — แยกตาม client project, ลูกค้า Upload Article และงาน Studio · ${view.range.label} · ${view.totalJobsRange.toLocaleString()} jobs`}
+        subtitle="ค่าใช้จ่าย AI และ API ทั้งระบบ — เลือกช่วงเวลาและตัวกรองด้านล่างเพื่อดูว่าเงินไปอยู่ที่ไหน"
       />
-      <AIJobsClient {...view} />
+      <AiCostClient view={view} range={range} filters={filters} sort={sort} />
     </div>
   );
 }

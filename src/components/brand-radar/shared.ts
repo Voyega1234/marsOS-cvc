@@ -1,5 +1,5 @@
 /** Brand Radar — client-side helpers shared by every tab (fetch, filters, formatting) */
-import { PROVIDERS, SMALL_SAMPLE_N, isProviderKey, type ProfileDTO, type ProviderKey, type RadarFilters } from '@/lib/brand-radar/types'
+import { PROVIDERS, SMALL_SAMPLE_N, answerZone, isProviderKey, parseSchedule, type ProfileDTO, type ProviderKey, type RadarFilters } from '@/lib/brand-radar/types'
 import { wilsonInterval } from '@/lib/brand-radar/metrics'
 
 /** Printed wherever a metric is null. A null metric is never shown as 0. */
@@ -7,8 +7,8 @@ export const INSUFFICIENT = 'Insufficient Data'
 export const NO_DATA_MESSAGE = 'No monitoring data yet. Connect an AI provider and run your first scan.'
 export const NA = 'N/A'
 
-export type TabId = 'overview' | 'prompts' | 'competitors' | 'citations' | 'opportunities' | 'settings'
-export const TAB_IDS: readonly TabId[] = ['overview', 'prompts', 'competitors', 'citations', 'opportunities', 'settings']
+export type TabId = 'overview' | 'responses' | 'prompts' | 'competitors' | 'citations' | 'citation-analysis' | 'opportunities' | 'settings'
+export const TAB_IDS: readonly TabId[] = ['overview', 'responses', 'prompts', 'competitors', 'citations', 'citation-analysis', 'opportunities', 'settings']
 
 /** Props every tab component receives from BrandRadarClient */
 export interface TabProps {
@@ -22,6 +22,42 @@ export interface TabProps {
   onGoTab: (tab: TabId) => void
   /** call after a change other tabs depend on (profile saved, prompts changed, scan started) */
   onChanged: () => void
+  /** true = customer login: read-only report, no staff controls */
+  clientView?: boolean
+}
+
+/** Tabs a customer login may open */
+export const CLIENT_TAB_IDS: readonly TabId[] = ['overview', 'responses', 'competitors', 'citations']
+
+// In-memory stale-while-revalidate cache for report GETs (never persisted). Cleared when the project
+// changes (BrandRadarClient) and after any successful write (api() below), so no write is shown stale.
+const RADAR_CACHE_MAX = 30
+const radarCache = new Map<string, { refreshKey: number; data: unknown }>()
+let radarCacheGen = 0
+
+export function clearRadarCache(): void {
+  radarCache.clear()
+  radarCacheGen++
+}
+export function radarCacheGeneration(): number {
+  return radarCacheGen
+}
+/** Cached body of `url` saved at the same refreshKey; a refresh / reload / write invalidates it */
+export function radarCacheGet<T>(url: string, refreshKey: number): T | null {
+  if (!url) return null
+  const hit = radarCache.get(url)
+  return hit && hit.refreshKey === refreshKey ? (hit.data as T) : null
+}
+/** Ignored when a write or project change happened since `gen` was read (the response may be stale) */
+export function radarCacheSet(url: string, refreshKey: number, data: unknown, gen: number): void {
+  if (!url || gen !== radarCacheGen) return
+  radarCache.delete(url)
+  radarCache.set(url, { refreshKey, data })
+  while (radarCache.size > RADAR_CACHE_MAX) {
+    const oldest = radarCache.keys().next().value
+    if (oldest === undefined) break
+    radarCache.delete(oldest)
+  }
 }
 
 export async function api<T = Record<string, unknown>>(
@@ -34,6 +70,8 @@ export async function api<T = Record<string, unknown>>(
       headers: init?.body ? { 'Content-Type': 'application/json', ...(init.headers ?? {}) } : init?.headers,
     })
     const data = await r.json().catch(() => ({}))
+    const method = (init?.method ?? 'GET').toUpperCase()
+    if (r.ok && method !== 'GET' && method !== 'HEAD') clearRadarCache()
     return { ok: r.ok, status: r.status, data }
   } catch (e) {
     return { ok: false, status: 0, data: { error: e instanceof Error ? e.message : String(e) } as T & { error?: string } }
@@ -96,6 +134,52 @@ export function isSmallSample(n: number): boolean {
   return n > 0 && n < SMALL_SAMPLE_N
 }
 
+/** Thai name of the part of the answer where the brand first appears; null when unknown */
+export function answerZoneLabel(pct: number | null | undefined): 'ช่วงต้น' | 'ช่วงกลาง' | 'ช่วงท้าย' | null {
+  const z = answerZone(pct)
+  return z === 'early' ? 'ช่วงต้น' : z === 'middle' ? 'ช่วงกลาง' : z === 'late' ? 'ช่วงท้าย' : null
+}
+
+/** e.g. "ช่วงต้น · 12%"; "ยังไม่มีข้อมูล" when the position was not recorded */
+export function fmtAnswerPos(pct: number | null | undefined): string {
+  const label = answerZoneLabel(pct)
+  if (label === null || pct === null || pct === undefined) return 'ยังไม่มีข้อมูล'
+  return `${label} · ${Math.round(pct * 100)}%`
+}
+
+/** Which share of the answer each zone covers; shown next to zone percentages */
+export const ANSWER_ZONE_LEGEND = 'ช่วงต้น = 0–33% แรกของคำตอบ · ช่วงกลาง = 34–66% · ช่วงท้าย = 67–100%'
+
+type ZoneCounts = { early: number; middle: number; late: number }
+
+/**
+ * Whole-percent share of answers per zone, summing to 100 (largest remainder).
+ * null when no answer has a recorded position, so unknown is never shown as 0%.
+ */
+export function zoneShares(zones: ZoneCounts | null | undefined): (ZoneCounts & { total: number }) | null {
+  if (!zones) return null
+  const keys = ['early', 'middle', 'late'] as const
+  const total = keys.reduce((a, k) => a + (Number.isFinite(zones[k]) ? Math.max(0, zones[k]) : 0), 0)
+  if (!(total > 0)) return null
+  const exact = keys.map((k) => (Math.max(0, zones[k] || 0) / total) * 100)
+  const out = exact.map((v) => Math.floor(v))
+  let left = 100 - out.reduce((a, v) => a + v, 0)
+  const order = exact.map((v, i) => ({ i, frac: v - Math.floor(v) })).sort((a, b) => b.frac - a.frac || a.i - b.i)
+  for (const o of order) {
+    if (left <= 0) break
+    out[o.i]++
+    left--
+  }
+  return { early: out[0], middle: out[1], late: out[2], total }
+}
+
+/** e.g. "ช่วงต้น 60% · ช่วงกลาง 30% · ช่วงท้าย 10%"; null when the position was not recorded */
+export function fmtZoneShare(zones: ZoneCounts | null | undefined): string | null {
+  const s = zoneShares(zones)
+  if (!s) return null
+  return `ช่วงต้น ${s.early}% · ช่วงกลาง ${s.middle}% · ช่วงท้าย ${s.late}%`
+}
+
 /** null -> "N/A" (unknown, e.g. search volume). Never prints 0 for unknown. */
 export function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return NA
@@ -126,10 +210,23 @@ export function providerLabel(key: string): string {
   return isProviderKey(key) ? PROVIDERS[key].label : key
 }
 
+/** Provider name; customers get the clean name without vendor wording */
+export function providerLabelFor(key: string, clientView?: boolean): string {
+  return clientView ? providerShort(key) : providerLabel(key)
+}
+
+/** https link for a plain hostname only; null for anything else */
+export function domainHref(domain: string | null | undefined): string | null {
+  const d = (domain ?? '').trim().toLowerCase()
+  if (!d || d.length > 253) return null
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d)) return null
+  return `https://${d}`
+}
+
 /** Short name for chart axes and chips */
 export function providerShort(key: string): string {
   const short: Record<ProviderKey, string> = {
-    openai: 'OpenAI GPT',
+    openai: 'ChatGPT',
     gemini: 'Gemini',
     perplexity: 'Perplexity',
     claude: 'Claude',
@@ -144,6 +241,24 @@ export function providerShort(key: string): string {
 /** How the answer was collected, in the words shown to staff */
 export function methodLabel(method: string): string {
   if (method === 'observed_serp') return 'Observed (Google Search)'
+  if (method === 'observed_chat') return 'Real answer (web app)'
   if (method === 'imported') return 'Imported'
   return 'API simulated'
+}
+
+/** Weekday names in ISO order (index 0 = Monday) */
+export const WEEKDAYS_TH = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์'] as const
+
+/** Scan schedule in the words shown to staff. A value this version cannot read counts as Manual, same as the server. */
+export function scheduleLabel(value: unknown): string {
+  const spec = parseSchedule(value)
+  if (!spec) return 'Manual'
+  switch (spec.kind) {
+    case 'manual': return 'Manual'
+    case 'daily': return 'รายวัน'
+    case 'weekly': return 'รายสัปดาห์'
+    case 'monthly': return 'รายเดือน'
+    case 'interval': return `ทุก ${spec.days} วัน`
+    case 'weekdays': return `ทุกวัน${spec.days.map((d) => WEEKDAYS_TH[d - 1]).join(', ')}`
+  }
 }

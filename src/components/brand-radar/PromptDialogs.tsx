@@ -12,48 +12,63 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Chip, EmptyState, MeterBar, downloadCsv } from "@/components/ds";
 import {
-  JOURNEY_STAGES, LIMITS, PRIORITIES, PROMPT_INTENTS, PROMPT_INTENT_LABEL, PROMPT_SOURCE_LABEL,
+  COUNTRIES, JOURNEY_STAGES, LANGUAGES, LIMITS, PRIORITIES, PROMPT_INTENTS, PROMPT_INTENT_LABEL, PROMPT_SOURCE_LABEL,
   type CitedDomainRow, type EntityShare, type JourneyStage, type Priority, type PromptCandidate,
   type PromptDTO, type PromptGenerateRes, type PromptInput, type PromptIntent, type PromptSaveRes, type PromptSource, type PromptStatus,
 } from "@/lib/brand-radar/types";
-import { api, fmtNum, fmtPct, postJson, providerShort } from "./shared";
+import { ProviderLogo } from "./ProviderLogo";
+import { ANSWER_ZONE_LEGEND, api, clearRadarCache, domainHref, fmtNum, fmtPct, fmtZoneShare, postJson, providerShort, radarCacheGeneration, radarCacheGet, radarCacheSet } from "./shared";
 
 export const SELECT_CLS = "h-9 rounded-full border border-gray-200 bg-white px-3 text-xs";
 const INPUT_CLS = "h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm";
 
 // ── data hook + state box ────────────────────────────────────────────────────
 
-export function useApiData<T>(url: string, refreshKey: number) {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+/**
+ * Fetches `url`. With `swr` (report tabs) a repeat visit to the same url shows the last loaded data at once
+ * and refetches in the background; a background failure keeps what is on screen.
+ */
+export function useApiData<T>(url: string, refreshKey: number, swr = false) {
+  const [data, setData] = useState<T | null>(() => (swr ? radarCacheGet<T>(url, refreshKey) : null));
+  const [loading, setLoading] = useState(() => !(swr && radarCacheGet<T>(url, refreshKey) !== null));
   const [error, setError] = useState("");
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!url) { setLoading(false); return; }
     let dead = false;
-    setLoading(true);
+    const controller = new AbortController();
+    const cached = swr ? radarCacheGet<T>(url, refreshKey) : null;
+    const gen = radarCacheGeneration();
     setError("");
-    void api<T>(url).then((r) => {
+    if (cached !== null) { setData(cached); setLoading(false); }
+    else setLoading(true);
+    void api<T>(url, { signal: controller.signal }).then((r) => {
       if (dead) return;
-      if (!r.ok) { setError(r.data.error || "โหลดข้อมูลไม่สำเร็จ"); setData(null); }
-      else setData(r.data as T);
+      if (!r.ok) {
+        if (cached !== null) return;
+        setError(r.data.error || "โหลดข้อมูลไม่สำเร็จ"); setData(null);
+      } else {
+        if (swr) radarCacheSet(url, refreshKey, r.data, gen);
+        setData(r.data as T);
+      }
       setLoading(false);
     });
-    return () => { dead = true; };
-  }, [url, refreshKey, tick]);
-  const reload = useCallback(() => setTick((t) => t + 1), []);
+    return () => { dead = true; controller.abort(); };
+  }, [url, refreshKey, tick, swr]);
+  const reload = useCallback(() => { clearRadarCache(); setTick((t) => t + 1); }, []);
   return { data, loading, error, reload };
 }
 
 /** Loading / error-with-retry box; returns null when there is nothing to show instead of the data */
-export function LoadState({ loading, error, onRetry }: { loading: boolean; error: string; onRetry: () => void }) {
+export function LoadState({ loading, error, onRetry, clientView }: { loading: boolean; error: string; onRetry: () => void; clientView?: boolean }) {
   if (loading) return <EmptyState icon={<Loader2 className="h-5 w-5 animate-spin" />} title="กำลังโหลด..." />;
   if (error) {
+    if (clientView) console.error("brand-radar load:", error);
     return (
       <EmptyState
         icon={<AlertTriangle className="h-5 w-5" />}
         title="โหลดข้อมูลไม่สำเร็จ"
-        description={error}
+        description={clientView ? "โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง" : error}
         action={<Button size="sm" variant="outline" onClick={onRetry}>ลองใหม่</Button>}
       />
     );
@@ -65,11 +80,11 @@ export function Pager({ page, pageSize, total, onPage }: { page: number; pageSiz
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (total <= pageSize) return null;
   return (
-    <div className="flex items-center justify-between gap-2 border-t border-gray-100 px-4 py-3 text-xs text-gray-500">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 px-4 py-3 text-xs text-gray-500">
       <span>{fmtNum(total)} รายการ · หน้า {page}/{pages}</span>
       <div className="flex gap-2">
-        <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => onPage(page - 1)}>ก่อนหน้า</Button>
-        <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => onPage(page + 1)}>ถัดไป</Button>
+        <Button size="sm" variant="outline" className="min-h-[36px]" disabled={page <= 1} onClick={() => onPage(page - 1)}>ก่อนหน้า</Button>
+        <Button size="sm" variant="outline" className="min-h-[36px]" disabled={page >= pages} onClick={() => onPage(page + 1)}>ถัดไป</Button>
       </div>
     </div>
   );
@@ -80,7 +95,7 @@ export function Pager({ page, pageSize, total, onPage }: { page: number; pageSiz
 export function EntityTable({ entities }: { entities: EntityShare[] }) {
   return (
     <div className="overflow-x-auto">
-      <Table>
+      <Table className="min-w-[640px]">
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
@@ -110,7 +125,9 @@ export function EntityTable({ entities }: { entities: EntityShare[] }) {
               </TableCell>
               <TableCell className="text-right tabular-nums">{fmtNum(e.recommended)} ครั้ง</TableCell>
               <TableCell className="text-right tabular-nums">{fmtNum(e.cited)} ครั้ง</TableCell>
-              <TableCell className="text-right tabular-nums">{e.avgPosition === null ? "N/A" : e.avgPosition.toFixed(1)}</TableCell>
+              <TableCell className="text-right tabular-nums">{e.avgPosition === null ? "N/A" : e.avgPosition.toFixed(1)}
+                {fmtZoneShare(e.zones) && <span className="block text-[11px] font-normal text-gray-500" title={ANSWER_ZONE_LEGEND}>{fmtZoneShare(e.zones)}</span>}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -135,10 +152,16 @@ function vendorText(v: NonNullable<CitedDomainRow["vendor"]>): { price: string; 
   };
 }
 
-export function exportCitedCsv(filename: string, rows: CitedDomainRow[]) {
+export function exportCitedCsv(filename: string, rows: CitedDomainRow[], clientView?: boolean) {
   const head = ["Domain", "Owner", "Citations", "Responses", "Prompts", "AI platforms", "Example URLs", "In backlink library", "Price", "Currency", "DR", "Link type", "Own PBN"];
   const body = rows.map((r) => {
     const v = r.vendor;
+    if (clientView) {
+      return [
+        r.domain, ownerText(r), r.citations, r.responses, r.prompts,
+        r.providers.map(providerShort).join("; "), r.urls.map((u) => u.url).join(" "),
+      ];
+    }
     return [
       r.domain, ownerText(r), r.citations, r.responses, r.prompts,
       r.providers.map(providerShort).join("; "), r.urls.map((u) => u.url).join(" "),
@@ -147,17 +170,17 @@ export function exportCitedCsv(filename: string, rows: CitedDomainRow[]) {
       r.isOwnPbn ? "yes" : "no",
     ];
   });
-  downloadCsv(filename, [head, ...body]);
+  downloadCsv(filename, [clientView ? head.slice(0, 7) : head, ...body]);
 }
 
 function safeHref(url: string): string | null {
   return /^https?:\/\//i.test(url) ? url : null;
 }
 
-export function CitedDomainsTable({ rows }: { rows: CitedDomainRow[] }) {
+export function CitedDomainsTable({ rows, clientView }: { rows: CitedDomainRow[]; clientView?: boolean }) {
   return (
     <div className="overflow-x-auto">
-      <Table>
+      <Table className="min-w-[760px]">
         <TableHeader>
           <TableRow>
             <TableHead>Domain</TableHead>
@@ -166,23 +189,27 @@ export function CitedDomainsTable({ rows }: { rows: CitedDomainRow[] }) {
             <TableHead className="text-right">Responses</TableHead>
             <TableHead>AI platforms</TableHead>
             <TableHead className="min-w-[220px]">Example URLs</TableHead>
-            <TableHead className="min-w-[200px]">ซื้อ backlink ได้?</TableHead>
+            {clientView ? null : <TableHead className="min-w-[200px]">ซื้อ backlink ได้?</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((r) => (
             <TableRow key={r.domain}>
               <TableCell className="whitespace-nowrap">
-                <a href={`https://${r.domain}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand-blue hover:underline">
-                  {r.domain} <ExternalLink className="h-3 w-3" />
-                </a>
+                {domainHref(r.domain) ? (
+                  <a href={domainHref(r.domain) ?? undefined} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand-blue hover:underline">
+                    {r.domain} <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-medium">{r.domain}</span>
+                )}
               </TableCell>
               <TableCell>
                 <Chip tone={r.ownerType === "own" ? "ok" : r.ownerType === "competitor" ? "warn" : "muted"}>{ownerText(r)}</Chip>
               </TableCell>
               <TableCell className="text-right tabular-nums">{fmtNum(r.citations)}</TableCell>
               <TableCell className="text-right tabular-nums">{fmtNum(r.responses)}</TableCell>
-              <TableCell className="text-xs">{r.providers.length ? r.providers.map(providerShort).join(", ") : "-"}</TableCell>
+              <TableCell className="text-xs">{r.providers.length ? <span className="flex flex-wrap gap-1">{r.providers.map((p) => <ProviderLogo key={p} provider={p} size={16} />)}</span> : "-"}</TableCell>
               <TableCell>
                 <ul className="space-y-0.5 text-xs">
                   {r.urls.slice(0, 5).map((u) => {
@@ -201,7 +228,7 @@ export function CitedDomainsTable({ rows }: { rows: CitedDomainRow[] }) {
                   {r.urls.length === 0 ? <li className="text-gray-400">-</li> : null}
                 </ul>
               </TableCell>
-              <TableCell>
+              {clientView ? null : <TableCell>
                 <div className="flex flex-col items-start gap-1 text-xs">
                   {r.vendor ? (() => {
                     const v = vendorText(r.vendor);
@@ -215,7 +242,7 @@ export function CitedDomainsTable({ rows }: { rows: CitedDomainRow[] }) {
                   {r.isOwnPbn ? <Chip tone="info">PBN ของเรา</Chip> : null}
                   {!r.vendor && !r.isOwnPbn ? <span className="text-gray-400">-</span> : null}
                 </div>
-              </TableCell>
+              </TableCell>}
             </TableRow>
           ))}
         </TableBody>
@@ -315,6 +342,9 @@ export function PromptFormDialog({ projectId, prompt, topics, onClose, onSaved }
   const [keyword, setKeyword] = useState(prompt?.keyword ?? "");
   const [volume, setVolume] = useState(prompt?.searchVolume === null || prompt?.searchVolume === undefined ? "" : String(prompt.searchVolume));
   const [priority, setPriority] = useState<string>(prompt?.priority ?? "medium");
+  // "" = follow the project profile (new prompts only)
+  const [country, setCountry] = useState<string>(prompt?.country ?? "");
+  const [language, setLanguage] = useState<string>(prompt?.language ?? "");
   const [startNow, setStartNow] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -333,6 +363,9 @@ export function PromptFormDialog({ projectId, prompt, topics, onClose, onSaved }
       priority: priority as Priority,
     };
     if (intent) body.intent = intent as PromptIntent;
+    // when editing, send country/language only if changed so a stored legacy code never blocks saving
+    if (country && (!editing || country !== prompt?.country)) body.country = country;
+    if (language && (!editing || language !== prompt?.language)) body.language = language;
     setBusy(true);
     if (editing && prompt) {
       const r = await api(`/api/brand-radar/prompts/${prompt.id}`, postJson({ projectId, ...body }, "PATCH"));
@@ -354,7 +387,7 @@ export function PromptFormDialog({ projectId, prompt, topics, onClose, onSaved }
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] w-full max-w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader><DialogTitle>{editing ? "แก้ไข Prompt" : "เพิ่ม Prompt"}</DialogTitle></DialogHeader>
         <div className="space-y-3 text-sm">
           <label className="block">
@@ -387,6 +420,25 @@ export function PromptFormDialog({ projectId, prompt, topics, onClose, onSaved }
                 {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
             </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-gray-600">ประเทศ</span>
+              <select value={country} onChange={(e) => setCountry(e.target.value)} className={INPUT_CLS}>
+                {!editing ? <option value="">ใช้ค่าจากโปรไฟล์ตอนนี้</option> : null}
+                {editing && country && !COUNTRIES.some((c) => c.code === country) ? <option value={country}>{country}</option> : null}
+                {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-gray-600">ภาษาของคำถาม/คำตอบ</span>
+              <select value={language} onChange={(e) => setLanguage(e.target.value)} className={INPUT_CLS}>
+                {!editing ? <option value="">ใช้ค่าจากโปรไฟล์ตอนนี้</option> : null}
+                {editing && language && !LANGUAGES.some((l) => l.code === language) ? <option value={language}>{language}</option> : null}
+                {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+              </select>
+            </label>
+            {!editing ? (
+              <p className="text-xs text-gray-500 sm:col-span-2">ค่านี้ถูกบันทึกกับคำถามตอนสร้าง ถ้าเปลี่ยนโปรไฟล์ภายหลัง คำถามเดิมไม่เปลี่ยนตาม</p>
+            ) : null}
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-gray-600">Keyword</span>
               <input value={keyword} onChange={(e) => setKeyword(e.target.value)} className={INPUT_CLS} />
@@ -534,7 +586,7 @@ export function GeneratePromptsDialog({ projectId, onClose, onSaved }: { project
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[90vh] w-full max-w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader><DialogTitle>หา Prompt</DialogTitle></DialogHeader>
         <div className="space-y-3 text-sm">
           <div className="grid gap-3 sm:grid-cols-3">
@@ -631,7 +683,7 @@ export function ImportPromptsDialog({ projectId, onClose, onSaved }: { projectId
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[90vh] w-full max-w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader><DialogTitle>นำเข้า Prompt จาก CSV</DialogTitle></DialogHeader>
         <div className="space-y-3 text-sm">
           <p className="text-xs text-gray-500">

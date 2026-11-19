@@ -5,7 +5,7 @@ import { isProviderKey } from '@/lib/brand-radar/types'
 import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 180
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { projectId?: unknown; provider?: unknown }

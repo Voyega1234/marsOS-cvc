@@ -33,7 +33,7 @@ export default function OpportunitiesTab({ projectId, refreshKey, profile, onGoT
 
   const p = new URLSearchParams({ projectId, status, page: String(page), pageSize: String(PAGE_SIZE) });
   if (type) p.set("type", type);
-  const { data, loading, error, reload } = useApiData<OpportunityListRes>(profile ? `/api/brand-radar/opportunities?${p.toString()}` : "", refreshKey);
+  const { data, loading, error, reload } = useApiData<OpportunityListRes>(profile ? `/api/brand-radar/opportunities?${p.toString()}` : "", refreshKey, true);
 
   if (!profile) {
     return (

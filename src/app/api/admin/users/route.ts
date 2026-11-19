@@ -4,6 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { clientLoginUsername, clientPasswordProblem } from "@/lib/client-login";
 import { isClientLoginEmail, syncClientLoginAccount } from "@/lib/supabase/admin";
+import { isMissingTable, profiledProjectIds } from "@/lib/brand-radar/server";
+import { buildProjectOptions } from "@/lib/brand-radar/queries";
+
+const RADAR_TABLE_MISSING =
+  "ยังไม่ได้สร้างตารางสิทธิ์ Brand Radar ให้รันไฟล์ scripts/sql/add-brand-radar-client-access.sql ใน Supabase ก่อน";
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
@@ -14,7 +19,7 @@ export async function POST(req: NextRequest) {
   // organization มาจาก session ของแอดมินเท่านั้น — ไม่รับ orgId จาก body
   // (หน้า Users ส่งค่าเดียวกับ session อยู่แล้ว ผลลัพธ์จึงเท่าเดิม)
   const organizationId = session.user.organizationId;
-  const { name, email: rawEmail, password, role, projectIds } = await req.json();
+  const { name, email: rawEmail, password, role, projectIds, brandRadarProjectIds } = await req.json();
   // อีเมลเก็บเป็นตัวพิมพ์เล็กเสมอ — ตอน login เทียบแบบไม่สนตัวพิมพ์ ถ้าปล่อยให้ซ้ำต่างตัวพิมพ์
   // จะมี 2 แถวที่ชี้คนเดียวกัน (สิทธิ์ไม่แน่นอนว่าได้แถวไหน)
   const email = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
@@ -57,6 +62,41 @@ export async function POST(req: NextRequest) {
     clientProjectIds = wanted;
   }
 
+  // Brand Radar projects (CLIENT only): keep strings, dedupe, max 200; ownership uses the session org
+  const radarIds: string[] =
+    role === "CLIENT" && Array.isArray(brandRadarProjectIds)
+      ? Array.from(
+          new Set(brandRadarProjectIds.filter((id): id is string => typeof id === "string" && id.length > 0)),
+        )
+      : [];
+  if (radarIds.length > 200) {
+    return NextResponse.json({ error: "เลือกโปรเจกต์ Brand Radar ได้ไม่เกิน 200 โปรเจกต์" }, { status: 400 });
+  }
+  let radarRefs: { id: string; name: string }[] = [];
+  if (radarIds.length > 0) {
+    if (!organizationId) {
+      return NextResponse.json({ error: "โปรเจกต์ Brand Radar ไม่ถูกต้อง" }, { status: 400 });
+    }
+    const okIds = await profiledProjectIds(organizationId, radarIds);
+    if (okIds.length !== radarIds.length) {
+      return NextResponse.json({ error: "โปรเจกต์ Brand Radar ไม่ถูกต้อง" }, { status: 400 });
+    }
+    const opts = await buildProjectOptions(organizationId, radarIds);
+    const nameById = new Map(opts.map((o) => [o.id, o.name]));
+    radarRefs = radarIds.map((id) => ({ id, name: nameById.get(id) ?? "" }));
+    // Probe the table before creating anything (it may not exist yet)
+    try {
+      await prisma.brandRadarClientAccess.findFirst({ where: { organizationId }, select: { id: true } });
+    } catch (e) {
+      if (isMissingTable(e)) return NextResponse.json({ error: RADAR_TABLE_MISSING }, { status: 400 });
+      throw e;
+    }
+  }
+
+  if (role === "CLIENT" && clientProjectIds.length === 0 && radarIds.length === 0) {
+    return NextResponse.json({ error: "CLIENT ต้องมีสิทธิ์อย่างน้อย 1 โปรเจกต์" }, { status: 400 });
+  }
+
   const hashed = await bcrypt.hash(password, 10);
 
   // สร้าง user กับสิทธิ์โปรเจกต์ใน transaction เดียว — ไม่มีทางได้ CLIENT ที่ไม่มีโปรเจกต์เพราะขั้นที่สองล้ม
@@ -75,6 +115,12 @@ export async function POST(req: NextRequest) {
     if (clientProjectIds.length > 0) {
       await tx.clientProjectAccess.createMany({
         data: clientProjectIds.map((projectId) => ({ userId: created.id, projectId })),
+      });
+    }
+    if (radarIds.length > 0 && organizationId) {
+      await tx.brandRadarClientAccess.createMany({
+        data: radarIds.map((projectId) => ({ userId: created.id, projectId, organizationId })),
+        skipDuplicates: true,
       });
     }
     return created;
@@ -111,6 +157,7 @@ export async function POST(req: NextRequest) {
         projectId: a.projectId,
         projectName: a.project.name,
       })),
+      radarProjects: radarRefs,
     },
     ...login,
   });

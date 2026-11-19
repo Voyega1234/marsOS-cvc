@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { bad, isRadarCtx, requireProject } from '@/lib/brand-radar/server'
 import { buildPromptList, parseFilters } from '@/lib/brand-radar/queries'
-import { cleanPromptInput, type CleanPrompt } from '@/lib/brand-radar/prompt-input'
+import { cleanPromptInput, pickCountry, pickLanguage, type CleanPrompt } from '@/lib/brand-radar/prompt-input'
 import { LIMITS, type PromptSaveRes } from '@/lib/brand-radar/types'
 
 export const dynamic = 'force-dynamic'
@@ -39,7 +39,11 @@ export async function POST(req: NextRequest) {
     prisma.brandRadarProfile.findFirst({ where, select: { country: true, language: true } }),
     prisma.brandRadarPrompt.findMany({ where, select: { textKey: true } }),
   ])
-  const defaults = { country: profile?.country ?? 'TH', language: profile?.language ?? ctx.project.language ?? 'th' }
+  // project.language can be 'both' and profile values may be stale: only supported codes become defaults
+  const defaults = {
+    country: pickCountry(profile?.country) ?? 'TH',
+    language: pickLanguage(profile?.language) ?? pickLanguage(ctx.project.language) ?? 'th',
+  }
   const keys = new Set(existing.map((e) => e.textKey))
   let room = LIMITS.promptsPerProjectMax - existing.length
 

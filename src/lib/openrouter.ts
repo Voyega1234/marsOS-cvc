@@ -244,6 +244,121 @@ export async function orChat(params: {
   return { text, usage, citations }
 }
 
+const OR_RESPONSES_URL = 'https://openrouter.ai/api/v1/responses'
+
+export interface ORResponsesResult extends ORChatResult {
+  /** what the model typed into its web search, in order, de-duplicated */
+  searchQueries: string[]
+  /** true when the answer stopped at the output-token cap */
+  truncated: boolean
+}
+
+/** Cleaned, de-duplicated search queries from the `output[]` items of a Responses API reply */
+export function extractSearchQueries(output: unknown, max = 20, maxLen = 300): string[] {
+  if (!Array.isArray(output)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (v: unknown) => {
+    if (typeof v !== 'string') return
+    const q = v.replace(/\s+/g, ' ').trim().slice(0, maxLen)
+    if (!q) return
+    const k = q.toLowerCase()
+    if (seen.has(k) || out.length >= max) return
+    seen.add(k)
+    out.push(q)
+  }
+  for (const item of output) {
+    const action = (item as { action?: { type?: unknown; query?: unknown; queries?: unknown } } | null)?.action
+    if (!action || action.type !== 'search') continue
+    // OpenAI sends `queries: string[]` (and repeats the first one in `query`); Anthropic sends `query` only
+    if (Array.isArray(action.queries) && action.queries.length) action.queries.forEach(add)
+    else add(action.query)
+  }
+  return out
+}
+
+/**
+ * OpenRouter Responses API (`/api/v1/responses`) with the web plugin.
+ * Same labels, slot limit and error style as orChat. Used where the caller needs the search queries the model ran:
+ * chat completions only return a count, the Responses API returns each `web_search_call` (checked 2026-11-18:
+ * OpenAI and Anthropic models return them; Gemini and DeepSeek do not).
+ */
+export async function orResponses(params: {
+  /** action name, becomes mars_<client>_<action> */
+  trace: string
+  client?: string
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  model: string
+  maxOutputTokens?: number
+  /** web plugin results per search; omit to call without web search */
+  webMaxResults?: number
+  timeoutMs?: number
+}): Promise<ORResponsesResult> {
+  const body: Record<string, unknown> = {
+    model: params.model,
+    input: params.messages,
+    ...labelFields(params.trace, params.client),
+  }
+  if (params.maxOutputTokens) body.max_output_tokens = params.maxOutputTokens
+  if (params.webMaxResults) body.plugins = [{ id: 'web', max_results: params.webMaxResults }]
+
+  await acquireSlot()
+  let res: Response
+  try {
+    res = await fetch(OR_RESPONSES_URL, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(params.timeoutMs ?? 240_000),
+    })
+  } finally {
+    releaseSlot()
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    const err = new Error(`OpenRouter ${res.status}: ${detail.slice(0, 300)}`)
+    ;(err as Error & { httpStatus?: number }).httpStatus = res.status
+    throw err
+  }
+  const data = await res.json()
+  if (data.error) throw new Error(`OpenRouter error: ${JSON.stringify(data.error).slice(0, 300)}`)
+
+  const output: unknown[] = Array.isArray(data.output) ? data.output : []
+  let text = ''
+  const citations: ORChatResult['citations'] = []
+  const seenUrl = new Set<string>()
+  for (const item of output) {
+    const it = item as { type?: string; content?: unknown }
+    if (it?.type !== 'message' || !Array.isArray(it.content)) continue
+    for (const part of it.content as Array<{ type?: string; text?: unknown; annotations?: unknown }>) {
+      if (part?.type !== 'output_text') continue
+      if (typeof part.text === 'string') text += part.text
+      if (!Array.isArray(part.annotations)) continue
+      for (const a of part.annotations as Array<{ type?: string; url?: unknown; title?: unknown; content?: unknown }>) {
+        if (a?.type !== 'url_citation' || typeof a.url !== 'string' || !a.url || seenUrl.has(a.url)) continue
+        seenUrl.add(a.url)
+        citations.push({
+          url: a.url,
+          title: typeof a.title === 'string' ? a.title : '',
+          ...(typeof a.content === 'string' ? { content: a.content } : {}),
+        })
+      }
+    }
+  }
+  const u = (data.usage ?? {}) as Record<string, unknown>
+  const input = Number(u.input_tokens ?? 0)
+  const outTok = Number(u.output_tokens ?? 0)
+  const usage: ORUsage = { inputTokens: input, outputTokens: outTok, totalTokens: input + outTok, costUsd: Number(u.cost ?? 0) }
+  if (!text.trim()) {
+    const reason = data.incomplete_details?.reason ?? data.status ?? 'unknown'
+    const err = new Error(`OpenRouter ตอบว่าง (status=${reason}, output_tokens=${usage.outputTokens})`)
+    // a failed call is still billed for its input: hand the usage to the caller
+    ;(err as Error & { usage?: ORUsage }).usage = usage
+    throw err
+  }
+  return { text, usage, citations, searchQueries: extractSearchQueries(output), truncated: data.status === 'incomplete' }
+}
+
 /** stream แบบ SSE — คืน ReadableStream ของ text delta + promise ของ usage ตอนจบ */
 export async function orChatStream(params: {
   /** SOP §3: action ที่กำลังทำ — ได้ชื่อจริงเป็น mars_<client>_<action> (บังคับ) */

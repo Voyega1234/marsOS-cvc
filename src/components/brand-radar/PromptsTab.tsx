@@ -11,7 +11,7 @@ import {
   type Priority, type PromptBulkAction, type PromptListDTO, type PromptRowDTO, type PromptStatus,
 } from "@/lib/brand-radar/types";
 import { useUrlState } from "@/hooks/use-url-state";
-import { api, fmtDateTime, fmtNum, fmtPct, isSmallSample, postJson, radarQuery, type TabProps } from "./shared";
+import { api, fmtDateTime, fmtNum, fmtPct, isSmallSample, postJson, radarQuery, providerLabelFor, type TabProps } from "./shared";
 import PromptDetail from "./PromptDetail";
 import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
 import {
@@ -51,7 +51,12 @@ export default function PromptsTab(props: TabProps) {
   return <PromptList {...props} onOpen={setPrompt} />;
 }
 
-function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChanged, onOpen }: TabProps & { onOpen: (id: string) => void }) {
+function changeProviders(r: PromptRowDTO, kind: "gained" | "lost", clientView?: boolean): string {
+  const list = r.runChangeProviders?.[kind] ?? [];
+  return list.length > 0 ? ` (${list.map((p) => providerLabelFor(p, clientView)).join(", ")})` : "";
+}
+
+function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChanged, onOpen, clientView }: TabProps & { onOpen: (id: string) => void }) {
   const [status, setStatus] = useState<StatusFilter>("");
   const [source, setSource] = useState("");
   const [intent, setIntent] = useState("");
@@ -73,9 +78,13 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
   }, [q]);
 
   const url = `/api/brand-radar/prompts?${radarQuery(projectId, filters, { status, source, intent, topic, q: qDebounced, sort, page, pageSize: PAGE_SIZE })}`;
-  const { data, loading, error, reload } = useApiData<PromptListDTO>(profile ? url : "", refreshKey);
+  const { data, loading, error, reload } = useApiData<PromptListDTO>(profile ? url : "", refreshKey, true);
 
-  useEffect(() => { setSelected(new Set()); }, [data]);
+  // Reset the selection only when the request changes (filters / page); background refreshes keep it.
+  useEffect(() => { setSelected(new Set()); }, [url]);
+  // Drop selected ids that are no longer on the current page (derived, not wiped).
+  const visibleIds = new Set((data?.rows ?? []).map((r) => r.id));
+  const selectedIds = Array.from(selected).filter((id) => visibleIds.has(id));
   useEffect(() => { setPage(1); }, [status, source, intent, topic, qDebounced, sort, projectId]);
 
   if (!profile) {
@@ -104,7 +113,7 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
   }
 
   async function bulk(action: PromptBulkAction, priority?: Priority) {
-    const ids = Array.from(selected);
+    const ids = selectedIds;
     if (ids.length === 0) return;
     if (action === "delete" && !window.confirm(`ลบ ${ids.length} Prompt? ข้อมูลคำตอบของ Prompt เหล่านี้จะหายด้วย`)) return;
     setBulkBusy(true);
@@ -126,7 +135,7 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-800">
+      <div className="flex min-w-0 items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-800">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <p>Prompt ที่ AI สร้างไม่ใช่คำถามจริงของผู้ใช้ — ใช้ติดตามว่า AI ตอบถึงแบรนด์เราบ่อยแค่ไหนเท่านั้น Prompt ที่ติดตาม (Monitoring) เท่านั้นที่ถูกส่งไปถาม AI ตอนสแกน</p>
       </div>
@@ -173,9 +182,9 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
         </select>
       </div>
 
-      {selected.size > 0 ? (
+      {selectedIds.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-brand-blue/30 bg-brand-mist/60 px-3 py-2 text-sm">
-          <span className="font-medium">เลือก {selected.size} รายการ</span>
+          <span className="font-medium">เลือก {selectedIds.length} รายการ</span>
           <Button size="sm" disabled={bulkBusy} onClick={() => void bulk("activate")}>Monitor (เริ่มติดตาม)</Button>
           <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void bulk("deactivate")}>หยุดติดตาม</Button>
           <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void bulk("reject")}>Reject</Button>
@@ -200,7 +209,7 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
         ) : (
           <>
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[900px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-8"><input type="checkbox" aria-label="เลือกทั้งหมด" checked={allOn} onChange={() => setSelected(allOn ? new Set() : new Set(rows.map((r) => r.id)))} /></TableHead>
@@ -224,6 +233,8 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
                       <TableCell><input type="checkbox" aria-label="เลือกแถว" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></TableCell>
                       <TableCell>
                         <button type="button" onClick={() => onOpen(r.id)} className="text-left font-medium text-brand-blue hover:underline">{r.text}</button>
+                        {r.runChange === "gained" ? <Chip tone="ok" className="ml-1.5 align-middle" title={`รอบก่อนหน้าไม่ถูกพูดถึง รอบล่าสุดถูกพูดถึง${changeProviders(r, "gained", clientView)}`}>ได้ใหม่</Chip> : null}
+                        {r.runChange === "lost" ? <Chip tone="warn" className="ml-1.5 align-middle" title={`รอบก่อนหน้าถูกพูดถึง รอบล่าสุดไม่ถูกพูดถึง${changeProviders(r, "lost", clientView)}`}>หลุด</Chip> : null}
                       </TableCell>
                       <TableCell className="text-xs">{r.topic || "-"}</TableCell>
                       <TableCell className="whitespace-nowrap text-xs">{PROMPT_INTENT_LABEL[r.intent]}</TableCell>

@@ -7,7 +7,8 @@ import { Chip, MeterBar, Panel } from "@/components/ds";
 import type {
   ProfileDTO, RunDetailRes, RunDTO, RunEstimateDTO, RunListRes, RunStatus, RunStepRes,
 } from "@/lib/brand-radar/types";
-import { api, fmtDateTime, fmtUsd, postJson, providerShort } from "./shared";
+import { ProviderLogo } from "./ProviderLogo";
+import { api, fmtDateTime, fmtUsd, postJson } from "./shared";
 
 const STATUS_TONE: Record<RunStatus, "ok" | "warn" | "bad" | "info" | "muted"> = {
   RUNNING: "info", COMPLETED: "ok", PARTIAL: "warn", FAILED: "bad", CANCELLED: "muted",
@@ -266,7 +267,7 @@ export default function RunPanel({ projectId, profile, refreshKey, dueRun, onPro
                       {failures.map((f, i) => (
                         <li key={i}>
                           <div className="font-medium text-gray-700">{f.promptText}</div>
-                          <div className="text-gray-500">{providerShort(f.provider)} · {f.status}{f.error ? ` · ${f.error}` : ""}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-gray-500"><ProviderLogo provider={f.provider} size={16} /> · {f.status}{f.error ? ` · ${f.error}` : ""}</div>
                         </li>
                       ))}
                     </ul>

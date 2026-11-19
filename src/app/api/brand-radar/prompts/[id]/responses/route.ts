@@ -4,13 +4,13 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { buildResponseViewer, parseFilters } from '@/lib/brand-radar/queries'
-import { bad, isRadarCtx, requireProject } from '@/lib/brand-radar/server'
+import { bad, isRadarCtx, requireProjectReader } from '@/lib/brand-radar/server'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const sp = req.nextUrl.searchParams
-  const ctx = await requireProject(sp.get('projectId'))
+  const ctx = await requireProjectReader(sp.get('projectId'))
   if (!isRadarCtx(ctx)) return ctx
   const res = await buildResponseViewer(ctx, parseFilters(sp), params.id, sp.get('runId'), sp.get('viewProvider'))
   if (!res) return bad('Prompt not found', 404)

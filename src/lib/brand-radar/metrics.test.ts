@@ -57,7 +57,7 @@ eq(shareOfVoice(2, [1, 1]), 0.5, 'SoV')
   const k = computeKpis(empty(), 0)
   eq([k.mentionRate, k.citationRate, k.competitorMentionRate, k.shareOfVoice, k.estimatedVisibility, k.lastScanAt], [null, null, null, null, null, null], 'empty dataset rates all null')
   eq([k.responses, k.brandMentions, k.brandOccurrences, k.citationCount, k.brandRecommended, k.estimatedVisibilityPrompts], [0, 0, 0, 0, 0, 0], 'empty dataset counts are 0')
-  eq(entityShares(empty()), [{ entityType: 'brand', key: 'brand', name: 'Acme', mentions: 0, mentionRate: null, recommended: 0, cited: 0, occurrences: 0, avgPosition: null }], 'brand always present, rate null')
+  eq(entityShares(empty()), [{ entityType: 'brand', key: 'brand', name: 'Acme', mentions: 0, mentionRate: null, recommended: 0, cited: 0, occurrences: 0, avgPosition: null, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }], 'brand always present, rate null')
   eq(byProvider(empty()), [], 'empty byProvider')
   eq(trendByRun(empty(), []), [], 'empty trend')
   eq(topicProviderHeat(empty()), { rows: [], columns: [], values: [] }, 'empty heat')
@@ -141,10 +141,29 @@ eq(k.lastScanAt, T('12').toISOString(), 'last scan = max collectedAt')
 {
   const e = entityShares(ds)
   eq(e.map((x) => x.name), ['Acme', 'Rival', 'Other', 'Silent'], 'brand first, competitors by mentions desc, zero-mention competitor kept')
-  eq(e[0], { entityType: 'brand', key: 'brand', name: 'Acme', mentions: 2, mentionRate: 0.4, recommended: 1, cited: 1, occurrences: 4, avgPosition: 2 }, 'brand share')
-  eq(e[1], { entityType: 'competitor', key: 'c1', name: 'Rival', mentions: 2, mentionRate: 0.4, recommended: 0, cited: 2, occurrences: 2, avgPosition: 1.5 }, 'Rival share')
+  eq(e[0], { entityType: 'brand', key: 'brand', name: 'Acme', mentions: 2, mentionRate: 0.4, recommended: 1, cited: 1, occurrences: 4, avgPosition: 2, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }, 'brand share')
+  eq(e[1], { entityType: 'competitor', key: 'c1', name: 'Rival', mentions: 2, mentionRate: 0.4, recommended: 0, cited: 2, occurrences: 2, avgPosition: 1.5, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }, 'Rival share')
   eq(e[2].recommended, 1, 'Other recommended once')
   eq([e[3].mentions, e[3].mentionRate, e[3].avgPosition], [0, 0, null], 'Silent: 0 mentions, rate 0, avgPosition null')
+}
+
+// avgPositionPct: null rows ignored, all-null -> null
+{
+  const d: Dataset = {
+    ...empty(), responses: [resp('p1', 'A'), resp('p2', 'A'), resp('p3', 'A')], prompts: [prompt('A')],
+    competitors: [{ id: 'c1', name: 'Rival' }],
+    mentions: [
+      men('p1', 'A', 'brand', 'brand', { positionPct: 0.1 }),
+      men('p2', 'A', 'brand', 'brand', { positionPct: 0.5 }),
+      men('p3', 'A', 'brand', 'brand', { positionPct: null }),
+      men('p1', 'A', 'competitor', 'c1', { positionPct: null }),
+    ],
+  }
+  const s = entityShares(d)
+  eq(s[0].avgPositionPct !== null && Math.abs(s[0].avgPositionPct - 0.3) < 1e-9, true, 'avgPositionPct ignores null rows')
+  eq(s[1].avgPositionPct, null, 'avgPositionPct all-null -> null')
+  eq(s[0].zones, { early: 1, middle: 1, late: 0 }, 'zones count rows with a position only')
+  eq(s[1].zones, { early: 0, middle: 0, late: 0 }, 'zones all-null -> zero counts')
 }
 
 // promptStatsMap
@@ -192,7 +211,7 @@ const runs: RunLite[] = [run('r2', '14', 'H1'), run('r1', '10', 'H2'), run('r0',
   eq(p.map((x) => x.provider), ['openai', 'gemini'], 'provider order')
   eq([p[0].responses, p[0].mentionRate, p[0].citationRate, p[0].shareOfVoice], [2, 1, 0.5, 1], 'openai')
   eq([p[1].responses, p[1].mentionRate, p[1].citationRate, p[1].shareOfVoice], [3, 0, 0, 0], 'gemini real zeros')
-  eq(p[0].method, 'api_simulated', 'method from PROVIDERS')
+  eq(p[0].method, 'observed_chat', 'method from PROVIDERS')
 
   const i = byIntent(ds)
   eq(i.map((x) => [x.intent, x.label, x.prompts, x.responses]), [['informational', 'Informational', 1, 2], ['recommendation', 'Recommendation', 1, 3]], 'by intent (prompts with responses only)')
@@ -204,7 +223,7 @@ const runs: RunLite[] = [run('r2', '14', 'H1'), run('r1', '10', 'H2'), run('r0',
 
   const h = topicProviderHeat(ds)
   eq(h.rows, ['crm', '(no topic)'], 'heat rows')
-  eq(h.columns, ['OpenAI GPT', 'Google Gemini'], 'heat columns short labels')
+  eq(h.columns, ['ChatGPT', 'Google Gemini'], 'heat columns short labels')
   eq(h.values, [[1, 0], [1, 0]], 'heat values')
 
   const sparse: Dataset = {

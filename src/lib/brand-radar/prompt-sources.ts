@@ -13,7 +13,7 @@ import { PBN_PREFS_MARK } from '@/lib/upload-article/pbn'
 import { hostOf } from './normalize'
 import { classifyIntent, classifyJourney, guessTopic, markDuplicates, textKey } from './prompts'
 import { parseStrings, errMsg, type RadarCtx } from './server'
-import { COUNTRIES, LIMITS, type PromptCandidate, type PromptGenerateRes, type PromptSource } from './types'
+import { COUNTRIES, LIMITS, aiJobProjectId, type PromptCandidate, type PromptGenerateRes, type PromptSource } from './types'
 
 export const GENERATE_SOURCES: readonly PromptSource[] = ['ai_generated', 'gsc', 'keyword_database', 'paa_provider']
 
@@ -110,13 +110,13 @@ async function fromAi(ctx: RadarCtx, count: number, seed: string, profile: Profi
     })
     text = res.text
     await logAIJob({
-      organizationId: ctx.orgId, projectId: ctx.project.id, jobType: 'BRAND_RADAR_PROMPT_GEN', modelProvider: 'openrouter',
+      organizationId: ctx.orgId, projectId: aiJobProjectId(ctx.project.id), jobType: 'BRAND_RADAR_PROMPT_GEN', modelProvider: 'openrouter',
       modelName: model, status: 'SUCCESS', tokenUsed: res.usage.totalTokens, estimatedCost: res.usage.costUsd,
       createdById: ctx.userId, inputSummary: `count=${count} seed=${seed}`,
     })
   } catch (e) {
     await logAIJob({
-      organizationId: ctx.orgId, projectId: ctx.project.id, jobType: 'BRAND_RADAR_PROMPT_GEN', modelProvider: 'openrouter',
+      organizationId: ctx.orgId, projectId: aiJobProjectId(ctx.project.id), jobType: 'BRAND_RADAR_PROMPT_GEN', modelProvider: 'openrouter',
       modelName: model, status: 'FAILED', errorMessage: errMsg(e), createdById: ctx.userId, inputSummary: `count=${count} seed=${seed}`,
     })
     throw new Error(`AI prompt generation failed: ${errMsg(e)}`)
@@ -251,13 +251,13 @@ async function fromPaa(ctx: RadarCtx, seed: string, profile: ProfileLite): Promi
       for (const q of it.items ?? []) if (q.title) questions.push(q.title)
     }
     await logAIJob({
-      organizationId: ctx.orgId, projectId: ctx.project.id, jobType: 'BRAND_RADAR_PROMPT_GEN', modelProvider: 'dataforseo',
+      organizationId: ctx.orgId, projectId: aiJobProjectId(ctx.project.id), jobType: 'BRAND_RADAR_PROMPT_GEN', modelProvider: 'dataforseo',
       modelName: 'serp_organic_live_advanced', status: 'SUCCESS', externalCost: cost, externalCalls: 1,
       externalApi: 'dataforseo_serp_paa', createdById: ctx.userId, inputSummary: `paa seed=${keyword}`,
     })
   } catch (e) {
     await logAIJob({
-      organizationId: ctx.orgId, projectId: ctx.project.id, jobType: 'BRAND_RADAR_PROMPT_GEN', modelProvider: 'dataforseo',
+      organizationId: ctx.orgId, projectId: aiJobProjectId(ctx.project.id), jobType: 'BRAND_RADAR_PROMPT_GEN', modelProvider: 'dataforseo',
       modelName: 'serp_organic_live_advanced', status: 'FAILED', externalCalls: 1, externalApi: 'dataforseo_serp_paa',
       errorMessage: errMsg(e), createdById: ctx.userId, inputSummary: `paa seed=${keyword}`,
     })

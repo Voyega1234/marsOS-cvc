@@ -91,6 +91,20 @@ test('ambiguous alias counts when a non-ambiguous term matched', () => {
   assert.equal(r.brand?.occurrences, 2)
 })
 
+test('cue between two entities belongs to the nearer one', () => {
+  const both = (t: string) => detectEntities(t, mk('Mars'), [comp('c1', 'Rival')])
+  const a = both('Mars is recommended over Rival.')
+  assert.equal(a.brand?.recommended, true)
+  assert.equal(a.competitors[0].recommended, false)
+  const b = both('Mars is fine, but Rival is the best choice.')
+  assert.equal(b.brand?.recommended, false)
+  assert.equal(b.competitors[0].recommended, true)
+  assert.equal(detectEntities('We recommend Mars for beginners.', mk('Mars'), [comp('c1', 'Rival')]).brand?.recommended, true)
+  const th = both('แนะนำ Mars มากกว่า Rival')
+  assert.equal(th.brand?.recommended, true)
+  assert.equal(th.competitors[0].recommended, false)
+})
+
 test('recommended + negation', () => {
   assert.equal(detectEntities('We recommend Mars for beginners.', mk('Mars'), []).brand?.recommended, true)
   assert.equal(detectEntities('Mars is the best tool.', mk('Mars'), []).brand?.recommended, true)
@@ -142,6 +156,25 @@ test('snippet is whitespace-collapsed and contains the match', () => {
   const r = detectEntities('line one\n\n   Mars   here\tnow', mk('Mars'), [])
   assert.ok(r.brand?.snippet.includes('Mars here now'))
   assert.equal(r.brand?.firstIndex, 'line one Mars here now'.indexOf('Mars'))
+})
+
+test('positionPct: 0 at the very start, near 1 at the end, 4 decimals', () => {
+  const start = detectEntities('Mars is first here', mk('Mars'), [])
+  assert.equal(start.brand?.positionPct, 0)
+  const text = 'x'.repeat(96) + ' Mars'
+  const end = detectEntities(text, mk('Mars'), [])
+  assert.equal(end.brand?.positionPct, Math.round((97 / text.length) * 10000) / 10000)
+  assert.ok((end.brand?.positionPct ?? 0) > 0.9)
+  const third = detectEntities('aaa Mars bbb ccc ddd eee fff', mk('Mars'), [])
+  assert.equal(third.brand?.positionPct, Math.round((4 / 28) * 10000) / 10000)
+})
+
+test('positionPct does not change the order-based position', () => {
+  const r = detectEntities('Rival is cheap, but Mars is better', mk('Mars'), [comp('c1', 'Rival')])
+  assert.equal(r.competitors[0].position, 1)
+  assert.equal(r.brand?.position, 2)
+  assert.equal(r.competitors[0].positionPct, 0)
+  assert.ok((r.brand?.positionPct ?? 0) > 0.4)
 })
 
 console.log(`detect: ${passed} tests passed`)

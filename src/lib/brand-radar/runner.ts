@@ -5,17 +5,24 @@
  * The page (or the cron) calls stepRun repeatedly; each call claims a few PENDING tasks with
  * FOR UPDATE SKIP LOCKED, so parallel callers never take the same task.
  * The provider caller is injectable so tests never touch the network.
+ *
+ * After each answer is stored the runner also keeps what the provider searched for and asks a second, cheap
+ * model how the answer portrays the tracked brands (BrandRadarInsight), then sorts new search queries into
+ * topic groups (BrandRadarQueryGroup). All of that is best effort: a failure there never fails the answer.
  */
 import { Prisma, type BrandRadarRun } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { logAIJob } from '@/lib/logAIJob'
 import { detectEntities, type BrandSpec, type CompetitorSpec } from './detect'
-import { extractCitations } from './citations'
-import { callProvider, hasCredentials, DFS_LIST_PRICE, logProviderCall, type ProviderCaller } from './providers'
+import { extractCitations, type RawCitation } from './citations'
+import { callProvider, hasCredentials, dfsListPrice, logProviderCall, type ProviderCaller } from './providers'
 import { isDue, monthKey, monthRange, nextRunAfter, periodKey, promptSetHash } from './schedule'
+import { cleanFoundSources, cleanQueries, normalizeQueryKey } from './insight'
+import { ANALYSIS_LIMITS, distinctQueries, liveAnalyzer, type InsightAnalyzer, type SentimentTarget } from './sentiment'
 import {
-  DEFAULT_SAMPLES, LIMITS, PROVIDERS, PROVIDER_KEYS, isProviderKey, normalizeSamples, samplesFor,
-  type ProviderKey, type RunDTO, type RunDetailRes, type RunDueRes, type RunEstimateDTO, type RunListRes,
-  type RunStatus, type RunStepRes, type RunTrigger, type Schedule, type TaskStatus, type UsageDTO,
+  DEFAULT_SAMPLES, LIMITS, PROVIDERS, PROVIDER_KEYS, SEARCH_QUERY_SUPPORT, aiJobProjectId, isManualProjectId, isProviderKey, normalizeSamples, parseSchedule, samplesFor,
+  type AnswerSentiment, type OtherEntity, type ProviderKey, type RunDTO, type RunDetailRes, type RunDueRes, type RunEstimateDTO, type RunListRes,
+  type RunStatus, type RunStepRes, type RunTrigger, type TaskStatus, type UsageDTO,
 } from './types'
 
 const SCHEMA = 'plans_seo_pipeline'
@@ -29,6 +36,19 @@ export interface RunnerCtx {
 }
 
 type Db = Prisma.TransactionClient
+
+/**
+ * The project a run belongs to, checked against the run's own organization. A project created inside Brand Radar
+ * has no Project row: its profile is the project (see MANUAL_PROJECT_PREFIX).
+ */
+async function loadRunProject(orgId: string, projectId: string): Promise<{ id: string; name: string; clientName: string } | null> {
+  if (isManualProjectId(projectId)) {
+    const m = await prisma.brandRadarProfile.findFirst({ where: { projectId, organizationId: orgId }, select: { brandName: true } })
+    return m ? { id: projectId, name: m.brandName, clientName: m.brandName } : null
+  }
+  const p = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId }, select: { id: true, name: true, clientName: true } })
+  return p ? { id: p.id, name: p.name, clientName: p.clientName || '' } : null
+}
 
 function jsonStrings(s: string | null | undefined): string[] {
   try {
@@ -188,7 +208,8 @@ function estimateFrom(plan: Plan): RunEstimateDTO {
   const { profile } = plan
   const perProvider: RunEstimateDTO['perProvider'] = plan.providers.map((k) => {
     const a = plan.avg.get(k)
-    const fallback = k === 'google_ai_mode' || k === 'google_ai_overview' ? DFS_LIST_PRICE[k] : null
+    // every DataForSEO platform has a fixed list price per call; OpenRouter cost is only known from past calls
+    const fallback = dfsListPrice(k)
     const samples = samplesFor(k, plan.samples)
     return {
       provider: k,
@@ -254,7 +275,7 @@ export async function startRun(ctx: RunnerCtx, trigger: RunTrigger, now: Date = 
 
       const plan = await loadPlan(tx, ctx, now)
       if (trigger === 'schedule' && plan.profile) {
-        key = periodKey(plan.profile.schedule as Schedule, now)
+        key = periodKey(plan.profile.schedule, now)
         if (key) {
           const dup = await tx.brandRadarRun.findFirst({ where: { projectId: ctx.project.id, periodKey: key } })
           if (dup) return { kind: 'existing', run: dup } as StartResult
@@ -389,6 +410,232 @@ function spec(profile: Prisma.BrandRadarProfileGetPayload<Record<string, never>>
   }
 }
 
+// ── Answer insight: search queries + sentiment + query groups ────────────────
+
+/** The insight tables arrive with a separate SQL file. Until it has run, scans work as before and skip this part. */
+let insightTables: { ok: boolean; at: number } | null = null
+const INSIGHT_RECHECK_MS = 60_000
+
+async function insightTablesReady(): Promise<boolean> {
+  if (insightTables && (insightTables.ok || Date.now() - insightTables.at < INSIGHT_RECHECK_MS)) return insightTables.ok
+  try {
+    await prisma.brandRadarInsight.findFirst({ select: { id: true } })
+    await prisma.brandRadarQueryGroup.findFirst({ select: { id: true } })
+    insightTables = { ok: true, at: Date.now() }
+  } catch (e) {
+    const missing = e instanceof Prisma.PrismaClientKnownRequestError && (e.code === 'P2021' || e.code === 'P2022')
+    if (!missing) console.error('[brand-radar] insight tables check failed', e instanceof Error ? e.message : e)
+    insightTables = { ok: false, at: Date.now() }
+  }
+  return insightTables.ok
+}
+
+/** Same idea for the answer-extra table: after a missing-table error, skip it for 60 seconds and then check again. */
+let answerExtraMissingAt = 0
+
+/** Store the names the AI platform tagged in this answer. Never throws: the answer itself is already saved. */
+async function captureAnswerExtra(a: { t: ClaimedTask; run: BrandRadarRun; key: ProviderKey; otherEntities: OtherEntity[] | undefined }): Promise<void> {
+  const list = a.otherEntities
+  if (!list || list.length === 0 || Date.now() - answerExtraMissingAt < INSIGHT_RECHECK_MS) return
+  try {
+    const { t, run, key } = a
+    const entities = JSON.stringify(list)
+    await prisma.brandRadarAnswerExtra.upsert({
+      where: { responseId: t.id },
+      create: { organizationId: run.organizationId, projectId: run.projectId, runId: run.id, responseId: t.id, promptId: t.promptId, provider: key, entities },
+      update: { entities },
+    })
+  } catch (e) {
+    // same check as server.ts isMissingTable (not imported: server.ts pulls in the session layer)
+    if (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === 'P2021' || e.code === 'P2022')) { answerExtraMissingAt = Date.now(); return }
+    console.error('[brand-radar extra]', errText(e))
+  }
+}
+
+const failedCallCost = (e: unknown): number => Number((e as { usage?: { costUsd?: number } })?.usage?.costUsd) || 0
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e)).slice(0, 500)
+
+/**
+ * Store what the provider searched for and how the answer portrays the tracked brands.
+ * Returns the queries that count for Search Query Groups (providers that expose their real searches).
+ * Never throws: the answer itself is already saved.
+ */
+async function captureInsight(a: {
+  t: ClaimedTask
+  run: BrandRadarRun
+  key: ProviderKey
+  text: string
+  hits: ReturnType<typeof detectEntities>
+  searchQueries: unknown
+  found: ReturnType<typeof extractCitations>
+  clientName: string
+  userId: string
+  analyzer: InsightAnalyzer | null
+}): Promise<string[]> {
+  try {
+    if (!(await insightTablesReady())) return []
+    const { t, run, key } = a
+    const queries = cleanQueries(a.searchQueries)
+    const foundSources = cleanFoundSources(a.found.map((f) => ({ url: f.url, domain: f.domain, title: f.title, ownerType: f.ownerType })))
+    let sentiment: AnswerSentiment | null = null
+    let sentimentModel = ''
+
+    if (a.analyzer && a.text.trim().length >= ANALYSIS_LIMITS.answerMin) {
+      const targets: SentimentTarget[] = []
+      if (a.hits.brand) targets.push({ entityType: 'brand', key: 'brand', name: a.hits.brand.name })
+      for (const h of a.hits.competitors) targets.push({ entityType: 'competitor', key: h.competitorId || h.key, name: h.name })
+      const jobBase = {
+        organizationId: run.organizationId,
+        projectId: aiJobProjectId(run.projectId),
+        jobType: 'BRAND_RADAR_SENTIMENT',
+        modelProvider: 'openrouter',
+        createdById: a.userId,
+        inputSummary: `[brand-radar] ${t.promptText}`.slice(0, 500),
+      }
+      try {
+        const r = await a.analyzer.sentiment({ prompt: t.promptText, answer: a.text, targets: targets.slice(0, ANALYSIS_LIMITS.entitiesMax), clientName: a.clientName })
+        sentiment = r.sentiment
+        sentimentModel = r.model
+        // the analysis is part of what this answer cost: run cost and the monthly budget both read this column
+        if (r.costUsd > 0) await prisma.brandRadarResponse.update({ where: { id: t.id }, data: { costUsd: { increment: r.costUsd } } })
+        await logAIJob({ ...jobBase, modelName: r.model, status: 'SUCCESS', tokenUsed: r.tokens, estimatedCost: r.costUsd })
+      } catch (e) {
+        const cost = failedCallCost(e)
+        if (cost > 0) await prisma.brandRadarResponse.update({ where: { id: t.id }, data: { costUsd: { increment: cost } } })
+        await logAIJob({ ...jobBase, modelName: '', status: 'FAILED', estimatedCost: cost, errorMessage: errText(e) })
+      }
+    }
+
+    if (queries.length || sentiment || foundSources.length) {
+      const data = { searchQueries: JSON.stringify(queries), foundSources: JSON.stringify(foundSources), sentiment: sentiment ? JSON.stringify(sentiment) : null, sentimentModel }
+      await prisma.brandRadarInsight.upsert({
+        where: { responseId: t.id },
+        create: { organizationId: run.organizationId, projectId: run.projectId, runId: run.id, responseId: t.id, promptId: t.promptId, provider: key, ...data },
+        update: data,
+      })
+    }
+    return SEARCH_QUERY_SUPPORT[key] === 'exposed' ? queries : []
+  } catch (e) {
+    console.error('[brand-radar] insight capture failed', errText(e))
+    return []
+  }
+}
+
+/**
+ * Give search queries that have no group yet a topic group (one model call for up to groupBatch queries).
+ * `costResponseId`: the answer that carries the call's cost, so the run total and the monthly budget stay true.
+ * Never throws. A query the model leaves out stays ungrouped and is shown as its own group.
+ */
+async function groupNewQueries(
+  run: BrandRadarRun,
+  queries: string[],
+  costResponseId: string | null,
+  clientName: string,
+  userId: string,
+  analyzer: InsightAnalyzer,
+): Promise<void> {
+  try {
+    const distinct = distinctQueries(queries)
+    if (!distinct.size || !(await insightTablesReady())) return
+    const known = await prisma.brandRadarQueryGroup.findMany({
+      where: { organizationId: run.organizationId, projectId: run.projectId, queryKey: { in: Array.from(distinct.keys()) } },
+      select: { queryKey: true },
+    })
+    for (const k of known) distinct.delete(k.queryKey)
+    const fresh = Array.from(distinct.entries()).slice(0, ANALYSIS_LIMITS.groupBatch)
+    if (!fresh.length) return
+
+    const recent = await prisma.brandRadarQueryGroup.findMany({
+      where: { organizationId: run.organizationId, projectId: run.projectId, groupName: { not: '' } },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      select: { groupName: true },
+    })
+    const existing = Array.from(new Set(recent.map((g) => g.groupName))).slice(0, ANALYSIS_LIMITS.existingGroupsMax)
+
+    const jobBase = {
+      organizationId: run.organizationId,
+      projectId: aiJobProjectId(run.projectId),
+      jobType: 'BRAND_RADAR_QUERY_GROUPS',
+      modelProvider: 'openrouter',
+      createdById: userId,
+      inputSummary: `[brand-radar] group ${fresh.length} search queries`,
+    }
+    const addCost = async (cost: number) => {
+      if (cost > 0 && costResponseId) await prisma.brandRadarResponse.update({ where: { id: costResponseId }, data: { costUsd: { increment: cost } } })
+    }
+    try {
+      const r = await analyzer.groupQueries({ queries: fresh.map(([, q]) => q), existing, clientName })
+      const rows: Prisma.BrandRadarQueryGroupCreateManyInput[] = []
+      const seen = new Set<string>()
+      for (const g of r.groups) {
+        const queryKey = normalizeQueryKey(g.query)
+        if (!distinct.has(queryKey) || seen.has(queryKey) || !g.groupName) continue
+        seen.add(queryKey)
+        rows.push({ organizationId: run.organizationId, projectId: run.projectId, queryKey, query: distinct.get(queryKey) || g.query, groupName: g.groupName })
+      }
+      if (rows.length) await prisma.brandRadarQueryGroup.createMany({ data: rows, skipDuplicates: true })
+      await addCost(r.costUsd)
+      await logAIJob({ ...jobBase, modelName: r.model, status: 'SUCCESS', tokenUsed: r.tokens, estimatedCost: r.costUsd })
+    } catch (e) {
+      const cost = failedCallCost(e)
+      await addCost(cost)
+      await logAIJob({ ...jobBase, modelName: '', status: 'FAILED', estimatedCost: cost, errorMessage: errText(e) })
+    }
+  } catch (e) {
+    console.error('[brand-radar] query grouping failed', errText(e))
+  }
+}
+
+/** Queries of this run that still have no group once its last task is finished (a failed or oversized earlier batch). */
+const SWEEP_CHUNKS = 2
+
+async function sweepUngroupedQueries(run: BrandRadarRun, clientName: string, userId: string, analyzer: InsightAnalyzer): Promise<void> {
+  try {
+    if (!(await insightTablesReady())) return
+    const exposed = PROVIDER_KEYS.filter((k) => SEARCH_QUERY_SUPPORT[k] === 'exposed')
+    const rows = await prisma.brandRadarInsight.findMany({
+      where: { organizationId: run.organizationId, projectId: run.projectId, runId: run.id, provider: { in: exposed }, searchQueries: { not: '[]' } },
+      select: { responseId: true, searchQueries: true },
+    })
+    if (!rows.length) return
+    const all: string[] = []
+    for (const r of rows) {
+      try {
+        all.push(...cleanQueries(JSON.parse(r.searchQueries)))
+      } catch { /* a row that is not JSON holds no queries */ }
+    }
+    for (let i = 0; i < SWEEP_CHUNKS; i++) await groupNewQueries(run, all, rows[0].responseId, clientName, userId, analyzer)
+  } catch (e) {
+    console.error('[brand-radar] query group sweep failed', errText(e))
+  }
+}
+
+/**
+ * Read one answer the way a scan does: which brands it names and which pages it cites. No database access.
+ * The sample-size test in Settings uses the same function, so a test and a real scan can never disagree
+ * about what counts as a mention or a citation.
+ */
+export function analyzeAnswer(
+  text: string,
+  citations: RawCitation[],
+  profile: Prisma.BrandRadarProfileGetPayload<Record<string, never>>,
+  competitors: Array<CompetitorSpec & { domains: string[] }>,
+  foundSources?: RawCitation[],
+): { hits: ReturnType<typeof detectEntities>; cites: ReturnType<typeof extractCitations>; found: ReturnType<typeof extractCitations> } {
+  const hits = detectEntities(text, spec(profile), competitors.map((c) => ({ id: c.id, name: c.name, aliases: c.aliases })))
+  const owned = jsonStrings(profile.ownedDomains)
+  if (profile.primaryDomain) owned.push(profile.primaryDomain)
+  const compSpecs = competitors.map((c) => ({ id: c.id, domains: c.domains }))
+  const cites = extractCitations({ text, citations }, owned, compSpecs)
+  // Found-but-not-cited pages go through the same classifier as citations, so own / competitor / other cannot disagree.
+  // Empty text: only the supplied list is read, never the answer.
+  const citedUrls = new Set(cites.map((c) => c.normalizedUrl))
+  const found = extractCitations({ text: '', citations: foundSources ?? [] }, owned, compSpecs).filter((f) => !citedUrls.has(f.normalizedUrl))
+  return { hits, cites, found }
+}
+
+/** One claimed task. Returns the search queries of this answer that still need a group (empty when there are none). */
 async function processTask(
   t: ClaimedTask,
   run: BrandRadarRun,
@@ -397,7 +644,8 @@ async function processTask(
   clientName: string,
   userId: string,
   caller: ProviderCaller,
-): Promise<void> {
+  analyzer: InsightAnalyzer | null,
+): Promise<string[]> {
   const key = (isProviderKey(t.provider) ? t.provider : 'openai') as ProviderKey
   const log = { orgId: run.organizationId, userId, projectId: run.projectId }
   const before = t.costUsd || 0
@@ -411,14 +659,11 @@ async function processTask(
         data: { status: 'SKIPPED', error: r.error || 'Skipped', lockedAt: null, costUsd: before + r.costUsd, model: r.model, inputTokens: r.inputTokens, outputTokens: r.outputTokens },
       })
       await logProviderCall(log, key, t.promptText, { ok: true, model: r.model, costUsd: r.costUsd, tokens })
-      return
+      return []
     }
 
     const text = (r.text || '').slice(0, LIMITS.responseTextMax)
-    const hits = detectEntities(text, spec(profile), competitors.map((c) => ({ id: c.id, name: c.name, aliases: c.aliases })))
-    const owned = jsonStrings(profile.ownedDomains)
-    if (profile.primaryDomain) owned.push(profile.primaryDomain)
-    const cites = extractCitations({ text, citations: r.citations }, owned, competitors.map((c) => ({ id: c.id, domains: c.domains })))
+    const { hits, cites, found } = analyzeAnswer(text, r.citations, profile, competitors, r.foundSources)
     const now = new Date()
     const base = { organizationId: run.organizationId, projectId: run.projectId, runId: run.id, responseId: t.id, promptId: t.promptId, provider: key }
 
@@ -446,10 +691,10 @@ async function processTask(
       const mentions: Prisma.BrandRadarMentionCreateManyInput[] = []
       if (hits.brand) {
         const h = hits.brand
-        mentions.push({ ...base, entityType: 'brand', entityKey: 'brand', competitorId: null, entityName: h.name, occurrences: h.occurrences, matchedAliases: JSON.stringify(h.matchedAliases), recommended: h.recommended, compared: h.compared, position: h.position, snippet: h.snippet })
+        mentions.push({ ...base, entityType: 'brand', entityKey: 'brand', competitorId: null, entityName: h.name, occurrences: h.occurrences, matchedAliases: JSON.stringify(h.matchedAliases), recommended: h.recommended, compared: h.compared, position: h.position, positionPct: h.positionPct, snippet: h.snippet })
       }
       for (const h of hits.competitors) {
-        mentions.push({ ...base, entityType: 'competitor', entityKey: h.key, competitorId: h.competitorId || h.key, entityName: h.name, occurrences: h.occurrences, matchedAliases: JSON.stringify(h.matchedAliases), recommended: h.recommended, compared: h.compared, position: h.position, snippet: h.snippet })
+        mentions.push({ ...base, entityType: 'competitor', entityKey: h.key, competitorId: h.competitorId || h.key, entityName: h.name, occurrences: h.occurrences, matchedAliases: JSON.stringify(h.matchedAliases), recommended: h.recommended, compared: h.compared, position: h.position, positionPct: h.positionPct, snippet: h.snippet })
       }
       if (mentions.length) await tx.brandRadarMention.createMany({ data: mentions, skipDuplicates: true })
       if (cites.length) {
@@ -460,6 +705,8 @@ async function processTask(
       }
     })
     await logProviderCall(log, key, t.promptText, { ok: true, model: r.model, costUsd: r.costUsd, tokens })
+    await captureAnswerExtra({ t, run, key, otherEntities: r.otherEntities })
+    return await captureInsight({ t, run, key, text, hits, searchQueries: r.searchQueries, found, clientName, userId, analyzer })
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500)
     const cost = Number((e as { costUsd?: number }).costUsd) || 0
@@ -470,17 +717,21 @@ async function processTask(
       data: { status, error: msg, lockedAt: null, costUsd: cost > 0 || t.costUsd !== null ? before + cost : null },
     })
     await logProviderCall(log, key, t.promptText, { ok: false, model: '', costUsd: cost, tokens: 0, error: msg })
+    return []
   }
 }
 
 /**
  * Do one batch of work for a run. Null = the run does not exist in this organization + project.
+ * `analyzer` reads sentiment and groups search queries. It defaults to the live one only with the live provider
+ * caller, so a test that passes a fake caller never reaches the network unless it passes a fake analyzer too.
  */
 export async function stepRun(
   ids: { orgId: string; userId: string; projectId: string },
   runId: string,
   caller: ProviderCaller = callProvider,
   now: Date = new Date(),
+  analyzer: InsightAnalyzer | null = caller === callProvider ? liveAnalyzer : null,
 ): Promise<RunStepRes | null> {
   const run = await prisma.brandRadarRun.findFirst({ where: { id: runId, organizationId: ids.orgId, projectId: ids.projectId } })
   if (!run) return null
@@ -534,10 +785,16 @@ export async function stepRun(
       where: { organizationId: run.organizationId, projectId: run.projectId, status: 'ACTIVE' },
     })
     const competitors = comps.map((c) => ({ id: c.id, name: c.name, aliases: jsonStrings(c.aliases), domains: jsonStrings(c.domains) }))
-    const project = await prisma.project.findFirst({ where: { id: run.projectId, organizationId: run.organizationId }, select: { clientName: true, name: true } })
+    const project = await loadRunProject(run.organizationId, run.projectId)
     const clientName = (project && (project.clientName || project.name)) || ''
     const userId = run.createdById || ids.userId
-    await Promise.all(claimed.map((t) => processTask(t, run, profile, competitors, clientName, userId, caller)))
+    const found = await Promise.all(claimed.map((t) => processTask(t, run, profile, competitors, clientName, userId, caller, analyzer)))
+    if (analyzer) {
+      const source = found.findIndex((q) => q.length > 0)
+      if (source >= 0) await groupNewQueries(run, found.flat(), claimed[source].id, clientName, userId, analyzer)
+      const open = await prisma.brandRadarResponse.count({ where: { runId: run.id, status: { in: ['PENDING', 'RUNNING'] } } })
+      if (open === 0) await sweepUngroupedQueries(run, clientName, userId, analyzer)
+    }
   } else if (claimed.length && !profile) {
     await prisma.brandRadarResponse.updateMany({
       where: { id: { in: claimed.map((c) => c.id) } },
@@ -570,8 +827,10 @@ export async function cancelRun(ctx: RunnerCtx, runId: string, now: Date = new D
 export async function runDue(ctx: RunnerCtx, now: Date = new Date()): Promise<RunDueRes> {
   const profile = await prisma.brandRadarProfile.findFirst({ where: { organizationId: ctx.orgId, projectId: ctx.project.id } })
   if (!profile) return { run: null, reason: 'Brand Radar is not set up for this client yet' }
-  const schedule = profile.schedule as Schedule
-  if (schedule === 'manual') return { run: null, reason: 'Schedule is manual' }
+  const schedule = profile.schedule
+  // A stored value this version cannot read is treated like manual: no automatic scan
+  const spec = parseSchedule(schedule)
+  if (!spec || spec.kind === 'manual') return { run: null, reason: 'Schedule is manual' }
   if (!isDue(schedule, profile.nextRunAt, now)) return { run: null, reason: 'Not due yet' }
 
   const r = await startRun(ctx, 'schedule', now)
@@ -602,13 +861,9 @@ export async function cronTick(
   })
   for (const p of profiles) {
     if (Date.now() - t0 >= maxMs) break
-    const project = await prisma.project.findFirst({ where: { id: p.projectId, organizationId: p.organizationId }, select: { id: true, name: true, clientName: true } })
+    const project = await loadRunProject(p.organizationId, p.projectId)
     if (!project) continue
-    const ctx: RunnerCtx = {
-      orgId: p.organizationId,
-      userId: p.createdById,
-      project: { id: project.id, name: project.name, clientName: project.clientName || '' },
-    }
+    const ctx: RunnerCtx = { orgId: p.organizationId, userId: p.createdById, project }
     try {
       const r = await runDue(ctx, now)
       if (r.run && r.reason === 'Scheduled scan started') started++

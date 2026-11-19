@@ -233,6 +233,263 @@ async function main() {
       console.log('skip - refresh produced no opportunity from the seed data')
     }
 
+    // projects created inside Brand Radar: the profile is the project, no Project row
+    const t = await import('./types')
+    const manualId = `${t.MANUAL_PROJECT_PREFIX}itest${stamp}`
+    await prisma.brandRadarProfile.create({
+      data: {
+        organizationId: orgA, projectId: manualId, brandName: 'Solo Brand', primaryDomain: 'solo.example',
+        ownedDomains: JSON.stringify(['solo.example']), providers: JSON.stringify(['openai']),
+      },
+    })
+    const m = await server.loadOwnedProject(orgA, manualId)
+    assert.ok(m)
+    assert.equal(m!.id, manualId)
+    assert.equal(m!.name, 'Solo Brand')
+    assert.equal(m!.clientName, 'Solo Brand')
+    assert.equal(m!.website, 'solo.example')
+    assert.equal(await server.loadOwnedProject(orgB, manualId), null)
+    assert.equal(await server.loadOwnedProject(orgA, `${t.MANUAL_PROJECT_PREFIX}missing${stamp}`), null)
+    const optsA = await q.buildProjectOptions(orgA)
+    const optM = optsA.find((o) => o.id === manualId)
+    assert.ok(optM)
+    assert.equal(optM!.manual, true)
+    assert.equal(optM!.name, 'Solo Brand')
+    assert.equal(optM!.hasProfile, true)
+    assert.equal(optsA.find((o) => o.id === projA)!.manual, false)
+    assert.equal((await q.buildProjectOptions(orgB)).some((o) => o.id === manualId), false)
+    const M = { orgId: orgA, userId: userA, role: 'ADMIN', project: m! }
+    const om = await q.buildOverview(M, filters)
+    assert.equal(om.configured, true)
+    assert.equal(om.hasData, false)
+    assert.equal((await q.buildPromptList(M, filters, {})).rows.length, 0)
+    assert.equal(t.isManualProjectId(manualId), true)
+    assert.equal(t.isManualProjectId(projA), false)
+    assert.equal(t.aiJobProjectId(manualId), null)
+    assert.equal(t.aiJobProjectId(projA), projA)
+    ok('manual project: loads for its organization only, listed with manual flag, AI cost logged without a project id')
+
+    // ── Customer (CLIENT) read-only view ─────────────────────────────────────
+    const { clientRadarProjectIds, profiledProjectIds } = server
+    const clientId = `itest-acc-client-${stamp}`
+    const loneId = `itest-acc-lone-${stamp}`
+    const staffName = `STAFFNAME_${stamp}`
+    await prisma.user.create({ data: { id: clientId, email: `c-${stamp}@itest.local`, name: 'C', role: 'CLIENT', organizationId: orgA } })
+    await prisma.user.create({ data: { id: loneId, email: `l-${stamp}@itest.local`, name: 'L', role: 'CLIENT', organizationId: orgA } })
+    const xorgId = `itest-acc-xorg-${stamp}`
+    await prisma.user.create({ data: { id: xorgId, email: `x-${stamp}@itest.local`, name: 'X', role: 'CLIENT', organizationId: orgA } })
+    const ghost = `itest-acc-ghost-${stamp}`
+    await prisma.brandRadarClientAccess.createMany({
+      data: [
+        { userId: clientId, projectId: projA, organizationId: orgA },
+        { userId: clientId, projectId: ghost, organizationId: orgA },
+        { userId: xorgId, projectId: projA, organizationId: orgB }, // foreign-organization row pointing at an org A project
+        { userId: clientId, projectId: projB, organizationId: orgA }, // org A row pointing at an org B project
+      ],
+    })
+    assert.deepEqual(await clientRadarProjectIds(clientId, orgA), [projA])
+    assert.deepEqual(await clientRadarProjectIds(clientId, orgB), [])
+    assert.deepEqual(await clientRadarProjectIds(loneId, orgA), [])
+    assert.deepEqual(await clientRadarProjectIds(xorgId, orgA), [])
+    assert.deepEqual(await clientRadarProjectIds(xorgId, orgB), [])
+    assert.deepEqual(await clientRadarProjectIds('', orgA), [])
+    assert.deepEqual(await profiledProjectIds(orgA, [projA, manualId, projB, ghost, 42, '']), [projA, manualId])
+    assert.deepEqual(await profiledProjectIds(orgB, [projA, projB]), [])
+    const bareProj = `itest-acc-bare-${stamp}`
+    await prisma.project.create({
+      data: { id: bareProj, organizationId: orgA, name: 'Bare', website: 'https://bare.com', businessType: 'x', targetAudience: 'y', createdById: userA },
+    })
+    assert.deepEqual(await profiledProjectIds(orgA, [bareProj, projA]), [projA])
+    ok('client access rows: own organization and existing projects only; profiledProjectIds keeps profiled owned ids')
+
+    // list scoping
+    assert.deepEqual((await q.buildProjectOptions(orgA, [projA])).map((o) => o.id), [projA])
+    assert.deepEqual(await q.buildProjectOptions(orgA, []), [])
+    assert.ok((await q.buildProjectOptions(orgA, null)).length >= 2)
+    assert.ok((await q.buildProjectOptions(orgA)).length >= 2)
+    assert.deepEqual(await q.buildProjectOptions(orgA, [projB]), [])
+    const sumA = await q.buildBrandSummaries(orgA, new Date(), [projA])
+    assert.ok(sumA.length >= 1)
+    assert.ok(sumA.every((b) => b.id === projA))
+    assert.deepEqual(await q.buildBrandSummaries(orgA, new Date(), []), [])
+    assert.ok(!(await q.buildBrandSummaries(orgA, new Date(), [projA, projB])).some((b) => b.id === projB))
+    assert.deepEqual(await q.buildBrandSummaries(orgA, new Date(), [projB]), [])
+    assert.ok((await q.buildBrandSummaries(orgA)).some((b) => b.id === manualId))
+    ok('project options and brand summaries are limited to the allowed ids ([] = nothing, orgB id = nothing)')
+
+    // staff-only seed data
+    await prisma.user.update({ where: { id: userA }, data: { name: staffName } })
+    const note = `STAFFNOTE_${stamp}`
+    const kw = `STAFFKW_${stamp}`
+    const err = `STAFFERR_${stamp}`
+    const model = `STAFFMODEL_${stamp}`
+    const runErr = `STAFFRUNERR_${stamp}`
+    const pS = await prisma.brandRadarPrompt.create({
+      data: { ...base, text: `visible prompt ${stamp}`, textKey: `visible prompt ${stamp}`, status: 'ACTIVE', note, keyword: kw, searchVolume: 777, source: 'gsc' },
+    })
+    const pC = await prisma.brandRadarPrompt.create({ data: { ...base, text: `CANDTEXT_${stamp}`, textKey: `candtext ${stamp}`, status: 'CANDIDATE' } })
+    const pR = await prisma.brandRadarPrompt.create({ data: { ...base, text: `REJTEXT_${stamp}`, textKey: `rejtext ${stamp}`, status: 'REJECTED' } })
+    const runS = await prisma.brandRadarRun.create({
+      data: { ...base, status: 'COMPLETED', providers: JSON.stringify(['openai']), costUsd: 4.25, estimatedCostUsd: 5.5, error: runErr, createdById: userA, trigger: 'schedule' },
+    })
+    const rS = await prisma.brandRadarResponse.create({
+      data: {
+        ...base, runId: runS.id, promptId: pS.id, provider: 'openai', status: 'DONE', promptText: pS.text, model, costUsd: 0.37,
+        brandMentioned: true, brandOccurrences: 1, collectedAt: new Date(),
+      },
+    })
+    await prisma.brandRadarResponse.create({
+      data: { ...base, runId: runS.id, promptId: pS.id, provider: 'google_ai_mode', status: 'FAILED', error: err, model, costUsd: 0.11, collectedAt: new Date() },
+    })
+    for (const pp of [pC, pR]) {
+      await prisma.brandRadarResponse.create({
+        data: {
+          ...base, runId: runS.id, promptId: pp.id, provider: 'openai', status: 'DONE', promptText: pp.text, model,
+          brandMentioned: true, brandOccurrences: 1, collectedAt: new Date(),
+        },
+      })
+    }
+    void rS
+
+    const C = { ...A, clientView: true }
+    const results: Record<string, unknown> = {
+      overview: await q.buildOverview(C, filters),
+      feed: await q.buildAnswerFeed(C, filters, {}),
+      citations: await q.buildCitations(C, filters, {}),
+      competitors: await q.buildCompetitorInsights(C, filters),
+      detail: await q.buildPromptDetail(C, filters, pS.id, false),
+      detailP1: await q.buildPromptDetail(C, filters, p1.id, false),
+      viewer: await q.buildResponseViewer(C, filters, pS.id, null, 'openai'),
+      viewerFailed: await q.buildResponseViewer(C, filters, pS.id, null, 'google_ai_mode'),
+    }
+    assert.ok(results.detail, 'client can read an ACTIVE prompt')
+    assert.equal(await q.buildPromptDetail(C, filters, pC.id, false), null, 'CANDIDATE prompt hidden from client')
+    assert.equal(await q.buildPromptDetail(C, filters, pR.id, false), null, 'REJECTED prompt hidden from client')
+    assert.equal(await q.buildResponseViewer(C, filters, pC.id, null, null), null)
+    assert.equal(await q.buildResponseViewer(C, filters, pR.id, null, null), null)
+    const staffDetailC = await q.buildPromptDetail(A, filters, pC.id, false)
+    assert.ok(staffDetailC, 'staff still see CANDIDATE prompt')
+
+    const walk2 = (v: unknown, fn: (o: Record<string, unknown>) => void) => {
+      if (Array.isArray(v)) { v.forEach((x) => walk2(x, fn)); return }
+      if (v && typeof v === 'object') {
+        const o = v as Record<string, unknown>
+        fn(o)
+        Object.values(o).forEach((x) => walk2(x, fn))
+      }
+    }
+    let seenResponses = 0, seenRuns = 0, seenPrompts = 0, seenLabels = 0
+    const forbidden = [note, kw, err, model, runErr, staffName, `CANDTEXT_${stamp}`, `REJTEXT_${stamp}`]
+    for (const [name, res] of Object.entries(results)) {
+      const json = JSON.stringify(res)
+      for (const f of forbidden) assert.ok(!json.includes(f), `client ${name} leaks ${f}`)
+      walk2(res, (o) => {
+        if ('model' in o && 'status' in o && 'responseText' in o) {
+          seenResponses++
+          assert.equal(o.status, 'DONE', `${name}: only DONE answers`)
+          assert.equal(o.costUsd ?? null, null, `${name}: response costUsd`)
+          assert.equal(o.error, '', `${name}: response error`)
+          assert.equal(o.model, '', `${name}: response model`)
+        }
+        if ('estimatedCostUsd' in o && 'totalTasks' in o) {
+          seenRuns++
+          assert.equal(o.costUsd, 0, `${name}: run costUsd`)
+          assert.equal(o.estimatedCostUsd, null, `${name}: run estimatedCostUsd`)
+          assert.equal(o.error, '', `${name}: run error`)
+          assert.equal(o.createdByName, '', `${name}: run staff name`)
+        }
+        if ('note' in o && 'keyword' in o && 'searchVolume' in o && 'status' in o) {
+          seenPrompts++
+          assert.equal(o.note, '', `${name}: prompt note`)
+          assert.equal(o.keyword, '', `${name}: prompt keyword`)
+          assert.equal(o.searchVolume, null, `${name}: prompt searchVolume`)
+          assert.equal(o.source, 'manual', `${name}: prompt source`)
+          assert.ok(o.status === 'ACTIVE' || o.status === 'INACTIVE', `${name}: prompt status ${String(o.status)}`)
+        }
+        for (const k of ['providerLabel', 'label']) {
+          if (typeof o[k] === 'string' && ('provider' in o || k === 'providerLabel')) {
+            seenLabels++
+            assert.ok(!/[()]/.test(o[k] as string), `${name}: provider label "${String(o[k])}"`)
+          }
+        }
+      })
+    }
+    assert.ok(seenResponses > 0 && seenRuns > 0 && seenPrompts > 0 && seenLabels > 0, `walker saw nothing: ${seenResponses}/${seenRuns}/${seenPrompts}/${seenLabels}`)
+    const vf2 = results.viewerFailed as { provider: string | null; samples: Array<{ status: string }> } | null
+    assert.ok(vf2)
+    assert.notEqual(vf2!.provider, 'google_ai_mode', 'client cannot select a platform that only has FAILED attempts')
+    assert.ok(vf2!.samples.every((x) => x.status === 'DONE'), 'client sees no FAILED attempts')
+    ok('client view strips staff data (notes, keywords, errors, models, costs, staff names, CANDIDATE/REJECTED prompts, labels)')
+
+    // staff output unchanged
+    const sDetail = JSON.stringify(await q.buildPromptDetail(A, filters, pS.id, false))
+    assert.ok(sDetail.includes(note) && sDetail.includes(kw) && sDetail.includes(model))
+    const sViewerF = JSON.stringify(await q.buildResponseViewer(A, filters, pS.id, null, 'google_ai_mode'))
+    assert.ok(sViewerF.includes(err) && sViewerF.includes(model))
+    const sOv = JSON.stringify(await q.buildOverview(A, filters))
+    assert.ok(sOv.includes(staffName) && sOv.includes(runErr))
+    assert.ok(JSON.stringify(await q.buildPromptList(A, filters, {})).includes(`CANDTEXT_${stamp}`))
+    assert.ok(JSON.stringify(await q.buildAnswerFeed(A, filters, {})).includes(model))
+    const sProvLabel = (await q.buildOverview(A, filters)).byProvider.map((r) => r.label)
+    assert.ok(sProvLabel.some((l) => l.includes('(')), 'staff provider labels keep their (method) wording')
+    ok('staff output still contains notes, keywords, errors, models, run costs and candidate prompts')
+
+    // client view: inactive competitors are hidden from mention chips, staff still see them; run trigger is not leaked
+    const goneName = `GONECOMP_${stamp}`
+    const gone = await prisma.brandRadarCompetitor.create({
+      data: { ...base, name: goneName, nameKey: `gonecomp ${stamp}`, domains: JSON.stringify([]), status: 'INACTIVE' },
+    })
+    await prisma.brandRadarMention.create({
+      data: { ...base, runId: runS.id, responseId: rS.id, promptId: pS.id, provider: 'openai', entityType: 'competitor', entityKey: gone.id, competitorId: gone.id, entityName: goneName, positionPct: 0.2 },
+    })
+    const cViewer = await q.buildResponseViewer(C, filters, pS.id, null, 'openai')
+    const sViewer = await q.buildResponseViewer(A, filters, pS.id, null, 'openai')
+    assert.ok(!JSON.stringify(cViewer).includes(goneName), 'client viewer hides INACTIVE competitor mentions and summary entries')
+    assert.ok(JSON.stringify(sViewer).includes(goneName), 'staff viewer still shows INACTIVE competitor mention')
+    const cOverview = await q.buildOverview(C, filters)
+    let clientRuns = 0
+    walk2(cOverview, (o) => {
+      if ('estimatedCostUsd' in o && 'totalTasks' in o) { clientRuns++; assert.equal(o.trigger, 'manual', 'client run trigger') }
+    })
+    assert.ok(clientRuns > 0, 'client overview has runs')
+    ok('client view: INACTIVE competitor mentions hidden (staff still see them), run trigger is manual')
+
+    const cp = await prisma.brandRadarProfile.findFirstOrThrow({ where: { organizationId: orgA, projectId: manualId } })
+    const prof = await prisma.brandRadarProfile.update({
+      where: { id: cp.id },
+      data: { ambiguousAliases: JSON.stringify(['amb']), contextTerms: JSON.stringify(['ctx']), promptSources: JSON.stringify(['gsc']), monthlyBudgetUsd: 50, maxPromptsPerRun: 20 },
+    })
+    const cdto = q.toClientProfileDTO(prof as Parameters<typeof q.toClientProfileDTO>[0])
+    assert.equal(cdto.monthlyBudgetUsd, null)
+    assert.equal(cdto.maxPromptsPerRun, 0)
+    assert.equal(cdto.nextRunAt, null)
+    assert.deepEqual(cdto.ambiguousAliases, [])
+    assert.deepEqual(cdto.contextTerms, [])
+    assert.deepEqual(cdto.promptSources, [])
+    assert.equal(cdto.brandName, 'Solo Brand')
+    const sdto = q.toProfileDTO(prof as Parameters<typeof q.toProfileDTO>[0])
+    assert.equal(sdto.monthlyBudgetUsd, 50)
+    assert.deepEqual(sdto.contextTerms, ['ctx'])
+    ok('toClientProfileDTO removes budget, schedule and matching rules; staff DTO unchanged')
+
+    // client-access allowlist
+    const { isClientApiAllowed, isClientPageAllowed } = await import('@/lib/client-access')
+    const readerPaths = [
+      '/api/brand-radar/projects', '/api/brand-radar/brands', '/api/brand-radar/profile', '/api/brand-radar/overview',
+      '/api/brand-radar/responses', '/api/brand-radar/citations', '/api/brand-radar/competitors/insights',
+      '/api/brand-radar/prompts/abc123/detail', '/api/brand-radar/prompts/abc123/responses',
+    ]
+    for (const path of readerPaths) {
+      assert.equal(isClientApiAllowed(path, 'GET'), true, `GET ${path}`)
+      for (const m of ['POST', 'PUT', 'PATCH', 'DELETE']) assert.equal(isClientApiAllowed(path, m), false, `${m} ${path}`)
+    }
+    for (const path of ['prompts', 'runs', 'opportunities', 'citation-analysis', 'competitors', 'providers/test', 'providers/sample-test', 'cron']) {
+      assert.equal(isClientApiAllowed(`/api/brand-radar/${path}`, 'GET'), false, `GET ${path} denied`)
+    }
+    assert.equal(isClientPageAllowed('/brand-radar'), true)
+    for (const path of ['/brand-radar/anything', '/settings', '/admin/users']) assert.equal(isClientPageAllowed(path), false, path)
+    ok('client allowlist: nine GET-only report endpoints, nothing else')
+
     // every route is guarded
     const root = join(process.cwd(), 'src/app/api/brand-radar')
     const files: string[] = []
@@ -245,16 +502,32 @@ async function main() {
     }
     walk(root)
     assert.ok(files.length > 0)
+    const rel = (f: string) => f.slice(root.length + 1)
+    const readerSet = ['projects', 'brands', 'profile', 'overview', 'responses', 'citations', 'competitors/insights', 'prompts/[id]/detail', 'prompts/[id]/responses']
+      .map((r) => `${r}/route.ts`).sort()
     const unguarded = files.filter((f) => {
       if (f.includes('/cron/') || f.includes('/runs/due/')) return false
-      const s = readFileSync(f, 'utf8')
-      return !/requireProject|requireStaff/.test(s)
+      return !/\brequire(Project|Staff|ProjectReader|Reader)\(/.test(readFileSync(f, 'utf8'))
     })
     assert.deepEqual(unguarded, [])
-    ok(`all ${files.length} routes use requireProject or requireStaff (cron and runs/due excluded)`)
+    const readers = files.filter((f) => /\brequire(ProjectReader|Reader)\(/.test(readFileSync(f, 'utf8'))).map(rel).sort()
+    assert.deepEqual(readers, readerSet)
+    const pr = readFileSync(join(root, 'profile/route.ts'), 'utf8')
+    assert.ok(/\brequireProject\(/.test(pr), 'profile PUT keeps requireProject')
+    const pj = readFileSync(join(root, 'projects/route.ts'), 'utf8')
+    assert.ok(/\brequireStaff\(/.test(pj), 'projects POST keeps requireStaff')
+    for (const r of readerSet) {
+      const s = readFileSync(join(root, r), 'utf8')
+      const handlers = Array.from(s.matchAll(/export\s+(?:async\s+)?(?:function|const)\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g)).map((x) => x[1])
+      assert.ok(handlers.includes('GET'), `${r} exports GET`)
+      const extra = handlers.filter((h) => h !== 'GET')
+      if (extra.length > 0) assert.ok(/\brequire(Project|Staff)\(/.test(s), `${r} exports ${extra.join(',')} without requireProject/requireStaff`)
+    }
+    ok(`all ${files.length} routes guarded; exactly the 9 report routes use the reader guards; write handlers keep staff guards (cron and runs/due excluded)`)
   } finally {
     for (const org of [orgA, orgB]) {
       const w = { organizationId: org }
+      await prisma.brandRadarClientAccess.deleteMany({ where: w })
       await prisma.brandRadarCitation.deleteMany({ where: w })
       await prisma.brandRadarMention.deleteMany({ where: w })
       await prisma.brandRadarResponse.deleteMany({ where: w })

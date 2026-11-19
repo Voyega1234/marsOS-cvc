@@ -10,6 +10,11 @@ interface UserProject {
   projectName: string;
 }
 
+interface RadarProjectOption {
+  id: string;
+  name: string;
+}
+
 interface UserRow {
   id: string;
   name: string;
@@ -19,6 +24,7 @@ interface UserRow {
   createdAt: string;
   passwordPlain: string | null;
   clientProjects: UserProject[];
+  radarProjects?: RadarProjectOption[];
 }
 
 interface ProjectOption {
@@ -51,6 +57,7 @@ function emailLocalPart(email: string): string {
 interface Props {
   users: UserRow[];
   projects: ProjectOption[];
+  radarProjects?: RadarProjectOption[];
   orgId: string;
 }
 
@@ -69,7 +76,8 @@ const statusBadge: Record<string, string> = {
   INVITED: "chip chip-warn",
 };
 
-export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props) {
+export function AdminUsersClient({ users: initialUsers, projects, radarProjects: radarProjectsProp, orgId }: Props) {
+  const radarProjects = radarProjectsProp ?? [];
   const [users, setUsers] = useState<UserRow[]>(initialUsers);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -80,6 +88,14 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
   const [showPw, setShowPw] = useState(false);
   const [role, setRole] = useState<RoleOption>("USER");
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
+  const [allowArticles, setAllowArticles] = useState(true);
+  const [allowRadar, setAllowRadar] = useState(false);
+  const [selectedRadarProjects, setSelectedRadarProjects] = useState<string[]>([]);
+
+  // แก้สิทธิ์ Brand Radar ของลูกค้าที่มีอยู่แล้ว
+  const [radarEditUserId, setRadarEditUserId] = useState<string | null>(null);
+  const [radarEditIds, setRadarEditIds] = useState<string[]>([]);
+  const [radarSaving, setRadarSaving] = useState(false);
   const [createdInfo, setCreatedInfo] = useState<{
     username: string; pw: string; isClient: boolean; loginReady: boolean; loginError?: string;
   } | null>(null);
@@ -136,6 +152,9 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
     setPassword("");
     setRole("USER");
     setSelectedProjects([]);
+    setAllowArticles(true);
+    setAllowRadar(false);
+    setSelectedRadarProjects([]);
     setShowForm(false);
     setCreatedInfo(null);
   }
@@ -144,6 +163,37 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
     setSelectedProjects((prev) =>
       prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
     );
+  }
+
+  function toggleRadarProject(id: string) {
+    setSelectedRadarProjects((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+  }
+
+  function toggleRadarEdit(id: string) {
+    setRadarEditIds((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
+  }
+
+  async function handleSaveRadarAccess(userId: string) {
+    setRadarSaving(true);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandRadarProjectIds: radarEditIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "บันทึกสิทธิ์ Brand Radar ไม่สำเร็จ");
+      const picked = radarProjects.filter((p) => radarEditIds.includes(p.id));
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, radarProjects: picked } : u)));
+      toast.success("บันทึกสิทธิ์ Brand Radar แล้ว");
+      setRadarEditUserId(null);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error && err.message ? err.message : "เกิดข้อผิดพลาด");
+    } finally {
+      setRadarSaving(false);
+    }
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -159,6 +209,12 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
         toast.error("รหัสผ่านของลูกค้าต้องยาวอย่างน้อย 6 ตัวอักษร");
         return;
       }
+      const articleIds = allowArticles ? selectedProjects : [];
+      const radarIds = allowRadar ? selectedRadarProjects : [];
+      if (articleIds.length + radarIds.length === 0) {
+        toast.error("เลือกอย่างน้อย 1 โปรเจกต์ที่ให้ลูกค้าเห็น");
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -168,7 +224,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: fakeEmail, password, role, projectIds: selectedProjects, orgId }),
+        body: JSON.stringify({ name: name.trim(), email: fakeEmail, password, role, projectIds: role === "CLIENT" && !allowArticles ? [] : selectedProjects, brandRadarProjectIds: role === "CLIENT" && allowRadar ? selectedRadarProjects : [], orgId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "เกิดข้อผิดพลาด");
@@ -200,6 +256,9 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
       setPassword("");
       setRole("USER");
       setSelectedProjects([]);
+      setAllowArticles(true);
+      setAllowRadar(false);
+      setSelectedRadarProjects([]);
       setShowForm(false);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "เกิดข้อผิดพลาด");
@@ -310,7 +369,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                 ระบบ login ยังไม่พร้อม{createdInfo.loginError ? `: ${createdInfo.loginError}` : ""} — กดรีเซ็ตรหัสผ่านของ User นี้เพื่อลองใหม่
               </p>
             )}
-            <div className="flex items-center gap-3 mt-2">
+            <div className="flex flex-wrap items-center gap-3 gap-y-1 mt-2">
               <div>
                 <span className="text-[10px] text-emerald-600 font-medium block">Username</span>
                 <span className="text-sm font-mono font-bold text-brand-navy">{createdInfo.username}</span>
@@ -394,8 +453,35 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
               </div>
             </div>
 
+            {/* Client permissions */}
+            {role === "CLIENT" && (
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-gray-600">สิทธิ์ที่ลูกค้าเห็น</label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAllowArticles((v) => !v)}
+                    className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                      allowArticles ? "border-teal-500 bg-teal-50 text-teal-800" : "border-gray-200 text-gray-600 hover:border-gray-300"
+                    }`}
+                  >
+                    รายงานบทความ (SEO SME / Upload Article)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllowRadar((v) => !v)}
+                    className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                      allowRadar ? "border-violet-500 bg-violet-50 text-violet-800" : "border-gray-200 text-gray-600 hover:border-gray-300"
+                    }`}
+                  >
+                    Brand Radar
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Client project selector */}
-            {role === "CLIENT" && projects.length > 0 && (
+            {role === "CLIENT" && allowArticles && projects.length > 0 && (
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-2">
                   เลือก Projects ที่ Client นี้ดูได้
@@ -424,7 +510,40 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
               </div>
             )}
 
-            <div className="flex gap-2 pt-1">
+            {role === "CLIENT" && allowRadar && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-2">
+                  เลือกโปรเจกต์ Brand Radar ที่ Client นี้ดูได้
+                </label>
+                {radarProjects.length === 0 ? (
+                  <p className="text-xs text-gray-500">ยังไม่มีแบรนด์ใน Brand Radar ให้สร้างแบรนด์ที่หน้า Brand Radar ก่อน</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                    {radarProjects.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => toggleRadarProject(p.id)}
+                        className={`flex items-center gap-2 text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
+                          selectedRadarProjects.includes(p.id)
+                            ? "border-violet-500 bg-violet-50 text-violet-800"
+                            : "border-gray-200 hover:border-gray-300 text-gray-700"
+                        }`}
+                      >
+                        <span className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 ${
+                          selectedRadarProjects.includes(p.id) ? "bg-violet-500" : "border border-gray-300"
+                        }`}>
+                          {selectedRadarProjects.includes(p.id) && <Check size={9} className="text-white" />}
+                        </span>
+                        <span className="truncate">{p.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 pt-1">
               <button
                 type="submit"
                 disabled={submitting}
@@ -491,7 +610,7 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
 
       {/* Users table */}
       <div className="glass rounded-3xl overflow-x-auto">
-        <table className="tbl w-full text-sm min-w-[640px]">
+        <table className="tbl w-full text-sm min-w-[720px]">
           <thead>
             <tr>
               <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">ชื่อ / Username</th>
@@ -534,8 +653,67 @@ export function AdminUsersClient({ users: initialUsers, projects, orgId }: Props
                         </span>
                       ))}
                     </div>
-                  ) : (
+                  ) : u.role === "CLIENT" && (u.radarProjects ?? []).length > 0 ? null : (
                     <span className="text-xs text-gray-400">—</span>
+                  )}
+                  {u.role === "CLIENT" && (u.radarProjects ?? []).length > 0 && (
+                    <div className={u.clientProjects.length > 0 ? "mt-1.5" : ""}>
+                      <span className="block text-[10px] font-medium text-violet-700 mb-0.5">Brand Radar</span>
+                      <div className="flex flex-wrap gap-1">
+                        {(u.radarProjects ?? []).map((rp) => (
+                          <span key={rp.id} className="chip chip-warn">
+                            {rp.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {u.role === "CLIENT" && (
+                    radarEditUserId === u.id ? (
+                      <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/50 p-2 space-y-2 max-w-xs">
+                        {radarProjects.length === 0 ? (
+                          <p className="text-xs text-gray-500">ยังไม่มีแบรนด์ใน Brand Radar ให้สร้างแบรนด์ที่หน้า Brand Radar ก่อน</p>
+                        ) : (
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {radarProjects.map((p) => (
+                              <label key={p.id} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={radarEditIds.includes(p.id)}
+                                  onChange={() => toggleRadarEdit(p.id)}
+                                />
+                                <span className="truncate">{p.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveRadarAccess(u.id)}
+                            disabled={radarSaving}
+                            className="bg-brand-blue text-white text-xs font-medium px-3 py-1 rounded-full hover:bg-brand-deep disabled:opacity-60 transition-colors"
+                          >
+                            {radarSaving ? "กำลังบันทึก..." : "บันทึก"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRadarEditUserId(null)}
+                            className="text-xs text-gray-600 px-3 py-1 rounded-full hover:bg-gray-100 transition-colors"
+                          >
+                            ยกเลิก
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setRadarEditUserId(u.id); setRadarEditIds((u.radarProjects ?? []).map((r) => r.id)); }}
+                        className="mt-1.5 text-xs text-violet-700 hover:text-violet-900 px-2 py-1 -ml-2 rounded hover:bg-violet-50 transition-colors"
+                      >
+                        แก้สิทธิ์ Brand Radar
+                      </button>
+                    )
                   )}
                 </td>
                 <td className="px-4 py-3">

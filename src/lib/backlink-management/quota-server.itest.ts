@@ -451,6 +451,136 @@ async function main() {
       ok("missing tab gives 404 without reading or writing");
     }
 
+    // 8k) คำขอ backlink จองโควต้า: วางแผน (อ่านอย่างเดียว) → transaction เดียว (คำขอ + แถวจอง) → เขียนชีท → อัปเดตสำเนา
+    {
+      const { quotaOptionsForProject } = await import("./quota-request");
+      const project = { id: `itest-proj-${stamp}`, name: "Clicx Bank", clientName: "Clicx" };
+      const TARGET = "https://clicx.test/page";
+      const requests = () => prisma.blmRequest.count({ where: { organizationId: orgId } });
+      const reservations = () => prisma.blmQuotaReservation.count({ where: { organizationId: orgId } });
+      /** สร้างคำขอ + จองช่องใน transaction เดียว แบบเดียวกับ route ของคำขอ */
+      const submit = (plan: Awaited<ReturnType<typeof q.planRequestQuota>>, targetUrl = TARGET) =>
+        prisma.$transaction(async (tx) => {
+          const r = await tx.blmRequest.create({
+            data: { organizationId: orgId, projectId: project.id, targetUrl, budgetPeriod: "2026-11", requestedById: userId },
+            select: { id: true },
+          });
+          const claimId = await q.claimRequestQuota(tx, ctx, plan, { id: r.id, targetUrl });
+          return { id: r.id, claimId };
+        });
+
+      view = await q.loadQuotaView(ctx, deps);
+      const openSlots = () => byId(idA).slots.filter((x) => !x.used && !x.reservation).map((x) => x.index);
+      const [free, nextFree] = openSlots();
+      assert.ok(free !== undefined && nextFree !== undefined, "package A needs two free slots for this step");
+      const rowA = byId(idA).rowNumber;
+      const w0 = port.writes.length;
+      const c0 = await reservations();
+
+      // (a) วางแผน: ระบบเลือกช่องว่างช่องแรก กำหนด Clients / เว็บเอง — ยังไม่เขียนอะไรทั้ง DB และชีท
+      const plan = await q.planRequestQuota(ctx, { packageId: idA, project, website: "A.COM" }, deps);
+      assert.equal(plan.slotIndex, free);
+      assert.equal(plan.client, "Clicx");
+      assert.equal(plan.website, "a.com");
+      assert.equal(plan.pricePerLink, byId(idA).pricePerLink);
+      assert.ok(typeof plan.pricePerLink === "number" && plan.pricePerLink > 0);
+      assert.equal(plan.tabTitle, TAB);
+      assert.deepEqual(plan.project, { id: project.id, name: project.name });
+      assert.equal(port.writes.length, w0);
+      assert.equal(await reservations(), c0);
+
+      // (b) สร้างคำขอ + จอง: แถวจองมี marker ของคำขอ ผู้จอง = ผู้ส่งคำขอ ; ชีทยังไม่ถูกเขียนจนกว่าจะถึงขั้นเขียน
+      const made = await submit(plan);
+      assert.equal(port.writes.length, w0);
+      assert.equal(await reservations(), c0 + 1);
+      assert.ok(!port.cell(TAB, rowA + free, 8));
+
+      // (c) คำขอที่สองเข้ามาระหว่างที่คำขอแรกยังไม่ได้เขียนชีท: ระบบข้ามช่องที่กำลังจอง ไปช่องถัดไป
+      const plan2 = await q.planRequestQuota(ctx, { packageId: idA, project, website: "" }, deps);
+      assert.equal(plan2.slotIndex, nextFree);
+      assert.equal(plan2.website, "a.com"); // ไม่ระบุเว็บ = เว็บแรกของแพ็กเกจ
+
+      assert.equal(await q.writeRequestQuota(plan, deps), undefined);
+      assert.equal(port.cell(TAB, rowA + free, 8), "Clicx");
+      assert.equal(port.cell(TAB, rowA + free, 9), "On Process");
+      assert.ok(!port.cell(TAB, rowA + nextFree, 8));
+      assert.equal(await q.refreshRequestQuota(ctx, plan, deps), undefined);
+      view = await q.loadQuotaView(ctx, deps);
+      const booked = byId(idA).slots[free];
+      assert.equal(booked.client, "Clicx");
+      assert.equal(booked.status, "On Process");
+      assert.equal(booked.reservation?.id, made.claimId);
+      assert.equal(booked.reservation?.projectId, project.id);
+      assert.equal(booked.reservation?.projectName, project.name);
+      assert.equal(booked.reservation?.reservedById, userId);
+      assert.equal(booked.reservation?.website, "a.com");
+      assert.equal(booked.reservation?.note, `[คำขอ ${made.id}] ${TARGET}`);
+      // ช่องที่คำขอจองแล้วไม่ถูกเสนอให้คำขออื่นซ้ำ
+      assert.ok(!quotaOptionsForProject(view.packages, project, { free: true }).some((o) => o.packageId === idA && o.slotIndex === free));
+      ok("request booking: plan is read-only, claim joins the request transaction, sheet + view show the booked slot");
+
+      // (d) สองคำขอวางแผนได้ช่องเดียวกัน (ก่อนมีใครจอง): คนที่สองชน unique → 409 และคำขอของเขาถูก rollback
+      const p1 = await q.planRequestQuota(ctx, { packageId: idA, project, website: "a.com" }, deps);
+      const p2 = await q.planRequestQuota(ctx, { packageId: idA, project, website: "a.com" }, deps);
+      assert.equal(p1.slotIndex, nextFree);
+      assert.equal(p2.slotIndex, nextFree);
+      const first = await submit(p1, "https://clicx.test/first");
+      const r0 = await requests();
+      const lost = await submit(p2, "https://clicx.test/second").then(() => null, (e: unknown) => q.requestQuotaClaimError(e));
+      assert.ok(lost instanceof q.QuotaError, "second request must lose the slot");
+      assert.equal(lost.status, 409);
+      assert.equal(lost.message, "ช่องนี้เพิ่งถูกจอง — โหลดใหม่แล้วลองอีกครั้ง");
+      assert.equal(await requests(), r0);
+      assert.equal(await prisma.blmRequest.count({ where: { organizationId: orgId, targetUrl: "https://clicx.test/second" } }), 0);
+      const plain = new Error("x");
+      assert.equal(q.requestQuotaClaimError(plain), plain);
+      ok("request booking race: the second request gets 409 and its row is rolled back");
+
+      // (e) เขียนชีทไม่สำเร็จ: throw QuotaError ชีทไม่เปลี่ยน — route เป็นคนลบคำขอ + แถวจอง แล้วช่องจองใหม่ได้
+      const wBefore = port.writes.length;
+      port.failWrites = { code: 500, message: "boom" };
+      await assert.rejects(() => q.writeRequestQuota(p1, deps), (e) => e instanceof q.QuotaError);
+      port.failWrites = null;
+      assert.equal(port.writes.length, wBefore);
+      assert.ok(!port.cell(TAB, rowA + nextFree, 8));
+      await prisma.blmQuotaReservation.deleteMany({ where: { id: first.claimId } });
+      await prisma.blmRequest.deleteMany({ where: { id: first.id } });
+      const retry = await q.planRequestQuota(ctx, { packageId: idA, project, website: "a.com" }, deps);
+      assert.equal(retry.slotIndex, nextFree);
+      ok("request booking: a failed sheet write changes nothing in the sheet; the slot can be planned again");
+
+      // (f) แพ็กเกจเต็ม / โปรเจกต์ไม่มีชื่อลูกค้า / แพ็กเกจไม่มีจริง
+      assert.ok(byId(idB).slots.every((x) => x.used) && byId(idB).slots.length === byId(idB).units, "package B is expected to be full here");
+      await assert.rejects(() => q.planRequestQuota(ctx, { packageId: idB, project, website: "" }, deps), (e) => e instanceof q.QuotaError && e.status === 400 && e.message === "โควต้าแพ็กเกจนี้เต็มแล้ว");
+      await assert.rejects(
+        () => q.planRequestQuota(ctx, { packageId: idA, project: { id: "x", name: " ", clientName: "" }, website: "" }, deps),
+        (e) => e instanceof q.QuotaError && e.status === 400 && e.message === "โปรเจกต์ไม่มีชื่อลูกค้าให้ใส่ในคอลัมน์ Clients",
+      );
+      await assert.rejects(() => q.planRequestQuota(ctx, { packageId: "nope", project, website: "" }, deps), (e) => e instanceof q.QuotaError && e.status === 404);
+      ok("request booking: full package 400, project without a client name 400, unknown package 404");
+
+      // (g) ชื่อลูกค้าที่มีในชีทอยู่แล้ว ใช้ตัวสะกดเดิมของชีท (เฉพาะที่ตรงกับโปรเจกต์พอดี)
+      const sameClient = await q.planRequestQuota(ctx, { packageId: idA, project: { id: "p-acme", name: "ACME", clientName: "" }, website: "" }, deps);
+      assert.equal(sameClient.client, "Acme");
+
+      // (h) ลบคำขอ: marker หายจากหมายเหตุของแถวจอง (ช่องยังจองอยู่) — marker ของคำขออื่นไม่ถูกแตะ
+      const other = await prisma.blmQuotaReservation.create({
+        data: { organizationId: orgId, packageId: idB, slotIndex: 90, reservedById: userId, note: `[คำขอ ${made.id}x] keep`, createdById: userId },
+        select: { id: true },
+      });
+      await q.clearRequestMarker(orgId, made.id);
+      assert.equal((await prisma.blmQuotaReservation.findUnique({ where: { id: made.claimId } }))?.note, TARGET);
+      assert.equal((await prisma.blmQuotaReservation.findUnique({ where: { id: other.id } }))?.note, `[คำขอ ${made.id}x] keep`);
+      await q.clearRequestMarker(orgId, "no-such-request"); // ไม่ throw
+      await prisma.blmQuotaReservation.deleteMany({ where: { id: other.id } });
+      view = await q.loadQuotaView(ctx, deps);
+      assert.deepEqual(quotaOptionsForProject(view.packages, project).filter((o) => o.packageId === idA && o.slotIndex === free).map((o) => o.kind), ["reserved"]);
+      assert.equal(port.cell(TAB, rowA + free, 8), "Clicx");
+      ok("request deleted: its marker is cleared, the slot stays booked and is offered again");
+
+      await prisma.blmRequest.deleteMany({ where: { organizationId: orgId } });
+    }
+
     // 9) pull failure keeps cache + records lastError
     const before = await prisma.blmQuotaPackage.count({ where: { organizationId: orgId } });
     const real = port.getSpreadsheet.bind(port);
@@ -473,6 +603,7 @@ async function main() {
     ok("remove source (DB only)");
     console.log(`\n${n} passed`);
   } finally {
+    await prisma.blmRequest.deleteMany({ where: { organizationId: orgId } }).catch(() => {});
     await prisma.blmQuotaReservation.deleteMany({ where: { organizationId: orgId } }).catch(() => {});
     await prisma.blmQuotaPackage.deleteMany({ where: { organizationId: orgId } }).catch(() => {});
     await prisma.blmSheetSource.deleteMany({ where: { organizationId: orgId } }).catch(() => {});

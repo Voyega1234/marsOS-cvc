@@ -1,38 +1,38 @@
 "use client";
 
-import { AreaChart, EmptyState, HeatGrid, Panel } from "@/components/ds";
+import { AreaChart, EmptyState, HeatGrid, Panel, StackedBar } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { CompetitorInsightsDTO } from "@/lib/brand-radar/types";
-import { NO_DATA_MESSAGE, fmtNum, fmtPct, radarQuery, type TabProps } from "./shared";
+import { NO_DATA_MESSAGE, domainHref, fmtNum, fmtPct, radarQuery, type TabProps } from "./shared";
 import { EntityTable, LoadState, useApiData } from "./PromptDialogs";
 
-export default function CompetitorsTab({ projectId, filters, refreshKey, profile, onGoTab }: TabProps) {
+export default function CompetitorsTab({ projectId, filters, refreshKey, profile, onGoTab, clientView }: TabProps) {
   const url = `/api/brand-radar/competitors/insights?${radarQuery(projectId, filters)}`;
-  const { data, loading, error, reload } = useApiData<CompetitorInsightsDTO>(profile ? url : "", refreshKey);
+  const { data, loading, error, reload } = useApiData<CompetitorInsightsDTO>(profile ? url : "", refreshKey, true);
 
   if (!profile) {
     return (
       <Panel>
-        <EmptyState title="ยังไม่ได้ตั้งค่า Brand Radar" description="ตั้งค่าแบรนด์และคู่แข่งที่แท็บ Settings ก่อน"
-          action={<Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>} />
+        <EmptyState title={clientView ? "ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้" : "ยังไม่ได้ตั้งค่า Brand Radar"} description={clientView ? undefined : "ตั้งค่าแบรนด์และคู่แข่งที่แท็บ Settings ก่อน"}
+          action={clientView ? undefined : <Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>} />
       </Panel>
     );
   }
   if (loading || error || !data) {
-    return <Panel><LoadState loading={loading} error={error} onRetry={reload} /></Panel>;
+    return <Panel><LoadState loading={loading} error={error} onRetry={reload} clientView={clientView} /></Panel>;
   }
   const competitors = data.entities.filter((e) => e.entityType === "competitor");
   if (competitors.length === 0) {
     return (
       <Panel>
-        <EmptyState title="ยังไม่ได้เพิ่มคู่แข่ง" description="เพิ่มคู่แข่งที่แท็บ Settings เพื่อเทียบว่าใครถูก AI พูดถึงบ่อยกว่า"
-          action={<Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>} />
+        <EmptyState title={clientView ? "ยังไม่มีข้อมูลคู่แข่ง" : "ยังไม่ได้เพิ่มคู่แข่ง"} description={clientView ? "ยังไม่มีข้อมูลเปรียบเทียบคู่แข่งในช่วงเวลานี้" : "เพิ่มคู่แข่งที่แท็บ Settings เพื่อเทียบว่าใครถูก AI พูดถึงบ่อยกว่า"}
+          action={clientView ? undefined : <Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>} />
       </Panel>
     );
   }
   if (data.responses === 0) {
-    return <Panel><EmptyState title="ยังไม่มีข้อมูล" description={NO_DATA_MESSAGE} /></Panel>;
+    return <Panel><EmptyState title="ยังไม่มีข้อมูล" description={clientView ? "ยังไม่มีข้อมูลในช่วงเวลานี้" : NO_DATA_MESSAGE} /></Panel>;
   }
 
   return (
@@ -40,6 +40,26 @@ export default function CompetitorsTab({ projectId, filters, refreshKey, profile
       <Panel title="Brand vs competitors" subtitle={`อ้างอิงจาก ${fmtNum(data.responses)} คำตอบ — Recommended ตรวจจากถ้อยคำรอบชื่อ เป็นการประมาณ`} padded={false}>
         <EntityTable entities={data.entities} />
       </Panel>
+
+      {data.mentionSplit && data.mentionSplit.total > 0 ? (() => {
+        const sp = data.mentionSplit;
+        const pct = (n: number) => `${((n / sp.total) * 100).toFixed(1)}%`;
+        const parts = [
+          { label: "เฉพาะแบรนด์เรา", value: sp.onlyBrand, color: "#16a34a" },
+          { label: "แบรนด์เรา + คู่แข่ง", value: sp.brandAndCompetitor, color: "#2563eb" },
+          { label: "เฉพาะคู่แข่ง", value: sp.onlyCompetitor, color: "#f59e0b" },
+          { label: "ไม่มีใครที่ติดตามเลย", value: sp.nobody, color: "#9ca3af" },
+        ];
+        return (
+          <Panel title="ใครถูกพูดถึงในคำตอบ" subtitle={`แบ่งตามคำตอบทั้งหมด ${fmtNum(sp.total)} คำตอบในตัวกรองปัจจุบัน`}>
+            <StackedBar
+              segments={parts}
+              formatValue={(n) => `${fmtNum(n)} (${pct(n)})`}
+              ariaLabel="สัดส่วนคำตอบตามแบรนด์ที่ถูกพูดถึง"
+            />
+          </Panel>
+        );
+      })() : null}
 
       <Panel title="Mention rate trend" subtitle="สัดส่วนคำตอบที่กล่าวถึงแต่ละแบรนด์ในแต่ละสแกน (แบรนด์เราก่อน)">
         {data.trend.length === 0 || (data.trend[0]?.points.length ?? 0) < 2 ? (
@@ -60,7 +80,7 @@ export default function CompetitorsTab({ projectId, filters, refreshKey, profile
 
       <Panel title="Head-to-head" subtitle="นับเป็นจำนวน Prompt" padded={false}>
         <div className="overflow-x-auto">
-          <Table>
+          <Table className="min-w-[520px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Competitor</TableHead>
@@ -87,7 +107,7 @@ export default function CompetitorsTab({ projectId, filters, refreshKey, profile
 
       <Panel title="Entity × topic" subtitle="Mention rate ตามหัวข้อ — ช่องว่าง = ไม่มีข้อมูลพอ (Insufficient Data)">
         {data.byTopic.rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-gray-500">{fmtPct(null)}</p>
+          <p className="py-6 text-center text-sm text-gray-500">ยังไม่มีข้อมูลหัวข้อ</p>
         ) : (
           <HeatGrid
             rows={data.byTopic.rows}
@@ -100,18 +120,22 @@ export default function CompetitorsTab({ projectId, filters, refreshKey, profile
       </Panel>
 
       <Panel title="Top cited domains per competitor" subtitle="เว็บที่ AI ใส่ลิงก์อ้างอิงเมื่อพูดถึงคู่แข่งแต่ละราย">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {data.domains.map((c) => (
             <div key={c.competitorId} className="rounded-2xl border border-gray-100 bg-white/70 p-3">
-              <p className="mb-2 text-sm font-semibold text-brand-navy">{c.name}</p>
+              <p className="mb-2 break-words text-sm font-semibold text-brand-navy">{c.name}</p>
               {c.domains.length === 0 ? (
                 <p className="text-xs text-gray-500">ยังไม่มีเว็บที่ถูกอ้างอิง</p>
               ) : (
                 <ul className="space-y-1 text-xs">
                   {c.domains.map((d) => (
-                    <li key={d.domain} className="flex items-center justify-between gap-2">
-                      <a href={`https://${d.domain}`} target="_blank" rel="noopener noreferrer" className="truncate text-brand-blue hover:underline">{d.domain}</a>
-                      <span className="tabular-nums text-gray-500">{fmtNum(d.citations)}</span>
+                    <li key={d.domain} className="flex min-w-0 items-center justify-between gap-2">
+                      {domainHref(d.domain) ? (
+                        <a href={domainHref(d.domain) ?? undefined} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate text-brand-blue hover:underline">{d.domain}</a>
+                      ) : (
+                        <span className="min-w-0 truncate">{d.domain}</span>
+                      )}
+                      <span className="shrink-0 tabular-nums text-gray-500">{fmtNum(d.citations)}</span>
                     </li>
                   ))}
                 </ul>
