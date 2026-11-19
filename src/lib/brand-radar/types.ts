@@ -709,6 +709,13 @@ export interface FactorExample {
   at: number
   /** the question that was asked */
   prompt: string
+  /** a passage of the answer; untrusted text (AI output) */
+  quote?: string
+  /**
+   * Where `quote` comes from: 'analysis' = the passage the analysis copied for our brand under this factor,
+   * 'keyword' = the line holding a word typical of the factor, 'lead' = the opening of the answer (no such line).
+   */
+  quoteFrom?: 'analysis' | 'keyword' | 'lead'
 }
 
 /** One analysed answer behind a tone count. Every string is untrusted text (AI output / user input). */

@@ -1,6 +1,6 @@
 // Brand Radar insight (pure helpers): npx tsx src/lib/brand-radar/insight.test.ts
 import {
-  INSIGHT_LIMITS, aggregateInsight, bangkokDay, cleanFoundSources, cleanQueries, dailyTrend, emptyInsight, fallbackQuote, mentionStyleOf, normalizeQueryKey,
+  INSIGHT_LIMITS, aggregateInsight, bangkokDay, cleanFoundSources, cleanQueries, dailyTrend, answerLead, emptyInsight, factorPassage, fallbackQuote, mentionStyleOf, normalizeQueryKey,
   parseStoredFoundSources, parseStoredQueries, parseStoredSentiment, sanitizeSentiment, type InsightRow, type SentimentEntityRef,
 } from './insight'
 import type { Dataset } from './metrics'
@@ -366,5 +366,32 @@ eq(fTrust.examples!.length, INSIGHT_LIMITS.factorExamples, 'factor examples: cap
 eq(fTrust.examples![0].responseId, 'f' + (INSIGHT_LIMITS.factorExamples + 1), 'factor examples: newest first')
 eq(fTrust.examples![0].prompt, 'Which CRM?', 'factor examples: carries the question')
 eq(fOut.find((x) => x.code === 'price')!.examples!.map((x) => x.responseId), ['f0'], 'factor examples: only answers that weigh the factor')
+eq(fTrust.examples![0].quote, undefined, 'factor examples: no passage when the analysis kept none')
+
+// factor examples: the passage the analysis copied for our brand under the same factor is carried along
+const fqRow = (id: string, at: number, quote?: string): InsightRow => ({
+  responseId: id, promptId: 'p1', runId: 'run1', provider: 'openai', at, searchQueries: [],
+  sentiment: { factors: ['trust'], entities: [{ entityType: 'brand', key: 'brand', name: 'Acme', tone: 'positive', factors: [{ code: 'trust', polarity: 'positive', ...(quote ? { quote } : {}) }, { code: 'price', polarity: 'positive', quote: 'cheap one' }], descriptors: [], positioning: [], summary: '' }] },
+})
+const fqTrust = tInput([fqRow('q1', 1, '  Acme is  widely trusted '), fqRow('q2', 2)]).factors.find((x) => x.code === 'trust')!
+eq(fqTrust.examples!.map((x) => x.quote), [undefined, 'Acme is widely trusted'], 'factor examples: brand passage of the same factor only, cleaned')
+eq(fqTrust.examples!.map((x) => x.quoteFrom), [undefined, 'analysis'], 'factor examples: passage marked as chosen by the analysis')
+
+// factorPassage
+eq(factorPassage('Intro\n## ราคา\n- **Acme** เป็นเอเจนซี่ที่มีชื่อเสียงและโปร่งใสเรื่องผลงาน\nOther', 'trust'), 'Acme เป็นเอเจนซี่ที่มีชื่อเสียงและโปร่งใสเรื่องผลงาน', 'passage: Thai word, markdown stripped')
+eq(factorPassage('Pick by price.\nAcme has a strong reputation with enterprise clients.', 'trust'), 'Acme has a strong reputation with enterprise clients.', 'passage: English word')
+eq(factorPassage('They serve breakfast daily to every single guest who stays.', 'speed'), null, 'passage: Latin word must start a word')
+eq(factorPassage('Trust\nAcme earns trust through transparent monthly reporting.', 'trust'), 'Acme earns trust through transparent monthly reporting.', 'passage: sentence preferred over heading')
+eq(factorPassage('| Trust | high |', 'trust'), 'Trust high', 'passage: short line when nothing longer')
+eq(factorPassage('Nothing relevant in this answer at all.', 'trust'), null, 'passage: no match')
+eq(factorPassage('Anything about price and trust.', 'other'), null, 'passage: no words for other')
+eq(factorPassage('', 'trust'), null, 'passage: empty answer')
+eq(answerLead('# Top picks\n\n- **Acme** is a full-service agency based in Bangkok.\nMore'), 'Acme is a full-service agency based in Bangkok.', 'lead: first sentence-length line, markdown stripped')
+eq(answerLead('Short\nTiny'), 'Short', 'lead: first line when none is long')
+eq(answerLead('\n \n'), null, 'lead: nothing to show')
+const longLead = answerLead('z'.repeat(500))!
+ok(longLead.length <= 201 && longLead.startsWith('z') && longLead.endsWith('…'), 'lead: long line cut from its start')
+const longPassage = factorPassage('x'.repeat(300) + ' reputation ' + 'y'.repeat(300), 'trust')!
+ok(longPassage.includes('reputation') && longPassage.length <= 202 && longPassage.startsWith('…') && longPassage.endsWith('…'), 'passage: long line cut around the word')
 
 console.log(`insight.test.ts: ${passed} checks passed`)

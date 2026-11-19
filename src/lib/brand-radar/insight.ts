@@ -481,7 +481,16 @@ export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
         const examples: FactorExample[] = [...(factorRows.get(code) ?? [])]
           .sort((x, y) => y.at - x.at || (x.responseId < y.responseId ? -1 : x.responseId > y.responseId ? 1 : 0))
           .slice(0, INSIGHT_LIMITS.factorExamples)
-          .map((row) => ({ responseId: row.responseId, promptId: row.promptId, runId: row.runId, provider: row.provider, at: row.at, prompt: input.promptText.get(row.promptId) ?? '' }))
+          .map((row): FactorExample => {
+            const example: FactorExample = { responseId: row.responseId, promptId: row.promptId, runId: row.runId, provider: row.provider, at: row.at, prompt: input.promptText.get(row.promptId) ?? '' }
+            // The passage the analysis copied for our brand under the same factor, when it kept one.
+            const own = cleanQuote(row.sentiment?.entities.find((e) => e.entityType === 'brand')?.factors.find((f) => f.code === code)?.quote)
+            if (own) {
+              example.quote = own
+              example.quoteFrom = 'analysis'
+            }
+            return example
+          })
         return { code, label: SENTIMENT_FACTOR_LABEL[code], answers: n, rate: rate(n, analyzed), examples }
       }),
     overallTones,
@@ -507,6 +516,19 @@ function stripMarkdown(line: string): string {
     .trim()
 }
 
+/** Control characters out of one line of an answer */
+const cleanQuoteLine = (line: string): string => line.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+
+/** A line cut to a window of 200 characters around a match */
+function cutAround(hit: { line: string; at: number; len: number }): string {
+  if (hit.line.length <= FALLBACK_WINDOW) return hit.line
+  const centre = hit.at + Math.floor(hit.len / 2)
+  let start = Math.max(0, centre - FALLBACK_WINDOW / 2)
+  const end = Math.min(hit.line.length, start + FALLBACK_WINDOW)
+  start = Math.max(0, end - FALLBACK_WINDOW)
+  return `${start > 0 ? '…' : ''}${hit.line.slice(start, end).trim()}${end < hit.line.length ? '…' : ''}`
+}
+
 /**
  * An example passage taken from a stored answer when the analysis kept none (old answers).
  * A line holding `label` wins (exact); else the first line holding a brand term (approx); else null.
@@ -528,21 +550,95 @@ export function fallbackQuote(answerText: string, opts: { label?: string; brandT
     }
     return null
   }
-  const cut = (hit: { line: string; at: number; len: number }): string => {
-    if (hit.line.length <= FALLBACK_WINDOW) return hit.line
-    const centre = hit.at + Math.floor(hit.len / 2)
-    let start = Math.max(0, centre - FALLBACK_WINDOW / 2)
-    const end = Math.min(hit.line.length, start + FALLBACK_WINDOW)
-    start = Math.max(0, end - FALLBACK_WINDOW)
-    return `${start > 0 ? '…' : ''}${hit.line.slice(start, end).trim()}${end < hit.line.length ? '…' : ''}`
-  }
 
   if (label) {
     const hit = find([label])
-    if (hit) return { text: cut(hit), approx: false }
+    if (hit) return { text: cutAround(hit), approx: false }
   }
   const hit = terms.length ? find(terms) : null
-  return hit ? { text: cut(hit), approx: true } : null
+  return hit ? { text: cutAround(hit), approx: true } : null
+}
+
+// ── Example passage for a factor of "what the AI weighs" ─────────────────────
+
+/**
+ * Words that usually mark a factor in an answer (Thai and English, lowercase). They only choose which line of
+ * an answer is shown as the example. Which answers count under a factor is decided by the analysis, never by
+ * these words.
+ */
+const FACTOR_KEYWORDS: Record<SentimentFactor, string[]> = {
+  price: ['ราคา', 'ค่าใช้จ่าย', 'ค่าบริการ', 'คุ้มค่า', 'งบประมาณ', 'price', 'pricing', 'cost', 'budget', 'afford'],
+  quality: ['คุณภาพ', 'ผลงาน', 'ผลลัพธ์', 'quality', 'results', 'performance'],
+  service: ['บริการ', 'ดูแลลูกค้า', 'service', 'customer care'],
+  trust: ['น่าเชื่อถือ', 'ความเชื่อถือ', 'ชื่อเสียง', 'ประสบการณ์', 'โปร่งใส', 'ไว้วางใจ', 'ไว้ใจ', 'เป็นที่ยอมรับ', 'รางวัล', 'ก่อตั้ง', 'trust', 'reputation', 'reputable', 'experience', 'transparen', 'credib', 'reliab', 'track record', 'award', 'established', 'proven'],
+  expertise: ['เชี่ยวชาญ', 'ชำนาญ', 'มืออาชีพ', 'ความรู้', 'expert', 'speciali', 'professional', 'know-how'],
+  reviews: ['รีวิว', 'คะแนน', 'เสียงตอบรับ', 'ลูกค้าจริง', 'review', 'rating', 'testimonial', 'feedback', 'case stud'],
+  convenience: ['สะดวก', 'ใช้ง่าย', 'ใช้งานง่าย', 'เข้าถึงง่าย', 'convenien', 'easy', 'user-friendly'],
+  variety: ['หลากหลาย', 'ครบวงจร', 'ตัวเลือก', 'variety', 'wide range', 'full-service', 'full service', 'options'],
+  innovation: ['เทคโนโลยี', 'นวัตกรรม', 'เครื่องมือ', 'technolog', 'innovat', 'tools', 'data-driven'],
+  safety: ['ปลอดภัย', 'ใบรับรอง', 'มาตรฐาน', 'การรับรอง', 'safe', 'certif', 'standard', 'licen'],
+  speed: ['รวดเร็ว', 'ความเร็ว', 'ฉับไว', 'ทันที', 'fast', 'quick', 'speed', 'turnaround'],
+  after_sales: ['หลังการขาย', 'รับประกัน', 'ซัพพอร์ต', 'ดูแลหลัง', 'after-sales', 'after sales', 'warranty', 'guarantee', 'support'],
+  promotion: ['ส่วนลด', 'โปรโมชัน', 'โปรโมชั่น', 'ข้อเสนอพิเศษ', 'discount', 'promotion', 'special offer'],
+  location: ['ที่ตั้ง', 'สาขา', 'พื้นที่ให้บริการ', 'ทำเล', 'location', 'located', 'branch', 'based in', 'nearby'],
+  other: [],
+}
+
+/** Shorter matching lines are usually a heading or a table cell: a full sentence is preferred. */
+const PASSAGE_MIN_SENTENCE = 30
+
+/** Where `needle` sits in `low` (already lowercase). A Latin word has to start at a word start ("fast" is not found in "breakfast"). */
+function needleAt(low: string, needle: string): number {
+  if (!/^[a-z]/.test(needle)) return low.indexOf(needle)
+  let from = 0
+  for (;;) {
+    const at = low.indexOf(needle, from)
+    if (at < 0) return -1
+    if (at === 0 || !/[a-z]/.test(low[at - 1])) return at
+    from = at + 1
+  }
+}
+
+/**
+ * A line of a stored answer that talks about `code`, for the answers listed under "what the AI weighs".
+ * The first sentence-length line holding a word typical of the factor wins, else the first line holding one,
+ * else null. Always approximate: the analysis stored no passage for these.
+ */
+export function factorPassage(answerText: string, code: SentimentFactor): string | null {
+  if (typeof answerText !== 'string' || !answerText) return null
+  const needles = FACTOR_KEYWORDS[code] ?? []
+  if (needles.length === 0) return null
+  let short: { line: string; at: number; len: number } | null = null
+  for (const raw of answerText.split('\n')) {
+    const line = cleanQuoteLine(stripMarkdown(raw))
+    if (!line) continue
+    const low = line.toLowerCase()
+    for (const n of needles) {
+      const at = needleAt(low, n)
+      if (at < 0) continue
+      const hit = { line, at, len: n.length }
+      if (line.length >= PASSAGE_MIN_SENTENCE) return cutAround(hit)
+      if (!short) short = hit
+      break
+    }
+  }
+  return short ? cutAround(short) : null
+}
+
+/**
+ * The opening of a stored answer: its first sentence-length line, else its first line with any text.
+ * Shown under a factor when no line of the answer holds a word typical of that factor.
+ */
+export function answerLead(answerText: string): string | null {
+  if (typeof answerText !== 'string' || !answerText) return null
+  let first: string | null = null
+  for (const raw of answerText.split('\n')) {
+    const line = cleanQuoteLine(stripMarkdown(raw))
+    if (!line) continue
+    if (line.length >= PASSAGE_MIN_SENTENCE) return cutAround({ line, at: 0, len: 0 })
+    if (first === null) first = line
+  }
+  return first
 }
 
 // ── Mention style ────────────────────────────────────────────────────────────

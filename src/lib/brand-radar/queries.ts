@@ -13,7 +13,7 @@ import {
   type CitationRow, type Dataset, type MentionRow, type PromptLite, type RespRow, type RunLite,
 } from './metrics'
 import {
-  INSIGHT_LIMITS, aggregateInsight, bangkokDay, dailyTrend, emptyInsight, fallbackQuote, mentionStyleOf, parseStoredFoundSources, parseStoredQueries, parseStoredSentiment,
+  INSIGHT_LIMITS, aggregateInsight, answerLead, bangkokDay, dailyTrend, emptyInsight, factorPassage, fallbackQuote, mentionStyleOf, parseStoredFoundSources, parseStoredQueries, parseStoredSentiment,
   type BrandMentionLite, type InsightRow,
   type FoundSource,
 } from './insight'
@@ -580,8 +580,42 @@ async function buildInsight(base: Base, ds: Dataset): Promise<AnswerInsightDTO> 
     promptText: new Map(ds.prompts.map((p) => [p.id, p.text])),
     entityNames,
   })
-  await fillFallbackQuotes(base, insight, rows, ds)
+  await Promise.all([fillFallbackQuotes(base, insight, rows, ds), fillFactorPassages(base, insight)])
   return insight
+}
+
+/**
+ * "What the AI weighs" lists the newest answers counted under each factor. An answer listed there with no
+ * passage from the analysis gets a line of its stored text that talks about the factor, else the opening of the answer.
+ * One extra query, only for the answers the report lists.
+ */
+async function fillFactorPassages(base: Base, insight: AnswerInsightDTO): Promise<void> {
+  const shown = insight.factors.slice(0, INSIGHT_LIMITS.factorsShown)
+  const ids = new Set<string>()
+  for (const f of shown) for (const x of f.examples ?? []) if (!x.quote) ids.add(x.responseId)
+  if (ids.size === 0) return
+
+  let texts: Map<string, string>
+  try {
+    const found = await prisma.brandRadarResponse.findMany({
+      where: { ...base, id: { in: Array.from(ids) } },
+      select: { id: true, responseText: true },
+    })
+    texts = new Map(found.map((x) => [x.id, x.responseText]))
+  } catch {
+    return
+  }
+  for (const f of shown) {
+    for (const x of f.examples ?? []) {
+      if (x.quote) continue
+      const answer = texts.get(x.responseId) || ''
+      const passage = factorPassage(answer, f.code)
+      const text = passage ?? answerLead(answer)
+      if (!text) continue
+      x.quote = text
+      x.quoteFrom = passage ? 'keyword' : 'lead'
+    }
+  }
 }
 
 /**

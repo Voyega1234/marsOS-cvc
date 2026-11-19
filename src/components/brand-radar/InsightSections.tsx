@@ -236,11 +236,13 @@ function factorHint(code: SentimentFactor, scope: "answer" | "brand"): string | 
   const topic = SENTIMENT_FACTOR_HINT[code];
   if (!topic) return undefined;
   return scope === "answer"
-    ? `นับคำตอบที่ AI ใช้เรื่องนี้เป็นเกณฑ์ตัดสินหรือแนะนำ: ${topic}`
+    ? `ระบบอ่านคำตอบทีละคำตอบ แล้วนับคำตอบที่ AI ใช้เรื่องนี้เป็นเกณฑ์ตัดสินหรือแนะนำ: ${topic}`
     : `นับคำตอบที่ AI พูดถึงแบรนด์เราในเรื่องนี้: ${topic}`;
 }
 
-/** Answers counted under a factor, for a factor with no passage to quote */
+const FACTOR_PASSAGE_NOTE = "ข้อความหลัง “AI ตอบ” คือบรรทัดในคำตอบที่พูดเรื่องนี้ ระบบหยิบมาให้ดูเป็นตัวอย่าง";
+
+/** Answers counted under a factor, each with a passage of the answer when one is found. Model text: text nodes only. */
 function FactorExampleList({ items, onOpenAnswer, clientView }: { items: FactorExample[]; onOpenAnswer?: (target: ViewerTarget) => void; clientView?: boolean }) {
   return (
     <div className="mt-1.5">
@@ -251,13 +253,15 @@ function FactorExampleList({ items, onOpenAnswer, clientView }: { items: FactorE
             <span className="block text-[11px] text-gray-500">
               {[x.provider ? providerLabelFor(x.provider, clientView) : "", x.at > 0 ? fmtDate(new Date(x.at).toISOString()) : ""].filter(Boolean).join(" · ")}
             </span>
-            <span className="break-words">{x.prompt || "(ไม่พบข้อความคำถาม)"}</span>
+            <span className="block break-words text-gray-500">คำถาม: {x.prompt || "(ไม่พบข้อความคำถาม)"}</span>
+            {x.quote ? <span className="mt-0.5 block break-words text-gray-800">{x.quoteFrom === "lead" ? "ต้นคำตอบ" : "AI ตอบ"}: &ldquo;{x.quote}&rdquo;</span> : null}
             {onOpenAnswer ? (
               <button type="button" onClick={() => onOpenAnswer({ promptId: x.promptId, runId: x.runId, provider: x.provider, responseId: x.responseId })} className="mt-0.5 block text-[11px] text-brand-blue hover:underline">ดูคำตอบเต็ม</button>
             ) : null}
           </li>
         ))}
       </ul>
+      {items.some((x) => x.quote && x.quoteFrom === "keyword") ? <p className="mt-2 text-[11px] leading-snug text-gray-500">{FACTOR_PASSAGE_NOTE}</p> : null}
     </div>
   );
 }
