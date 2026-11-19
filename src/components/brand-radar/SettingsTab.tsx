@@ -169,11 +169,16 @@ function hostOf(url: string): string {
   }
 }
 
-function TagInput({ value, onChange, placeholder, max = LIMITS.aliasesMax }: {
+/**
+ * Chip input for a list of short texts. With `primary`, the first chip is the main entry (it carries a badge)
+ * and clicking another chip moves it to the front.
+ */
+export function TagInput({ value, onChange, placeholder, max = LIMITS.aliasesMax, primary = false }: {
   value: string[];
   onChange: (v: string[]) => void;
   placeholder?: string;
   max?: number;
+  primary?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   function commit(raw: string) {
@@ -189,9 +194,16 @@ function TagInput({ value, onChange, placeholder, max = LIMITS.aliasesMax }: {
   }
   return (
     <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border border-input bg-white/90 px-2 py-1.5 focus-within:ring-2 focus-within:ring-ring">
-      {value.map((t) => (
+      {value.map((t, i) => (
         <span key={t} className="inline-flex items-center gap-1 rounded-full bg-brand-mist px-2.5 py-1 text-xs text-brand-navy">
-          {t}
+          {primary && i === 0 ? (
+            <>
+              <span className="rounded-full bg-brand-navy px-1.5 py-px text-[10px] font-medium text-white">ชื่อหลัก</span>
+              {t}
+            </>
+          ) : primary ? (
+            <button type="button" title="กดเพื่อตั้งเป็นชื่อหลัก" onClick={() => onChange([t, ...value.filter((x) => x !== t)])}>{t}</button>
+          ) : t}
           <button type="button" aria-label={`ลบ ${t}`} onClick={() => onChange(value.filter((x) => x !== t))}>
             <X className="h-3 w-3" />
           </button>
@@ -416,6 +428,11 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
   const activeComps = competitors.filter((c) => c.status === "ACTIVE").length;
   const compFull = competitors.length >= LIMITS.competitorsMax;
 
+  // The brand name and its other names are edited as one list: the first entry is the brand name, the rest are aliases.
+  const brandNames = [form.brandName ?? "", ...(form.aliases ?? [])]
+    .map((x) => x.trim())
+    .filter((x, i, all) => !!x && all.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i);
+
   const steps = [
     { n: 1, label: "แบรนด์", done: !!form.brandName?.trim() && !!form.primaryDomain?.trim(), optional: false },
     { n: 2, label: "AI platform", done: selectedProviders.length >= 1, optional: false },
@@ -452,14 +469,22 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
         <div className="min-w-0 space-y-4">
           <Section n={1} id="br-step-1" title="แบรนด์ของเรา" why="ระบบใช้ชื่อและโดเมนนี้ตรวจว่า AI พูดถึงหรืออ้างอิงแบรนด์ของคุณหรือไม่">
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="ชื่อแบรนด์ *" help="เช่น Convert Cake">
-                <input className={inputCls} value={form.brandName ?? ""} onChange={(e) => patch({ brandName: e.target.value })} />
-              </Field>
+              <div className="md:col-span-2">
+                <Field
+                  label="ชื่อแบรนด์ * (พิมพ์ได้หลายชื่อ)"
+                  help={`ใส่ทุกแบบที่คนเรียกหรือสะกด เช่น Convert Cake, คอนเวิร์ท เค้ก, ConvertCake ถ้า AI ใช้ชื่อใดชื่อหนึ่งจะนับเป็นการพูดถึงแบรนด์ ชื่อแรกเป็นชื่อหลักที่แสดงในรายงาน กดที่ชื่ออื่นเพื่อตั้งเป็นชื่อหลัก สูงสุด ${LIMITS.aliasesMax + 1} ชื่อ`}
+                >
+                  <TagInput
+                    primary
+                    max={LIMITS.aliasesMax + 1}
+                    value={brandNames}
+                    onChange={(v) => patch({ brandName: v[0] ?? "", aliases: v.slice(1) })}
+                    placeholder="พิมพ์ชื่อแบรนด์ แล้วกด Enter หรือ , เพื่อเพิ่มชื่อถัดไป"
+                  />
+                </Field>
+              </div>
               <Field label="เว็บไซต์หลัก (โดเมน) *" help="เช่น example.com ใส่ลิงก์เต็มได้ ระบบตัดให้เหลือแค่โดเมน">
                 <input className={inputCls} placeholder="example.com" value={form.primaryDomain ?? ""} onChange={(e) => patch({ primaryDomain: e.target.value })} />
-              </Field>
-              <Field label="ชื่ออื่น / การสะกดอื่น" help={`ชื่อย่อ ชื่อไทย-อังกฤษ หรือสะกดอื่น เช่น คอนเวิร์ท เค้ก สูงสุด ${LIMITS.aliasesMax} รายการ`}>
-                <TagInput value={form.aliases ?? []} onChange={(v) => patch({ aliases: v })} placeholder="ชื่ออื่นของแบรนด์ (Enter หรือ , เพื่อเพิ่ม)" />
               </Field>
               <Field label="โดเมนอื่นของแบรนด์" help="เช่น shop.example.com ลิงก์ไปโดเมนเหล่านี้จะนับเป็น citation ของแบรนด์">
                 <TagInput value={form.ownedDomains ?? []} onChange={(v) => patch({ ownedDomains: v.map(hostOf) })} placeholder="โดเมนอื่นของแบรนด์" />

@@ -1205,7 +1205,7 @@ export function isProviderKey(v: unknown): v is ProviderKey {
 // GET    usage?projectId                                                 -> UsageDTO
 // GET    cron   (Authorization: Bearer CRON_SECRET; no session)          -> { started: number; stepped: number }
 
-// POST   projects {name, website, providers?, competitors?: [{name, domain?}]} -> CreateProjectRes (409: the name is taken)
+// POST   projects {name, website, aliases?, providers?, competitors?: [{name, domain?}]} -> CreateProjectRes (409: the name is taken)
 // GET    responses ?projectId&filters&mention&q&page&pageSize             -> AnswerFeedDTO
 // GET    brands                                                           -> BrandsRes   (brands that have a monitor; last 30 days)
 

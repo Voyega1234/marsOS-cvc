@@ -19,12 +19,18 @@ const MAX_FAILS = 5;
 
 type Failures = RunDetailRes["failures"];
 
-export default function RunPanel({ projectId, profile, refreshKey, dueRun, onProgress }: {
+/**
+ * Scan controls. The component also drives the scan loop, so it stays mounted on every tab:
+ * `compact` (the report tabs) renders one status line, the full panel is shown in Settings.
+ */
+export default function RunPanel({ projectId, profile, refreshKey, dueRun, onProgress, compact = false, onOpenSettings }: {
   projectId: string;
   profile: ProfileDTO | null;
   refreshKey: number;
   dueRun: RunDTO | null;
   onProgress: () => void;
+  compact?: boolean;
+  onOpenSettings?: () => void;
 }) {
   const [run, setRun] = useState<RunDTO | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -192,6 +198,46 @@ export default function RunPanel({ projectId, profile, refreshKey, dueRun, onPro
   const finished = run && !running;
   const settled = run ? run.doneTasks + run.failedTasks + run.skippedTasks : 0;
   const pct = run && run.totalTasks > 0 ? Math.min(100, (settled / run.totalTasks) * 100) : 0;
+
+  if (compact) {
+    if (!loaded || !run) return null;
+    const settingsLink = onOpenSettings ? (
+      <button type="button" onClick={onOpenSettings} className="font-medium text-brand-blue hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy">
+        ดูที่ Settings
+      </button>
+    ) : null;
+    if (running) {
+      return (
+        <div className="mb-4 space-y-2 rounded-2xl border border-white/80 bg-white/70 px-3 py-2.5 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <Chip tone={stalled ? "warn" : "info"} dot>{stalled ? "หยุดชั่วคราว" : "กำลังสแกน"}</Chip>
+            <span className="text-gray-600 tabular-nums">{settled} / {run.totalTasks} งาน</span>
+            <span className="text-xs text-gray-500">กรุณาเปิดหน้านี้ไว้จนสแกนเสร็จ</span>
+            <span className="ml-auto text-xs">{settingsLink}</span>
+          </div>
+          <MeterBar value={pct} max={100} tone="blue" ariaLabel="ความคืบหน้าการสแกน" />
+          {error && stalled && (
+            <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-red-700">
+              <span>{error}</span>
+              <Button size="sm" variant="outline" onClick={() => startLoop(run)}>ทำต่อ</Button>
+            </div>
+          )}
+        </div>
+      );
+    }
+    const incomplete = run.failedTasks > 0 || run.skippedTasks > 0 || run.status === "FAILED";
+    return (
+      <p className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
+        <span>ข้อมูลจากการสแกนล่าสุด {fmtDateTime(run.finishedAt ?? run.startedAt)}</span>
+        {incomplete && (
+          <>
+            <span className="text-amber-700">· สแกนไม่ครบ (ล้มเหลว {run.failedTasks} · ข้าม {run.skippedTasks} จาก {run.totalTasks} งาน)</span>
+            {settingsLink}
+          </>
+        )}
+      </p>
+    );
+  }
 
   return (
     <Panel

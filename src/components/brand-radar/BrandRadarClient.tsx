@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, Loader2, Plus, X } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,14 +13,14 @@ import {
   type CompetitorDTO, type CreateProjectRes, type ProfileDTO, type ProfileRes, type ProjectOptDTO, type ProjectsRes,
   type RadarFilters, type RunDTO, type RunDueRes, type ProviderKey,
 } from "@/lib/brand-radar/types";
-import { api, CLIENT_TAB_IDS, clearRadarCache, defaultFilters, fmtDate, postJson, scheduleLabel, TAB_IDS, type TabId, type TabProps } from "./shared";
+import { api, CLIENT_TAB_IDS, clearRadarCache, defaultFilters, postJson, TAB_IDS, type TabId, type TabProps } from "./shared";
 import { PlatformChooser } from "./PlatformPicker";
 import { BrandList } from "./BrandList";
 import FilterBar from "./FilterBar";
 import RunPanel from "./RunPanel";
 import OverviewTab from "./OverviewTab";
 import AnswersTab from "./AnswersTab";
-import SettingsTab from "./SettingsTab";
+import SettingsTab, { TagInput } from "./SettingsTab";
 import PromptsTab from "./PromptsTab";
 import CompetitorsTab from "./CompetitorsTab";
 import CitationsTab from "./CitationsTab";
@@ -33,7 +33,8 @@ const INPUT_CLS = "h-10 w-full rounded-xl border border-gray-200 bg-white px-3 t
 
 /** Create a project that lives only in Brand Radar (a brand that is not a client elsewhere in MarsOS). */
 function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void | Promise<void> }) {
-  const [name, setName] = useState("");
+  // Every name the brand goes by. The first one names the project, the rest are stored as aliases.
+  const [names, setNames] = useState<string[]>([]);
   const [website, setWebsite] = useState("");
   const [picked, setPicked] = useState<ProviderKey[]>([...PROVIDER_KEYS]);
   const [rows, setRows] = useState<Array<{ name: string; domain: string }>>([{ name: "", domain: "" }]);
@@ -45,7 +46,8 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
 
   const submit = async () => {
     if (saving) return;
-    if (!name.trim()) { setError("กรอกชื่อโปรเจกต์ / แบรนด์"); return; }
+    const [name, ...aliases] = names;
+    if (!name) { setError("กรอกชื่อแบรนด์ แล้วกด Enter"); return; }
     if (!website.trim()) { setError("กรอกเว็บไซต์ของแบรนด์"); return; }
     const competitors: Array<{ name: string; domain?: string }> = [];
     for (const r of rows) {
@@ -58,13 +60,13 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
     const providers: ProviderKey[] = picked.length === 0 ? [...PROVIDER_KEYS] : PROVIDER_KEYS.filter((k) => picked.includes(k));
     setSaving(true);
     setError("");
-    const res = await api<CreateProjectRes>("/api/brand-radar/projects", postJson({ name: name.trim(), website: website.trim(), providers, competitors }));
+    const res = await api<CreateProjectRes>("/api/brand-radar/projects", postJson({ name, website: website.trim(), aliases, providers, competitors }));
     setSaving(false);
     if (!res.ok || !res.data.project) {
       const raw = res.data.error || "";
       setError(
         raw === "Primary domain is not a valid domain" ? "เว็บไซต์ไม่ถูกต้อง เช่น example.com"
-          : raw === "Brand name is required" ? "กรอกชื่อโปรเจกต์ / แบรนด์"
+          : raw === "Brand name is required" ? "กรอกชื่อแบรนด์"
           : raw === "Competitor name is required" ? "กรอกชื่อคู่แข่งให้ครบ"
           : raw || "สร้างโปรเจกต์ไม่สำเร็จ",
       );
@@ -84,13 +86,17 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           <p className="text-xs text-gray-500">
             ใช้กับแบรนด์ที่ยังไม่มีในรายชื่อลูกค้า โปรเจกต์นี้อยู่ใน Brand Radar เท่านั้น ไม่ไปโผล่ในเมนูอื่น
           </p>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-brand-navy">ชื่อโปรเจกต์ / แบรนด์</span>
-            <input className={INPUT_CLS} value={name} onChange={(e) => setName(e.target.value)} maxLength={200} autoFocus placeholder="เช่น Acme Clinic" />
-          </label>
+          <div className="block text-sm">
+            <span className="mb-1 block font-medium text-brand-navy">ชื่อแบรนด์ (พิมพ์ได้หลายชื่อ)</span>
+            <TagInput primary max={LIMITS.aliasesMax + 1} value={names} onChange={setNames} placeholder="เช่น Mfactors, เอ็มแฟคเตอร์, M-Factors (Enter หรือ , เพื่อเพิ่ม)" />
+            <span className="mt-1 block text-xs text-gray-500">
+              ใส่ทุกแบบที่คนเรียกหรือสะกด เช่น ชื่อไทย ชื่ออังกฤษ ชื่อย่อ แบบเว้นวรรคและไม่เว้นวรรค ถ้า AI ใช้ชื่อใดชื่อหนึ่ง จะนับเป็นการพูดถึงแบรนด์ (ไม่สนตัวพิมพ์เล็ก-ใหญ่) ชื่อแรกใช้เป็นชื่อโปรเจกต์ กดที่ชื่ออื่นเพื่อตั้งเป็นชื่อหลัก แก้ไขภายหลังได้ที่แท็บ Settings
+            </span>
+          </div>
           <label className="block text-sm">
             <span className="mb-1 block font-medium text-brand-navy">เว็บไซต์</span>
             <input className={INPUT_CLS} value={website} onChange={(e) => setWebsite(e.target.value)} maxLength={253} placeholder="example.com" inputMode="url" />
+            <span className="mt-1 block text-xs text-gray-500">ใช้จับว่า AI อ้างอิงหน้าเว็บของแบรนด์หรือไม่ (citation)</span>
           </label>
           <div className="space-y-2">
             <span className="block text-sm font-medium text-brand-navy">AI platform ที่จะติดตาม</span>
@@ -341,30 +347,9 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
   };
   const singleClientProject = clientView && projects.length === 1;
 
-  const activePrompts = selected?.activePrompts;
-  const steps: Array<{ n: number; title: string; done: boolean; body: React.ReactNode }> = [
-    { n: 1, title: "เลือกลูกค้า", done: true, body: <span className="truncate">{selected ? selected.clientName || selected.name : "-"}</span> },
-    {
-      n: 2, title: "ตั้งค่าแบรนด์", done: !!profile,
-      body: profile ? <span className="truncate">{profile.brandName}</span> : (
-        <button type="button" className="text-brand-blue hover:underline" onClick={() => setTab("settings")}>ไปที่ Settings</button>
-      ),
-    },
-    {
-      n: 3, title: "เลือก Prompt", done: (activePrompts ?? 0) > 0,
-      body: (
-        <button type="button" className="text-brand-blue hover:underline" onClick={() => setTab("prompts")}>
-          {activePrompts === undefined ? "ไปที่ AI Prompts" : `${activePrompts} prompts ที่ใช้งาน`}
-        </button>
-      ),
-    },
-    {
-      n: 4, title: "Monitor", done: !!profile && profile.schedule !== "manual",
-      body: profile && profile.schedule !== "manual"
-        ? <span className="truncate">{scheduleLabel(profile.schedule)} · ถัดไป {fmtDate(profile.nextRunAt)}</span>
-        : <span className="text-gray-500">ยังไม่ได้ตั้ง</span>,
-    },
-  ];
+  // The report tabs show the report only: setup and the scan controls live in the Settings tab.
+  const onSettings = activeTab === "settings";
+  const noActivePrompts = !!profile && !!selected && selected.activePrompts === 0;
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -383,39 +368,10 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
         actions={clientView ? undefined : picker}
       />
 
-      {clientView ? null : <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {steps.map((s) => (
-          <div key={s.n} className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/80 bg-white/70 px-3 py-2.5 text-sm shadow-sm">
-            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${s.done ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
-              {s.done ? <Check className="h-4 w-4" /> : s.n}
-            </span>
-            <div className="min-w-0">
-              <div className="text-xs font-semibold text-brand-navy">{s.title}</div>
-              <div className="flex min-w-0 text-xs text-gray-600">{s.body}</div>
-            </div>
-          </div>
-        ))}
-      </div>}
-
       {profileError && (
         <div role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {profileError}
           <Button size="sm" variant="outline" className="ml-3" onClick={() => void loadProfile(activeProjectId)}>ลองใหม่</Button>
-        </div>
-      )}
-
-      {clientView ? null : <RunPanel projectId={projectId} profile={profile} refreshKey={refreshKey} dueRun={dueRun} onProgress={() => setRefreshKey((k) => k + 1)} />}
-
-      <FilterBar filters={filters} onChange={onFilterChange} onRefresh={() => setRefreshKey((k) => k + 1)} />
-
-      {clientView && profileLoaded && !profile && (
-        <div className="mb-4 rounded-2xl border border-gray-200 bg-white/70 p-3 text-sm text-gray-600">ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้</div>
-      )}
-
-      {!clientView && profileLoaded && !profile && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          <span>ยังไม่ได้ตั้งค่าแบรนด์ของลูกค้ารายนี้</span>
-          <Button size="sm" onClick={() => setTab("settings")}>ไปตั้งค่าแบรนด์</Button>
         </div>
       )}
 
@@ -434,6 +390,39 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
           { id: "settings", label: "Settings" },
         ].filter((t) => !clientView || CLIENT_TAB_IDS.includes(t.id as TabId)) as Array<{ id: TabId; label: string }>}
       />
+
+      {/* Always mounted: it drives the scan loop. Outside Settings it shows one status line only. */}
+      {clientView ? null : (
+        <RunPanel
+          projectId={projectId}
+          profile={profile}
+          refreshKey={refreshKey}
+          dueRun={dueRun}
+          onProgress={() => setRefreshKey((k) => k + 1)}
+          compact={!onSettings}
+          onOpenSettings={() => setTab("settings")}
+        />
+      )}
+
+      {onSettings ? null : <FilterBar filters={filters} onChange={onFilterChange} onRefresh={() => setRefreshKey((k) => k + 1)} />}
+
+      {clientView && profileLoaded && !profile && (
+        <div className="mb-4 rounded-2xl border border-gray-200 bg-white/70 p-3 text-sm text-gray-600">ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้</div>
+      )}
+
+      {!clientView && !onSettings && profileLoaded && !profile && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <span>ยังไม่ได้ตั้งค่าแบรนด์ของลูกค้ารายนี้</span>
+          <Button size="sm" onClick={() => setTab("settings")}>ไปตั้งค่าแบรนด์</Button>
+        </div>
+      )}
+
+      {!clientView && !onSettings && activeTab !== "prompts" && noActivePrompts && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <span>ยังไม่มี prompt ที่ใช้งาน จึงยังสแกนไม่ได้</span>
+          <Button size="sm" onClick={() => setTab("prompts")}>ไปที่ AI Prompts</Button>
+        </div>
+      )}
 
       {activeTab === "overview" && <OverviewTab {...tabProps} brands={projects.map((p) => ({ id: p.id, name: p.clientName || p.name }))} onSwitchBrand={(id) => setProjectId(id)} />}
       {activeTab === "responses" && <AnswersTab {...tabProps} />}

@@ -34,6 +34,8 @@ export async function POST(req: NextRequest) {
   const clean = cleanProfileInput({
     brandName: body.name,
     primaryDomain: body.website,
+    // Other names and spellings of the brand; an answer that uses any of them counts as a mention.
+    ...(Array.isArray(body.aliases) ? { aliases: body.aliases } : {}),
     ...(Array.isArray(body.providers) ? { providers: body.providers } : {}),
   })
   if (!clean.ok) return bad(clean.error)
@@ -74,6 +76,7 @@ export async function POST(req: NextRequest) {
       projectId: id,
       brandName,
       primaryDomain,
+      aliases: JSON.stringify((clean.data.aliases ?? []).filter((a) => nameKey(a) !== nameKey(brandName))),
       country: 'TH',
       providers: JSON.stringify(providers),
       promptSources: JSON.stringify(['manual']),
