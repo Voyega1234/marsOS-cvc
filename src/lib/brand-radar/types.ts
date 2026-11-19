@@ -998,6 +998,37 @@ export interface UsageDTO {
   byProvider: Array<{ provider: ProviderKey; label: string; calls: number; failed: number; costUsd: number }>
   /** last 6 months, oldest first; `calls` includes the `failed` ones */
   history: Array<{ month: string; costUsd: number; calls: number; failed: number }>
+  /** the last USAGE_DAILY_DAYS days (Asia/Bangkok), oldest first, every day present; `calls` includes the `failed` ones */
+  daily: Array<{ day: string; costUsd: number; calls: number; failed: number }>
+}
+
+/** How many days the per-day usage table goes back, today included */
+export const USAGE_DAILY_DAYS = 30
+
+const usageNumber = (v: unknown): number => {
+  const n = typeof v === 'bigint' ? Number(v) : typeof v === 'number' ? v : 0
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * Per-day usage for the `days` days ending on `lastDay` (YYYY-MM-DD), oldest first. A day without a row is a
+ * real zero, so the series has no gaps. Counts arrive from SQL as bigint and a sum over no cost as null.
+ */
+export function dailyUsage(
+  rows: Array<{ day: string; costUsd: unknown; calls: unknown; failed: unknown }>,
+  lastDay: string,
+  days: number = USAGE_DAILY_DAYS,
+): UsageDTO['daily'] {
+  const end = Date.parse(`${lastDay}T00:00:00Z`)
+  if (!Number.isFinite(end) || days <= 0) return []
+  const byDay = new Map(rows.map((r) => [r.day, r]))
+  const out: UsageDTO['daily'] = []
+  for (let i = days - 1; i >= 0; i--) {
+    const day = new Date(end - i * 86_400_000).toISOString().slice(0, 10)
+    const r = byDay.get(day)
+    out.push({ day, costUsd: usageNumber(r?.costUsd), calls: usageNumber(r?.calls), failed: usageNumber(r?.failed) })
+  }
+  return out
 }
 
 /**

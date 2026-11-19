@@ -246,6 +246,14 @@ export function monthLabelTh(key: string, short = false): string {
   return short ? name : `${name} ${m[1]}`
 }
 
+/** "2026-11-19" -> "19 พ.ย." (short: "19") */
+export function dayLabelTh(key: string, short = false): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key)
+  const name = m ? MONTHS_TH[Number(m[2]) - 1] : undefined
+  if (!m || !name) return key
+  return short ? String(Number(m[3])) : `${Number(m[3])} ${name}`
+}
+
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '-'
   const d = new Date(iso)

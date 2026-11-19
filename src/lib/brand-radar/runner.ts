@@ -17,12 +17,13 @@ import { detectEntities, type BrandSpec, type CompetitorSpec } from './detect'
 import { extractCitations, type RawCitation } from './citations'
 import { callProvider, hasCredentials, dfsListPrice, logProviderCall, type ProviderCaller } from './providers'
 import { isDue, monthKey, monthRange, nextRunAfter, periodKey, promptSetHash } from './schedule'
-import { cleanFoundSources, cleanQueries, normalizeQueryKey } from './insight'
+import { bangkokDay, cleanFoundSources, cleanQueries, normalizeQueryKey } from './insight'
 import { resolveLanguage } from './language'
 import { listAutoScanProjectIds, touchCronHeartbeat } from './auto-scan'
 import { ANALYSIS_LIMITS, distinctQueries, liveAnalyzer, type InsightAnalyzer, type SentimentTarget } from './sentiment'
 import {
-  DEFAULT_SAMPLES, LIMITS, PROVIDERS, PROVIDER_KEYS, SEARCH_QUERY_SUPPORT, aiJobProjectId, isManualProjectId, isProviderKey, normalizeSamples, parseSchedule, samplesFor,
+  DEFAULT_SAMPLES, LIMITS, PROVIDERS, PROVIDER_KEYS, SEARCH_QUERY_SUPPORT, USAGE_DAILY_DAYS, aiJobProjectId, dailyUsage, isManualProjectId, isProviderKey, normalizeSamples,
+  parseSchedule, samplesFor,
   type AnswerSentiment, type OtherEntity, type ProviderKey, type RunDTO, type RunDetailRes, type RunDueRes, type RunEstimateDTO, type RunListRes,
   type RunStatus, type RunStepRes, type RunTrigger, type TaskStatus, type UsageDTO,
 } from './types'
@@ -972,6 +973,24 @@ export async function usage(ctx: RunnerCtx, now: Date = new Date()): Promise<Usa
     history.push({ month: k, costUsd: agg._sum.costUsd || 0, calls: cnt, failed })
   }
 
+  // Per day, counted the same way as a month above: cost over every row, calls over the rows CALL_ROWS matches.
+  // updatedAt is stored as UTC without a zone, so +7 hours gives the Bangkok day.
+  const today = bangkokDay(now)
+  const firstDay = bangkokDay(new Date(now.getTime() - (USAGE_DAILY_DAYS - 1) * 86_400_000))
+  const dayStart = new Date(`${firstDay}T00:00:00+07:00`)
+  const responseTable = Prisma.raw(`"${SCHEMA}"."BrandRadarResponse"`)
+  const dayRows = await prisma.$queryRaw<Array<{ day: string; costUsd: number | null; calls: bigint; failed: bigint }>>`
+    SELECT to_char(r."updatedAt" + interval '7 hours', 'YYYY-MM-DD') AS "day",
+           sum(r."costUsd")::float8 AS "costUsd",
+           count(*) FILTER (WHERE r."status" IN ('DONE', 'FAILED') OR (r."status" = 'SKIPPED' AND r."costUsd" IS NOT NULL)) AS "calls",
+           count(*) FILTER (WHERE r."status" = 'FAILED') AS "failed"
+    FROM ${responseTable} AS r
+    WHERE r."organizationId" = ${ctx.orgId} AND r."projectId" = ${ctx.project.id}
+      AND r."updatedAt" >= (${dayStart.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+    GROUP BY 1
+    ORDER BY 1`
+  const daily = dailyUsage(dayRows, today)
+
   const budget = profile ? profile.monthlyBudgetUsd : null
   return {
     month: monthKey(now),
@@ -981,5 +1000,6 @@ export async function usage(ctx: RunnerCtx, now: Date = new Date()): Promise<Usa
     calls,
     byProvider,
     history,
+    daily,
   }
 }

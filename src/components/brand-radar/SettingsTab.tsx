@@ -19,7 +19,7 @@ import { SampleSizeTest } from "./SampleSizeTest";
 import ClientAvatar from "@/components/upload-article/ClientAvatar";
 import { ColumnHelp } from "./ColumnHelp";
 import { brandTermsOf } from "@/lib/brand-radar/highlight";
-import { api, fmtDateTime, fmtNum, fmtUsd, fmtUsdPerCall, methodLabel, monthLabelTh, postJson, scheduleLabel, WEEKDAYS_TH, type TabProps } from "./shared";
+import { api, dayLabelTh, fmtDateTime, fmtNum, fmtUsd, fmtUsdPerCall, methodLabel, monthLabelTh, postJson, scheduleLabel, WEEKDAYS_TH, type TabProps } from "./shared";
 
 const inputCls =
   "h-10 w-full rounded-xl border border-input bg-white/90 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -555,6 +555,8 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
   const goStep = (n: number) => document.getElementById(`br-step-${n}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const barVisible = dirty || !hasProfile || saving || !!saveMsg || !!saveError;
   const usageFailed = usage ? usage.byProvider.reduce((s, p) => s + p.failed, 0) : 0;
+  // newest first, only the days something was asked or charged (`daily` may be missing from an older cached reply)
+  const usageDays = usage ? [...(usage.daily ?? [])].reverse().filter((d) => d.calls > 0 || d.costUsd > 0) : [];
 
   return (
     <div className="space-y-4">
@@ -941,6 +943,34 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
                   </tbody>
                 </table>
                 <BarChart className="mt-3" height={140} formatValue={(n) => fmtUsd(n)} data={usage.history.map((h) => ({ label: monthLabelTh(h.month, true), value: h.costUsd }))} ariaLabel="ค่าใช้จ่ายรายเดือน 6 เดือนล่าสุด" />
+              </div>
+            )}
+            {usage && usageDays.length > 0 && (
+              <div className="mt-4">
+                <div className="mb-1 text-xs font-medium text-gray-600">รายวัน {usage.daily.length} วันล่าสุด (USD)</div>
+                <div className="max-h-64 overflow-y-auto pr-1">
+                  <table className="w-full text-left text-xs">
+                    <thead className="text-gray-500">
+                      <tr>
+                        <th className="py-1 pr-1 font-medium"><ColumnHelp k="usageDay" align="start">วัน</ColumnHelp></th>
+                        <th className="py-1 pr-1 text-right font-medium"><ColumnHelp k="usageCalls" align="end">ครั้ง</ColumnHelp></th>
+                        <th className="py-1 pr-1 text-right font-medium"><ColumnHelp k="usageCost" align="end">รวม</ColumnHelp></th>
+                        <th className="py-1 text-right font-medium"><ColumnHelp k="usagePerCall" align="end">ต่อครั้ง</ColumnHelp></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usageDays.map((d) => (
+                        <tr key={d.day} className="border-t border-gray-100">
+                          <td className="py-1.5 pr-1">{dayLabelTh(d.day)}</td>
+                          <td className="py-1.5 pr-1 text-right tabular-nums">{fmtNum(d.calls)}</td>
+                          <td className="py-1.5 pr-1 text-right tabular-nums">{fmtUsd(d.costUsd)}</td>
+                          <td className="py-1.5 text-right tabular-nums">{fmtUsdPerCall(costPerCall(d.costUsd, d.calls, d.failed))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <BarChart className="mt-3" height={140} formatValue={(n) => fmtUsd(n)} data={usage.daily.map((d) => ({ label: dayLabelTh(d.day, true), value: d.costUsd, hint: `${dayLabelTh(d.day)}: ${fmtUsd(d.costUsd)}` }))} ariaLabel={`ค่าใช้จ่ายรายวัน ${usage.daily.length} วันล่าสุด`} />
               </div>
             )}
           </Panel>
