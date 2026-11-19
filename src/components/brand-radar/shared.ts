@@ -208,7 +208,7 @@ export const ANSWER_ZONE_CAPTION = 'AI เอ่ยชื่อแบรนด�
 export function zoneMethodNote(zones: ZoneCounts | null | undefined): string | null {
   const s = zoneShares(zones)
   if (!s) return null
-  return `วิธีคิด: แบ่งคำตอบเป็น 3 ส่วนเท่ากัน แล้วดูว่าชื่อแบรนด์ปรากฏครั้งแรกในส่วนไหน · นับจาก ${s.total.toLocaleString('th-TH')} คำตอบที่เอ่ยชื่อแบรนด์`
+  return `วิธีคิด: ดูว่าชื่อแบรนด์ปรากฏครั้งแรกตรงไหนของคำตอบ · ต้น = 0–33% แรก · กลาง = 34–66% · ท้าย = 67–100% · นับจาก ${s.total.toLocaleString('th-TH')} คำตอบที่เอ่ยชื่อแบรนด์`
 }
 
 /** Self-explaining zone names, e.g. "ต้นคำตอบ 60% · กลางคำตอบ 30% · ท้ายคำตอบ 10%"; null when not recorded */
