@@ -95,7 +95,7 @@ export default function OverviewTab({ projectId, filters, refreshKey, onGoTab, c
   const k = data?.kpis;
   const intentRows: RateBarRow[] = (data?.byIntent ?? []).map((x) => ({ key: x.intent, label: x.label, rate: x.mentionRate, n: x.responses }));
   const heat = data?.heat;
-  const heatHasValue = !!heat && heat.values.some((r) => r.some((v) => v !== null));
+  const heatHasValue = !!heat && (heat.values?.some((r) => r?.some((v) => v !== null) ?? false) ?? false);
 
   const openPrompt = (id: string) => {
     if (clientView) return;

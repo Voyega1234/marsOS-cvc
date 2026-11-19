@@ -347,12 +347,16 @@ export interface BrandSummaryDTO {
   /** Answers that name the brand */
   mentioned: number
   mentionRate: number | null
-  /** Mention rate of the newer half of the window minus the older half; null when either half has no answer */
+  /** Answers that name the brand or cite our site */
+  appeared: number
+  /** appeared / asked: the Visibility figure */
+  visibilityRate: number | null
+  /** Visibility of the newer half of the window minus the older half; null when either half has no answer */
   change: number | null
   /** Answers that cite a website of the brand */
   ownedCited: number
   citationRate: number | null
-  /** Mention rate per day that has answers, oldest first (Asia/Bangkok days) */
+  /** Visibility per day that has answers, oldest first (Asia/Bangkok days) */
   spark: Array<{ date: string; asked: number; rate: number | null }>
   schedule: Schedule | null
   lastRunAt: string | null
@@ -440,6 +444,10 @@ export interface EntityShare {
   mentions: number
   /** mentions / responses, null when responses = 0 */
   mentionRate: number | null
+  /** Answers that name the entity or cite a site it owns: the Visibility numerator. */
+  visible: number
+  /** visible / all answers: the Visibility figure. */
+  visibilityRate: number | null
   /** responses where the entity is recommended (heuristic, see METRIC_DEFINITIONS) */
   recommended: number
   /** responses that cite a domain owned by the entity */
@@ -1002,7 +1010,7 @@ export interface ScanProgressPoint {
   asked: number
   /** answers that name the brand at least once */
   mentioned: number
-  /** mentioned / asked (the Visibility figure), null when asked = 0 */
+  /** mentioned / asked: the brand mention rate (appearRate is the Visibility figure), null when asked = 0 */
   mentionRate: number | null
   /** answers that link to one of our sites */
   ownedCited: number
@@ -1142,7 +1150,7 @@ export const METRIC_DEFINITIONS: MetricDefinition[] = [
     note: 'Per competitor. The overview figure counts responses naming any tracked competitor.' },
   { key: 'shareOfVoice', name: 'Share of Voice', formula: 'Brand Mentions ÷ (Brand Mentions + sum of each tracked competitor\'s mentions)',
     note: 'Denominator = mentions of the brand and of tracked competitors only. Untracked brands are not in it. Insufficient Data when the denominator is 0.' },
-  { key: 'visibilityTrend', name: 'Visibility Trend', formula: 'AI Mention Rate per scan, in time order',
+  { key: 'visibilityTrend', name: 'Visibility Trend', formula: 'Visibility (answers that name the brand or cite our site ÷ all answers) per scan, in time order',
     note: 'Scans with a different prompt set or provider list are marked "not comparable".' },
   { key: 'estimatedVisibility', name: 'Estimated Visibility', formula: 'Σ(search volume × prompt mention rate) ÷ Σ(search volume), over prompts with a known volume',
     note: 'An estimate weighted by keyword search volume. It is not impressions and not real AI traffic.' },

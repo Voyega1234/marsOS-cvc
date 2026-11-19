@@ -168,6 +168,7 @@ export function entityShares(ds: Dataset): EntityShare[] {
   const total = ds.responses.length
   const brandRows = ds.mentions.filter((m) => m.entityType === 'brand')
   const brandMentions = ds.responses.filter((r) => r.brandMentioned === true).length
+  const brandVisible = ds.responses.filter((r) => r.brandMentioned === true || r.ownedCited === true).length
   const ownCitedResp = new Set(ds.citations.filter((c) => c.ownerType === 'own').map((c) => c.responseId))
   const brand: EntityShare = {
     entityType: 'brand',
@@ -175,6 +176,8 @@ export function entityShares(ds: Dataset): EntityShare[] {
     name: ds.brandName,
     mentions: brandMentions,
     mentionRate: rate(brandMentions, total),
+    visible: brandVisible,
+    visibilityRate: rate(brandVisible, total),
     recommended: ds.responses.filter((r) => r.brandRecommended === true).length,
     cited: ownCitedResp.size,
     occurrences: ds.responses.reduce((a, r) => a + (r.brandOccurrences ?? 0), 0),
@@ -188,12 +191,15 @@ export function entityShares(ds: Dataset): EntityShare[] {
     const mentioned = new Set(rows.map((m) => m.responseId))
     const recommended = new Set(rows.filter((m) => m.recommended).map((m) => m.responseId))
     const cited = new Set(ds.citations.filter((x) => x.competitorId === c.id).map((x) => x.responseId))
+    const visible = new Set(Array.from(mentioned).concat(Array.from(cited)))
     return {
       entityType: 'competitor' as const,
       key: c.id,
       name: c.name,
       mentions: mentioned.size,
       mentionRate: rate(mentioned.size, total),
+      visible: visible.size,
+      visibilityRate: rate(visible.size, total),
       recommended: recommended.size,
       cited: cited.size,
       occurrences: rows.reduce((a, m) => a + m.occurrences, 0),

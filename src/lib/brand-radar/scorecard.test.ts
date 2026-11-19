@@ -12,7 +12,7 @@ function eq(actual: unknown, expected: unknown, msg: string) {
 
 function ent(type: 'brand' | 'competitor', name: string, o: Partial<EntityShare> = {}): EntityShare {
   return {
-    entityType: type, key: type === 'brand' ? 'brand' : name, name, mentions: 0, mentionRate: 0, recommended: 0, cited: 0,
+    entityType: type, key: type === 'brand' ? 'brand' : name, name, mentions: 0, mentionRate: 0, visible: 0, visibilityRate: 0, recommended: 0, cited: 0,
     occurrences: 0, avgPosition: null, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 }, ...o,
   }
 }

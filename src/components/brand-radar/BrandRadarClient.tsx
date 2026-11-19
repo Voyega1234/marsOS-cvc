@@ -262,6 +262,14 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
     setRefreshKey((k) => k + 1);
   }, [loadProjects, loadProfile, activeProjectId]);
 
+  // the open project was deleted in Settings: back to the brand list, with the list reloaded
+  const onDeleted = useCallback(() => {
+    setProjectId("");
+    setTab("overview");
+    void loadProjects();
+    setRefreshKey((k) => k + 1);
+  }, [setProjectId, setTab, loadProjects]);
+
   const onFilterChange = useCallback((patch: Partial<RadarFilters>) => {
     if (patch.from !== undefined) setFrom(patch.from);
     if (patch.to !== undefined) setTo(patch.to);
@@ -472,7 +480,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
           <OpportunitiesTab {...tabProps} />
         </section>
       )}
-      {!clientView && activeTab === "settings" && <SettingsTab {...tabProps} />}
+      {!clientView && activeTab === "settings" && <SettingsTab {...tabProps} onDeleted={onDeleted} />}
       {clientView ? null : newDialog}
     </div>
   );

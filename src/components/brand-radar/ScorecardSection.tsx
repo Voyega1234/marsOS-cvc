@@ -25,7 +25,7 @@ const GRADE_RULE_RATE =
 
 const TILE_HELP: Record<ScoreMetricKey, { label: string; help: HelpText }> = {
   mention: {
-    label: "Mention rate",
+    label: "Brand Mention rate",
     help: {
       what: "สัดส่วนคำตอบ AI ที่พูดถึงแบรนด์ของเรา เทียบกับคู่แข่งที่ติดตามไว้",
       how: `คำตอบที่มีชื่อแบรนด์ ÷ คำตอบทั้งหมดในช่วงที่เลือก ${GRADE_RULE_RATE} อันดับ = 1 + จำนวนแบรนด์ที่ทำได้ดีกว่าเราอย่างชัดเจน (ค่าเท่ากันได้อันดับเดียวกัน)`,
@@ -33,7 +33,7 @@ const TILE_HELP: Record<ScoreMetricKey, { label: string; help: HelpText }> = {
     },
   },
   citation: {
-    label: "Citation rate",
+    label: "AI Citation rate",
     help: {
       what: "สัดส่วนคำตอบ AI ที่อ้างอิงลิงก์ไปยังเว็บไซต์ของเรา เทียบกับคู่แข่งที่ติดตามไว้",
       how: `คำตอบที่มีลิงก์ไปยังโดเมนของแบรนด์ ÷ คำตอบทั้งหมดในช่วงที่เลือก ${GRADE_RULE_RATE}`,
@@ -73,7 +73,7 @@ const MONTH_ROWS: MonthRowDef[] = [
     },
   },
   {
-    key: "mention", label: "Mention rate", kind: "rate", get: (m) => m.mentionRate,
+    key: "mention", label: "Brand Mention rate", kind: "rate", get: (m) => m.mentionRate,
     help: {
       what: "สัดส่วนคำตอบที่พูดถึงชื่อแบรนด์ของเรา",
       how: "คำตอบที่มีชื่อแบรนด์ ÷ คำตอบทั้งหมดของเดือนนั้น ส่วนต่างแสดงเป็นจุดเปอร์เซ็นต์ (ค่าเดือนนี้ − ค่าเดือนที่เทียบ)",
@@ -81,7 +81,7 @@ const MONTH_ROWS: MonthRowDef[] = [
     },
   },
   {
-    key: "citation", label: "Citation rate", kind: "rate", get: (m) => m.citationRate,
+    key: "citation", label: "AI Citation rate", kind: "rate", get: (m) => m.citationRate,
     help: {
       what: "สัดส่วนคำตอบที่อ้างอิงลิงก์ไปยังเว็บไซต์ของเรา",
       how: "คำตอบที่มีลิงก์ไปยังโดเมนของแบรนด์ ÷ คำตอบทั้งหมดของเดือนนั้น ส่วนต่างแสดงเป็นจุดเปอร์เซ็นต์",
@@ -206,7 +206,7 @@ const CHANGE_HELP = (base: string): HelpText => ({
 
 export default function ScorecardSection({ scorecard }: { scorecard?: ScorecardDTO }) {
   if (!scorecard) return null;
-  const { current, previous, first } = scorecard.months;
+  const { current, previous, first } = scorecard.months ?? { current: null, previous: null, first: null };
   const showFirst = !!first && first.month !== previous?.month;
   const onlyCurrent = !!current && !previous && !first;
 
@@ -216,7 +216,7 @@ export default function ScorecardSection({ scorecard }: { scorecard?: ScorecardD
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-gray-900">เกรดเทียบคู่แข่ง</h3>
           <div className="grid gap-2 sm:grid-cols-3">
-            {scorecard.grades.map((g) => <GradeTile key={g.metric} g={g} />)}
+            {(scorecard.grades ?? []).map((g) => <GradeTile key={g.metric} g={g} />)}
           </div>
         </section>
 

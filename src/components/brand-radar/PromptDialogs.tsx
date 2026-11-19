@@ -43,7 +43,7 @@ export function useApiData<T>(url: string, refreshKey: number, swr = false) {
     const gen = radarCacheGeneration();
     setError("");
     if (cached !== null) { setData(cached); setLoading(false); }
-    else setLoading(true);
+    else { setData(null); setLoading(true); }
     void api<T>(url, { signal: controller.signal }).then((r) => {
       if (dead) return;
       if (!r.ok) {
@@ -216,7 +216,7 @@ export function CitedDomainsTable({ rows, clientView }: { rows: CitedDomainRow[]
         </TableHeader>
         <TableBody>
           {rows.map((r) => (
-            <TableRow key={r.domain}>
+            <TableRow key={`${r.domain}-${r.ownerType}`}>
               <TableCell className="whitespace-nowrap">
                 {domainHref(r.domain) ? (
                   <a href={domainHref(r.domain) ?? undefined} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-brand-blue hover:underline">

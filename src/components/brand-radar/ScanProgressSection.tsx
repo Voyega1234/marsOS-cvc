@@ -85,10 +85,11 @@ interface Metric {
 }
 
 const METRICS: Metric[] = [
-  { key: "visibility", label: "Visibility", kind: "rate", get: (s) => s.mentionRate, show: (s) => pct(s.mentionRate) },
-  { key: "mentions", label: "Mention", kind: "count", get: (s) => s.mentioned, show: (s) => `${fmtNum(s.mentioned)} คำตอบ` },
-  { key: "citationRate", label: "Citation", kind: "rate", get: (s) => s.citationRate, show: (s) => pct(s.citationRate) },
-  { key: "appearRate", label: "AI พูดถึงเรา", kind: "rate", get: (s) => s.appearRate, show: (s) => pct(s.appearRate) },
+  // Visibility = answers that name the brand or cite our site (appearRate); the appearRate key now carries the name-only rate
+  { key: "visibility", label: "Visibility", kind: "rate", get: (s) => s.appearRate, show: (s) => pct(s.appearRate) },
+  { key: "mentions", label: "Brand Mention", kind: "count", get: (s) => s.mentioned, show: (s) => `${fmtNum(s.mentioned)} คำตอบ` },
+  { key: "citationRate", label: "AI Citation", kind: "rate", get: (s) => s.citationRate, show: (s) => pct(s.citationRate) },
+  { key: "appearRate", label: "Brand Mention rate", kind: "rate", get: (s) => s.mentionRate, show: (s) => pct(s.mentionRate) },
   { key: "avgPosition", label: "Avg. Position", kind: "position", get: (s) => s.avgPosition, show: (s) => fmtPos(s.avgPosition) },
 ];
 
@@ -129,14 +130,14 @@ export function ScanProgressSection({ scans }: { scans: ScanProgressPoint[] }) {
               height={240}
               showLegend
               formatValue={(n) => `${Math.round(n)}%`}
-              ariaLabel="กราฟ Visibility, Citation และ AI พูดถึงเรา ในแต่ละรอบสแกน"
+              ariaLabel="กราฟ Visibility, AI Citation และ Brand Mention rate ในแต่ละรอบสแกน"
               series={[
-                { name: "Visibility", points: scans.map((s) => ({ label: s.label, value: toPct(s.mentionRate) })) },
-                { name: "Citation", points: scans.map((s) => ({ label: s.label, value: toPct(s.citationRate) })) },
-                { name: "AI พูดถึงเรา", points: scans.map((s) => ({ label: s.label, value: toPct(s.appearRate) })) },
+                { name: "Visibility", points: scans.map((s) => ({ label: s.label, value: toPct(s.appearRate) })) },
+                { name: "AI Citation", points: scans.map((s) => ({ label: s.label, value: toPct(s.citationRate) })) },
+                { name: "Brand Mention rate", points: scans.map((s) => ({ label: s.label, value: toPct(s.mentionRate) })) },
               ]}
             />
-            <div>
+            {scans.some((s) => s.avgPosition !== null) && <div>
               <p className="mb-1 text-xs text-gray-500">Avg. Position (ยิ่งน้อยยิ่งดี)</p>
               <AreaChart
                 height={140}
@@ -145,7 +146,7 @@ export function ScanProgressSection({ scans }: { scans: ScanProgressPoint[] }) {
                 ariaLabel="กราฟ Avg. Position ในแต่ละรอบสแกน ยิ่งน้อยยิ่งดี"
                 series={[{ name: "Avg. Position", points: scans.map((s) => ({ label: s.label, value: s.avgPosition })) }]}
               />
-            </div>
+            </div>}
           </div>
         )}
 

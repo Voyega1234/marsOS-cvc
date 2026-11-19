@@ -199,7 +199,7 @@ const ds = {
   mentions: [mention('r2', 'c1'), mention('r3', 'c1'), mention('r3', 'c1')],
   citations: [], prompts: [], competitors: [],
 } as unknown as Dataset
-const share = (key: string, entityType: 'brand' | 'competitor', mentions: number) => ({ key, name: key, entityType, mentions }) as unknown as EntityShare
+const share = (key: string, entityType: 'brand' | 'competitor', mentions: number, visible = mentions) => ({ key, name: key, entityType, mentions, visible }) as unknown as EntityShare
 const trend = dailyTrend(ds, [share('brand', 'brand', 2), share('c1', 'competitor', 2), share('c2', 'competitor', 0)])
 eq(trend.trend.series.map((s) => s.key), ['brand', 'c1'], 'trend: brand + competitors with mentions')
 eq(trend.trend.points, [{ date: '2026-11-01', asked: 1, values: [1, 0] }, { date: '2026-11-02', asked: 2, values: [0.5, 1] }], 'trend: per Bangkok day, distinct answers')
@@ -214,6 +214,23 @@ eq(emptyTrend.change, null, 'trend: empty change')
 eq(emptyTrend.trend.series.map((s) => s.key), ['brand'], 'trend: empty keeps brand series')
 const manyComps = dailyTrend(ds, [share('brand', 'brand', 1), ...Array.from({ length: 8 }, (_, i) => share(`k${i}`, 'competitor', 5))])
 eq(manyComps.trend.series.length, 1 + INSIGHT_LIMITS.trendCompetitors, 'trend: competitor series capped')
+
+// dailyTrend: Visibility = named or cited
+{
+  const vds = {
+    brandName: 'Acme',
+    responses: [
+      { ...resp('v1', '2026-11-01T10:00:00Z', false), ownedCited: true }, // not named, but our site is cited
+      resp('v2', '2026-11-01T11:00:00Z', false),
+    ],
+    mentions: [],
+    citations: [{ responseId: 'v2', competitorId: 'c1', ownerType: 'competitor' }, { responseId: 'v2', competitorId: null, ownerType: 'external' }],
+    prompts: [], competitors: [],
+  } as unknown as Dataset
+  const vt = dailyTrend(vds, [share('brand', 'brand', 0, 1), share('c1', 'competitor', 0, 1)])
+  eq(vt.trend.series.map((s) => s.key), ['brand', 'c1'], 'visibility trend: cited-only competitor keeps a line')
+  eq(vt.trend.points, [{ date: '2026-11-01', asked: 2, values: [0.5, 0.5] }], 'visibility trend: owned citation counts for the brand, competitor citation for the competitor')
+}
 
 // found-but-not-cited sources
 eq(cleanFoundSources(null), [], 'found: null')

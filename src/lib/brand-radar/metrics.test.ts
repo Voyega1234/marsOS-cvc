@@ -57,7 +57,7 @@ eq(shareOfVoice(2, [1, 1]), 0.5, 'SoV')
   const k = computeKpis(empty(), 0)
   eq([k.mentionRate, k.citationRate, k.competitorMentionRate, k.shareOfVoice, k.estimatedVisibility, k.lastScanAt], [null, null, null, null, null, null], 'empty dataset rates all null')
   eq([k.responses, k.brandMentions, k.brandOccurrences, k.citationCount, k.brandRecommended, k.estimatedVisibilityPrompts], [0, 0, 0, 0, 0, 0], 'empty dataset counts are 0')
-  eq(entityShares(empty()), [{ entityType: 'brand', key: 'brand', name: 'Acme', mentions: 0, mentionRate: null, recommended: 0, cited: 0, occurrences: 0, avgPosition: null, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }], 'brand always present, rate null')
+  eq(entityShares(empty()), [{ entityType: 'brand', key: 'brand', name: 'Acme', mentions: 0, mentionRate: null, visible: 0, visibilityRate: null, recommended: 0, cited: 0, occurrences: 0, avgPosition: null, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }], 'brand always present, rate null')
   eq(byProvider(empty()), [], 'empty byProvider')
   eq(trendByRun(empty(), []), [], 'empty trend')
   eq(topicProviderHeat(empty()), { rows: [], columns: [], values: [] }, 'empty heat')
@@ -141,9 +141,12 @@ eq(k.lastScanAt, T('12').toISOString(), 'last scan = max collectedAt')
 {
   const e = entityShares(ds)
   eq(e.map((x) => x.name), ['Acme', 'Rival', 'Other', 'Silent'], 'brand first, competitors by mentions desc, zero-mention competitor kept')
-  eq(e[0], { entityType: 'brand', key: 'brand', name: 'Acme', mentions: 2, mentionRate: 0.4, recommended: 1, cited: 1, occurrences: 4, avgPosition: 2, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }, 'brand share')
-  eq(e[1], { entityType: 'competitor', key: 'c1', name: 'Rival', mentions: 2, mentionRate: 0.4, recommended: 0, cited: 2, occurrences: 2, avgPosition: 1.5, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }, 'Rival share')
+  eq(e[0], { entityType: 'brand', key: 'brand', name: 'Acme', mentions: 2, mentionRate: 0.4, visible: 2, visibilityRate: 0.4, recommended: 1, cited: 1, occurrences: 4, avgPosition: 2, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }, 'brand share')
+  eq(e[1], { entityType: 'competitor', key: 'c1', name: 'Rival', mentions: 2, mentionRate: 0.4, visible: 3, visibilityRate: 0.6, recommended: 0, cited: 2, occurrences: 2, avgPosition: 1.5, avgPositionPct: null, zones: { early: 0, middle: 0, late: 0 } }, 'Rival share')
   eq(e[2].recommended, 1, 'Other recommended once')
+  // Rival is named in a2,b1 and cited (without being named) in b2, so visible exceeds mentions
+  eq([e[1].mentions, e[1].visible], [2, 3], 'Rival: cited in an answer that does not name it counts as visible')
+  eq([e[2].visible, e[2].visibilityRate, e[3].visible, e[3].visibilityRate], [1, 0.2, 0, 0], 'Other/Silent visibility')
   eq([e[3].mentions, e[3].mentionRate, e[3].avgPosition], [0, 0, null], 'Silent: 0 mentions, rate 0, avgPosition null')
 }
 

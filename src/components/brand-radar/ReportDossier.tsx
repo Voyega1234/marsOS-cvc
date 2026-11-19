@@ -2,17 +2,16 @@
 
 /**
  * Brand Radar — "dossier" layout blocks for the report dashboard (UI only, no data of its own).
- * Header, hero row (trend + gauge + citation bar), bottom row (sentiment, mention style, history), brand pager.
+ * Header, hero row (trend + gauge + citation bar), bottom row (sentiment, mention style, history).
  * Every number comes from the AnswerFeedDTO the dashboard already loaded; reads are defensive.
  * All API text is untrusted: rendered as React text nodes only.
  */
 import { useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AreaChart, Chip, EmptyState, Gauge, MeterBar, Panel, Segmented } from "@/components/ds";
 import type { AnswerFeedDTO } from "@/lib/brand-radar/types";
 import { SENTIMENT_TONE_LABEL } from "@/lib/brand-radar/types";
-import { ANSWER_ZONE_LEGEND, fmtDate, fmtNum, fmtZoneShare, providerLabelFor, type TabId, type TabProps } from "./shared";
+import { ANSWER_ZONE_CAPTION, fmtDate, fmtNum, fmtZoneBrief, providerLabelFor, type TabId, type TabProps } from "./shared";
 import { ProviderLogo } from "./ProviderLogo";
 import { pct } from "./ReportCards";
 import { TONE_CHIP, ToneBar, dominantTone } from "./InsightSections";
@@ -30,7 +29,7 @@ export interface BrandOpt { id: string; name: string; logo?: string | null; favi
 function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
     <div className="min-w-0 rounded-2xl border border-gray-100 bg-white/70 px-3 py-2">
-      <div className="truncate text-[11px] text-gray-500" title={label}>{label}</div>
+      <div className="break-words text-[11px] leading-snug text-gray-500">{label}</div>
       <div className="mt-0.5 break-words text-base font-semibold tabular-nums text-brand-navy">{value}</div>
       {hint ? <div className="text-[11px] text-gray-500">{hint}</div> : null}
     </div>
@@ -106,7 +105,7 @@ function TrendHero({ dto, filters, clientView }: { dto: Dto; filters: Filters; c
   return (
     <Panel
       title="Visibility รายวัน"
-      subtitle="สัดส่วนคำตอบที่พูดถึงแบรนด์ในแต่ละวัน"
+      subtitle="สัดส่วนคำตอบที่ AI พูดถึงแบรนด์หรืออ้างอิงเว็บ ในแต่ละวัน"
       className="h-full"
       actions={
         <div className="max-w-full overflow-x-auto">
@@ -128,8 +127,8 @@ function TrendHero({ dto, filters, clientView }: { dto: Dto; filters: Filters; c
       </div>
       <div className="mb-3 flex flex-wrap items-end gap-x-6 gap-y-2">
         <div>
-          <div className="text-4xl font-semibold tabular-nums text-brand-navy">{pct(t?.mentionRate)}</div>
-          <div className="text-xs text-gray-500">Visibility (AI พูดถึงแบรนด์)</div>
+          <div className="text-4xl font-semibold tabular-nums text-brand-navy">{pct(t?.appearRate)}</div>
+          <div className="text-xs text-gray-500">Visibility (AI พูดถึงแบรนด์หรืออ้างอิงเว็บเรา)</div>
         </div>
         <div className="text-sm text-gray-600">
           {change === null ? <Chip tone="muted">N/A</Chip> : (
@@ -137,7 +136,7 @@ function TrendHero({ dto, filters, clientView }: { dto: Dto; filters: Filters; c
           )}
           <div className="mt-1 text-xs text-gray-500">{change === null ? "" : "เทียบวันแรกของช่วง"}</div>
         </div>
-        <div className="text-sm text-gray-600">AI พูดถึงแบรนด์ <b>{fmtNum(t?.mentioned)}</b> จาก <b>{fmtNum(t?.asked)}</b> คำตอบ</div>
+        <div className="text-sm text-gray-600">AI พูดถึงหรืออ้างอิงเรา <b>{fmtNum(t?.appeared)}</b> จาก <b>{fmtNum(t?.asked)}</b> คำตอบ</div>
       </div>
       {points.length < 2 || lines.length === 0 ? (
         <EmptyState className="py-12" title="ต้องมีผลสแกนอย่างน้อย 2 วันจึงจะเห็นแนวโน้ม" />
@@ -158,19 +157,19 @@ function TrendHero({ dto, filters, clientView }: { dto: Dto; filters: Filters; c
 
 function GaugeCard({ dto }: { dto: Dto }) {
   const t = dto.totals;
-  const rate = t?.mentionRate;
-  const first = t?.mentionStyle?.first ?? 0;
+  // Visibility = answers that name the brand or cite our site
+  const rate = t?.appearRate;
   return (
-    <Panel title="Visibility" subtitle="สัดส่วนคำตอบที่ AI พูดถึงแบรนด์">
+    <Panel title="Visibility" subtitle="สัดส่วนคำตอบที่ AI พูดถึงแบรนด์หรืออ้างอิงเว็บเรา">
       {rate === null || rate === undefined ? (
         <EmptyState className="py-6" title="ยังไม่มีข้อมูล" />
       ) : (
         <Gauge value={rate * 100} max={100} size={200} color={BRAND_COLOR} formatValue={(n) => `${n.toFixed(1)}%`} ariaLabel="Visibility" />
       )}
       <div className="mt-3 grid grid-cols-3 gap-2">
-        <Stat label="คำตอบที่พูดถึง" value={fmtNum(t?.mentioned)} />
+        <Stat label="พูดถึงหรืออ้างอิง" value={fmtNum(t?.appeared)} />
         <Stat label="คำตอบทั้งหมด" value={fmtNum(t?.asked)} />
-        <Stat label="ถูกเอ่ยเป็นชื่อแรก" value={fmtNum(first)} />
+        <Stat label="Brand Mention" value={fmtNum(t?.mentioned)} />
       </div>
     </Panel>
   );
@@ -179,9 +178,9 @@ function GaugeCard({ dto }: { dto: Dto }) {
 function CitationCard({ dto }: { dto: Dto }) {
   const t = dto.totals;
   const cite = t?.citationRate;
-  const vis = t?.mentionRate;
+  const vis = t?.appearRate;
   return (
-    <Panel title="Citation (อ้างอิงเว็บเรา)" subtitle={`${fmtNum(t?.ownedCited)} จาก ${fmtNum(t?.asked)} คำตอบ`}>
+    <Panel title="AI Citation (อ้างอิงเว็บเรา)" subtitle={`${fmtNum(t?.ownedCited)} จาก ${fmtNum(t?.asked)} คำตอบ`}>
       <div className="text-3xl font-semibold tabular-nums text-brand-navy">{pct(cite)}</div>
       <MeterBar
         className="mt-2"
@@ -226,6 +225,9 @@ function SentimentCard({ dto, clientView }: { dto: Dto; clientView?: boolean }) 
   return (
     <Panel
       title="Brand Sentiment"
+      tone="solid"
+      className="flex h-full flex-col"
+      bodyClassName="flex flex-1 flex-col"
       actions={
         insight?.available === false ? null
           : analyzed === 0 || !dom ? null
@@ -237,13 +239,18 @@ function SentimentCard({ dto, clientView }: { dto: Dto; clientView?: boolean }) 
       ) : analyzed === 0 ? (
         <p className="text-sm text-gray-500">ยังไม่มีคำตอบที่วิเคราะห์แล้ว</p>
       ) : (
-        <ToneBar tones={brandEntity?.tones} total={brandEntity?.answers ?? 0} legend={false} />
+        <div><ToneBar tones={brandEntity?.tones} total={brandEntity?.answers ?? 0} /></div>
       )}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <Stat label="วิเคราะห์แล้ว" value={`${fmtNum(analyzed)} คำตอบ`} />
-        <Stat label="อันดับเฉลี่ยในคำตอบ" value={avg} />
+      <div className="mt-auto pt-3">
+        <div className="grid grid-cols-2 gap-2">
+          <Stat label="วิเคราะห์แล้ว" value={`${fmtNum(analyzed)} คำตอบ`} />
+          <Stat label="อันดับเฉลี่ยในคำตอบ" value={avg} />
+        </div>
+        <div className="mt-2 rounded-2xl border border-gray-100 bg-white/70 px-3 py-2">
+          <div className="text-[11px] leading-snug text-gray-500">{ANSWER_ZONE_CAPTION}</div>
+          <div className="mt-0.5 break-words text-sm font-semibold tabular-nums text-brand-navy">{fmtZoneBrief(ms?.zones) ?? "ยังไม่มีข้อมูล"}</div>
+        </div>
       </div>
-      <p className="mt-2 text-[11px] text-gray-600">ตำแหน่งในคำตอบ: {fmtZoneShare(ms?.zones) ?? "ยังไม่มีข้อมูล"} ({ANSWER_ZONE_LEGEND})</p>
     </Panel>
   );
 }
@@ -258,7 +265,7 @@ function MentionStyleCard({ dto }: { dto: Dto }) {
   ];
   const sum = rows.reduce((a, r) => a + r.value, 0);
   return (
-    <Panel title="Mention (พูดถึงแบรนด์เรา)" subtitle={`ชื่อแบรนด์ปรากฏ ${fmtNum(t?.occurrences)} ครั้ง`}>
+    <Panel title="Brand Mention (พูดถึงแบรนด์เรา)" subtitle={`ชื่อแบรนด์ปรากฏ ${fmtNum(t?.occurrences)} ครั้ง`} tone="solid" className="flex h-full flex-col" bodyClassName="flex flex-1 flex-col">
       {!ms ? <p className="text-sm text-gray-500">ยังไม่มีข้อมูล</p> : (
         <ul className="space-y-3">
           {rows.map((r) => (
@@ -272,7 +279,7 @@ function MentionStyleCard({ dto }: { dto: Dto }) {
           ))}
         </ul>
       )}
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-auto grid grid-cols-2 gap-2 pt-3">
         <Stat label="พูดถึงแบรนด์เรา" value={`${fmtNum(t?.mentioned)} คำตอบ`} />
         <Stat label="ถูกเอ่ยเป็นชื่อแรก" value={`${fmtNum(ms?.first ?? 0)} คำตอบ`} />
       </div>
@@ -294,7 +301,7 @@ function HistoryCard({ dto }: { dto: Dto }) {
   const zeroDays = all.filter((d) => d.v === 0).length;
   const block = (v: number | null) => (v === null ? "bg-gray-200" : v >= 0.5 ? "bg-emerald-500" : v > 0 ? "bg-amber-400" : "bg-rose-300");
   return (
-    <Panel title="ประวัติการสแกน" subtitle={`${fmtNum(recent.length)} วันล่าสุด`} className="md:col-span-2 xl:col-span-1">
+    <Panel title="ประวัติการสแกน" subtitle={`${fmtNum(recent.length)} วันล่าสุด · สีตาม Visibility ของวันนั้น`} tone="solid" className="flex h-full flex-col" bodyClassName="flex flex-1 flex-col">
       {recent.length === 0 ? <p className="text-sm text-gray-500">ยังไม่มีข้อมูล</p> : (
         <div className="flex flex-wrap gap-1" role="img" aria-label="Visibility รายวัน">
           {recent.map((d) => (
@@ -312,15 +319,15 @@ function HistoryCard({ dto }: { dto: Dto }) {
         <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-rose-300" />0%</span>
         <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-gray-200" />ไม่มีข้อมูล</span>
       </p>
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      <div className="mt-auto grid grid-cols-3 gap-2 pt-3">
         <Stat label="วันที่สแกน" value={fmtNum(all.length)} />
         <Stat label="วันที่ดีที่สุด" value={best ? fmtDate(best.date) : "—"} hint={best?.v != null ? pct(best.v) : undefined} />
-        <Stat label="วันที่ไม่ถูกพูดถึง" value={fmtNum(zeroDays)} />
+        <Stat label="วันที่ Visibility 0%" value={fmtNum(zeroDays)} />
       </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-2">
         <Stat label="คำตอบทั้งหมด" value={fmtNum(t?.asked)} />
-        <Stat label="พูดถึงเรา" value={fmtNum(t?.mentioned)} />
-        <Stat label="อ้างอิงเว็บเรา" value={fmtNum(t?.ownedCited)} />
+        <Stat label="Brand Mention" value={fmtNum(t?.mentioned)} />
+        <Stat label="AI Citation" value={fmtNum(t?.ownedCited)} />
         <Stat label="มีแต่คู่แข่ง" value={fmtNum(dto.counts?.competitor_only ?? 0)} hint="คำถาม × AI" />
       </div>
     </Panel>
@@ -335,47 +342,5 @@ export function BottomRow({ dto, clientView, actions }: { dto: Dto; clientView?:
       <div className="min-w-0 md:col-span-2 xl:col-span-1"><HistoryCard dto={dto} /></div>
       {actions ? <div className="min-w-0 md:col-span-2 xl:col-span-3">{actions}</div> : null}
     </div>
-  );
-}
-
-// ── 5. Brand pager ───────────────────────────────────────────────────────────
-
-export function BrandPager({ brands, currentId, onSwitch }: { brands?: BrandOpt[]; currentId: string; onSwitch?: (id: string) => void }) {
-  const list = brands ?? [];
-  const idx = list.findIndex((b) => b.id === currentId);
-  if (!onSwitch || list.length < 2 || idx < 0) return null;
-  const go = (i: number) => { const b = list[i]; if (b) onSwitch(b.id); };
-  return (
-    <Panel
-      title="สลับดูแบรนด์อื่น"
-      subtitle="กดที่แบรนด์เพื่อเปิดรายงานของแบรนด์นั้น"
-      actions={
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-gray-500 tabular-nums">แบรนด์ที่ {idx + 1} จาก {list.length}</span>
-          <Button size="sm" variant="outline" disabled={idx <= 0} onClick={() => go(idx - 1)} aria-label="แบรนด์ก่อนหน้า"><ChevronLeft className="h-4 w-4" />ก่อนหน้า</Button>
-          <Button size="sm" variant="outline" disabled={idx >= list.length - 1} onClick={() => go(idx + 1)} aria-label="แบรนด์ถัดไป">ถัดไป<ChevronRight className="h-4 w-4" /></Button>
-        </div>
-      }
-    >
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {list.map((b) => {
-          const current = b.id === currentId;
-          return (
-            <button
-              key={b.id}
-              type="button"
-              onClick={() => onSwitch(b.id)}
-              title={b.name}
-              aria-current={current ? "true" : undefined}
-              className={`flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border p-2 text-center transition ${current ? "border-brand-blue bg-brand-mist/60" : "border-transparent hover:bg-gray-50"}`}
-            >
-              <BrandLogo name={b.name} logo={b.logo} favicon={b.favicon} size={40} />
-              <span className="line-clamp-2 w-full break-words text-xs text-gray-700">{b.name}</span>
-              {current ? <span className="text-[11px] font-medium text-brand-blue">กำลังดู</span> : null}
-            </button>
-          );
-        })}
-      </div>
-    </Panel>
   );
 }

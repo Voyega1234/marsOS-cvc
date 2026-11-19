@@ -112,7 +112,7 @@ const STICKY_HEAD = "sticky top-0 z-10 bg-white text-left text-xs text-gray-500 
 /** 3c: our brand and every tracked competitor, ranked by Visibility; our brand is highlighted in its real place */
 export function TopCompetitorsCard({ dto, onGoTab, brand }: { dto: Dto; onGoTab: (t: TabId) => void; brand?: BrandOpt }) {
   const rows = [...(dto.entities ?? [])].sort((a, b) =>
-    (b.mentionRate ?? -1) - (a.mentionRate ?? -1) || b.mentions - a.mentions || a.name.localeCompare(b.name));
+    (b.visibilityRate ?? b.mentionRate ?? -1) - (a.visibilityRate ?? a.mentionRate ?? -1) || (b.visible ?? b.mentions) - (a.visible ?? a.mentions) || (a.name ?? "").localeCompare(b.name ?? ""));
   return (
     <Panel
       title="Top Competitors"
@@ -155,7 +155,7 @@ export function TopCompetitorsCard({ dto, onGoTab, brand }: { dto: Dto; onGoTab:
                         {own && <Chip tone="info">แบรนด์เรา</Chip>}
                       </span>
                     </td>
-                    <td className="py-2.5 pr-3 text-right tabular-nums">{pct(e.mentionRate)}</td>
+                    <td className="py-2.5 pr-3 text-right tabular-nums">{pct(e.visibilityRate ?? e.mentionRate)}</td>
                     <td className="py-2.5 pr-3 text-right"><ChangeChip c={dto.entityChange?.[e.key] ?? null} /></td>
                     <td className="py-2.5 text-right tabular-nums">
                       {pct(e.avgPositionPct, 0)}

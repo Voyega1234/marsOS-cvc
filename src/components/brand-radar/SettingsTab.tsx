@@ -8,7 +8,7 @@ import { BarChart, Chip, EmptyState, MeterBar, Panel, Segmented } from "@/compon
 import { LANGUAGE_BOTH, PROFILE_LANGUAGES } from "@/lib/brand-radar/language";
 import {
   COUNTRIES, DEFAULT_SAMPLES, LIMITS, PROMPT_SOURCES, PROMPT_SOURCE_LABEL, PROVIDER_KEYS, SAMPLE_OPTIONS, SCHEDULE_LIMITS,
-  costPerCall, formatSchedule, parseSchedule,
+  costPerCall, formatSchedule, isManualProjectId, parseSchedule,
   type AutoScanDTO, type CompetitorDTO, type ProfileInput, type ProfileRes, type PromptSource, type ProviderKey,
   type ProviderStatusDTO, type ProvidersRes, type Schedule, type ScheduleKind, type ScheduleSpec, type UsageDTO,
 } from "@/lib/brand-radar/types";
@@ -239,7 +239,7 @@ export function TagInput({ value, onChange, placeholder, max = LIMITS.aliasesMax
 interface CompForm { id: string; name: string; aliases: string[]; domains: string[] }
 const emptyComp: CompForm = { id: "", name: "", aliases: [], domains: [] };
 
-export default function SettingsTab({ projectId, refreshKey, onChanged, clientView, brandLogo }: TabProps) {
+export default function SettingsTab({ projectId, refreshKey, onChanged, clientView, brandLogo, onDeleted }: TabProps & { onDeleted?: () => void }) {
   // logo shown in the uploader: follows the saved logo, ClientAvatar updates it optimistically
   const [logoDraft, setLogoDraft] = useState<string | null>(brandLogo?.logo ?? null);
   useEffect(() => { setLogoDraft(brandLogo?.logo ?? null); }, [brandLogo?.logo, projectId]);
@@ -271,6 +271,13 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
   const [comp, setComp] = useState<CompForm | null>(null);
   const [compBusy, setCompBusy] = useState(false);
   const [compError, setCompError] = useState("");
+  // delete project: the confirmation box, what was typed into it, and the request state
+  const [delOpen, setDelOpen] = useState(false);
+  const [delText, setDelText] = useState("");
+  const [delBusy, setDelBusy] = useState(false);
+  const [delError, setDelError] = useState("");
+  const delProjectRef = useRef(projectId);
+  delProjectRef.current = projectId;
 
   // bumps on every load / project switch so a late response from an older request is ignored
   const reqRef = useRef(0);
@@ -294,6 +301,10 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
     setSaveError("");
     setTestError("");
     setComp(null);
+    setDelOpen(false);
+    setDelText("");
+    setDelBusy(false);
+    setDelError("");
     setCompError("");
   }, [projectId]);
 
@@ -434,6 +445,24 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
     onChanged();
   }
 
+  // The saved brand name must be typed before the delete button works (an unsaved edit of the name does not count).
+  const delWord = (baseline.brandName ?? "").trim() || "ลบ";
+  async function deleteProject() {
+    if (delBusy || delText.trim() !== delWord) return;
+    setDelBusy(true);
+    setDelError("");
+    const asked = projectId;
+    const res = await api(`/api/brand-radar/projects?project=${encodeURIComponent(asked)}`, { method: "DELETE" });
+    // The user moved to another project while the delete ran: its result must not touch the project now open.
+    if (delProjectRef.current !== asked) return;
+    setDelBusy(false);
+    if (!res.ok) { setDelError(res.data.error || `ลบไม่สำเร็จ (HTTP ${res.status})`); return; }
+    onDeleted?.();
+  }
+
+  // Hooks must run before the early returns below: the loading skeleton renders first, and a hook placed after it changes the hook count on the next render.
+  const sampleBrandTerms = useMemo(() => brandTermsOf(form.brandName, form.aliases), [form.brandName, form.aliases]);
+
   if (loading && !hasProfile && !form.brandName) {
     return <div className="space-y-4" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="h-40 animate-pulse rounded-3xl bg-gray-100" />)}</div>;
   }
@@ -456,7 +485,6 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
   const compFull = competitors.length >= LIMITS.competitorsMax;
 
   // The brand name and its other names are edited as one list: the first entry is the brand name, the rest are aliases.
-  const sampleBrandTerms = useMemo(() => brandTermsOf(form.brandName, form.aliases), [form.brandName, form.aliases]);
   const brandNames = [form.brandName ?? "", ...(form.aliases ?? [])]
     .map((x) => x.trim())
     .filter((x, i, all) => !!x && all.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i);
@@ -866,6 +894,52 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
           </Panel>
         </aside>
       </div>
+
+      {!clientView && hasProfile && (
+        <section aria-labelledby="br-delete-title" className="rounded-3xl border border-red-200 bg-white/90 p-4 sm:p-5">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 id="br-delete-title" className="text-sm font-semibold text-red-700">ลบโปรเจกต์นี้ออกจาก Brand Radar</h3>
+              <p className="mt-1 text-xs text-gray-600">
+                ลบการตั้งค่าแบรนด์ คู่แข่ง Prompt ผลสแกน และคำตอบ AI ทั้งหมดของโปรเจกต์นี้ ลบแล้วกู้คืนไม่ได้
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                {isManualProjectId(projectId)
+                  ? "โปรเจกต์นี้สร้างใน Brand Radar จึงหายไปทั้งโปรเจกต์ ประวัติค่าใช้จ่าย AI ยังอยู่"
+                  : "โปรเจกต์ใน MarsOS และข้อมูลของเมนูอื่นไม่ถูกลบ กลับมาตั้งค่า Brand Radar ใหม่ได้ ประวัติค่าใช้จ่าย AI ยังอยู่"}
+              </p>
+            </div>
+            {!delOpen && (
+              <Button variant="outline" className="min-h-10 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800" onClick={() => { setDelOpen(true); setDelText(""); setDelError(""); }}>
+                <Trash2 className="mr-1.5 h-4 w-4" />ลบโปรเจกต์
+              </Button>
+            )}
+          </div>
+          {delOpen && (
+            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3">
+              <label htmlFor="br-delete-confirm" className="block text-xs font-medium text-red-800">
+                พิมพ์ <span className="font-semibold">{delWord}</span> เพื่อยืนยันการลบ
+              </label>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  id="br-delete-confirm"
+                  className={`${inputCls} max-w-xs`}
+                  value={delText}
+                  onChange={(e) => setDelText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void deleteProject(); }}
+                  autoComplete="off"
+                  disabled={delBusy}
+                />
+                <Button className="min-h-10 bg-red-600 text-white hover:bg-red-700" onClick={() => void deleteProject()} disabled={delBusy || delText.trim() !== delWord}>
+                  {delBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}ลบถาวร
+                </Button>
+                <Button variant="outline" className="min-h-10" onClick={() => { setDelOpen(false); setDelText(""); setDelError(""); }} disabled={delBusy}>ยกเลิก</Button>
+              </div>
+              {delError && <p role="alert" className="mt-2 text-sm text-red-700">{delError}</p>}
+            </div>
+          )}
+        </section>
+      )}
 
       {barVisible && (
         <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-2xl border border-white/80 bg-white/90 p-3 shadow-sm backdrop-blur">

@@ -1,12 +1,13 @@
 import { randomBytes } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { bad, isCtx, requireReader, requireStaff } from '@/lib/brand-radar/server'
+import { bad, isCtx, isRadarCtx, requireProject, requireReader, requireStaff } from '@/lib/brand-radar/server'
+import { deleteRadarProject } from '@/lib/brand-radar/delete-project'
 import { buildProjectOptions, buildProjectOptionsFor } from '@/lib/brand-radar/queries'
 import { DEFAULT_PROVIDERS, cleanCompetitorInput, cleanProfileInput } from '@/lib/brand-radar/profile-input'
 import { nameKey } from '@/lib/brand-radar/normalize'
 import { nextRunAfter } from '@/lib/brand-radar/schedule'
-import { LIMITS, MANUAL_PROJECT_PREFIX, type CreateProjectRes, type ProjectsRes, type Schedule } from '@/lib/brand-radar/types'
+import { LIMITS, MANUAL_PROJECT_PREFIX, isManualProjectId, type CreateProjectRes, type ProjectsRes, type Schedule } from '@/lib/brand-radar/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,4 +101,21 @@ export async function POST(req: NextRequest) {
   const project = (await buildProjectOptions(staff.orgId)).find((p) => p.id === id)
   if (!project) return bad('สร้างโปรเจกต์ไม่สำเร็จ', 500)
   return NextResponse.json({ project } satisfies CreateProjectRes)
+}
+
+/**
+ * Delete a project from Brand Radar (owner request, 2026-11-19): its settings, competitors, prompts, every scan and
+ * every stored AI answer. Staff only, and only a project of the caller's own organization (requireProject).
+ * The MarsOS Project row, other modules' data and the AI cost history are never touched: see delete-project.ts.
+ * Refused with 409 while AI calls for the project are still in flight.
+ */
+export async function DELETE(req: NextRequest) {
+  const sp = req.nextUrl.searchParams
+  const ctx = await requireProject(sp.get('project') || sp.get('projectId'))
+  if (!isRadarCtx(ctx)) return ctx
+  const result = await deleteRadarProject(ctx.orgId, ctx.project.id)
+  if (result.kind === 'busy') {
+    return bad('ระบบกำลังถาม AI ของโปรเจกต์นี้อยู่ กดยกเลิกการสแกนแล้วรอสักครู่ (ไม่เกิน 5 นาที) จึงลบได้', 409)
+  }
+  return NextResponse.json({ ok: true, manual: isManualProjectId(ctx.project.id), deleted: result.counts })
 }

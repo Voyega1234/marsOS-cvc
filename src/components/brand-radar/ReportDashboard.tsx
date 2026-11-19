@@ -18,7 +18,7 @@ import { LoadState, useApiData } from "./PromptDialogs";
 import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
 import { AnswerBreakdownCard, LatestAnswersTable, SourcesCard, TopCompetitorsCard, pct } from "./ReportCards";
 import { QueryGroupsCard, SENTIMENT_SECTION_ID, SentimentSection } from "./InsightSections";
-import { BottomRow, BrandPager, DossierHeader, HeroRow, type BrandOpt } from "./ReportDossier";
+import { BottomRow, DossierHeader, HeroRow, type BrandOpt } from "./ReportDossier";
 import { ScanProgressSection } from "./ScanProgressSection";
 import ScorecardSection from "./ScorecardSection";
 
@@ -115,7 +115,7 @@ function Skeleton() {
   );
 }
 
-export default function ReportDashboard({ projectId, filters, refreshKey, onGoTab, clientView, brands, onSwitchBrand }: Pick<TabProps, "projectId" | "filters" | "refreshKey" | "onGoTab" | "clientView"> & { brands?: BrandOpt[]; onSwitchBrand?: (id: string) => void }) {
+export default function ReportDashboard({ projectId, filters, refreshKey, onGoTab, clientView, brands }: Pick<TabProps, "projectId" | "filters" | "refreshKey" | "onGoTab" | "clientView"> & { brands?: BrandOpt[]; onSwitchBrand?: (id: string) => void }) {
   const [viewing, setViewing] = useState<ViewerTarget | null>(null);
   const url = `/api/brand-radar/responses?${radarQuery(projectId, filters, { pageSize: "8" })}`;
   const { data, loading, error, reload } = useApiData<Dto>(url, refreshKey, true);
@@ -158,7 +158,6 @@ export default function ReportDashboard({ projectId, filters, refreshKey, onGoTa
 
       <BottomRow dto={data} clientView={clientView} />
 
-      <ScorecardSection scorecard={data.scorecard} />
 
       <ScanProgressSection scans={data.scans ?? []} />
 
@@ -177,7 +176,9 @@ export default function ReportDashboard({ projectId, filters, refreshKey, onGoTa
 
       <LatestAnswersTable dto={data} onOpen={setViewing} onGoTab={onGoTab} clientView={clientView} />
 
-      <BrandPager brands={brands} currentId={projectId} onSwitch={onSwitchBrand} />
+      {/* grades and month comparison sit right under the latest answers by the owner's request */}
+
+      <ScorecardSection scorecard={data.scorecard} />
 
       {/* last on the page by the owner's request */}
       <ActionPanel dto={data} onGoTab={onGoTab} clientView={clientView} />

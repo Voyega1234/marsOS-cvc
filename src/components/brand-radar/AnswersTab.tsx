@@ -17,7 +17,7 @@ import {
 } from "@/lib/brand-radar/types";
 import { cn } from "@/lib/utils";
 import { ProviderLogo } from "./ProviderLogo";
-import { ANSWER_ZONE_LEGEND, fmtNum, fmtPct, INSUFFICIENT, NO_DATA_MESSAGE, fmtZoneShare, providerLabelFor, radarQuery, type TabProps } from "./shared";
+import { ANSWER_ZONE_CAPTION, fmtNum, fmtPct, INSUFFICIENT, NO_DATA_MESSAGE, fmtZoneBrief, providerLabelFor, radarQuery, type TabProps } from "./shared";
 import { LoadState, Pager, useApiData } from "./PromptDialogs";
 import ResponseViewer, { AnswerBody, type ViewerTarget } from "./ResponseViewer";
 import { BRAND_ROW_CLS, BrandHighlight } from "./BrandHighlight";
@@ -26,15 +26,15 @@ import { brandTermsOf } from "@/lib/brand-radar/highlight";
 const PAGE_SIZE = 10;
 
 export const KIND_LABEL: Record<AnswerKind, string> = {
-  both: "Mention + Citation",
-  mention_only: "Mention อย่างเดียว (ชื่ออย่างเดียว ไม่แนบลิงก์)",
-  citation_only: "Citation อย่างเดียว (อ้างอิงเว็บ ไม่เอ่ยชื่อ)",
+  both: "Brand Mention + AI Citation",
+  mention_only: "Brand Mention อย่างเดียว (ชื่ออย่างเดียว ไม่แนบลิงก์)",
+  citation_only: "AI Citation อย่างเดียว (อ้างอิงเว็บ ไม่เอ่ยชื่อ)",
   none: "ไม่พูดถึงเรา",
 };
 export const KIND_SHORT: Record<AnswerKind, string> = {
-  both: "Mention + Citation",
-  mention_only: "Mention อย่างเดียว",
-  citation_only: "Citation อย่างเดียว",
+  both: "Brand Mention + AI Citation",
+  mention_only: "Brand Mention อย่างเดียว",
+  citation_only: "AI Citation อย่างเดียว",
   none: "ไม่พูดถึงเรา",
 };
 export const KIND_COLOR: Record<AnswerKind, string> = {
@@ -229,13 +229,13 @@ export default function AnswersTab({ projectId, filters, refreshKey, onGoTab, cl
       {/* Short totals strip (the full dashboard lives on the Overview tab) */}
       <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
         <KpiTile label="AI ตอบทั้งหมด" value={`${fmtNum(t.asked)} คำตอบ`} tone="plain" footer={<span className="text-xs text-gray-500">จาก {fmtNum(t.prompts)} คำถาม</span>} />
-        <KpiTile label="Mention (พูดถึงแบรนด์เรา)" value={`${fmtNum(t.mentioned)} ครั้ง`} tone="sky" footer={<span className="text-xs text-gray-500">{fmtPct(t.mentionRate)}</span>} />
-        <KpiTile label="Citation (อ้างอิงเว็บเรา)" value={`${fmtNum(t.ownedCited)} ครั้ง`} tone="mist" footer={<span className="text-xs text-gray-500">{fmtPct(t.citationRate)}</span>} />
+        <KpiTile label="Brand Mention (พูดถึงแบรนด์เรา)" value={`${fmtNum(t.mentioned)} ครั้ง`} tone="sky" footer={<span className="text-xs text-gray-500">{fmtPct(t.mentionRate)}</span>} />
+        <KpiTile label="AI Citation (อ้างอิงเว็บเรา)" value={`${fmtNum(t.ownedCited)} ครั้ง`} tone="mist" footer={<span className="text-xs text-gray-500">{fmtPct(t.citationRate)}</span>} />
         <KpiTile
           label="ลำดับที่ถูกเอ่ยถึงเฉลี่ย"
           value={t.avgPosition === null || t.avgPosition === undefined ? INSUFFICIENT : t.avgPosition.toFixed(1)}
           tone="plain"
-          hint={`1 = ถูกเอ่ยเป็นชื่อแรก · ตำแหน่งในคำตอบ: ${fmtZoneShare(t.mentionStyle?.zones) ?? "ยังไม่มีข้อมูล"} (${ANSWER_ZONE_LEGEND})`}
+          hint={`1 = ถูกเอ่ยเป็นชื่อแรก · ${ANSWER_ZONE_CAPTION}: ${fmtZoneBrief(t.mentionStyle?.zones) ?? "ยังไม่มีข้อมูล"}`}
         />
       </div>
 

@@ -84,10 +84,10 @@ function Visibility({ b }: { b: BrandSummaryDTO }) {
   const mark = b.topCompetitor?.mentionRate ?? undefined;
   return (
     <div className="min-w-0">
-      <div className="text-sm font-semibold tabular-nums text-brand-navy">{fmtPct(b.mentionRate)}</div>
-      {b.mentionRate !== null ? (
-        <div title={mark !== undefined ? "เส้น = คู่แข่งอันดับ 1" : undefined}>
-          <MeterBar value={b.mentionRate} max={1} mark={mark} ariaLabel={`Visibility ${fmtPct(b.mentionRate)}`} />
+      <div className="text-sm font-semibold tabular-nums text-brand-navy">{fmtPct(b.visibilityRate)}</div>
+      {b.visibilityRate !== null ? (
+        <div title={mark !== undefined ? "เส้น = อัตราที่ AI เอ่ยชื่อคู่แข่งอันดับ 1" : undefined}>
+          <MeterBar value={b.visibilityRate} max={1} mark={mark} ariaLabel={`Visibility ${fmtPct(b.visibilityRate)}`} />
         </div>
       ) : null}
       <div className={`text-xs tabular-nums ${ch.cls}`}>{ch.text}</div>
@@ -119,8 +119,8 @@ function Row({ b, onOpen, clientView, picture }: { b: BrandSummaryDTO; onOpen: (
           {topLine && <div className="truncate" title={topLine}>{topLine}</div>}
         </div>
         <div className="text-right">
-          <div className="text-sm font-semibold tabular-nums text-brand-navy">{fmtNum(b.mentioned)}/{fmtNum(b.asked)}</div>
-          <div className="text-xs text-gray-500">คำตอบที่พูดถึงแบรนด์</div>
+          <div className="text-sm font-semibold tabular-nums text-brand-navy">{fmtNum(b.appeared)}/{fmtNum(b.asked)}</div>
+          <div className="text-xs text-gray-500">คำตอบที่พูดถึงหรืออ้างอิง</div>
         </div>
         <Visibility b={b} />
         <div className="flex justify-center">{sv.length >= 2 ? <Sparkline values={sv} width={88} height={28} ariaLabel="แนวโน้ม Visibility" /> : null}</div>
@@ -144,8 +144,8 @@ function Row({ b, onOpen, clientView, picture }: { b: BrandSummaryDTO; onOpen: (
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs text-gray-500">
           <div>
-            <div className="text-sm font-semibold tabular-nums text-brand-navy">{fmtNum(b.mentioned)}/{fmtNum(b.asked)}</div>
-            <div>คำตอบที่พูดถึงแบรนด์</div>
+            <div className="text-sm font-semibold tabular-nums text-brand-navy">{fmtNum(b.appeared)}/{fmtNum(b.asked)}</div>
+            <div>คำตอบที่พูดถึงหรืออ้างอิง</div>
           </div>
           <Visibility b={b} />
           <div>
@@ -230,10 +230,10 @@ export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView, pi
     const byName = (a: BrandSummaryDTO, b: BrandSummaryDTO) => a.name.localeCompare(b.name, "th");
     // null visibility always goes last, whichever direction is chosen
     const vis = (a: BrandSummaryDTO, b: BrandSummaryDTO, dir: 1 | -1) => {
-      if (a.mentionRate === null && b.mentionRate === null) return 0;
-      if (a.mentionRate === null) return 1;
-      if (b.mentionRate === null) return -1;
-      return (a.mentionRate - b.mentionRate) * dir;
+      if (a.visibilityRate === null && b.visibilityRate === null) return 0;
+      if (a.visibilityRate === null) return 1;
+      if (b.visibilityRate === null) return -1;
+      return (a.visibilityRate - b.visibilityRate) * dir;
     };
     return [...list].sort((a, b) => {
       const sa = a.status === "scanning" ? 0 : 1;
@@ -248,11 +248,11 @@ export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView, pi
   }, [brands, query, status, sort, clientView]);
 
   const exportCsv = () => {
-    const head = ["แบรนด์", "ลูกค้า", "เว็บไซต์", "Platform", "คู่แข่ง", "คำตอบทั้งหมด", "พูดถึงแบรนด์", "Visibility %", "เปลี่ยนแปลง (จุด)", "อ้างอิงเว็บเรา", "Citation %", "สถานะ", "สแกนล่าสุด", ...(clientView ? [] : ["สแกนถัดไป"])];
+    const head = ["แบรนด์", "ลูกค้า", "เว็บไซต์", "Platform", "คู่แข่ง", "คำตอบทั้งหมด", "พูดถึงแบรนด์", "Brand Mention %", "Visibility %", "เปลี่ยนแปลง (จุด)", "อ้างอิงเว็บเรา", "AI Citation %", "สถานะ", "สแกนล่าสุด", ...(clientView ? [] : ["สแกนถัดไป"])];
     const pct = (v: number | null) => (v === null ? "" : Number((v * 100).toFixed(1)));
     const body = rows.map((b) => [
       b.name, b.clientName, b.website, b.providers.length, b.competitors, b.asked, b.mentioned,
-      pct(b.mentionRate), pct(b.change), b.ownedCited, pct(b.citationRate), statusLabel(b.status, clientView),
+      pct(b.mentionRate), pct(b.visibilityRate), pct(b.change), b.ownedCited, pct(b.citationRate), statusLabel(b.status, clientView),
       b.lastRunAt ? fmtDate(b.lastRunAt) : "", ...(clientView ? [] : [b.nextRunAt ? fmtDate(b.nextRunAt) : ""]),
     ]);
     downloadCsv("brand-radar-brands.csv", [head, ...body]);

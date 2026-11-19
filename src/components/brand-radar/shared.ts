@@ -201,6 +201,16 @@ export function fmtZoneShare(zones: ZoneCounts | null | undefined): string | nul
   return `ช่วงต้น ${s.early}% · ช่วงกลาง ${s.middle}% · ช่วงท้าย ${s.late}%`
 }
 
+/** What the zone percentages measure, as a short caption that needs no further explanation */
+export const ANSWER_ZONE_CAPTION = 'AI เอ่ยชื่อแบรนด์ช่วงไหนของคำตอบ'
+
+/** Self-explaining zone names, e.g. "ต้นคำตอบ 60% · กลางคำตอบ 30% · ท้ายคำตอบ 10%"; null when not recorded */
+export function fmtZoneBrief(zones: ZoneCounts | null | undefined): string | null {
+  const s = zoneShares(zones)
+  if (!s) return null
+  return `ต้นคำตอบ ${s.early}% · กลางคำตอบ ${s.middle}% · ท้ายคำตอบ ${s.late}%`
+}
+
 /** null -> "N/A" (unknown, e.g. search volume). Never prints 0 for unknown. */
 export function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return NA

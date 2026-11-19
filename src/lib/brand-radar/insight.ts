@@ -533,14 +533,14 @@ export interface DailyTrend {
     series: Array<{ key: string; name: string; entityType: 'brand' | 'competitor' }>
     points: Array<{ date: string; asked: number; values: Array<number | null> }>
   }
-  /** brand: mention rate of the newest day minus the oldest day; null with fewer than 2 days */
+  /** brand: Visibility of the newest day minus the oldest day; null with fewer than 2 days */
   change: number | null
   entityChange: Record<string, number | null>
 }
 
 /**
- * Share of answers naming each entity per Bangkok day. The chart shows the brand plus the most-mentioned
- * competitors; the change is worked out for every entity of `entities`.
+ * Visibility per Bangkok day: the share of answers that name each entity or cite a site it owns. The chart
+ * shows the brand plus the most-visible competitors; the change is worked out for every entity of `entities`.
  */
 export function dailyTrend(ds: Dataset, entities: EntityShare[]): DailyTrend {
   const dayOf = new Map<string, string>()
@@ -564,12 +564,18 @@ export function dailyTrend(ds: Dataset, entities: EntityShare[]): DailyTrend {
   }
   for (const r of ds.responses) {
     const day = dayOf.get(r.id)
-    if (day && r.brandMentioned === true) add('brand', day, r.id)
+    if (day && (r.brandMentioned === true || r.ownedCited === true)) add('brand', day, r.id)
   }
   for (const m of ds.mentions) {
     if (m.entityType !== 'competitor') continue
     const day = dayOf.get(m.responseId)
     if (day) add(m.competitorId ?? m.entityKey, day, m.responseId)
+  }
+  // A cited competitor site counts as visible even when the answer does not name the competitor
+  for (const c of ds.citations) {
+    if (!c.competitorId) continue
+    const day = dayOf.get(c.responseId)
+    if (day) add(c.competitorId, day, c.responseId)
   }
 
   const rateOn = (key: string, day: string): number | null => rate(named.get(key)?.get(day)?.size || 0, askedByDay.get(day) || 0)
@@ -581,7 +587,7 @@ export function dailyTrend(ds: Dataset, entities: EntityShare[]): DailyTrend {
   }
 
   const brand = entities.filter((e) => e.entityType === 'brand')
-  const competitors = entities.filter((e) => e.entityType === 'competitor' && e.mentions > 0).slice(0, INSIGHT_LIMITS.trendCompetitors)
+  const competitors = entities.filter((e) => e.entityType === 'competitor' && e.visible > 0).slice(0, INSIGHT_LIMITS.trendCompetitors)
   const series = [...brand, ...competitors].map((e) => ({ key: e.key, name: e.name, entityType: e.entityType }))
 
   const entityChange: Record<string, number | null> = {}

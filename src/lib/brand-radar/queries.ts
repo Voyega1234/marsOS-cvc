@@ -892,6 +892,8 @@ export async function buildAnswerFeed(ctx: RadarCtx, filters: RadarFilters, opts
   for (const m of ds.mentions) {
     if (m.entityType !== 'competitor') continue
     const key = m.competitorId || m.entityKey
+    // A customer login only sees competitors that are still tracked; the stored name of a removed one stays hidden.
+    if (ctx.clientView && !compName.has(key)) continue
     let set = compsByResp.get(m.responseId)
     if (!set) { set = new Map(); compsByResp.set(m.responseId, set) }
     set.set(key, compName.get(key) ?? m.entityName)
@@ -1553,7 +1555,7 @@ export const BRAND_WINDOW_DAYS = 30
 
 const DB_SCHEMA = 'plans_seo_pipeline'
 
-interface BrandDayRow { projectId: string; day: string; asked: bigint | number; mentioned: bigint | number; cited: bigint | number }
+interface BrandDayRow { projectId: string; day: string; asked: bigint | number; mentioned: bigint | number; appeared: bigint | number; cited: bigint | number }
 
 /**
  * One row per brand that already has a monitor (= a saved profile), with the numbers of the last 30 days.
@@ -1588,6 +1590,7 @@ export async function buildBrandSummaries(orgId: string, now: Date = new Date(),
              to_char(r."collectedAt" + interval '7 hours', 'YYYY-MM-DD') AS "day",
              count(*) AS "asked",
              count(*) FILTER (WHERE r."brandMentioned" IS TRUE) AS "mentioned",
+             count(*) FILTER (WHERE r."brandMentioned" IS TRUE OR r."ownedCited" IS TRUE) AS "appeared",
              count(*) FILTER (WHERE r."ownedCited" IS TRUE) AS "cited"
       FROM ${table} AS r
       WHERE r."organizationId" = ${orgId} AND r."status" = 'DONE'
@@ -1630,21 +1633,24 @@ export async function buildBrandSummaries(orgId: string, now: Date = new Date(),
     const list = daysOf.get(p.projectId) ?? []
     let asked = 0
     let mentioned = 0
+    let appeared = 0
     let cited = 0
-    const half = { newer: { asked: 0, mentioned: 0 }, older: { asked: 0, mentioned: 0 } }
+    const half = { newer: { asked: 0, appeared: 0 }, older: { asked: 0, appeared: 0 } }
     const spark = list.map((d) => {
       const a = Number(d.asked)
       const m = Number(d.mentioned)
+      const v = Number(d.appeared)
       asked += a
       mentioned += m
+      appeared += v
       cited += Number(d.cited)
       const side = d.day >= newerFrom ? half.newer : half.older
       side.asked += a
-      side.mentioned += m
-      return { date: d.day, asked: a, rate: ratio(m, a) }
+      side.appeared += v
+      return { date: d.day, asked: a, rate: ratio(v, a) }
     })
-    const newer = ratio(half.newer.mentioned, half.newer.asked)
-    const older = ratio(half.older.mentioned, half.older.asked)
+    const newer = ratio(half.newer.appeared, half.newer.asked)
+    const older = ratio(half.older.appeared, half.older.asked)
     const top = topOf.get(p.projectId)
     const activePrompts = activeOf.get(p.projectId) ?? 0
     const status: BrandStatus = activePrompts === 0 ? 'needs_setup'
@@ -1664,6 +1670,8 @@ export async function buildBrandSummaries(orgId: string, now: Date = new Date(),
       asked,
       mentioned,
       mentionRate: ratio(mentioned, asked),
+      appeared,
+      visibilityRate: ratio(appeared, asked),
       change: newer !== null && older !== null ? newer - older : null,
       ownedCited: cited,
       citationRate: ratio(cited, asked),
