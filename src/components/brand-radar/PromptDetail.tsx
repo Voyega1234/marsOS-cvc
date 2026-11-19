@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight, Download, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,12 +12,20 @@ import { ProviderLogo } from "./ProviderLogo";
 import { fmtDateTime, fmtNum, fmtPct, fmtRange, isSmallSample, methodLabel, providerShort, radarQuery } from "./shared";
 import { CitedDomainsTable, EntityTable, LoadState, exportCitedCsv, useApiData } from "./PromptDialogs";
 import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
+import { BRAND_ROW_CLS, BrandHighlight } from "./BrandHighlight";
+import { ColumnHelp } from "./ColumnHelp";
+import { brandTermsOf } from "@/lib/brand-radar/highlight";
+import { cn } from "@/lib/utils";
 
-function ResponseItem({ r, onView, clientView }: { r: ResponseDTO; onView: () => void; clientView?: boolean }) {
+function ResponseItem({ r, onView, clientView, brandTerms }: { r: ResponseDTO; onView: () => void; clientView?: boolean; brandTerms?: string[] }) {
   const [open, setOpen] = useState(false);
   const failed = r.status === "FAILED" || r.status === "SKIPPED";
+  const terms = useMemo(() => {
+    const own = r.mentions.find((m) => m.entityType === "brand");
+    return brandTermsOf(own?.name, own?.aliases, brandTerms);
+  }, [r.mentions, brandTerms]);
   return (
-    <li className="rounded-2xl border border-gray-100 bg-white/70">
+    <li className={cn("rounded-2xl border border-gray-100 bg-white/70", r.status === "DONE" && r.brandMentioned === true && BRAND_ROW_CLS)}>
       <div className="flex flex-wrap items-center gap-2 pr-2">
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
           className="flex min-w-0 flex-1 flex-wrap items-center gap-2 px-3 py-2 text-left text-sm">
@@ -36,7 +44,7 @@ function ResponseItem({ r, onView, clientView }: { r: ResponseDTO; onView: () =>
       {open ? (
         <div className="space-y-3 border-t border-gray-100 px-3 py-3 text-sm">
           {failed ? <p className="rounded-xl bg-red-50 p-2 text-xs text-red-700">{clientView ? "คำตอบนี้ยังไม่พร้อมแสดง" : (r.error || "ไม่มีรายละเอียดข้อผิดพลาด")}</p> : null}
-          {r.responseText ? <p className="whitespace-pre-wrap break-words">{r.responseText}</p> : null}
+          {r.responseText ? <p className="whitespace-pre-wrap break-words"><BrandHighlight text={r.responseText} terms={terms} /></p> : null}
           {r.mentions.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {r.mentions.map((m) => (
@@ -67,8 +75,10 @@ function ResponseItem({ r, onView, clientView }: { r: ResponseDTO; onView: () =>
   );
 }
 
-export default function PromptDetail({ projectId, filters, promptId, refreshKey, onBack, clientView }: {
+export default function PromptDetail({ projectId, filters, promptId, refreshKey, onBack, clientView, brandTerms }: {
   clientView?: boolean;
+  /** our brand name + aliases, used to highlight our brand inside answer text */
+  brandTerms?: string[];
   projectId: string;
   filters: RadarFilters;
   promptId: string;
@@ -164,11 +174,11 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
                 <Table className="min-w-[480px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>AI platform</TableHead>
-                      <TableHead className="text-right">Responses</TableHead>
-                      <TableHead className="text-right">เราขึ้น</TableHead>
-                      <TableHead className="text-right">Recommended</TableHead>
-                      <TableHead className="text-right">Cited</TableHead>
+                      <TableHead><ColumnHelp k="aiPlatform">AI platform</ColumnHelp></TableHead>
+                      <TableHead className="text-right"><ColumnHelp k="platformResponses" align="end">Responses</ColumnHelp></TableHead>
+                      <TableHead className="text-right"><ColumnHelp k="platformMentionRate" align="end">เราขึ้น</ColumnHelp></TableHead>
+                      <TableHead className="text-right"><ColumnHelp k="platformRecommended" align="end">Recommended</ColumnHelp></TableHead>
+                      <TableHead className="text-right"><ColumnHelp k="platformCited" align="end">Cited</ColumnHelp></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -244,7 +254,7 @@ export default function PromptDetail({ projectId, filters, promptId, refreshKey,
         ) : (
           <ul className="space-y-2">
             {data.history.map((r) => (
-              <ResponseItem key={r.id} r={r} clientView={clientView} onView={() => setViewing({ promptId, runId: r.runId, provider: r.provider, responseId: r.id })} />
+              <ResponseItem key={r.id} r={r} clientView={clientView} brandTerms={brandTerms} onView={() => setViewing({ promptId, runId: r.runId, provider: r.provider, responseId: r.id })} />
             ))}
           </ul>
         )}

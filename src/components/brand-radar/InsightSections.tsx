@@ -12,9 +12,10 @@ import { Chip, Panel } from "@/components/ds";
 import type { ChipTone } from "@/components/ds";
 import {
   BRAND_POSITIONING_LABEL, SEARCH_QUERY_SUPPORT, SENTIMENT_TONES, SENTIMENT_TONE_LABEL,
-  type AnswerInsightDTO, type InsightEntityDTO, type QueryGroupDTO, type SentimentTone,
+  type AnswerInsightDTO, type InsightEntityDTO, type InsightQuote, type QueryGroupDTO, type SentimentTone,
 } from "@/lib/brand-radar/types";
 import { fmtNum, fmtPct, providerLabelFor } from "./shared";
+import type { ViewerTarget } from "./ResponseViewer";
 
 /** DOM id of the sentiment block, used by the "ควรดูต่อ" panel to scroll here */
 export const SENTIMENT_SECTION_ID = "brand-radar-sentiment";
@@ -90,10 +91,109 @@ function FactorSplit({ positive, neutral, negative }: { positive: number; neutra
   );
 }
 
-function BrandBlock({ e }: { e: InsightEntityDTO }) {
+/** What ResponseViewer needs to open the answer a quote came from; null when the quote carries no usable ids */
+export function quoteTarget(q: InsightQuote): ViewerTarget | null {
+  if (!q || !q.promptId) return null;
+  return { promptId: q.promptId, runId: q.runId || undefined, provider: q.provider || undefined, responseId: q.responseId || undefined };
+}
+
+const APPROX_NOTE = "ข้อความรอบชื่อแบรนด์ในคำตอบนี้ (คำตอบรอบเก่า ระบบยังไม่ได้เก็บประโยคที่ตรงกับหัวข้อ)";
+const NO_QUOTE_HINT = "ยังไม่มีตัวอย่างข้อความ จะมีหลังสแกนรอบถัดไป";
+
+/** Example passages from the AI's answers. Model text: rendered as text nodes only. */
+function QuoteList({ quotes, onOpenAnswer }: { quotes: InsightQuote[]; onOpenAnswer?: (target: ViewerTarget) => void }) {
+  return (
+    <div className="mt-1.5 rounded-lg bg-gray-50 p-2.5">
+      <p className="mb-1 text-[11px] font-medium text-gray-600">ตัวอย่างข้อความจากคำตอบของ AI</p>
+      <ul className="space-y-2">
+        {quotes.map((q, i) => {
+          const target = onOpenAnswer ? quoteTarget(q) : null;
+          return (
+            <li key={`${q.responseId}-${i}`} className="border-l-2 border-gray-200 pl-2 text-xs text-gray-700">
+              <span className="break-words">&ldquo;{q.text}&rdquo;</span>
+              {q.approx ? <span className="mt-0.5 block text-[11px] text-gray-500">{APPROX_NOTE}</span> : null}
+              {target && onOpenAnswer ? (
+                <button type="button" onClick={() => onOpenAnswer(target)} className="mt-0.5 block text-[11px] text-brand-blue hover:underline">ดูคำตอบเต็ม</button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** A ranked-list row; with quotes the whole head becomes a button that opens the example passages */
+function ExampleRow({ head, bar, quotes, onOpenAnswer }: { head: ReactNode; bar: ReactNode; quotes?: InsightQuote[]; onOpenAnswer?: (target: ViewerTarget) => void }) {
+  const [open, setOpen] = useState(false);
+  const has = !!quotes && quotes.length > 0;
+  if (!has) {
+    return (
+      <li>
+        {head}
+        <div className="mt-1">{bar}</div>
+      </li>
+    );
+  }
+  return (
+    <li>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="block w-full rounded-lg text-left hover:bg-gray-50">
+        <span className="flex items-start gap-1">
+          {open ? <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" /> : <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />}
+          <span className="block min-w-0 flex-1">
+            {head}
+            <span className="mt-1 block">{bar}</span>
+          </span>
+        </span>
+      </button>
+      {open && quotes ? <QuoteList quotes={quotes} onOpenAnswer={onOpenAnswer} /> : null}
+    </li>
+  );
+}
+
+const TYPES_SHOWN = 8;
+
+/** "ประเภท": the short labels the AI gives the brand, ranked like the factor list */
+function DescriptorList({ items, onOpenAnswer }: { items: InsightEntityDTO["descriptors"]; onOpenAnswer?: (target: ViewerTarget) => void }) {
+  const [all, setAll] = useState(false);
+  const max = items.reduce((m, d) => Math.max(m, d.answers ?? 0), 0);
+  const shown = all ? items : items.slice(0, TYPES_SHOWN);
+  const anyQuote = items.some((d) => (d.quotes?.length ?? 0) > 0);
+  return (
+    <div className="mt-4">
+      <SectionTitle hint="AI มองแบรนด์เราเป็นแบบไหน (ป้ายสั้น ๆ ที่ AI ใช้เรียกแบรนด์)">ประเภท</SectionTitle>
+      <ul className="space-y-2.5">
+        {shown.map((d) => (
+          <ExampleRow
+            key={d.text}
+            quotes={d.quotes}
+            onOpenAnswer={onOpenAnswer}
+            head={
+              <span className="flex items-start justify-between gap-3 text-xs text-gray-700">
+                <span className="min-w-0 break-words">{d.text}</span>
+                <span className="shrink-0 tabular-nums text-gray-500">{fmtNum(d.answers)} คำตอบ</span>
+              </span>
+            }
+            bar={
+              <span className="block h-2 rounded-full bg-gray-100">
+                <span className="block h-2 rounded-full bg-brand-blue" style={{ width: `${pctWidth(d.answers ?? 0, max)}%`, minWidth: (d.answers ?? 0) > 0 ? 2 : 0 }} />
+              </span>
+            }
+          />
+        ))}
+      </ul>
+      {items.length > TYPES_SHOWN ? (
+        <button type="button" onClick={() => setAll((v) => !v)} className="mt-2 text-xs text-brand-blue hover:underline">{all ? "ย่อ" : `ดูเพิ่ม (${fmtNum(items.length - TYPES_SHOWN)})`}</button>
+      ) : null}
+      {!anyQuote ? <p className="mt-2 text-[11px] text-gray-500">{NO_QUOTE_HINT}</p> : null}
+    </div>
+  );
+}
+
+function BrandBlock({ e, onOpenAnswer }: { e: InsightEntityDTO; onOpenAnswer?: (target: ViewerTarget) => void }) {
   const positioning = e.positioning ?? [];
   const factors = e.factors ?? [];
-  const descriptors = (e.descriptors ?? []).slice(0, 6);
+  const descriptors = e.descriptors ?? [];
   const summaries = (e.summaries ?? []).slice(0, 3);
   return (
     <div className="rounded-2xl border border-gray-100 bg-white/80 p-4">
@@ -119,27 +219,25 @@ function BrandBlock({ e }: { e: InsightEntityDTO }) {
           </p>
           <ul className="space-y-2.5">
             {factors.map((f) => (
-              <li key={f.code}>
-                <div className="flex items-start justify-between gap-3 text-xs text-gray-700">
-                  <span className="min-w-0">{f.label || f.code}</span>
-                  <span className="shrink-0 tabular-nums text-gray-500">
-                    <span className="text-emerald-600">+{fmtNum(f.positive)}</span> · {fmtNum(f.neutral)} · <span className="text-red-600">−{fmtNum(f.negative)}</span>
+              <ExampleRow
+                key={f.code}
+                quotes={f.quotes}
+                onOpenAnswer={onOpenAnswer}
+                head={
+                  <span className="flex items-start justify-between gap-3 text-xs text-gray-700">
+                    <span className="min-w-0">{f.label || f.code}</span>
+                    <span className="shrink-0 tabular-nums text-gray-500">
+                      <span className="text-emerald-600">+{fmtNum(f.positive)}</span> · {fmtNum(f.neutral)} · <span className="text-red-600">−{fmtNum(f.negative)}</span>
+                    </span>
                   </span>
-                </div>
-                <div className="mt-1"><FactorSplit positive={f.positive ?? 0} neutral={f.neutral ?? 0} negative={f.negative ?? 0} /></div>
-              </li>
+                }
+                bar={<FactorSplit positive={f.positive ?? 0} neutral={f.neutral ?? 0} negative={f.negative ?? 0} />}
+              />
             ))}
           </ul>
         </div>
       ) : null}
-      {descriptors.length > 0 ? (
-        <div className="mt-4">
-          <p className="mb-1.5 text-[11px] font-medium text-gray-600">คำที่ AI ใช้เรียกแบรนด์</p>
-          <div className="flex flex-wrap gap-1.5">
-            {descriptors.map((d) => <Chip key={d.text} tone="muted">{d.text} · {fmtNum(d.answers)}</Chip>)}
-          </div>
-        </div>
-      ) : null}
+      {descriptors.length > 0 ? <DescriptorList items={descriptors} onOpenAnswer={onOpenAnswer} /> : null}
       {summaries.length > 0 ? (
         <ul className="mt-4 space-y-1.5">
           {summaries.map((s, i) => (
@@ -201,7 +299,7 @@ function CompetitorCard({ e }: { e: InsightEntityDTO }) {
 }
 
 /** Row 4: "Brand Sentiment: AI มองแบรนด์ยังไง" — full width, has an id so other cards can scroll to it */
-export function SentimentSection({ insight, clientView }: { insight: AnswerInsightDTO | undefined; clientView?: boolean }) {
+export function SentimentSection({ insight, clientView, onOpenAnswer }: { insight: AnswerInsightDTO | undefined; clientView?: boolean; onOpenAnswer?: (target: ViewerTarget) => void }) {
   const ready = !!insight && insight.available !== false && (insight.analyzed ?? 0) > 0;
   if (!ready || !insight) {
     return (
@@ -230,22 +328,29 @@ export function SentimentSection({ insight, clientView }: { insight: AnswerInsig
             {factors.length === 0 ? <p className="text-xs text-gray-500">ยังไม่มีข้อมูล</p> : (
               <ul className="space-y-2.5">
                 {factors.slice(0, 8).map((f) => (
-                  <li key={f.code}>
-                    <div className="flex items-start justify-between gap-3 text-xs text-gray-700">
-                      <span className="min-w-0">{f.label || f.code}</span>
-                      <span className="shrink-0 tabular-nums"><b className="text-brand-navy">{fmtNum(f.answers)}</b> <span className="text-gray-500">({f.rate === null || f.rate === undefined ? "—" : fmtPct(f.rate, 0)})</span></span>
-                    </div>
-                    <div className="mt-1 h-2 rounded-full bg-gray-100">
-                      <div className="h-2 rounded-full bg-brand-blue" style={{ width: `${Math.min(100, Math.max(0, (f.rate ?? 0) * 100))}%`, minWidth: (f.rate ?? 0) > 0 ? 2 : 0 }} />
-                    </div>
-                  </li>
+                  <ExampleRow
+                    key={f.code}
+                    quotes={brand?.factors?.find((x) => x.code === f.code)?.quotes}
+                    onOpenAnswer={onOpenAnswer}
+                    head={
+                      <span className="flex items-start justify-between gap-3 text-xs text-gray-700">
+                        <span className="min-w-0">{f.label || f.code}</span>
+                        <span className="shrink-0 tabular-nums"><b className="text-brand-navy">{fmtNum(f.answers)}</b> <span className="text-gray-500">({f.rate === null || f.rate === undefined ? "—" : fmtPct(f.rate, 0)})</span></span>
+                      </span>
+                    }
+                    bar={
+                      <span className="block h-2 rounded-full bg-gray-100">
+                        <span className="block h-2 rounded-full bg-brand-blue" style={{ width: `${Math.min(100, Math.max(0, (f.rate ?? 0) * 100))}%`, minWidth: (f.rate ?? 0) > 0 ? 2 : 0 }} />
+                      </span>
+                    }
+                  />
                 ))}
               </ul>
             )}
           </div>
           <div>
             <SectionTitle>แบรนด์เรา</SectionTitle>
-            {brand ? <BrandBlock e={brand} /> : <p className="text-xs text-gray-500">AI ยังไม่ได้พูดถึงแบรนด์เราในคำตอบที่วิเคราะห์</p>}
+            {brand ? <BrandBlock e={brand} onOpenAnswer={onOpenAnswer} /> : <p className="text-xs text-gray-500">AI ยังไม่ได้พูดถึงแบรนด์เราในคำตอบที่วิเคราะห์</p>}
           </div>
           <div>
             <SectionTitle>คู่แข่ง</SectionTitle>

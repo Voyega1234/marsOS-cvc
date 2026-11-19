@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Loader2, Plus, X } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Settings, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,9 +13,10 @@ import {
   type CompetitorDTO, type CreateProjectRes, type ProfileDTO, type ProfileRes, type ProjectOptDTO, type ProjectsRes,
   type RadarFilters, type RunDTO, type RunDueRes, type ProviderKey,
 } from "@/lib/brand-radar/types";
-import { api, CLIENT_TAB_IDS, clearRadarCache, defaultFilters, postJson, TAB_IDS, type TabId, type TabProps } from "./shared";
+import { api, CLIENT_TAB_IDS, clearRadarCache, defaultFilters, postJson, TAB_IDS, type TabFocus, type TabFocusState, type TabId, type TabProps } from "./shared";
 import { PlatformChooser } from "./PlatformPicker";
 import { BrandList } from "./BrandList";
+import BrandNameSuggestions from "./BrandNameSuggestions";
 import FilterBar from "./FilterBar";
 import RunPanel from "./RunPanel";
 import OverviewTab from "./OverviewTab";
@@ -88,9 +89,11 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           </p>
           <div className="block text-sm">
             <span className="mb-1 block font-medium text-brand-navy">ชื่อแบรนด์ (พิมพ์ได้หลายชื่อ)</span>
-            <TagInput primary max={LIMITS.aliasesMax + 1} value={names} onChange={setNames} placeholder="เช่น Mfactors, เอ็มแฟคเตอร์, M-Factors (Enter หรือ , เพื่อเพิ่ม)" />
+            <BrandNameSuggestions names={names} website={website} max={LIMITS.aliasesMax + 1} onAdd={(added) => setNames((cur) => [...cur, ...added])}>
+              <TagInput primary max={LIMITS.aliasesMax + 1} value={names} onChange={setNames} placeholder="เช่น Mfactors, เอ็มแฟคเตอร์, M-Factors (Enter หรือ , เพื่อเพิ่ม)" />
+            </BrandNameSuggestions>
             <span className="mt-1 block text-xs text-gray-500">
-              ใส่ทุกแบบที่คนเรียกหรือสะกด เช่น ชื่อไทย ชื่ออังกฤษ ชื่อย่อ แบบเว้นวรรคและไม่เว้นวรรค ถ้า AI ใช้ชื่อใดชื่อหนึ่ง จะนับเป็นการพูดถึงแบรนด์ (ไม่สนตัวพิมพ์เล็ก-ใหญ่) ชื่อแรกใช้เป็นชื่อโปรเจกต์ กดที่ชื่ออื่นเพื่อตั้งเป็นชื่อหลัก แก้ไขภายหลังได้ที่แท็บ Settings
+              ใส่ทุกแบบที่คนเรียกหรือสะกด เช่น ชื่อไทย ชื่ออังกฤษ ชื่อย่อ แบบเว้นวรรคและไม่เว้นวรรค ถ้า AI ใช้ชื่อใดชื่อหนึ่ง จะนับเป็นการพูดถึงแบรนด์ (ไม่สนตัวพิมพ์เล็ก-ใหญ่) ชื่อแรกใช้เป็นชื่อโปรเจกต์ กดที่ชื่ออื่นเพื่อตั้งเป็นชื่อหลัก แก้ไขภายหลังได้ที่ปุ่ม Settings มุมขวาบน
             </span>
           </div>
           <label className="block text-sm">
@@ -101,7 +104,7 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           <div className="space-y-2">
             <span className="block text-sm font-medium text-brand-navy">AI platform ที่จะติดตาม</span>
             <PlatformChooser value={picked} onChange={setPicked} disabled={saving} />
-            <p className="text-xs text-gray-500">ยิ่งเลือกหลาย platform ค่าใช้จ่ายต่อการสแกนยิ่งสูง · สถานะการเชื่อมต่อดูได้ที่แท็บ Settings</p>
+            <p className="text-xs text-gray-500">ยิ่งเลือกหลาย platform ค่าใช้จ่ายต่อการสแกนยิ่งสูง · สถานะการเชื่อมต่อดูได้ที่ปุ่ม Settings มุมขวาบน</p>
           </div>
           <div className="space-y-2">
             <span className="block text-sm font-medium text-brand-navy">คู่แข่งที่จะติดตาม (ไม่บังคับ)</span>
@@ -159,6 +162,8 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
   const [profile, setProfile] = useState<ProfileDTO | null>(null);
   const [, setCompetitors] = useState<CompetitorDTO[]>([]);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  // "automatic scanning" switch of the active project (staff only), used to word the scan notices
+  const [autoScan, setAutoScan] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [dueRun, setDueRun] = useState<RunDTO | null>(null);
@@ -190,6 +195,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
     }
     setProfileError("");
     setProfile(res.data.profile ?? null);
+    setAutoScan(res.data.auto?.on === true);
     setCompetitors(Array.isArray(res.data.competitors) ? res.data.competitors : []);
     setProfileLoaded(true);
   }, [clientView]);
@@ -214,14 +220,22 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
     clearRadarCache();
   }
   // a customer sees the four report tabs only; a hidden tab id falls back to overview
-  const activeTab: TabId = clientView && !CLIENT_TAB_IDS.includes(tab) ? "overview" : tab;
-  const goTab = useCallback((t: TabId) => {
+  // Opportunities is no longer a tab of its own: it sits at the bottom of Citation Analysis, old links follow it there.
+  const wantedTab: TabId = tab === "opportunities" ? "citation-analysis" : tab;
+  const activeTab: TabId = clientView && !CLIENT_TAB_IDS.includes(wantedTab) ? "overview" : wantedTab;
+  // A shortcut on the report ("ควรดูต่อ") opens a tab already narrowed to one thing. Plain tab clicks clear it.
+  const [focus, setFocus] = useState<TabFocusState | null>(null);
+  const focusSeq = useRef(0);
+  const goTab = useCallback((t: TabId, f?: TabFocus) => {
     if (clientView && !CLIENT_TAB_IDS.includes(t)) return;
+    if (f?.provider) setProvider(f.provider);
+    setFocus(f ? { ...f, tab: t, seq: ++focusSeq.current } : null);
     setTab(t);
-  }, [clientView, setTab]);
+  }, [clientView, setTab, setProvider]);
 
   useEffect(() => {
     setProfile(null);
+    setAutoScan(false);
     setCompetitors([]);
     setProfileLoaded(false);
     setProfileError("");
@@ -283,7 +297,24 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
       <Plus className="mr-1 h-4 w-4" />สร้างโปรเจกต์ใหม่
     </Button>
   );
-  const picker = <div className="flex flex-wrap items-center gap-2">{select}{newButton}</div>;
+  // Settings is a button in the page corner (same shape as Project Setting in Upload Article), not a tab.
+  const settingsButton = (
+    <button
+      type="button"
+      onClick={() => setTab("settings")}
+      title="ตั้งค่า Brand Radar"
+      aria-label="ตั้งค่า Brand Radar"
+      aria-pressed={tab === "settings"}
+      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy ${
+        tab === "settings"
+          ? "border-brand-blue/20 bg-brand-blue/10 text-brand-blue"
+          : "border-gray-200 bg-white/80 text-gray-600 hover:bg-white hover:text-brand-navy"
+      }`}
+    >
+      <Settings size={13} aria-hidden /> Settings
+    </button>
+  );
+  const picker = <div className="flex flex-wrap items-center gap-2">{select}{newButton}{settingsButton}</div>;
   const newDialog = creating ? (
     <NewProjectDialog
       onClose={() => setCreating(false)}
@@ -297,6 +328,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
   ) : null;
 
   const selected = projects.find((p) => p.id === activeProjectId) ?? null;
+  const pictures = Object.fromEntries(projects.map((p) => [p.id, { logo: p.logo, favicon: p.favicon }]));
 
   if (clientView) {
     if (!projectsLoaded) {
@@ -321,7 +353,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
 
   if (!activeProjectId) {
     if (clientView) {
-      return <BrandList clientView onOpen={(id) => { setProjectId(id); }} refreshKey={refreshKey} />;
+      return <BrandList clientView onOpen={(id) => { setProjectId(id); }} refreshKey={refreshKey} pictures={pictures} />;
     }
     return (
       <>
@@ -330,6 +362,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
           onCreate={() => setCreating(true)}
           picker={select}
           refreshKey={refreshKey}
+          pictures={pictures}
         />
         {newDialog}
       </>
@@ -342,7 +375,9 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
     refreshKey,
     profile,
     onGoTab: goTab,
+    focus,
     onChanged,
+    brandLogo: selected ? { logo: selected.logo, favicon: selected.favicon } : undefined,
     clientView,
   };
   const singleClientProject = clientView && projects.length === 1;
@@ -378,7 +413,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
       <UnderlineTabs<TabId>
         className="mb-4"
         value={activeTab}
-        onChange={goTab}
+        onChange={(t) => goTab(t)}
         tabs={[
           { id: "overview", label: "Overview" },
           { id: "responses", label: "AI Responses" },
@@ -386,12 +421,10 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
           { id: "competitors", label: "Competitors" },
           { id: "citations", label: "Citations & Sources" },
           { id: "citation-analysis", label: "Citation Analysis" },
-          { id: "opportunities", label: "Opportunities" },
-          { id: "settings", label: "Settings" },
         ].filter((t) => !clientView || CLIENT_TAB_IDS.includes(t.id as TabId)) as Array<{ id: TabId; label: string }>}
       />
 
-      {/* Always mounted: it drives the scan loop. Outside Settings it shows one status line only. */}
+      {/* Always mounted: it drives the scan loop. It is visible in Settings only. */}
       {clientView ? null : (
         <RunPanel
           projectId={projectId}
@@ -400,7 +433,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
           dueRun={dueRun}
           onProgress={() => setRefreshKey((k) => k + 1)}
           compact={!onSettings}
-          onOpenSettings={() => setTab("settings")}
+          autoScan={autoScan}
         />
       )}
 
@@ -424,13 +457,21 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
         </div>
       )}
 
-      {activeTab === "overview" && <OverviewTab {...tabProps} brands={projects.map((p) => ({ id: p.id, name: p.clientName || p.name }))} onSwitchBrand={(id) => setProjectId(id)} />}
+      {activeTab === "overview" && <OverviewTab {...tabProps} brands={projects.map((p) => ({ id: p.id, name: p.clientName || p.name, logo: p.logo, favicon: p.favicon }))} onSwitchBrand={(id) => setProjectId(id)} />}
       {activeTab === "responses" && <AnswersTab {...tabProps} />}
       {!clientView && activeTab === "prompts" && <PromptsTab {...tabProps} />}
       {activeTab === "competitors" && <CompetitorsTab {...tabProps} />}
       {activeTab === "citations" && <CitationsTab {...tabProps} />}
       {activeTab === "citation-analysis" && <CitationAnalysisTab {...tabProps} />}
-      {!clientView && activeTab === "opportunities" && <OpportunitiesTab {...tabProps} />}
+      {!clientView && activeTab === "citation-analysis" && profile && (
+        <section id="brand-radar-opportunities" aria-labelledby="brand-radar-opportunities-title" className="mt-8 space-y-3 border-t border-gray-200 pt-6">
+          <div>
+            <h2 id="brand-radar-opportunities-title" className="text-lg font-semibold text-brand-navy">Opportunities</h2>
+            <p className="text-sm text-gray-500">โอกาสที่ควรลงมือทำ คำนวณจากคำตอบ AI ที่เก็บได้</p>
+          </div>
+          <OpportunitiesTab {...tabProps} />
+        </section>
+      )}
       {!clientView && activeTab === "settings" && <SettingsTab {...tabProps} />}
       {clientView ? null : newDialog}
     </div>

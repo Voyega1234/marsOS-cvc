@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Download, ExternalLink, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Chip, EmptyState, MeterBar, downloadCsv } from "@/components/ds";
@@ -16,6 +17,7 @@ import {
   type CitedDomainRow, type EntityShare, type JourneyStage, type Priority, type PromptCandidate,
   type PromptDTO, type PromptGenerateRes, type PromptInput, type PromptIntent, type PromptSaveRes, type PromptSource, type PromptStatus,
 } from "@/lib/brand-radar/types";
+import { ColumnHelp } from "./ColumnHelp";
 import { ProviderLogo } from "./ProviderLogo";
 import { ANSWER_ZONE_LEGEND, api, clearRadarCache, domainHref, fmtNum, fmtPct, fmtZoneShare, postJson, providerShort, radarCacheGeneration, radarCacheGet, radarCacheSet } from "./shared";
 
@@ -92,23 +94,43 @@ export function Pager({ page, pageSize, total, onPage }: { page: number; pageSiz
 
 // ── entity table (brand vs competitors) ──────────────────────────────────────
 
-export function EntityTable({ entities }: { entities: EntityShare[] }) {
+export function EntityTable({ entities, focusName, focusSeq }: { entities: EntityShare[]; focusName?: string; focusSeq?: number }) {
+  // Deep link: mark the row whose name matches focusName, scroll to it, and drop the mark after ~4 s
+  const wanted = focusName?.trim().toLowerCase() ?? "";
+  const [marked, setMarked] = useState("");
+  const markedRef = useRef<HTMLTableRowElement | null>(null);
+  useEffect(() => {
+    if (!wanted) return;
+    const hit = entities.find((e) => e.name.trim().toLowerCase() === wanted);
+    if (!hit) return;
+    setMarked(hit.key);
+    const timer = window.setTimeout(() => setMarked(""), 4000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, focusSeq]);
+  useEffect(() => {
+    if (marked) markedRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [marked]);
   return (
     <div className="overflow-x-auto">
       <Table className="min-w-[640px]">
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead className="text-right">Mentions</TableHead>
-            <TableHead className="min-w-[180px]">Appearance %</TableHead>
-            <TableHead className="text-right">Recommended</TableHead>
-            <TableHead className="text-right">Cited</TableHead>
-            <TableHead className="text-right">Avg position</TableHead>
+            <TableHead><ColumnHelp k="entityName" align="start">Name</ColumnHelp></TableHead>
+            <TableHead className="text-right"><ColumnHelp k="entityMentions" align="end">Mentions</ColumnHelp></TableHead>
+            <TableHead className="min-w-[180px]"><ColumnHelp k="entityAppearance">Appearance %</ColumnHelp></TableHead>
+            <TableHead className="text-right"><ColumnHelp k="entityRecommended" align="end">Recommended</ColumnHelp></TableHead>
+            <TableHead className="text-right"><ColumnHelp k="entityCited" align="end">Cited</ColumnHelp></TableHead>
+            <TableHead className="text-right"><ColumnHelp k="avgPosition" align="end">Avg position</ColumnHelp></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {entities.map((e) => (
-            <TableRow key={e.key} className={e.entityType === "brand" ? "bg-brand-mist/60 font-medium" : undefined}>
+            <TableRow
+              key={e.key}
+              ref={e.key === marked ? markedRef : undefined}
+              className={cn(e.entityType === "brand" && "bg-brand-mist/60 font-medium", e.key === marked && "ring-2 ring-inset ring-brand-blue bg-brand-mist/60 transition-shadow")}
+            >
               <TableCell>
                 {e.name} {e.entityType === "brand" ? <Chip tone="info" className="ml-1">แบรนด์เรา</Chip> : null}
               </TableCell>
@@ -183,13 +205,13 @@ export function CitedDomainsTable({ rows, clientView }: { rows: CitedDomainRow[]
       <Table className="min-w-[760px]">
         <TableHeader>
           <TableRow>
-            <TableHead>Domain</TableHead>
-            <TableHead>Owner</TableHead>
-            <TableHead className="text-right">Citations</TableHead>
-            <TableHead className="text-right">Responses</TableHead>
-            <TableHead>AI platforms</TableHead>
-            <TableHead className="min-w-[220px]">Example URLs</TableHead>
-            {clientView ? null : <TableHead className="min-w-[200px]">ซื้อ backlink ได้?</TableHead>}
+            <TableHead><ColumnHelp k="domain" align="start">Domain</ColumnHelp></TableHead>
+            <TableHead><ColumnHelp k="ownerType" align="start">Owner</ColumnHelp></TableHead>
+            <TableHead className="text-right"><ColumnHelp k="citedDomainLinks" align="end">Citations</ColumnHelp></TableHead>
+            <TableHead className="text-right"><ColumnHelp k="citedDomainResponses" align="end">Responses</ColumnHelp></TableHead>
+            <TableHead><ColumnHelp k="citedDomainPlatforms" align="start">AI platforms</ColumnHelp></TableHead>
+            <TableHead className="min-w-[220px]"><ColumnHelp k="citedDomainExamples" align="start">Example URLs</ColumnHelp></TableHead>
+            {clientView ? null : <TableHead className="min-w-[200px]"><ColumnHelp k="backlinkAvailable" align="start">ซื้อ backlink ได้?</ColumnHelp></TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>

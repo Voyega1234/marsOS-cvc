@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { METRIC_DEFINITIONS, type CitationOwner, type CitationsDTO, type CitationView, type CitedPageRow } from "@/lib/brand-radar/types";
 import { NO_DATA_MESSAGE, api, fmtNum, radarQuery, type TabProps } from "./shared";
 import { CitedDomainsTable, LoadState, Pager, exportCitedCsv, useApiData } from "./PromptDialogs";
+import { ColumnHelp } from "./ColumnHelp";
 
 const PAGE_SIZE = 50;
 const GAP_DEF = METRIC_DEFINITIONS.find((m) => m.key === "citationGap");
@@ -36,12 +37,12 @@ function CitedPagesTable({ rows, showNew }: { rows: CitedPageRow[]; showNew: boo
       <Table className="min-w-[640px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-10">#</TableHead>
-            <TableHead className="min-w-[260px]">หน้าเว็บ (URL)</TableHead>
-            <TableHead>โดเมน</TableHead>
-            <TableHead>Owner</TableHead>
-            <TableHead className="text-right">คำตอบที่อ้างอิง</TableHead>
-            <TableHead className="text-right">AI platforms</TableHead>
+            <TableHead className="w-10"><ColumnHelp k="citedRowNo">#</ColumnHelp></TableHead>
+            <TableHead className="min-w-[260px]"><ColumnHelp k="citedPageUrl">หน้าเว็บ (URL)</ColumnHelp></TableHead>
+            <TableHead><ColumnHelp k="pageDomain">โดเมน</ColumnHelp></TableHead>
+            <TableHead><ColumnHelp k="ownerType">Owner</ColumnHelp></TableHead>
+            <TableHead className="text-right"><ColumnHelp k="citedPageAnswers" align="end">คำตอบที่อ้างอิง</ColumnHelp></TableHead>
+            <TableHead className="text-right"><ColumnHelp k="citedPagePlatforms" align="end">AI platforms</ColumnHelp></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -94,7 +95,7 @@ export default function CitationsTab({ projectId, filters, refreshKey, profile, 
   if (!profile) {
     return (
       <Panel>
-        <EmptyState title={clientView ? "ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้" : "ยังไม่ได้ตั้งค่า Brand Radar"} description={clientView ? undefined : "ตั้งค่าแบรนด์ที่แท็บ Settings ก่อน"}
+        <EmptyState title={clientView ? "ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้" : "ยังไม่ได้ตั้งค่า Brand Radar"} description={clientView ? undefined : "ตั้งค่าแบรนด์ที่ปุ่ม Settings มุมขวาบน ก่อน"}
           action={clientView ? undefined : <Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>} />
       </Panel>
     );

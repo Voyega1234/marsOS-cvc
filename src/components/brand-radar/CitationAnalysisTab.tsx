@@ -14,6 +14,8 @@ import { LoadState, useApiData } from "./PromptDialogs";
 import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
 import { DomainsSection, ExtLink, Platforms, urlPath } from "./CitationAnalysisParts";
 import { ProviderLogo } from "./ProviderLogo";
+import { FixPagesSection, FoundNotCitedSection } from "./CitationActionSections";
+import SiteReadinessSection from "./SiteReadinessSection";
 
 const TERMS = "mention = AI พูดถึงชื่อแบรนด์ในคำตอบ · citation = AI นำหน้าเว็บไปใช้เป็นแหล่งข้อมูลและแนบลิงก์";
 
@@ -324,7 +326,7 @@ export default function CitationAnalysisTab({ projectId, filters, refreshKey, on
         <EmptyState
           icon={<Radar className="h-6 w-6" />}
           title={clientView ? "ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้" : "ยังไม่ได้ตั้งค่าแบรนด์"}
-          description={clientView ? undefined : "ตั้งชื่อแบรนด์ โดเมน และ AI platform ที่จะติดตามที่แท็บ Settings ก่อน"}
+          description={clientView ? undefined : "ตั้งชื่อแบรนด์ โดเมน และ AI platform ที่จะติดตามที่ปุ่ม Settings มุมขวาบน ก่อน"}
           action={clientView ? undefined : <button type="button" className="text-sm font-medium text-brand-blue hover:underline" onClick={() => onGoTab("settings")}>ไปที่ Settings</button>}
         />
       </Panel>
@@ -351,6 +353,13 @@ export default function CitationAnalysisTab({ projectId, filters, refreshKey, on
       <VariationSection rows={data.variation ?? []} clientView={clientView} onView={setViewing} />
       <OwnPagesSection dto={data} clientView={clientView} />
       <GapsSection dto={data} clientView={clientView} />
+      {!clientView && (
+        <>
+          <FixPagesSection rows={data.fixPages ?? []} />
+          <FoundNotCitedSection funnel={data.foundFunnel ?? null} />
+          <SiteReadinessSection projectId={projectId} />
+        </>
+      )}
       <ResponseViewer clientView={clientView} projectId={projectId} filters={filters} target={viewing} onClose={() => setViewing(null)} />
     </div>
   );

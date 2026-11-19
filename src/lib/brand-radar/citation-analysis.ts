@@ -7,22 +7,22 @@
  *  - buildCitationAnalysis(), which loads the rows and calls them. Every query filters by organization AND project.
  */
 import type { Prisma } from '@prisma/client'
-import { bangkokDay, parseStoredSentiment } from './insight'
+import { bangkokDay, parseStoredFoundSources, parseStoredSentiment, type FoundSource } from './insight'
 import { rate, type CitationRow, type CompLite, type Dataset, type MentionRow, type PromptLite, type RespRow, type RunLite } from './metrics'
-import { normalizeDomain } from './normalize'
+import { normalizeDomain, normalizeUrl } from './normalize'
 import type { FlagSources } from './queries'
 import { parseDayRange, previousRange } from './schedule'
 import type { RadarCtx } from './server'
 import { PROVIDERS, isProviderKey, type CitationOwner, type ProviderKey, type RadarFilters } from './types'
 import type {
   AnalysisDomainRow, AnalysisPage, AnalysisPrevious, AnalysisRange, AnalysisRun, AnalysisTotals, AnswerVariationRow,
-  CitationAnalysisDTO, CompetitorCitedRow, MentionedNotCitedRow, OwnPageRow, SentimentCounts, SiteType, TrendPoint, WhySignal,
+  CitationAnalysisDTO, CompetitorCitedRow, FixAction, FoundFunnel, FoundNotCitedPage, MentionedNotCitedRow, OwnPageRow, PromptFixRow, SentimentCounts, SiteType, TrendPoint, WhySignal,
 } from './citation-analysis-types'
 
 export const ANALYSIS_LIMITS = {
   runs: 30, domains: 60, pages: 8, prompts: 8, variation: 60, variationDomains: 6, variationCompetitors: 4,
   ownPages: 30, ownPagePrompts: 5, gaps: 20, citedInstead: 5, gapCompetitors: 5, title: 300, promptText: 500,
-  sameTolerance: 0.02,
+  fixPages: 50, fixPagesPerRow: 3, foundPages: 30, foundPagePrompts: 3, sameTolerance: 0.02,
 } as const
 
 type Tone = keyof SentimentCounts
@@ -230,6 +230,8 @@ export interface AnalysisInput {
   activeCompetitorIds: ReadonlySet<string>
   clientView: boolean
   range: AnalysisRange
+  /** responseId -> sources the platform reported finding while searching. Missing = no platform reported any. */
+  found?: Map<string, FoundSource[]>
 }
 
 function citationsByResponse(citations: CitationRow[]): Map<string, CitationRow[]> {
@@ -794,6 +796,139 @@ export function computeGaps(input: AnalysisInput): { mentionedNotCited: Mentione
   return { mentionedNotCited, competitorCitedNotUs }
 }
 
+// ── Which page to fix / found but not cited ──────────────────────────────────
+
+const FIX_ORDER: Record<FixAction, number> = { create: 0, make_citable: 1, strengthen: 2, keep: 3 }
+
+/** Own citations win over the rest: ownAnswers * 2 >= asked is "keep" (at least half the answers link to us). */
+export function fixActionOf(asked: number, ownAnswers: number, mentionedAnswers: number): FixAction {
+  if (ownAnswers > 0) return ownAnswers * 2 >= asked ? 'keep' : 'strengthen'
+  return mentionedAnswers > 0 ? 'make_citable' : 'create'
+}
+
+interface FixPageAcc { url: string; titles: string[]; answers: Set<string> }
+
+export function computeFixPages(input: AnalysisInput): PromptFixRow[] {
+  if (input.clientView) return []
+  const { ds } = input
+  const promptText = promptTextOf(ds.prompts)
+  const byResp = citationsByResponse(ds.citations)
+  const own = ownCitedSet(ds.citations)
+
+  const perPrompt = new Map<string, {
+    asked: number; ownAnswers: number; mentioned: number
+    own: Map<string, FixPageAcc>
+    instead: Map<string, FixPageAcc & { domain: string; ownerType: 'competitor' | 'external'; compIds: string[] }>
+  }>()
+  for (const r of ds.responses) {
+    let g = perPrompt.get(r.promptId)
+    if (!g) { g = { asked: 0, ownAnswers: 0, mentioned: 0, own: new Map(), instead: new Map() }; perPrompt.set(r.promptId, g) }
+    g.asked++
+    if (r.brandMentioned === true) g.mentioned++
+    const cites = byResp.get(r.id) || []
+    const ownCited = own.has(r.id)
+    if (ownCited) g.ownAnswers++
+    for (const c of cites) {
+      const key = c.normalizedUrl || c.url
+      if (c.ownerType === 'own') {
+        let p = g.own.get(key)
+        if (!p) { p = { url: c.url, titles: [], answers: new Set() }; g.own.set(key, p) }
+        p.answers.add(r.id)
+        if (c.title) p.titles.push(c.title)
+      } else if (!ownCited) {
+        let p = g.instead.get(key)
+        if (!p) {
+          p = { url: c.url, titles: [], answers: new Set(), domain: c.domain, ownerType: c.ownerType === 'competitor' ? 'competitor' : 'external', compIds: [] }
+          g.instead.set(key, p)
+        }
+        p.answers.add(r.id)
+        if (c.title) p.titles.push(c.title)
+        if (c.ownerType === 'competitor' && c.competitorId) p.compIds.push(c.competitorId)
+      }
+    }
+  }
+
+  const rows: PromptFixRow[] = Array.from(perPrompt.entries()).map(([promptId, g]) => ({
+    promptId,
+    text: promptText.get(promptId) || '',
+    asked: g.asked,
+    ownAnswers: g.ownAnswers,
+    mentionedAnswers: g.mentioned,
+    ownPages: Array.from(g.own.values())
+      .sort((a, b) => b.answers.size - a.answers.size || a.url.localeCompare(b.url))
+      .slice(0, ANALYSIS_LIMITS.fixPagesPerRow)
+      .map((p) => ({ url: p.url, title: clip(mostCommon(p.titles), ANALYSIS_LIMITS.title), answers: p.answers.size })),
+    insteadPages: Array.from(g.instead.values())
+      .sort((a, b) => b.answers.size - a.answers.size || a.url.localeCompare(b.url))
+      .slice(0, ANALYSIS_LIMITS.fixPagesPerRow)
+      .map((p) => ({
+        url: p.url,
+        domain: p.domain,
+        title: clip(mostCommon(p.titles), ANALYSIS_LIMITS.title),
+        ownerType: p.ownerType,
+        competitorName: p.ownerType === 'competitor' ? (input.competitorNames.get(mostCommon(p.compIds)) || null) : null,
+        answers: p.answers.size,
+      })),
+    action: fixActionOf(g.asked, g.ownAnswers, g.mentioned),
+  }))
+  rows.sort((a, b) => FIX_ORDER[a.action] - FIX_ORDER[b.action] || b.asked - a.asked || a.text.localeCompare(b.text) || a.promptId.localeCompare(b.promptId))
+  return rows.slice(0, ANALYSIS_LIMITS.fixPages)
+}
+
+export function computeFoundFunnel(input: AnalysisInput): FoundFunnel | null {
+  if (input.clientView || !input.found) return null
+  const { ds } = input
+  const promptText = promptTextOf(ds.prompts)
+  const byResp = citationsByResponse(ds.citations)
+  const own = ownCitedSet(ds.citations)
+
+  let withData = 0
+  let found = 0
+  let foundAndCited = 0
+  let foundAndMentioned = 0
+  const providers = new Set<ProviderKey>()
+  const pages = new Map<string, { url: string; titles: string[]; found: number; cited: number; prompts: Map<string, number> }>()
+  for (const r of ds.responses) {
+    const list = input.found.get(r.id)
+    if (!list || list.length === 0) continue
+    withData++
+    providers.add(r.provider)
+    const ours = list.filter((f) => f.ownerType === 'own')
+    if (ours.length === 0) continue
+    found++
+    if (own.has(r.id)) foundAndCited++
+    if (r.brandMentioned === true) foundAndMentioned++
+    // Same URL key the citations were stored with, so a found page matches the citation of that page.
+    const citedKeys = new Set((byResp.get(r.id) || []).map((c) => c.normalizedUrl || c.url))
+    const seen = new Set<string>()
+    for (const f of ours) {
+      const key = normalizeUrl(f.url) || f.url
+      if (seen.has(key)) continue
+      seen.add(key)
+      let p = pages.get(key)
+      if (!p) { p = { url: f.url, titles: [], found: 0, cited: 0, prompts: new Map() }; pages.set(key, p) }
+      p.found++
+      if (f.title) p.titles.push(f.title)
+      if (citedKeys.has(key)) p.cited++
+      else bump(p.prompts, r.promptId)
+    }
+  }
+  if (withData === 0) return null
+
+  const rows: FoundNotCitedPage[] = Array.from(pages.values())
+    .filter((p) => p.cited < p.found)
+    .sort((a, b) => (b.found - b.cited) - (a.found - a.cited) || b.found - a.found || a.url.localeCompare(b.url))
+    .slice(0, ANALYSIS_LIMITS.foundPages)
+    .map((p) => ({
+      url: p.url,
+      title: clip(mostCommon(p.titles), ANALYSIS_LIMITS.title),
+      found: p.found,
+      cited: p.cited,
+      prompts: topKeys(p.prompts, ANALYSIS_LIMITS.foundPagePrompts).map((id) => ({ promptId: id, text: promptText.get(id) || '' })),
+    }))
+  return { withData, found, foundAndCited, foundAndMentioned, providers: providerList(providers), pages: rows }
+}
+
 // ── Assembly ─────────────────────────────────────────────────────────────────
 
 export function emptyCitationAnalysis(range: AnalysisRange, brandName: string, configured: boolean): CitationAnalysisDTO {
@@ -810,6 +945,8 @@ export function emptyCitationAnalysis(range: AnalysisRange, brandName: string, c
     variation: [],
     ownPages: [],
     gaps: { mentionedNotCited: [], competitorCitedNotUs: [] },
+    fixPages: [],
+    foundFunnel: null,
   }
 }
 
@@ -837,6 +974,8 @@ export function assembleCitationAnalysis(input: AnalysisInput): CitationAnalysis
     variation: computeVariation(scoped, runs),
     ownPages: computeOwnPages(scoped),
     gaps: computeGaps(scoped),
+    fixPages: computeFixPages(scoped),
+    foundFunnel: computeFoundFunnel(scoped),
   }
 }
 
@@ -858,6 +997,28 @@ async function loadBrandTones(base: { organizationId: string; projectId: string 
       const s = parseStoredSentiment(r.sentiment)
       const brand = s ? s.entities.find((e) => e.entityType === 'brand') : undefined
       if (brand) out.set(r.responseId, brand.tone)
+    }
+  } catch (e) {
+    if (!isMissingTable(e)) throw e
+  }
+  return out
+}
+
+/** Sources each answer's platform reported finding while searching (only some platforms do). */
+async function loadFoundSources(base: { organizationId: string; projectId: string }, runIds: string[], respIds: Set<string>): Promise<Map<string, FoundSource[]>> {
+  const out = new Map<string, FoundSource[]>()
+  if (runIds.length === 0) return out
+  const { prisma } = await import('@/lib/prisma')
+  const { isMissingTable } = await import('./server')
+  try {
+    const rows = await prisma.brandRadarInsight.findMany({
+      where: { ...base, runId: { in: runIds } },
+      select: { responseId: true, foundSources: true },
+    })
+    for (const r of rows) {
+      if (!respIds.has(r.responseId)) continue
+      const list = parseStoredFoundSources(r.foundSources)
+      if (list.length > 0) out.set(r.responseId, list)
     }
   } catch (e) {
     if (!isMissingTable(e)) throw e
@@ -928,9 +1089,10 @@ export async function buildCitationAnalysis(ctx: RadarCtx, filters: RadarFilters
   // Positions come with the citations loadDataset already read: no second pass over the citation table.
   const positions = new Map<string, number>()
   for (const c of ds.citations) if (typeof c.position === 'number') positions.set(`${c.responseId}|${c.normalizedUrl}`, c.position)
-  const [compRows, tones, prev, flags] = await Promise.all([
+  const [compRows, tones, found, prev, flags] = await Promise.all([
     prisma.brandRadarCompetitor.findMany({ where: base, select: { id: true, name: true } }),
     loadBrandTones(base, runIds, respIds),
+    loadFoundSources(base, runIds, respIds),
     loadPreviousData(ctx, filters, new Set(promptRows.map((p) => p.id)), activeIds),
     clientView ? Promise.resolve(null) : loadFlagSources(ctx.orgId),
   ])
@@ -939,7 +1101,7 @@ export async function buildCitationAnalysis(ctx: RadarCtx, filters: RadarFilters
   if (clientView) competitorNames.forEach((_name, id) => { if (!activeIds.has(id)) competitorNames.delete(id) })
 
   const dto = assembleCitationAnalysis({
-    ds, runs: runRows, positions, tones, prev, competitorNames, activeCompetitorIds: activeIds, clientView, range,
+    ds, runs: runRows, positions, tones, found, prev, competitorNames, activeCompetitorIds: activeIds, clientView, range,
   })
   return { ...dto, domains: applyDomainFlags(dto.domains, flags, clientView) }
 }

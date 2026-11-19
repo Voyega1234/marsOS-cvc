@@ -12,7 +12,7 @@ import type { Dataset } from './metrics'
 import {
   BRAND_POSITIONINGS, BRAND_POSITIONING_LABEL, answerZone, SEARCH_QUERY_SUPPORT, SENTIMENT_FACTORS, SENTIMENT_FACTOR_LABEL,
   type AnswerInsightDTO, type AnswerSentiment, type AnswerSentimentEntity, type BrandPositioning, type CitationOwner, type EntityShare, type FactorPolarity,
-  type InsightEntityDTO, type MentionStyleCounts, type ProviderKey, type QueryGroupDTO, type SentimentFactor, type SentimentTone,
+  type InsightEntityDTO, type InsightQuote, type MentionStyleCounts, type ProviderKey, type QueryGroupDTO, type SentimentFactor, type SentimentTone,
 } from './types'
 
 export const INSIGHT_LIMITS = {
@@ -22,6 +22,10 @@ export const INSIGHT_LIMITS = {
   summaryMax: 240,
   descriptorMax: 40,
   descriptorsPerEntity: 3,
+  /** longest stored example passage */
+  quoteMax: 200,
+  /** example passages kept per factor / label in the report */
+  quotesPerLabel: 3,
   positioningPerEntity: 3,
   factorsPerEntity: 6,
   factorsPerAnswer: 6,
@@ -30,9 +34,10 @@ export const INSIGHT_LIMITS = {
   promptsPerGroup: 5,
   queriesPerGroup: 10,
   descriptorsShown: 12,
+  factorsShown: 8,
   summariesShown: 3,
   trendCompetitors: 5,
-  sources: 15,
+  sources: 50,
 } as const
 
 const BANGKOK_MS = 7 * 3600_000
@@ -122,6 +127,13 @@ const isPositioning = (v: unknown): v is BrandPositioning => BRAND_POSITIONINGS.
 
 const oneLine = (v: unknown, max: number): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
 
+/** One-line example passage: control characters removed, whitespace collapsed, capped */
+function cleanQuote(v: unknown): string {
+  return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, INSIGHT_LIMITS.quoteMax) : ''
+}
+
+const squash = (v: string): string => v.replace(/\s+/g, ' ').trim().toLowerCase()
+
 export interface SentimentEntityRef {
   entityType: 'brand' | 'competitor'
   key: string
@@ -134,7 +146,11 @@ export interface SentimentEntityRef {
  * so a model can never add a brand that is not tracked. Unknown tones, factors and positionings are dropped too.
  * Returns null when nothing usable is left.
  */
-export function sanitizeSentiment(value: unknown, resolve: (key: string, raw: Record<string, unknown>) => SentimentEntityRef | null): AnswerSentiment | null {
+export function sanitizeSentiment(
+  value: unknown,
+  resolve: (key: string, raw: Record<string, unknown>) => SentimentEntityRef | null,
+  opts?: { answer?: string },
+): AnswerSentiment | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const o = value as Record<string, unknown>
 
@@ -160,28 +176,50 @@ export function sanitizeSentiment(value: unknown, resolve: (key: string, raw: Re
       if (positioning.length >= INSIGHT_LIMITS.positioningPerEntity) break
     }
 
-    const entityFactors: Array<{ code: SentimentFactor; polarity: FactorPolarity }> = []
+    // Quotes belong to our brand only. With a fresh model reply (`opts.answer`) a quote must be a real piece of the answer;
+    // stored JSON was verified when it was written, so it is only re-cleaned.
+    const answerKey = typeof opts?.answer === 'string' ? squash(opts.answer) : null
+    const keepQuote = (q: unknown): string => {
+      if (ref.entityType !== 'brand') return ''
+      const text = cleanQuote(q)
+      if (!text) return ''
+      if (answerKey !== null && !answerKey.includes(squash(text))) return ''
+      return text
+    }
+
+    const entityFactors: Array<{ code: SentimentFactor; polarity: FactorPolarity; quote?: string }> = []
     for (const f of Array.isArray(e.factors) ? e.factors : []) {
       if (!f || typeof f !== 'object') continue
       const ff = f as Record<string, unknown>
       if (!isFactor(ff.code) || entityFactors.some((x) => x.code === ff.code)) continue
-      entityFactors.push({ code: ff.code, polarity: isPolarity(ff.polarity) ? ff.polarity : 'neutral' })
+      const item: { code: SentimentFactor; polarity: FactorPolarity; quote?: string } = { code: ff.code, polarity: isPolarity(ff.polarity) ? ff.polarity : 'neutral' }
+      const quote = keepQuote(ff.quote)
+      if (quote) item.quote = quote
+      entityFactors.push(item)
       if (entityFactors.length >= INSIGHT_LIMITS.factorsPerEntity) break
     }
 
+    const storedQuotes = e.descriptorQuotes && typeof e.descriptorQuotes === 'object' && !Array.isArray(e.descriptorQuotes) ? (e.descriptorQuotes as Record<string, unknown>) : {}
     const descriptors: string[] = []
+    const descriptorQuotes: Record<string, string> = {}
     for (const d of Array.isArray(e.descriptors) ? e.descriptors : []) {
-      const text = oneLine(d, INSIGHT_LIMITS.descriptorMax).toLowerCase()
+      const isObj = !!d && typeof d === 'object' && !Array.isArray(d)
+      const label = isObj ? (d as Record<string, unknown>).label : d
+      const text = oneLine(label, INSIGHT_LIMITS.descriptorMax).toLowerCase()
       const words = text ? text.split(' ').length : 0
       if (!text || words > 4 || descriptors.includes(text)) continue
       descriptors.push(text)
+      const quote = keepQuote(isObj ? (d as Record<string, unknown>).quote : Object.prototype.hasOwnProperty.call(storedQuotes, text) ? storedQuotes[text] : undefined)
+      if (quote) descriptorQuotes[text] = quote
       if (descriptors.length >= INSIGHT_LIMITS.descriptorsPerEntity) break
     }
 
-    entities.push({
+    const entity: AnswerSentimentEntity = {
       entityType: ref.entityType, key: ref.key, name: ref.name, tone: e.tone, positioning, factors: entityFactors,
       summary: oneLine(e.summary, INSIGHT_LIMITS.summaryMax), descriptors,
-    })
+    }
+    if (Object.keys(descriptorQuotes).length > 0) entity.descriptorQuotes = descriptorQuotes
+    entities.push(entity)
   }
 
   if (entities.length === 0 && factors.length === 0) return null
@@ -201,6 +239,7 @@ export function parseStoredSentiment(raw: string | null | undefined): AnswerSent
 export interface InsightRow {
   responseId: string
   promptId: string
+  runId?: string
   provider: ProviderKey
   /** newest first is not required; `at` orders the summaries */
   at: number
@@ -244,6 +283,23 @@ interface EntityAcc {
   factors: Map<SentimentFactor, { answers: number; positive: number; negative: number; neutral: number }>
   summaries: Array<{ at: number; text: string }>
   descriptors: Map<string, number>
+  factorQuotes: Map<SentimentFactor, Array<{ at: number; quote: InsightQuote }>>
+  descriptorQuotes: Map<string, Array<{ at: number; quote: InsightQuote }>>
+}
+
+/** Up to `quotesPerLabel` distinct texts, newest answer first */
+function topQuotes(list: Array<{ at: number; quote: InsightQuote }> | undefined): InsightQuote[] | undefined {
+  if (!list || list.length === 0) return undefined
+  const out: InsightQuote[] = []
+  const seen = new Set<string>()
+  for (const q of [...list].sort((x, y) => y.at - x.at)) {
+    const key = squash(q.quote.text)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(q.quote)
+    if (out.length >= INSIGHT_LIMITS.quotesPerLabel) break
+  }
+  return out
 }
 
 export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
@@ -310,6 +366,7 @@ export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
         acc = {
           entityType: e.entityType, key: e.key, name: input.entityNames.get(e.key) || e.name || e.key, answers: 0,
           tones: emptyTones(), positioning: new Map(), factors: new Map(), summaries: [], descriptors: new Map(),
+          factorQuotes: new Map(), descriptorQuotes: new Map(),
         }
         entityAcc.set(e.key, acc)
       }
@@ -322,9 +379,22 @@ export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
         cur.answers++
         cur[f.polarity]++
         acc.factors.set(f.code, cur)
+        if (f.quote && e.entityType === 'brand') {
+          const list = acc.factorQuotes.get(f.code) || []
+          list.push({ at: r.at, quote: { text: f.quote, responseId: r.responseId, promptId: r.promptId, runId: r.runId, provider: r.provider, polarity: f.polarity } })
+          acc.factorQuotes.set(f.code, list)
+        }
       }
       if (e.summary) acc.summaries.push({ at: r.at, text: e.summary })
-      for (const d of e.descriptors) acc.descriptors.set(d, (acc.descriptors.get(d) || 0) + 1)
+      for (const d of e.descriptors) {
+        acc.descriptors.set(d, (acc.descriptors.get(d) || 0) + 1)
+        const dq = e.descriptorQuotes?.[d]
+        if (dq && e.entityType === 'brand') {
+          const list = acc.descriptorQuotes.get(d) || []
+          list.push({ at: r.at, quote: { text: dq, responseId: r.responseId, promptId: r.promptId, runId: r.runId, provider: r.provider } })
+          acc.descriptorQuotes.set(d, list)
+        }
+      }
     }
   }
 
@@ -343,12 +413,18 @@ export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
           .map(([code, n]) => ({ code, label: BRAND_POSITIONING_LABEL[code], answers: n, rate: rate(n, a.answers) })),
         factors: Array.from(a.factors.entries())
           .sort((x, y) => y[1].answers - x[1].answers)
-          .map(([code, v]) => ({ code, label: SENTIMENT_FACTOR_LABEL[code], ...v })),
+          .map(([code, v]) => {
+            const quotes = topQuotes(a.factorQuotes.get(code))
+            return quotes ? { code, label: SENTIMENT_FACTOR_LABEL[code], ...v, quotes } : { code, label: SENTIMENT_FACTOR_LABEL[code], ...v }
+          }),
         summaries,
         descriptors: Array.from(a.descriptors.entries())
           .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
           .slice(0, INSIGHT_LIMITS.descriptorsShown)
-          .map(([text, n]) => ({ text, answers: n })),
+          .map(([text, n]) => {
+            const quotes = topQuotes(a.descriptorQuotes.get(text))
+            return quotes ? { text, answers: n, quotes } : { text, answers: n }
+          }),
       }
     })
 
@@ -364,6 +440,59 @@ export function aggregateInsight(input: InsightInput): AnswerInsightDTO {
     searches,
     queryGroups,
   }
+}
+
+// ── Example passage for old answers ──────────────────────────────────────────
+
+const FALLBACK_WINDOW = 200
+
+/** Markdown noise removed from one line: bold marks, heading marks, list markers, table pipes */
+function stripMarkdown(line: string): string {
+  return line
+    .replace(/\*\*|__/g, '')
+    .replace(/^\s*#{1,6}\s+/, '')
+    .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')
+    .replace(/\|/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * An example passage taken from a stored answer when the analysis kept none (old answers).
+ * A line holding `label` wins (exact); else the first line holding a brand term (approx); else null.
+ * Lines over 200 characters are cut to a window around the match.
+ */
+export function fallbackQuote(answerText: string, opts: { label?: string; brandTerms: string[] }): { text: string; approx: boolean } | null {
+  if (typeof answerText !== 'string' || !answerText) return null
+  const lines = answerText.split('\n').map(stripMarkdown).filter(Boolean)
+  const label = (opts.label || '').trim().toLowerCase()
+  const terms = opts.brandTerms.map((t) => t.trim().toLowerCase()).filter(Boolean)
+
+  const find = (needles: string[]): { line: string; at: number; len: number } | null => {
+    for (const line of lines) {
+      const low = line.toLowerCase()
+      for (const n of needles) {
+        const at = low.indexOf(n)
+        if (at >= 0) return { line, at, len: n.length }
+      }
+    }
+    return null
+  }
+  const cut = (hit: { line: string; at: number; len: number }): string => {
+    if (hit.line.length <= FALLBACK_WINDOW) return hit.line
+    const centre = hit.at + Math.floor(hit.len / 2)
+    let start = Math.max(0, centre - FALLBACK_WINDOW / 2)
+    const end = Math.min(hit.line.length, start + FALLBACK_WINDOW)
+    start = Math.max(0, end - FALLBACK_WINDOW)
+    return `${start > 0 ? '…' : ''}${hit.line.slice(start, end).trim()}${end < hit.line.length ? '…' : ''}`
+  }
+
+  if (label) {
+    const hit = find([label])
+    if (hit) return { text: cut(hit), approx: false }
+  }
+  const hit = terms.length ? find(terms) : null
+  return hit ? { text: cut(hit), approx: true } : null
 }
 
 // ── Mention style ────────────────────────────────────────────────────────────

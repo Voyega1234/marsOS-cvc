@@ -38,7 +38,7 @@ export default function OpportunitiesTab({ projectId, refreshKey, profile, onGoT
   if (!profile) {
     return (
       <Panel>
-        <EmptyState title="ยังไม่ได้ตั้งค่า Brand Radar" description="ตั้งค่าแบรนด์ที่แท็บ Settings ก่อน"
+        <EmptyState title="ยังไม่ได้ตั้งค่า Brand Radar" description="ตั้งค่าแบรนด์ที่ปุ่ม Settings มุมขวาบน ก่อน"
           action={<Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>} />
       </Panel>
     );

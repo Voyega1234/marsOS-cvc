@@ -1,19 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { BarChart, Chip, EmptyState, MeterBar, Panel, Segmented } from "@/components/ds";
+import { LANGUAGE_BOTH, PROFILE_LANGUAGES } from "@/lib/brand-radar/language";
 import {
-  COUNTRIES, DEFAULT_SAMPLES, LANGUAGES, LIMITS, PROMPT_SOURCES, PROMPT_SOURCE_LABEL, PROVIDER_KEYS, SAMPLE_OPTIONS, SCHEDULE_LIMITS,
-  formatSchedule, parseSchedule,
-  type CompetitorDTO, type ProfileInput, type ProfileRes, type PromptSource, type ProviderKey,
+  COUNTRIES, DEFAULT_SAMPLES, LIMITS, PROMPT_SOURCES, PROMPT_SOURCE_LABEL, PROVIDER_KEYS, SAMPLE_OPTIONS, SCHEDULE_LIMITS,
+  costPerCall, formatSchedule, parseSchedule,
+  type AutoScanDTO, type CompetitorDTO, type ProfileInput, type ProfileRes, type PromptSource, type ProviderKey,
   type ProviderStatusDTO, type ProvidersRes, type Schedule, type ScheduleKind, type ScheduleSpec, type UsageDTO,
 } from "@/lib/brand-radar/types";
+import BrandNameSuggestions from "./BrandNameSuggestions";
 import { PlatformChooser } from "./PlatformPicker";
 import { ProviderLogo } from "./ProviderLogo";
 import { SampleSizeTest } from "./SampleSizeTest";
-import { api, fmtDateTime, fmtNum, fmtUsd, methodLabel, postJson, scheduleLabel, WEEKDAYS_TH, type TabProps } from "./shared";
+import ClientAvatar from "@/components/upload-article/ClientAvatar";
+import { ColumnHelp } from "./ColumnHelp";
+import { brandTermsOf } from "@/lib/brand-radar/highlight";
+import { api, fmtDateTime, fmtNum, fmtUsd, fmtUsdPerCall, methodLabel, monthLabelTh, postJson, scheduleLabel, WEEKDAYS_TH, type TabProps } from "./shared";
 
 const inputCls =
   "h-10 w-full rounded-xl border border-input bg-white/90 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -31,7 +37,7 @@ const SCHEDULE_MODES: { value: ScheduleKind; label: string }[] = [
 /** Short weekday labels in ISO order (index 0 = Monday) */
 const WEEKDAY_SHORT = ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"];
 const SCHEDULE_NOTE: Record<ScheduleKind, string> = {
-  manual: "ไม่สแกนอัตโนมัติ — กดสแกนเองเมื่อต้องการ",
+  manual: "ไม่เริ่มสแกนเอง — กดสแกนเองเมื่อต้องการ",
   daily: "สแกนวันละ 1 ครั้ง",
   weekly: "สแกนสัปดาห์ละ 1 ครั้ง (รอบใหม่เริ่มวันจันทร์)",
   monthly: "สแกนเดือนละ 1 ครั้ง (รอบใหม่เริ่มวันที่ 1)",
@@ -39,7 +45,8 @@ const SCHEDULE_NOTE: Record<ScheduleKind, string> = {
   weekdays: "สแกนเฉพาะวันที่เลือก เริ่มจากวันที่เลือกวันถัดไป (ไม่รวมวันนี้)",
 };
 
-type FormState = ProfileInput & { budget: string };
+// autoScan is the "สแกนอัตโนมัติตามรอบ" switch. It is saved with the profile but kept outside it on the server.
+type FormState = ProfileInput & { budget: string; autoScan?: boolean };
 
 /** The stored value the three local choices describe */
 function scheduleFrom(mode: ScheduleKind, every: number, picked: number[]): Schedule {
@@ -232,7 +239,15 @@ export function TagInput({ value, onChange, placeholder, max = LIMITS.aliasesMax
 interface CompForm { id: string; name: string; aliases: string[]; domains: string[] }
 const emptyComp: CompForm = { id: "", name: "", aliases: [], domains: [] };
 
-export default function SettingsTab({ projectId, refreshKey, onChanged }: TabProps) {
+export default function SettingsTab({ projectId, refreshKey, onChanged, clientView, brandLogo }: TabProps) {
+  // logo shown in the uploader: follows the saved logo, ClientAvatar updates it optimistically
+  const [logoDraft, setLogoDraft] = useState<string | null>(brandLogo?.logo ?? null);
+  useEffect(() => { setLogoDraft(brandLogo?.logo ?? null); }, [brandLogo?.logo, projectId]);
+  async function saveLogo(logo: string | null): Promise<void> {
+    const res = await api<{ logo: string | null }>("/api/brand-radar/logo", postJson({ projectId, logo }, "PUT"));
+    if (!res.ok) throw new Error(res.data.error || `HTTP ${res.status}`);
+    onChanged();
+  }
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [hasProfile, setHasProfile] = useState(false);
@@ -240,6 +255,8 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
   const [baseline, setBaseline] = useState<FormState>({ budget: "" });
   const [nextRunAt, setNextRunAt] = useState<string | null>(null);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+  // state of the scheduled server job, as last reported by the server (not part of the form)
+  const [auto, setAuto] = useState<AutoScanDTO | null>(null);
   const [competitors, setCompetitors] = useState<CompetitorDTO[]>([]);
   const [providers, setProviders] = useState<ProviderStatusDTO[]>([]);
   const [unsupported, setUnsupported] = useState<ProvidersRes["unsupported"]>([]);
@@ -268,6 +285,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
     setBaseline({ budget: "" });
     setNextRunAt(null);
     setLastRunAt(null);
+    setAuto(null);
     setCompetitors([]);
     setProviders([]);
     setUnsupported([]);
@@ -294,6 +312,8 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
     const proj = pr.data.project;
     setHasProfile(!!profile);
     setCompetitors(Array.isArray(pr.data.competitors) ? pr.data.competitors : []);
+    setAuto(pr.data.auto ?? null);
+    const autoScan = pr.data.auto?.on === true;
     let loaded: FormState;
     if (profile) {
       loaded = {
@@ -304,6 +324,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
         maxPromptsPerRun: profile.maxPromptsPerRun,
         samplesPerPrompt: profile.samplesPerPrompt,
         budget: profile.monthlyBudgetUsd === null ? "" : String(profile.monthlyBudgetUsd),
+        autoScan,
       };
       setNextRunAt(profile.nextRunAt);
       setLastRunAt(profile.lastRunAt);
@@ -311,9 +332,10 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
       loaded = {
         brandName: proj.clientName || proj.name, aliases: [], ambiguousAliases: [], contextTerms: [],
         primaryDomain: hostOf(proj.website), ownedDomains: [], country: "TH",
-        language: proj.language === "en" ? "en" : "th", industry: proj.industry || "", products: [],
+        language: proj.language === "en" ? "en" : proj.language === LANGUAGE_BOTH ? LANGUAGE_BOTH : "th", industry: proj.industry || "", products: [],
         // same default as the server (DEFAULT_PROVIDERS): every platform on, staff switch off what they don't want
         providers: [...PROVIDER_KEYS], promptSources: ["manual"], schedule: "weekly", maxPromptsPerRun: 50, samplesPerPrompt: DEFAULT_SAMPLES, budget: "",
+        autoScan,
       };
       setNextRunAt(null);
       setLastRunAt(null);
@@ -344,15 +366,20 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
     const budgetTxt = form.budget.trim();
     const budget = budgetTxt === "" ? null : Number(budgetTxt);
     if (budget !== null && (!Number.isFinite(budget) || budget < 0)) { setSaveError("งบประมาณต่อเดือนต้องเป็นตัวเลขที่ไม่ติดลบ"); return; }
-    const { budget: _b, ...rest } = form;
+    const { budget: _b, autoScan: wantAuto, ...rest } = form;
     void _b;
+    // the switch is sent only when it was changed here, so saving other fields never undoes a change made by a colleague
+    const autoPatch = !!wantAuto !== !!baseline.autoScan ? { autoScan: !!wantAuto } : {};
     setSaving(true);
-    const res = await api<Pick<ProfileRes, "profile">>("/api/brand-radar/profile", postJson({
-      projectId, ...rest, brandName: rest.brandName?.trim(), primaryDomain: hostOf(rest.primaryDomain ?? ""), monthlyBudgetUsd: budget,
+    const res = await api<Pick<ProfileRes, "profile" | "auto">>("/api/brand-radar/profile", postJson({
+      projectId, ...rest, ...autoPatch, brandName: rest.brandName?.trim(), primaryDomain: hostOf(rest.primaryDomain ?? ""), monthlyBudgetUsd: budget,
     }, "PUT"));
     setSaving(false);
     if (!res.ok) { setSaveError(res.data.error || "บันทึกไม่สำเร็จ"); return; }
-    setBaseline(form);
+    // what the server now holds wins (a colleague may have flipped the switch in the meantime)
+    const saved: FormState = res.data.auto ? { ...form, autoScan: res.data.auto.on } : form;
+    if (res.data.auto) { setAuto(res.data.auto); setForm(saved); }
+    setBaseline(saved);
     setHasProfile(true);
     // the server recalculates the next scan when the schedule changes
     if (res.data.profile) { setNextRunAt(res.data.profile.nextRunAt); setLastRunAt(res.data.profile.lastRunAt); }
@@ -429,6 +456,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
   const compFull = competitors.length >= LIMITS.competitorsMax;
 
   // The brand name and its other names are edited as one list: the first entry is the brand name, the rest are aliases.
+  const sampleBrandTerms = useMemo(() => brandTermsOf(form.brandName, form.aliases), [form.brandName, form.aliases]);
   const brandNames = [form.brandName ?? "", ...(form.aliases ?? [])]
     .map((x) => x.trim())
     .filter((x, i, all) => !!x && all.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i);
@@ -441,6 +469,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
   ];
   const goStep = (n: number) => document.getElementById(`br-step-${n}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const barVisible = dirty || !hasProfile || saving || !!saveMsg || !!saveError;
+  const usageFailed = usage ? usage.byProvider.reduce((s, p) => s + p.failed, 0) : 0;
 
   return (
     <div className="space-y-4">
@@ -469,18 +498,46 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
         <div className="min-w-0 space-y-4">
           <Section n={1} id="br-step-1" title="แบรนด์ของเรา" why="ระบบใช้ชื่อและโดเมนนี้ตรวจว่า AI พูดถึงหรืออ้างอิงแบรนด์ของคุณหรือไม่">
             <div className="grid gap-4 md:grid-cols-2">
+              {!clientView && (
+                <div className="md:col-span-2 flex items-center gap-3">
+                  <ClientAvatar
+                    clientId={projectId}
+                    name={form.brandName || "Brand"}
+                    theme=""
+                    logo={logoDraft}
+                    onChange={setLogoDraft}
+                    save={saveLogo}
+                    size={48}
+                  />
+                  <div className="min-w-0">
+                    <span className={labelCls}>โลโก้แบรนด์</span>
+                    <p className={helpCls}>ใช้แสดงในหน้ารายงาน คลิกที่รูปเพื่ออัปโหลดหรือเปลี่ยน (ไม่ใส่ก็ได้ ระบบจะใช้ไอคอนของเว็บแทน)</p>
+                  </div>
+                </div>
+              )}
               <div className="md:col-span-2">
                 <Field
                   label="ชื่อแบรนด์ * (พิมพ์ได้หลายชื่อ)"
                   help={`ใส่ทุกแบบที่คนเรียกหรือสะกด เช่น Convert Cake, คอนเวิร์ท เค้ก, ConvertCake ถ้า AI ใช้ชื่อใดชื่อหนึ่งจะนับเป็นการพูดถึงแบรนด์ ชื่อแรกเป็นชื่อหลักที่แสดงในรายงาน กดที่ชื่ออื่นเพื่อตั้งเป็นชื่อหลัก สูงสุด ${LIMITS.aliasesMax + 1} ชื่อ`}
                 >
-                  <TagInput
-                    primary
+                  <BrandNameSuggestions
+                    names={brandNames}
+                    website={form.primaryDomain ?? ""}
+                    projectId={projectId}
                     max={LIMITS.aliasesMax + 1}
-                    value={brandNames}
-                    onChange={(v) => patch({ brandName: v[0] ?? "", aliases: v.slice(1) })}
-                    placeholder="พิมพ์ชื่อแบรนด์ แล้วกด Enter หรือ , เพื่อเพิ่มชื่อถัดไป"
-                  />
+                    onAdd={(added) => {
+                      const v = [...brandNames, ...added];
+                      patch({ brandName: v[0] ?? "", aliases: v.slice(1) });
+                    }}
+                  >
+                    <TagInput
+                      primary
+                      max={LIMITS.aliasesMax + 1}
+                      value={brandNames}
+                      onChange={(v) => patch({ brandName: v[0] ?? "", aliases: v.slice(1) })}
+                      placeholder="พิมพ์ชื่อแบรนด์ แล้วกด Enter หรือ , เพื่อเพิ่มชื่อถัดไป"
+                    />
+                  </BrandNameSuggestions>
                 </Field>
               </div>
               <Field label="เว็บไซต์หลัก (โดเมน) *" help="เช่น example.com ใส่ลิงก์เต็มได้ ระบบตัดให้เหลือแค่โดเมน">
@@ -606,7 +663,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
             )}
           </Section>
 
-          <Section n={4} id="br-step-4" title="รอบสแกนและงบ" why="กำหนดว่าระบบสแกนบ่อยแค่ไหน ถามกี่ครั้ง และใช้งบได้เท่าไรต่อเดือน (สแกนทำงานเมื่อมีคนเปิดหน้า Brand Radar)">
+          <Section n={4} id="br-step-4" title="รอบสแกนและงบ" why="กำหนดว่าระบบสแกนบ่อยแค่ไหน ถามกี่ครั้ง ใช้งบได้เท่าไรต่อเดือน และให้ระบบสแกนเองตามรอบหรือไม่">
             <div className="space-y-4">
               <Field label="ความถี่ในการสแกน">
                 <ScheduleField value={form.schedule ?? "weekly"} onChange={(v) => patch({ schedule: v })} />
@@ -614,6 +671,38 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
                   <p className={helpCls}>สแกนครั้งถัดไป: {fmtDateTime(nextRunAt)}</p>
                 )}
               </Field>
+
+              <div className="rounded-2xl border border-gray-100 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <label htmlFor="br-auto-scan" className="block text-sm font-medium text-brand-navy">สแกนอัตโนมัติตามรอบ</label>
+                    <p className={helpCls}>
+                      {form.autoScan
+                        ? "เปิดอยู่ — ระบบสแกนเองตามความถี่ด้านบน ไม่ต้องมีใครเปิดหน้านี้"
+                        : "ปิดอยู่ — สแกนจะเริ่มและเดินต่อเฉพาะตอนมีคนเปิดหน้า Brand Radar"}
+                    </p>
+                  </div>
+                  <Switch id="br-auto-scan" checked={!!form.autoScan} onCheckedChange={(v) => patch({ autoScan: v })} aria-label="สแกนอัตโนมัติตามรอบ" />
+                </div>
+                {form.autoScan && (
+                  <div className="mt-2 space-y-1 text-xs">
+                    {form.schedule === "manual" && (
+                      <p className="text-amber-700">ความถี่ตั้งเป็น Manual ระบบจะไม่เริ่มสแกนเอง — เลือกความถี่ด้านบนก่อน (สแกนที่กดเริ่มเองจะเดินต่อจนจบแม้ปิดหน้านี้)</p>
+                    )}
+                    {auto && !auto.ready && (
+                      <p role="alert" className="text-red-700">ระบบยังไม่พร้อมสแกนอัตโนมัติ: ผู้ดูแลระบบต้องตั้งค่า CRON_SECRET บน Vercel ก่อน เปิดสวิตช์ไว้ได้ แต่จะยังไม่ทำงานจนกว่าจะตั้งค่า</p>
+                    )}
+                    {auto?.ready && (
+                      <p className="text-gray-500">
+                        {auto.lastTickAt ? `ระบบตรวจรอบล่าสุด: ${fmtDateTime(auto.lastTickAt)}` : "ระบบยังไม่เคยตรวจรอบ (ปกติตรวจทุก 10 นาที)"}
+                      </p>
+                    )}
+                    {!baseline.autoScan && (
+                      <p className="text-gray-500">หลังบันทึก ถ้าถึงรอบสแกนแล้ว ระบบจะเริ่มสแกนภายในประมาณ 10 นาที และมีค่าใช้จ่ายจริงตามงบที่ตั้งไว้</p>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="งบประมาณต่อเดือน (USD)" help="เว้นว่าง = ไม่จำกัด">
                   <input type="number" min={0} step="0.01" className={inputCls} placeholder="เว้นว่าง = ไม่จำกัด" value={form.budget}
@@ -632,14 +721,14 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
                     {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
                   </select>
                 </Field>
-                <Field label="ภาษา">
+                <Field label="ภาษา" help={form.language === LANGUAGE_BOTH ? "แต่ละ prompt ถามตามภาษาที่พิมพ์: มีตัวอักษรไทย = ถามเป็นไทย ไม่มี = ถามเป็นอังกฤษ" : undefined}>
                   <select className={inputCls} value={form.language ?? "th"} onChange={(e) => patch({ language: e.target.value })}>
-                    {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+                    {PROFILE_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
                   </select>
                 </Field>
               </div>
 
-              <SampleSizeTest projectId={projectId} providers={providers} disabled={!hasProfile} />
+              <SampleSizeTest projectId={projectId} providers={providers} disabled={!hasProfile} brandTerms={sampleBrandTerms} />
 
               <div className="rounded-2xl border border-gray-100">
                 <button type="button" aria-expanded={advOpen} onClick={() => setAdvOpen(!advOpen)}
@@ -697,16 +786,24 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
 
         <aside className="min-w-0 xl:sticky xl:top-4">
           <Panel title="สรุปการใช้งาน" subtitle="ค่าใช้จ่ายเป็นค่าจริงที่ผู้ให้บริการรายงานกลับมา ไม่ใช่ค่าประมาณ">
-            <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="mt-3 text-xs font-medium text-gray-600">เดือนนี้{usage ? ` (${monthLabelTh(usage.month)})` : ""}</div>
+            <div className="mt-1.5 grid grid-cols-3 gap-2">
               <div>
-                <div className={labelCls}>ใช้ไปเดือนนี้ {usage ? `(${usage.month})` : ""}</div>
+                <div className={labelCls}>รวมทั้งเดือน</div>
                 <div className="text-lg font-semibold text-brand-navy">{usage ? fmtUsd(usage.monthSpendUsd) : "N/A"}</div>
               </div>
               <div>
-                <div className={labelCls}>API calls เดือนนี้</div>
+                <div className={labelCls}>ถามไป (ครั้ง)</div>
                 <div className="text-lg font-semibold text-gray-700">{usage ? fmtNum(usage.calls) : "N/A"}</div>
               </div>
+              <div>
+                <div className={labelCls}>เฉลี่ยต่อครั้ง</div>
+                <div className="text-lg font-semibold text-gray-700">{usage ? fmtUsdPerCall(costPerCall(usage.monthSpendUsd, usage.calls, usageFailed)) : "N/A"}</div>
+              </div>
             </div>
+            <p className={helpCls}>
+              ต่อครั้ง = ค่าใช้จ่าย ÷ จำนวนครั้งที่ได้คำตอบ{usage && usageFailed > 0 ? ` (ไม่นับ ${fmtNum(usageFailed)} ครั้งที่ล้มเหลว)` : ""}
+            </p>
             {usage && usage.budgetUsed !== null && usage.monthlyBudgetUsd !== null && (
               <div className="mt-3">
                 <div className="mb-1 text-xs text-gray-500">ใช้งบไปแล้ว {(usage.budgetUsed * 100).toFixed(1)}% ของ {fmtUsd(usage.monthlyBudgetUsd)}</div>
@@ -714,18 +811,26 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
               </div>
             )}
             {usage && usage.byProvider.length > 0 && (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[360px] text-left text-xs">
+              <div className="mt-4">
+                <div className="mb-1 text-xs font-medium text-gray-600">แยกตาม AI platform (เดือนนี้)</div>
+                <table className="w-full text-left text-xs">
                   <thead className="text-gray-500">
-                    <tr><th className="py-1 pr-3">AI platform</th><th className="py-1 pr-3">Calls</th><th className="py-1 pr-3">Failed</th><th className="py-1">Cost</th></tr>
+                    <tr>
+                      <th className="py-1 pr-1 font-medium"><ColumnHelp k="usageProvider" align="start">Platform</ColumnHelp></th>
+                      <th className="py-1 pr-1 text-right font-medium"><ColumnHelp k="usageCalls" align="end">ครั้ง</ColumnHelp></th>
+                      <th className="py-1 pr-1 text-right font-medium"><ColumnHelp k="usageFailed" align="end">ล้มเหลว</ColumnHelp></th>
+                      <th className="py-1 pr-1 text-right font-medium"><ColumnHelp k="usageCost" align="end">รวม</ColumnHelp></th>
+                      <th className="py-1 text-right font-medium"><ColumnHelp k="usagePerCall" align="end">ต่อครั้ง</ColumnHelp></th>
+                    </tr>
                   </thead>
                   <tbody>
                     {usage.byProvider.map((r) => (
                       <tr key={r.provider} className="border-t border-gray-100">
-                        <td className="py-1.5 pr-3 text-gray-700"><ProviderLogo provider={r.provider} title={r.label} /></td>
-                        <td className="py-1.5 pr-3 tabular-nums">{fmtNum(r.calls)}</td>
-                        <td className="py-1.5 pr-3 tabular-nums">{fmtNum(r.failed)}</td>
-                        <td className="py-1.5 tabular-nums">{fmtUsd(r.costUsd)}</td>
+                        <td className="py-1.5 pr-1 text-gray-700"><ProviderLogo provider={r.provider} title={r.label} /></td>
+                        <td className="py-1.5 pr-1 text-right tabular-nums">{fmtNum(r.calls)}</td>
+                        <td className={`py-1.5 pr-1 text-right tabular-nums ${r.failed > 0 ? "text-red-600" : "text-gray-400"}`}>{fmtNum(r.failed)}</td>
+                        <td className="py-1.5 pr-1 text-right tabular-nums">{fmtUsd(r.costUsd)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{fmtUsdPerCall(costPerCall(r.costUsd, r.calls, r.failed))}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -734,8 +839,28 @@ export default function SettingsTab({ projectId, refreshKey, onChanged }: TabPro
             )}
             {usage && usage.history.length > 0 && (
               <div className="mt-4">
-                <div className="mb-1 text-xs font-medium text-gray-600">ค่าใช้จ่าย 6 เดือนล่าสุด (USD)</div>
-                <BarChart height={160} formatValue={(n) => fmtUsd(n)} data={usage.history.map((h) => ({ label: h.month, value: h.costUsd }))} ariaLabel="Cost history" />
+                <div className="mb-1 text-xs font-medium text-gray-600">รายเดือน 6 เดือนล่าสุด (USD)</div>
+                <table className="w-full text-left text-xs">
+                  <thead className="text-gray-500">
+                    <tr>
+                      <th className="py-1 pr-1 font-medium"><ColumnHelp k="usageMonth" align="start">เดือน</ColumnHelp></th>
+                      <th className="py-1 pr-1 text-right font-medium"><ColumnHelp k="usageCalls" align="end">ครั้ง</ColumnHelp></th>
+                      <th className="py-1 pr-1 text-right font-medium"><ColumnHelp k="usageCost" align="end">รวม</ColumnHelp></th>
+                      <th className="py-1 text-right font-medium"><ColumnHelp k="usagePerCall" align="end">ต่อครั้ง</ColumnHelp></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...usage.history].reverse().map((h) => (
+                      <tr key={h.month} className={`border-t border-gray-100 ${h.month === usage.month ? "font-medium text-brand-navy" : ""}`}>
+                        <td className="py-1.5 pr-1">{monthLabelTh(h.month)}</td>
+                        <td className="py-1.5 pr-1 text-right tabular-nums">{fmtNum(h.calls)}</td>
+                        <td className="py-1.5 pr-1 text-right tabular-nums">{fmtUsd(h.costUsd)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{fmtUsdPerCall(costPerCall(h.costUsd, h.calls, h.failed))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <BarChart className="mt-3" height={140} formatValue={(n) => fmtUsd(n)} data={usage.history.map((h) => ({ label: monthLabelTh(h.month, true), value: h.costUsd }))} ariaLabel="ค่าใช้จ่ายรายเดือน 6 เดือนล่าสุด" />
               </div>
             )}
           </Panel>

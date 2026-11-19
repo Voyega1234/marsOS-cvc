@@ -5,7 +5,7 @@
 import {
   PROMPT_INTENT_LABEL, PROMPT_INTENTS, PROVIDERS, PROVIDER_KEYS, answerZone,
   type CitationOwner, type CitedPageRow, type CompetitorInsightsDTO, type MentionSplit, type PromptRunChange, type EntityShare, type CitedDomainRow, type Kpis,
-  type OverviewDTO, type Priority, type PromptDetailDTO, type PromptIntent, type PromptStats, type ProviderKey, type TrendPoint,
+  type OverviewDTO, type Priority, type PromptDetailDTO, type PromptIntent, type PromptStats, type ProviderKey, type ScanProgressPoint, type TrendPoint,
 } from './types'
 
 export interface RespRow {
@@ -282,6 +282,61 @@ export function trendByRun(ds: Dataset, runs: RunLite[]): TrendPoint[] {
       comparable: run.promptSetHash === newest.promptSetHash && run.providers === newest.providers,
     }
   })
+}
+
+/** Rounds shown in the scan-by-scan comparison: the latest ones only, so the table and the payload stay small */
+export const SCAN_PROGRESS_CAP = 20
+
+function shortDateTime(d: Date): string {
+  const b = new Date(d.getTime() + BANGKOK_MS)
+  return `${shortDate(d)} ${String(b.getUTCHours()).padStart(2, '0')}:${String(b.getUTCMinutes()).padStart(2, '0')}`
+}
+
+/**
+ * The brand per scan round, oldest first: answers, answers naming the brand, answers linking to our sites,
+ * answers doing either, and the brand's mean position. Rounds without a collected answer are left out.
+ * Counted exactly like the feed totals, one round at a time.
+ */
+export function scanProgress(ds: Dataset, runs: RunLite[], cap = SCAN_PROGRESS_CAP): ScanProgressPoint[] {
+  const respByRun = new Map<string, RespRow[]>()
+  for (const r of ds.responses) {
+    const list = respByRun.get(r.runId)
+    if (list) list.push(r)
+    else respByRun.set(r.runId, [r])
+  }
+  const brandByRun = new Map<string, MentionRow[]>()
+  for (const m of ds.mentions) {
+    if (m.entityType !== 'brand') continue
+    const list = brandByRun.get(m.runId)
+    if (list) list.push(m)
+    else brandByRun.set(m.runId, [m])
+  }
+  const sorted = runs.filter((r) => respByRun.has(r.id)).sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
+  const points = sorted.map((run, i): ScanProgressPoint => {
+    const resp = respByRun.get(run.id) ?? []
+    const brandRows = brandByRun.get(run.id) ?? []
+    const asked = resp.length
+    const mentioned = resp.filter((r) => r.brandMentioned === true).length
+    const ownedCited = resp.filter((r) => r.ownedCited === true).length
+    const appeared = resp.filter((r) => r.brandMentioned === true || r.ownedCited === true).length
+    const prev = i > 0 ? sorted[i - 1] : null
+    return {
+      runId: run.id,
+      date: run.startedAt.toISOString(),
+      label: shortDateTime(run.startedAt),
+      asked,
+      mentioned,
+      mentionRate: rate(mentioned, asked),
+      ownedCited,
+      citationRate: rate(ownedCited, asked),
+      appeared,
+      appearRate: rate(appeared, asked),
+      avgPosition: mean(brandRows.map((m) => m.position).filter((p): p is number => p !== null)),
+      avgPositionPct: mean(brandRows.map((m) => m.positionPct).filter(isNum)),
+      sameSetAsPrevious: prev ? run.promptSetHash === prev.promptSetHash && run.providers === prev.providers : null,
+    }
+  })
+  return cap > 0 && points.length > cap ? points.slice(points.length - cap) : points
 }
 
 // ── Breakdowns ───────────────────────────────────────────────────────────────

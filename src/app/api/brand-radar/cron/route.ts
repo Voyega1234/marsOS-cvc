@@ -3,7 +3,11 @@ import { timingSafeEqual } from 'node:crypto'
 import { cronTick } from '@/lib/brand-radar/runner'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300
+// One scan step can take about 300 s in the worst case (provider 130 s + sentiment 30 s + grouping 45 s +
+// two closing sweeps of 45 s). A step that is cut off loses answers that were already paid for, so the
+// last step has to start early enough to finish inside this limit: START_WINDOW_MS + 300 s < 800 s.
+export const maxDuration = 800
+const START_WINDOW_MS = 420_000
 
 function tokenMatches(header: string, secret: string): boolean {
   const expected = Buffer.from(`Bearer ${secret}`)
@@ -19,7 +23,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
-    return NextResponse.json(await cronTick(240_000))
+    return NextResponse.json(await cronTick(START_WINDOW_MS))
   } catch (e) {
     console.error('[brand-radar cron]', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Cron failed' }, { status: 500 })

@@ -9,6 +9,7 @@ import { replaceUrlParams } from "@/lib/url-state";
 import ReportDashboard from "./ReportDashboard";
 import type { BrandOpt } from "./ReportDossier";
 import { ProviderLogo } from "./ProviderLogo";
+import { ColumnHelp } from "./ColumnHelp";
 import { api, fmtNum, fmtPct, fmtRange, isSmallSample, providerShort, radarCacheGeneration, radarCacheGet, radarCacheSet, radarQuery, type TabProps } from "./shared";
 
 const def = (key: string) => METRIC_DEFINITIONS.find((m) => m.key === key);
@@ -150,14 +151,14 @@ export default function OverviewTab({ projectId, filters, refreshKey, onGoTab, c
                         <tr>
                           <th className="text-left font-medium text-gray-500" />
                           {heat.columns.map((c) => (
-                            <th key={c} className="px-1 text-center font-medium text-gray-600"><ProviderLogo provider={c} size={18} title={providerShort(c)} /></th>
+                            <th key={c} className="px-1 text-center font-medium text-gray-600"><ColumnHelp k="heatPlatform"><ProviderLogo provider={c} size={18} title={providerShort(c)} /></ColumnHelp></th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {heat.rows.map((row, ri) => (
                           <tr key={row}>
-                            <th className="max-w-[10rem] break-words pr-2 text-left font-medium text-gray-700">{row}</th>
+                            <th className="max-w-[10rem] break-words pr-2 text-left font-medium text-gray-700"><ColumnHelp k="heatTopic" align="start">{row}</ColumnHelp></th>
                             {heat.columns.map((c, ci) => {
                               const v = heat.values[ri]?.[ci] ?? null;
                               return v === null ? (

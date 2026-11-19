@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { bad, errMsg, isRadarCtx, parseStrings, requireProject } from '@/lib/brand-radar/server'
 import { callProvider, hasCredentials, logProviderCall } from '@/lib/brand-radar/providers'
 import { analyzeAnswer } from '@/lib/brand-radar/runner'
+import { resolveLanguage } from '@/lib/brand-radar/language'
 import { isProviderKey, LIMITS, PROVIDERS } from '@/lib/brand-radar/types'
 import type { AskResult } from '@/lib/brand-radar/sample-test'
 import { prisma } from '@/lib/prisma'
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     const ask = async (): Promise<AskResult> => {
       try {
-        const r = await callProvider(key, { prompt, country: profile.country, language: profile.language, clientName })
+        const r = await callProvider(key, { prompt, country: profile.country, language: resolveLanguage(profile.language, prompt), clientName })
         const tokens = r.inputTokens + r.outputTokens
         if (r.status === 'SKIPPED') {
           // A logging failure must not turn a paid, answered ask into a failed one

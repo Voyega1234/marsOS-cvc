@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Brand Radar — small cards of the Overview dashboard (row 3 and row 5):
- * answer kinds / platforms, top competitors, sources, latest answers.
+ * Brand Radar — cards of the Overview dashboard:
+ * answer kinds / platforms, the competitor ranking table, the sources table, latest answers.
+ * Table headings carry a 2-second hover help (ColumnHelp).
  * All API text is untrusted: rendered as React text nodes only; only http(s) values become links.
  */
 import { useState } from "react";
@@ -13,6 +14,10 @@ import { ProviderLogo } from "./ProviderLogo";
 import { ANSWER_ZONE_LEGEND, fmtDate, fmtNum, fmtZoneShare, providerLabelFor, type TabId } from "./shared";
 import type { ViewerTarget } from "./ResponseViewer";
 import { KIND_SHORT, KIND_TONE } from "./AnswersTab";
+import { INSIGHT_LIMITS } from "@/lib/brand-radar/insight";
+import { BrandLogo, domainFavicon } from "./BrandLogo";
+import { ColumnHelp } from "./ColumnHelp";
+import type { BrandOpt } from "./ReportDossier";
 
 type Dto = AnswerFeedDTO;
 
@@ -84,44 +89,82 @@ export function AnswerBreakdownCard({ dto, clientView }: { dto: Dto; clientView?
   );
 }
 
-/** 3c: brand row first (highlighted), then top 5 competitors */
-export function TopCompetitorsCard({ dto, onGoTab }: { dto: Dto; onGoTab: (t: TabId) => void }) {
-  const entities = dto.entities ?? [];
-  const brand = entities.filter((e) => e.entityType === "brand");
-  const comps = entities.filter((e) => e.entityType === "competitor").slice(0, 5);
-  const rows = [...brand, ...comps];
+/** change in points as a coloured chip with an arrow; unknown (fewer than 2 days of data) = "—" */
+export function ChangeChip({ c }: { c: number | null | undefined }) {
+  if (c === null || c === undefined || !Number.isFinite(c)) return <span className="text-gray-400">—</span>;
+  const cls = c > 0
+    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+    : c < 0
+      ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300"
+      : "bg-gray-100 text-gray-600 dark:bg-white/5 dark:text-gray-300";
+  return (
+    <span className={`inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${cls}`}>
+      <span aria-hidden>{c > 0 ? "▲" : c < 0 ? "▼" : "•"}</span>
+      {fmtChange(c)}
+    </span>
+  );
+}
+
+const TH = "py-1.5 pr-3 font-medium";
+/** heading row that stays in view while a long table scrolls inside its card */
+const STICKY_HEAD = "sticky top-0 z-10 bg-white text-left text-xs text-gray-500 shadow-[0_1px_0_0_rgb(0_0_0/0.06)]";
+
+/** 3c: our brand and every tracked competitor, ranked by Visibility; our brand is highlighted in its real place */
+export function TopCompetitorsCard({ dto, onGoTab, brand }: { dto: Dto; onGoTab: (t: TabId) => void; brand?: BrandOpt }) {
+  const rows = [...(dto.entities ?? [])].sort((a, b) =>
+    (b.mentionRate ?? -1) - (a.mentionRate ?? -1) || b.mentions - a.mentions || a.name.localeCompare(b.name));
   return (
     <Panel
       title="Top Competitors"
+      subtitle="แบรนด์เราเทียบกับคู่แข่งที่ติดตาม เรียงจาก Visibility มากไปน้อย"
       className="h-full"
       actions={<Button size="sm" variant="outline" onClick={() => onGoTab("competitors")}>ดูทั้งหมด</Button>}
     >
       {rows.length === 0 ? (
         <p className="py-6 text-center text-sm text-gray-500">ยังไม่มีข้อมูล</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[320px] text-sm">
+        <div className="max-h-[28rem] overflow-auto">
+          <table className="w-full min-w-[520px] text-sm">
             <thead>
-              <tr className="text-left text-xs text-gray-500">
-                <th className="py-1.5 pr-2 font-medium">#</th>
-                <th className="py-1.5 pr-3 font-medium">ชื่อ</th>
-                <th className="py-1.5 pr-3 text-right font-medium">Visibility</th>
-                <th className="py-1.5 pr-3 text-right font-medium">เปลี่ยนแปลง</th>
-                <th className="py-1.5 text-right font-medium">อันดับเฉลี่ย</th>
+              <tr className={STICKY_HEAD}>
+                <th className="py-1.5 pl-1 pr-2 font-medium"><ColumnHelp k="rank" align="start">#</ColumnHelp></th>
+                <th className={TH}><ColumnHelp k="entityName" align="start">Name</ColumnHelp></th>
+                <th className={`${TH} text-right`}><ColumnHelp k="visibility" align="end">Visibility %</ColumnHelp></th>
+                <th className={`${TH} text-right`}><ColumnHelp k="change" align="end">Change</ColumnHelp></th>
+                <th className="py-1.5 text-right font-medium"><ColumnHelp k="avgPositionBoth" align="end">Avg. position</ColumnHelp></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((e, i) => (
-                <tr key={e.key} className={`border-t border-gray-100 ${e.entityType === "brand" ? "bg-brand-mist/60 font-medium" : ""}`}>
-                  <td className="py-2 pl-1 pr-2 tabular-nums text-gray-500">{i + 1}</td>
-                  <td className="max-w-[10rem] truncate py-2 pr-3 text-gray-800" title={e.name}>{e.name}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums">{pct(e.mentionRate)}</td>
-                  <td className="py-2 pr-3 text-right"><ChangeText c={dto.entityChange?.[e.key] ?? null} /></td>
-                  <td className="py-2 text-right tabular-nums">{e.avgPosition === null || e.avgPosition === undefined ? "—" : e.avgPosition.toFixed(1)}
-                    {fmtZoneShare(e.zones) && <span className="block text-[11px] font-normal text-gray-500" title={ANSWER_ZONE_LEGEND}>{fmtZoneShare(e.zones)}</span>}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((e, i) => {
+                const own = e.entityType === "brand";
+                const zones = fmtZoneShare(e.zones);
+                const hasOrder = e.avgPosition !== null && e.avgPosition !== undefined && Number.isFinite(e.avgPosition);
+                return (
+                  <tr key={e.key} className={`border-t border-gray-100 align-top ${own ? "bg-brand-mist/60 font-medium" : ""}`}>
+                    <td className="py-2.5 pl-1 pr-2 tabular-nums text-gray-500">{i + 1}</td>
+                    <td className="py-2 pr-3">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <BrandLogo
+                          name={e.name}
+                          logo={own ? brand?.logo : null}
+                          favicon={own ? brand?.favicon ?? domainFavicon(dto.entityDomains?.brand) : domainFavicon(dto.entityDomains?.[e.key])}
+                          size={24}
+                          rounded="rounded-md"
+                        />
+                        <span className="min-w-0 max-w-[11rem] truncate text-gray-800" title={e.name}>{e.name}</span>
+                        {own && <Chip tone="info">แบรนด์เรา</Chip>}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-3 text-right tabular-nums">{pct(e.mentionRate)}</td>
+                    <td className="py-2.5 pr-3 text-right"><ChangeChip c={dto.entityChange?.[e.key] ?? null} /></td>
+                    <td className="py-2.5 text-right tabular-nums">
+                      {pct(e.avgPositionPct, 0)}
+                      {hasOrder && <span className="block text-[11px] font-normal text-gray-500">ลำดับเฉลี่ย {(e.avgPosition as number).toFixed(1)}</span>}
+                      {zones && <span className="block text-[11px] font-normal text-gray-500" title={ANSWER_ZONE_LEGEND}>{zones}</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -130,37 +173,58 @@ export function TopCompetitorsCard({ dto, onGoTab }: { dto: Dto; onGoTab: (t: Ta
   );
 }
 
-/** 3d: websites the answers cite */
+/** 3d: websites the answers cite, most cited first; the card scrolls when the list is long */
 export function SourcesCard({ dto, onGoTab }: { dto: Dto; onGoTab: (t: TabId) => void }) {
-  const sources = (dto.sources ?? []).slice(0, 8);
+  const sources = dto.sources ?? [];
   return (
     <Panel
       title="Sources"
-      subtitle="เว็บที่ AI อ้างอิงในคำตอบ"
+      subtitle="เว็บที่ AI อ้างอิงในคำตอบ เรียงจากถูกอ้างอิงบ่อยที่สุด"
       className="h-full"
       actions={<Button size="sm" variant="outline" onClick={() => onGoTab("citations")}>ดูทั้งหมด</Button>}
     >
       {sources.length === 0 ? (
         <p className="py-6 text-center text-sm text-gray-500">ยังไม่มีข้อมูล</p>
       ) : (
-        <ul className="space-y-2.5">
-          {sources.map((s) => (
-            <li key={`${s.domain}-${s.ownerType}`}>
-              <div className="flex items-center justify-between gap-2 text-sm text-gray-700">
-                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="min-w-0 max-w-full truncate" title={s.domain}>{s.domain}</span>
-                  {s.ownerType === "own" ? <Chip tone="ok">เว็บเรา</Chip>
-                    : s.ownerType === "competitor" ? <Chip tone="warn">{s.competitorName ? `คู่แข่ง: ${s.competitorName}` : "คู่แข่ง"}</Chip>
-                    : <Chip tone="muted">อื่น ๆ</Chip>}
-                </span>
-                <span className="shrink-0 text-xs tabular-nums text-gray-500">Citation <b className="text-brand-navy">{pct(s.rate)}</b></span>
-              </div>
-              <div className="mt-1 h-1.5 rounded-full bg-gray-100">
-                <div className={`h-1.5 rounded-full ${s.ownerType === "own" ? "bg-emerald-500" : s.ownerType === "competitor" ? "bg-amber-400" : "bg-gray-400"}`} style={{ width: `${Math.min(100, (s.rate ?? 0) * 100)}%`, minWidth: (s.rate ?? 0) > 0 ? 2 : 0 }} />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="max-h-[28rem] overflow-auto">
+            <table className="w-full min-w-[320px] text-sm">
+              <thead>
+                <tr className={STICKY_HEAD}>
+                  <th className={TH}><ColumnHelp k="domain" align="start">Domain</ColumnHelp></th>
+                  <th className="w-36 py-1.5 text-right font-medium"><ColumnHelp k="citationShare" align="end">Citation %</ColumnHelp></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sources.map((s) => {
+                  const share = Math.min(100, (s.rate ?? 0) * 100);
+                  return (
+                    <tr key={`${s.domain}-${s.ownerType}`} className={`border-t border-gray-100 ${s.ownerType === "own" ? "bg-emerald-50/60 dark:bg-emerald-500/10" : ""}`}>
+                      <td className="py-2 pr-3">
+                        <span className="flex min-w-0 flex-wrap items-center gap-2">
+                          <BrandLogo name={s.domain} favicon={domainFavicon(s.domain)} size={20} rounded="rounded" />
+                          <span className="min-w-0 max-w-[14rem] truncate text-gray-800" title={s.domain}>{s.domain}</span>
+                          {s.ownerType === "own" ? <Chip tone="ok">เว็บเรา</Chip>
+                            : s.ownerType === "competitor" ? <Chip tone="warn">{s.competitorName ? `คู่แข่ง: ${s.competitorName}` : "คู่แข่ง"}</Chip>
+                            : null}
+                        </span>
+                      </td>
+                      <td className="py-2 text-right">
+                        <span className="block font-medium tabular-nums text-brand-navy">{pct(s.rate)}</span>
+                        <span className="mt-1 block h-1.5 rounded-full bg-gray-100">
+                          <span className={`block h-1.5 rounded-full ${s.ownerType === "own" ? "bg-emerald-500" : s.ownerType === "competitor" ? "bg-amber-400" : "bg-gray-400"}`} style={{ width: `${share}%`, minWidth: share > 0 ? 2 : 0 }} />
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {sources.length >= INSIGHT_LIMITS.sources && (
+            <p className="mt-2 text-xs text-gray-500">แสดง {INSIGHT_LIMITS.sources} เว็บแรก ดูรายการเต็มได้ที่ปุ่ม "ดูทั้งหมด"</p>
+          )}
+        </>
       )}
     </Panel>
   );
@@ -181,12 +245,12 @@ export function LatestAnswersTable({ dto, onOpen, onGoTab, clientView }: { dto: 
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-500">
-                <th className="py-1.5 pr-3 font-medium">คำถาม</th>
-                <th className="py-1.5 pr-3 font-medium">Platform</th>
-                <th className="py-1.5 pr-3 font-medium">พูดถึงเรา</th>
-                <th className="py-1.5 pr-3 font-medium">แบรนด์ที่ถูกพูดถึง</th>
-                <th className="py-1.5 pr-3 font-medium">ประเภท</th>
-                <th className="py-1.5 font-medium">วันที่</th>
+                <th className={TH}><ColumnHelp k="promptText" align="start">คำถาม</ColumnHelp></th>
+                <th className={TH}><ColumnHelp k="aiPlatform">Platform</ColumnHelp></th>
+                <th className={TH}><ColumnHelp k="answerMentioned">พูดถึงเรา</ColumnHelp></th>
+                <th className={TH}><ColumnHelp k="answerBrands">แบรนด์ที่ถูกพูดถึง</ColumnHelp></th>
+                <th className={TH}><ColumnHelp k="answerKind">ประเภท</ColumnHelp></th>
+                <th className="py-1.5 font-medium"><ColumnHelp k="answerDate" align="end">วันที่</ColumnHelp></th>
               </tr>
             </thead>
             <tbody>
@@ -196,8 +260,8 @@ export function LatestAnswersTable({ dto, onOpen, onGoTab, clientView }: { dto: 
                 const kind = a ? answerKind(a.brandMentioned, a.ownedCited) : null;
                 const names = [...(it.mentioned > 0 ? [dto.brandName || "แบรนด์เรา"] : []), ...(it.competitors ?? []).map((c) => c.name)];
                 return (
-                  <tr key={`${it.promptId}-${it.provider}`} onClick={open} className={`border-t border-gray-100 ${a ? "cursor-pointer hover:bg-gray-50" : ""}`}>
-                    <td className="max-w-[18rem] py-2 pr-3">
+                  <tr key={`${it.promptId}-${it.provider}`} onClick={open} className={`border-t border-gray-100 ${it.mentioned > 0 ? "bg-emerald-50/60 dark:bg-emerald-500/10" : ""} ${a ? "cursor-pointer hover:bg-gray-50" : ""}`}>
+                    <td className={`max-w-[18rem] py-2 pr-3 ${it.mentioned > 0 ? "border-l-4 border-l-emerald-500 pl-2" : ""}`}>
                       <button type="button" disabled={!a} onClick={(e) => { e.stopPropagation(); open(); }} className="block w-full truncate text-left text-gray-800 hover:underline disabled:no-underline" title={it.promptText}>
                         {it.promptText}
                       </button>

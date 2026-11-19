@@ -9,13 +9,14 @@
 import { useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AreaChart, Chip, EmptyState, EntityAvatar, Gauge, MeterBar, Panel, Segmented } from "@/components/ds";
+import { AreaChart, Chip, EmptyState, Gauge, MeterBar, Panel, Segmented } from "@/components/ds";
 import type { AnswerFeedDTO } from "@/lib/brand-radar/types";
 import { SENTIMENT_TONE_LABEL } from "@/lib/brand-radar/types";
 import { ANSWER_ZONE_LEGEND, fmtDate, fmtNum, fmtZoneShare, providerLabelFor, type TabId, type TabProps } from "./shared";
 import { ProviderLogo } from "./ProviderLogo";
 import { pct } from "./ReportCards";
 import { TONE_CHIP, ToneBar, dominantTone } from "./InsightSections";
+import { BrandLogo } from "./BrandLogo";
 
 type Dto = AnswerFeedDTO;
 type Filters = TabProps["filters"];
@@ -24,7 +25,7 @@ const BRAND_COLOR = "#1d48f3";
 // muted, distinct colours for competitor lines
 const COMPETITOR_COLORS = ["#98a3b6", "#ffb95c", "#6b8cef", "#e35336", "#2fb5a3"];
 
-export interface BrandOpt { id: string; name: string; logo?: string }
+export interface BrandOpt { id: string; name: string; logo?: string | null; favicon?: string | null }
 
 function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
@@ -47,7 +48,7 @@ function periodText(dto: Dto, filters: Filters): string {
 
 // ── 1. Header ────────────────────────────────────────────────────────────────
 
-export function DossierHeader({ dto, filters, onGoTab }: { dto: Dto; filters: Filters; onGoTab: (t: TabId) => void }) {
+export function DossierHeader({ dto, filters, onGoTab, brand: picture }: { dto: Dto; filters: Filters; onGoTab: (t: TabId) => void; brand?: BrandOpt }) {
   const brand = (dto.entities ?? []).find((e) => e.entityType === "brand");
   const name = brand?.name || dto.brandName || "";
   const period = periodText(dto, filters);
@@ -55,11 +56,14 @@ export function DossierHeader({ dto, filters, onGoTab }: { dto: Dto; filters: Fi
   return (
     <Panel className="rounded-3xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          {name ? <h2 className="break-words text-xl font-semibold text-brand-navy md:text-2xl">{name}</h2> : null}
-          <p className="mt-1 text-sm text-gray-600">
-            {`วิเคราะห์ ${fmtNum(dto.totals?.asked)} คำตอบ จาก ${fmtNum(platforms)} AI platform${period ? ` · ช่วง ${period}` : ""}`}
-          </p>
+        <div className="flex min-w-0 items-center gap-3">
+          {name ? <BrandLogo name={name} logo={picture?.logo} favicon={picture?.favicon} size={48} color={BRAND_COLOR} /> : null}
+          <div className="min-w-0">
+            {name ? <h2 className="break-words text-xl font-semibold text-brand-navy md:text-2xl">{name}</h2> : null}
+            <p className="mt-1 text-sm text-gray-600">
+              {`วิเคราะห์ ${fmtNum(dto.totals?.asked)} คำตอบ จาก ${fmtNum(platforms)} AI platform${period ? ` · ช่วง ${period}` : ""}`}
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => onGoTab("responses")}>ดูคำตอบทั้งหมด</Button>
@@ -342,36 +346,36 @@ export function BrandPager({ brands, currentId, onSwitch }: { brands?: BrandOpt[
   if (!onSwitch || list.length < 2 || idx < 0) return null;
   const go = (i: number) => { const b = list[i]; if (b) onSwitch(b.id); };
   return (
-    <Panel>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-sm text-gray-600 tabular-nums">{idx + 1} จาก {list.length}</span>
-        <div className="flex items-center gap-2">
+    <Panel
+      title="สลับดูแบรนด์อื่น"
+      subtitle="กดที่แบรนด์เพื่อเปิดรายงานของแบรนด์นั้น"
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500 tabular-nums">แบรนด์ที่ {idx + 1} จาก {list.length}</span>
           <Button size="sm" variant="outline" disabled={idx <= 0} onClick={() => go(idx - 1)} aria-label="แบรนด์ก่อนหน้า"><ChevronLeft className="h-4 w-4" />ก่อนหน้า</Button>
           <Button size="sm" variant="outline" disabled={idx >= list.length - 1} onClick={() => go(idx + 1)} aria-label="แบรนด์ถัดไป">ถัดไป<ChevronRight className="h-4 w-4" /></Button>
         </div>
-      </div>
-      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-        {list.map((b) => (
-          <button
-            key={b.id}
-            type="button"
-            onClick={() => onSwitch(b.id)}
-            title={b.name}
-            aria-current={b.id === currentId ? "true" : undefined}
-            className={`shrink-0 rounded-2xl p-1 transition ${b.id === currentId ? "ring-2 ring-brand-blue" : "opacity-70 hover:opacity-100"}`}
-          >
-            <EntityAvatar label={b.name} src={safeLogoSrc(b.logo)} size={40} />
-          </button>
-        ))}
+      }
+    >
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {list.map((b) => {
+          const current = b.id === currentId;
+          return (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => onSwitch(b.id)}
+              title={b.name}
+              aria-current={current ? "true" : undefined}
+              className={`flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-2xl border p-2 text-center transition ${current ? "border-brand-blue bg-brand-mist/60" : "border-transparent hover:bg-gray-50"}`}
+            >
+              <BrandLogo name={b.name} logo={b.logo} favicon={b.favicon} size={40} />
+              <span className="line-clamp-2 w-full break-words text-xs text-gray-700">{b.name}</span>
+              {current ? <span className="text-[11px] font-medium text-brand-blue">กำลังดู</span> : null}
+            </button>
+          );
+        })}
       </div>
     </Panel>
   );
-}
-
-/** Only https URLs or same-origin paths (single leading slash) may reach an <img src>. */
-function safeLogoSrc(logo: string | null | undefined): string | undefined {
-  if (!logo) return undefined;
-  if (logo.startsWith("https://")) return logo;
-  if (logo.startsWith("/") && !logo.startsWith("//") && !logo.startsWith("/\\")) return logo;
-  return undefined;
 }

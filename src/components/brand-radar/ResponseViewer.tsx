@@ -16,7 +16,9 @@ import { Chip, EntityAvatar } from "@/components/ds";
 import { faviconUrl } from "@/lib/backlink-management/project-logos";
 import { cn } from "@/lib/utils";
 import { BRAND_POSITIONING_LABEL, SENTIMENT_TONE_LABEL, type CitationOwner, type RadarFilters, type ResponseDTO, type ResponseViewerDTO } from "@/lib/brand-radar/types";
+import { splitByTerms } from "@/lib/brand-radar/highlight";
 import { ProviderLogo } from "./ProviderLogo";
+import { BRAND_HIT_CLS } from "./BrandHighlight";
 import { ANSWER_ZONE_LEGEND, fmtAnswerPos, fmtDateTime, fmtPct, fmtRange, fmtUsd, fmtZoneShare, isSmallSample, providerShort, radarQuery } from "./shared";
 import { LoadState, useApiData } from "./PromptDialogs";
 
@@ -30,11 +32,11 @@ export interface ViewerTarget {
 
 // ── Entity colours ───────────────────────────────────────────────────────────
 
-const BRAND_MARK = "bg-amber-200/80 text-amber-950 ring-1 ring-amber-300";
+const BRAND_MARK = BRAND_HIT_CLS;
 const COMPETITOR_MARKS = [
   "bg-sky-100 text-sky-900 ring-1 ring-sky-200",
   "bg-violet-100 text-violet-900 ring-1 ring-violet-200",
-  "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200",
+  "bg-cyan-100 text-cyan-900 ring-1 ring-cyan-200",
   "bg-rose-100 text-rose-900 ring-1 ring-rose-200",
   "bg-orange-100 text-orange-900 ring-1 ring-orange-200",
   "bg-teal-100 text-teal-900 ring-1 ring-teal-200",
@@ -45,12 +47,8 @@ const OTHER_MARK = "underline decoration-dotted decoration-gray-400 underline-of
 
 interface EntityStyle { key: string; name: string; brand: boolean; cls: string; other?: boolean; category?: string }
 
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** Builds one case-insensitive matcher for every alias found in this answer, longest first. */
-export function buildHighlighter(r: ResponseDTO, styles: Map<string, EntityStyle>) {
+export function buildHighlighter(r: ResponseDTO, styles: Map<string, EntityStyle>, extraBrandTerms?: ReadonlyArray<string>) {
   const byAlias = new Map<string, EntityStyle>();
   for (const m of r.mentions) {
     const st = styles.get(m.key);
@@ -61,6 +59,14 @@ export function buildHighlighter(r: ResponseDTO, styles: Map<string, EntityStyle
       if (k.length >= 2 && !byAlias.has(k)) byAlias.set(k, st);
     }
   }
+  // Our brand name / aliases from the profile, in case the saved mentions carry no aliases for this answer
+  if (extraBrandTerms && extraBrandTerms.length > 0) {
+    const own = Array.from(styles.values()).find((st) => st.brand) ?? { key: "brand:self", name: "แบรนด์เรา", brand: true, cls: BRAND_MARK };
+    for (const t of extraBrandTerms) {
+      const k = t.trim().toLowerCase();
+      if (k.length >= 2 && !byAlias.has(k)) byAlias.set(k, own);
+    }
+  }
   // Other brands the AI named: tracked aliases always win
   for (const o of r.otherEntities ?? []) {
     const k = (o.name ?? "").trim().toLowerCase();
@@ -69,7 +75,7 @@ export function buildHighlighter(r: ResponseDTO, styles: Map<string, EntityStyle
   }
   const terms = Array.from(byAlias.keys()).sort((a, b) => b.length - a.length);
   if (terms.length === 0) return null;
-  return { re: new RegExp(terms.map(escapeRe).join("|"), "gi"), byAlias };
+  return { terms, byAlias };
 }
 
 type Highlighter = ReturnType<typeof buildHighlighter>;
@@ -95,46 +101,29 @@ interface RenderCtx {
   seenEntity: Set<string>
 }
 
-const LATIN = /[A-Za-z0-9À-ɏ]/;
-
 function highlightText(text: string, ctx: RenderCtx, keyBase: string): ReactNode[] {
   if (!ctx.hl || !text) return [text];
   const out: ReactNode[] = [];
-  const re = new RegExp(ctx.hl.re.source, "gi");
-  let last = 0;
-  let m: RegExpExecArray | null;
   let i = 0;
-  while ((m = re.exec(text)) !== null) {
-    if (m[0].length === 0) { re.lastIndex += 1; continue; }
-    const st = ctx.hl.byAlias.get(m[0].toLowerCase());
-    if (!st) continue;
-    // Latin names must match whole words; Thai text has no spaces so it matches inside running text
-    const before = m.index > 0 ? text[m.index - 1] : "";
-    const after = text[m.index + m[0].length] ?? "";
-    if ((LATIN.test(m[0][0]) && before && LATIN.test(before)) || (LATIN.test(m[0][m[0].length - 1]) && after && LATIN.test(after))) {
-      re.lastIndex = m.index + 1;
-      continue;
-    }
-    if (m.index > last) out.push(text.slice(last, m.index));
+  for (const seg of splitByTerms(text, ctx.hl.terms)) {
+    const st = seg.hit ? ctx.hl.byAlias.get(seg.text.toLowerCase()) : undefined;
+    if (!st) { out.push(seg.text); continue; }
     const first = !ctx.seenEntity.has(st.key);
     ctx.seenEntity.add(st.key);
     if (st.other) {
       out.push(
         <span key={`${keyBase}-h${i++}`} title={`แบรนด์อื่นที่ AI พูดถึง: ${st.name}${st.category ? ` (${st.category})` : ""}`}
           data-entity={first ? st.key : undefined}
-          className={cn(st.cls)}>{m[0]}</span>,
+          className={cn(st.cls)}>{seg.text}</span>,
       );
-      last = m.index + m[0].length;
       continue;
     }
     out.push(
       <mark key={`${keyBase}-h${i++}`} title={st.brand ? `แบรนด์เรา: ${st.name}` : `คู่แข่ง: ${st.name}`}
         data-entity={first ? st.key : undefined}
-        className={cn("rounded px-0.5 font-medium", st.cls)}>{m[0]}</mark>,
+        className={cn("rounded px-0.5 font-medium", st.cls)}>{seg.text}</mark>,
     );
-    last = m.index + m[0].length;
   }
-  if (last < text.length) out.push(text.slice(last));
   return out;
 }
 
@@ -311,7 +300,7 @@ export function renderMarkdown(src: string, ctx: RenderCtx): ReactNode[] {
 }
 
 /** Renders one answer's text (markdown-lite + brand / competitor highlighting) from the answer's own mentions. */
-export function AnswerBody({ response, className }: { response: ResponseDTO; className?: string }) {
+export function AnswerBody({ response, className, brandTerms }: { response: ResponseDTO; className?: string; brandTerms?: ReadonlyArray<string> }) {
   const nodes = useMemo(() => {
     if (!response.responseText) return null;
     const styles = new Map<string, EntityStyle>();
@@ -321,8 +310,8 @@ export function AnswerBody({ response, className }: { response: ResponseDTO; cla
     }
     const citeNo = new Map<string, number>();
     response.citations.forEach((ci, i) => { const k = urlKey(ci.url); if (!citeNo.has(k)) citeNo.set(k, i + 1); });
-    return renderMarkdown(response.responseText, { hl: buildHighlighter(response, styles), citeNo, seenEntity: new Set() });
-  }, [response]);
+    return renderMarkdown(response.responseText, { hl: buildHighlighter(response, styles, brandTerms), citeNo, seenEntity: new Set() });
+  }, [response, brandTerms]);
   if (!nodes || nodes.length === 0) return <p className="text-sm text-gray-500">คำตอบว่าง</p>;
   return <article className={cn("text-[14px] leading-7 text-gray-800", className)}>{nodes}</article>;
 }
@@ -436,8 +425,8 @@ export default function ResponseViewer({ projectId, filters, target, onClose, cl
     if (!current || !current.responseText) return null;
     const citeNo = new Map<string, number>();
     current.citations.forEach((c, i) => { const k = urlKey(c.url); if (!citeNo.has(k)) citeNo.set(k, i + 1); });
-    return renderMarkdown(current.responseText, { hl: buildHighlighter(current, styles), citeNo, seenEntity: new Set() });
-  }, [current, styles]);
+    return renderMarkdown(current.responseText, { hl: buildHighlighter(current, styles, data?.brandName ? [data.brandName] : undefined), citeNo, seenEntity: new Set() });
+  }, [current, styles, data?.brandName]);
 
   const go = useCallback((delta: number) => {
     if (samples.length === 0 || curIdx < 0) return;
@@ -552,22 +541,31 @@ export default function ResponseViewer({ projectId, filters, target, onClose, cl
                     <div className="flex flex-wrap gap-1">
                       {samples.map((s, i) => {
                         const failed = s.status !== "DONE";
+                        const mentioned = !failed && s.brandMentioned === true;
                         return (
                           <button key={s.id} type="button" onClick={() => { setSampleId(s.id); bodyRef.current?.scrollTo({ top: 0 }); }}
                             title={failed ? (clientView ? `ครั้งที่ ${i + 1}: ยังไม่พร้อมแสดง` : `ครั้งที่ ${i + 1}: ${s.status}`) : s.brandMentioned ? `ครั้งที่ ${i + 1}: พูดถึงเรา` : `ครั้งที่ ${i + 1}: ไม่พูดถึงเรา`}
+                            aria-current={s.id === current.id ? "true" : undefined}
                             className={cn(
                               "h-9 min-w-9 rounded-lg border px-1.5 text-xs tabular-nums sm:h-7 sm:min-w-7",
-                              s.id === current.id ? "border-brand-blue bg-brand-blue text-white" : "border-gray-200 bg-white hover:bg-gray-50",
+                              failed ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                                : mentioned ? "border-emerald-500 bg-emerald-100 font-semibold text-emerald-900 hover:bg-emerald-200"
+                                : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50",
+                              s.id === current.id && "ring-2 ring-brand-blue ring-offset-1",
                             )}>
-                            <span className="inline-flex items-center gap-1">
-                              <span className={cn("h-1.5 w-1.5 rounded-full", failed ? "bg-red-500" : s.brandMentioned ? "bg-emerald-500" : "bg-gray-300")} />
-                              {i + 1}
-                            </span>
+                            {i + 1}
                           </button>
                         );
                       })}
                     </div>
                     <Button size="sm" variant="outline" className="h-9 w-9 p-0 sm:h-7 sm:w-7" onClick={() => go(1)} aria-label="คำตอบถัดไป"><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                ) : null}
+                {samples.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500">
+                    <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-emerald-500 bg-emerald-100" />คำตอบมีแบรนด์เรา</span>
+                    <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-gray-200 bg-white" />ไม่มี</span>
+                    {samples.some((x) => x.status !== "DONE") ? <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-red-300 bg-red-50" />{clientView ? "ยังไม่พร้อมแสดง" : "ล้มเหลว"}</span> : null}
                   </div>
                 ) : null}
                 <div className="ml-auto flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500">

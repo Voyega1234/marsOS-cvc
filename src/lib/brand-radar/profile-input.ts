@@ -3,8 +3,9 @@
  */
 import { hostOf, stripInvisible } from './normalize'
 import { cleanStrings } from './server'
+import { isProfileLanguage } from './language'
 import {
-  COUNTRIES, LANGUAGES, LIMITS, PROMPT_SOURCES, PROVIDER_KEYS, SAMPLE_OPTIONS, formatSchedule, isProviderKey, isSampleOption, parseSchedule,
+  COUNTRIES, LIMITS, PROMPT_SOURCES, PROVIDER_KEYS, SAMPLE_OPTIONS, formatSchedule, isProviderKey, isSampleOption, parseSchedule,
   type PromptSource, type ProviderKey, type Schedule,
 } from './types'
 
@@ -31,6 +32,8 @@ export interface CleanProfile {
   monthlyBudgetUsd?: number | null
   maxPromptsPerRun?: number
   samplesPerPrompt?: number
+  /** background scanning switch (not a profile column: kept per project in AppSetting) */
+  autoScan?: boolean
 }
 
 function text(v: unknown, max: number): string {
@@ -68,8 +71,12 @@ export function cleanProfileInput(r: Record<string, unknown>): { ok: true; data:
   }
   if ('language' in r) {
     const l = text(r.language, 8).toLowerCase()
-    if (!LANGUAGES.some((x) => x.code === l)) return { ok: false, error: 'Unsupported language' }
+    if (!isProfileLanguage(l)) return { ok: false, error: 'Unsupported language' }
     d.language = l
+  }
+  if ('autoScan' in r) {
+    if (typeof r.autoScan !== 'boolean') return { ok: false, error: 'autoScan must be true or false' }
+    d.autoScan = r.autoScan
   }
   if ('industry' in r) d.industry = text(r.industry, 200)
   if ('products' in r) d.products = cleanStrings(r.products, 30, 200)

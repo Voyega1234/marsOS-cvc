@@ -5,7 +5,7 @@
  * The dashboard (visibility, sentiment, search query groups) lives on the Overview tab.
  * All API text is untrusted and rendered as React text nodes only.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Radar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chip, EmptyState, KpiTile, Panel, SearchPill, Segmented } from "@/components/ds";
@@ -15,10 +15,13 @@ import {
   answerKind, type AnswerFeedDTO, type AnswerFeedItem, type AnswerKind, type AnswerMentionFilter,
   type MentionStyleCounts, type SentimentTone,
 } from "@/lib/brand-radar/types";
+import { cn } from "@/lib/utils";
 import { ProviderLogo } from "./ProviderLogo";
 import { ANSWER_ZONE_LEGEND, fmtNum, fmtPct, INSUFFICIENT, NO_DATA_MESSAGE, fmtZoneShare, providerLabelFor, radarQuery, type TabProps } from "./shared";
 import { LoadState, Pager, useApiData } from "./PromptDialogs";
 import ResponseViewer, { AnswerBody, type ViewerTarget } from "./ResponseViewer";
+import { BRAND_ROW_CLS, BrandHighlight } from "./BrandHighlight";
+import { brandTermsOf } from "@/lib/brand-radar/highlight";
 
 const PAGE_SIZE = 10;
 
@@ -59,7 +62,7 @@ function safeUrl(u: string): boolean {
 
 // ── Answer card ──────────────────────────────────────────────────────────────
 
-export function AnswerCard({ item, onOpen, clientView }: { item: AnswerFeedItem; onOpen: (t: ViewerTarget) => void; clientView?: boolean }) {
+export function AnswerCard({ item, onOpen, clientView, brandTerms }: { item: AnswerFeedItem; onOpen: (t: ViewerTarget) => void; clientView?: boolean; brandTerms?: string[] }) {
   const a = item.answer;
   const ms: MentionStyleCounts = item.mentionStyle ?? { recommended: 0, compared: 0, listed: 0, first: 0, zones: { early: 0, middle: 0, late: 0 } };
   const kinds = item.kinds ?? { both: 0, mention_only: 0, citation_only: 0, none: 0 };
@@ -68,11 +71,12 @@ export function AnswerCard({ item, onOpen, clientView }: { item: AnswerFeedItem;
   const ownLinks = (a?.citations ?? []).filter((c) => c.ownerType === "own");
   const queries = a?.searchQueries ?? [];
   const kind = a ? answerKind(a.brandMentioned, a.ownedCited) : null;
+  const snippetTerms = brandTermsOf(brandMention?.name, brandMention?.aliases, brandTerms);
   const styleChips: Array<[string, number]> = [
     ["แนะนำ", ms.recommended], ["เปรียบเทียบ", ms.compared], ["เอ่ยชื่อเฉย ๆ", ms.listed], ["ชื่อแรก", ms.first],
   ];
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white/80 p-4">
+    <div className={cn("rounded-2xl border border-gray-100 bg-white/80 p-4", a?.brandMentioned === true && BRAND_ROW_CLS)}>
       <div className="flex flex-wrap items-center gap-2">
         <ProviderLogo provider={item.provider} title={(!clientView && item.providerLabel) || providerLabelFor(item.provider, clientView)} />
         {kind ? <Chip tone={KIND_TONE[kind]}>{KIND_SHORT[kind]}</Chip> : null}
@@ -92,7 +96,7 @@ export function AnswerCard({ item, onOpen, clientView }: { item: AnswerFeedItem;
       ) : (
         <>
           {brandMention?.snippet ? (
-            <blockquote className="mt-3 border-l-2 border-amber-300 bg-amber-50/60 px-3 py-1.5 text-xs text-gray-700">{brandMention.snippet}</blockquote>
+            <blockquote className="mt-3 border-l-2 border-amber-300 bg-amber-50/60 px-3 py-1.5 text-xs text-gray-700"><BrandHighlight text={brandMention.snippet} terms={snippetTerms} /></blockquote>
           ) : null}
           {queries.length > 0 ? (
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
@@ -128,7 +132,7 @@ export function AnswerCard({ item, onOpen, clientView }: { item: AnswerFeedItem;
             </div>
           ) : null}
           <div className="relative mt-3 max-h-[11.5rem] overflow-hidden rounded-xl bg-gray-50/70 px-3 py-1">
-            <AnswerBody response={a} className="text-[13px] leading-6" />
+            <AnswerBody response={a} brandTerms={brandTerms} className="text-[13px] leading-6" />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-gray-50 to-transparent" />
           </div>
           <div className="mt-3">
@@ -148,15 +152,29 @@ export function AnswerCard({ item, onOpen, clientView }: { item: AnswerFeedItem;
 
 // ── Main tab ─────────────────────────────────────────────────────────────────
 
-export default function AnswersTab({ projectId, filters, refreshKey, onGoTab, clientView }: TabProps) {
+export default function AnswersTab({ projectId, filters, refreshKey, onGoTab, clientView, profile, focus }: TabProps) {
   const [mention, setMention] = useState<AnswerMentionFilter>("all");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [viewing, setViewing] = useState<ViewerTarget | null>(null);
+  const brandTerms = useMemo(() => brandTermsOf(profile?.brandName, profile?.aliases), [profile]);
+  const topRef = useRef<HTMLDivElement>(null);
+  const appliedSeq = useRef(0);
+  const scrolledSeq = useRef(0);
+  const focusSeq = focus && focus.tab === "responses" ? focus.seq : 0;
 
   // new project or filters: back to page 1, close the viewer
   useEffect(() => { setPage(1); setViewing(null); }, [projectId, filters]);
+
+  // Deep link from the Overview: apply the answer-type filter once per focus request (the provider filter is page-wide
+  // and is already set by BrandRadarClient.goTab), then scroll the results into view once the data is on screen.
+  useEffect(() => {
+    if (!focusSeq || appliedSeq.current === focusSeq) return;
+    appliedSeq.current = focusSeq;
+    if (focus?.mention) setMention(focus.mention);
+    setPage(1);
+  }, [focus, focusSeq]);
 
   // debounce the search box (300 ms)
   useEffect(() => {
@@ -169,6 +187,12 @@ export default function AnswersTab({ projectId, filters, refreshKey, onGoTab, cl
 
   const url = `/api/brand-radar/responses?${radarQuery(projectId, filters, { mention: mention === "all" ? "" : mention, q: q.trim(), page, pageSize: PAGE_SIZE })}`;
   const { data, loading, error, reload } = useApiData<AnswerFeedDTO>(url, refreshKey, true);
+  const hasShown = !!data;
+  useEffect(() => {
+    if (!focusSeq || scrolledSeq.current === focusSeq || !hasShown) return;
+    scrolledSeq.current = focusSeq;
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [focusSeq, hasShown]);
 
   if (!data) {
     return <Panel><LoadState loading={loading} error={error} onRetry={reload} clientView={clientView} /></Panel>;
@@ -179,7 +203,7 @@ export default function AnswersTab({ projectId, filters, refreshKey, onGoTab, cl
         <EmptyState
           icon={<Radar className="h-6 w-6" />}
           title={clientView ? "ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้" : "ยังไม่ได้ตั้งค่าแบรนด์"}
-          description={clientView ? undefined : "ตั้งชื่อแบรนด์ โดเมน และ AI platform ที่จะติดตามที่แท็บ Settings ก่อน"}
+          description={clientView ? undefined : "ตั้งชื่อแบรนด์ โดเมน และ AI platform ที่จะติดตามที่ปุ่ม Settings มุมขวาบน ก่อน"}
           action={clientView ? undefined : <Button onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>}
         />
       </Panel>
@@ -215,6 +239,7 @@ export default function AnswersTab({ projectId, filters, refreshKey, onGoTab, cl
         />
       </div>
 
+      <div ref={topRef} className="scroll-mt-24" />
       {/* Real answers */}
       <Panel title="คำตอบจริงจาก AI" subtitle="คำถามแต่ละข้อ × AI แต่ละตัว พร้อมตัวอย่างคำตอบ 1 ชิ้น">
         <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -232,7 +257,7 @@ export default function AnswersTab({ projectId, filters, refreshKey, onGoTab, cl
           <p className="py-6 text-center text-sm text-gray-500">ไม่มีคำตอบให้แสดง</p>
         ) : (
           <div className="space-y-3">
-            {data.items.map((it) => <AnswerCard key={`${it.promptId}-${it.provider}`} item={it} onOpen={setViewing} clientView={clientView} />)}
+            {data.items.map((it) => <AnswerCard key={`${it.promptId}-${it.provider}`} item={it} onOpen={setViewing} clientView={clientView} brandTerms={brandTerms} />)}
           </div>
         )}
         <Pager page={data.page ?? page} pageSize={data.pageSize ?? PAGE_SIZE} total={data.total ?? 0} onPage={setPage} />

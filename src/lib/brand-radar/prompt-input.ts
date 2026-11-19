@@ -1,6 +1,7 @@
 /**
  * Brand Radar — validation of prompt input from the API (pure, no I/O).
  */
+import { detectPromptLanguage } from './language'
 import { stripInvisible } from './normalize'
 import { classifyIntent, classifyJourney, guessTopic, textKey } from './prompts'
 import {
@@ -82,7 +83,8 @@ export function cleanPromptInput(
       intent,
       journeyStage: pick(JOURNEY_STAGES, r.journeyStage) ?? classifyJourney(intent),
       country: pickCountry(r.country) ?? defaults.country,
-      language: pickLanguage(r.language) ?? defaults.language,
+      // defaults.language can be the profile value 'both': then the prompt's own text decides
+      language: pickLanguage(r.language) ?? pickLanguage(defaults.language) ?? detectPromptLanguage(t.text),
       source: pick(PROMPT_SOURCES, r.source) ?? 'manual',
       keyword,
       searchVolume: cleanVolume(r.searchVolume),

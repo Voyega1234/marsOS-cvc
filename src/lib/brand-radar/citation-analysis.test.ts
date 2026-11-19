@@ -3,10 +3,11 @@
  */
 import assert from 'node:assert/strict'
 import {
-  assembleCitationAnalysis, applyDomainFlags, computeSignals, inferPageType, inferSiteType, sharesTerm,
+  assembleCitationAnalysis, applyDomainFlags, computeFixPages, computeFoundFunnel, computeSignals, inferPageType, inferSiteType, sharesTerm,
   type AnalysisInput, type PreviousData,
 } from './citation-analysis'
 import type { CitationRow, MentionRow, RespRow } from './metrics'
+import type { FoundSource } from './insight'
 import { PROVIDERS, type ProviderKey } from './types'
 
 let passed = 0
@@ -350,6 +351,110 @@ test('empty dataset', () => {
   assert.equal(e.totals.answers, 0)
   assert.equal(e.totals.mentionRate, null)
   assert.deepEqual(e.domains, [])
+})
+
+// ── fixPages / foundFunnel ───────────────────────────────────────────────────
+
+function fixInput(rs: RespRow[], cs: CitationRow[], o: Partial<AnalysisInput> = {}): AnalysisInput {
+  return input({ ds: { brandName: 'Mine', responses: rs, mentions: [], citations: cs, prompts, competitors: [{ id: 'c1', name: 'Rival One' }] }, ...o })
+}
+const own = (rid: string, pid: string, url: string, o: Partial<CitationRow> = {}) => cite(rid, 'r1', pid, 'openai', url, { ownerType: 'own', ...o })
+
+test('fixPages action for each value and the half boundary', () => {
+  const actionOf = (asked: number, ownN: number, mentionedN: number) => {
+    const rs = Array.from({ length: asked }, (_, i) => resp(`x${i}`, 'r1', 'p1', 'openai', 0, { brandMentioned: i < mentionedN }))
+    const cs = Array.from({ length: ownN }, (_, i) => own(`x${i}`, 'p1', 'https://mine.com/a'))
+    return computeFixPages(fixInput(rs, cs))[0].action
+  }
+  assert.equal(actionOf(4, 2, 0), 'keep')
+  assert.equal(actionOf(4, 1, 4), 'strengthen')
+  assert.equal(actionOf(3, 2, 0), 'keep')
+  assert.equal(actionOf(3, 1, 0), 'strengthen')
+  assert.equal(actionOf(1, 1, 0), 'keep')
+  assert.equal(actionOf(3, 0, 1), 'make_citable')
+  assert.equal(actionOf(3, 0, 0), 'create')
+})
+
+test('fixPages sort, pages and insteadPages exclude answers that cite us', () => {
+  const rs = [
+    resp('k1', 'r1', 'p1', 'openai', 0), resp('k2', 'r1', 'p1', 'openai', 0), resp('k3', 'r1', 'p1', 'openai', 0),
+    resp('m1', 'r1', 'p2', 'openai', 0, { brandMentioned: true }),
+  ]
+  const cs = [
+    own('k1', 'p1', 'https://mine.com/a', { title: 'A' }),
+    cite('k1', 'r1', 'p1', 'openai', 'https://other.com/x'),
+    cite('k2', 'r1', 'p1', 'openai', 'https://other.com/x', { title: 'X' }),
+    cite('k2', 'r1', 'p1', 'openai', 'https://rival.com/', { ownerType: 'competitor', competitorId: 'c1' }),
+  ]
+  const rows = computeFixPages(fixInput(rs, cs))
+  assert.deepEqual(rows.map((r) => [r.promptId, r.action]), [['p2', 'make_citable'], ['p1', 'strengthen']])
+  const p1 = rows[1]
+  assert.equal(p1.asked, 3)
+  assert.equal(p1.ownAnswers, 1)
+  assert.deepEqual(p1.ownPages, [{ url: 'https://mine.com/a', title: 'A', answers: 1 }])
+  // other.com/x is counted only for k2, because k1 already cites us
+  assert.equal(p1.insteadPages.length, 2)
+  assert.ok(p1.insteadPages.every((p) => p.answers === 1))
+  const rival = p1.insteadPages.find((p) => p.ownerType === 'competitor')!
+  assert.equal(rival.competitorName, 'Rival One')
+  assert.equal(p1.insteadPages.find((p) => p.ownerType === 'external')!.competitorName, null)
+})
+
+test('fixPages cap and client view', () => {
+  const ps = Array.from({ length: 60 }, (_, i) => ({ ...prompts[0], id: `q${i}`, text: `question ${i}` }))
+  const rs = ps.map((p, i) => resp(`z${i}`, 'r1', p.id, 'openai', 0))
+  const big = input({ ds: { brandName: 'Mine', responses: rs, mentions: [], citations: [], prompts: ps, competitors: [] } })
+  assert.equal(computeFixPages(big).length, 50)
+  assert.deepEqual(computeFixPages({ ...big, clientView: true }), [])
+  assert.deepEqual(assembleCitationAnalysis(input({ clientView: true })).fixPages, [])
+  assert.ok(assembleCitationAnalysis(input()).fixPages.length > 0)
+})
+
+const fs = (url: string, ownerType: FoundSource['ownerType'] = 'own', title = ''): FoundSource => ({ url, domain: 'mine.com', title, ownerType })
+
+test('foundFunnel counts and listing', () => {
+  const rs = [
+    resp('f1', 'r1', 'p1', 'openai', 0, { brandMentioned: true }),
+    resp('f2', 'r1', 'p1', 'openai', 0),
+    resp('f3', 'r1', 'p2', 'openai', 0),
+    resp('f4', 'r1', 'p2', 'gemini', 0),
+  ]
+  const cs = [own('f1', 'p1', 'https://mine.com/guide', { normalizedUrl: 'mine.com/guide' })]
+  const found = new Map<string, FoundSource[]>([
+    ['f1', [fs('https://mine.com/guide'), fs('https://other.com/z', 'external')]],
+    ['f2', [fs('https://mine.com/guide', 'own', 'Guide'), fs('https://mine.com/pricing')]],
+    ['f3', [fs('https://other.com/z', 'external')]],
+    ['nope', [fs('https://mine.com/guide')]],
+  ])
+  const f = computeFoundFunnel(fixInput(rs, cs, { found }))!
+  assert.equal(f.withData, 3)
+  assert.equal(f.found, 2)
+  assert.equal(f.foundAndCited, 1)
+  assert.equal(f.foundAndMentioned, 1)
+  assert.deepEqual(f.providers, ['openai'])
+  // guide: found 2, cited 1 -> listed; pricing: found 1, cited 0 -> listed first? gaps are equal (1), found desc puts guide first
+  assert.deepEqual(f.pages.map((p) => [p.url, p.found, p.cited]), [['https://mine.com/guide', 2, 1], ['https://mine.com/pricing', 1, 0]])
+  assert.deepEqual(f.pages[0].prompts, [{ promptId: 'p1', text: prompts[0].text }])
+})
+
+test('foundFunnel page found and cited is not listed; URL normalisation matches the citation', () => {
+  const rs = [resp('g1', 'r1', 'p1', 'openai', 0)]
+  const cs = [own('g1', 'p1', 'https://www.mine.com/guide/', { normalizedUrl: 'mine.com/guide' })]
+  const found = new Map([['g1', [fs('https://www.mine.com/guide/?utm_source=chatgpt.com')]]])
+  const f = computeFoundFunnel(fixInput(rs, cs, { found }))!
+  assert.equal(f.found, 1)
+  assert.equal(f.foundAndCited, 1)
+  assert.deepEqual(f.pages, [])
+})
+
+test('foundFunnel is null without data and in client view', () => {
+  const rs = [resp('h1', 'r1', 'p1', 'openai', 0)]
+  assert.equal(computeFoundFunnel(fixInput(rs, [])), null)
+  assert.equal(computeFoundFunnel(fixInput(rs, [], { found: new Map() })), null)
+  assert.equal(computeFoundFunnel(fixInput(rs, [], { found: new Map([['other', [fs('https://mine.com/a')]]]) })), null)
+  assert.equal(computeFoundFunnel(fixInput(rs, [], { found: new Map([['h1', []]]) })), null)
+  assert.equal(computeFoundFunnel(fixInput(rs, [], { found: new Map([['h1', [fs('https://mine.com/a')]]]), clientView: true })), null)
+  assert.equal(assembleCitationAnalysis(input()).foundFunnel, null)
 })
 
 console.log(`citation-analysis: ${passed} tests passed`)

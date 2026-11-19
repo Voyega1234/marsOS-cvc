@@ -47,7 +47,7 @@ const CLIENT_API_RULES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^\/api\/activity-logs\/track$/,           methods: ["POST"] },
   // Brand Radar: the read-only report endpoints, GET only. Each one calls requireReader / requireProjectReader,
   // which limits a client to the projects in BrandRadarClientAccess. Scans, prompts, settings, cost stay staff-only.
-  { pattern: /^\/api\/brand-radar\/(projects|brands|profile|overview|responses|citations)$/, methods: ["GET"] },
+  { pattern: /^\/api\/brand-radar\/(projects|brands|profile|overview|responses|citations|logo)$/, methods: ["GET"] },
   { pattern: /^\/api\/brand-radar\/competitors\/insights$/,                                 methods: ["GET"] },
   { pattern: /^\/api\/brand-radar\/prompts\/[^/]+\/(detail|responses)$/,                    methods: ["GET"] },
 ];

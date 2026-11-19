@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { bad, errMsg, isRadarCtx, parseObject, requireProject } from '@/lib/brand-radar/server'
 import { hasCredentials, statusEntry, storedStatusFor, testProvider } from '@/lib/brand-radar/providers'
+import { LANGUAGE_BOTH } from '@/lib/brand-radar/language'
 import { isProviderKey } from '@/lib/brand-radar/types'
 import { prisma } from '@/lib/prisma'
 
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
     }
     const outcome = await testProvider(key, {
       orgId: ctx.orgId, userId: ctx.userId, projectId: ctx.project.id,
-      country: profile.country, language: profile.language, clientName: ctx.project.clientName || ctx.project.name,
+      country: profile.country, language: profile.language === LANGUAGE_BOTH ? 'en' : profile.language, clientName: ctx.project.clientName || ctx.project.name,
     })
     // re-read right before writing so a concurrent test of another provider is not overwritten
     const fresh = await prisma.brandRadarProfile.findFirst({ where: { id: profile.id, organizationId: ctx.orgId }, select: { providerStatus: true, providers: true } })

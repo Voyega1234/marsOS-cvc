@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Chip, downloadCsv, EmptyState, MeterBar, PageHeader, Panel, SearchPill, Segmented, Sparkline, type ChipTone } from "@/components/ds";
 import { BRAND_STATUSES, BRAND_STATUS_LABEL, type BrandStatus, type BrandsRes, type BrandSummaryDTO } from "@/lib/brand-radar/types";
 import { api, fmtDate, fmtNum, fmtPct } from "./shared";
+import { BrandLogo } from "./BrandLogo";
+
+/** the brand's own picture (uploaded logo, else its site icon); the coloured initials are the fallback */
+export type BrandPicture = { logo: string | null; favicon: string | null };
 
 type SortKey = "visibility_desc" | "visibility_asc" | "last_scan" | "name";
 
@@ -56,11 +60,13 @@ function Thumb({ name }: { name: string }) {
   );
 }
 
-function NameBlock({ b, clientView }: { b: BrandSummaryDTO; clientView?: boolean }) {
+function NameBlock({ b, clientView, picture }: { b: BrandSummaryDTO; clientView?: boolean; picture?: BrandPicture }) {
   const showClient = b.clientName && b.clientName !== b.name;
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <Thumb name={b.name} />
+      {picture?.logo || picture?.favicon
+        ? <BrandLogo name={b.name} logo={picture.logo} favicon={picture.favicon} size={40} rounded="rounded-xl" />
+        : <Thumb name={b.name} />}
       <div className="min-w-0">
         <div className="truncate text-sm font-semibold text-brand-navy">{b.name}</div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
@@ -89,7 +95,7 @@ function Visibility({ b }: { b: BrandSummaryDTO }) {
   );
 }
 
-function Row({ b, onOpen, clientView }: { b: BrandSummaryDTO; onOpen: (id: string) => void; clientView?: boolean }) {
+function Row({ b, onOpen, clientView, picture }: { b: BrandSummaryDTO; onOpen: (id: string) => void; clientView?: boolean; picture?: BrandPicture }) {
   const sv = sparkValues(b);
   const open = () => onOpen(b.id);
   const topLine = b.topCompetitor ? `คู่แข่งที่ถูกพูดถึงมากสุด: ${b.topCompetitor.name} ${fmtPct(b.topCompetitor.mentionRate)}` : null;
@@ -107,7 +113,7 @@ function Row({ b, onOpen, clientView }: { b: BrandSummaryDTO; onOpen: (id: strin
     >
       {/* desktop */}
       <div className="hidden items-center gap-4 md:grid md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,1.5fr)_96px_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_16px]">
-        <NameBlock b={b} clientView={clientView} />
+        <NameBlock b={b} clientView={clientView} picture={picture} />
         <div className="min-w-0 text-xs text-gray-500">
           <div className="text-sm text-brand-navy">{b.providers.length} platform · {b.competitors} คู่แข่ง</div>
           {topLine && <div className="truncate" title={topLine}>{topLine}</div>}
@@ -133,7 +139,7 @@ function Row({ b, onOpen, clientView }: { b: BrandSummaryDTO; onOpen: (id: strin
       {/* mobile */}
       <div className="space-y-3 md:hidden">
         <div className="flex items-start justify-between gap-2">
-          <NameBlock b={b} clientView={clientView} />
+          <NameBlock b={b} clientView={clientView} picture={picture} />
           <Chip tone={statusTone(b.status, clientView)} dot className="shrink-0">{statusLabel(b.status, clientView)}</Chip>
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs text-gray-500">
@@ -174,12 +180,14 @@ function SkeletonRows() {
   );
 }
 
-export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView }: {
+export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView, pictures }: {
   onOpen: (projectId: string) => void;
   onCreate?: () => void;
   picker?: ReactNode;
   refreshKey?: number;
   clientView?: boolean;
+  /** brand pictures by project id */
+  pictures?: Record<string, BrandPicture>;
 }) {
   const [data, setData] = useState<BrandsRes | null>(null);
   const [loading, setLoading] = useState(true);
@@ -321,7 +329,7 @@ export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView }: 
         <Panel><EmptyState title="ไม่พบแบรนด์ที่ตรงกับตัวกรอง" description="ลองเปลี่ยนคำค้นหาหรือสถานะ" /></Panel>
       ) : (
         <div className="space-y-2">
-          {rows.map((b) => <Row key={b.id} b={b} onOpen={onOpen} clientView={clientView} />)}
+          {rows.map((b) => <Row key={b.id} b={b} onOpen={onOpen} clientView={clientView} picture={pictures?.[b.id]} />)}
         </div>
       )}
 

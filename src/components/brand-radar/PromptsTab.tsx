@@ -13,7 +13,9 @@ import {
 import { useUrlState } from "@/hooks/use-url-state";
 import { api, fmtDateTime, fmtNum, fmtPct, isSmallSample, postJson, radarQuery, providerLabelFor, type TabProps } from "./shared";
 import PromptDetail from "./PromptDetail";
+import { brandTermsOf } from "@/lib/brand-radar/highlight";
 import ResponseViewer, { type ViewerTarget } from "./ResponseViewer";
+import { ColumnHelp } from "./ColumnHelp";
 import {
   GeneratePromptsDialog, ImportPromptsDialog, LoadState, Pager, PromptFormDialog, SELECT_CLS, useApiData,
 } from "./PromptDialogs";
@@ -45,6 +47,7 @@ export default function PromptsTab(props: TabProps) {
         promptId={prompt}
         refreshKey={props.refreshKey}
         onBack={() => setPrompt("")}
+        brandTerms={brandTermsOf(props.profile?.brandName, props.profile?.aliases)}
       />
     );
   }
@@ -92,7 +95,7 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
       <Panel>
         <EmptyState
           title="ยังไม่ได้ตั้งค่า Brand Radar"
-          description="ตั้งค่าแบรนด์ คู่แข่ง และ AI platform ที่แท็บ Settings ก่อน จึงจะเพิ่ม Prompt ได้"
+          description="ตั้งค่าแบรนด์ คู่แข่ง และ AI platform ที่ปุ่ม Settings มุมขวาบน ก่อน จึงจะเพิ่ม Prompt ได้"
           action={<Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>}
         />
       </Panel>
@@ -213,17 +216,17 @@ function PromptList({ projectId, filters, refreshKey, profile, onGoTab, onChange
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-8"><input type="checkbox" aria-label="เลือกทั้งหมด" checked={allOn} onChange={() => setSelected(allOn ? new Set() : new Set(rows.map((r) => r.id)))} /></TableHead>
-                    <TableHead className="min-w-[260px]">Prompt</TableHead>
-                    <TableHead>Topic</TableHead>
-                    <TableHead>Intent</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead className="text-right">Volume</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Responses</TableHead>
-                    <TableHead className="text-right">Our mention rate</TableHead>
-                    <TableHead>Top competitor</TableHead>
-                    <TableHead>Last scan</TableHead>
+                    <TableHead className="min-w-[260px]"><ColumnHelp k="promptText">Prompt</ColumnHelp></TableHead>
+                    <TableHead><ColumnHelp k="promptTopic">Topic</ColumnHelp></TableHead>
+                    <TableHead><ColumnHelp k="promptIntent">Intent</ColumnHelp></TableHead>
+                    <TableHead><ColumnHelp k="promptSource">Source</ColumnHelp></TableHead>
+                    <TableHead className="text-right"><ColumnHelp k="promptVolume" align="end">Volume</ColumnHelp></TableHead>
+                    <TableHead><ColumnHelp k="promptPriority">Priority</ColumnHelp></TableHead>
+                    <TableHead><ColumnHelp k="promptStatus">Status</ColumnHelp></TableHead>
+                    <TableHead className="text-right"><ColumnHelp k="promptResponses" align="end">Responses</ColumnHelp></TableHead>
+                    <TableHead className="text-right"><ColumnHelp k="promptMentionRate" align="end">Our mention rate</ColumnHelp></TableHead>
+                    <TableHead><ColumnHelp k="promptTopCompetitor">Top competitor</ColumnHelp></TableHead>
+                    <TableHead><ColumnHelp k="promptLastScan">Last scan</ColumnHelp></TableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>

@@ -477,7 +477,7 @@ async function main() {
     const readerPaths = [
       '/api/brand-radar/projects', '/api/brand-radar/brands', '/api/brand-radar/profile', '/api/brand-radar/overview',
       '/api/brand-radar/responses', '/api/brand-radar/citations', '/api/brand-radar/competitors/insights',
-      '/api/brand-radar/prompts/abc123/detail', '/api/brand-radar/prompts/abc123/responses',
+      '/api/brand-radar/prompts/abc123/detail', '/api/brand-radar/prompts/abc123/responses', '/api/brand-radar/logo',
     ]
     for (const path of readerPaths) {
       assert.equal(isClientApiAllowed(path, 'GET'), true, `GET ${path}`)
@@ -486,9 +486,10 @@ async function main() {
     for (const path of ['prompts', 'runs', 'opportunities', 'citation-analysis', 'competitors', 'providers/test', 'providers/sample-test', 'cron']) {
       assert.equal(isClientApiAllowed(`/api/brand-radar/${path}`, 'GET'), false, `GET ${path} denied`)
     }
+    assert.equal(isClientApiAllowed('/api/brand-radar/site-readiness', 'GET'), false, 'GET site-readiness denied for clients')
     assert.equal(isClientPageAllowed('/brand-radar'), true)
     for (const path of ['/brand-radar/anything', '/settings', '/admin/users']) assert.equal(isClientPageAllowed(path), false, path)
-    ok('client allowlist: nine GET-only report endpoints, nothing else')
+    ok('client allowlist: ten GET-only report endpoints, nothing else')
 
     // every route is guarded
     const root = join(process.cwd(), 'src/app/api/brand-radar')
@@ -503,7 +504,7 @@ async function main() {
     walk(root)
     assert.ok(files.length > 0)
     const rel = (f: string) => f.slice(root.length + 1)
-    const readerSet = ['projects', 'brands', 'profile', 'overview', 'responses', 'citations', 'competitors/insights', 'prompts/[id]/detail', 'prompts/[id]/responses']
+    const readerSet = ['projects', 'brands', 'profile', 'overview', 'responses', 'citations', 'competitors/insights', 'prompts/[id]/detail', 'prompts/[id]/responses', 'logo']
       .map((r) => `${r}/route.ts`).sort()
     const unguarded = files.filter((f) => {
       if (f.includes('/cron/') || f.includes('/runs/due/')) return false
@@ -523,7 +524,7 @@ async function main() {
       const extra = handlers.filter((h) => h !== 'GET')
       if (extra.length > 0) assert.ok(/\brequire(Project|Staff)\(/.test(s), `${r} exports ${extra.join(',')} without requireProject/requireStaff`)
     }
-    ok(`all ${files.length} routes guarded; exactly the 9 report routes use the reader guards; write handlers keep staff guards (cron and runs/due excluded)`)
+    ok(`all ${files.length} routes guarded; exactly the 10 report routes use the reader guards; write handlers keep staff guards (cron and runs/due excluded)`)
   } finally {
     for (const org of [orgA, orgB]) {
       const w = { organizationId: org }

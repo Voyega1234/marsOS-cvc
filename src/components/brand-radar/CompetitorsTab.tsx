@@ -3,18 +3,23 @@
 import { AreaChart, EmptyState, HeatGrid, Panel, StackedBar } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ColumnHelp } from "./ColumnHelp";
 import type { CompetitorInsightsDTO } from "@/lib/brand-radar/types";
 import { NO_DATA_MESSAGE, domainHref, fmtNum, fmtPct, radarQuery, type TabProps } from "./shared";
 import { EntityTable, LoadState, useApiData } from "./PromptDialogs";
+import UntrackedBrandsSection from "./UntrackedBrandsSection";
 
-export default function CompetitorsTab({ projectId, filters, refreshKey, profile, onGoTab, clientView }: TabProps) {
+export default function CompetitorsTab({ projectId, filters, refreshKey, profile, onGoTab, clientView, focus }: TabProps) {
+  // Deep link from the Overview: highlight one competitor row (EntityTable handles the mark and the scroll)
+  const focusName = focus && focus.tab === "competitors" ? focus.competitor : undefined;
+  const focusSeq = focus && focus.tab === "competitors" ? focus.seq : undefined;
   const url = `/api/brand-radar/competitors/insights?${radarQuery(projectId, filters)}`;
   const { data, loading, error, reload } = useApiData<CompetitorInsightsDTO>(profile ? url : "", refreshKey, true);
 
   if (!profile) {
     return (
       <Panel>
-        <EmptyState title={clientView ? "ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้" : "ยังไม่ได้ตั้งค่า Brand Radar"} description={clientView ? undefined : "ตั้งค่าแบรนด์และคู่แข่งที่แท็บ Settings ก่อน"}
+        <EmptyState title={clientView ? "ยังไม่มีข้อมูลรายงานสำหรับแบรนด์นี้" : "ยังไม่ได้ตั้งค่า Brand Radar"} description={clientView ? undefined : "ตั้งค่าแบรนด์และคู่แข่งที่ปุ่ม Settings มุมขวาบน ก่อน"}
           action={clientView ? undefined : <Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>} />
       </Panel>
     );
@@ -26,7 +31,7 @@ export default function CompetitorsTab({ projectId, filters, refreshKey, profile
   if (competitors.length === 0) {
     return (
       <Panel>
-        <EmptyState title={clientView ? "ยังไม่มีข้อมูลคู่แข่ง" : "ยังไม่ได้เพิ่มคู่แข่ง"} description={clientView ? "ยังไม่มีข้อมูลเปรียบเทียบคู่แข่งในช่วงเวลานี้" : "เพิ่มคู่แข่งที่แท็บ Settings เพื่อเทียบว่าใครถูก AI พูดถึงบ่อยกว่า"}
+        <EmptyState title={clientView ? "ยังไม่มีข้อมูลคู่แข่ง" : "ยังไม่ได้เพิ่มคู่แข่ง"} description={clientView ? "ยังไม่มีข้อมูลเปรียบเทียบคู่แข่งในช่วงเวลานี้" : "เพิ่มคู่แข่งที่ปุ่ม Settings มุมขวาบน เพื่อเทียบว่าใครถูก AI พูดถึงบ่อยกว่า"}
           action={clientView ? undefined : <Button size="sm" onClick={() => onGoTab("settings")}>ไปที่ Settings</Button>} />
       </Panel>
     );
@@ -38,7 +43,7 @@ export default function CompetitorsTab({ projectId, filters, refreshKey, profile
   return (
     <div className="space-y-4">
       <Panel title="Brand vs competitors" subtitle={`อ้างอิงจาก ${fmtNum(data.responses)} คำตอบ — Recommended ตรวจจากถ้อยคำรอบชื่อ เป็นการประมาณ`} padded={false}>
-        <EntityTable entities={data.entities} />
+        <EntityTable entities={data.entities} focusName={focusName} focusSeq={focusSeq} />
       </Panel>
 
       {data.mentionSplit && data.mentionSplit.total > 0 ? (() => {
@@ -60,6 +65,8 @@ export default function CompetitorsTab({ projectId, filters, refreshKey, profile
           </Panel>
         );
       })() : null}
+
+      {!clientView && <UntrackedBrandsSection data={data.untracked} />}
 
       <Panel title="Mention rate trend" subtitle="สัดส่วนคำตอบที่กล่าวถึงแต่ละแบรนด์ในแต่ละสแกน (แบรนด์เราก่อน)">
         {data.trend.length === 0 || (data.trend[0]?.points.length ?? 0) < 2 ? (
@@ -83,11 +90,11 @@ export default function CompetitorsTab({ projectId, filters, refreshKey, profile
           <Table className="min-w-[520px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Competitor</TableHead>
-                <TableHead className="text-right">ถูกพูดถึงทั้งคู่</TableHead>
-                <TableHead className="text-right">เฉพาะคู่แข่ง</TableHead>
-                <TableHead className="text-right">เฉพาะเรา</TableHead>
-                <TableHead className="text-right">ไม่มีใครเลย</TableHead>
+                <TableHead><ColumnHelp k="h2hCompetitor" align="start">Competitor</ColumnHelp></TableHead>
+                <TableHead className="text-right"><ColumnHelp k="h2hBoth" align="end">ถูกพูดถึงทั้งคู่</ColumnHelp></TableHead>
+                <TableHead className="text-right"><ColumnHelp k="h2hOnlyCompetitor" align="end">เฉพาะคู่แข่ง</ColumnHelp></TableHead>
+                <TableHead className="text-right"><ColumnHelp k="h2hOnlyBrand" align="end">เฉพาะเรา</ColumnHelp></TableHead>
+                <TableHead className="text-right"><ColumnHelp k="h2hNeither" align="end">ไม่มีใครเลย</ColumnHelp></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

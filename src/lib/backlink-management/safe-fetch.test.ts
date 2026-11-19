@@ -1,6 +1,6 @@
 /** Run: npx tsx src/lib/backlink-management/safe-fetch.test.ts */
 import assert from "node:assert/strict";
-import { isBlockedAddress, safeFetchHtml } from "./safe-fetch";
+import { isBlockedAddress, safeFetchHtml, safeFetchRaw } from "./safe-fetch";
 
 let n = 0;
 async function t(name: string, fn: () => void | Promise<void>) { await fn(); n++; console.log("ok -", name); }
@@ -29,6 +29,18 @@ async function t(name: string, fn: () => void | Promise<void>) { await fn(); n++
       assert.equal(r.ok, false, u);
       if (!r.ok) assert.equal(r.reason, "BLOCKED", u);
     }
+  });
+  await t("safeFetchRaw blocks without network", async () => {
+    for (const u of ["http://127.0.0.1/", "https://127.0.0.1/", "http://localhost/", "ftp://x", "https://user:pw@example.com", "https://[::1]/", "https://169.254.169.254/latest", "https://10.0.0.1/robots.txt", "https://example.com:8080/", "not a url"]) {
+      const r = await safeFetchRaw(u);
+      assert.equal(r.ok, false, u);
+      if (!r.ok) assert.equal(r.reason, "BLOCKED", u);
+    }
+  });
+  await t("safeFetchRaw httpsOnly rejects http start URL", async () => {
+    const r = await safeFetchRaw("http://example.com/robots.txt", { httpsOnly: true });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.reason, "BLOCKED");
   });
   console.log(`${n} passed`);
 })().catch((e) => { console.error(e); process.exit(1); });

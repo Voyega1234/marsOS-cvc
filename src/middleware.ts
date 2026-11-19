@@ -7,6 +7,7 @@ import { IDLE_COOKIE, IDLE_LIMIT_MS, IDLE_TOUCH_MS, setActiveCookie } from "@/li
  * - refresh session cookie ทุก request
  * - ไม่มี session → หน้า UI redirect ไป /login, API ตอบ 401
  * - เส้นทางสาธารณะ: /login, /share/[id] (ลิงก์ส่งลูกค้า)
+ * - เส้นทางที่ไม่มี cookie login แต่ route ตรวจสิทธิ์เอง: Asana webhook (POST), Brand Radar cron (GET + CRON_SECRET)
  * - ถ้า env Supabase ไม่ครบ: local dev → ผ่านหมด (โหมดไม่มี login เหมือนเดิม), บน Vercel → ปิดทั้งเว็บ (ห้ามเปิดโล่ง)
  * - ไม่ได้ใช้งานเกิน 12 ชม. → ออกจากระบบ ต้อง login ใหม่ (ดู lib/idle-session.ts)
  */
@@ -48,7 +49,11 @@ export async function middleware(request: NextRequest) {
   // Asana webhook ของ Backlink Management: เปิดเฉพาะ POST + token 43 ตัวอักษรใน path (route ตรวจลายเซ็น HMAC เองอีกชั้น)
   const isAsanaHook =
     request.method === "POST" && /^\/api\/backlink-management\/asana\/webhook\/[A-Za-z0-9_-]{43}\/?$/.test(pathname);
-  const isPublic = pathname === "/login" || pathname.startsWith("/share/") || pathname.startsWith("/auth/") || isAsanaHook;
+  // Scheduled scan of Brand Radar (Vercel Cron has no login cookie): only GET on this exact path.
+  // The route itself refuses every call that does not carry "Authorization: Bearer <CRON_SECRET>".
+  const isBrandRadarCron = request.method === "GET" && pathname === "/api/brand-radar/cron";
+  const isPublic =
+    pathname === "/login" || pathname.startsWith("/share/") || pathname.startsWith("/auth/") || isAsanaHook || isBrandRadarCron;
   const isApi = pathname.startsWith("/api/");
 
   // idle logout — เว้น /auth/* (กำลัง login อยู่ ห้ามลบ code verifier) และ /share/* (ลิงก์สาธารณะ)

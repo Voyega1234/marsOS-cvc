@@ -104,7 +104,7 @@ function guardedLookup(hostname: string, options: any, cb: (...a: any[]) => void
   });
 }
 
-function requestOnce(u: URL, deadline: number, maxBytes: number): Promise<{ status: number; location?: string; contentType: string; body: Buffer | null }> {
+function requestOnce(u: URL, deadline: number, maxBytes: number, raw = false): Promise<{ status: number; location?: string; contentType: string; xRobotsTag?: string; body: Buffer | null }> {
   return new Promise((resolve, reject) => {
     const left = deadline - Date.now();
     if (left <= 0) return reject(new Fail("TIMEOUT", "หมดเวลา"));
@@ -118,7 +118,7 @@ function requestOnce(u: URL, deadline: number, maxBytes: number): Promise<{ stat
         lookup: guardedLookup as any,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; MarsOS-LinkCheck/1.0)",
-          Accept: "text/html",
+          Accept: raw ? "text/plain, text/html;q=0.9, */*;q=0.5" : "text/html",
           "Accept-Encoding": "gzip, deflate, br",
         },
       },
@@ -130,11 +130,13 @@ function requestOnce(u: URL, deadline: number, maxBytes: number): Promise<{ stat
           res.resume();
           return done(() => resolve({ status, location, contentType, body: null }));
         }
-        if (status >= 400 || status < 200) {
+        const xr = res.headers["x-robots-tag"];
+        const xRobotsTag = Array.isArray(xr) ? xr.join(", ") : String(xr ?? "");
+        if (raw ? status < 200 : (status >= 400 || status < 200)) {
           res.resume();
           return done(() => reject(new Fail("HTTP_ERROR", `เว็บตอบกลับสถานะ ${status}`, status)));
         }
-        if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
+        if (raw ? !isRawTextType(contentType) : (!contentType.includes("text/html") && !contentType.includes("application/xhtml"))) {
           res.resume();
           return done(() => reject(new Fail("NOT_HTML", "ปลายทางไม่ใช่หน้า HTML", status)));
         }
@@ -150,10 +152,10 @@ function requestOnce(u: URL, deadline: number, maxBytes: number): Promise<{ stat
           size += c.length;
           if (size >= maxBytes) {
             req.destroy();
-            done(() => resolve({ status, contentType, body: Buffer.concat(chunks).subarray(0, maxBytes) }));
+            done(() => resolve({ status, contentType, xRobotsTag, body: Buffer.concat(chunks).subarray(0, maxBytes) }));
           }
         });
-        stream.on("end", () => done(() => resolve({ status, contentType, body: Buffer.concat(chunks) })));
+        stream.on("end", () => done(() => resolve({ status, contentType, xRobotsTag, body: Buffer.concat(chunks) })));
         stream.on("error", (e: Error) => done(() => reject(new Fail("NETWORK", e.message, status))));
       },
     );
@@ -189,6 +191,63 @@ export async function safeFetchHtml(url: string, opts: Opts = {}): Promise<SafeF
     throw new Fail("NETWORK", "redirect มากเกินไป");
   } catch (e) {
     if (e instanceof Fail) return { ok: false, reason: e.reason, status: e.status, detail: e.detail };
+    return { ok: false, reason: "NETWORK", detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── Raw text fetch (robots.txt, llms.txt, homepage checks) ───────────────────
+
+export type SafeFetchRawResult =
+  | { ok: true; status: number; finalUrl: string; contentType: string; xRobotsTag: string; body: string }
+  | { ok: false; reason: "BLOCKED" | "TIMEOUT" | "NOT_TEXT" | "TOO_LARGE" | "NETWORK"; status?: number; detail: string };
+
+interface RawOpts extends Opts { httpsOnly?: boolean }
+
+/** Content types we accept for a raw text fetch; a missing content type is accepted too */
+function isRawTextType(contentType: string): boolean {
+  const ct = contentType.split(";")[0].trim();
+  if (!ct) return true;
+  return ct.startsWith("text/") || ct === "application/json" || ct === "application/ld+json" || ct === "application/xml" || ct === "application/xhtml+xml";
+}
+
+/**
+ * Same guards as safeFetchHtml (URL validation, guarded DNS lookup, every redirect hop re-validated, one deadline over all hops),
+ * but it returns the response even for status >= 400, accepts plain-text content types, and exposes content-type and x-robots-tag.
+ * With httpsOnly, a non-https start URL or redirect hop is BLOCKED. A body longer than maxBytes is cut at maxBytes.
+ */
+export async function safeFetchRaw(url: string, opts: RawOpts = {}): Promise<SafeFetchRawResult> {
+  const { timeoutMs = 10_000, maxBytes = 2_000_000, maxRedirects = 5, httpsOnly = false } = opts;
+  const deadline = Date.now() + timeoutMs;
+  const check = (raw: string): URL => {
+    const u = validateUrl(raw);
+    if (httpsOnly && u.protocol !== "https:") throw new Fail("BLOCKED", "รองรับเฉพาะ https");
+    return u;
+  };
+  try {
+    let current = check(url);
+    for (let i = 0; i <= maxRedirects; i++) {
+      const r = await requestOnce(current, deadline, maxBytes, true);
+      if (r.location) {
+        let next: URL;
+        try { next = new URL(r.location, current); } catch { throw new Fail("NETWORK", "Location ไม่ถูกต้อง"); }
+        current = check(next.toString());
+        continue;
+      }
+      return {
+        ok: true,
+        status: r.status,
+        finalUrl: current.toString(),
+        contentType: r.contentType,
+        xRobotsTag: r.xRobotsTag ?? "",
+        body: (r.body ?? Buffer.alloc(0)).toString("utf8"),
+      };
+    }
+    throw new Fail("NETWORK", "redirect มากเกินไป");
+  } catch (e) {
+    if (e instanceof Fail) {
+      const reason = e.reason === "NOT_HTML" ? "NOT_TEXT" : e.reason === "HTTP_ERROR" ? "NETWORK" : e.reason;
+      return { ok: false, reason, status: e.status, detail: e.detail };
+    }
     return { ok: false, reason: "NETWORK", detail: e instanceof Error ? e.message : String(e) };
   }
 }

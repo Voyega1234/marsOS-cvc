@@ -130,4 +130,14 @@ const dq = distinctQueries(['Best CRM', 'best   crm', '', '   ', 'Other', 'OTHER
 eq(Array.from(dq.entries()), [['best crm', 'Best CRM'], ['other', 'Other']], 'distinct: first spelling kept, blanks skipped')
 eq(distinctQueries([]).size, 0, 'distinct: empty')
 
+// quotes in the prompt + parser
+const qPrompt = buildSentimentPrompt({ prompt: 'q', answer: 'a'.repeat(100), targets })
+ok(qPrompt.includes('"quote"') && qPrompt.includes('Leave "quote" out for competitors'), 'prompt: asks for quotes for our brand only')
+ok(ANALYSIS_LIMITS.maxTokens === 2200, 'limits: maxTokens raised for quotes')
+const quoteReply = JSON.stringify({ entities: [{ key: 'e0', tone: 'positive', factors: [{ code: 'price', polarity: 'positive', quote: 'Great  PRICE here' }], descriptors: [{ label: 'Value', quote: 'not in answer' }] }] })
+const qParsed = parseSentiment(quoteReply, targets, 'Acme has a great price here, said the AI.')!
+eq(qParsed.entities[0].factors, [{ code: 'price', polarity: 'positive', quote: 'Great PRICE here' }], 'parseSentiment: verified quote kept')
+eq(qParsed.entities[0].descriptors, ['value'], 'parseSentiment: descriptor kept without bad quote')
+ok(!('descriptorQuotes' in qParsed.entities[0]), 'parseSentiment: no descriptorQuotes when none verified')
+
 console.log(`sentiment.test.ts: ${passed} checks passed`)

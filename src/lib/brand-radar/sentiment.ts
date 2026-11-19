@@ -17,7 +17,7 @@ export const ANALYSIS_LIMITS = {
   answerMax: 6000,
   questionMax: 500,
   entitiesMax: 12,
-  maxTokens: 1500,
+  maxTokens: 2200,
   timeoutMs: 30_000,
   /** queries sent to one grouping call */
   groupBatch: 120,
@@ -68,7 +68,8 @@ export function buildSentimentPrompt(input: { prompt: string; answer: string; ta
     tracked,
     '',
     'JSON shape:',
-    '{"factors":["price"],"entities":[{"key":"e0","tone":"positive","positioning":["trusted"],"factors":[{"code":"price","polarity":"positive"}],"summary":"...","descriptors":["..."]}]}',
+    '{"factors":["price"],"entities":[{"key":"e0","tone":"positive","positioning":["trusted"],"factors":[{"code":"price","polarity":"positive","quote":"..."}],"summary":"...","descriptors":[{"label":"...","quote":"..."}]}]}',
+    'For a competitor use the plain form: "factors":[{"code":"price","polarity":"positive"}] and "descriptors":["..."].',
     '',
     'Rules:',
     `- top-level "factors": up to ${INSIGHT_LIMITS.factorsPerAnswer} codes for what the answer treats as most important when it judges or recommends options, most important first. Codes: ${SENTIMENT_FACTORS.join(', ')}.`,
@@ -78,6 +79,7 @@ export function buildSentimentPrompt(input: { prompt: string; answer: string; ta
     `- entity "factors": up to ${INSIGHT_LIMITS.factorsPerEntity} factors the answer links to that brand, same codes as above. "polarity": positive (shown as a strength), negative (shown as a weakness) or neutral (mentioned without judgement).`,
     '- "summary": one short sentence on how the answer describes that brand, written in the language of the answer.',
     `- "descriptors": up to ${INSIGHT_LIMITS.descriptorsPerEntity} short labels (1 to 4 words each) for how the answer describes that brand, in the language of the answer.`,
+    `- "quote": only for our brand. The exact words copied from the ANSWER (one sentence or part of one, at most ${INSIGHT_LIMITS.quoteMax - 40} characters) that show this factor or this label for our brand. Copy character for character; do not translate, paraphrase or fix typos. Use "" when no single passage shows it. Leave "quote" out for competitors.`,
     '- Use the answer text only. When the answer gives no basis for a field, return an empty list or an empty string.',
     '',
     '<<<QUESTION',
@@ -91,12 +93,12 @@ export function buildSentimentPrompt(input: { prompt: string; answer: string; ta
 }
 
 /** Model reply -> validated sentiment. Keys e0, e1, … map back to the targets the prompt listed. */
-export function parseSentiment(raw: unknown, targets: SentimentTarget[]): AnswerSentiment | null {
+export function parseSentiment(raw: unknown, targets: SentimentTarget[], answer?: string): AnswerSentiment | null {
   const listed = targets.slice(0, ANALYSIS_LIMITS.entitiesMax)
   return sanitizeSentiment(extractJsonObject(raw), (key) => {
     const m = /^e(\d{1,2})$/.exec(key.trim())
     return m ? listed[Number(m[1])] || null : null
-  })
+  }, typeof answer === 'string' ? { answer } : undefined)
 }
 
 // ── Search Query Groups ──────────────────────────────────────────────────────
@@ -184,7 +186,7 @@ export const liveAnalyzer: InsightAnalyzer = {
       maxTokens: ANALYSIS_LIMITS.maxTokens,
       timeoutMs: ANALYSIS_LIMITS.timeoutMs,
     })
-    return { sentiment: parseSentiment(r.text, input.targets), model, costUsd: Number(r.usage?.costUsd) || 0, tokens: Number(r.usage?.totalTokens) || 0 }
+    return { sentiment: parseSentiment(r.text, input.targets, input.answer), model, costUsd: Number(r.usage?.costUsd) || 0, tokens: Number(r.usage?.totalTokens) || 0 }
   },
   async groupQueries(input) {
     const { orChat, OR_MODELS } = await import('@/lib/openrouter')

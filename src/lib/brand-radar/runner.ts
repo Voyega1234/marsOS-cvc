@@ -18,6 +18,8 @@ import { extractCitations, type RawCitation } from './citations'
 import { callProvider, hasCredentials, dfsListPrice, logProviderCall, type ProviderCaller } from './providers'
 import { isDue, monthKey, monthRange, nextRunAfter, periodKey, promptSetHash } from './schedule'
 import { cleanFoundSources, cleanQueries, normalizeQueryKey } from './insight'
+import { resolveLanguage } from './language'
+import { listAutoScanProjectIds, touchCronHeartbeat } from './auto-scan'
 import { ANALYSIS_LIMITS, distinctQueries, liveAnalyzer, type InsightAnalyzer, type SentimentTarget } from './sentiment'
 import {
   DEFAULT_SAMPLES, LIMITS, PROVIDERS, PROVIDER_KEYS, SEARCH_QUERY_SUPPORT, aiJobProjectId, isManualProjectId, isProviderKey, normalizeSamples, parseSchedule, samplesFor,
@@ -185,7 +187,7 @@ async function loadPlan(db: Db, ctx: RunnerCtx, now: Date): Promise<Plan> {
     id: p.id,
     text: p.text,
     country: p.country || profile.country,
-    language: p.language || profile.language,
+    language: resolveLanguage(profile.language, p.text, p.language),
   }))
 
   const providers = profileProviders(profile.providers).filter((k) => hasCredentials(k))
@@ -651,7 +653,7 @@ async function processTask(
   const before = t.costUsd || 0
   try {
     if (!isProviderKey(t.provider)) throw new Error(`Unknown provider ${t.provider}`)
-    const r = await caller(key, { prompt: t.promptText, country: t.country || profile.country, language: t.language || profile.language, clientName })
+    const r = await caller(key, { prompt: t.promptText, country: t.country || profile.country, language: resolveLanguage(profile.language, t.promptText, t.language), clientName })
     const tokens = r.inputTokens + r.outputTokens
     if (r.status === 'SKIPPED') {
       await prisma.brandRadarResponse.update({
@@ -855,8 +857,24 @@ export async function cronTick(
   let started = 0
   let stepped = 0
 
+  // Lets Settings show that the scheduled job is alive. Never a reason to skip the scans themselves.
+  try {
+    await touchCronHeartbeat(now)
+  } catch (e) {
+    console.error('[brand-radar cron] heartbeat failed', e instanceof Error ? e.message : e)
+  }
+
+  // Only projects whose "automatic scanning" switch is on are started or continued here.
+  // Every other project keeps scanning the old way: while someone has the page open.
+  const autoIds = await listAutoScanProjectIds()
+  if (!autoIds.length) return { started, stepped }
+
   const profiles = await prisma.brandRadarProfile.findMany({
-    where: { schedule: { not: 'manual' }, OR: [{ nextRunAt: null }, { nextRunAt: { lte: now } }] },
+    where: {
+      projectId: { in: autoIds },
+      schedule: { not: 'manual' },
+      OR: [{ nextRunAt: null }, { nextRunAt: { lte: now } }],
+    },
     select: { organizationId: true, projectId: true, createdById: true },
   })
   for (const p of profiles) {
@@ -873,7 +891,11 @@ export async function cronTick(
   }
 
   while (Date.now() - t0 < maxMs) {
-    const running = await prisma.brandRadarRun.findMany({ where: { status: 'RUNNING' }, orderBy: { startedAt: 'asc' }, take: 50 })
+    const running = await prisma.brandRadarRun.findMany({
+      where: { status: 'RUNNING', projectId: { in: autoIds } },
+      orderBy: { startedAt: 'asc' },
+      take: 50,
+    })
     if (!running.length) break
     let processed = 0
     for (const run of running) {
@@ -941,11 +963,13 @@ export async function usage(ctx: RunnerCtx, now: Date = new Date()): Promise<Usa
   const months = keys.slice(-6)
   for (const k of months) {
     const r = monthRange(new Date(`${k}-15T12:00:00+07:00`))
-    const [agg, cnt] = await Promise.all([
+    const [agg, byStatus] = await Promise.all([
       prisma.brandRadarResponse.aggregate({ where: { organizationId: ctx.orgId, projectId: ctx.project.id, updatedAt: { gte: r.start, lt: r.end } }, _sum: { costUsd: true } }),
-      prisma.brandRadarResponse.count({ where: CALL_ROWS(ctx.orgId, ctx.project.id, r.start, r.end) }),
+      prisma.brandRadarResponse.groupBy({ by: ['status'], where: CALL_ROWS(ctx.orgId, ctx.project.id, r.start, r.end), _count: { _all: true } }),
     ])
-    history.push({ month: k, costUsd: agg._sum.costUsd || 0, calls: cnt })
+    const cnt = byStatus.reduce((s, x) => s + x._count._all, 0)
+    const failed = byStatus.reduce((s, x) => s + (x.status === 'FAILED' ? x._count._all : 0), 0)
+    history.push({ month: k, costUsd: agg._sum.costUsd || 0, calls: cnt, failed })
   }
 
   const budget = profile ? profile.monthlyBudgetUsd : null

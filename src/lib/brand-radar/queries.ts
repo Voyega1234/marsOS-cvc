@@ -9,23 +9,30 @@ import { PBN_PREFS_MARK, readPbnSites } from '@/lib/upload-article/pbn'
 import {
   citationGapDomains, citedDomains, competitorByTopic, competitorDomains, competitorTrend, computeKpis,
   byIntent, byProvider, entityShares, headToHead, promptEntityTrend, promptStatsMap,
-  topicProviderHeat, citedPages, diffPeriods, mentionSplit, promptRunChanges, promptRunChangeDetails,
+  topicProviderHeat, citedPages, diffPeriods, mentionSplit, promptRunChanges, promptRunChangeDetails, scanProgress,
   type CitationRow, type Dataset, type MentionRow, type PromptLite, type RespRow, type RunLite,
 } from './metrics'
 import {
-  INSIGHT_LIMITS, aggregateInsight, bangkokDay, dailyTrend, emptyInsight, mentionStyleOf, parseStoredFoundSources, parseStoredQueries, parseStoredSentiment,
+  INSIGHT_LIMITS, aggregateInsight, bangkokDay, dailyTrend, emptyInsight, fallbackQuote, mentionStyleOf, parseStoredFoundSources, parseStoredQueries, parseStoredSentiment,
   type BrandMentionLite, type InsightRow,
   type FoundSource,
 } from './insight'
 import { buildOpportunities } from './opportunities'
+import { buildScorecard } from './scorecard-load'
+import { computeUntrackedBrands } from './untracked-brands'
+import type { UntrackedBrandsDTO } from './untracked-types'
+import { brandTermsOf } from './highlight'
 import { toRunDTO } from './runner'
 import { domainMatches, hostOf, normalizeDomain } from './normalize'
 import { parseDayRange, previousRange } from './schedule'
+import { brandLogoVersions } from './brand-logo'
+import { brandLogoPath } from './logo'
+import { faviconUrl } from '@/lib/backlink-management/project-logos'
 import { isMissingTable, parseObject, parseStrings, userNames, type RadarCtx } from './server'
 import {
   ANSWER_MENTION_FILTERS, answerZone, JOURNEY_STAGES, OPPORTUNITY_TYPES, OPPORTUNITY_TYPE_LABEL, PRIORITIES, PROMPT_INTENTS, PROMPT_SOURCES, PROMPT_STATUSES,
   PROVIDERS, PROVIDER_KEYS, answerKind, isManualProjectId, isProviderKey, normalizeSchedule,
-  type AnswerInsightDTO, type AnswerSentiment, type BrandStatus, type BrandSummaryDTO,
+  type AnswerInsightDTO, type AnswerSentiment, type FactorPolarity, type InsightQuote, type BrandStatus, type BrandSummaryDTO,
   type AnswerFeedDTO, type AnswerFeedItem, type AnswerKind, type AnswerKindCounts, type AnswerMentionFilter, type CitationComparison, type CitationOwner, type CitationsDTO, type CitationView, type CitedDomainRow, type CollectionMethod, type CompetitorDTO,
   type CompetitorInsightsDTO, type Confidence, type JourneyStage, type OpportunityDTO, type OpportunityListRes,
   type OpportunityStatus, type OpportunityType, type OtherEntity, type OverviewDTO, type Priority, type ProfileDTO, type ProjectOptDTO,
@@ -562,17 +569,78 @@ async function buildInsight(base: Base, ds: Dataset): Promise<AnswerInsightDTO> 
     const r = byId.get(s.responseId)
     if (!r) continue
     rows.push({
-      responseId: r.id, promptId: r.promptId, provider: r.provider, at: r.collectedAt ? r.collectedAt.getTime() : 0,
+      responseId: r.id, promptId: r.promptId, runId: r.runId, provider: r.provider, at: r.collectedAt ? r.collectedAt.getTime() : 0,
       searchQueries: s.searchQueries, sentiment: s.sentiment,
     })
   }
   const entityNames = new Map<string, string>(ds.competitors.map((c) => [c.id, c.name]))
   if (ds.brandName) entityNames.set('brand', ds.brandName)
-  return aggregateInsight({
+  const insight = aggregateInsight({
     available: stored.available, rows, groups,
     promptText: new Map(ds.prompts.map((p) => [p.id, p.text])),
     entityNames,
   })
+  await fillFallbackQuotes(base, insight, rows, ds)
+  return insight
+}
+
+/**
+ * Old analyses stored no example passage. For the labels the brand card shows, take a passage from the stored
+ * answer text instead (marked approximate unless the label itself appears in it). At most one extra query,
+ * only for the few answers that are needed.
+ */
+async function fillFallbackQuotes(base: Base, insight: AnswerInsightDTO, rows: InsightRow[], ds: Dataset): Promise<void> {
+  const brand = insight.entities.find((e) => e.entityType === 'brand')
+  if (!brand) return
+  const factors = brand.factors.slice(0, INSIGHT_LIMITS.factorsShown).filter((f) => !f.quotes?.length)
+  const descriptors = brand.descriptors.filter((d) => !d.quotes?.length)
+  if (factors.length === 0 && descriptors.length === 0) return
+
+  const newestFirst = [...rows].filter((r) => r.sentiment).sort((a, b) => b.at - a.at)
+  const brandOf = (r: InsightRow) => r.sentiment?.entities.find((e) => e.entityType === 'brand')
+  const pick = (has: (e: NonNullable<ReturnType<typeof brandOf>>) => boolean): InsightRow[] => {
+    const out: InsightRow[] = []
+    for (const r of newestFirst) {
+      const e = brandOf(r)
+      if (e && has(e)) out.push(r)
+      if (out.length >= 2) break
+    }
+    return out
+  }
+  const wanted = new Map<string, InsightRow>()
+  const plan: Array<{ target: { quotes?: InsightQuote[] }; label?: string; rows: InsightRow[]; polarity?: (r: InsightRow) => FactorPolarity | undefined }> = []
+  for (const f of factors) {
+    const picked = pick((e) => e.factors.some((x) => x.code === f.code))
+    plan.push({ target: f, rows: picked, polarity: (r) => brandOf(r)?.factors.find((x) => x.code === f.code)?.polarity })
+  }
+  for (const d of descriptors) plan.push({ target: d, label: d.text, rows: pick((e) => e.descriptors.includes(d.text)) })
+  // Distinct answers, capped; plan order is the display order, so the top rows are served first.
+  for (const p of plan) {
+    p.rows = p.rows.filter((r) => wanted.has(r.responseId) || wanted.size < 30)
+    for (const r of p.rows) wanted.set(r.responseId, r)
+  }
+  if (wanted.size === 0) return
+
+  let texts: Map<string, string>
+  try {
+    const found = await prisma.brandRadarResponse.findMany({
+      where: { ...base, id: { in: Array.from(wanted.keys()) } },
+      select: { id: true, responseText: true },
+    })
+    texts = new Map(found.map((x) => [x.id, x.responseText]))
+  } catch {
+    return
+  }
+  const brandTerms = brandTermsOf(ds.brandName)
+  for (const p of plan) {
+    const quotes: InsightQuote[] = []
+    for (const r of p.rows) {
+      const q = fallbackQuote(texts.get(r.responseId) || '', { label: p.label, brandTerms })
+      if (!q || quotes.some((x) => x.text === q.text)) continue
+      quotes.push({ text: q.text, approx: q.approx, responseId: r.responseId, promptId: r.promptId, runId: r.runId, provider: r.provider, polarity: p.polarity?.(r) })
+    }
+    if (quotes.length) p.target.quotes = quotes
+  }
 }
 
 /** Client view: drop sentiment entries about competitors that staff do not keep ACTIVE. Staff view (null set) is untouched. */
@@ -758,9 +826,40 @@ const FEED_PAGE_MAX = 50
  * split by kind (name + link, name only, link only, neither), plus one real answer per group.
  * Totals use the same dataset as the Overview, so the numbers agree. Only the answers on the page are loaded in full.
  */
+/** A stored website value as a bare hostname; '' when it is not a plain hostname. */
+function cleanDomain(raw: string): string {
+  const d = raw.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').split(/[/?#]/)[0].replace(/:\d+$/, '')
+  return EXTRA_DOMAIN_RE.test(d) ? d : ''
+}
+
+/**
+ * Entity key -> website domain for the logos of the Overview competitor table:
+ * 'brand' = the profile's main site, competitor id = its first domain. Logos are decoration, so any failure gives no logos.
+ */
+async function feedEntityDomains(base: { organizationId: string; projectId: string }, competitorIds: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  try {
+    const [profile, comps] = await Promise.all([
+      prisma.brandRadarProfile.findFirst({ where: base, select: { primaryDomain: true } }),
+      competitorIds.length > 0
+        ? prisma.brandRadarCompetitor.findMany({ where: { ...base, id: { in: competitorIds } }, select: { id: true, domains: true } })
+        : Promise.resolve([]),
+    ])
+    const own = cleanDomain(profile?.primaryDomain ?? '')
+    if (own) out.brand = own
+    for (const c of comps) {
+      const d = cleanDomain(parseStrings(c.domains)[0] ?? '')
+      if (d) out[c.id] = d
+    }
+  } catch {
+    return {}
+  }
+  return out
+}
+
 export async function buildAnswerFeed(ctx: RadarCtx, filters: RadarFilters, opts: AnswerFeedOpts = {}): Promise<AnswerFeedDTO> {
   const base = { organizationId: ctx.orgId, projectId: ctx.project.id }
-  const { ds, configured } = await loadDataset(ctx, filters)
+  const { ds, runs, configured } = await loadDataset(ctx, filters)
   const rate = (n: number, d: number): number | null => (d > 0 ? n / d : null)
   const isTrue = (v: boolean | null): boolean => v === true
 
@@ -889,6 +988,8 @@ export async function buildAnswerFeed(ctx: RadarCtx, filters: RadarFilters, opts
   const insightJob = buildInsight(base, ds)
   // Observed here so a failure in the answer load below cannot leave this rejection unhandled; awaited further down
   insightJob.catch(() => {})
+  // Never rejects; runs beside the answer load
+  const domainsJob = feedEntityDomains(base, ds.competitors.map((c) => c.id))
 
   let answers = new Map<string, ResponseDTO>()
   if (slice.length > 0) {
@@ -903,7 +1004,11 @@ export async function buildAnswerFeed(ctx: RadarCtx, filters: RadarFilters, opts
   const promptsMentioned = new Set(ds.responses.filter((r) => isTrue(r.brandMentioned)).map((r) => r.promptId))
   const entities = entityShares(ds)
   const daily = dailyTrend(ds, entities)
+  // Grades + month comparison. A failure here must not take the whole report down: the section is simply left out.
+  const scorecardJob = buildScorecard(base, entities, ds.responses.length, !!ctx.clientView).catch(() => undefined)
   const insight = await insightJob
+  const entityDomains = await domainsJob
+  const scorecard = await scorecardJob
   return {
     configured,
     hasData: asked > 0,
@@ -929,7 +1034,10 @@ export async function buildAnswerFeed(ctx: RadarCtx, filters: RadarFilters, opts
       domain: d.domain, ownerType: d.ownerType, competitorName: d.competitorName,
       answers: d.responses, rate: rate(d.responses, asked),
     })),
+    entityDomains,
     insight,
+    scans: scanProgress(ds, runs),
+    scorecard,
     counts,
     items: slice.map((g) => ({ ...g.item, answer: answers.get(g.repId) ?? null })),
     page, pageSize, total: shown.length,
@@ -1058,10 +1166,6 @@ export async function buildResponseViewer(
   }
   // mention key -> website domain (logos): brand = profile domain, competitor = its first domain
   const entityDomains: Record<string, string> = {}
-  const cleanDomain = (raw: string): string => {
-    const d = raw.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').split(/[/?#]/)[0].replace(/:\d+$/, '')
-    return EXTRA_DOMAIN_RE.test(d) ? d : ''
-  }
   const compKeys = Array.from(ent.values()).filter((e) => e.entityType === 'competitor').map((e) => e.key)
   if (ent.has('brand') && profile?.primaryDomain) {
     const d = cleanDomain(profile.primaryDomain)
@@ -1161,9 +1265,46 @@ export async function buildOverview(ctx: RadarCtx, filters: RadarFilters): Promi
 
 // ── Competitor insights ──────────────────────────────────────────────────────
 
+const EXTRAS_CHUNK = 5000
+
+/**
+ * Brands the AI platforms tagged in these answers that the project does not track.
+ * Staff only. Every project competitor counts as tracked whatever its status, so a paused one is not suggested again.
+ */
+async function loadUntrackedBrands(base: Base, ds: Dataset): Promise<UntrackedBrandsDTO> {
+  const ids = ds.responses.map((r) => r.id)
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += EXTRAS_CHUNK) chunks.push(ids.slice(i, i + EXTRAS_CHUNK))
+  const [parts, profile, comps] = await Promise.all([
+    Promise.all(chunks.map((c) => loadAnswerExtras(base, c))),
+    prisma.brandRadarProfile.findFirst({ where: base, select: { brandName: true, aliases: true, primaryDomain: true, ownedDomains: true } }),
+    prisma.brandRadarCompetitor.findMany({ where: base, select: { name: true, aliases: true, domains: true } }),
+  ])
+  const extras = new Map<string, OtherEntity[]>()
+  for (const part of parts) part.forEach((v, k) => extras.set(k, v))
+  const trackedNames = [ds.brandName, profile?.brandName ?? '', ...parseAliases(profile?.aliases ?? '[]')]
+  const trackedDomains = [profile?.primaryDomain ?? '', ...parseStrings(profile?.ownedDomains)]
+  for (const c of comps) {
+    trackedNames.push(c.name, ...parseAliases(c.aliases))
+    trackedDomains.push(...parseStrings(c.domains))
+  }
+  return computeUntrackedBrands({
+    extras,
+    responses: ds.responses.map((r) => ({ id: r.id, promptId: r.promptId, provider: r.provider })),
+    prompts: ds.prompts.map((p) => ({ id: p.id, text: p.text })),
+    trackedNames,
+    trackedDomains,
+  })
+}
+
 export async function buildCompetitorInsights(ctx: RadarCtx, filters: RadarFilters): Promise<CompetitorInsightsDTO> {
   const { ds, runs } = await loadDataset(ctx, filters)
+  // Never sent to a client login. A failure leaves the section out instead of failing the tab.
+  const untracked = ctx.clientView
+    ? undefined
+    : await loadUntrackedBrands({ organizationId: ctx.orgId, projectId: ctx.project.id }, ds).catch(() => undefined)
   return {
+    untracked,
     responses: ds.responses.length,
     entities: entityShares(ds),
     trend: competitorTrend(ds, runs),
@@ -1378,6 +1519,7 @@ export async function buildProjectOptions(orgId: string, onlyIds?: string[] | nu
   ])
   const prof = new Map(profiles.map((p) => [p.projectId, p]))
   const act = new Map(active.map((a) => [a.projectId, a._count._all]))
+  const logoAt = await brandLogoVersions(orgId, profiles.filter((p) => isManualProjectId(p.projectId)).map((p) => p.projectId), idScope)
   type Prof = (typeof profiles)[number]
   const row = (id: string, name: string, clientName: string, website: string, manual: boolean, pr: Prof | undefined): ProjectOptDTO => ({
     id,
@@ -1390,6 +1532,8 @@ export async function buildProjectOptions(orgId: string, onlyIds?: string[] | nu
     schedule: pr ? normalizeSchedule(pr.schedule, 'manual') : null,
     lastRunAt: pr?.lastRunAt ? pr.lastRunAt.toISOString() : null,
     nextRunAt: pr?.nextRunAt ? pr.nextRunAt.toISOString() : null,
+    logo: logoAt.has(id) ? brandLogoPath(id, logoAt.get(id)!) : null,
+    favicon: faviconUrl(website),
   })
   // Projects created inside Brand Radar have no Project row: their profile is the project.
   const manual = profiles

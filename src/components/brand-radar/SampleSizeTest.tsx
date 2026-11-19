@@ -7,7 +7,9 @@ import { Chip } from "@/components/ds";
 import { PROVIDERS, type ProviderKey, type ProviderStatusDTO } from "@/lib/brand-radar/types";
 import { SCRAPER_ASK_PRICE_USD, compare, planBatches, summarize, type AskResult, type EntityRow, type RateKey } from "@/lib/brand-radar/sample-test";
 import { ProviderLogo } from "./ProviderLogo";
+import { BRAND_ROW_CLS, BrandHighlight } from "./BrandHighlight";
 import { api, fmtUsd, postJson, providerShort } from "./shared";
+import { ColumnHelp } from "./ColumnHelp";
 
 const inputCls =
   "h-10 w-full rounded-xl border border-input bg-white/90 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -55,7 +57,7 @@ function EntityList({ title, rows }: { title: string; rows: EntityRow[] }) {
   );
 }
 
-function AnswerList({ title, items }: { title: string; items: AskResult[] }) {
+function AnswerList({ title, items, brandTerms }: { title: string; items: AskResult[]; brandTerms?: string[] }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="min-w-0 rounded-2xl border border-gray-100">
@@ -67,12 +69,12 @@ function AnswerList({ title, items }: { title: string; items: AskResult[] }) {
       {open && (
         <ul className="space-y-2 border-t border-gray-100 p-3">
           {items.map((a, i) => (
-            <li key={i} className="rounded-xl border border-gray-100 p-2">
+            <li key={i} className={`rounded-xl border border-gray-100 p-2 ${a.ok && a.brandMentioned ? BRAND_ROW_CLS : ""}`}>
               <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
                 <span>#{i + 1}</span>
                 {a.ok ? (a.brandMentioned ? <Chip tone="ok">พูดถึงแบรนด์เรา</Chip> : <Chip tone="muted">ไม่พูดถึงแบรนด์เรา</Chip>) : <Chip tone="bad">ไม่สำเร็จ</Chip>}
               </div>
-              <div className="whitespace-pre-wrap break-words text-sm text-gray-800">{a.ok ? a.answer : a.error}</div>
+              <div className="whitespace-pre-wrap break-words text-sm text-gray-800">{a.ok ? <BrandHighlight text={a.answer} terms={brandTerms ?? []} /> : a.error}</div>
             </li>
           ))}
         </ul>
@@ -81,7 +83,7 @@ function AnswerList({ title, items }: { title: string; items: AskResult[] }) {
   );
 }
 
-export function SampleSizeTest({ projectId, providers, disabled }: { projectId: string; providers: ProviderStatusDTO[]; disabled?: boolean }) {
+export function SampleSizeTest({ projectId, providers, disabled, brandTerms }: { projectId: string; providers: ProviderStatusDTO[]; disabled?: boolean; brandTerms?: string[] }) {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [provider, setProvider] = useState<ProviderKey | "">("");
@@ -239,9 +241,9 @@ export function SampleSizeTest({ projectId, providers, disabled }: { projectId: 
                   <thead>
                     <tr className="border-b border-gray-100 text-xs text-gray-500">
                       <th className="py-2 pr-3 font-medium" />
-                      <th className="px-3 py-2 font-medium">ชุด A ({countA} รอบ)</th>
-                      <th className="px-3 py-2 font-medium">ชุด B ({countB} รอบ)</th>
-                      <th className="px-3 py-2 font-medium">ส่วนต่าง</th>
+                      <th className="px-3 py-2 font-medium"><ColumnHelp k="sampleSetA">ชุด A ({countA} รอบ)</ColumnHelp></th>
+                      <th className="px-3 py-2 font-medium"><ColumnHelp k="sampleSetB">ชุด B ({countB} รอบ)</ColumnHelp></th>
+                      <th className="px-3 py-2 font-medium"><ColumnHelp k="sampleDiff">ส่วนต่าง</ColumnHelp></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -286,8 +288,8 @@ export function SampleSizeTest({ projectId, providers, disabled }: { projectId: 
             <div>
               <h4 className="mb-2 text-sm font-medium text-gray-800">ดูคำตอบทั้งหมด</h4>
               <div className="grid gap-3 md:grid-cols-2">
-                <AnswerList title="ชุด A" items={setA} />
-                <AnswerList title="ชุด B" items={setB} />
+                <AnswerList title="ชุด A" items={setA} brandTerms={brandTerms} />
+                <AnswerList title="ชุด B" items={setB} brandTerms={brandTerms} />
               </div>
             </div>
           )}

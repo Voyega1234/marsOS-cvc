@@ -205,6 +205,52 @@ export interface CompetitorCitedRow {
   competitors: Array<{ name: string; domain: string; answers: number }>
 }
 
+export type FixAction = 'keep' | 'strengthen' | 'make_citable' | 'create'
+
+/** One question: which of our pages the AI uses for it, which pages it uses instead, and what to do about it. */
+export interface PromptFixRow {
+  promptId: string
+  text: string
+  /** answers to this question inside the filters */
+  asked: number
+  /** answers that link to one of our sites */
+  ownAnswers: number
+  /** answers that name our brand */
+  mentionedAnswers: number
+  /** our pages the AI links to for this question, most answers first (top 3) */
+  ownPages: Array<{ url: string; title: string; answers: number }>
+  /** pages linked in the answers that do NOT link to us, most answers first (top 3) */
+  insteadPages: Array<{ url: string; domain: string; title: string; ownerType: 'competitor' | 'external'; competitorName: string | null; answers: number }>
+  action: FixAction
+}
+
+export interface FoundNotCitedPage {
+  url: string
+  title: string
+  /** answers where the platform found this page */
+  found: number
+  /** of those, answers that also link to it */
+  cited: number
+  /** up to 3 questions where it was found but not linked */
+  prompts: Array<{ promptId: string; text: string }>
+}
+
+/** Sources a platform reports it found while searching, against the sources it finally linked. */
+export interface FoundFunnel {
+  /** answers inside the filters that carry found-source data */
+  withData: number
+  /** of those, answers where one of our pages is among the found sources */
+  found: number
+  /** of `found`, answers that link to one of our sites */
+  foundAndCited: number
+  /** of `found`, answers that name our brand */
+  foundAndMentioned: number
+  /** platforms that supplied found-source data */
+  providers: ProviderKey[]
+  /** our pages found more often than cited, biggest gap first (capped) */
+  pages: FoundNotCitedPage[]
+}
+
 export interface CitationAnalysisDTO {
   /** False when Brand Radar has not been set up for the project. */
   configured: boolean
@@ -228,4 +274,8 @@ export interface CitationAnalysisDTO {
     mentionedNotCited: MentionedNotCitedRow[]
     competitorCitedNotUs: CompetitorCitedRow[]
   }
+  /** Per question: which page to fix to win it (max 50). Empty in the customer view. */
+  fixPages: PromptFixRow[]
+  /** Found-but-not-cited funnel; null in the customer view or when no platform reported found sources. */
+  foundFunnel: FoundFunnel | null
 }

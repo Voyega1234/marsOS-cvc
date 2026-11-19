@@ -13,6 +13,7 @@ import type { AnalysisDomainRow, AnalysisPage, SiteType, WhySignal } from "@/lib
 import { fmtNum, fmtPct, providerLabelFor } from "./shared";
 import { ProviderLogo } from "./ProviderLogo";
 import type { ViewerTarget } from "./ResponseViewer";
+import { ColumnHelp } from "./ColumnHelp";
 
 export const SITE_TYPE_LABEL: Record<SiteType, string> = {
   official: "เว็บแบรนด์", blog: "บล็อก/บทความ", news: "ข่าว", review: "รีวิว/เปรียบเทียบ", forum: "เว็บบอร์ด",
@@ -214,14 +215,14 @@ export function DomainsSection({ domains, totalAnswers, clientView, onView }: { 
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
               <tr className="border-b border-gray-100 text-xs text-gray-500">
-                <th className="w-8 py-2 pr-2 font-medium">#</th>
-                <th className="py-2 pr-3 font-medium">เว็บ</th>
-                <th className="py-2 pr-3 font-medium">คำตอบที่อ้างอิง (จาก {fmtNum(totalAnswers)})</th>
-                <th className="py-2 pr-3 font-medium">prompt</th>
-                <th className="py-2 pr-3 font-medium">แพลตฟอร์ม</th>
-                <th className="py-2 pr-3 font-medium">ความสม่ำเสมอ</th>
-                <th className="py-2 pr-3 font-medium">ลำดับเฉลี่ย</th>
-                <th className="py-2 font-medium">เทียบช่วงก่อน</th>
+                <th className="w-8 py-2 pr-2 font-medium"><ColumnHelp k="citedRowNo">#</ColumnHelp></th>
+                <th className="py-2 pr-3 font-medium"><ColumnHelp k="analysisDomain">เว็บ</ColumnHelp></th>
+                <th className="py-2 pr-3 font-medium"><ColumnHelp k="citationShare">คำตอบที่อ้างอิง (จาก {fmtNum(totalAnswers)})</ColumnHelp></th>
+                <th className="py-2 pr-3 font-medium"><ColumnHelp k="analysisPrompts">prompt</ColumnHelp></th>
+                <th className="py-2 pr-3 font-medium"><ColumnHelp k="analysisPlatforms">แพลตฟอร์ม</ColumnHelp></th>
+                <th className="py-2 pr-3 font-medium"><ColumnHelp k="analysisConsistency">ความสม่ำเสมอ</ColumnHelp></th>
+                <th className="py-2 pr-3 font-medium"><ColumnHelp k="analysisAvgPosition">ลำดับเฉลี่ย</ColumnHelp></th>
+                <th className="py-2 font-medium"><ColumnHelp k="analysisChange">เทียบช่วงก่อน</ColumnHelp></th>
               </tr>
             </thead>
             <tbody>

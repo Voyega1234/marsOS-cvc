@@ -304,6 +304,10 @@ export interface ProjectOptDTO {
   schedule: Schedule | null
   lastRunAt: string | null
   nextRunAt: string | null
+  /** Same-origin path of the uploaded brand logo (served by /api/brand-radar/logo), null when none */
+  logo: string | null
+  /** Icon of the brand's website, used when no logo was uploaded; null when the site is unknown */
+  favicon: string | null
 }
 
 /**
@@ -639,11 +643,13 @@ export interface AnswerSentimentEntity {
   tone: SentimentTone
   positioning: BrandPositioning[]
   /** factors the answer ties to this entity, each as a plus, a minus or a plain statement */
-  factors: Array<{ code: SentimentFactor; polarity: FactorPolarity }>
+  factors: Array<{ code: SentimentFactor; polarity: FactorPolarity; /** words copied from the answer that show the factor (brand only) */ quote?: string }>
   /** one short sentence, in the answer's language, on how the AI describes the entity */
   summary: string
   /** up to 3 short labels (2-4 words) the answer gives the entity, e.g. "performance agency"; free text, lowercase */
   descriptors: string[]
+  /** descriptor text (as in `descriptors`) -> words copied from the answer that show it (brand only) */
+  descriptorQuotes?: Record<string, string>
 }
 
 export interface AnswerSentiment {
@@ -651,6 +657,19 @@ export interface AnswerSentiment {
   factors: SentimentFactor[]
   /** tracked entities the answer talks about */
   entities: AnswerSentimentEntity[]
+}
+
+/** An example passage from one AI answer that shows why a factor or a label was assigned. Untrusted text. */
+export interface InsightQuote {
+  text: string
+  responseId: string
+  promptId: string
+  runId?: string
+  provider?: ProviderKey
+  /** true = taken from the text around the brand name (old answers), not a passage the analysis chose */
+  approx?: boolean
+  /** factor quotes: the polarity of the answer the quote came from */
+  polarity?: FactorPolarity
 }
 
 export interface InsightEntityDTO {
@@ -664,11 +683,11 @@ export interface InsightEntityDTO {
   /** how the AI presents the entity, most answers first */
   positioning: Array<{ code: BrandPositioning; label: string; answers: number; rate: number | null }>
   /** what the AI ties to the entity, most answers first; positive + negative + neutral = answers */
-  factors: Array<{ code: SentimentFactor; label: string; answers: number; positive: number; negative: number; neutral: number }>
+  factors: Array<{ code: SentimentFactor; label: string; answers: number; positive: number; negative: number; neutral: number; quotes?: InsightQuote[] }>
   /** up to 3 recent one-sentence descriptions taken from the analysis */
   summaries: string[]
   /** the short labels the AI gives the entity, most answers first (capped) */
-  descriptors: Array<{ text: string; answers: number }>
+  descriptors: Array<{ text: string; answers: number; quotes?: InsightQuote[] }>
 }
 
 /** AI search queries that are about the same thing, counted together */
@@ -833,8 +852,14 @@ export interface AnswerFeedDTO {
   }
   /** websites the answers cite, most answers first (capped); rate = answers citing the domain / asked */
   sources: Array<{ domain: string; ownerType: CitationOwner; competitorName: string; answers: number; rate: number | null }>
+  /** entity key -> website domain, for logos in the competitor table ('brand' = our site, competitor id = its first domain); absent = no logo */
+  entityDomains?: Record<string, string>
   /** AI search queries + brand sentiment over the answers inside the filters */
   insight: AnswerInsightDTO
+  /** the brand per scan round inside the filters, oldest first (latest rounds only, capped); optional while the backend is updated */
+  scans?: ScanProgressPoint[]
+  /** a grade per headline number and this month against earlier months; absent when there is no data */
+  scorecard?: import('./scorecard-types').ScorecardDTO
   /** question x AI groups per filter value, after the text search */
   counts: Record<AnswerMentionFilter, number>
   items: AnswerFeedItem[]
@@ -907,8 +932,18 @@ export interface UsageDTO {
   budgetUsed: number | null
   calls: number
   byProvider: Array<{ provider: ProviderKey; label: string; calls: number; failed: number; costUsd: number }>
-  /** last 6 months, oldest first */
-  history: Array<{ month: string; costUsd: number; calls: number }>
+  /** last 6 months, oldest first; `calls` includes the `failed` ones */
+  history: Array<{ month: string; costUsd: number; calls: number; failed: number }>
+}
+
+/**
+ * Average cost of one ask that got an answer: cost divided by the calls that did not fail.
+ * null when no call succeeded, so the page shows "no data" instead of a made-up 0.
+ */
+export function costPerCall(costUsd: number, calls: number, failed = 0): number | null {
+  const answered = calls - failed
+  if (!Number.isFinite(costUsd) || !Number.isFinite(answered) || answered <= 0) return null
+  return costUsd / answered
 }
 
 // ── Analytics ────────────────────────────────────────────────────────────────
@@ -956,6 +991,33 @@ export interface TrendPoint {
   comparable: boolean
 }
 
+/** One scan round of the brand, for the scan-by-scan comparison on the Overview. Counts are DONE answers of that round. */
+export interface ScanProgressPoint {
+  runId: string
+  /** when the round started, ISO */
+  date: string
+  /** short Bangkok date + time for a chart axis, e.g. "19/11 11:12" */
+  label: string
+  /** answers collected in the round */
+  asked: number
+  /** answers that name the brand at least once */
+  mentioned: number
+  /** mentioned / asked (the Visibility figure), null when asked = 0 */
+  mentionRate: number | null
+  /** answers that link to one of our sites */
+  ownedCited: number
+  citationRate: number | null
+  /** answers that name the brand or link to our sites */
+  appeared: number
+  appearRate: number | null
+  /** mean order of the brand among tracked names (1 = named first), null when never named in the round */
+  avgPosition: number | null
+  /** mean share of the answer where the brand's first mention starts (0 = start, 1 = end), null when unknown */
+  avgPositionPct: number | null
+  /** false when the round before it used another prompt set or other AI platforms, so the difference is not like for like; null on the first round */
+  sameSetAsPrevious: boolean | null
+}
+
 export interface OverviewDTO {
   /** false = no profile yet; the page shows the setup empty state */
   configured: boolean
@@ -989,6 +1051,8 @@ export interface CompetitorInsightsDTO {
   domains: Array<{ competitorId: string; name: string; domains: Array<{ domain: string; citations: number }> }>
   /** answers split by who is named in them (our brand / tracked competitors) */
   mentionSplit?: MentionSplit
+  /** brands the AI platforms name that are not tracked yet; staff only, never sent in the client view */
+  untracked?: import('./untracked-types').UntrackedBrandsDTO
 }
 
 export interface MentionSplit {
@@ -1225,6 +1289,18 @@ export interface ProfileRes {
   competitors: CompetitorDTO[]
   /** existing Project fields, used to pre-fill the first-time setup form */
   project: { id: string; name: string; clientName: string; website: string; industry: string; language: string }
+  /** Background scanning switch of this project. Staff only: never sent to a client login. */
+  auto?: AutoScanDTO
+}
+
+/** Background scanning ("สแกนอัตโนมัติตามรอบ"): the server scans on schedule without anyone opening the page */
+export interface AutoScanDTO {
+  /** the switch of this project */
+  on: boolean
+  /** false = the server has no CRON_SECRET, so the scheduled job cannot run yet */
+  ready: boolean
+  /** last time the scheduled server job ran (ISO), null = it has never run */
+  lastTickAt: string | null
 }
 
 export interface PromptSaveRes { created: number; skipped: Array<{ text: string; reason: string }> }

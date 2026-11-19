@@ -1,5 +1,5 @@
 /** Brand Radar — client-side helpers shared by every tab (fetch, filters, formatting) */
-import { PROVIDERS, SMALL_SAMPLE_N, answerZone, isProviderKey, parseSchedule, type ProfileDTO, type ProviderKey, type RadarFilters } from '@/lib/brand-radar/types'
+import { PROVIDERS, SMALL_SAMPLE_N, answerZone, isProviderKey, parseSchedule, type AnswerMentionFilter, type ProfileDTO, type ProviderKey, type RadarFilters } from '@/lib/brand-radar/types'
 import { wilsonInterval } from '@/lib/brand-radar/metrics'
 
 /** Printed wherever a metric is null. A null metric is never shown as 0. */
@@ -11,6 +11,22 @@ export type TabId = 'overview' | 'responses' | 'prompts' | 'competitors' | 'cita
 export const TAB_IDS: readonly TabId[] = ['overview', 'responses', 'prompts', 'competitors', 'citations', 'citation-analysis', 'opportunities', 'settings']
 
 /** Props every tab component receives from BrandRadarClient */
+/**
+ * A place inside a tab to jump to, sent along with onGoTab. Navigation only: nothing here reaches the server
+ * except through filters the tab already has.
+ */
+export interface TabFocus {
+  /** AI Responses: open with this answer-type filter chosen */
+  mention?: AnswerMentionFilter
+  /** AI Responses: narrow the page to one AI platform (sets the page-wide platform filter) */
+  provider?: ProviderKey
+  /** Competitors: scroll to this competitor and mark its rows */
+  competitor?: string
+}
+
+/** A TabFocus plus a counter, so pressing the same shortcut twice is still seen as a new request */
+export interface TabFocusState extends TabFocus { tab: TabId; seq: number }
+
 export interface TabProps {
   /** selected client (an existing Project id); never empty when a tab is rendered */
   projectId: string
@@ -19,11 +35,16 @@ export interface TabProps {
   refreshKey: number
   /** null = brand profile not set up yet */
   profile: ProfileDTO | null
-  onGoTab: (tab: TabId) => void
+  /** `focus` opens the tab already narrowed to one thing (see TabFocus) */
+  onGoTab: (tab: TabId, focus?: TabFocus) => void
+  /** where the last onGoTab call pointed; a tab reads only the fields meant for it */
+  focus?: TabFocusState | null
   /** call after a change other tabs depend on (profile saved, prompts changed, scan started) */
   onChanged: () => void
   /** true = customer login: read-only report, no staff controls */
   clientView?: boolean
+  /** picture of the selected brand: uploaded logo path and site favicon, both may be null */
+  brandLogo?: { logo: string | null; favicon: string | null }
 }
 
 /** Tabs a customer login may open */
@@ -190,6 +211,22 @@ export function fmtUsd(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return NA
   if (v > 0 && v < 0.01) return `$${v.toFixed(4)}`
   return `$${v.toFixed(2)}`
+}
+
+/** Cost of a single call: small amounts keep four decimals ($0.0040), where fmtUsd would round them away. */
+export function fmtUsdPerCall(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return NA
+  return v < 1 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`
+}
+
+const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+
+/** "2026-11" -> "พ.ย. 2026" (or "พ.ย." with `short`); anything else is returned as it came. */
+export function monthLabelTh(key: string, short = false): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(key)
+  const name = m ? MONTHS_TH[Number(m[2]) - 1] : undefined
+  if (!m || !name) return key
+  return short ? name : `${name} ${m[1]}`
 }
 
 export function fmtDate(iso: string | null | undefined): string {

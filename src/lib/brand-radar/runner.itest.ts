@@ -29,6 +29,7 @@ async function main() {
 
   const { prisma } = await import('@/lib/prisma')
   const r = await import('./runner')
+  const auto = await import('./auto-scan')
 
   const stamp = Date.now()
   const orgId = `itest-br-org-${stamp}`
@@ -68,6 +69,10 @@ async function main() {
     }
     throw new Error('run did not finish')
   }
+
+  // The cron heartbeat is a shared row: remember it so the cleanup can put it back exactly as it was
+  const HEARTBEAT = 'brand_radar_cron_heartbeat'
+  const heartbeatBefore = await prisma.appSetting.findUnique({ where: { key: HEARTBEAT } })
 
   try {
     await prisma.organization.create({ data: { id: orgId, name: 'itest br', slug: orgId } })
@@ -223,6 +228,10 @@ async function main() {
     const u = await r.usage(ctx)
     assert.ok(u.calls > 0 && u.monthSpendUsd > 0)
     assert.equal(u.history.length, 6)
+    const thisMonth = u.history[u.history.length - 1]
+    assert.equal(thisMonth.month, u.month)
+    assert.equal(thisMonth.calls, u.calls)
+    assert.equal(thisMonth.failed, u.byProvider.reduce((s, p) => s + p.failed, 0))
     ok('usage')
 
     // repeat samples: LLM providers ask N times, observed SERP providers once; sample-major order
@@ -426,6 +435,92 @@ async function main() {
     assert.equal((await r.runDue(ctx)).reason, 'Schedule is manual')
     ok('unreadable schedule counts as manual')
 
+    // ── cronTick and the per-project "automatic scanning" switch (fake caller only, so nothing leaves the machine) ──
+    const switchKey = `brand_radar_auto_scan:${projectId}`
+    const makeDue = async () => {
+      await prisma.brandRadarRun.updateMany({ where: { projectId, status: 'RUNNING' }, data: { status: 'CANCELLED' } })
+      // free the one-scan-per-period guard so a scheduled scan can start whatever day this runs
+      await prisma.brandRadarRun.updateMany({ where: { projectId }, data: { periodKey: null } })
+      await prisma.brandRadarProfile.update({
+        where: { id: profile.id },
+        data: { schedule: 'daily', nextRunAt: new Date(Date.now() - 3_600_000), monthlyBudgetUsd: null, samplesPerPrompt: 1, providers: '["openai","gemini"]' },
+      })
+    }
+
+    // switch off (the default): a due profile is not started, but the heartbeat is written
+    await makeDue()
+    assert.equal(await auto.getAutoScan(projectId), false)
+    const runsBefore = await prisma.brandRadarRun.count({ where: { projectId } })
+    const off1 = await r.cronTick(5_000, fake)
+    assert.equal(off1.started, 0)
+    assert.equal(off1.stepped, 0)
+    assert.equal(await prisma.brandRadarRun.count({ where: { projectId } }), runsBefore)
+    const hb = await prisma.appSetting.findUnique({ where: { key: HEARTBEAT } })
+    assert.ok(hb)
+    assert.ok(Number.isFinite(Date.parse(hb!.value)))
+    ok('cronTick with the switch off starts nothing and writes the heartbeat')
+
+    // switch off + a RUNNING run with pending tasks: left untouched
+    const s13 = await r.startRun(ctx, 'manual')
+    assert.equal(s13.kind, 'started')
+    const run13 = (s13 as { run: { id: string } }).run
+    const before13 = await prisma.brandRadarRun.findUniqueOrThrow({ where: { id: run13.id } })
+    const callsBeforeOff = calls.length
+    const off2 = await r.cronTick(5_000, fake)
+    assert.equal(off2.started, 0)
+    assert.equal(off2.stepped, 0)
+    const after13 = await prisma.brandRadarRun.findUniqueOrThrow({ where: { id: run13.id } })
+    assert.equal(after13.status, 'RUNNING')
+    assert.equal(after13.doneTasks, before13.doneTasks)
+    assert.equal(after13.failedTasks, before13.failedTasks)
+    assert.equal(after13.skippedTasks, before13.skippedTasks)
+    assert.equal(await prisma.brandRadarResponse.count({ where: { runId: run13.id, status: 'PENDING' } }), 4)
+    assert.equal(calls.length, callsBeforeOff)
+    ok('cronTick with the switch off does not step a running scan')
+
+    // switch on: the due scan is started and stepped to the end
+    await makeDue()
+    await auto.setAutoScan(projectId, true, userId)
+    assert.equal(await auto.getAutoScan(projectId), true)
+    assert.ok((await auto.listAutoScanProjectIds()).includes(projectId))
+    const on1 = await r.cronTick(5_000, fake)
+    assert.ok(on1.started + on1.stepped > 0)
+    const cronRuns = async () => prisma.brandRadarRun.findMany({ where: { projectId, trigger: 'schedule', periodKey: { not: null } } })
+    let finished = false
+    for (let i = 0; i < 20 && !finished; i++) {
+      const rows = await cronRuns()
+      if (rows.length && rows.every((x) => x.status !== 'RUNNING')) { finished = true; break }
+      await r.cronTick(5_000, fake)
+    }
+    if (!finished) {
+      const rows = await cronRuns()
+      finished = rows.length > 0 && rows.every((x) => x.status !== 'RUNNING')
+    }
+    assert.ok(finished, 'the scheduled run did not finish after 20 ticks')
+    const cronRun = (await cronRuns())[0]
+    assert.equal(cronRun.status, 'COMPLETED')
+    assert.equal(cronRun.doneTasks, 4)
+    const info = await auto.getAutoScanInfo(projectId)
+    assert.equal(info.on, true)
+    assert.ok(info.lastTickAt !== null)
+    ok('cronTick with the switch on starts and finishes a due scan')
+
+    // switch off again: row deleted, not listed
+    await auto.setAutoScan(projectId, false, userId)
+    assert.equal(await prisma.appSetting.count({ where: { key: switchKey } }), 0)
+    assert.ok(!(await auto.listAutoScanProjectIds()).includes(projectId))
+    assert.equal(await auto.getAutoScan(projectId), false)
+    ok('switching off deletes the row')
+
+    // stored values that cannot be read count as off
+    for (const bad of ['not json', '{"on":"yes"}', 'null']) {
+      await prisma.appSetting.upsert({ where: { key: switchKey }, create: { key: switchKey, value: bad }, update: { value: bad } })
+      assert.equal(await auto.getAutoScan(projectId), false, bad)
+      assert.ok(!(await auto.listAutoScanProjectIds()).includes(projectId), bad)
+    }
+    await prisma.appSetting.deleteMany({ where: { key: switchKey } })
+    ok('malformed switch values are treated as off')
+
     void p1; void p2
     console.log(`runner.itest.ts: ${n} checks passed`)
   } finally {
@@ -440,6 +535,12 @@ async function main() {
     await prisma.brandRadarCompetitor.deleteMany({ where })
     await prisma.brandRadarProfile.deleteMany({ where })
     await prisma.aIJob.deleteMany({ where })
+    await prisma.appSetting.deleteMany({ where: { key: `brand_radar_auto_scan:${projectId}` } })
+    if (heartbeatBefore) {
+      await prisma.appSetting.update({ where: { key: HEARTBEAT }, data: { value: heartbeatBefore.value } }).catch(() => undefined)
+    } else {
+      await prisma.appSetting.deleteMany({ where: { key: HEARTBEAT } })
+    }
     await prisma.project.deleteMany({ where: { id: projectId } })
     await prisma.user.deleteMany({ where: { id: userId } })
     await prisma.organization.deleteMany({ where: { id: { in: [orgId, otherOrg] } } })

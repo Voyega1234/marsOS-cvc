@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { bad, isRadarCtx, requireProject } from '@/lib/brand-radar/server'
 import { buildPromptList, parseFilters } from '@/lib/brand-radar/queries'
 import { cleanPromptInput, pickCountry, pickLanguage, type CleanPrompt } from '@/lib/brand-radar/prompt-input'
+import { LANGUAGE_BOTH } from '@/lib/brand-radar/language'
 import { LIMITS, type PromptSaveRes } from '@/lib/brand-radar/types'
 
 export const dynamic = 'force-dynamic'
@@ -42,7 +43,10 @@ export async function POST(req: NextRequest) {
   // project.language can be 'both' and profile values may be stale: only supported codes become defaults
   const defaults = {
     country: pickCountry(profile?.country) ?? 'TH',
-    language: pickLanguage(profile?.language) ?? pickLanguage(ctx.project.language) ?? 'th',
+    // profile 'both' (Thai + English) is passed on as it is: each prompt then gets its language from its own text
+    language: profile?.language === LANGUAGE_BOTH
+      ? LANGUAGE_BOTH
+      : pickLanguage(profile?.language) ?? pickLanguage(ctx.project.language) ?? 'th',
   }
   const keys = new Set(existing.map((e) => e.textKey))
   let room = LIMITS.promptsPerProjectMax - existing.length

@@ -4,6 +4,7 @@ import { bad, isRadarCtx, requireProject, requireProjectReader } from '@/lib/bra
 import { toClientProfileDTO, toCompetitorDTO, toProfileDTO } from '@/lib/brand-radar/queries'
 import { DEFAULT_PROVIDERS, cleanProfileInput } from '@/lib/brand-radar/profile-input'
 import { nextRunAfter } from '@/lib/brand-radar/schedule'
+import { getAutoScanInfo, setAutoScan } from '@/lib/brand-radar/auto-scan'
 import type { ProfileRes, Schedule } from '@/lib/brand-radar/types'
 
 export const dynamic = 'force-dynamic'
@@ -20,6 +21,8 @@ export async function GET(req: NextRequest) {
     profile: profile ? (ctx.clientView ? toClientProfileDTO(profile) : toProfileDTO(profile)) : null,
     competitors: (ctx.clientView ? competitors.filter((c) => c.status === 'ACTIVE') : competitors).map(toCompetitorDTO),
     project: ctx.project,
+    // the background scanning switch is a staff setting: a client login never receives it
+    ...(ctx.clientView ? {} : { auto: await getAutoScanInfo(ctx.project.id) }),
   }
   return NextResponse.json(res)
 }
@@ -84,7 +87,8 @@ export async function PUT(req: NextRequest) {
         createdById: ctx.userId,
       },
     })
-    return NextResponse.json({ profile: toProfileDTO(created) })
+    if (d.autoScan !== undefined) await setAutoScan(ctx.project.id, d.autoScan, ctx.userId, now)
+    return NextResponse.json({ profile: toProfileDTO(created), auto: await getAutoScanInfo(ctx.project.id) })
   }
 
   const scheduleChanged = d.schedule !== undefined && d.schedule !== existing.schedule
@@ -96,5 +100,6 @@ export async function PUT(req: NextRequest) {
       ...(scheduleChanged ? { nextRunAt: nextRunAfter(d.schedule as Schedule, now) } : {}),
     },
   })
-  return NextResponse.json({ profile: toProfileDTO(updated) })
+  if (d.autoScan !== undefined) await setAutoScan(ctx.project.id, d.autoScan, ctx.userId, now)
+  return NextResponse.json({ profile: toProfileDTO(updated), auto: await getAutoScanInfo(ctx.project.id) })
 }

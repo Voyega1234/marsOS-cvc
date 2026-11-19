@@ -10,6 +10,7 @@ import { getGSCServiceAuth } from '@/lib/google-auth'
 import { logAIJob } from '@/lib/logAIJob'
 import { OR_MODELS, orChat } from '@/lib/openrouter'
 import { PBN_PREFS_MARK } from '@/lib/upload-article/pbn'
+import { LANGUAGE_BOTH, resolveLanguage } from './language'
 import { hostOf } from './normalize'
 import { classifyIntent, classifyJourney, guessTopic, markDuplicates, textKey } from './prompts'
 import { parseStrings, errMsg, type RadarCtx } from './server'
@@ -71,7 +72,7 @@ function finish(
       keyword: r.keyword ?? '',
       searchVolume: r.searchVolume ?? null,
       country: profile.country,
-      language: profile.language,
+      language: resolveLanguage(profile.language, text),
       priority: 'medium',
     })
     if (out.length >= limit) break
@@ -86,7 +87,9 @@ const NO_PROFILE: Omit<PromptGenerateRes, 'source'> = {
 // ── AI generated ─────────────────────────────────────────────────────────────
 
 async function fromAi(ctx: RadarCtx, count: number, seed: string, profile: ProfileLite): Promise<PromptGenerateRes> {
-  const lang = profile.language === 'th' ? 'Thai' : 'English'
+  const lang = profile.language === LANGUAGE_BOTH
+    ? 'a mix: about half of the questions in Thai and half in English'
+    : profile.language === 'th' ? 'Thai' : 'English'
   const prompt = [
     `You write realistic questions that people type to AI assistants (ChatGPT, Gemini, Perplexity, Claude).`,
     `Brand: ${profile.brandName || ctx.project.clientName}`,
@@ -241,7 +244,7 @@ async function fromPaa(ctx: RadarCtx, seed: string, profile: ProfileLite): Promi
   let questions: string[] = []
   try {
     const res = await dfsPost<DfsSerpRes>('/serp/google/organic/live/advanced', [{
-      keyword, location_code: country.dfsLocationCode, language_code: profile.language, depth: 10,
+      keyword, location_code: country.dfsLocationCode, language_code: resolveLanguage(profile.language, keyword), depth: 10,
     }])
     const task = res.tasks?.[0]
     if (typeof task?.cost === 'number') cost = task.cost

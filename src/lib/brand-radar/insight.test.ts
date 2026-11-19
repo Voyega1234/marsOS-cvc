@@ -1,12 +1,16 @@
 // Brand Radar insight (pure helpers): npx tsx src/lib/brand-radar/insight.test.ts
 import {
-  INSIGHT_LIMITS, aggregateInsight, bangkokDay, cleanFoundSources, cleanQueries, dailyTrend, emptyInsight, mentionStyleOf, normalizeQueryKey,
+  INSIGHT_LIMITS, aggregateInsight, bangkokDay, cleanFoundSources, cleanQueries, dailyTrend, emptyInsight, fallbackQuote, mentionStyleOf, normalizeQueryKey,
   parseStoredFoundSources, parseStoredQueries, parseStoredSentiment, sanitizeSentiment, type InsightRow, type SentimentEntityRef,
 } from './insight'
 import type { Dataset } from './metrics'
 import { answerZone, type AnswerSentiment, type EntityShare } from './types'
 
 let passed = 0
+function ok(cond: boolean, msg: string) {
+  if (!cond) throw new Error(`FAIL: ${msg}`)
+  passed++
+}
 function eq(actual: unknown, expected: unknown, msg: string) {
   const a = JSON.stringify(actual)
   const e = JSON.stringify(expected)
@@ -230,5 +234,64 @@ eq(cleanFoundSources(Array.from({ length: 40 }, (_, i) => ({ url: `https://a.com
 eq(parseStoredFoundSources('not json'), [], 'found: malformed JSON')
 eq(parseStoredFoundSources(null), [], 'found: null stored')
 eq(parseStoredFoundSources(JSON.stringify([{ url: 'https://c.com', domain: 'c.com', title: 't', ownerType: 'competitor' }])).length, 1, 'found: round trip')
+
+// ── Quotes ───────────────────────────────────────────────────────────────────
+const ANSWER = 'Acme is  the\ncheapest option in town.\nRival is fine too.'
+const q1 = sanitizeSentiment({
+  entities: [
+    { key: 'brand', tone: 'positive', factors: [{ code: 'price', polarity: 'positive', quote: 'THE cheapest   option in town.' }, { code: 'quality', polarity: 'positive', quote: 'made up text' }],
+      descriptors: [{ label: 'Budget Pick', quote: 'cheapest option' }, 'plain label', { label: 'bad', quote: 'not there' }] },
+    { key: 'c1', tone: 'neutral', factors: [{ code: 'price', polarity: 'neutral', quote: 'Rival is fine too.' }], descriptors: [{ label: 'fine', quote: 'Rival is fine too.' }] },
+  ],
+}, resolve, { answer: ANSWER })!
+eq(q1.entities[0].factors, [{ code: 'price', polarity: 'positive', quote: 'THE cheapest option in town.' }, { code: 'quality', polarity: 'positive' }], 'quote: substring kept (case/whitespace), fake dropped, factor kept')
+eq(q1.entities[0].descriptors, ['budget pick', 'plain label', 'bad'], 'quote: descriptor object + string both accepted')
+eq(q1.entities[0].descriptorQuotes, { 'budget pick': 'cheapest option' }, 'quote: only verified descriptor quote kept')
+eq(q1.entities[1].factors, [{ code: 'price', polarity: 'neutral' }], 'quote: dropped for competitors')
+eq(q1.entities[1].descriptors, ['fine'], 'quote: competitor descriptor object keeps label')
+ok(!('descriptorQuotes' in q1.entities[1]), 'quote: no descriptorQuotes key on competitor')
+const longAnswer = 'x'.repeat(300)
+eq(sanitizeSentiment({ entities: [{ key: 'brand', tone: 'neutral', factors: [{ code: 'price', polarity: 'neutral', quote: 'x'.repeat(300) }] }] }, resolve, { answer: longAnswer })!.entities[0].factors[0].quote!.length, INSIGHT_LIMITS.quoteMax, 'quote: capped')
+eq(sanitizeSentiment({ entities: [{ key: 'brand', tone: 'neutral', factors: [{ code: 'price', polarity: 'neutral', quote: '  ' }] }] }, resolve, { answer: ANSWER })!.entities[0].factors, [{ code: 'price', polarity: 'neutral' }], 'quote: empty dropped')
+// old stored JSON (no quotes) is unchanged
+const oldJson = { factors: ['price'], entities: [{ key: 'brand', entityType: 'brand', name: 'Acme', tone: 'positive', positioning: ['leader'], factors: [{ code: 'price', polarity: 'positive' }], summary: 'Good.', descriptors: ['reliable'] }] }
+eq(parseStoredSentiment(JSON.stringify(oldJson)), { factors: ['price'], entities: [{ entityType: 'brand', key: 'brand', name: 'Acme', tone: 'positive', positioning: ['leader'], factors: [{ code: 'price', polarity: 'positive' }], summary: 'Good.', descriptors: ['reliable'] }] }, 'quote: old stored JSON parses as before')
+// stored JSON with quotes round-trips
+const withQuotes: AnswerSentiment = {
+  factors: ['price'],
+  entities: [{ entityType: 'brand', key: 'brand', name: 'Acme', tone: 'positive', positioning: [], factors: [{ code: 'price', polarity: 'positive', quote: 'the cheapest' }], summary: '', descriptors: ['budget', 'other'], descriptorQuotes: { budget: 'cheapest option' } }],
+}
+eq(parseStoredSentiment(JSON.stringify(withQuotes)), withQuotes, 'quote: stored JSON with quotes round-trips')
+eq(parseStoredSentiment(JSON.stringify({ entities: [{ key: 'brand', tone: 'neutral', descriptors: ['a'], descriptorQuotes: { zzz: 'nope', a: 'yes' } }] }))!.entities[0].descriptorQuotes, { a: 'yes' }, 'quote: stored descriptorQuotes only for kept descriptors')
+
+// aggregation
+const qrow = (id: string, at: number, quote: string, dq?: string): InsightRow => ({
+  responseId: id, promptId: 'p1', runId: 'r1', provider: 'openai', at, searchQueries: [],
+  sentiment: { factors: [], entities: [{ entityType: 'brand', key: 'brand', name: 'Acme', tone: 'positive', positioning: [], factors: [{ code: 'price', polarity: 'positive', quote }], summary: '', descriptors: ['budget'], ...(dq ? { descriptorQuotes: { budget: dq } } : {}) }] },
+})
+const aggQ = aggregateInsight({
+  available: true, groups: new Map(), promptText: new Map(), entityNames: new Map(),
+  rows: [qrow('a', 1, 'old one', 'd-old'), qrow('b', 5, 'newest'), qrow('c', 3, 'mid', 'd-mid'), qrow('d', 4, 'mid'), qrow('e', 2, 'older'), qrow('f', 0, 'oldest')],
+})
+const aggBrand = aggQ.entities[0]
+eq(aggBrand.factors[0].quotes!.map((x) => x.text), ['newest', 'mid', 'older'], 'aggregate: <=3 distinct, newest first')
+eq(aggBrand.factors[0].quotes![0], { text: 'newest', responseId: 'b', promptId: 'p1', runId: 'r1', provider: 'openai', polarity: 'positive' }, 'aggregate: quote carries answer ids + polarity')
+eq(aggBrand.descriptors[0].quotes!.map((x) => x.text), ['d-mid', 'd-old'], 'aggregate: descriptor quotes')
+ok(!('quotes' in aggregateInsight({ available: true, groups: new Map(), promptText: new Map(), entityNames: new Map(), rows: [{ ...qrow('z', 1, ''), sentiment: { factors: [], entities: [{ entityType: 'brand', key: 'brand', name: 'Acme', tone: 'positive', positioning: [], factors: [{ code: 'price', polarity: 'positive' }], summary: '', descriptors: [] }] } }] }).entities[0].factors[0]), 'aggregate: no quotes key when none')
+
+// fallbackQuote
+eq(fallbackQuote('Intro\n## **Acme** is cheap\nOther', { label: 'cheap', brandTerms: ['acme'] }), { text: 'Acme is cheap', approx: false }, 'fallback: label match, markdown stripped')
+eq(fallbackQuote('Intro\n- Rival\n1. Acme rocks\n| Acme | x |', { brandTerms: ['ACME'] }), { text: 'Acme rocks', approx: true }, 'fallback: brand term, list marker stripped')
+eq(fallbackQuote('| Acme | yes |', { brandTerms: ['acme'] }), { text: 'Acme yes', approx: true }, 'fallback: table pipes stripped')
+eq(fallbackQuote('Nothing here', { label: 'cheap', brandTerms: ['acme'] }), null, 'fallback: no match')
+eq(fallbackQuote('Acme is a brand and cheap', { label: 'zzz', brandTerms: ['acme'] }), { text: 'Acme is a brand and cheap', approx: true }, 'fallback: missing label falls back to brand')
+const longLine = 'a'.repeat(300) + ' Acme ' + 'b'.repeat(300)
+const win = fallbackQuote(longLine, { brandTerms: ['acme'] })!
+ok(win.text.startsWith('…') && win.text.endsWith('…') && win.text.includes('Acme'), 'fallback: long line cut around the match on both sides')
+ok(win.text.length <= 202, 'fallback: window is about 200 chars')
+const startLine = 'Acme ' + 'b'.repeat(400)
+const w2 = fallbackQuote(startLine, { brandTerms: ['acme'] })!
+ok(!w2.text.startsWith('…') && w2.text.endsWith('…') && w2.text.length <= 201, 'fallback: ellipsis only on the cut side')
+eq(fallbackQuote('', { brandTerms: ['acme'] }), null, 'fallback: empty answer')
 
 console.log(`insight.test.ts: ${passed} checks passed`)
