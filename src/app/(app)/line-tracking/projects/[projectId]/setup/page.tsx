@@ -209,6 +209,9 @@ export default async function SetupWizard({
                   {project.websiteUrl && (
                     <span className="text-[11px] text-slate-400">ตรวจที่ {project.websiteUrl}</span>
                   )}
+                  <Link href={`/line-tracking/projects/${project.id}/settings#project-website`} className="text-[11px] text-brand-blue hover:underline">
+                    {project.websiteUrl ? "แก้ลิงก์เว็บ" : "ใส่ลิงก์เว็บ"}
+                  </Link>
                 </div>
 
                 {embedTestMessage && (

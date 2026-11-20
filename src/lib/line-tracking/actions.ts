@@ -10,8 +10,10 @@ import {
   duplicateProject,
   renameProject,
   setProjectStatus,
+  setProjectWebsite,
 } from "@/lib/line-tracking/services/projectService";
 import { planProjectRename, renameNeedsConfirm } from "@/lib/line-tracking/projectRename";
+import { planProjectWebsite } from "@/lib/line-tracking/projectWebsite";
 import { parseOverviewMode, parseSpendInput, withSpend } from "@/lib/line-tracking/overviewMode";
 import { getOverviewSettings, saveOverviewSettings } from "@/lib/line-tracking/services/overviewSettingsStore";
 import { saveConnectionConfig } from "@/lib/line-tracking/services/connectionStore";
@@ -140,6 +142,29 @@ export async function renameProjectAction(formData: FormData) {
   revalidatePath("/line-tracking/projects");
   revalidatePath(`/line-tracking/projects/${project.id}`, "layout");
   redirect(`${settings}?renamed=1`);
+}
+
+/**
+ * Changes a project's website link from the Settings page. Staff only. The link is where
+ * the setup wizard's Test button looks for the script; tracking is keyed by slug, so
+ * collected data and installed snippets are not affected.
+ */
+export async function updateProjectWebsiteAction(formData: FormData) {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const project = projectId
+    ? await prisma.ltProject.findUnique({ where: { id: projectId }, select: { id: true, websiteUrl: true } })
+    : null;
+  if (!project) throw new Error(DENIED);
+  const settings = `/line-tracking/projects/${project.id}/settings`;
+
+  const plan = planProjectWebsite(project.websiteUrl, formData.get("websiteUrl"));
+  if (plan.kind === "error") redirect(`${settings}?websiteError=${plan.code}#project-website`);
+  if (plan.kind === "unchanged") redirect(`${settings}#project-website`);
+
+  await setProjectWebsite(project.id, plan.url);
+  revalidatePath(`/line-tracking/projects/${project.id}`, "layout");
+  redirect(`${settings}?websiteSaved=1#project-website`);
 }
 
 export async function duplicateProjectAction(formData: FormData) {

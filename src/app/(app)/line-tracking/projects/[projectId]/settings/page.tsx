@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { getAuthSession } from "@/lib/session";
 import { isLineTrackingAdmin } from "@/lib/line-tracking/access";
 import { guardProjectPage } from "@/lib/line-tracking/pageGuard";
-import { renameProjectAction } from "@/lib/line-tracking/actions";
+import { renameProjectAction, updateProjectWebsiteAction } from "@/lib/line-tracking/actions";
+import { PROJECT_WEBSITE_ERROR_TEXT, PROJECT_WEBSITE_MAX, type ProjectWebsiteError } from "@/lib/line-tracking/projectWebsite";
 import {
   PROJECT_NAME_FEATURE_LABEL,
   PROJECT_NAME_MAX,
@@ -25,13 +26,13 @@ export default async function ProjectSettingsPage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ renamed?: string; renameError?: string; pendingName?: string }>;
+  searchParams: Promise<{ renamed?: string; renameError?: string; pendingName?: string; websiteSaved?: string; websiteError?: string }>;
 }) {
   const { projectId } = await params;
   const query = await searchParams;
   await guardProjectPage(projectId, { clientAllowed: false });
   const [project, session] = await Promise.all([
-    prisma.ltProject.findUnique({ where: { id: projectId }, select: { id: true, name: true } }),
+    prisma.ltProject.findUnique({ where: { id: projectId }, select: { id: true, name: true, websiteUrl: true } }),
     getAuthSession(),
   ]);
   if (!project) notFound();
@@ -44,6 +45,10 @@ export default async function ProjectSettingsPage({
   const renameError =
     typeof query.renameError === "string" && query.renameError in PROJECT_RENAME_ERROR_TEXT
       ? PROJECT_RENAME_ERROR_TEXT[query.renameError as ProjectRenameError]
+      : null;
+  const websiteError =
+    typeof query.websiteError === "string" && query.websiteError in PROJECT_WEBSITE_ERROR_TEXT
+      ? PROJECT_WEBSITE_ERROR_TEXT[query.websiteError as ProjectWebsiteError]
       : null;
   const settingsHref = `/line-tracking/projects/${project.id}/settings`;
 
@@ -127,6 +132,39 @@ export default async function ProjectSettingsPage({
         {!pending && !renameError && query.renamed === "1" && (
           <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-700">
             บันทึกชื่อโปรเจกต์แล้ว
+          </p>
+        )}
+      </form>
+
+      <form action={updateProjectWebsiteAction} className="card p-5 space-y-3">
+        <input type="hidden" name="projectId" value={project.id} />
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-600" htmlFor="project-website">
+            ลิงก์เว็บไซต์ลูกค้า
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              id="project-website"
+              name="websiteUrl"
+              type="text"
+              inputMode="url"
+              maxLength={PROJECT_WEBSITE_MAX}
+              defaultValue={project.websiteUrl ?? ""}
+              placeholder="https://www.example.com"
+              className="field-input"
+            />
+            <button type="submit" className="btn-primary shrink-0">
+              บันทึกลิงก์
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            ใช้ตอนกด Test ในหน้า Setup (เช็คว่าวางโค้ดแล้วหรือยัง) และปุ่มกลับเว็บ · โค้ด Tracking, ลิงก์ติดตาม และข้อมูล Lead เดิมไม่เปลี่ยน · เว้นว่างได้
+          </p>
+        </div>
+        {websiteError && <p className="rounded-lg bg-rose-50 p-2 text-xs text-rose-600">{websiteError}</p>}
+        {!websiteError && query.websiteSaved === "1" && (
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-700">
+            บันทึกลิงก์เว็บไซต์แล้ว
           </p>
         )}
       </form>

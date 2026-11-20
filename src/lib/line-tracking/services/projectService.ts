@@ -185,6 +185,11 @@ export async function renameProject(projectId: string, name: string) {
   return prisma.ltProject.update({ where: { id: projectId }, data: { name } });
 }
 
+/** Changes only the website link. The slug, embed snippet and tracking links stay. */
+export async function setProjectWebsite(projectId: string, websiteUrl: string | null) {
+  return prisma.ltProject.update({ where: { id: projectId }, data: { websiteUrl } });
+}
+
 /** Setup progress = fraction of the 6 connectors that are CONNECTED. */
 export function setupProgress(connections: { type: string; status: string }[]) {
   const total = CONNECTION_TYPES.length;
