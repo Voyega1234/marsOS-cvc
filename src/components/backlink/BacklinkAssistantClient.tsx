@@ -704,7 +704,7 @@ export function BacklinkAssistantClient({ initialBacklinks, projects }: Props) {
             </ul>
           </div>
         </div>
-        <div className="mt-3 bg-brand-blue rounded-full px-4 py-3 text-xs text-gray-300 flex items-start gap-2">
+        <div className="mt-3 bg-brand-blue rounded-full px-4 py-3 text-xs text-gray-300 dark:text-white/80 flex items-start gap-2">
           <Sparkles size={12} className="text-purple-400 mt-0.5 shrink-0" />
           <span><b className="text-white">Cost Control:</b> AI enrichment is gated to avoid unnecessary API usage. Only ~5–10% of backlinks are sent to AI. The rest are scored by rule-based logic.</span>
         </div>

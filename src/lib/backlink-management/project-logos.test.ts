@@ -1,5 +1,6 @@
 /** Run: npx tsx src/lib/backlink-management/project-logos.test.ts */
 import assert from "node:assert/strict";
+import { normName } from "./sheet-import";
 import { buildLogoIndex, faviconUrl, logoFor } from "./project-logos";
 
 let n = 0;
@@ -40,6 +41,24 @@ t("logoFor prefers the linked project, then sheet names", () => {
   assert.equal(logoFor(idx, null, ["", "K N I"]), "B");
   assert.equal(logoFor(idx, "nope", ["zzz"]), null);
   assert.equal(logoFor(null, "p1", []), null);
+});
+
+t("stored logo beats upload and reaches a manual project by name", () => {
+  const A = "data:image/webp;base64,AAAA";
+  const B = "data:image/webp;base64,BBBB";
+  const idx = buildLogoIndex([
+    { names: ["Acme"], logo: A },
+    { names: ["Acme"], logo: B },
+    { projectId: "m1", names: ["Acme"] },
+  ]);
+  assert.equal(idx.byProject.m1, A);
+  assert.equal(idx.byName[normName("Acme")], A);
+});
+
+t("stored source carrying projectId with a different name still gives byProject", () => {
+  const A = "data:image/webp;base64,AAAA";
+  const idx = buildLogoIndex([{ projectId: "m1", names: ["Renamed Co"], logo: A }]);
+  assert.equal(idx.byProject.m1, A);
 });
 
 console.log(`\n${n} tests passed`);

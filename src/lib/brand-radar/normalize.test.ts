@@ -2,7 +2,7 @@
  * Run: npx tsx src/lib/brand-radar/normalize.test.ts
  */
 import assert from 'node:assert/strict'
-import { classifyHost, domainMatches, hostOf, nameKey, normalizeDomain, normalizeUrl, stripInvisible } from './normalize'
+import { classifyHost, domainMatches, hostOf, nameKey, normalizeDomain, normalizeUrl, stripInvisible, unwrapFacebookRedirect } from './normalize'
 import { LIMITS } from './types'
 
 let passed = 0
@@ -115,6 +115,27 @@ test('classifyHost: own, competitor, external, own wins', () => {
   assert.deepEqual(classifyHost('blog.rival.com', ['mine.com'], comps), { ownerType: 'competitor', competitorId: 'c1' })
   assert.deepEqual(classifyHost('other.org', ['mine.com'], comps), { ownerType: 'external', competitorId: null })
   assert.deepEqual(classifyHost('shared.com', ['shared.com'], comps), { ownerType: 'own', competitorId: null })
+})
+
+test('unwrapFacebookRedirect', () => {
+  assert.equal(unwrapFacebookRedirect('https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2Fx%3Fa%3D1&h=AT0'), 'https://example.com/x?a=1')
+  assert.equal(unwrapFacebookRedirect('https://lm.facebook.com/l.php?u=http%3A%2F%2Fexample.com%2Fy'), 'http://example.com/y')
+  const js = 'https://l.facebook.com/l.php?u=javascript%3Aalert(1)'
+  assert.equal(unwrapFacebookRedirect(js), js)
+  const fb = 'https://www.facebook.com/page/posts/1?u=https%3A%2F%2Fexample.com'
+  assert.equal(unwrapFacebookRedirect(fb), fb)
+  assert.equal(unwrapFacebookRedirect('not a url'), 'not a url')
+  assert.equal(unwrapFacebookRedirect(''), '')
+})
+
+test('normalizeUrl: facebook host variants collapse, other subdomains do not', () => {
+  const canon = normalizeUrl('https://www.facebook.com/page/posts/1')
+  assert.equal(normalizeUrl('https://m.facebook.com/page/posts/1?fbclid=x'), canon)
+  assert.equal(normalizeUrl('https://th-th.facebook.com/page/posts/1'), canon)
+  assert.equal(normalizeUrl('https://web.facebook.com/page/posts/1'), canon)
+  assert.equal(normalizeUrl('https://business.facebook.com/page/posts/1'), 'business.facebook.com/page/posts/1')
+  assert.equal(normalizeUrl('https://m.example.com/a'), 'm.example.com/a')
+  assert.equal(normalizeUrl('https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.example.com%2Fx'), 'example.com/x')
 })
 
 console.log(`normalize: ${passed} tests passed`)

@@ -195,10 +195,10 @@ export function VersionHistoryClient({ promptId, promptName, currentVersion, ver
                     {isExpanded && (
                       <div className="border-t border-gray-100 bg-brand-blue p-4">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                          <span className="text-xs font-semibold text-gray-400 dark:text-white/80 uppercase tracking-wider">
                             Full Prompt Text — v{v.versionNumber}
                           </span>
-                          <span className="text-xs text-gray-500">{v.promptText.length.toLocaleString()} chars</span>
+                          <span className="text-xs text-gray-500 dark:text-white/70">{v.promptText.length.toLocaleString()} chars</span>
                         </div>
                         <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap overflow-auto max-h-80 leading-relaxed">
                           {v.promptText}

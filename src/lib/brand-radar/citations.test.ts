@@ -117,4 +117,33 @@ test('url and title are truncated', () => {
   assert.equal(r[0].title.length, 300)
 })
 
+test('facebook shim citation is recorded on the target and de-duplicated', () => {
+  const r = extractCitations(
+    {
+      text: 'see https://example.com/x',
+      citations: [{ url: 'https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2Fx&h=1', title: 'T' }],
+    },
+    OWN, COMPS,
+  )
+  assert.equal(r.length, 1)
+  assert.equal(r[0].url, 'https://example.com/x')
+  assert.equal(r[0].host, 'example.com')
+  assert.equal(r[0].domain, 'example.com')
+})
+
+test('facebook shim to an own domain is classified own', () => {
+  const r = extractCitations(
+    { text: '', citations: [{ url: 'https://l.facebook.com/l.php?u=https%3A%2F%2Fmine.co.th%2Fa' }] },
+    OWN, COMPS,
+  )
+  assert.equal(r[0].ownerType, 'own')
+  assert.equal(r[0].domain, 'mine.co.th')
+})
+
+test('plain facebook page citation is kept', () => {
+  const r = extractCitations({ text: '', citations: [{ url: 'https://www.facebook.com/somepage' }] }, OWN, COMPS)
+  assert.equal(r.length, 1)
+  assert.equal(r[0].domain, 'facebook.com')
+})
+
 console.log(`citations: ${passed} tests passed`)

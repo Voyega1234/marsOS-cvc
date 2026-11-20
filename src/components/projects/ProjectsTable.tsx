@@ -301,7 +301,7 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
           <div className="absolute top-0 left-5 right-5 h-px bg-brand-cyan/60" />
           <div className="flex items-baseline justify-between gap-3 mb-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/50">{thToday}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/50 dark:text-white/70">{thToday}</p>
               <h2 className="text-lg font-bold mt-0.5">
                 งานที่ต้องเคลียร์วันนี้
                 <span className="ml-2 inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg bg-white/10 text-base tabular-nums align-middle">
@@ -312,9 +312,9 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
             {totals.total > 0 && (
               <div className="text-right shrink-0">
                 <div className="text-2xl font-bold tabular-nums leading-7">
-                  {Math.round((totals.done / totals.total) * 100)}<span className="text-sm font-semibold text-white/50">%</span>
+                  {Math.round((totals.done / totals.total) * 100)}<span className="text-sm font-semibold text-white/50 dark:text-white/70">%</span>
                 </div>
-                <div className="text-[10px] text-white/40">เสร็จรวม {totals.done}/{totals.total} บทความ</div>
+                <div className="text-[10px] text-white/40 dark:text-white/70">เสร็จรวม {totals.done}/{totals.total} บทความ</div>
               </div>
             )}
           </div>
@@ -331,10 +331,10 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
                   <Link href={`/projects/${it.projectId}`}
                     className="group flex items-center gap-3 rounded-xl bg-white/5 hover:bg-white/10 px-3.5 py-2.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-cyan">
                     {it.kind === "task"
-                      ? <Wrench size={13} className="text-white/40 shrink-0" />
-                      : <FileText size={13} className="text-white/40 shrink-0" />}
+                      ? <Wrench size={13} className="text-white/40 dark:text-white/60 shrink-0" />
+                      : <FileText size={13} className="text-white/40 dark:text-white/60 shrink-0" />}
                     <span className="flex-1 min-w-0 text-[13px] font-medium truncate">{it.title}</span>
-                    <span className="text-[10px] text-white/40 shrink-0 hidden sm:block">{it.client}</span>
+                    <span className="text-[10px] text-white/40 dark:text-white/70 shrink-0 hidden sm:block">{it.client}</span>
                     {it.overdue ? (
                       <span className="shrink-0 text-[10px] font-bold text-red-300 bg-red-500/20 rounded-full px-2 py-0.5 tabular-nums">
                         ค้าง {overdueDays(it.date)} วัน
@@ -344,12 +344,12 @@ export default function ProjectsTable({ projects: initial, userRole }: { project
                         วันนี้
                       </span>
                     )}
-                    <ArrowRight size={12} className="text-white/20 group-hover:text-white/60 transition-colors shrink-0" />
+                    <ArrowRight size={12} className="text-white/20 dark:text-white/40 group-hover:text-white/60 transition-colors shrink-0" />
                   </Link>
                 </li>
               ))}
               {urgentList.length > 5 && (
-                <li className="text-[11px] text-white/40 pl-1 pt-0.5">+ อีก {urgentList.length - 5} รายการ — ดูในแต่ละโปรเจกต์</li>
+                <li className="text-[11px] text-white/40 dark:text-white/70 pl-1 pt-0.5">+ อีก {urgentList.length - 5} รายการ — ดูในแต่ละโปรเจกต์</li>
               )}
             </ul>
           )}

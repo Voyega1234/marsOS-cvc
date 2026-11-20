@@ -1,7 +1,7 @@
 /**
  * Brand Radar — citation extraction. A citation is a LINK; an unlinked brand name or bare domain is not one.
  */
-import { classifyHost, hostOf, normalizeDomain, normalizeUrl, stripInvisible } from './normalize'
+import { classifyHost, hostOf, normalizeDomain, normalizeUrl, stripInvisible, unwrapFacebookRedirect } from './normalize'
 import { LIMITS, type CitationOwner } from './types'
 
 export interface RawCitation { url: string; title?: string }
@@ -45,7 +45,8 @@ export function extractCitations(
 
   const seen = new Set<string>()
   const out: CitationHit[] = []
-  for (const c of candidates) {
+  for (const cand of candidates) {
+    const c = { url: unwrapFacebookRedirect(cand.url), title: cand.title }
     const normalizedUrl = normalizeUrl(c.url)
     if (!normalizedUrl || seen.has(normalizedUrl)) continue
     const host = hostOf(c.url)

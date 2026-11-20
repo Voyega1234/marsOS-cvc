@@ -1520,7 +1520,7 @@ function KeywordsTab({
           {csvProgressLog.length > 0 && (
             <div className="bg-gray-950 rounded-xl px-3 py-2.5 space-y-1 max-h-32 overflow-y-auto">
               {csvProgressLog.map((line, i) => (
-                <p key={i} className={`text-[10px] font-mono ${line.startsWith('✅') ? 'text-emerald-400' : line.startsWith('❌') ? 'text-red-400' : 'text-gray-400'}`}>{line}</p>
+                <p key={i} className={`text-[10px] font-mono ${line.startsWith('✅') ? 'text-emerald-400' : line.startsWith('❌') ? 'text-red-400' : 'text-gray-400 dark:text-gray-600'}`}>{line}</p>
               ))}
               {loadingCSV && <p className="text-[10px] font-mono text-blue-400 animate-pulse">▍</p>}
             </div>
@@ -3955,7 +3955,7 @@ function ArticlesTab({
                       </div>
                       <p className="text-slate-500 text-sm">AI กำลังเขียนบทความ...</p>
                       <p className="text-slate-400 text-xs">SEO Master Prompt · อาจใช้เวลา 3–8 นาที (prompt ขนาดใหญ่)</p>
-                      <p className="text-slate-300 text-[11px]">กรุณารอ — ห้ามปิดหน้าต่าง</p>
+                      <p className="text-slate-300 dark:text-slate-500 text-[11px]">กรุณารอ — ห้ามปิดหน้าต่าง</p>
                     </div>
                   ) : (
                     <div className="bg-white border border-blue-100 rounded-xl shadow-sm overflow-hidden">

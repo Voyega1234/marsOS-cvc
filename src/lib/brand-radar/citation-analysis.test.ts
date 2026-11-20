@@ -184,6 +184,8 @@ test('domain grouping, series, position, change, sample', () => {
 function r4(n: number) { return Math.round(n * 10000) / 10000 }
 
 test('inferSiteType', () => {
+  assert.equal(inferSiteType('fb.me', [], 'external'), 'social')
+  assert.equal(inferSiteType('fb.watch', [], 'external'), 'social')
   assert.equal(inferSiteType('x.com', [], 'own'), 'official')
   assert.equal(inferSiteType('pantip.com', [], 'external'), 'forum')
   assert.equal(inferSiteType('foo.com', ['https://forum.foo.com/t/1'], 'external'), 'forum')

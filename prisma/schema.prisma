@@ -1137,6 +1137,23 @@ model BlmProject {
   @@schema("plans_seo_pipeline")
 }
 
+/// โลโก้ที่อัปโหลดในหน้า Backlink Management สำหรับโปรเจกต์ที่ไม่มี logoUrl (BlmProject หรือชื่ออย่างเดียว)
+model BlmProjectLogo {
+  id             String   @id @default(cuid())
+  organizationId String
+  nameKey        String
+  name           String
+  projectId      String?
+  logo           String
+  updatedById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, nameKey])
+  @@index([organizationId])
+  @@schema("plans_seo_pipeline")
+}
+
 /// การเชื่อม Google Sheet ของ Backlink Management (1 แถวต่อองค์กร) — MarsOS เขียนลงชีททางเดียว
 model BlmSheetConfig {
   id             String    @id @default(cuid())

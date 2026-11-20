@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Camera, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, RefreshCw, X } from "lucide-react";
+import { toast } from "sonner";
 import { Chip, EmptyState, KpiTile, MeterBar, Panel, SearchPill, UnderlineTabs } from "@/components/ds";
 import { affordableSites } from "@/lib/backlink-management/affordable";
 import { logoFor, type LogoIndex } from "@/lib/backlink-management/project-logos";
@@ -9,6 +10,7 @@ import {
   ACTIVE_WINDOW_DAYS, NEAR_LIMIT_PCT,
   type TrackerHealth, type TrackerItem, type TrackerLink, type TrackerRow, type TrackerSummary, type TrackerTypeCount,
 } from "@/lib/backlink-management/budget-tracker";
+import { rasterizeLogo } from "@/components/upload-article/ClientAvatar";
 import { api, money, type Vendor } from "./shared";
 import SearchSelect from "./SearchSelect";
 
@@ -33,7 +35,7 @@ const HEALTH: Record<TrackerHealth, { label: string; tone: "bad" | "warn" | "ok"
   ok: { label: "ปกติ", tone: "ok", meter: "blue" },
   nobudget: { label: "ไม่มีงบในชีท", tone: "muted", meter: "blue" },
 };
-const AVATAR_TONES = ["bg-[#1d48f3] text-white", "bg-[#000E3F] text-white", "bg-[#177cfe] text-white", "bg-[#6b8cef] text-white", "bg-[#eff5f9] text-[#000E3F]"];
+const AVATAR_TONES = ["bg-[#1d48f3] text-white", "bg-brand-navy text-white", "bg-[#177cfe] text-white", "bg-[#6b8cef] text-white", "bg-[#eff5f9] text-[#000E3F]"];
 
 function avatarTone(key: string): string {
   let h = 0;
@@ -46,7 +48,7 @@ function Avatar({ name, k, src, size = "h-10 w-10 text-sm" }: { name: string; k:
   // โลโก้ลูกค้า (อัปไว้ในระบบ หรือ favicon เว็บ) — โหลดไม่ขึ้นค่อยกลับไปใช้ตัวอักษร
   if (src && broken !== src) {
     return (
-      <span className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-100 bg-white ${size}`} aria-hidden>
+      <span className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-100 ${size}`} style={{ backgroundColor: "#fff" }} aria-hidden>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-contain p-1" onError={() => setBroken(src)} />
       </span>
@@ -55,6 +57,50 @@ function Avatar({ name, k, src, size = "h-10 w-10 text-sm" }: { name: string; k:
   return (
     <span className={`inline-flex shrink-0 items-center justify-center rounded-full font-semibold ${size} ${avatarTone(k)}`} aria-hidden>
       {(name.trim()[0] || "?").toUpperCase()}
+    </span>
+  );
+}
+
+/** โลโก้ที่กดเปลี่ยนได้: กดเพื่อเลือกรูป, ปุ่ม X ลบเฉพาะโลโก้ที่อัปโหลดไว้ (favicon ของเว็บลบไม่ได้) */
+function LogoAvatar({ name, k, src, size, busy, touchRemove = false, className = "", onPick, onRemove }: {
+  name: string; k: string; src?: string | null; size?: string; busy: boolean; touchRemove?: boolean; className?: string;
+  onPick: (file: File) => void; onRemove: () => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const removable = Boolean(src && src.startsWith("data:"));
+  return (
+    <span className={`group/logo relative inline-flex shrink-0 ${className}`}>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => input.current?.click()}
+        title="อัปโหลดโลโก้"
+        aria-label={`อัปโหลดโลโก้ ${name}`}
+        className="relative inline-flex rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
+      >
+        <Avatar name={name} k={k} src={src} size={size} />
+        <span className={`absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white transition-opacity ${busy ? "opacity-100" : "opacity-0 group-hover/logo:opacity-100 group-focus-within/logo:opacity-100"}`} aria-hidden>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+        </span>
+      </button>
+      {removable && !busy ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          title="ลบโลโก้"
+          aria-label={`ลบโลโก้ ${name}`}
+          className={`absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-red-600 text-white shadow group-hover/logo:flex group-focus-within/logo:flex ${touchRemove ? "[@media(hover:none)]:flex" : ""}`}
+        >
+          <X className="h-3 w-3" />
+        </button>
+      ) : null}
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onPick(f); }}
+      />
     </span>
   );
 }
@@ -93,11 +139,11 @@ function Gauge({ pct, tone }: { pct: number | null; tone: "bad" | "warn" | "ok" 
   return (
     <div className="relative mx-auto w-full max-w-[220px]">
       <svg viewBox="0 0 200 112" className="w-full" role="img" aria-label={`ใช้งบไป ${pctText(pct)}`}>
-        <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="#eff5f9" strokeWidth="16" strokeLinecap="round" />
+        <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="rgb(var(--mist))" strokeWidth="16" strokeLinecap="round" />
         <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke={color} strokeWidth="16" strokeLinecap="round" strokeDasharray={`${(p / 100) * len} ${len}`} />
       </svg>
       <div className="absolute inset-x-0 bottom-1 text-center">
-        <div className="text-2xl font-semibold text-[#000E3F]">{pctText(pct)}</div>
+        <div className="text-2xl font-semibold text-brand-navy">{pctText(pct)}</div>
         <div className="text-[11px] text-gray-500">ของงบที่ใช้ไปแล้ว</div>
       </div>
     </div>
@@ -110,18 +156,18 @@ function RankSplit({ general, ha }: { general: { links: number; cost: number }; 
   const gPct = total ? (general.links / total) * 100 : 0;
   return (
     <div className="space-y-2">
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-[#eff5f9]" aria-hidden>
-        {total ? <><div className="bg-[#6b8cef]" style={{ width: `${gPct}%` }} /><div className="bg-[#000E3F]" style={{ width: `${100 - gPct}%` }} /></> : null}
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-brand-mist" aria-hidden>
+        {total ? <><div className="bg-[#6b8cef]" style={{ width: `${gPct}%` }} /><div className="bg-brand-navy" style={{ width: `${100 - gPct}%` }} /></> : null}
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-xl bg-[#eff5f9] p-2.5">
+        <div className="rounded-xl bg-brand-mist p-2.5">
           <div className="flex items-center gap-1.5 text-gray-500"><span className="h-2 w-2 rounded-full bg-[#6b8cef]" />General (0–7,999)</div>
-          <div className="mt-1 text-base font-semibold text-[#000E3F]">{`${general.links.toLocaleString()} ลิงก์`}</div>
+          <div className="mt-1 text-base font-semibold text-brand-navy">{`${general.links.toLocaleString()} ลิงก์`}</div>
           <div className="text-gray-500">{money(general.cost)}</div>
         </div>
-        <div className="rounded-xl bg-[#eff5f9] p-2.5">
-          <div className="flex items-center gap-1.5 text-gray-500"><span className="h-2 w-2 rounded-full bg-[#000E3F]" />High Authority (8,000+)</div>
-          <div className="mt-1 text-base font-semibold text-[#000E3F]">{`${ha.links.toLocaleString()} ลิงก์`}</div>
+        <div className="rounded-xl bg-brand-mist p-2.5">
+          <div className="flex items-center gap-1.5 text-gray-500"><span className="h-2 w-2 rounded-full bg-brand-navy" />High Authority (8,000+)</div>
+          <div className="mt-1 text-base font-semibold text-brand-navy">{`${ha.links.toLocaleString()} ลิงก์`}</div>
           <div className="text-gray-500">{money(ha.cost)}</div>
         </div>
       </div>
@@ -132,8 +178,8 @@ function RankSplit({ general, ha }: { general: { links: number; cost: number }; 
 function RankPill({ rank }: { rank: TrackerItem["rank"] }) {
   if (!rank) return <span className="text-gray-400">—</span>;
   return rank === "HIGH_AUTHORITY"
-    ? <span className="inline-flex rounded-full bg-[#000E3F] px-2 py-0.5 text-[10px] font-medium text-white">High Authority</span>
-    : <span className="inline-flex rounded-full bg-[#eff5f9] px-2 py-0.5 text-[10px] font-medium text-[#1d48f3]">General</span>;
+    ? <span className="inline-flex rounded-full bg-brand-navy px-2 py-0.5 text-[10px] font-medium text-white">High Authority</span>
+    : <span className="inline-flex rounded-full bg-brand-mist px-2 py-0.5 text-[10px] font-medium text-brand-blue">General</span>;
 }
 
 /** งบ Backlink จาก Google Sheet ของทีม — ลูกค้าที่ Active, งบ/ใช้ไป/คงเหลือของแต่ละเจ้า และเจาะดูว่าใช้อะไรไปบ้าง */
@@ -148,6 +194,7 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
   const [vendorsFailed, setVendorsFailed] = useState(false);
   const [buyChoice, setBuyChoice] = useState("");
   const [logos, setLogos] = useState<LogoIndex | null>(null);
+  const [logoBusy, setLogoBusy] = useState("");
   const seq = useRef(0);
   const onDataRef = useRef(onData);
   onDataRef.current = onData;
@@ -205,6 +252,25 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
 
   const rows = useMemo(() => data?.rows ?? [], [data]);
   const logoOf = (r: TrackerRow) => logoFor(logos, data?.links?.[r.key]?.projectId, [r.project, r.client]);
+  // อัปโหลด/ลบโลโก้ของแถว: โปรเจกต์ในระบบเก็บที่โปรเจกต์ นอกนั้นเก็บตามชื่อ (file = null คือลบ)
+  const saveLogo = async (r: TrackerRow, file: File | null) => {
+    if (logoBusy) return;
+    setLogoBusy(r.key);
+    const linkId = data?.links?.[r.key]?.projectId ?? null;
+    try {
+      const logo = file ? await rasterizeLogo(file) : null;
+      await api("/api/backlink-management/project-logos", { method: "POST", json: { projectId: linkId, name: r.project, logo } });
+      const next = await api<LogoIndex>("/api/backlink-management/project-logos");
+      setLogos(next);
+      const still = logoFor(next, linkId, [r.project, r.client]);
+      if (!file && still?.startsWith("data:")) toast.info("โลโก้ที่เหลืออยู่มาจากหน้า Upload Article — ลบได้ที่หน้านั้น");
+      else toast.success(file ? "บันทึกโลโก้แล้ว" : "ลบโลโก้แล้ว");
+    } catch (e) {
+      toast.error((e as Error).message || "บันทึกโลโก้ไม่สำเร็จ");
+    } finally {
+      setLogoBusy("");
+    }
+  };
   // เลือกโปรเจกต์ด้านบน = ล็อกไว้ที่แถวในชีทที่ผูกกับโปรเจกต์นั้น
   const lockedKey = useMemo(
     () => (projectId ? rows.find((r) => data?.links?.[r.key]?.projectId === projectId)?.key ?? "" : ""),
@@ -370,9 +436,9 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
           <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
             <div className="space-y-4">
               <div className="flex items-start gap-3">
-                <Avatar name={row.project} k={row.key} src={logoOf(row)} size="h-12 w-12 text-lg" />
+                <LogoAvatar name={row.project} k={row.key} src={logoOf(row)} size="h-12 w-12 text-lg" busy={logoBusy === row.key} touchRemove onPick={(f) => void saveLogo(row, f)} onRemove={() => void saveLogo(row, null)} />
                 <div className="min-w-0">
-                  <h3 className="truncate text-lg font-semibold text-[#000E3F]">{row.project}</h3>
+                  <h3 className="truncate text-lg font-semibold text-brand-navy">{row.project}</h3>
                   <p className="text-xs text-gray-500">
                     {[row.client !== row.project ? row.client : "", row.note ? `แพ็กเกจ: ${row.note}` : "", row.lastDate ? `ลิงก์ล่าสุด ${shortDate(row.lastDate)}` : "ยังไม่มีลิงก์"].filter(Boolean).join(" · ")}
                   </p>
@@ -414,7 +480,7 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
               {months.map((m) => (
                 <div key={m.label}>
                   <div className="mb-1.5 flex items-baseline justify-between text-xs">
-                    <span className="font-semibold text-[#000E3F]">{m.label}</span>
+                    <span className="font-semibold text-brand-navy">{m.label}</span>
                     <span className="text-gray-500">{`${m.items.length} รายการ · ${money(m.cost)}`}</span>
                   </div>
                   <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-white/80 bg-white/70 shadow-sm">
@@ -422,7 +488,7 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
                       <li key={`${i.row}-${i.key}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-xs">
                         <span className="w-16 shrink-0 text-gray-500">{i.date ? shortDate(i.date) : (i.dateRaw || "—")}</span>
                         <span className="min-w-0 flex-1 truncate">
-                          {i.url ? <a href={i.url} target="_blank" rel="noreferrer" className="font-medium text-[#1d48f3] hover:underline" title={i.url}>{siteLabel(i)}</a> : <span className="font-medium">{i.site || "—"}</span>}
+                          {i.url ? <a href={i.url} target="_blank" rel="noreferrer" className="font-medium text-brand-blue hover:underline" title={i.url}>{siteLabel(i)}</a> : <span className="font-medium">{i.site || "—"}</span>}
                           {i.anchor ? <span className="ml-2 text-gray-400" title={i.anchor}>{`“${i.anchor}”`}</span> : null}
                         </span>
                         {i.type ? <Chip tone="muted">{i.type}</Chip> : null}
@@ -455,7 +521,7 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
         bodyClassName="p-4 pt-3 md:p-5 md:pt-4"
       >
         <div className="space-y-4">
-          <div className="rounded-2xl bg-[#000E3F] p-4 text-white md:p-5">
+          <div className="rounded-2xl bg-brand-navy p-4 text-white md:p-5">
             <div className="text-xs text-white/70">ใช้งบ Backlink ไปแล้ว</div>
             <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
               <span className="text-2xl font-semibold md:text-3xl">{money(t.used)}</span>
@@ -472,7 +538,7 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
             </div>
           </div>
 
-          {data.created?.length ? <p className="text-xs text-[#1d48f3]">{`เพิ่มโปรเจกต์ใหม่จากชีทเข้าระบบแล้ว: ${data.created.join(", ")}`}</p> : null}
+          {data.created?.length ? <p className="text-xs text-brand-blue">{`เพิ่มโปรเจกต์ใหม่จากชีทเข้าระบบแล้ว: ${data.created.join(", ")}`}</p> : null}
           {error ? <p className="text-xs text-red-600">{`ดึงใหม่ไม่สำเร็จ: ${error.message}`}</p> : null}
           {data.warnings.length ? <ul className="list-disc pl-5 text-xs text-amber-700">{data.warnings.map((w) => <li key={w}>{w}</li>)}</ul> : null}
 
@@ -509,11 +575,13 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
                     const h = HEALTH[r.health];
                     const l = data.links?.[r.key];
                     return (
-                      <li key={r.key}>
-                        <button type="button" onClick={() => setSelected(r.key)} className="grid w-full grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 px-3 py-3 text-left hover:bg-sky-50/60 md:grid-cols-[auto_minmax(0,1.3fr)_minmax(0,1.4fr)_auto_auto] md:px-4">
-                          <Avatar name={r.project} k={r.key} src={logoOf(r)} />
+                      <li key={r.key} className="relative hover:bg-sky-50/60">
+                        {/* โลโก้อยู่นอกปุ่มแถว (ปุ่มซ้อนปุ่มไม่ได้) — ช่องว่างในกริดจองที่ไว้ให้ */}
+                        <LogoAvatar name={r.project} k={r.key} src={logoOf(r)} busy={logoBusy === r.key} className="!absolute left-3 top-3 z-[1] md:left-4 md:top-1/2 md:-translate-y-1/2" onPick={(f) => void saveLogo(r, f)} onRemove={() => void saveLogo(r, null)} />
+                        <button type="button" onClick={() => setSelected(r.key)} className="grid w-full grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 px-3 py-3 text-left md:grid-cols-[auto_minmax(0,1.3fr)_minmax(0,1.4fr)_auto_auto] md:px-4">
+                          <span className="h-10 w-10" aria-hidden />
                           <span className="min-w-0">
-                            <span className="block truncate text-sm font-semibold text-[#000E3F]">{r.project}</span>
+                            <span className="block truncate text-sm font-semibold text-brand-navy">{r.project}</span>
                             <span className="block truncate text-xs text-gray-500">
                               {[r.client !== r.project ? r.client : "", r.note, l && !l.projectId ? "ยังไม่มีในระบบ" : ""].filter(Boolean).join(" · ") || (r.lastDate ? `ลิงก์ล่าสุด ${shortDate(r.lastDate)}` : "ยังไม่มีลิงก์")}
                             </span>
@@ -521,7 +589,7 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
                           <span className="col-span-2 min-w-0 md:col-span-1">
                             <span className="mb-1 flex justify-between gap-2 text-xs">
                               <span className="text-gray-500">{`ใช้ ${money(r.used)}`}</span>
-                              <span className="font-medium text-[#000E3F]">{r.initial === null ? "ไม่มีงบ" : `จาก ${money(r.initial)}`}</span>
+                              <span className="font-medium text-brand-navy">{r.initial === null ? "ไม่มีงบ" : `จาก ${money(r.initial)}`}</span>
                             </span>
                             <MeterBar value={r.used} max={r.initial && r.initial > 0 ? r.initial : Math.max(r.used, 1)} tone={h.meter} ariaLabel={`การใช้งบ ${r.project}`} />
                             <span className="mt-1 block text-[11px] text-gray-500">
@@ -529,7 +597,7 @@ export default function BudgetTrackerPanel({ projectId = "", onData, onProjectsC
                             </span>
                           </span>
                           <span className="hidden md:block"><Chip tone={h.tone}>{h.label}</Chip></span>
-                          <span className="hidden text-xs font-medium text-[#1d48f3] md:block">ดูรายละเอียด</span>
+                          <span className="hidden text-xs font-medium text-brand-blue md:block">ดูรายละเอียด</span>
                         </button>
                       </li>
                     );

@@ -57,11 +57,31 @@ export function normalizeDomain(input: string): string {
   return labels.slice(-2).join('.')
 }
 
+/** Facebook outbound-link shim (l.facebook.com/l.php?u=...) -> the target URL. One level, http(s) targets only; otherwise input unchanged. */
+export function unwrapFacebookRedirect(url: string): string {
+  try {
+    const raw = String(url ?? '')
+    const u = new URL(raw.trim())
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return url
+    const h = u.hostname.toLowerCase()
+    if (h !== 'l.facebook.com' && h !== 'lm.facebook.com') return url
+    if (u.pathname !== '/l.php' && !u.pathname.startsWith('/l/')) return url
+    const target = u.searchParams.get('u')
+    if (target && /^https?:\/\/[^\s]+$/i.test(target.trim())) return target.trim()
+    return url
+  } catch {
+    return url
+  }
+}
+
+const FACEBOOK_ALIAS_HOSTS = new Set(['m.facebook.com', 'web.facebook.com', 'mbasic.facebook.com', 'touch.facebook.com'])
+const FACEBOOK_LOCALE_HOST_RE = /^[a-z]{2}-[a-z]{2}\.facebook\.com$/
+
 const TRACKING_PARAMS = new Set(['gclid', 'fbclid', 'msclkid', 'srsltid', 'ref', 'ref_src'])
 
 /** Canonical form used to de-duplicate citations. null for non-http(s) or invalid input. */
 export function normalizeUrl(url: string): string | null {
-  let s = stripInvisible(String(url ?? '')).trim()
+  let s = unwrapFacebookRedirect(stripInvisible(String(url ?? '')).trim())
   if (!s || /\s/.test(s)) return null
   if (!/^https?:\/\//i.test(s)) {
     // other scheme (mailto:, javascript:, data:, ftp://) — but "host:8080/x" is a port, not a scheme
@@ -75,7 +95,8 @@ export function normalizeUrl(url: string): string | null {
     return null
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
-  const host = u.hostname.toLowerCase().replace(/^www\./, '')
+  let host = u.hostname.toLowerCase().replace(/^www\./, '')
+  if (FACEBOOK_ALIAS_HOSTS.has(host) || FACEBOOK_LOCALE_HOST_RE.test(host)) host = 'facebook.com'
   if (!host || !host.includes('.')) return null
   const params: Array<[string, string]> = []
   u.searchParams.forEach((v, k) => {

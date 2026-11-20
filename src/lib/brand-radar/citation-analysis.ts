@@ -65,7 +65,7 @@ function providerLabelFor(key: ProviderKey, clientView: boolean): string {
 // ── Site type / page type ────────────────────────────────────────────────────
 
 const FORUM_HOSTS = ['pantip.com', 'reddit.com', 'quora.com', 'stackexchange.com', 'stackoverflow.com']
-const SOCIAL_HOSTS = ['facebook.com', 'instagram.com', 'x.com', 'twitter.com', 'tiktok.com', 'linkedin.com', 'threads.net', 'line.me']
+const SOCIAL_HOSTS = ['facebook.com', 'instagram.com', 'x.com', 'twitter.com', 'tiktok.com', 'linkedin.com', 'threads.net', 'line.me', 'fb.com', 'fb.me', 'fb.watch']
 const VIDEO_HOSTS = ['youtube.com', 'youtu.be', 'vimeo.com']
 const REFERENCE_HOSTS = ['wikipedia.org', 'wikihow.com', 'britannica.com']
 const MARKETPLACE_LABELS = ['shopee', 'lazada', 'amazon', 'ebay']

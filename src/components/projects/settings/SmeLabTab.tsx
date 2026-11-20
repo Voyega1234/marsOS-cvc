@@ -725,7 +725,7 @@ ${cover}${html}
             {loading && (
               <div className="bg-gray-950 text-emerald-400 rounded-2xl p-4 font-mono text-[11px] max-h-52 overflow-auto space-y-1">
                 {stepMsg && <p className="text-blue-300 font-semibold animate-pulse">{stepMsg}</p>}
-                {streamText && <><span className="text-gray-400">{streamText.slice(-900)}</span><span className="animate-pulse">▋</span></>}
+                {streamText && <><span className="text-gray-400 dark:text-gray-600">{streamText.slice(-900)}</span><span className="animate-pulse">▋</span></>}
                 {!streamText && !stepMsg && <p className="text-gray-500 animate-pulse">กำลังเริ่มต้น...</p>}
               </div>
             )}
@@ -772,7 +772,7 @@ ${cover}${html}
                 </div>
                 {viewMode === 'code' && (
                   <textarea value={html} onChange={e => setHtml(e.target.value)}
-                    className="w-full font-mono text-[11px] text-gray-200 bg-gray-950 p-5 min-h-[320px] sm:min-h-[500px] resize-y focus:outline-none"
+                    className="w-full font-mono text-[11px] text-gray-200 dark:text-gray-800 bg-gray-950 p-5 min-h-[320px] sm:min-h-[500px] resize-y focus:outline-none"
                     spellCheck={false} />
                 )}
                 {viewMode === 'preview' && (

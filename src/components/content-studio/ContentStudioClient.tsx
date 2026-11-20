@@ -666,7 +666,7 @@ export function ContentStudioClient() {
                       )}
                     >
                       <span className="text-sm font-medium">{t.label}</span>
-                      <span className={cn("text-xs", settings.theme === t.id ? "text-gray-300" : "text-gray-400")}>{t.desc}</span>
+                      <span className={cn("text-xs", settings.theme === t.id ? "text-gray-300 dark:text-gray-700" : "text-gray-400")}>{t.desc}</span>
                     </button>
                   ))}
                 </div>
@@ -878,7 +878,7 @@ export function ContentStudioClient() {
                 <button
                   onClick={handleGenerate}
                   disabled={generating || !settings.keyword.trim()}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-sm"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] dark:bg-brand-blue dark:hover:bg-brand-deep disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors shadow-sm"
                 >
                   <Sparkles className="h-4 w-4" />
                   {generating ? "กำลังเขียน..." : "เขียนบทความ"}
@@ -1050,7 +1050,7 @@ export function ContentStudioClient() {
                       <button
                         onClick={handleGenerate}
                         disabled={!settings.keyword.trim()}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1A1A1A] hover:bg-[#2D2D2D] dark:bg-brand-blue dark:hover:bg-brand-deep disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors"
                       >
                         <ArrowRight className="h-3.5 w-3.5" />
                         Generate

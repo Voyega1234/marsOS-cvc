@@ -61,7 +61,7 @@ export function ClientPortalClient({ projects, userName }: { projects: Project[]
   const totalReview = projects.reduce((s, p) => s + p.articles.filter(a => a.status === "SEO_REVIEW").length, 0);
 
   return (
-    <div className="min-h-screen bg-[#f7f7f6]">
+    <div className="min-h-screen bg-[#f7f7f6] dark:bg-transparent">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-8 py-6">
         <p className="text-2xl font-bold text-brand-navy">สวัสดี, {userName} 👋</p>
