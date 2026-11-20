@@ -5,7 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { getAuthSession } from "@/lib/session";
 import { isLineTrackingAdmin } from "@/lib/line-tracking/access";
 import { guardProjectPage } from "@/lib/line-tracking/pageGuard";
-import { renameProjectAction, updateProjectWebsiteAction } from "@/lib/line-tracking/actions";
+import { renameProjectAction, setProjectLogoAction, updateProjectWebsiteAction } from "@/lib/line-tracking/actions";
+import { getProjectLogo } from "@/lib/line-tracking/services/projectLogoStore";
+import { ProjectLogoField } from "@/components/line-tracking/ProjectLogoField";
 import { PROJECT_WEBSITE_ERROR_TEXT, PROJECT_WEBSITE_MAX, type ProjectWebsiteError } from "@/lib/line-tracking/projectWebsite";
 import {
   PROJECT_NAME_FEATURE_LABEL,
@@ -31,9 +33,10 @@ export default async function ProjectSettingsPage({
   const { projectId } = await params;
   const query = await searchParams;
   await guardProjectPage(projectId, { clientAllowed: false });
-  const [project, session] = await Promise.all([
+  const [project, session, logo] = await Promise.all([
     prisma.ltProject.findUnique({ where: { id: projectId }, select: { id: true, name: true, websiteUrl: true } }),
     getAuthSession(),
+    getProjectLogo(projectId),
   ]);
   if (!project) notFound();
   const canManage = isLineTrackingAdmin(session?.user?.role);
@@ -135,6 +138,8 @@ export default async function ProjectSettingsPage({
           </p>
         )}
       </form>
+
+      <ProjectLogoField projectId={project.id} projectName={project.name} logo={logo} action={setProjectLogoAction} />
 
       <form action={updateProjectWebsiteAction} className="card p-5 space-y-3">
         <input type="hidden" name="projectId" value={project.id} />

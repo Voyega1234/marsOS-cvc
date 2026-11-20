@@ -6,7 +6,7 @@
 // and every action (status, duplicate, rename, open) is the same as before.
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, Plus, Radio } from "lucide-react";
+import { ArrowDown, ArrowUp, Home, Plus, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chip, EmptyState, EntityAvatar, EntityCard, EntityGrid, PageHeader, Panel, SearchPill, Segmented } from "@/components/ds";
 import { useUrlState } from "@/hooks/use-url-state";
@@ -28,6 +28,8 @@ export interface ProjectBoardRow {
   statusMap: Record<ConnectionType, string>;
   href: string;
   renameHref?: string;
+  /** Uploaded logo (data URI); the initials avatar is shown when absent. */
+  logo?: string | null;
 }
 
 type SortKey = "recent" | "name" | "leads" | "connected" | "percent";
@@ -146,9 +148,14 @@ export function ProjectsBoard({ rows, createHref, setStatusAction, duplicateActi
         title="Projects"
         subtitle={<>โปรเจกต์ลูกค้าทั้งหมด (แต่ละลูกค้าแยก LINE / Sheet / GA4 / Ads){rows.length > 0 ? ` · ${rows.length.toLocaleString()} โปรเจกต์ · Leads รวม ${totalLeads.toLocaleString()}` : ""}</>}
         actions={
-          <Button asChild>
-            <Link href={createHref}><Plus size={14} className="mr-1.5" /> Create Project</Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline">
+              <Link href="/line-tracking"><Home size={14} className="mr-1.5" /> หน้าแรก LINE Tracking</Link>
+            </Button>
+            <Button asChild>
+              <Link href={createHref}><Plus size={14} className="mr-1.5" /> Create Project</Link>
+            </Button>
+          </div>
         }
       />
 
@@ -200,7 +207,7 @@ export function ProjectsBoard({ rows, createHref, setStatusAction, duplicateActi
               <EntityCard
                 key={r.id}
                 className="h-full"
-                avatar={<EntityAvatar label={r.name} />}
+                avatar={<EntityAvatar label={r.name} src={r.logo ?? undefined} />}
                 title={
                   <Link href={r.href} className="block max-w-full truncate hover:text-brand-blue hover:underline focus:outline-none focus-visible:underline">
                     {r.name}
@@ -258,7 +265,7 @@ export function ProjectsBoard({ rows, createHref, setStatusAction, duplicateActi
                   <tr key={r.id} className="group align-middle hover:bg-white/60">
                     <td className="sticky left-0 z-10 bg-white/90 px-5 py-3 text-sm text-gray-700">
                       <div className="flex items-center gap-3">
-                        <EntityAvatar label={r.name} size={36} />
+                        <EntityAvatar label={r.name} src={r.logo ?? undefined} size={36} />
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-x-2">
                             <Link href={r.href} className="text-sm font-bold text-brand-navy hover:text-brand-blue hover:underline">

@@ -2,13 +2,15 @@ import { listProjects, setupProgress, connectionStatusMap } from "@/lib/line-tra
 import { duplicateProjectAction, setProjectStatusAction } from "@/lib/line-tracking/actions";
 import type { ProjectStatus } from "@/lib/line-tracking/enums";
 import { ProjectsTableView } from "@/components/line-tracking/ProjectsTableView";
+import { getAllProjectLogos } from "@/lib/line-tracking/services/projectLogoStore";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
-  const projects = await listProjects();
+  const [projects, logos] = await Promise.all([listProjects(), getAllProjectLogos()]);
 
   const rows = projects.map((p) => ({
+    logo: logos.get(p.id) ?? null,
     id: p.id,
     name: p.name,
     clientName: p.clientName,

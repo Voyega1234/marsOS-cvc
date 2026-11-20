@@ -14,6 +14,8 @@ import {
 } from "@/lib/line-tracking/services/projectService";
 import { planProjectRename, renameNeedsConfirm } from "@/lib/line-tracking/projectRename";
 import { planProjectWebsite } from "@/lib/line-tracking/projectWebsite";
+import { parseProjectLogo, type ProjectLogoError } from "@/lib/line-tracking/projectLogo";
+import { removeProjectLogo, saveProjectLogo } from "@/lib/line-tracking/services/projectLogoStore";
 import { parseOverviewMode, parseSpendInput, withSpend } from "@/lib/line-tracking/overviewMode";
 import { getOverviewSettings, saveOverviewSettings } from "@/lib/line-tracking/services/overviewSettingsStore";
 import { saveConnectionConfig } from "@/lib/line-tracking/services/connectionStore";
@@ -165,6 +167,32 @@ export async function updateProjectWebsiteAction(formData: FormData) {
   await setProjectWebsite(project.id, plan.url);
   revalidatePath(`/line-tracking/projects/${project.id}`, "layout");
   redirect(`${settings}?websiteSaved=1#project-website`);
+}
+
+/**
+ * Saves or removes a project's logo (Settings page). Staff only. Returns instead of
+ * redirecting so the client field can show the result in place.
+ */
+export async function setProjectLogoAction(
+  formData: FormData
+): Promise<{ ok: true } | { ok: false; code: ProjectLogoError }> {
+  await requireStaff();
+  const projectId = String(formData.get("projectId") || "");
+  const project = projectId
+    ? await prisma.ltProject.findUnique({ where: { id: projectId }, select: { id: true } })
+    : null;
+  if (!project) throw new Error(DENIED);
+
+  if (formData.get("remove") === "1") {
+    await removeProjectLogo(project.id);
+  } else {
+    const parsed = parseProjectLogo(formData.get("logo"));
+    if (!parsed.ok) return parsed;
+    await saveProjectLogo(project.id, parsed.dataUri);
+  }
+  revalidatePath("/line-tracking/projects");
+  revalidatePath(`/line-tracking/projects/${project.id}`, "layout");
+  return { ok: true };
 }
 
 export async function duplicateProjectAction(formData: FormData) {

@@ -4,7 +4,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import { BarChart3, Users, Filter, Settings, ChevronDown, ChevronRight, ArrowLeft, Pencil } from 'lucide-react'
+import { BarChart3, Users, Filter, Settings, ChevronDown, ChevronRight, ArrowLeft, Pencil, Home } from 'lucide-react'
 import { isConvertCakeProject } from '@/lib/line-tracking/services/convertCakeSheetPlan'
 
 export default function ProjectSidebar({
@@ -51,6 +51,13 @@ export default function ProjectSidebar({
       {/* Below lg: back link, caption and main links form one horizontally scrolling strip.
           At lg and up the row is a plain block, i.e. the same vertical card as before. */}
       <div className="flex items-stretch overflow-x-auto lg:block lg:overflow-visible">
+        {/* Back to the LINE Tracking home (dashboard) */}
+        <Link
+          href="/line-tracking"
+          className="flex min-h-[2.5rem] shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-gray-100 px-4 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 lg:min-h-0 lg:border-b lg:border-r-0"
+        >
+          <Home className="h-3.5 w-3.5" /> หน้าแรก LINE Tracking
+        </Link>
         {/* Back to all projects */}
         <Link
           href="/line-tracking/projects"

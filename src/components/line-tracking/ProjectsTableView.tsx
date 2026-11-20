@@ -10,6 +10,8 @@ export interface ProjectRow {
   leads: number;
   percent: number;
   statusMap: Record<ConnectionType, string>;
+  /** Uploaded logo (data URI), shown instead of the initials. */
+  logo?: string | null;
 }
 
 export interface ProjectsTableViewProps {
