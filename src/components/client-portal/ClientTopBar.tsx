@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { useSession } from "@/components/layout/SessionProvider";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { CLIENT_LOGIN_PATH } from "@/lib/login-paths";
 import { UserMenu } from "@/components/layout/UserMenu";
 
 /**
@@ -22,7 +23,7 @@ export function ClientTopBar({ nav }: { nav?: { articles: boolean; brandRadar: b
     // จด "ออกจากระบบ" ลง Activity Log ก่อน session หาย (เหมือนฝั่งทีม)
     await fetch("/api/activity-logs/track", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "logout" }) }).catch(() => {});
     try { await createSupabaseBrowser().auth.signOut(); } catch { /* env ไม่ครบ (dev) */ }
-    window.location.href = "/login";
+    window.location.href = CLIENT_LOGIN_PATH;
   }
 
   // Only brandRadar -> one item; both -> two items; otherwise no nav (as before)

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus, X, Check, Eye, EyeOff, KeyRound, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CLIENT_LOGIN_EMAIL_DOMAIN } from "@/lib/client-login";
+import { CLIENT_LOGIN_PATH } from "@/lib/login-paths";
 
 interface UserProject {
   projectId: string;
@@ -219,7 +220,7 @@ export function AdminUsersClient({ users: initialUsers, projects, radarProjects:
     setSubmitting(true);
     try {
       // username@mars.local = อีเมลในระบบของบัญชีที่สร้างจากหน้านี้
-      // ลูกค้า (CLIENT) พิมพ์แค่ username + รหัสผ่านที่หน้า login — ระบบเติม @mars.local ให้เอง
+      // ลูกค้า (CLIENT) พิมพ์แค่ username + รหัสผ่านที่หน้า login ของลูกค้า (/client-login) — ระบบเติม @mars.local ให้เอง
       const fakeEmail = `${name.trim().toLowerCase().replace(/\s+/g, "")}@mars.local`;
       const res = await fetch("/api/admin/users", {
         method: "POST",
@@ -361,7 +362,7 @@ export function AdminUsersClient({ users: initialUsers, projects, radarProjects:
           <div className="space-y-1">
             <p className="text-xs font-semibold text-emerald-800">
               {createdInfo.isClient
-                ? "สร้าง User สำเร็จ — ส่ง Username + รหัสผ่านนี้ให้ลูกค้า (กรอกที่หน้า login ช่อง \"สำหรับลูกค้า\")"
+                ? "สร้าง User สำเร็จ — ส่งลิงก์เข้าสู่ระบบ + Username + รหัสผ่านนี้ให้ลูกค้า"
                 : "สร้าง User สำเร็จ — แจ้งข้อมูลนี้ให้ทีม"}
             </p>
             {createdInfo.isClient && !createdInfo.loginReady && (
@@ -370,6 +371,15 @@ export function AdminUsersClient({ users: initialUsers, projects, radarProjects:
               </p>
             )}
             <div className="flex flex-wrap items-center gap-3 gap-y-1 mt-2">
+              {createdInfo.isClient && (
+                <>
+                  <div className="min-w-0">
+                    <span className="text-[10px] text-emerald-600 font-medium block">ลิงก์เข้าสู่ระบบของลูกค้า</span>
+                    <span className="text-sm font-mono font-bold text-brand-navy break-all">{window.location.origin}{CLIENT_LOGIN_PATH}</span>
+                  </div>
+                  <div className="w-px h-8 bg-emerald-200" />
+                </>
+              )}
               <div>
                 <span className="text-[10px] text-emerald-600 font-medium block">Username</span>
                 <span className="text-sm font-mono font-bold text-brand-navy">{createdInfo.username}</span>
@@ -631,6 +641,7 @@ export function AdminUsersClient({ users: initialUsers, projects, radarProjects:
                   {isPasswordClient(u) && (
                     <p className="text-xs text-gray-500">
                       ชื่อผู้ใช้สำหรับ login: <span className="font-mono text-gray-700">{emailLocalPart(u.email)}</span>
+                      {" · "}เข้าที่ <span className="font-mono text-gray-700">{CLIENT_LOGIN_PATH}</span>
                     </p>
                   )}
                 </td>

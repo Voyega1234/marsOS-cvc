@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
 import { LOGIN_ACTION } from "@/lib/activity-describe";
 import { setActiveCookie } from "@/lib/idle-session";
+import { setClientLoginHint } from "@/lib/login-paths";
 import { amrTimestamp, checkLoginPolicy, decodeJwtPayload } from "@/lib/login-policy";
 import { isFreshPasswordLogin, type PasswordSessionDenialCode } from "@/lib/client-login";
 
@@ -72,5 +73,7 @@ export async function POST() {
   const res = NextResponse.json({ ok: true });
   // เริ่มนับเวลาใช้งาน (idle logout 12 ชม. ใน middleware) — ไม่มี cookie นี้ request ถัดไปจะถูกนับว่าหมดเวลา
   setActiveCookie(res);
+  // ครั้งหน้าที่ session หมด ให้กลับมาหน้า login ของลูกค้า (/client-login) ไม่ใช่หน้า Google ของทีม
+  setClientLoginHint(res);
   return res;
 }

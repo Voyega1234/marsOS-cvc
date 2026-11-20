@@ -1,12 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { IDLE_COOKIE, IDLE_LIMIT_MS, IDLE_TOUCH_MS, setActiveCookie } from "@/lib/idle-session";
+import { LOGIN_KIND_COOKIE, isLoginPath, loginPathFor } from "@/lib/login-paths";
 
 /**
  * Auth middleware (Supabase — user pool เดียวกับ plasai)
  * - refresh session cookie ทุก request
- * - ไม่มี session → หน้า UI redirect ไป /login, API ตอบ 401
- * - เส้นทางสาธารณะ: /login, /share/[id] (ลิงก์ส่งลูกค้า)
+ * - ไม่มี session → หน้า UI redirect ไปหน้า login (ทีม /login · ลูกค้า /client-login — ดู lib/login-paths.ts), API ตอบ 401
+ * - เส้นทางสาธารณะ: /login, /client-login, /share/[id] (ลิงก์ส่งลูกค้า)
  * - เส้นทางที่ไม่มี cookie login แต่ route ตรวจสิทธิ์เอง: Asana webhook (POST), Brand Radar cron (GET + CRON_SECRET)
  * - ถ้า env Supabase ไม่ครบ: local dev → ผ่านหมด (โหมดไม่มี login เหมือนเดิม), บน Vercel → ปิดทั้งเว็บ (ห้ามเปิดโล่ง)
  * - ไม่ได้ใช้งานเกิน 12 ชม. → ออกจากระบบ ต้อง login ใหม่ (ดู lib/idle-session.ts)
@@ -52,8 +53,11 @@ export async function middleware(request: NextRequest) {
   // Scheduled scan of Brand Radar (Vercel Cron has no login cookie): only GET on this exact path.
   // The route itself refuses every call that does not carry "Authorization: Bearer <CRON_SECRET>".
   const isBrandRadarCron = request.method === "GET" && pathname === "/api/brand-radar/cron";
+  // หน้า login มี 2 หน้า (ตรงตัวเท่านั้น ไม่ใช่ prefix): /login ของทีม กับ /client-login ของลูกค้า
+  const onLoginPage = isLoginPath(pathname);
+  const loginHint = request.cookies.get(LOGIN_KIND_COOKIE)?.value;
   const isPublic =
-    pathname === "/login" || pathname.startsWith("/share/") || pathname.startsWith("/auth/") || isAsanaHook || isBrandRadarCron;
+    onLoginPage || pathname.startsWith("/share/") || pathname.startsWith("/auth/") || isAsanaHook || isBrandRadarCron;
   const isApi = pathname.startsWith("/api/");
 
   // idle logout — เว้น /auth/* (กำลัง login อยู่ ห้ามลบ code verifier) และ /share/* (ลิงก์สาธารณะ)
@@ -68,13 +72,14 @@ export async function middleware(request: NextRequest) {
       let out: NextResponse;
       if (isApi) {
         out = NextResponse.json({ error: "Session หมดอายุ — ไม่ได้ใช้งานเกิน 12 ชั่วโมง กรุณา login ใหม่" }, { status: 401 });
-      } else if (pathname === "/login" && request.nextUrl.searchParams.get("reason") === "idle") {
+      } else if (onLoginPage && request.nextUrl.searchParams.get("reason") === "idle") {
         out = response;
       } else {
         const loginUrl = request.nextUrl.clone();
-        loginUrl.pathname = "/login";
+        // บัญชีลูกค้า (@mars.local) กลับไปหน้า login ของลูกค้า · ทีมกลับไปหน้า Google
+        loginUrl.pathname = loginPathFor({ email: user.email, hint: loginHint, current: pathname });
         loginUrl.search = "";
-        const next = pathname === "/login" ? request.nextUrl.searchParams.get("next") : pathname + request.nextUrl.search;
+        const next = onLoginPage ? request.nextUrl.searchParams.get("next") : pathname + request.nextUrl.search;
         if (next) loginUrl.searchParams.set("next", next);
         loginUrl.searchParams.set("reason", "idle");
         out = NextResponse.redirect(loginUrl);
@@ -96,11 +101,12 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized — ต้อง login ก่อน" }, { status: 401 });
     }
     const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
+    // เบราว์เซอร์ที่ login เป็นลูกค้าครั้งล่าสุดกลับไปหน้า login ของลูกค้า (cookie บอกทางเท่านั้น ไม่ได้ให้สิทธิ์อะไร)
+    loginUrl.pathname = loginPathFor({ hint: loginHint });
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
-  if (user && pathname === "/login") {
+  if (user && onLoginPage) {
     const home = request.nextUrl.clone();
     home.pathname = "/";
     home.search = "";

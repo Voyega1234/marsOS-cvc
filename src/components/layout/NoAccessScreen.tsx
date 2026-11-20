@@ -10,7 +10,8 @@ import { createSupabaseBrowser } from "@/lib/supabase/client";
 export function NoAccessScreen() {
   async function switchAccount() {
     try { await createSupabaseBrowser().auth.signOut(); } catch { /* env ไม่ครบ (dev) */ }
-    window.location.href = "/login";
+    // ไป "/" แล้วให้ middleware เลือกหน้า login เอง: ทีม → /login, เบราว์เซอร์ของลูกค้า → /client-login
+    window.location.href = "/";
   }
 
   return (
