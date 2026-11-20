@@ -90,6 +90,8 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   COMPLIANCE_CHECK:            "Compliance · ตรวจบทความ (AI)",
   COMPLIANCE_RULE_UPDATE:      "Compliance · AI อัปเดตกฎ",
   COMPLIANCE_RULE_FILL:        "Compliance · AI อ่านลิงก์/ไฟล์กรอกกฎ",
+  LINE_TRACKING_SLIP_OCR:      "LINE Tracking · AI อ่านสลิปโอนเงิน",
+  LINE_TRACKING_QUOTATION_OCR: "LINE Tracking · AI อ่านใบเสนอราคา/ใบแจ้งหนี้ (PDF)",
 };
 
 const PAGE_BADGE: Record<string, string> = {

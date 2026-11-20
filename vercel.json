@@ -2,6 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run vercel-build",
   "crons": [
-    { "path": "/api/brand-radar/cron", "schedule": "*/10 * * * *" }
+    { "path": "/api/brand-radar/cron", "schedule": "*/10 * * * *" },
+    { "path": "/api/conversions/process", "schedule": "*/10 * * * *" }
   ]
 }

@@ -152,10 +152,12 @@ function parseUsage(u: Record<string, unknown> | undefined): ORUsage {
   return { inputTokens: input, outputTokens: output, totalTokens: input + output, costUsd: Number(u?.cost ?? 0) }
 }
 
-/** content แบบ multimodal (ข้อความ + ภาพ) ตามรูปแบบ chat completions ของ OpenRouter */
+/** content แบบ multimodal (ข้อความ + ภาพ + ไฟล์ PDF) ตามรูปแบบ chat completions ของ OpenRouter */
 export type ORContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
+  /** ไฟล์ PDF: file_data เป็น data URL (data:application/pdf;base64,...) */
+  | { type: 'file'; file: { filename: string; file_data: string } }
 
 export async function orChat(params: {
   /** SOP §3: action ที่กำลังทำ เช่น 'article_review' — ได้ชื่อจริงเป็น mars_<client>_<action> (บังคับ) */

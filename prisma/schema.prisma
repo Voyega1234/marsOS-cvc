@@ -7,7 +7,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
-  schemas   = ["plans_seo_pipeline"]
+  schemas   = ["plans_seo_pipeline", "line_tracking"]
 }
 
 // ─── Auth (NextAuth) ──────────────────────────────────────────────────────────
@@ -1797,4 +1797,406 @@ model BrandRadarAnswerExtra {
 
   @@index([organizationId, projectId, runId])
   @@schema("plans_seo_pipeline")
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LINE Tracking — Ads → Website → LINE Lead → Conversion
+// Lives in its own Postgres schema "line_tracking" (tables lt_*), separate from the rest of
+// MarsOS (plans_seo_pipeline) and from any other system. No relation to MarsOS models:
+// LtProject is this module's own project, not Project above.
+// Status/type fields are String-constrained in code (src/lib/line-tracking/enums.ts).
+// Tables are created by scripts/sql/add-line-tracking-tables.sql.
+// ════════════════════════════════════════════════════════════════════════════
+
+model LtWorkspace {
+  id               String      @id @default(cuid())
+  name             String
+  sharedConfigJson String      @default("{}")
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  projects         LtProject[]
+
+  @@map("lt_workspace")
+  @@schema("line_tracking")
+}
+
+model LtProject {
+  id                     String  @id @default(cuid())
+  agencyId               String
+  name                   String
+  clientName             String
+  slug                   String  @unique
+  businessType           String
+  websiteUrl             String?
+  currency               String  @default("THB")
+  timezone               String  @default("Asia/Bangkok")
+  defaultConversionValue Float   @default(0)
+  mainSalesChannel       String  @default("LINE")
+  status                 String  @default("DRAFT")
+
+  // Looker Studio feed. The token itself is never stored — only its sha256, so a
+  // database leak cannot be replayed against the feed. Null = not connected yet.
+  lookerTokenHash  String?   @unique
+  lookerTokenSetAt DateTime?
+  // Off by default: the leads feed masks phone and real name unless this is on.
+  lookerIncludePii Boolean   @default(false)
+
+  // MarsOS: who owns the project. Plain ids, no foreign key into plans_seo_pipeline, so the two
+  // schemas stay independent. Used to book AI cost (AIJob) for calls with no logged-in user,
+  // e.g. slip OCR triggered by the LINE webhook.
+  organizationId String?
+  createdById    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agency           LtWorkspace         @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  connections      ProjectConnection[]
+  trackingLinks    TrackingLink[]
+  adClicks         AdClick[]
+  lineUsers        LineUser[]
+  leads            Lead[]
+  conversionRules  ConversionRule[]
+  conversionEvents ConversionEvent[]
+  sheetSyncLogs    SheetSyncLog[]
+  webhookLogs      WebhookLog[]
+  shortLinks       ShortLink[]
+  ccSheetSync      CcSheetSync?
+  ccSheetLeads     CcSheetLead[]
+
+  @@index([agencyId])
+  @@map("lt_project")
+  @@schema("line_tracking")
+}
+
+model ShortLink {
+  id        String   @id @default(cuid())
+  projectId String
+  code      String   @unique
+  name      String
+  targetUrl String
+  clicks    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("lt_short_link")
+  @@schema("line_tracking")
+}
+
+model ProjectConnection {
+  id             String    @id @default(cuid())
+  projectId      String
+  type           String
+  status         String    @default("NOT_CONNECTED")
+  configJson     String    @default("{}")
+  lastTestStatus String?
+  lastTestAt     DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, type])
+  @@index([projectId])
+  @@map("lt_project_connection")
+  @@schema("line_tracking")
+}
+
+model TrackingLink {
+  id        String   @id @default(cuid())
+  projectId String
+  platform  String
+  name      String
+  url       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("lt_tracking_link")
+  @@schema("line_tracking")
+}
+
+model AdClick {
+  id            String    @id @default(cuid())
+  projectId     String
+  clickId       String    @unique
+  source        String?
+  medium        String?
+  campaign      String?
+  adset         String?
+  content       String?
+  keyword       String?
+  gclid         String?
+  fbclid        String?
+  ttclid        String?
+  msclkid       String?
+  twclid        String?
+  scclid        String?
+  gaClientId    String?
+  channel       String?
+  channelGroup  String?
+  lineClickedAt DateTime?
+  landingUrl    String?
+  referrer      String?
+  userAgent     String?
+  ipHash        String?
+  createdAt     DateTime  @default(now())
+
+  project   LtProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lineUsers LineUser[]
+
+  @@index([projectId])
+  @@index([projectId, createdAt])
+  @@index([projectId, lineClickedAt])
+  @@map("lt_ad_click")
+  @@schema("line_tracking")
+}
+
+model LineUser {
+  id            String    @id @default(cuid())
+  projectId     String
+  lineUserId    String
+  displayName   String?
+  pictureUrl    String?
+  firstClickId  String?
+  latestClickId String?
+  friendStatus  String    @default("UNKNOWN")
+  lastMessageAt DateTime?
+  blockedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  project     LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  latestClick AdClick?  @relation(fields: [latestClickId], references: [clickId])
+  leads       Lead[]
+
+  @@unique([projectId, lineUserId])
+  @@index([projectId])
+  @@map("lt_line_user")
+  @@schema("line_tracking")
+}
+
+model Lead {
+  id              String    @id @default(cuid())
+  projectId       String
+  lineUserId      String?
+  clickId         String?
+  displayName     String?
+  fullName        String?
+  phone           String?
+  source          String?
+  campaign        String?
+  adset           String?
+  content         String?
+  keyword         String?
+  gclid           String?
+  fbclid          String?
+  ttclid          String?
+  msclkid         String?
+  twclid          String?
+  scclid          String?
+  gaClientId      String?
+  channel         String?
+  channelGroup    String?
+  status          String    @default("NEW")
+  value           Float     @default(0)
+  slipAmount      Float?
+  slipCheckedAt   DateTime?
+  currency        String    @default("THB")
+  salesOwner      String?
+  purchaseId      String?
+  purchasedAt     DateTime?
+  conversionState String    @default("NOT_READY")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project          LtProject           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lineUser         LineUser?           @relation(fields: [lineUserId], references: [id])
+  statusHistory    LeadStatusHistory[]
+  ccSheetLeads     CcSheetLead[]
+  conversionEvents ConversionEvent[]
+
+  @@index([projectId])
+  @@index([projectId, status])
+  @@index([projectId, createdAt])
+  @@index([projectId, lineUserId])
+  @@index([projectId, clickId])
+  @@map("lt_lead")
+  @@schema("line_tracking")
+}
+
+model LeadStatusHistory {
+  id        String   @id @default(cuid())
+  leadId    String
+  oldStatus String?
+  newStatus String
+  changedBy String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@map("lt_lead_status_history")
+  @@schema("line_tracking")
+}
+
+model ConversionRule {
+  id            String   @id @default(cuid())
+  projectId     String
+  leadStatus    String
+  enabled       Boolean  @default(false)
+  platformsJson String   @default("{}")
+  defaultValue  Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, leadStatus])
+  @@index([projectId])
+  @@map("lt_conversion_rule")
+  @@schema("line_tracking")
+}
+
+model ConversionEvent {
+  id              String    @id @default(cuid())
+  projectId       String
+  leadId          String
+  platform        String
+  eventName       String
+  eventValue      Float     @default(0)
+  currency        String    @default("THB")
+  status          String    @default("PENDING")
+  requestPayload  String?
+  responsePayload String?
+  retryCount      Int       @default(0)
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  sentAt          DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lead    Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, status])
+  @@index([leadId])
+  @@index([projectId, createdAt])
+  @@index([status, createdAt])
+  @@map("lt_conversion_event")
+  @@schema("line_tracking")
+}
+
+model SheetSyncLog {
+  id           String   @id @default(cuid())
+  projectId    String
+  direction    String
+  status       String
+  details      String?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("lt_sheet_sync_log")
+  @@schema("line_tracking")
+}
+
+model WebhookLog {
+  id           String   @id @default(cuid())
+  projectId    String
+  source       String
+  payload      String?
+  status       String
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, createdAt])
+  @@map("lt_webhook_log")
+  @@schema("line_tracking")
+}
+
+model LtLeadChange {
+  id        String   @id @default(cuid())
+  projectId String
+  leadId    String
+  /// status | fullName | phone | salesOwner | value
+  field     String
+  oldValue  String?
+  newValue  String?
+  /// client | staff
+  actorType String
+  /// Client login username, or staff email.
+  actor     String
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([leadId, createdAt])
+  @@map("lt_lead_change")
+  @@schema("line_tracking")
+}
+
+// ── Convert Cake only: lead status synced from the client's own Google Sheet ──────
+// Off unless a row here has enabled = true (see /api/conversions/convertcake-sheet).
+
+/// One row per Convert Cake project: which sheet to read and how its statuses map.
+model CcSheetSync {
+  projectId  String    @id
+  sheetId    String
+  tabName    String?
+  /// JSON { "<sheet status label>": "<LeadStatus>" | "" } — "" = not mapped yet.
+  statusMap  String    @default("{}")
+  enabled    Boolean   @default(false)
+  lastRunAt  DateTime?
+  lastResult String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("lt_cc_sheet_sync")
+  @@schema("line_tracking")
+}
+
+/// One row per sheet lead (LD-xxxx): its sheet status and the lead it matched.
+model CcSheetLead {
+  id            String   @id @default(cuid())
+  projectId     String
+  sheetLeadId   String
+  leadId        String?
+  matchedBy     String?
+  sheetStatus   String   @default("")
+  /// Last LeadStatus this sync applied for the row; a change in the sheet re-applies.
+  appliedStatus String?
+  /// Why the row is not linked / not applied (notfound, ambiguous, unmapped …).
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project LtProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lead    Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, sheetLeadId])
+  @@index([leadId])
+  @@map("lt_cc_sheet_lead")
+  @@schema("line_tracking")
+}
+
+/// LINE webhook de-duplication: one row per event body hash seen in the last hour.
+model LtWebhookDedupe {
+  key    String   @id
+  seenAt DateTime @default(now()) @map("seen_at") @db.Timestamptz(6)
+
+  @@map("lt_webhook_dedupe")
+  @@schema("line_tracking")
 }

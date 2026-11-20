@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { IDLE_COOKIE, IDLE_LIMIT_MS, IDLE_TOUCH_MS, setActiveCookie } from "@/lib/idle-session";
 import { LOGIN_KIND_COOKIE, isLoginPath, loginPathFor } from "@/lib/login-paths";
+import { isLineTrackingPublicPath } from "@/lib/line-tracking/publicPaths";
 
 /**
  * Auth middleware (Supabase — user pool เดียวกับ plasai)
@@ -9,6 +10,7 @@ import { LOGIN_KIND_COOKIE, isLoginPath, loginPathFor } from "@/lib/login-paths"
  * - ไม่มี session → หน้า UI redirect ไปหน้า login (ทีม /login · ลูกค้า /client-login — ดู lib/login-paths.ts), API ตอบ 401
  * - เส้นทางสาธารณะ: /login, /client-login, /share/[id] (ลิงก์ส่งลูกค้า)
  * - เส้นทางที่ไม่มี cookie login แต่ route ตรวจสิทธิ์เอง: Asana webhook (POST), Brand Radar cron (GET + CRON_SECRET)
+ * - เส้นทางสาธารณะของ LINE Tracking (ลิงก์ที่ลูกค้ากด, webhook ของ LINE, cron, Looker): รายการอยู่ที่ lib/line-tracking/publicPaths.ts
  * - ถ้า env Supabase ไม่ครบ: local dev → ผ่านหมด (โหมดไม่มี login เหมือนเดิม), บน Vercel → ปิดทั้งเว็บ (ห้ามเปิดโล่ง)
  * - ไม่ได้ใช้งานเกิน 12 ชม. → ออกจากระบบ ต้อง login ใหม่ (ดู lib/idle-session.ts)
  */
@@ -28,6 +30,13 @@ export async function middleware(request: NextRequest) {
     if (process.env.VERCEL) return new NextResponse("Auth is not configured", { status: 503 });
     return withCtx();
   }
+
+  // LINE Tracking public paths (ad-click links, the tracking script, the LINE webhook, cron,
+  // Looker): none of them reads a login, so there is no session to refresh. Answering here
+  // saves one call to Supabase Auth on every ad click and every webhook. The list matches
+  // whole paths + methods only (lib/line-tracking/publicPaths.ts); every other path goes on
+  // below exactly as before.
+  if (isLineTrackingPublicPath(request.nextUrl.pathname, request.method)) return withCtx();
 
   let response = withCtx();
   const supabase = createServerClient(url, key, {
@@ -56,12 +65,19 @@ export async function middleware(request: NextRequest) {
   // หน้า login มี 2 หน้า (ตรงตัวเท่านั้น ไม่ใช่ prefix): /login ของทีม กับ /client-login ของลูกค้า
   const onLoginPage = isLoginPath(pathname);
   const loginHint = request.cookies.get(LOGIN_KIND_COOKIE)?.value;
+  // LINE Tracking: exact paths + methods only (see lib/line-tracking/publicPaths.ts). Staff pages are not in the list.
+  const isLineTrackingPublic = isLineTrackingPublicPath(pathname, request.method);
   const isPublic =
-    onLoginPage || pathname.startsWith("/share/") || pathname.startsWith("/auth/") || isAsanaHook || isBrandRadarCron;
+    onLoginPage ||
+    pathname.startsWith("/share/") ||
+    pathname.startsWith("/auth/") ||
+    isAsanaHook ||
+    isBrandRadarCron ||
+    isLineTrackingPublic;
   const isApi = pathname.startsWith("/api/");
 
-  // idle logout — เว้น /auth/* (กำลัง login อยู่ ห้ามลบ code verifier) และ /share/* (ลิงก์สาธารณะ)
-  if (user && !pathname.startsWith("/auth/") && !pathname.startsWith("/share/")) {
+  // idle logout — เว้น /auth/* (กำลัง login อยู่ ห้ามลบ code verifier), /share/* และเส้นทางสาธารณะของ LINE Tracking (ลิงก์สาธารณะ)
+  if (user && !pathname.startsWith("/auth/") && !pathname.startsWith("/share/") && !isLineTrackingPublic) {
     const now = Date.now();
     const last = Number(request.cookies.get(IDLE_COOKIE)?.value);
     // เวลาในอนาคต = cookie ถูกแก้มือ → นับเป็นหมดอายุ
@@ -119,5 +135,6 @@ export const config = {
   // เว้น static assets ทั้งหมด — ที่เหลือผ่าน middleware หมดรวม /api
   // /api ทุก path ต้องผ่าน middleware เสมอ แม้ลงท้าย .png ฯลฯ — ไม่งั้น header x-pathname/x-method มาจากผู้ใช้ตรง ๆ
   // (getSession ใช้ header นี้บังคับ allowlist ของ CLIENT)
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|mjs)$).*)", "/api/:path*"],
+  // embed\\.js$ = เฉพาะ path /embed.js ตรงตัว (สคริปต์ LINE Tracking บนเว็บลูกค้า โหลดทุก page view ไม่ใช้ login)
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|embed\\.js$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|mjs)$).*)", "/api/:path*"],
 };

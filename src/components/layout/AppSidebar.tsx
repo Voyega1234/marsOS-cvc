@@ -39,7 +39,9 @@ import {
   Link2,
   ShieldCheck,
   Radar,
+  MessageCircle,
 } from "lucide-react";
+import { canUseLineTracking } from "@/lib/line-tracking/access";
 import type { Route } from "./nav-main";
 import DashboardNavigation from "./nav-main";
 import SidebarClients from "./SidebarClients";
@@ -112,6 +114,17 @@ function buildRoutes(briefBadge: number, role: UserRole): Route[] {
       icon: <Radar className="size-4" />,
       link: "/brand-radar",
     },
+    // LINE Tracking: แสดงเฉพาะ role ที่ใช้โมดูลได้ (ดู lib/line-tracking/access.ts)
+    ...(canUseLineTracking(role)
+      ? [
+          {
+            id: "line-tracking",
+            title: "LINE Tracking",
+            icon: <MessageCircle className="size-4" />,
+            link: "/line-tracking",
+          },
+        ]
+      : []),
     {
       id: "keyword-research",
       title: "Keyword Research",
