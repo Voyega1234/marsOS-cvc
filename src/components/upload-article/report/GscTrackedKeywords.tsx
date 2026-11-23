@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertCircle, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, FolderPlus, Link2, ListTree, Loader2, Pencil, Plus, RefreshCw, Trash2, Search } from "lucide-react";
+import { AlertCircle, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, FolderPlus, Link2, ListTree, Loader2, Pencil, Plus, RefreshCw, Tag, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import GscKeywordSuggestDialog, { termFromGroupName } from "./GscKeywordSuggestDialog";
 import { AreaChart, EmptyState, Panel, Segmented } from "@/components/ds";
@@ -124,7 +124,7 @@ export default function GscTrackedKeywords({
   foldersEnabled = false, folders = NO_FOLDERS, onFoldersChange,
 }: {
   clientId: string;
-  /** Convert Cake only: project folders (created empty, with an owner) holding keyword groups with their own combined chart */
+  /** project folders (created empty, with an owner) holding keyword groups with their own combined chart */
   foldersEnabled?: boolean;
   /** Folder records (pushPrefs.gscTrackerFolders), loaded by the parent when foldersEnabled */
   folders?: UploadGscTrackerFolder[];
@@ -278,7 +278,7 @@ export default function GscTrackedKeywords({
     if (ownerFilter && ownerFilter !== NO_OWNER && !ownerIds.has(ownerFilter)) setOwnerFilter("");
   }, [ownerIds, ownerFilter]);
   const effectiveOwner = useCallback((t: UploadGscTracker) => (t.ownerTagId && ownerIds.has(t.ownerTagId) ? t.ownerTagId : ""), [ownerIds]);
-  // ── project folders (Convert Cake only) ──
+  // ── project folders ──
   const foldersBase = `/api/upload-article/clients/${clientId}/report/tracker-folders`;
   const folderByName = useMemo(() => new Map(folders.map((f) => [f.name, f])), [folders]);
   const folderOwner = useCallback((name: string) => {
@@ -308,7 +308,7 @@ export default function GscTrackedKeywords({
     for (const t of trackers) {
       if (!t.group) continue;
       if (t.subgroup) set.add(t.subgroup);
-      // Convert Cake: a keyword tracked directly in a folder is a keyword group of its own name
+      // a keyword tracked directly in a folder is a keyword group of its own name
       else if (foldersEnabled && t.keyword && !t.url) set.add(t.keyword);
     }
     for (const f of folders) for (const sub of f.subgroups) set.add(sub);
@@ -475,7 +475,7 @@ export default function GscTrackedKeywords({
     await patchTrackers(ids, { group: next }, next.trim() ? "เปลี่ยนชื่อกลุ่มแล้ว" : "เอาออกจากกลุ่มแล้ว");
   }
 
-  /** Folder/keyword-group change on the server (Convert Cake only); updates folders and trackers together */
+  /** Folder/keyword-group change on the server; updates folders and trackers together */
   async function folderOp(op: Record<string, unknown>, okText?: string): Promise<boolean> {
     setBusy(true);
     try {
@@ -640,7 +640,7 @@ export default function GscTrackedKeywords({
     const owner = ownerName(effectiveOwner(t));
     const own = p && !p.unresolved ? p : null;
     const similarCount = own?.similar?.length ?? 0;
-    // Convert Cake: the row counts the keyword together with the similar keywords listed under it
+    // the row counts the keyword together with the similar keywords listed under it
     const combined = foldersEnabled && similarCount > 0;
     const usable = own && combined ? withSimilarTotals(own) : own;
     const ownHint = own && combined
@@ -664,7 +664,14 @@ export default function GscTrackedKeywords({
             </button>
             <div className="ml-5 mt-0.5 flex flex-wrap items-center gap-1">
               <span className="rounded-full bg-brand-mist px-1.5 py-px text-[10px] text-brand-navy">{KIND_BADGE[kind]}</span>
-              {/* Convert Cake: inside a project folder the owner is set on the folder row, not per keyword */}
+              {/* a keyword directly in a folder is a keyword group of its own name — say so on the row */}
+              {foldersEnabled && t.group && !t.subgroup && kind === "keyword" && (
+                <span title={`กลุ่ม keyword ในโฟลเดอร์ "${t.group}"`}
+                  className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-px text-[10px] font-medium text-violet-700 whitespace-nowrap">
+                  <Tag size={10} /> กลุ่ม keyword
+                </span>
+              )}
+              {/* inside a project folder the owner is set on the folder row, not per keyword */}
               {ownerTags.length > 0 && !(foldersEnabled && t.group) ? (
                 <select value={effectiveOwner(t)} disabled={busy} aria-label="ผู้ดูแลของรายการนี้"
                   onChange={(e) => void patchTrackers([t.id], { ownerTagId: e.target.value })}
@@ -674,7 +681,7 @@ export default function GscTrackedKeywords({
                 </select>
               ) : null}
               {kind === "pair" && t.title && <span className="truncate text-[10px] text-gray-500 max-w-[12rem]">{t.title}</span>}
-              {/* Convert Cake: a keyword directly in a folder is a keyword group of its own name — the first
+              {/* a keyword directly in a folder is a keyword group of its own name — the first
                   keyword added from here moves this keyword into that group as well (server side) */}
               {foldersEnabled && t.group && !t.subgroup && kind === "keyword" && (
                 <button type="button"
@@ -797,7 +804,7 @@ export default function GscTrackedKeywords({
             <p className="text-xs text-gray-500 mt-0.5">ติดตามแยกเป็น keyword, บทความ หรือ URL — หรือจับคู่ keyword กับหน้า</p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Convert Cake: this button lives on each keyword group row instead */}
+            {/* this button lives on each keyword group row instead */}
             {!foldersEnabled && (
               <Button type="button" variant="outline" size="sm" className="rounded-full h-8"
                 onClick={() => setSuggest({ term: formGroup.trim() ? termFromGroupName(formGroup.trim()) : "", group: formGroup.trim() })}>
@@ -1243,7 +1250,7 @@ type SeriesState = { loading: true } | { loading: false; data?: GscQuerySeriesRe
 function SimilarRows({ list, base, periodKey, metric, name, busy = false, onAdd, addHint, canAdd = true }: {
   list: GscSimilarKeyword[]; base: string; periodKey: string; metric: Metric; name: string;
   busy?: boolean;
-  /** Convert Cake: "+" adds the similar keyword into the tracker's keyword group; absent = no button */
+  /** "+" adds the similar keyword into the tracker's keyword group; absent = no button */
   onAdd?: (keyword: string) => void;
   addHint?: string;
   /** false = show the "+" disabled with addHint (the tracker is not in a folder yet) */
@@ -1385,7 +1392,7 @@ function sumPerf(list: (GscTrackerPerformance | undefined)[], withSimilar = fals
   let clicks = 0, impressions = 0, posW = 0, any = false;
   for (const raw of list) {
     if (!raw || raw.unresolved) continue;
-    // Convert Cake: similar keywords count toward the folder / keyword group totals too
+    // similar keywords count toward the folder / keyword group totals too
     const p = withSimilar ? withSimilarTotals(raw) : raw;
     any = true;
     clicks += p.totals.clicks;

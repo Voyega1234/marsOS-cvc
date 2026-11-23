@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Convert Cake only: "ติดตาม" from the คำค้นหา / หน้าเว็บ tabs — pick the project folder and keyword group
+ * "ติดตาม" from the คำค้นหา / หน้าเว็บ tabs — pick the project folder and keyword group
  * the new tracker goes into. The parent does the POST; this only collects the choice.
  */
 import { useEffect, useMemo, useState } from "react";

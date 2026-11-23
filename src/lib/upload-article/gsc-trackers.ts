@@ -291,7 +291,7 @@ export function updateGscTrackers(
   })
 }
 
-// ── Project folders + keyword groups (Convert Cake only) ──────────────────────────
+// ── Project folders + keyword groups (every Upload Article client) ────────────────
 // A folder = a tracker `group`; a keyword group = a tracker `subgroup`. Folder records let them exist empty
 // and carry a responsible owner. Stored in pushPrefs.gscTrackerFolders next to gscTrackers.
 
@@ -301,10 +301,13 @@ export const UPLOAD_MAX_TRACKER_FOLDERS = 50
 /** Per folder */
 export const UPLOAD_MAX_TRACKER_SUBFOLDERS = 50
 
-/** Folder + keyword-group features are enabled only for Convert Cake (name letters/digits, lowercased, contains "convertcake") */
-export function isTrackerFoldersClient(name: unknown): boolean {
-  if (typeof name !== 'string') return false
-  return name.toLowerCase().replace(new RegExp('[^\\p{L}\\p{N}]', 'gu'), '').includes('convertcake')
+/**
+ * Folder + keyword-group features: on for every Upload Article client, new ones included.
+ * They started as Convert Cake only and were opened to all on 2026-11-23. The routes and the report
+ * UI still read this one switch, so narrowing it again is a change in this function alone.
+ */
+export function isTrackerFoldersClient(_name?: unknown): boolean {
+  return true
 }
 
 function uniqueNames(raw: unknown, cap: number): string[] {
@@ -696,7 +699,7 @@ export function aggregateTrackerPerformance(list: readonly GscTrackerPerformance
 }
 
 /**
- * Convert Cake: a keyword tracker's numbers counted together with the similar keywords listed under it
+ * a keyword tracker's numbers counted together with the similar keywords listed under it
  * (CTR and position recomputed, position weighted by impressions). Daily series stay the keyword's own.
  * Each GSC query is assigned to one tracker only (assignSimilarKeywords), so summing these does not double count.
  */
@@ -710,7 +713,17 @@ export function withSimilarTotals<T extends Pick<GscTrackerPerformance, 'totals'
 }
 
 /**
- * Convert Cake: a keyword tracked directly in a folder is treated as a keyword group of its own name.
+ * The keyword group a tracker counts under: its `subgroup`, or its own keyword when it is a keyword
+ * tracked directly in a folder (that keyword is a keyword group of its own name). '' = none.
+ */
+export function trackerKeywordGroup(t: Pick<UploadGscTracker, 'keyword' | 'url' | 'group' | 'subgroup'>): string {
+  if (!t.group) return ''
+  if (t.subgroup) return t.subgroup
+  return t.keyword && !t.url ? t.keyword : ''
+}
+
+/**
+ * A keyword tracked directly in a folder is treated as a keyword group of its own name.
  * When something is added into keyword group `subgroup` of folder `group`, the keyword tracker of that
  * name that still sits directly in the folder moves into the group as well, so the group holds both.
  * Returns the same array when nothing moved.

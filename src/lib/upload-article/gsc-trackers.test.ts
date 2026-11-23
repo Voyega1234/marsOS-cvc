@@ -4,7 +4,7 @@
  */
 import { createQueryBudget, GSC_TRACKER_QUERIES_PER_MINUTE } from './gsc-budget';
 import {
-  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, withSimilarTotals, adoptGroupNamesake, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, withSimilarTotals, adoptGroupNamesake, trackerKeywordGroup, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
   applyTrackerFolderOp, readTrackerFolders, isTrackerFoldersClient, UPLOAD_MAX_TRACKER_FOLDERS, UPLOAD_MAX_TRACKER_SUBFOLDERS, type UploadGscTrackerFolder,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
@@ -446,7 +446,7 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   const okR = (r: ReturnType<typeof run>) => { if (!r.ok) throw new Error('expected ok, got ' + r.error); return r; };
   const errOf = (r: ReturnType<typeof run>) => (r.ok ? 'ok' : r.error);
 
-  assert(isTrackerFoldersClient('Convert Cake') && isTrackerFoldersClient('convertcake.com') && !isTrackerFoldersClient('Mfactors') && !isTrackerFoldersClient(null), 'folders: only Convert Cake client enabled');
+  assert(isTrackerFoldersClient('Convert Cake') && isTrackerFoldersClient('convertcake.com') && isTrackerFoldersClient('Mfactors') && isTrackerFoldersClient('โปรเจกต์ใหม่') && isTrackerFoldersClient(), 'folders: enabled for every client, new ones included');
 
   const rf = readTrackerFolders([
     { name: '  A   B ', ownerTagId: ' o1 ', subgroups: ['x', 'x', ' ', 'y', 5], createdAt: 't' },
@@ -571,6 +571,17 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(adoptGroupNamesake(list, 'Ads', '') === list && adoptGroupNamesake(list, '', 'convert cake') === list && adoptGroupNamesake(list, 'Ads', undefined) === list, 'adopt: needs both folder and keyword group');
   const again = adoptGroupNamesake(out, 'Ads', 'convert cake');
   assert(again === out, 'adopt: already in a group = left where it is');
+}
+
+// ── trackerKeywordGroup: the keyword group a tracker counts under ──
+{
+  const base = { id: 'x', createdAt: '2026-11-23T00:00:00.000Z' };
+  assert(trackerKeywordGroup({ ...base, keyword: 'รับทำ chatgpt ads', url: '', group: 'Ads Landingpage' }) === 'รับทำ chatgpt ads', 'keywordGroup: keyword directly in a folder = group of its own name');
+  assert(trackerKeywordGroup({ ...base, keyword: 'convertcake', url: '', group: 'Ads', subgroup: 'Convert Cake' }) === 'Convert Cake', 'keywordGroup: subgroup wins');
+  assert(trackerKeywordGroup({ ...base, keyword: 'convert cake', url: 'https://x.test/p', group: 'Ads' }) === '', 'keywordGroup: keyword+page directly in a folder = none');
+  assert(trackerKeywordGroup({ ...base, keyword: '', url: 'https://x.test/p', group: 'Ads' }) === '', 'keywordGroup: page directly in a folder = none');
+  assert(trackerKeywordGroup({ ...base, keyword: '', url: 'https://x.test/p', group: 'Ads', subgroup: 'G' }) === 'G', 'keywordGroup: page inside a keyword group keeps it');
+  assert(trackerKeywordGroup({ ...base, keyword: 'convert cake', url: '' }) === '', 'keywordGroup: no folder = none');
 }
 
 console.log(`\nAll ${passed} assertions passed`);

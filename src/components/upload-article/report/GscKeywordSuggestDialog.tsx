@@ -3,7 +3,7 @@
 // Upload Article > Report > Keyword ที่ติดตาม — "หาคำใกล้เคียง"
 // Pulls this site's GSC queries that contain a term (e.g. "cpas" -> "cpas คือ", "cpas ads"),
 // sorted by clicks or impressions; the user ticks the ones to track and adds them to one group.
-// Convert Cake: opened from a keyword group (initialSubgroup), every row also gets a "+" that adds
+// opened from a keyword group (initialSubgroup), every row also gets a "+" that adds
 // that one keyword into the keyword group right away and keeps the dialog open.
 
 import { useEffect, useMemo, useState } from "react";
@@ -45,7 +45,7 @@ export default function GscKeywordSuggestDialog({
   onOpenChange: (open: boolean) => void;
   initialTerm?: string;
   initialGroup?: string;
-  /** Convert Cake: the keyword group (inside folder initialGroup) the found keywords go into */
+  /** the keyword group (inside folder initialGroup) the found keywords go into */
   initialSubgroup?: string;
   periodParams: Record<string, unknown>;
   ownerTags?: UploadOwnerTag[];

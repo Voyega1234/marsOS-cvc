@@ -58,7 +58,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if ('res' in g) return g.res
   const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: g.orgId }, select: { name: true, pushPrefs: true } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
-  // Keyword groups (subgroup) exist only for Convert Cake
+  // Keyword groups (subgroup) are on for every client (isTrackerFoldersClient)
   const allowSub = isTrackerFoldersClient(client.name)
 
   const body = await req.json().catch(() => ({}))
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const r = addGscTrackersBulk(readGscTrackers(current.gscTrackers), keywords, { group: body?.group, subgroup: allowSub ? body?.subgroup : undefined, ownerTagId: body?.ownerTagId },
         () => crypto.randomUUID().slice(0, 8), new Date().toISOString(), ownerIdSet(current))
       if (r.added.length === 0) return { result: r }
-      // Convert Cake: the keyword the group is named after joins the group too
+      // the keyword the group is named after joins the group too
       const trackers = allowSub ? adoptGroupNamesake(r.trackers, body?.group, body?.subgroup) : r.trackers
       const next: PrefsObject = { ...current, gscTrackers: trackers }
       return { prefs: next, result: { ...r, trackers } }

@@ -8,7 +8,7 @@ import {
 } from '@/lib/upload-article/gsc-trackers'
 import { readOwnerTags } from '@/lib/upload-article/owner-tags'
 
-// ─── Upload Article > Report — project folders + keyword groups (Convert Cake only) ───
+// ─── Upload Article > Report — project folders + keyword groups ───
 // Folder records live in pushPrefs.gscTrackerFolders; trackers stay in pushPrefs.gscTrackers.
 
 type Guard = { orgId: string } | { res: NextResponse }

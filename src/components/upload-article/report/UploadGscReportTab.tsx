@@ -18,7 +18,7 @@ import { GscKpiRow, GscTrendPanel, GscBucketPanel } from "./GscCharts";
 import OwnerTagsEditor from "./OwnerTagsEditor";
 import GscTrackedKeywords, { type TrackerDraft } from "./GscTrackedKeywords";
 import TrackToFolderDialog, { type TrackTarget } from "./TrackToFolderDialog";
-import { aggregateTrackerPerformance, trackerKey, trackerKeys, type GscTrackerPerformance, type UploadGscTracker, type UploadGscTrackerFolder } from "@/lib/upload-article/gsc-trackers";
+import { aggregateTrackerPerformance, trackerKey, trackerKeys, trackerKeywordGroup, type GscTrackerPerformance, type UploadGscTracker, type UploadGscTrackerFolder } from "@/lib/upload-article/gsc-trackers";
 import ArticleOwnerSelect from "@/components/upload-article/ArticleOwnerSelect";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
 import type {
@@ -111,7 +111,7 @@ export default function UploadGscReportTab({
   clientId, ownerTags, articleOwners, onOwnerTagsChange, onOwnerChange, foldersEnabled = false,
 }: {
   clientId: string;
-  /** Convert Cake only: tracker project folders + keyword groups */
+  /** Tracker project folders + keyword groups (on for every client) */
   foldersEnabled?: boolean;
   ownerTags: UploadOwnerTag[];
   articleOwners: Record<string, string>;
@@ -202,7 +202,7 @@ export default function UploadGscReportTab({
     return () => { cancelled = true; };
   }, [clientId]);
 
-  // ── Convert Cake only: project folders + keyword groups, shown on the คำค้นหา / หน้าเว็บ tabs too ──
+  // ── project folders + keyword groups, shown on the คำค้นหา / หน้าเว็บ tabs too ──
   const [folders, setFolders] = useState<UploadGscTrackerFolder[]>([]);
   useEffect(() => {
     setFolders([]);
@@ -234,7 +234,8 @@ export default function UploadGscReportTab({
     const k = trackerKey(keyword, url);
     const own = groupIndex.exact.get(k);
     const t = own?.group ? own : groupIndex.viaPair.get(k);
-    return t?.group ? { group: t.group, subgroup: t.subgroup || "" } : null;
+    // a keyword tracked directly in a folder shows as the keyword group of its own name, as on the tracked tab
+    return t?.group ? { group: t.group, subgroup: trackerKeywordGroup(t) } : null;
   }, [groupIndex]);
 
   const [trackTarget, setTrackTarget] = useState<TrackTarget | null>(null);
@@ -599,7 +600,7 @@ function OverviewSubTab({ data }: { data: GscReportResponse }) {
   return <GscBucketPanel buckets={data.positionBuckets} />;
 }
 
-/** Convert Cake only: the folder + keyword group a row is tracked in */
+/** The folder + keyword group a row is tracked in */
 interface RowGroup { group: string; subgroup: string }
 
 const GROUP_TAG_CLS = "inline-flex max-w-[180px] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap";
@@ -685,7 +686,7 @@ function PagesSubTab({ rows, onTrack, isTracked, groupOf }: {
 
 function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange, trackedKeys, onSaveTracker, groupOf }: {
   rows: UploadedArticleReportRow[];
-  /** Convert Cake only: folder + keyword group the article's URL is tracked in */
+  /** Folder + keyword group the article's URL is tracked in */
   groupOf?: (url: string) => RowGroup | null;
   trackedKeys: Set<string>;
   onSaveTracker: SaveTracker;
