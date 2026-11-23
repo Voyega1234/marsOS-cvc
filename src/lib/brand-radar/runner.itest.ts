@@ -234,6 +234,15 @@ async function main() {
     assert.equal(thisMonth.failed, u.byProvider.reduce((s, p) => s + p.failed, 0))
     ok('usage')
 
+    // a chosen range returns the same days as the default 30-day series, and a short range is the tail of it
+    const last = u.daily[u.daily.length - 1].day
+    const same = await r.usageDaily(ctx, u.daily[0].day, last, u.daily.length)
+    assert.deepEqual(same, u.daily)
+    const tail = await r.usageDaily(ctx, u.daily[u.daily.length - 7].day, last, 7)
+    assert.deepEqual(tail, u.daily.slice(-7))
+    assert.ok(u.daily.some((d) => d.calls > 0), 'today has the calls just made')
+    ok('usage by date range')
+
     // repeat samples: LLM providers ask N times, observed SERP providers once; sample-major order
     await prisma.brandRadarProfile.update({
       where: { id: profile.id }, data: { samplesPerPrompt: 3, providers: '["openai","gemini","google_ai_mode"]' },

@@ -925,6 +925,30 @@ const CALL_ROWS = (orgId: string, projectId: string, start: Date, end: Date): Pr
   OR: [{ status: { in: ['DONE', 'FAILED'] } }, { status: 'SKIPPED', costUsd: { not: null } }],
 })
 
+/**
+ * Per-day usage from `from` to `to` (Bangkok days, YYYY-MM-DD, inclusive; `days` = their span), oldest first,
+ * every day present. Counted the same way as a month in usage(): cost over every row, calls over the rows
+ * CALL_ROWS matches. The range must already be checked (parseUsageRange).
+ */
+export async function usageDaily(ctx: RunnerCtx, from: string, to: string, days: number): Promise<UsageDTO['daily']> {
+  // updatedAt is stored as UTC without a zone, so +7 hours gives the Bangkok day.
+  const dayStart = new Date(`${from}T00:00:00+07:00`)
+  const dayEnd = new Date(new Date(`${to}T00:00:00+07:00`).getTime() + 86_400_000)
+  const responseTable = Prisma.raw(`"${SCHEMA}"."BrandRadarResponse"`)
+  const dayRows = await prisma.$queryRaw<Array<{ day: string; costUsd: number | null; calls: bigint; failed: bigint }>>`
+    SELECT to_char(r."updatedAt" + interval '7 hours', 'YYYY-MM-DD') AS "day",
+           sum(r."costUsd")::float8 AS "costUsd",
+           count(*) FILTER (WHERE r."status" IN ('DONE', 'FAILED') OR (r."status" = 'SKIPPED' AND r."costUsd" IS NOT NULL)) AS "calls",
+           count(*) FILTER (WHERE r."status" = 'FAILED') AS "failed"
+    FROM ${responseTable} AS r
+    WHERE r."organizationId" = ${ctx.orgId} AND r."projectId" = ${ctx.project.id}
+      AND r."updatedAt" >= (${dayStart.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND r."updatedAt" < (${dayEnd.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+    GROUP BY 1
+    ORDER BY 1`
+  return dailyUsage(dayRows, to, days)
+}
+
 export async function usage(ctx: RunnerCtx, now: Date = new Date()): Promise<UsageDTO> {
   const profile = await prisma.brandRadarProfile.findFirst({
     where: { organizationId: ctx.orgId, projectId: ctx.project.id },
@@ -973,23 +997,9 @@ export async function usage(ctx: RunnerCtx, now: Date = new Date()): Promise<Usa
     history.push({ month: k, costUsd: agg._sum.costUsd || 0, calls: cnt, failed })
   }
 
-  // Per day, counted the same way as a month above: cost over every row, calls over the rows CALL_ROWS matches.
-  // updatedAt is stored as UTC without a zone, so +7 hours gives the Bangkok day.
   const today = bangkokDay(now)
   const firstDay = bangkokDay(new Date(now.getTime() - (USAGE_DAILY_DAYS - 1) * 86_400_000))
-  const dayStart = new Date(`${firstDay}T00:00:00+07:00`)
-  const responseTable = Prisma.raw(`"${SCHEMA}"."BrandRadarResponse"`)
-  const dayRows = await prisma.$queryRaw<Array<{ day: string; costUsd: number | null; calls: bigint; failed: bigint }>>`
-    SELECT to_char(r."updatedAt" + interval '7 hours', 'YYYY-MM-DD') AS "day",
-           sum(r."costUsd")::float8 AS "costUsd",
-           count(*) FILTER (WHERE r."status" IN ('DONE', 'FAILED') OR (r."status" = 'SKIPPED' AND r."costUsd" IS NOT NULL)) AS "calls",
-           count(*) FILTER (WHERE r."status" = 'FAILED') AS "failed"
-    FROM ${responseTable} AS r
-    WHERE r."organizationId" = ${ctx.orgId} AND r."projectId" = ${ctx.project.id}
-      AND r."updatedAt" >= (${dayStart.toISOString()}::timestamptz AT TIME ZONE 'UTC')
-    GROUP BY 1
-    ORDER BY 1`
-  const daily = dailyUsage(dayRows, today)
+  const daily = await usageDaily(ctx, firstDay, today, USAGE_DAILY_DAYS)
 
   const budget = profile ? profile.monthlyBudgetUsd : null
   return {

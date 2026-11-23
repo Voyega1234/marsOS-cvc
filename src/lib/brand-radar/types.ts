@@ -1031,6 +1031,46 @@ export function dailyUsage(
   return out
 }
 
+/** Longest span the per-day usage table can be asked for, both ends included */
+export const USAGE_RANGE_MAX_DAYS = 366
+
+const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/** YYYY-MM-DD that is a real calendar day, as a UTC midnight timestamp; null otherwise */
+function dayMs(v: unknown): number | null {
+  if (typeof v !== 'string') return null
+  const m = DAY_RE.exec(v)
+  if (!m) return null
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return new Date(t).toISOString().slice(0, 10) === v ? t : null
+}
+
+export type UsageRange = { from: string; to: string; days: number }
+
+/**
+ * A chosen date range for the per-day usage table. Both ends are Bangkok days (YYYY-MM-DD), inclusive.
+ * An end after `today` is pulled back to today (no usage can exist yet); a start after today, a start after
+ * the end, or a span over USAGE_RANGE_MAX_DAYS is an error.
+ */
+export function parseUsageRange(from: unknown, to: unknown, today: string): UsageRange | { error: string } {
+  const f = dayMs(from)
+  const t0 = dayMs(to)
+  const now = dayMs(today)
+  if (f === null || t0 === null || now === null) return { error: 'from and to must be dates as YYYY-MM-DD' }
+  if (f > now) return { error: 'from is after today' }
+  const t = Math.min(t0, now)
+  if (f > t) return { error: 'from is after to' }
+  const days = Math.round((t - f) / 86_400_000) + 1
+  if (days > USAGE_RANGE_MAX_DAYS) return { error: `range is longer than ${USAGE_RANGE_MAX_DAYS} days` }
+  return { from: from as string, to: new Date(t).toISOString().slice(0, 10), days }
+}
+
+export interface UsageDailyDTO {
+  from: string
+  to: string
+  daily: UsageDTO['daily']
+}
+
 /**
  * Average cost of one ask that got an answer: cost divided by the calls that did not fail.
  * null when no call succeeded, so the page shows "no data" instead of a made-up 0.

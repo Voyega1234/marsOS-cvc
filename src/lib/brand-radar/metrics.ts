@@ -290,8 +290,12 @@ export function trendByRun(ds: Dataset, runs: RunLite[]): TrendPoint[] {
   })
 }
 
-/** Rounds shown in the scan-by-scan comparison: the latest ones only, so the table and the payload stay small */
-export const SCAN_PROGRESS_CAP = 20
+/**
+ * Most rounds sent for the scan-by-scan comparison (the latest ones). Every round in the chosen date range is
+ * charted and the table pages through them 10 at a time, so this is only a safety bound on the payload:
+ * over a year of daily scans.
+ */
+export const SCAN_PROGRESS_CAP = 400
 
 function shortDateTime(d: Date): string {
   const b = new Date(d.getTime() + BANGKOK_MS)

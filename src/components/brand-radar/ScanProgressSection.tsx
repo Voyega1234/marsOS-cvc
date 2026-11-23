@@ -4,10 +4,12 @@
  * Brand Radar — Scan Progress: how the brand moved from one scan round to the next.
  * All values come from the server (ScanProgressPoint); differences are computed here, always against the round before.
  */
+import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { AreaChart, Chip, Panel } from "@/components/ds";
 import type { ScanProgressPoint } from "@/lib/brand-radar/types";
 import { ColumnHelp } from "./ColumnHelp";
+import { Pager } from "./PromptDialogs";
 import { pct } from "./ReportCards";
 import { fmtNum } from "./shared";
 
@@ -95,13 +97,25 @@ const METRICS: Metric[] = [
 
 const toPct = (v: number | null) => (v === null ? null : v * 100);
 
+/** Table rows per page; the chart always shows every round of the chosen date range */
+export const SCAN_TABLE_PAGE_SIZE = 10;
+
 export function ScanProgressSection({ scans }: { scans: ScanProgressPoint[] }) {
+  // back to the newest page whenever the rounds change (another date range or filter above)
+  const [page, setPage] = useState(1);
+  const signature = `${scans.length}:${scans[0]?.runId ?? ""}:${scans[scans.length - 1]?.runId ?? ""}`;
+  useEffect(() => { setPage(1); }, [signature]);
+
   if (scans.length === 0) return null;
   const newest = scans[scans.length - 1];
   const before = scans.length > 1 ? scans[scans.length - 2] : null;
   // newest first for the table; the "previous" round is the next row down
   const rows = [...scans].reverse();
   const multi = scans.length >= 2;
+  const pages = Math.max(1, Math.ceil(rows.length / SCAN_TABLE_PAGE_SIZE));
+  const curPage = Math.min(page, pages);
+  const firstRow = (curPage - 1) * SCAN_TABLE_PAGE_SIZE;
+  const pageRows = rows.slice(firstRow, firstRow + SCAN_TABLE_PAGE_SIZE);
 
   return (
     <Panel title="Scan Progress" subtitle="พัฒนาการของแบรนด์ในแต่ละรอบสแกน เทียบกับรอบก่อนหน้า">
@@ -164,8 +178,9 @@ export function ScanProgressSection({ scans }: { scans: ScanProgressPoint[] }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((s, i) => {
-                const prev = rows[i + 1] ?? null;
+              {pageRows.map((s, i) => {
+                // the round before may sit on the next page; compare against the full list
+                const prev = rows[firstRow + i + 1] ?? null;
                 const dim = s.sameSetAsPrevious === false;
                 return (
                   <tr key={s.runId} className="border-t border-gray-100 align-top">
@@ -192,6 +207,7 @@ export function ScanProgressSection({ scans }: { scans: ScanProgressPoint[] }) {
             </tbody>
           </table>
         </div>
+        <Pager page={curPage} pageSize={SCAN_TABLE_PAGE_SIZE} total={rows.length} onPage={setPage} />
         <p className="text-xs text-gray-500">
           <ColumnHelp k="scanDelta" align="start">ตัวเลขสีเขียว/แดง = เทียบกับรอบสแกนก่อนหน้า</ColumnHelp>
         </p>
