@@ -48,7 +48,13 @@ export default function TrackToFolderDialog({
   const subNames = useMemo(() => {
     if (!folder || folder === NEW) return [];
     const set = new Set<string>(folders.find((f) => f.name === folder)?.subgroups ?? []);
-    for (const t of trackers) if (t.group === folder && t.subgroup) set.add(t.subgroup);
+    for (const t of trackers) {
+      if (t.group !== folder) continue;
+      if (t.subgroup) set.add(t.subgroup);
+      // a keyword tracked directly in the folder is a keyword group of its own name; picking it
+      // moves that keyword into the group together with the new one (done by the server)
+      else if (t.keyword && !t.url) set.add(t.keyword);
+    }
     return Array.from(set).sort(sortTh);
   }, [folder, folders, trackers]);
 

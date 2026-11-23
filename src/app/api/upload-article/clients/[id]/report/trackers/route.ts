@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { parsePrefs, updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadGscReportPrefs } from '@/lib/upload-article/types'
 import {
-  addGscTracker, addGscTrackersBulk, readGscTrackers, removeGscTrackers, updateGscTrackers, UPLOAD_MAX_GSC_TRACKERS, isTrackerFoldersClient, normalizeTrackerUrl, isIdPermalinkUrl,
+  addGscTracker, addGscTrackersBulk, adoptGroupNamesake, readGscTrackers, removeGscTrackers, updateGscTrackers, UPLOAD_MAX_GSC_TRACKERS, isTrackerFoldersClient, normalizeTrackerUrl, isIdPermalinkUrl,
   GSC_TRACKER_ERROR_MESSAGES, type AddGscTrackerResult,
 } from '@/lib/upload-article/gsc-trackers'
 import { readOwnerTags } from '@/lib/upload-article/owner-tags'
@@ -71,8 +71,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const r = addGscTrackersBulk(readGscTrackers(current.gscTrackers), keywords, { group: body?.group, subgroup: allowSub ? body?.subgroup : undefined, ownerTagId: body?.ownerTagId },
         () => crypto.randomUUID().slice(0, 8), new Date().toISOString(), ownerIdSet(current))
       if (r.added.length === 0) return { result: r }
-      const next: PrefsObject = { ...current, gscTrackers: r.trackers }
-      return { prefs: next, result: r }
+      // Convert Cake: the keyword the group is named after joins the group too
+      const trackers = allowSub ? adoptGroupNamesake(r.trackers, body?.group, body?.subgroup) : r.trackers
+      const next: PrefsObject = { ...current, gscTrackers: trackers }
+      return { prefs: next, result: { ...r, trackers } }
     })
     if (!bulk) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
     const r = bulk.result
@@ -106,8 +108,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const existing = readGscTrackers(current.gscTrackers)
     const added = addGscTracker(existing, input, () => crypto.randomUUID().slice(0, 8), new Date().toISOString(), ownerIdSet(current))
     if (!added.ok) return { result: added }
-    const next: PrefsObject = { ...current, gscTrackers: added.trackers }
-    return { prefs: next, result: added }
+    const trackers = allowSub ? adoptGroupNamesake(added.trackers, input.group, input.subgroup) : added.trackers
+    const next: PrefsObject = { ...current, gscTrackers: trackers }
+    return { prefs: next, result: { ...added, trackers } }
   })
   if (!result) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
 

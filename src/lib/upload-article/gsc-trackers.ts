@@ -709,6 +709,26 @@ export function withSimilarTotals<T extends Pick<GscTrackerPerformance, 'totals'
   }
 }
 
+/**
+ * Convert Cake: a keyword tracked directly in a folder is treated as a keyword group of its own name.
+ * When something is added into keyword group `subgroup` of folder `group`, the keyword tracker of that
+ * name that still sits directly in the folder moves into the group as well, so the group holds both.
+ * Returns the same array when nothing moved.
+ */
+export function adoptGroupNamesake(trackers: UploadGscTracker[], group: unknown, subgroup: unknown): UploadGscTracker[] {
+  const g = normalizeTrackerGroup(group)
+  const sub = normalizeTrackerGroup(subgroup)
+  if (!g || !sub) return trackers
+  const keyword = normalizeTrackerKeyword(sub)
+  let moved = false
+  const next = trackers.map((t) => {
+    if (t.group !== g || t.subgroup || t.url || t.keyword !== keyword) return t
+    moved = true
+    return { ...t, subgroup: sub }
+  })
+  return moved ? next : trackers
+}
+
 // ── หาคำใกล้เคียง + เพิ่มหลายคำพร้อมกัน ──
 
 /**

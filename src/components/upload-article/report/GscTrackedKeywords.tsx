@@ -305,10 +305,15 @@ export default function GscTrackedKeywords({
   }, [trackers, folders]);
   const subgroupNames = useMemo(() => {
     const set = new Set<string>();
-    for (const t of trackers) if (t.group && t.subgroup) set.add(t.subgroup);
+    for (const t of trackers) {
+      if (!t.group) continue;
+      if (t.subgroup) set.add(t.subgroup);
+      // Convert Cake: a keyword tracked directly in a folder is a keyword group of its own name
+      else if (foldersEnabled && t.keyword && !t.url) set.add(t.keyword);
+    }
     for (const f of folders) for (const sub of f.subgroups) set.add(sub);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "th", { numeric: true }));
-  }, [trackers, folders]);
+  }, [trackers, folders, foldersEnabled]);
   // แถวที่ไม่มีกลุ่มแยกตามผู้ดูแล หัวเป็นชื่อผู้ดูแล — key ขึ้นต้นด้วยตัวคั่นที่ชื่อกลุ่มจริงมีไม่ได้ (ชื่อกลุ่มถูกตัดช่องว่างหัวท้าย) จึงไม่ชนกัน
   // name = ชื่อกลุ่มจริง ('' = ไม่มีกลุ่ม), label = ข้อความบนหัว, key = ใช้จำการพับ
   const groups = useMemo(() => {
@@ -659,7 +664,8 @@ export default function GscTrackedKeywords({
             </button>
             <div className="ml-5 mt-0.5 flex flex-wrap items-center gap-1">
               <span className="rounded-full bg-brand-mist px-1.5 py-px text-[10px] text-brand-navy">{KIND_BADGE[kind]}</span>
-              {ownerTags.length > 0 ? (
+              {/* Convert Cake: inside a project folder the owner is set on the folder row, not per keyword */}
+              {ownerTags.length > 0 && !(foldersEnabled && t.group) ? (
                 <select value={effectiveOwner(t)} disabled={busy} aria-label="ผู้ดูแลของรายการนี้"
                   onChange={(e) => void patchTrackers([t.id], { ownerTagId: e.target.value })}
                   className={`h-5 max-w-[9rem] rounded-full border-0 px-1.5 text-[10px] ${owner ? "bg-indigo-50 text-brand-blue font-medium" : "bg-gray-100 text-gray-500"}`}>
@@ -668,6 +674,16 @@ export default function GscTrackedKeywords({
                 </select>
               ) : null}
               {kind === "pair" && t.title && <span className="truncate text-[10px] text-gray-500 max-w-[12rem]">{t.title}</span>}
+              {/* Convert Cake: a keyword directly in a folder is a keyword group of its own name — the first
+                  keyword added from here moves this keyword into that group as well (server side) */}
+              {foldersEnabled && t.group && !t.subgroup && kind === "keyword" && (
+                <button type="button"
+                  onClick={() => { setSubOpen(subKey(t.group!, t.keyword), true); setSuggest({ term: t.keyword, group: t.group!, subgroup: t.keyword }); }}
+                  title={`หาคำใกล้เคียง แล้วกด + เพิ่มเข้ากลุ่ม keyword "${t.keyword}"`}
+                  className="inline-flex items-center gap-0.5 rounded-full border border-gray-200 bg-white px-1.5 py-px text-[10px] font-medium text-brand-navy hover:border-brand-blue hover:text-brand-blue whitespace-nowrap">
+                  <Search size={10} /> หาคำใกล้เคียง
+                </button>
+              )}
               {similarCount > 0 && (
                 <button type="button" onClick={() => toggleSimilar(t.id)} aria-expanded={similarOpen}
                   title={similarOpen ? "ซ่อนคำใกล้เคียง" : combined ? "ดูคำใกล้เคียงที่ระบบหาให้ (ตัวเลขในแถวนี้รวมคำเหล่านี้แล้ว)" : "ดูคำใกล้เคียงที่ระบบหาให้"}

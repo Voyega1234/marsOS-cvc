@@ -4,7 +4,7 @@
  */
 import { createQueryBudget, GSC_TRACKER_QUERIES_PER_MINUTE } from './gsc-budget';
 import {
-  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, withSimilarTotals, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, withSimilarTotals, adoptGroupNamesake, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
   applyTrackerFolderOp, readTrackerFolders, isTrackerFoldersClient, UPLOAD_MAX_TRACKER_FOLDERS, UPLOAD_MAX_TRACKER_SUBFOLDERS, type UploadGscTrackerFolder,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
@@ -548,6 +548,29 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(w.prevTotals.clicks === 20 && w.prevTotals.impressions === 300 && Math.abs(w.prevTotals.position - (6 * 50 + 10 * 150 + 20 * 100) / 300) < 1e-9, 'withSimilarTotals: previous period summed the same way');
   assert(w.daily === p.daily && w.similar === p.similar, 'withSimilarTotals: daily series and the similar list are untouched');
   assert(p.totals.clicks === 10 && p.prevTotals.clicks === 5, 'withSimilarTotals: input not mutated');
+}
+
+// ── adoptGroupNamesake: the keyword a keyword group is named after joins the group ──
+{
+  const mk = (id: string, keyword: string, url: string, group?: string, subgroup?: string): UploadGscTracker =>
+    ({ id, keyword, url, createdAt: '2026-11-23T00:00:00.000Z', ...(group ? { group } : {}), ...(subgroup ? { subgroup } : {}) } as UploadGscTracker);
+  const list = [
+    mk('a', 'convert cake', '', 'Ads'),
+    mk('b', 'convertcake', '', 'Ads', 'convert cake'),
+    mk('c', 'convert cake', 'https://x.test/p', 'Ads'),
+    mk('d', 'convert cake', '', 'Other'),
+    mk('e', 'รับยิงแอด', '', 'Ads'),
+    mk('f', 'convert cake', ''),
+  ];
+  const out = adoptGroupNamesake(list, 'Ads', '  Convert   Cake ');
+  assert(out !== list && out[0].subgroup === 'Convert Cake', 'adopt: namesake keyword in the folder moves into the group (name normalized, case-insensitive)');
+  assert(out[1] === list[1] && out[2] === list[2] && !out[2].subgroup, 'adopt: keyword+page tracker and existing members untouched');
+  assert(!out[3].subgroup && !out[4].subgroup && !out[5].subgroup, 'adopt: other folders, other keywords and ungrouped trackers untouched');
+  assert(!list[0].subgroup, 'adopt: input not mutated');
+  assert(adoptGroupNamesake(list, 'Ads', 'ไม่มีคำนี้') === list, 'adopt: no namesake = same array');
+  assert(adoptGroupNamesake(list, 'Ads', '') === list && adoptGroupNamesake(list, '', 'convert cake') === list && adoptGroupNamesake(list, 'Ads', undefined) === list, 'adopt: needs both folder and keyword group');
+  const again = adoptGroupNamesake(out, 'Ads', 'convert cake');
+  assert(again === out, 'adopt: already in a group = left where it is');
 }
 
 console.log(`\nAll ${passed} assertions passed`);
