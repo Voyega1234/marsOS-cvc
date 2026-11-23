@@ -18,6 +18,7 @@ import type { OwnerControls } from "@/components/upload-article/ArticleOwnerSele
 import type { SettingsSection } from "@/components/upload-article/settings/SettingsTab";
 import { useUploadSetupChecklist } from "@/components/upload-article/settings/useUploadSetupChecklist";
 import ClientAvatar from "@/components/upload-article/ClientAvatar";
+import { isTrackerFoldersClient } from "@/lib/upload-article/gsc-trackers";
 
 // แต่ละแท็บโหลดโค้ดของตัวเองตอนถูกเปิดครั้งแรก (Radix แสดงเฉพาะแท็บที่เลือกอยู่แล้ว) — หน้าแรกไม่ต้องแบกโค้ดครบทุกแท็บ
 // ระหว่างรอแสดงตัวหมุนแบบเดียวกับตอนโหลดข้อมูลลูกค้า
@@ -438,6 +439,7 @@ export default function UploadClientWorkspace({
               articleOwners={articleOwners}
               onOwnerTagsChange={applyOwnerTags}
               onOwnerChange={setArticleOwner}
+              foldersEnabled={isTrackerFoldersClient(client.name)}
             />
           )}
         </TabsContent>

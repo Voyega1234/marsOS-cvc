@@ -29,6 +29,8 @@ export interface UploadGscTracker {
   ownerTagId?: string
   /** ชื่อกลุ่มที่ทีมตั้งเอง (เช่น "Blog 45 - cpas") — ไม่มี = อยู่นอกกลุ่ม; ใช้จัดแถวในตารางเท่านั้น */
   group?: string
+  /** กลุ่มย่อยภายใน group (เช่น "แบรนด์" ใต้ "Ads Landingpage") — มีได้เฉพาะเมื่อมี group; ใช้จัดแถว + รวมผลย่อยในตารางเท่านั้น */
+  subgroup?: string
   createdAt: string
 }
 
@@ -171,9 +173,11 @@ export function readGscTrackers(raw: unknown): UploadGscTracker[] {
     const sourceUrl = normalizeSourceUrl(rec.sourceUrl, url)
     const ownerTagId = normalizeTrackerOwner(rec.ownerTagId)
     const group = normalizeTrackerGroup(rec.group)
+    const subgroup = group ? normalizeTrackerGroup(rec.subgroup) : ''
     out.push({
       id, keyword, url,
       ...(title ? { title } : {}), ...(sourceUrl ? { sourceUrl } : {}), ...(ownerTagId ? { ownerTagId } : {}), ...(group ? { group } : {}),
+      ...(subgroup ? { subgroup } : {}),
       createdAt: typeof rec.createdAt === 'string' ? rec.createdAt : '',
     })
     if (out.length >= UPLOAD_MAX_GSC_TRACKERS) break
@@ -208,7 +212,7 @@ function isTrackerKind(v: unknown): v is GscTrackerKind {
  */
 export function addGscTracker(
   existing: UploadGscTracker[],
-  input: { kind?: unknown; keyword?: unknown; url?: unknown; title?: unknown; sourceUrl?: unknown; ownerTagId?: unknown; group?: unknown },
+  input: { kind?: unknown; keyword?: unknown; url?: unknown; title?: unknown; sourceUrl?: unknown; ownerTagId?: unknown; group?: unknown; subgroup?: unknown },
   newId: () => string,
   nowIso: string,
   /** ownerTag.id ที่มีอยู่จริง — ownerTagId ที่ไม่อยู่ในชุดนี้ถูกทิ้ง (ไม่ส่ง = ไม่เก็บผู้ดูแลเลย) */
@@ -236,9 +240,11 @@ export function addGscTracker(
   for (let i = 0; i < 5 && existing.some((t) => t.id === id); i++) id = newId()
   const ownerTagId = validOwnerIds ? normalizeTrackerOwner(input.ownerTagId, validOwnerIds) : ''
   const group = normalizeTrackerGroup(input.group)
+  const subgroup = group ? normalizeTrackerGroup(input.subgroup) : ''
   const tracker: UploadGscTracker = {
     id, keyword, url,
     ...(title ? { title } : {}), ...(sourceUrl ? { sourceUrl } : {}), ...(ownerTagId ? { ownerTagId } : {}), ...(group ? { group } : {}),
+    ...(subgroup ? { subgroup } : {}),
     createdAt: nowIso,
   }
   return { ok: true, trackers: [tracker, ...existing], tracker }
@@ -256,13 +262,14 @@ export function removeGscTrackers(existing: UploadGscTracker[], ids: readonly st
 /**
  * แก้ผู้ดูแล/กลุ่มของหลายรายการพร้อมกัน (ไม่แก้ array เดิม) — เฉพาะช่องที่ส่งมา (undefined = ไม่แตะ)
  * - ownerTagId ว่าง/ไม่อยู่ใน validOwnerIds = ล้างผู้ดูแล
- * - group ว่าง = เอาออกจากกลุ่ม
+ * - group ว่าง = เอาออกจากกลุ่ม (กลุ่มย่อยหลุดไปด้วย); เปลี่ยน group โดยไม่ส่ง subgroup = คงกลุ่มย่อยเดิม (ใช้ตอนเปลี่ยนชื่อกลุ่ม)
+ * - subgroup ว่าง = เอาออกจากกลุ่มย่อย; รายการที่ไม่มี group หลังแก้ จะไม่เก็บ subgroup
  * คืน null ถ้าไม่พบรายการใดเลยใน ids
  */
 export function updateGscTrackers(
   existing: UploadGscTracker[],
   ids: readonly string[],
-  patch: { ownerTagId?: unknown; group?: unknown },
+  patch: { ownerTagId?: unknown; group?: unknown; subgroup?: unknown },
   validOwnerIds: ReadonlySet<string>,
 ): UploadGscTracker[] | null {
   const target = new Set(ids)
@@ -271,13 +278,210 @@ export function updateGscTrackers(
   const setGroup = patch.group !== undefined
   const owner = setOwner ? normalizeTrackerOwner(patch.ownerTagId, validOwnerIds) : ''
   const group = setGroup ? normalizeTrackerGroup(patch.group) : ''
+  const setSubgroup = patch.subgroup !== undefined
+  const subgroup = setSubgroup ? normalizeTrackerGroup(patch.subgroup) : ''
   return existing.map((t) => {
     if (!target.has(t.id)) return t
     const next: UploadGscTracker = { ...t }
     if (setOwner) { if (owner) next.ownerTagId = owner; else delete next.ownerTagId }
     if (setGroup) { if (group) next.group = group; else delete next.group }
+    if (setSubgroup) { if (subgroup) next.subgroup = subgroup; else delete next.subgroup }
+    if (!next.group) delete next.subgroup
     return next
   })
+}
+
+// ── Project folders + keyword groups (Convert Cake only) ──────────────────────────
+// A folder = a tracker `group`; a keyword group = a tracker `subgroup`. Folder records let them exist empty
+// and carry a responsible owner. Stored in pushPrefs.gscTrackerFolders next to gscTrackers.
+
+export interface UploadGscTrackerFolder { name: string; ownerTagId?: string; subgroups: string[]; createdAt: string }
+
+export const UPLOAD_MAX_TRACKER_FOLDERS = 50
+/** Per folder */
+export const UPLOAD_MAX_TRACKER_SUBFOLDERS = 50
+
+/** Folder + keyword-group features are enabled only for Convert Cake (name letters/digits, lowercased, contains "convertcake") */
+export function isTrackerFoldersClient(name: unknown): boolean {
+  if (typeof name !== 'string') return false
+  return name.toLowerCase().replace(new RegExp('[^\\p{L}\\p{N}]', 'gu'), '').includes('convertcake')
+}
+
+function uniqueNames(raw: unknown, cap: number): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  for (const v of raw) {
+    const n = normalizeTrackerGroup(v)
+    if (n && !out.includes(n)) out.push(n)
+    if (out.length >= cap) break
+  }
+  return out
+}
+
+/** Read folder records from pushPrefs without trusting them: drop empty/duplicate names, apply caps */
+export function readTrackerFolders(raw: unknown): UploadGscTrackerFolder[] {
+  if (!Array.isArray(raw)) return []
+  const out: UploadGscTrackerFolder[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const rec = item as Record<string, unknown>
+    const name = normalizeTrackerGroup(rec.name)
+    if (!name || out.some((f) => f.name === name)) continue
+    const ownerTagId = normalizeTrackerOwner(rec.ownerTagId)
+    out.push({
+      name,
+      ...(ownerTagId ? { ownerTagId } : {}),
+      subgroups: uniqueNames(rec.subgroups, UPLOAD_MAX_TRACKER_SUBFOLDERS),
+      createdAt: typeof rec.createdAt === 'string' ? rec.createdAt : '',
+    })
+    if (out.length >= UPLOAD_MAX_TRACKER_FOLDERS) break
+  }
+  return out
+}
+
+export type TrackerFolderError = 'invalid' | 'duplicate' | 'limit' | 'not_found'
+
+type FolderOpResult =
+  | { ok: true; folders: UploadGscTrackerFolder[]; trackers: UploadGscTracker[] }
+  | { ok: false; error: TrackerFolderError }
+
+const fail = (error: TrackerFolderError): FolderOpResult => ({ ok: false, error })
+
+/** Pure folder/keyword-group operation (never mutates inputs). A folder exists if it has a record or any tracker has that group. */
+export function applyTrackerFolderOp(
+  folders: UploadGscTrackerFolder[],
+  trackers: UploadGscTracker[],
+  op: unknown,
+  validOwnerIds: ReadonlySet<string>,
+  nowIso: string,
+): FolderOpResult {
+  if (!op || typeof op !== 'object') return fail('invalid')
+  const o = op as Record<string, unknown>
+  const kind = o.op
+  if (typeof kind !== 'string' || !['create', 'createSub', 'rename', 'renameSub', 'owner', 'delete', 'deleteSub'].includes(kind)) return fail('invalid')
+
+  const exists = (name: string) => folders.some((f) => f.name === name) || trackers.some((t) => t.group === name)
+  const recordOf = (name: string): UploadGscTrackerFolder =>
+    folders.find((f) => f.name === name) ?? { name, subgroups: [], createdAt: nowIso }
+  /** Copy of folders with `rec` replacing (or appended for) the record of `name` */
+  const putRecord = (name: string, rec: UploadGscTrackerFolder): UploadGscTrackerFolder[] =>
+    folders.some((f) => f.name === name) ? folders.map((f) => (f.name === name ? rec : f)) : [...folders, rec]
+  const inFolder = (t: UploadGscTracker, name: string) => t.group === name
+  const subExists = (folder: string, sub: string) =>
+    !!folders.find((f) => f.name === folder)?.subgroups.includes(sub) || trackers.some((t) => inFolder(t, folder) && t.subgroup === sub)
+  const withoutSub = (t: UploadGscTracker): UploadGscTracker => { const n = { ...t }; delete n.subgroup; return n }
+
+  if (kind === 'create') {
+    const name = normalizeTrackerGroup(o.name)
+    if (!name) return fail('invalid')
+    if (exists(name)) return fail('duplicate')
+    if (folders.length >= UPLOAD_MAX_TRACKER_FOLDERS) return fail('limit')
+    const owner = normalizeTrackerOwner(o.ownerTagId, validOwnerIds)
+    return { ok: true, folders: [...folders, { name, ...(owner ? { ownerTagId: owner } : {}), subgroups: [], createdAt: nowIso }], trackers }
+  }
+
+  const folder = normalizeTrackerGroup(o.folder)
+  if (!folder) return fail('invalid')
+  if (!exists(folder)) return fail('not_found')
+
+  if (kind === 'createSub') {
+    const sub = normalizeTrackerGroup(o.subgroup)
+    if (!sub) return fail('invalid')
+    if (subExists(folder, sub)) return fail('duplicate')
+    const rec = recordOf(folder)
+    if (rec.subgroups.length >= UPLOAD_MAX_TRACKER_SUBFOLDERS) return fail('limit')
+    const ids = new Set(Array.isArray(o.ids) ? o.ids.filter((v): v is string => typeof v === 'string') : [])
+    return {
+      ok: true,
+      folders: putRecord(folder, { ...rec, subgroups: [...rec.subgroups, sub] }),
+      trackers: ids.size ? trackers.map((t) => (ids.has(t.id) && inFolder(t, folder) ? { ...t, subgroup: sub } : t)) : trackers,
+    }
+  }
+
+  if (kind === 'rename') {
+    const name = normalizeTrackerGroup(o.name)
+    if (!name) return fail('invalid')
+    if (name === folder) return { ok: true, folders, trackers }
+    const old = recordOf(folder)
+    const targetExists = exists(name)
+    const target = recordOf(name)
+    const merged: UploadGscTrackerFolder = targetExists
+      ? { ...target, subgroups: uniqueNames([...target.subgroups, ...old.subgroups], UPLOAD_MAX_TRACKER_SUBFOLDERS) }
+      : { ...old, name }
+    const rest = folders.filter((f) => f.name !== folder && f.name !== name)
+    const nextFolders = [...rest, merged]
+    // keep the original position of the surviving record
+    const order = folders.map((f) => (f.name === folder ? name : f.name))
+    nextFolders.sort((a, b) => {
+      const ia = order.indexOf(a.name), ib = order.indexOf(b.name)
+      return (ia < 0 ? order.length : ia) - (ib < 0 ? order.length : ib)
+    })
+    return { ok: true, folders: nextFolders, trackers: trackers.map((t) => (inFolder(t, folder) ? { ...t, group: name } : t)) }
+  }
+
+  if (kind === 'renameSub') {
+    const sub = normalizeTrackerGroup(o.subgroup)
+    if (!sub) return fail('invalid')
+    if (!subExists(folder, sub)) return fail('not_found')
+    const name = normalizeTrackerGroup(o.name)
+    const rec = recordOf(folder)
+    if (!name) {
+      return {
+        ok: true,
+        folders: folders.some((f) => f.name === folder) ? putRecord(folder, { ...rec, subgroups: rec.subgroups.filter((s) => s !== sub) }) : folders,
+        trackers: trackers.map((t) => (inFolder(t, folder) && t.subgroup === sub ? withoutSub(t) : t)),
+      }
+    }
+    if (name === sub) return { ok: true, folders, trackers }
+    const subgroups = uniqueNames(rec.subgroups.map((s) => (s === sub ? name : s)).concat(rec.subgroups.includes(sub) ? [] : [name]), UPLOAD_MAX_TRACKER_SUBFOLDERS)
+    return {
+      ok: true,
+      folders: putRecord(folder, { ...rec, subgroups }),
+      trackers: trackers.map((t) => (inFolder(t, folder) && t.subgroup === sub ? { ...t, subgroup: name } : t)),
+    }
+  }
+
+  if (kind === 'owner') {
+    const owner = normalizeTrackerOwner(o.ownerTagId, validOwnerIds)
+    const rec = { ...recordOf(folder) }
+    if (owner) rec.ownerTagId = owner; else delete rec.ownerTagId
+    return {
+      ok: true,
+      folders: putRecord(folder, rec),
+      trackers: trackers.map((t) => {
+        if (!inFolder(t, folder)) return t
+        const n = { ...t }
+        if (owner) n.ownerTagId = owner; else delete n.ownerTagId
+        return n
+      }),
+    }
+  }
+
+  if (kind === 'delete') {
+    return {
+      ok: true,
+      folders: folders.filter((f) => f.name !== folder),
+      trackers: trackers.map((t) => {
+        if (!inFolder(t, folder)) return t
+        const n = withoutSub(t)
+        delete n.group
+        return n
+      }),
+    }
+  }
+
+  if (kind === 'deleteSub') {
+    const sub = normalizeTrackerGroup(o.subgroup)
+    if (!sub) return fail('invalid')
+    if (!subExists(folder, sub)) return fail('not_found')
+    return {
+      ok: true,
+      folders: folders.map((f) => (f.name === folder ? { ...f, subgroups: f.subgroups.filter((s) => s !== sub) } : f)),
+      trackers: trackers.map((t) => (inFolder(t, folder) && t.subgroup === sub ? withoutSub(t) : t)),
+    }
+  }
+
+  return fail('invalid')
 }
 
 // ── ผลรายวันของ 1 รายการ ─────────────────────────────────────────────────────────
@@ -500,7 +704,7 @@ export function aggregateTrackerPerformance(list: readonly GscTrackerPerformance
 export function addGscTrackersBulk(
   existing: UploadGscTracker[],
   keywords: readonly unknown[],
-  opts: { group?: unknown; ownerTagId?: unknown },
+  opts: { group?: unknown; ownerTagId?: unknown; subgroup?: unknown },
   newId: () => string,
   nowIso: string,
   validOwnerIds?: ReadonlySet<string>,
@@ -509,7 +713,7 @@ export function addGscTrackersBulk(
   const added: UploadGscTracker[] = []
   let duplicates = 0, invalid = 0, overLimit = 0
   for (const kw of keywords) {
-    const r = addGscTracker(trackers, { kind: 'keyword', keyword: kw, group: opts.group, ownerTagId: opts.ownerTagId }, newId, nowIso, validOwnerIds)
+    const r = addGscTracker(trackers, { kind: 'keyword', keyword: kw, group: opts.group, subgroup: opts.subgroup, ownerTagId: opts.ownerTagId }, newId, nowIso, validOwnerIds)
     if (r.ok) { trackers = r.trackers; added.push(r.tracker); continue }
     if (r.error === 'limit') overLimit++
     else if (r.error.startsWith('duplicate')) duplicates++

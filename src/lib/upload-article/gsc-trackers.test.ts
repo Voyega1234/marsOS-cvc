@@ -6,6 +6,7 @@ import { createQueryBudget, GSC_TRACKER_QUERIES_PER_MINUTE } from './gsc-budget'
 import {
   addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
+  applyTrackerFolderOp, readTrackerFolders, isTrackerFoldersClient, UPLOAD_MAX_TRACKER_FOLDERS, UPLOAD_MAX_TRACKER_SUBFOLDERS, type UploadGscTrackerFolder,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
 } from './gsc-trackers';
 import { isHostAllowedForSite } from './gsc-tracker-resolve';
@@ -235,6 +236,23 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   const moved = updateGscTrackers(many, ['a', 'c', 'zzz'], { group: 'G' }, owners);
   assert(!!moved && moved[0].group === 'G' && moved[1].group === undefined && moved[2].group === 'G', 'group: bulk move only listed ids');
   assert(removeGscTrackers(many, ['a', 'b']).map((t) => t.id).join() === 'c', 'remove: bulk');
+
+  // subgroup: lives only inside a group
+  const sg = addGscTracker([], { kind: 'keyword', keyword: 'cpas', group: 'Ads', subgroup: '  แบรนด์  ' }, () => 's1', 'now');
+  assert(sg.ok && sg.tracker.subgroup === 'แบรนด์' && readGscTrackers(sg.trackers)[0].subgroup === 'แบรนด์', 'subgroup: add stores normalized subgroup, survives read');
+  const noGroup = addGscTracker([], { kind: 'keyword', keyword: 'cpas', subgroup: 'X' }, () => 's2', 'now');
+  assert(noGroup.ok && !('subgroup' in noGroup.tracker), 'subgroup: dropped on add without group');
+  assert(!('subgroup' in readGscTrackers([{ id: 'x', keyword: 'a', url: '', subgroup: 'X' }])[0]), 'subgroup: dropped on read without group');
+  const inG = updateGscTrackers(many, ['a', 'b'], { group: 'G', subgroup: 'S' }, owners)!;
+  assert(inG[0].group === 'G' && inG[0].subgroup === 'S' && inG[2].subgroup === undefined, 'subgroup: set with group');
+  const renamed = updateGscTrackers(inG, ['a', 'b'], { group: 'G2' }, owners)!;
+  assert(renamed[0].group === 'G2' && renamed[0].subgroup === 'S', 'subgroup: kept when only the group is renamed');
+  const subOnly = updateGscTrackers(renamed, ['a', 'c'], { subgroup: 'T' }, owners)!;
+  assert(subOnly[0].subgroup === 'T' && subOnly[2].subgroup === undefined, 'subgroup: not set on an item without a group');
+  const subCleared = updateGscTrackers(subOnly, ['a'], { subgroup: '' }, owners)!;
+  assert(!('subgroup' in subCleared[0]) && subCleared[0].group === 'G2', 'subgroup: empty removes subgroup, keeps group');
+  const outOfGroup = updateGscTrackers(subOnly, ['a'], { group: '' }, owners)!;
+  assert(!('group' in outOfGroup[0]) && !('subgroup' in outOfGroup[0]), 'subgroup: removed together with the group');
 }
 
 // ── isHostAllowedForSite ──
@@ -417,6 +435,95 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   const synonym: RawGscRow[] = [{ keys: ['รับยิงแอด ig'], clicks: 1, impressions: 10, ctr: 0.1, position: 5 }];
   assert(assignSimilarKeywords(synonym, [], ['ยิงแอด', 'รับยิงโฆษณา ig']).get('รับยิงโฆษณา ig')!.length === 1, 'similar assign: the keyword that shares the platform word wins over a closer general one');
   assert(assignSimilarKeywords(pool, [], ['รับยิงโฆษณา']).get('รับยิงโฆษณา')!.length === 5, 'similar assign: with no closer keyword, the general one keeps them');
+}
+
+// ── folders + keyword groups (Convert Cake) ──
+{
+  const NOW = '2026-11-23T00:00:00.000Z';
+  const owners = new Set(['o1', 'o2']);
+  const tr = (id: string, kw: string, extra: Partial<UploadGscTracker> = {}): UploadGscTracker => ({ id, keyword: kw, url: '', createdAt: '', ...extra });
+  const run = (f: UploadGscTrackerFolder[], t: UploadGscTracker[], op: unknown) => applyTrackerFolderOp(f, t, op, owners, NOW);
+  const okR = (r: ReturnType<typeof run>) => { if (!r.ok) throw new Error('expected ok, got ' + r.error); return r; };
+  const errOf = (r: ReturnType<typeof run>) => (r.ok ? 'ok' : r.error);
+
+  assert(isTrackerFoldersClient('Convert Cake') && isTrackerFoldersClient('convertcake.com') && !isTrackerFoldersClient('Mfactors') && !isTrackerFoldersClient(null), 'folders: only Convert Cake client enabled');
+
+  const rf = readTrackerFolders([
+    { name: '  A   B ', ownerTagId: ' o1 ', subgroups: ['x', 'x', ' ', 'y', 5], createdAt: 't' },
+    { name: 'A B', subgroups: [] }, { name: '' }, null, 'str', { name: 'C', ownerTagId: 7 },
+  ]);
+  assert(rf.length === 2 && rf[0].name === 'A B' && rf[0].ownerTagId === 'o1' && rf[0].subgroups.join() === 'x,y' && rf[1].name === 'C' && !('ownerTagId' in rf[1]) && rf[1].createdAt === '', 'folders: read sanitizes names, dupes, owner, subgroups');
+  assert(readTrackerFolders('x').length === 0, 'folders: non-array -> empty');
+  assert(readTrackerFolders(Array.from({ length: 80 }, (_, i) => ({ name: 'f' + i }))).length === UPLOAD_MAX_TRACKER_FOLDERS, 'folders: read caps folder count');
+  assert(readTrackerFolders([{ name: 'a', subgroups: Array.from({ length: 80 }, (_, i) => 's' + i) }])[0].subgroups.length === UPLOAD_MAX_TRACKER_SUBFOLDERS, 'folders: read caps subgroups');
+
+  // create
+  const c1 = okR(run([], [], { op: 'create', name: ' Proj  1 ', ownerTagId: 'o1' }));
+  assert(c1.folders.length === 1 && c1.folders[0].name === 'Proj 1' && c1.folders[0].ownerTagId === 'o1' && c1.folders[0].createdAt === NOW, 'create: adds record with owner');
+  assert(!('ownerTagId' in okR(run([], [], { op: 'create', name: 'P', ownerTagId: 'zzz' })).folders[0]), 'create: unknown owner dropped');
+  assert(errOf(run([], [], { op: 'create', name: '  ' })) === 'invalid', 'create: empty name invalid');
+  assert(errOf(run(c1.folders, [], { op: 'create', name: 'Proj 1' })) === 'duplicate', 'create: duplicate by record');
+  assert(errOf(run([], [tr('a', 'k', { group: 'G' })], { op: 'create', name: 'G' })) === 'duplicate', 'create: duplicate by tracker group');
+  const full = Array.from({ length: UPLOAD_MAX_TRACKER_FOLDERS }, (_, i) => ({ name: 'f' + i, subgroups: [], createdAt: '' }));
+  assert(errOf(run(full, [], { op: 'create', name: 'new' })) === 'limit', 'create: folder limit');
+  assert(errOf(run([], [], { op: 'bogus' })) === 'invalid' && errOf(run([], [], null)) === 'invalid' && errOf(run([], [], { op: 5 })) === 'invalid', 'op: unknown/garbage invalid');
+
+  // createSub
+  const T = [tr('a', 'k1', { group: 'G' }), tr('b', 'k2', { group: 'G' }), tr('c', 'k3', { group: 'H' }), tr('d', 'k4')];
+  const s1 = okR(run([], T, { op: 'createSub', folder: 'G', subgroup: 'Brand', ids: ['a', 'c', 'd'] }));
+  assert(s1.folders.length === 1 && s1.folders[0].name === 'G' && s1.folders[0].subgroups.join() === 'Brand', 'createSub: creates record for tracker-only folder');
+  assert(s1.trackers.find((t) => t.id === 'a')!.subgroup === 'Brand' && !s1.trackers.find((t) => t.id === 'c')!.subgroup && !s1.trackers.find((t) => t.id === 'd')!.subgroup && !s1.trackers.find((t) => t.id === 'b')!.subgroup, 'createSub: ids limited to trackers in the folder');
+  assert(!T[0].subgroup, 'createSub: inputs not mutated');
+  assert(errOf(run([], T, { op: 'createSub', folder: 'Nope', subgroup: 'x' })) === 'not_found', 'createSub: folder missing');
+  assert(errOf(run([], T, { op: 'createSub', folder: 'G', subgroup: ' ' })) === 'invalid', 'createSub: empty subgroup invalid');
+  assert(errOf(run(s1.folders, s1.trackers, { op: 'createSub', folder: 'G', subgroup: 'Brand' })) === 'duplicate', 'createSub: duplicate in record');
+  assert(errOf(run([], [tr('a', 'k', { group: 'G', subgroup: 'S' })], { op: 'createSub', folder: 'G', subgroup: 'S' })) === 'duplicate', 'createSub: duplicate on tracker');
+  const manySubs = [{ name: 'G', subgroups: Array.from({ length: UPLOAD_MAX_TRACKER_SUBFOLDERS }, (_, i) => 's' + i), createdAt: '' }];
+  assert(errOf(run(manySubs, [], { op: 'createSub', folder: 'G', subgroup: 'new' })) === 'limit', 'createSub: subgroup limit');
+
+  // rename
+  const F: UploadGscTrackerFolder[] = [{ name: 'G', ownerTagId: 'o1', subgroups: ['a', 'b'], createdAt: 'x' }, { name: 'H', ownerTagId: 'o2', subgroups: ['b', 'c'], createdAt: 'y' }];
+  const RT = [tr('1', 'k1', { group: 'G', subgroup: 'a' }), tr('2', 'k2', { group: 'H' })];
+  const r1 = okR(run(F, RT, { op: 'rename', folder: 'G', name: 'Z' }));
+  assert(r1.folders.map((f) => f.name).join() === 'Z,H' && r1.folders[0].ownerTagId === 'o1' && r1.folders[0].subgroups.join() === 'a,b', 'rename: renames record, keeps owner/subgroups/position');
+  assert(r1.trackers[0].group === 'Z' && r1.trackers[0].subgroup === 'a', 'rename: trackers follow, keep subgroup');
+  assert(okR(run(F, RT, { op: 'rename', folder: 'G', name: 'G' })).folders === F, 'rename: same name no-op');
+  const r2 = okR(run(F, RT, { op: 'rename', folder: 'G', name: 'H' }));
+  assert(r2.folders.length === 1 && r2.folders[0].name === 'H' && r2.folders[0].ownerTagId === 'o2' && r2.folders[0].subgroups.join() === 'b,c,a', 'rename: merge keeps target owner, unions subgroups');
+  assert(r2.trackers.every((t) => t.group === 'H'), 'rename: merge moves trackers');
+  const r3 = okR(run([], [tr('a', 'k', { group: 'Old' })], { op: 'rename', folder: 'Old', name: 'New' }));
+  assert(r3.folders.length === 1 && r3.folders[0].name === 'New' && r3.trackers[0].group === 'New', 'rename: tracker-only folder gets a record');
+  assert(errOf(run(F, RT, { op: 'rename', folder: 'G', name: ' ' })) === 'invalid' && errOf(run(F, RT, { op: 'rename', folder: 'X', name: 'Q' })) === 'not_found', 'rename: errors');
+
+  // renameSub
+  const ST = [tr('1', 'k1', { group: 'G', subgroup: 'a' }), tr('2', 'k2', { group: 'G', subgroup: 'b' }), tr('3', 'k3', { group: 'H', subgroup: 'a' })];
+  const q1 = okR(run(F, ST, { op: 'renameSub', folder: 'G', subgroup: 'a', name: 'A2' }));
+  assert(q1.folders[0].subgroups.join() === 'A2,b' && q1.trackers[0].subgroup === 'A2' && q1.trackers[2].subgroup === 'a', 'renameSub: renames in folder only');
+  const q2 = okR(run(F, ST, { op: 'renameSub', folder: 'G', subgroup: 'a', name: 'b' }));
+  assert(q2.folders[0].subgroups.join() === 'b' && q2.trackers[0].subgroup === 'b', 'renameSub: merge into existing');
+  const q3 = okR(run(F, ST, { op: 'renameSub', folder: 'G', subgroup: 'a', name: '' }));
+  assert(q3.folders[0].subgroups.join() === 'b' && !q3.trackers[0].subgroup && q3.trackers[0].group === 'G', 'renameSub: empty name removes subgroup, trackers stay in folder');
+  assert(errOf(run(F, ST, { op: 'renameSub', folder: 'G', subgroup: 'zz', name: 'q' })) === 'not_found', 'renameSub: missing sub');
+
+  // owner
+  const w1 = okR(run(F, RT, { op: 'owner', folder: 'G', ownerTagId: 'o2' }));
+  assert(w1.folders[0].ownerTagId === 'o2' && w1.trackers[0].ownerTagId === 'o2' && !w1.trackers[1].ownerTagId, 'owner: set on record and its trackers only');
+  const w2 = okR(run(w1.folders, w1.trackers, { op: 'owner', folder: 'G', ownerTagId: 'unknown' }));
+  assert(!('ownerTagId' in w2.folders[0]) && !('ownerTagId' in w2.trackers[0]), 'owner: unknown clears field');
+  assert(okR(run([], [tr('a', 'k', { group: 'G' })], { op: 'owner', folder: 'G', ownerTagId: 'o1' })).folders[0].ownerTagId === 'o1', 'owner: creates record when missing');
+  assert(errOf(run(F, RT, { op: 'owner', folder: 'X', ownerTagId: 'o1' })) === 'not_found', 'owner: folder missing');
+
+  // delete / deleteSub
+  const d1 = okR(run(F, ST, { op: 'delete', folder: 'G' }));
+  assert(d1.folders.length === 1 && d1.folders[0].name === 'H' && d1.trackers.length === 3 && !d1.trackers[0].group && !d1.trackers[0].subgroup && d1.trackers[2].group === 'H', 'delete: drops record, keeps trackers ungrouped');
+  assert(errOf(run(F, ST, { op: 'delete', folder: 'X' })) === 'not_found', 'delete: missing');
+  const e1 = okR(run(F, ST, { op: 'deleteSub', folder: 'G', subgroup: 'a' }));
+  assert(e1.folders[0].subgroups.join() === 'b' && !e1.trackers[0].subgroup && e1.trackers[0].group === 'G' && e1.trackers[2].subgroup === 'a', 'deleteSub: removes sub only in that folder');
+  assert(errOf(run(F, ST, { op: 'deleteSub', folder: 'G', subgroup: 'nope' })) === 'not_found', 'deleteSub: missing');
+
+  // bulk with subgroup
+  const bk = addGscTrackersBulk([], ['kw one', 'kw two'], { group: 'G', subgroup: 'S' }, (() => { let n = 0; return () => 'id' + n++; })(), NOW);
+  assert(bk.added.length === 2 && bk.added.every((t) => t.group === 'G' && t.subgroup === 'S'), 'bulk: passes subgroup');
 }
 
 console.log(`\nAll ${passed} assertions passed`);

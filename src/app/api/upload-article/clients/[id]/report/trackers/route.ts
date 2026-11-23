@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { parsePrefs, updatePrefs, type PrefsObject } from '@/lib/upload-article/prefs-store'
 import type { UploadGscReportPrefs } from '@/lib/upload-article/types'
 import {
-  addGscTracker, addGscTrackersBulk, readGscTrackers, removeGscTrackers, updateGscTrackers, UPLOAD_MAX_GSC_TRACKERS, normalizeTrackerUrl, isIdPermalinkUrl,
+  addGscTracker, addGscTrackersBulk, readGscTrackers, removeGscTrackers, updateGscTrackers, UPLOAD_MAX_GSC_TRACKERS, isTrackerFoldersClient, normalizeTrackerUrl, isIdPermalinkUrl,
   GSC_TRACKER_ERROR_MESSAGES, type AddGscTrackerResult,
 } from '@/lib/upload-article/gsc-trackers'
 import { readOwnerTags } from '@/lib/upload-article/owner-tags'
@@ -49,15 +49,17 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 /**
- * POST body {kind?, keyword?, url?, title?, ownerTagId?, group?} — เพิ่มรายการ (ลิงก์ ?p=123 จะถูกแปลงเป็นลิงก์จริงถ้าหาเจอ)
+ * POST body {kind?, keyword?, url?, title?, ownerTagId?, group?, subgroup?} — เพิ่มรายการ (ลิงก์ ?p=123 จะถูกแปลงเป็นลิงก์จริงถ้าหาเจอ)
  * หรือ {keywords: string[], group?, ownerTagId?} — เพิ่มหลายคำ (keyword ทั้งเว็บ) เข้ากลุ่มเดียวกัน
  * kind: 'keyword' (คำนี้ทั้งเว็บ) | 'page' (หน้านี้ทุกคำ) | 'pair' (คำนี้บนหน้านี้); ไม่ส่ง = ดูจากช่องที่กรอก
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard()
   if ('res' in g) return g.res
-  const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: g.orgId }, select: { pushPrefs: true } })
+  const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: g.orgId }, select: { name: true, pushPrefs: true } })
   if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  // Keyword groups (subgroup) exist only for Convert Cake
+  const allowSub = isTrackerFoldersClient(client.name)
 
   const body = await req.json().catch(() => ({}))
 
@@ -66,7 +68,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const keywords = (body.keywords as unknown[]).slice(0, UPLOAD_MAX_GSC_TRACKERS)
     if (keywords.length === 0) return NextResponse.json({ error: 'ยังไม่ได้เลือกคำ' }, { status: 400 })
     const bulk = await updatePrefs(params.id, g.orgId, (current) => {
-      const r = addGscTrackersBulk(readGscTrackers(current.gscTrackers), keywords, { group: body?.group, ownerTagId: body?.ownerTagId },
+      const r = addGscTrackersBulk(readGscTrackers(current.gscTrackers), keywords, { group: body?.group, subgroup: allowSub ? body?.subgroup : undefined, ownerTagId: body?.ownerTagId },
         () => crypto.randomUUID().slice(0, 8), new Date().toISOString(), ownerIdSet(current))
       if (r.added.length === 0) return { result: r }
       const next: PrefsObject = { ...current, gscTrackers: r.trackers }
@@ -81,13 +83,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ trackers: r.trackers, added: r.added.length, duplicates: r.duplicates, invalid: r.invalid, overLimit: r.overLimit })
   }
 
-  const input: { kind: unknown; keyword: unknown; url: unknown; title: unknown; ownerTagId: unknown; group: unknown; sourceUrl?: string } = {
+  const input: { kind: unknown; keyword: unknown; url: unknown; title: unknown; ownerTagId: unknown; group: unknown; subgroup: unknown; sourceUrl?: string } = {
     kind: body?.kind,
     keyword: body?.keyword,
     url: body?.url,
     title: body?.title,
     ownerTagId: body?.ownerTagId,
     group: body?.group,
+    subgroup: allowSub ? body?.subgroup : undefined,
   }
 
   // แปลงลิงก์เลขโพสต์ "นอก" updatePrefs — ไม่ถือล็อกแถวระหว่างยิงเน็ต
@@ -119,8 +122,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 /**
- * PATCH body {ids: string[] (หรือ id), ownerTagId?, group?} — แก้ผู้ดูแล/กลุ่มของหลายรายการพร้อมกัน
- * เฉพาะช่องที่ส่งมา; ownerTagId ว่าง/ไม่รู้จัก = ล้างผู้ดูแล, group ว่าง = เอาออกจากกลุ่ม
+ * PATCH body {ids: string[] (หรือ id), ownerTagId?, group?, subgroup?} — แก้ผู้ดูแล/กลุ่ม/กลุ่มย่อยของหลายรายการพร้อมกัน
+ * เฉพาะช่องที่ส่งมา; ownerTagId ว่าง/ไม่รู้จัก = ล้างผู้ดูแล, group ว่าง = เอาออกจากกลุ่ม, subgroup ว่าง = เอาออกจากกลุ่มย่อย
  */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard()
@@ -128,10 +131,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json().catch(() => ({}))
   const ids = readIds(body?.ids ?? body?.id)
   if (ids.length === 0) return NextResponse.json({ error: 'ไม่ระบุรายการ' }, { status: 400 })
-  const patch: { ownerTagId?: unknown; group?: unknown } = {}
+  const client = await prisma.uploadClient.findFirst({ where: { id: params.id, organizationId: g.orgId }, select: { name: true } })
+  if (!client) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
+  const allowSub = isTrackerFoldersClient(client.name)
+  const patch: { ownerTagId?: unknown; group?: unknown; subgroup?: unknown } = {}
   if (body && 'ownerTagId' in body) patch.ownerTagId = body.ownerTagId ?? ''
   if (body && 'group' in body) patch.group = body.group ?? ''
-  if (!('ownerTagId' in patch) && !('group' in patch)) return NextResponse.json({ error: 'ไม่มีอะไรให้แก้' }, { status: 400 })
+  if (allowSub && body && 'subgroup' in body) patch.subgroup = body.subgroup ?? ''
+  if (!('ownerTagId' in patch) && !('group' in patch) && !('subgroup' in patch)) return NextResponse.json({ error: 'ไม่มีอะไรให้แก้' }, { status: 400 })
 
   const result = await updatePrefs<ReturnType<typeof updateGscTrackers>>(params.id, g.orgId, (current) => {
     const trackers = updateGscTrackers(readGscTrackers(current.gscTrackers), ids, patch, ownerIdSet(current))

@@ -17,7 +17,9 @@ import GscTable, { type GscTableColumn } from "./GscTable";
 import { GscKpiRow, GscTrendPanel, GscBucketPanel } from "./GscCharts";
 import OwnerTagsEditor from "./OwnerTagsEditor";
 import GscTrackedKeywords, { type TrackerDraft } from "./GscTrackedKeywords";
-import { aggregateTrackerPerformance, trackerKey, trackerKeys, type GscTrackerPerformance, type UploadGscTracker } from "@/lib/upload-article/gsc-trackers";
+import TrackToFolderDialog, { type TrackTarget } from "./TrackToFolderDialog";
+import TrackerGroupTables from "./TrackerGroupTables";
+import { aggregateTrackerPerformance, trackerKey, trackerKeys, type GscTrackerPerformance, type UploadGscTracker, type UploadGscTrackerFolder } from "@/lib/upload-article/gsc-trackers";
 import ArticleOwnerSelect from "@/components/upload-article/ArticleOwnerSelect";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
 import type {
@@ -107,9 +109,11 @@ function ChangeCell({ current, prev, isNew, isLost }: { current: number; prev: n
 }
 
 export default function UploadGscReportTab({
-  clientId, ownerTags, articleOwners, onOwnerTagsChange, onOwnerChange,
+  clientId, ownerTags, articleOwners, onOwnerTagsChange, onOwnerChange, foldersEnabled = false,
 }: {
   clientId: string;
+  /** Convert Cake only: tracker project folders + keyword groups */
+  foldersEnabled?: boolean;
   ownerTags: UploadOwnerTag[];
   articleOwners: Record<string, string>;
   onOwnerTagsChange: (ownerTags: UploadOwnerTag[], articleOwners: Record<string, string>) => void;
@@ -198,6 +202,77 @@ export default function UploadGscReportTab({
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, [clientId]);
+
+  // ── Convert Cake only: project folders + keyword groups, shown on the คำค้นหา / หน้าเว็บ tabs too ──
+  const [folders, setFolders] = useState<UploadGscTrackerFolder[]>([]);
+  useEffect(() => {
+    setFolders([]);
+    if (!foldersEnabled) return;
+    let alive = true;
+    fetch(`/api/upload-article/clients/${clientId}/report/tracker-folders`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d && Array.isArray(d.folders)) setFolders(d.folders); })
+      .catch(() => { /* folders from tracker groups still show */ });
+    return () => { alive = false; };
+  }, [clientId, foldersEnabled]);
+
+  // numbers of every tracker for the group tables — same body as the tracked tab, so the server cache is shared
+  const groupedTrackerSig = useMemo(
+    () => (foldersEnabled ? trackers.filter((t) => t.group).map((t) => t.id).join(",") : ""),
+    [foldersEnabled, trackers],
+  );
+  const groupTablesShown = foldersEnabled && (subTab === "queries" || subTab === "pages");
+  const [groupPerf, setGroupPerf] = useState<Map<string, GscTrackerPerformance> | null>(null);
+  const [groupPerfLoading, setGroupPerfLoading] = useState(false);
+  const groupPerfSeq = useRef(0);
+  useEffect(() => {
+    const seq = ++groupPerfSeq.current;
+    if (!groupTablesShown || !groupedTrackerSig || !reportPeriodKey) { setGroupPerfLoading(false); return; }
+    setGroupPerfLoading(true);
+    fetch(`/api/upload-article/clients/${clientId}/report/trackers/performance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: reportPeriodKey,
+    })
+      .then((r) => r.json().catch(() => ({})))
+      .then((d) => {
+        if (seq !== groupPerfSeq.current) return;
+        setGroupPerf(Array.isArray(d?.trackers) ? new Map((d.trackers as GscTrackerPerformance[]).map((p) => [p.id, p])) : null);
+      })
+      .catch(() => { if (seq === groupPerfSeq.current) setGroupPerf(null); })
+      .finally(() => { if (seq === groupPerfSeq.current) setGroupPerfLoading(false); });
+  }, [clientId, groupTablesShown, groupedTrackerSig, reportPeriodKey]);
+  useEffect(() => { setGroupPerf(null); }, [clientId, reportPeriodKey]);
+
+  const [trackTarget, setTrackTarget] = useState<TrackTarget | null>(null);
+  const [trackBusy, setTrackBusy] = useState(false);
+  const saveToFolder = useCallback(async (group: string, subgroup: string) => {
+    if (!trackTarget) return;
+    const { keyword, url, title } = trackTarget;
+    const owner = folders.find((f) => f.name === group)?.ownerTagId || ownerFilter;
+    setTrackBusy(true);
+    try {
+      const r = await fetch(`/api/upload-article/clients/${clientId}/report/trackers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: keyword && url ? "pair" : url ? "page" : "keyword",
+          keyword, url, ...(title ? { title } : {}),
+          ...(group ? { group } : {}), ...(group && subgroup ? { subgroup } : {}),
+          ...(owner ? { ownerTagId: owner } : {}),
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d?.error || "บันทึก Monitor ไม่สำเร็จ"); return; }
+      if (Array.isArray(d.trackers)) setTrackers(d.trackers);
+      toast.success(group ? `ติดตามแล้ว — อยู่ใน "${group}"${subgroup ? ` › "${subgroup}"` : ""}` : "ติดตามแล้ว");
+      setTrackTarget(null);
+    } catch (e) {
+      toast.error(`บันทึก Monitor ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setTrackBusy(false);
+    }
+  }, [clientId, trackTarget, folders, ownerFilter]);
 
   const saveTracker: SaveTracker = useCallback(async ({ keyword, url, title }) => {
     try {
@@ -475,14 +550,31 @@ export default function UploadGscReportTab({
                     onDraftConsumed={() => setTrackerDraft(null)}
                     ownerTags={ownerTags}
                     defaultOwnerTagId={ownerFilter}
+                    foldersEnabled={foldersEnabled}
+                    folders={folders}
+                    onFoldersChange={setFolders}
                   />
                 )}
-                {subTab === "queries" && (
+                {subTab === "queries" && (foldersEnabled ? (
+                  <>
+                    <TrackerGroupTables mode="queries" trackers={trackers} folders={folders} perf={groupPerf} loading={groupPerfLoading}
+                      ownerTags={ownerTags} onOpenTracked={() => setSubTab("tracked")} />
+                    <QueriesSubTab rows={data.queries} onTrack={(keyword) => setTrackTarget({ keyword, url: "" })}
+                      isTracked={(keyword) => trackedKeys.has(trackerKey(keyword, ""))} />
+                  </>
+                ) : (
                   <QueriesSubTab rows={data.queries} onTrack={(keyword) => { setTrackerDraft({ keyword }); setSubTab("tracked"); }} />
-                )}
-                {subTab === "pages" && (
+                ))}
+                {subTab === "pages" && (foldersEnabled ? (
+                  <>
+                    <TrackerGroupTables mode="pages" trackers={trackers} folders={folders} perf={groupPerf} loading={groupPerfLoading}
+                      ownerTags={ownerTags} onOpenTracked={() => setSubTab("tracked")} />
+                    <PagesSubTab rows={data.pages} onTrack={(url) => setTrackTarget({ keyword: "", url })}
+                      isTracked={(url) => trackedKeys.has(trackerKey("", url))} />
+                  </>
+                ) : (
                   <PagesSubTab rows={data.pages} />
-                )}
+                ))}
                 {subTab === "articles" && (
                   <ArticlesSubTab rows={data.uploadedArticles} trackedKeys={trackedKeys} onSaveTracker={saveTracker} ownerTags={ownerTags} articleOwners={articleOwners} onOwnerChange={onOwnerChange} />
                 )}
@@ -501,6 +593,11 @@ export default function UploadGscReportTab({
         </>
       )}
 
+      {foldersEnabled && (
+        <TrackToFolderDialog target={trackTarget} folders={folders} trackers={trackers} busy={trackBusy}
+          onClose={() => setTrackTarget(null)} onSubmit={(g, sub) => void saveToFolder(g, sub)} />
+      )}
+
       {!selectedSite && !sitesError && (
         <Panel><EmptyState icon={<BarChart3 className="h-5 w-5" />} title="เลือกเว็บ Search Console ด้านบนเพื่อดูรายงาน" /></Panel>
       )}
@@ -514,7 +611,7 @@ function OverviewSubTab({ data }: { data: GscReportResponse }) {
   return <GscBucketPanel buckets={data.positionBuckets} />;
 }
 
-function QueriesSubTab({ rows, onTrack }: { rows: GscQueryRow[]; onTrack?: (keyword: string) => void }) {
+function QueriesSubTab({ rows, onTrack, isTracked }: { rows: GscQueryRow[]; onTrack?: (keyword: string) => void; isTracked?: (keyword: string) => boolean }) {
   const columns: GscTableColumn<GscQueryRow>[] = [
     { key: "query", label: "คำค้นหา", sortValue: (r) => r.query, render: (r) => <span className="font-medium text-brand-navy">{r.query}</span> },
     { key: "clicks", label: "คลิก", align: "right", sortValue: (r) => r.clicks, csvValue: (r) => r.clicks },
@@ -522,7 +619,9 @@ function QueriesSubTab({ rows, onTrack }: { rows: GscQueryRow[]; onTrack?: (keyw
     { key: "ctr", label: "CTR", align: "right", sortValue: (r) => r.ctr, render: (r) => fmtCtr(r.ctr), csvValue: (r) => fmtCtr(r.ctr) },
     { key: "position", label: "อันดับ", align: "right", sortValue: (r) => r.position, render: (r) => fmtPos(r.position), csvValue: (r) => r.position },
     { key: "change", label: "เปลี่ยนแปลง (คลิก)", align: "right", sortValue: (r) => r.changeClicks, render: (r) => <ChangeCell current={r.clicks} prev={r.prevClicks} isNew={r.isNew} isLost={r.isLost} />, csvValue: (r) => r.changeClicks },
-    ...(onTrack ? [{ key: "track", label: "", render: (r: GscQueryRow) => (
+    ...(onTrack ? [{ key: "track", label: "", render: (r: GscQueryRow) => isTracked?.(r.query) ? (
+      <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 whitespace-nowrap"><Bookmark size={11} /> ติดตามแล้ว</span>
+    ) : (
       <button type="button" onClick={() => onTrack(r.query)} className="inline-flex items-center gap-1 text-[11px] text-brand-blue hover:underline whitespace-nowrap">
         <BookmarkPlus size={11} /> ติดตาม
       </button>
@@ -533,7 +632,7 @@ function QueriesSubTab({ rows, onTrack }: { rows: GscQueryRow[]; onTrack?: (keyw
   );
 }
 
-function PagesSubTab({ rows }: { rows: GscPageRow[] }) {
+function PagesSubTab({ rows, onTrack, isTracked }: { rows: GscPageRow[]; onTrack?: (url: string) => void; isTracked?: (url: string) => boolean }) {
   const columns: GscTableColumn<GscPageRow>[] = [
     { key: "page", label: "หน้าเว็บ", sortValue: (r) => r.page, render: (r) => <a href={r.page} target="_blank" rel="noreferrer" className="text-brand-blue font-mono text-[11px] hover:underline break-all">{r.page}</a> },
     { key: "clicks", label: "คลิก", align: "right", sortValue: (r) => r.clicks, csvValue: (r) => r.clicks },
@@ -541,6 +640,13 @@ function PagesSubTab({ rows }: { rows: GscPageRow[] }) {
     { key: "ctr", label: "CTR", align: "right", sortValue: (r) => r.ctr, render: (r) => fmtCtr(r.ctr), csvValue: (r) => fmtCtr(r.ctr) },
     { key: "position", label: "อันดับ", align: "right", sortValue: (r) => r.position, render: (r) => fmtPos(r.position), csvValue: (r) => r.position },
     { key: "change", label: "เปลี่ยนแปลง (คลิก)", align: "right", sortValue: (r) => r.changeClicks, render: (r) => <ChangeCell current={r.clicks} prev={r.prevClicks} isNew={r.isNew} isLost={r.isLost} />, csvValue: (r) => r.changeClicks },
+    ...(onTrack ? [{ key: "track", label: "", render: (r: GscPageRow) => isTracked?.(r.page) ? (
+      <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 whitespace-nowrap"><Bookmark size={11} /> ติดตามแล้ว</span>
+    ) : (
+      <button type="button" onClick={() => onTrack(r.page)} className="inline-flex items-center gap-1 text-[11px] text-brand-blue hover:underline whitespace-nowrap">
+        <BookmarkPlus size={11} /> ติดตาม
+      </button>
+    ) } satisfies GscTableColumn<GscPageRow>] : []),
   ];
   return <GscTable rows={rows} columns={columns} rowKey={(r) => r.page} searchText={(r) => r.page} csvFilename="gsc-pages.csv" />;
 }
