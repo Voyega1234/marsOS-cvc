@@ -563,7 +563,8 @@ export default function UploadGscReportTab({
                   <PagesSubTab rows={data.pages} />
                 ))}
                 {subTab === "articles" && (
-                  <ArticlesSubTab rows={data.uploadedArticles} trackedKeys={trackedKeys} onSaveTracker={saveTracker} ownerTags={ownerTags} articleOwners={articleOwners} onOwnerChange={onOwnerChange} />
+                  <ArticlesSubTab rows={data.uploadedArticles} trackedKeys={trackedKeys} onSaveTracker={saveTracker} ownerTags={ownerTags} articleOwners={articleOwners} onOwnerChange={onOwnerChange}
+                    groupOf={foldersEnabled ? (url) => groupOf("", url) : undefined} />
                 )}
                 {subTab === "opportunities" && (
                   <OpportunitiesSubTab strikingDistance={data.opportunities.strikingDistance} lowCtr={data.opportunities.lowCtr} trackedKeys={trackedKeys} onSaveTracker={saveTracker} />
@@ -682,8 +683,10 @@ function PagesSubTab({ rows, onTrack, isTracked, groupOf }: {
   return <GscTable rows={rows} columns={columns} rowKey={(r) => r.page} searchText={(r) => r.page} csvFilename="gsc-pages.csv" />;
 }
 
-function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange, trackedKeys, onSaveTracker }: {
+function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange, trackedKeys, onSaveTracker, groupOf }: {
   rows: UploadedArticleReportRow[];
+  /** Convert Cake only: folder + keyword group the article's URL is tracked in */
+  groupOf?: (url: string) => RowGroup | null;
   trackedKeys: Set<string>;
   onSaveTracker: SaveTracker;
   ownerTags: UploadOwnerTag[];
@@ -707,6 +710,7 @@ function ArticlesSubTab({ rows, ownerTags, articleOwners, onOwnerChange, tracked
     { key: "ctr", label: "CTR", align: "right", sortValue: (r) => r.ctr, render: (r) => fmtCtr(r.ctr), csvValue: (r) => fmtCtr(r.ctr) },
     { key: "position", label: "อันดับ", align: "right", sortValue: (r) => r.position, render: (r) => fmtPos(r.position), csvValue: (r) => r.position },
     { key: "change", label: "เปลี่ยนแปลง (คลิก)", align: "right", sortValue: (r) => r.changeClicks, render: (r) => <ChangeCell current={r.clicks} prev={r.prevClicks} />, csvValue: (r) => r.changeClicks },
+    ...(groupOf ? groupColumns<UploadedArticleReportRow>((r) => groupOf(r.url)) : []),
   ];
   return (
     <GscTable

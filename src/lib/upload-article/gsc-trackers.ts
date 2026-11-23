@@ -695,6 +695,20 @@ export function aggregateTrackerPerformance(list: readonly GscTrackerPerformance
   }
 }
 
+/**
+ * Convert Cake: a keyword tracker's numbers counted together with the similar keywords listed under it
+ * (CTR and position recomputed, position weighted by impressions). Daily series stay the keyword's own.
+ * Each GSC query is assigned to one tracker only (assignSimilarKeywords), so summing these does not double count.
+ */
+export function withSimilarTotals<T extends Pick<GscTrackerPerformance, 'totals' | 'prevTotals' | 'similar'>>(p: T): T {
+  if (!p.similar?.length) return p
+  return {
+    ...p,
+    totals: sumMetric([p.totals, ...p.similar.map((s) => s.totals)]),
+    prevTotals: sumMetric([p.prevTotals, ...p.similar.map((s) => s.prevTotals)]),
+  }
+}
+
 // ── หาคำใกล้เคียง + เพิ่มหลายคำพร้อมกัน ──
 
 /**

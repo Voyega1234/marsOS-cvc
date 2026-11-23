@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import GscKeywordSuggestDialog, { termFromGroupName } from "./GscKeywordSuggestDialog";
 import { AreaChart, EmptyState, Panel, Segmented } from "@/components/ds";
 import {
-  UPLOAD_MAX_GSC_TRACKERS, UPLOAD_MAX_TRACKER_GROUP, UPLOAD_MAX_TRACKER_KEYWORD, UPLOAD_MAX_TRACKER_URL, trackerKind, aggregateTrackerPerformance,
+  UPLOAD_MAX_GSC_TRACKERS, UPLOAD_MAX_TRACKER_GROUP, UPLOAD_MAX_TRACKER_KEYWORD, UPLOAD_MAX_TRACKER_URL, trackerKind, aggregateTrackerPerformance, withSimilarTotals,
   type GscQuerySeriesResponse, type GscSimilarKeyword, type GscTrackerKind, type GscTrackerPerformance, type GscTrackerPerformanceResponse,
   type UploadGscTracker, type UploadGscTrackerFolder,
 } from "@/lib/upload-article/gsc-trackers";
@@ -462,7 +462,7 @@ export default function GscTrackedKeywords({
   }
 
   // "หาคำใกล้เคียง": null = ปิด; term/group = ค่าเริ่มต้นตามปุ่มที่กด
-  const [suggest, setSuggest] = useState<{ term: string; group: string } | null>(null);
+  const [suggest, setSuggest] = useState<{ term: string; group: string; subgroup?: string } | null>(null);
 
   async function renameGroup(oldName: string, ids: string[]) {
     const next = window.prompt("ชื่อกลุ่มใหม่ (เว้นว่าง = เอาออกจากกลุ่ม)", oldName);
@@ -546,13 +546,28 @@ export default function GscTrackedKeywords({
   }
 
   /** Turn one tracked keyword into a keyword group of the same name, with itself inside */
-  async function keywordToGroup(t: UploadGscTracker) {
-    if (!t.group) return;
+  async function keywordToGroup(t: UploadGscTracker): Promise<boolean> {
+    if (!t.group) return false;
     const exists = (folderByName.get(t.group)?.subgroups ?? []).includes(t.keyword) || trackers.some((x) => x.group === t.group && x.subgroup === t.keyword);
     const ok = exists
       ? await patchTrackers([t.id], { subgroup: t.keyword }, `ย้ายเข้ากลุ่ม keyword "${t.keyword}" แล้ว`)
       : await folderOp({ op: "createSub", folder: t.group, subgroup: t.keyword, ids: [t.id] }, `สร้างกลุ่ม keyword "${t.keyword}" แล้ว`);
     if (ok) setSubOpen(subKey(t.group, t.keyword), true);
+    return ok;
+  }
+
+  /**
+   * "+" on a similar keyword: start monitoring it inside the tracker's keyword group. A tracker that sits
+   * in a folder but not yet in a keyword group becomes a keyword group of its own name first.
+   */
+  async function addSimilarToGroup(t: UploadGscTracker, keyword: string) {
+    if (!t.group) return;
+    let sub = t.subgroup || "";
+    if (!sub) {
+      if (!(await keywordToGroup(t))) return;
+      sub = t.keyword;
+    }
+    await addToSubgroup(t.group, sub, [keyword]);
   }
 
   /** Add keywords (site-wide) and/or page links into a keyword group; owner = the folder's owner */
@@ -618,10 +633,16 @@ export default function GscTrackedKeywords({
     const kind = trackerKind(t);
     const open = openRows.has(t.id);
     const owner = ownerName(effectiveOwner(t));
-    const usable = p && !p.unresolved ? p : null;
+    const own = p && !p.unresolved ? p : null;
+    const similarCount = own?.similar?.length ?? 0;
+    // Convert Cake: the row counts the keyword together with the similar keywords listed under it
+    const combined = foldersEnabled && similarCount > 0;
+    const usable = own && combined ? withSimilarTotals(own) : own;
+    const ownHint = own && combined
+      ? `รวมคำใกล้เคียง ${similarCount} คำ — เฉพาะ "${t.keyword}": ${fmtNum(own.totals.clicks)} คลิก, ${fmtNum(own.totals.impressions)} การแสดงผล`
+      : undefined;
     const hasImp = !!usable && usable.totals.impressions > 0;
     const prevImp = !!usable && usable.prevTotals.impressions > 0;
-    const similarCount = usable?.similar?.length ?? 0;
     const similarOpen = similarCount > 0 && openSimilar.has(t.id);
     return (
       <TrackerRowFragment key={t.id}>
@@ -649,10 +670,10 @@ export default function GscTrackedKeywords({
               {kind === "pair" && t.title && <span className="truncate text-[10px] text-gray-500 max-w-[12rem]">{t.title}</span>}
               {similarCount > 0 && (
                 <button type="button" onClick={() => toggleSimilar(t.id)} aria-expanded={similarOpen}
-                  title={similarOpen ? "ซ่อนคำใกล้เคียง" : "ดูคำใกล้เคียงที่ระบบหาให้"}
+                  title={similarOpen ? "ซ่อนคำใกล้เคียง" : combined ? "ดูคำใกล้เคียงที่ระบบหาให้ (ตัวเลขในแถวนี้รวมคำเหล่านี้แล้ว)" : "ดูคำใกล้เคียงที่ระบบหาให้"}
                   className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] ${similarOpen ? "bg-brand-blue text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
                   <ChevronDown size={10} className={`transition-transform ${similarOpen ? "" : "-rotate-90"}`} />
-                  คำใกล้เคียง {similarCount}
+                  {combined ? "รวมคำใกล้เคียง" : "คำใกล้เคียง"} {similarCount}
                 </button>
               )}
             </div>
@@ -664,10 +685,10 @@ export default function GscTrackedKeywords({
               </a>
             ) : <span className="text-[10px] text-gray-400" title="ทุกหน้าของเว็บ">ทั้งเว็บ</span>}
           </td>
-          <td className="px-2 py-2 text-right tabular-nums">
+          <td className="px-2 py-2 text-right tabular-nums" title={ownHint}>
             {usable ? <>{fmtNum(usable.totals.clicks)} <Arrow diff={usable.totals.clicks - usable.prevTotals.clicks} text={fmtNum(Math.abs(usable.totals.clicks - usable.prevTotals.clicks))} /></> : <CellPending loading={loading} unresolved={!!p?.unresolved} />}
           </td>
-          <td className="px-2 py-2 text-right tabular-nums">
+          <td className="px-2 py-2 text-right tabular-nums" title={ownHint}>
             {usable ? <>{fmtNum(usable.totals.impressions)} <Arrow diff={usable.totals.impressions - usable.prevTotals.impressions} text={fmtNum(Math.abs(usable.totals.impressions - usable.prevTotals.impressions))} /></> : null}
           </td>
           <td className="px-2 py-2 text-right tabular-nums">{hasImp ? fmtCtr(usable!.totals.ctr) : usable ? "—" : null}</td>
@@ -704,13 +725,26 @@ export default function GscTrackedKeywords({
                   {loading ? <Loader2 size={18} className="animate-spin" /> : <span className="text-xs">ยังไม่มีข้อมูล</span>}
                 </div>
               ) : (
-                <TrackerBody p={p} kind={kind} metric={metric} name={name} />
+                <>
+                  {combined && (
+                    <p className="mb-2 text-[11px] text-gray-500">
+                      กราฟนี้เป็นของคำ &quot;{t.keyword}&quot; คำเดียว — ตัวเลขในแถวรวมคำใกล้เคียง {similarCount} คำแล้ว
+                    </p>
+                  )}
+                  <TrackerBody p={p} kind={kind} metric={metric} name={name} />
+                </>
               )}
             </td>
           </tr>
         )}
         {similarOpen && usable?.similar && (
-          <SimilarRows key={periodKey} list={usable.similar} base={base} periodKey={periodKey} metric={metric} name={name} />
+          <SimilarRows key={periodKey} list={usable.similar} base={base} periodKey={periodKey} metric={metric} name={name}
+            busy={busy}
+            onAdd={foldersEnabled && kind === "keyword" ? (keyword) => void addSimilarToGroup(t, keyword) : undefined}
+            addHint={!foldersEnabled || kind !== "keyword" ? undefined
+              : !t.group ? "ย้าย keyword นี้เข้าโฟลเดอร์ก่อน แล้วจึงเพิ่มคำใกล้เคียงเข้ากลุ่ม keyword ได้"
+              : `เพิ่มเข้ากลุ่ม keyword "${t.subgroup || t.keyword}"`}
+            canAdd={!!t.group} />
         )}
       </TrackerRowFragment>
     );
@@ -733,9 +767,10 @@ export default function GscTrackedKeywords({
         onOpenChange={(v) => { if (!v) setSuggest(null); }}
         initialTerm={suggest?.term ?? ""}
         initialGroup={suggest?.group ?? ""}
+        initialSubgroup={suggest?.subgroup ?? ""}
         periodParams={periodParams}
         ownerTags={ownerTags}
-        defaultOwnerTagId={formOwner}
+        defaultOwnerTagId={suggest?.subgroup ? folderOwner(suggest.group) || formOwner : formOwner}
         onTrackersChange={onTrackersChange}
       />
       {/* ── ฟอร์มเพิ่ม ── relative + z-30: การ์ดนี้มี backdrop-blur (สร้าง stacking context) ไม่ยกชั้นไว้ รายการบทความที่เปิดลงมาจะโดนแผงถัดไปทับ */}
@@ -746,10 +781,13 @@ export default function GscTrackedKeywords({
             <p className="text-xs text-gray-500 mt-0.5">ติดตามแยกเป็น keyword, บทความ หรือ URL — หรือจับคู่ keyword กับหน้า</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" className="rounded-full h-8"
-              onClick={() => setSuggest({ term: formGroup.trim() ? termFromGroupName(formGroup.trim()) : "", group: formGroup.trim() })}>
-              <Search size={13} /> หาคำใกล้เคียง
-            </Button>
+            {/* Convert Cake: this button lives on each keyword group row instead */}
+            {!foldersEnabled && (
+              <Button type="button" variant="outline" size="sm" className="rounded-full h-8"
+                onClick={() => setSuggest({ term: formGroup.trim() ? termFromGroupName(formGroup.trim()) : "", group: formGroup.trim() })}>
+                <Search size={13} /> หาคำใกล้เคียง
+              </Button>
+            )}
             <span className="text-[11px] text-gray-400 tabular-nums">{trackers.length}/{UPLOAD_MAX_GSC_TRACKERS}</span>
           </div>
         </div>
@@ -1004,7 +1042,7 @@ export default function GscTrackedKeywords({
                 {groups.map((g) => {
                   const ids = g.items.map((t) => t.id);
                   const isCollapsed = collapsedGroups.has(g.key);
-                  const sum = sumPerf(g.items.map((t) => perfById.get(t.id)));
+                  const sum = sumPerf(g.items.map((t) => perfById.get(t.id)), foldersEnabled);
                   return (
                     <tbody key={g.key || "__ungrouped__"}>
                       <tr className="border-b border-gray-100 bg-gray-50/80">
@@ -1079,7 +1117,8 @@ export default function GscTrackedKeywords({
                         const subIds = sub.items.map((t) => t.id);
                         const subOpen = openSubs.has(sub.key);
                         const subPerf = sub.items.map((t) => perfById.get(t.id)).filter((x): x is GscTrackerPerformance => !!x);
-                        const subSum = sumPerf(subPerf);
+                        const subSum = sumPerf(subPerf, foldersEnabled);
+                        const subSimilar = subPerf.reduce((n, x) => n + (x.unresolved ? 0 : x.similar?.length ?? 0), 0);
                         const agg = subOpen ? aggregateTrackerPerformance(subPerf) : null;
                         const draft = subDrafts[sub.key] ?? "";
                         const draftWords = draft.split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
@@ -1095,14 +1134,22 @@ export default function GscTrackedKeywords({
                                   onChange={(e) => toggleSelect(subIds, e.target.checked)} />
                               </td>
                               <td className="px-2 py-1.5 pl-7" colSpan={2}>
-                                <button type="button" onClick={() => setSubOpen(sub.key, !subOpen)} aria-expanded={subOpen}
-                                  title={subOpen ? "ซ่อน" : "ดูกราฟรวม + เพิ่ม keyword"}
-                                  className="flex items-center gap-2 text-[13px] font-medium text-brand-navy hover:text-brand-blue">
-                                  <ChevronDown size={13} className={`text-gray-400 transition-transform ${subOpen ? "" : "-rotate-90"}`} />
-                                  {subOpen ? <FolderOpen size={13} /> : <Folder size={13} />}
-                                  <span>{sub.name}</span>
-                                  <span className="rounded-full bg-gray-200/70 px-2 py-0.5 text-[10px] font-medium text-gray-600">{sub.items.length}</span>
-                                </button>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <button type="button" onClick={() => setSubOpen(sub.key, !subOpen)} aria-expanded={subOpen}
+                                    title={subOpen ? "ซ่อน" : "ดูกราฟรวม + เพิ่ม keyword"}
+                                    className="flex items-center gap-2 text-[13px] font-medium text-brand-navy hover:text-brand-blue">
+                                    <ChevronDown size={13} className={`text-gray-400 transition-transform ${subOpen ? "" : "-rotate-90"}`} />
+                                    {subOpen ? <FolderOpen size={13} /> : <Folder size={13} />}
+                                    <span>{sub.name}</span>
+                                    <span className="rounded-full bg-gray-200/70 px-2 py-0.5 text-[10px] font-medium text-gray-600">{sub.items.length}</span>
+                                  </button>
+                                  <button type="button"
+                                    onClick={() => setSuggest({ term: termFromGroupName(sub.name), group: g.name, subgroup: sub.name })}
+                                    title={`หาคำใกล้เคียง แล้วกด + เพิ่มเข้ากลุ่ม keyword "${sub.name}"`}
+                                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-brand-navy hover:border-brand-blue hover:text-brand-blue whitespace-nowrap">
+                                    <Search size={11} /> หาคำใกล้เคียง
+                                  </button>
+                                </div>
                               </td>
                               <td className="px-2 py-1.5 text-right tabular-nums font-medium">{subSum ? fmtNum(subSum.clicks) : "—"}</td>
                               <td className="px-2 py-1.5 text-right tabular-nums font-medium">{subSum ? fmtNum(subSum.impressions) : "—"}</td>
@@ -1124,6 +1171,7 @@ export default function GscTrackedKeywords({
                                 <td colSpan={8} className="px-4 py-4 pl-10 md:px-6 md:pl-12">
                                   <p className="mb-2 text-[11px] font-medium text-gray-500">
                                     กราฟรวม {sub.items.length} keyword ในกลุ่ม &quot;{sub.name}&quot;
+                                    {subSimilar > 0 && ` — กราฟนับเฉพาะ keyword ที่ติดตาม ตัวเลขในแถวกลุ่มรวมคำใกล้เคียงอีก ${subSimilar} คำแล้ว`}
                                   </p>
                                   {sub.items.length === 0 ? (
                                     <p className="py-4 text-xs text-gray-400">ยังไม่มี keyword ในกลุ่มนี้ — เพิ่มด้านล่าง</p>
@@ -1176,8 +1224,14 @@ type SeriesState = { loading: true } | { loading: false; data?: GscQuerySeriesRe
  * Similar keywords that GSC returned for a tracker's keyword (found automatically by the performance
  * route). Each one opens its own daily chart; the chart is fetched only when opened (2 GSC calls, cached).
  */
-function SimilarRows({ list, base, periodKey, metric, name }: {
+function SimilarRows({ list, base, periodKey, metric, name, busy = false, onAdd, addHint, canAdd = true }: {
   list: GscSimilarKeyword[]; base: string; periodKey: string; metric: Metric; name: string;
+  busy?: boolean;
+  /** Convert Cake: "+" adds the similar keyword into the tracker's keyword group; absent = no button */
+  onAdd?: (keyword: string) => void;
+  addHint?: string;
+  /** false = show the "+" disabled with addHint (the tracker is not in a folder yet) */
+  canAdd?: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -1240,7 +1294,15 @@ function SimilarRows({ list, base, periodKey, metric, name }: {
                   {hasImp && pt.impressions > 0 && <Arrow lowerIsBetter diff={t.position - pt.position} text={Math.abs(t.position - pt.position).toFixed(1)} />}
                 </span>
               </td>
-              <td className="px-3 py-1.5" />
+              <td className="px-3 py-1.5 text-right">
+                {onAdd && (
+                  <button type="button" disabled={busy || !canAdd} onClick={() => onAdd(s.keyword)}
+                    title={addHint} aria-label={`เพิ่ม ${s.keyword} เข้ากลุ่ม keyword`}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-gray-200 bg-white text-brand-blue hover:bg-brand-mist disabled:opacity-40">
+                    <Plus size={12} />
+                  </button>
+                )}
+              </td>
             </tr>
             {isOpen && (
               <tr className="border-b border-gray-100 bg-white/60">
@@ -1303,10 +1365,12 @@ function positionTone(pos: number): string {
 }
 
 /** ผลรวมของกลุ่ม — CTR/อันดับถ่วงตามการแสดงผล; ยังไม่มีข้อมูลสักแถว = null */
-function sumPerf(list: (GscTrackerPerformance | undefined)[]): { clicks: number; impressions: number; ctr: number; position: number } | null {
+function sumPerf(list: (GscTrackerPerformance | undefined)[], withSimilar = false): { clicks: number; impressions: number; ctr: number; position: number } | null {
   let clicks = 0, impressions = 0, posW = 0, any = false;
-  for (const p of list) {
-    if (!p || p.unresolved) continue;
+  for (const raw of list) {
+    if (!raw || raw.unresolved) continue;
+    // Convert Cake: similar keywords count toward the folder / keyword group totals too
+    const p = withSimilar ? withSimilarTotals(raw) : raw;
     any = true;
     clicks += p.totals.clicks;
     impressions += p.totals.impressions;

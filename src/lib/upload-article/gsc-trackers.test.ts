@@ -4,7 +4,7 @@
  */
 import { createQueryBudget, GSC_TRACKER_QUERIES_PER_MINUTE } from './gsc-budget';
 import {
-  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, withSimilarTotals, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
   applyTrackerFolderOp, readTrackerFolders, isTrackerFoldersClient, UPLOAD_MAX_TRACKER_FOLDERS, UPLOAD_MAX_TRACKER_SUBFOLDERS, type UploadGscTrackerFolder,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
@@ -524,6 +524,30 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   // bulk with subgroup
   const bk = addGscTrackersBulk([], ['kw one', 'kw two'], { group: 'G', subgroup: 'S' }, (() => { let n = 0; return () => 'id' + n++; })(), NOW);
   assert(bk.added.length === 2 && bk.added.every((t) => t.group === 'G' && t.subgroup === 'S'), 'bulk: passes subgroup');
+}
+
+// ── withSimilarTotals: a keyword's numbers counted together with its similar keywords ──
+{
+  const m = (clicks: number, impressions: number, position: number) => ({ clicks, impressions, ctr: impressions > 0 ? clicks / impressions : 0, position });
+  const plain = { totals: m(10, 100, 4), prevTotals: m(5, 50, 6) };
+  assert(withSimilarTotals(plain) === plain, 'withSimilarTotals: no similar keywords = same object');
+  const empty = { ...plain, similar: [] };
+  assert(withSimilarTotals(empty) === empty, 'withSimilarTotals: empty similar list = same object');
+  const p = {
+    ...plain,
+    daily: [{ date: '2026-11-01', ...m(10, 100, 4) }],
+    similar: [
+      { keyword: 'a', totals: m(30, 300, 8), prevTotals: m(15, 150, 10) },
+      { keyword: 'b', totals: m(0, 0, 0), prevTotals: m(0, 100, 20) },
+    ],
+  };
+  const w = withSimilarTotals(p);
+  assert(w.totals.clicks === 40 && w.totals.impressions === 400, 'withSimilarTotals: clicks and impressions add up');
+  assert(Math.abs(w.totals.ctr - 0.1) < 1e-9, 'withSimilarTotals: CTR recomputed from the sums');
+  assert(Math.abs(w.totals.position - 7) < 1e-9, 'withSimilarTotals: position weighted by impressions');
+  assert(w.prevTotals.clicks === 20 && w.prevTotals.impressions === 300 && Math.abs(w.prevTotals.position - (6 * 50 + 10 * 150 + 20 * 100) / 300) < 1e-9, 'withSimilarTotals: previous period summed the same way');
+  assert(w.daily === p.daily && w.similar === p.similar, 'withSimilarTotals: daily series and the similar list are untouched');
+  assert(p.totals.clicks === 10 && p.prevTotals.clicks === 5, 'withSimilarTotals: input not mutated');
 }
 
 console.log(`\nAll ${passed} assertions passed`);

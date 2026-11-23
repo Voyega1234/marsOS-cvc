@@ -3,10 +3,12 @@
 // Upload Article > Report > Keyword ที่ติดตาม — "หาคำใกล้เคียง"
 // Pulls this site's GSC queries that contain a term (e.g. "cpas" -> "cpas คือ", "cpas ads"),
 // sorted by clicks or impressions; the user ticks the ones to track and adds them to one group.
+// Convert Cake: opened from a keyword group (initialSubgroup), every row also gets a "+" that adds
+// that one keyword into the keyword group right away and keeps the dialog open.
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Search } from "lucide-react";
+import { Check, Folder, Loader2, Plus, Search, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ds";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -36,13 +38,15 @@ function Delta({ diff, lowerIsBetter = false }: { diff: number; lowerIsBetter?: 
 }
 
 export default function GscKeywordSuggestDialog({
-  clientId, open, onOpenChange, initialTerm = "", initialGroup = "", periodParams, ownerTags = [], defaultOwnerTagId = "", onTrackersChange,
+  clientId, open, onOpenChange, initialTerm = "", initialGroup = "", initialSubgroup = "", periodParams, ownerTags = [], defaultOwnerTagId = "", onTrackersChange,
 }: {
   clientId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialTerm?: string;
   initialGroup?: string;
+  /** Convert Cake: the keyword group (inside folder initialGroup) the found keywords go into */
+  initialSubgroup?: string;
   periodParams: Record<string, unknown>;
   ownerTags?: UploadOwnerTag[];
   defaultOwnerTagId?: string;
@@ -57,6 +61,11 @@ export default function GscKeywordSuggestDialog({
   const [error, setError] = useState("");
   const [result, setResult] = useState<GscKeywordSuggestResponse | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [adding, setAdding] = useState<Set<string>>(new Set());
+  const subgroup = initialSubgroup.trim();
+  // a keyword group lives inside one folder, so the folder is fixed when the dialog was opened from one
+  const targetGroup = subgroup ? initialGroup.trim() : group.trim();
+  const target = subgroup ? { group: targetGroup, subgroup } : { group: targetGroup };
 
   async function search(q = term) {
     const t = q.trim();
@@ -83,7 +92,7 @@ export default function GscKeywordSuggestDialog({
   useEffect(() => {
     if (!open) return;
     setTerm(initialTerm); setGroup(initialGroup); setOwner(defaultOwnerTagId);
-    setResult(null); setPicked(new Set()); setError("");
+    setResult(null); setPicked(new Set()); setAdding(new Set()); setError("");
     if (initialTerm.trim().length >= 2) void search(initialTerm);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -115,7 +124,7 @@ export default function GscKeywordSuggestDialog({
       const keywords = rows.filter((r) => picked.has(r.keyword)).map((r) => r.keyword);
       const res = await fetch(`/api/upload-article/clients/${clientId}/report/trackers`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywords, group: group.trim(), ownerTagId: owner }),
+        body: JSON.stringify({ keywords, ...target, ownerTagId: owner }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "เพิ่มไม่สำเร็จ");
@@ -124,12 +133,40 @@ export default function GscKeywordSuggestDialog({
         d.duplicates ? `ซ้ำ ${d.duplicates}` : "",
         d.overLimit ? `เกินเพดาน ${d.overLimit}` : "",
       ].filter(Boolean).join(", ");
-      toast.success(`เพิ่ม ${d.added} คำ${group.trim() ? ` เข้ากลุ่ม "${group.trim()}"` : ""}${notes ? ` (ข้าม: ${notes})` : ""}`);
+      const into = subgroup ? ` เข้ากลุ่ม keyword "${subgroup}"` : targetGroup ? ` เข้ากลุ่ม "${targetGroup}"` : "";
+      toast.success(`เพิ่ม ${d.added} คำ${into}${notes ? ` (ข้าม: ${notes})` : ""}`);
       onOpenChange(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** "+" on one row: add that keyword into the keyword group now; the dialog stays open for the next one */
+  async function addOne(keyword: string) {
+    if (adding.has(keyword)) return;
+    setAdding((prev) => new Set(prev).add(keyword));
+    try {
+      const res = await fetch(`/api/upload-article/clients/${clientId}/report/trackers`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords: [keyword], ...target, ownerTagId: owner }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "เพิ่มไม่สำเร็จ");
+      if (Array.isArray(d.trackers)) onTrackersChange(d.trackers);
+      if (!d.added) throw new Error(d.overLimit ? "เต็มเพดานแล้ว เพิ่มไม่ได้" : "คำนี้ติดตามอยู่แล้ว");
+      setResult((prev) => prev && {
+        ...prev,
+        remaining: Math.max(0, prev.remaining - 1),
+        suggestions: prev.suggestions.map((r) => (r.keyword === keyword ? { ...r, tracked: true } : r)),
+      });
+      setPicked((prev) => { const next = new Set(prev); next.delete(keyword); return next; });
+      toast.success(`เพิ่ม "${keyword}" เข้ากลุ่ม keyword "${subgroup}" แล้ว`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdding((prev) => { const next = new Set(prev); next.delete(keyword); return next; });
     }
   }
 
@@ -141,7 +178,9 @@ export default function GscKeywordSuggestDialog({
         <DialogHeader>
           <DialogTitle>หาคำใกล้เคียง</DialogTitle>
           <DialogDescription>
-            ดึงคำค้นหาจาก Search Console ของเว็บนี้ที่มีคำหลักอยู่ ติ๊กคำที่ต้องการ แล้วเพิ่มเข้ากลุ่มทีเดียว (ติดตามเป็น keyword ทั้งเว็บ)
+            {subgroup
+              ? "ดึงคำค้นหาจาก Search Console ของเว็บนี้ที่มีคำหลักอยู่ กด + ที่คำที่ต้องการเพื่อเพิ่มเข้ากลุ่ม keyword นี้ หรือติ๊กหลายคำแล้วเพิ่มทีเดียว (ติดตามเป็น keyword ทั้งเว็บ)"
+              : "ดึงคำค้นหาจาก Search Console ของเว็บนี้ที่มีคำหลักอยู่ ติ๊กคำที่ต้องการ แล้วเพิ่มเข้ากลุ่มทีเดียว (ติดตามเป็น keyword ทั้งเว็บ)"}
           </DialogDescription>
         </DialogHeader>
 
@@ -155,8 +194,20 @@ export default function GscKeywordSuggestDialog({
           </form>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <input value={group} onChange={(e) => setGroup(e.target.value)} list="tracker-group-names" maxLength={UPLOAD_MAX_TRACKER_GROUP}
-              placeholder="ชื่อกลุ่ม (ไม่ใส่ = ไม่มีกลุ่ม)" aria-label="เพิ่มเข้ากลุ่ม" className={`${inputCls} flex-1 min-w-[180px]`} />
+            {subgroup ? (
+              <div className="flex flex-1 min-w-[180px] items-center gap-1.5 flex-wrap text-[11px]">
+                <span className="text-gray-500">เพิ่มเข้า</span>
+                <span title={targetGroup} className="inline-flex max-w-[200px] items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
+                  <Folder size={11} className="shrink-0" /><span className="truncate">{targetGroup}</span>
+                </span>
+                <span title={subgroup} className="inline-flex max-w-[200px] items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 font-medium text-violet-700">
+                  <Tag size={11} className="shrink-0" /><span className="truncate">{subgroup}</span>
+                </span>
+              </div>
+            ) : (
+              <input value={group} onChange={(e) => setGroup(e.target.value)} list="tracker-group-names" maxLength={UPLOAD_MAX_TRACKER_GROUP}
+                placeholder="ชื่อกลุ่ม (ไม่ใส่ = ไม่มีกลุ่ม)" aria-label="เพิ่มเข้ากลุ่ม" className={`${inputCls} flex-1 min-w-[180px]`} />
+            )}
             {ownerTags.length > 0 && (
               <select value={owner} onChange={(e) => setOwner(e.target.value)} aria-label="ผู้ดูแลของคำที่เพิ่ม" className={inputCls}>
                 <option value="">ไม่ระบุผู้ดูแล</option>
@@ -190,6 +241,7 @@ export default function GscKeywordSuggestDialog({
                         <th className="px-2 py-2 text-right font-medium">คลิก</th>
                         <th className="px-2 py-2 text-right font-medium">การแสดงผล</th>
                         <th className="px-3 py-2 text-center font-medium">อันดับเฉลี่ย</th>
+                        {subgroup && <th className="px-3 py-2 w-10"><span className="sr-only">เพิ่มเข้ากลุ่ม keyword</span></th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -209,6 +261,20 @@ export default function GscKeywordSuggestDialog({
                             {fmtPos(r.position)}
                             {r.prevPosition > 0 && r.position > 0 && <Delta diff={r.position - r.prevPosition} lowerIsBetter />}
                           </td>
+                          {subgroup && (
+                            <td className="px-3 py-1.5 text-center">
+                              {r.tracked ? (
+                                <Check size={14} className="inline text-emerald-600" aria-label="ติดตามแล้ว" />
+                              ) : (
+                                <button type="button" disabled={saving || adding.has(r.keyword) || remaining <= 0} onClick={() => void addOne(r.keyword)}
+                                  title={remaining <= 0 ? "เต็มเพดานแล้ว" : `เพิ่ม "${r.keyword}" เข้ากลุ่ม keyword "${subgroup}"`}
+                                  aria-label={`เพิ่ม ${r.keyword} เข้ากลุ่ม keyword ${subgroup}`}
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-brand-blue hover:bg-brand-mist disabled:opacity-40">
+                                  {adding.has(r.keyword) ? <Loader2 size={12} className="animate-spin" /> : <Plus size={13} />}
+                                </button>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -231,7 +297,7 @@ export default function GscKeywordSuggestDialog({
             <Button type="button" variant="outline" size="sm" className="rounded-full" disabled={saving} onClick={() => onOpenChange(false)}>ยกเลิก</Button>
             <Button type="button" size="sm" className="rounded-full" disabled={saving || picked.size === 0 || overBy > 0} onClick={() => void add()}>
               {saving && <Loader2 size={14} className="animate-spin" />}
-              เพิ่ม {picked.size || ""} คำ{group.trim() ? "เข้ากลุ่ม" : ""}
+              เพิ่ม {picked.size || ""} คำ{targetGroup ? "เข้ากลุ่ม" : ""}
             </Button>
           </div>
         </DialogFooter>
