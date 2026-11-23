@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { toast } from "sonner";
 import {
-  AlertCircle, BarChart3, Bookmark, BookmarkPlus, Copy, ExternalLink, Loader2, RefreshCw,
+  AlertCircle, BarChart3, Bookmark, BookmarkPlus, Copy, ExternalLink, Folder, Loader2, RefreshCw, Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chip, EmptyState, Panel, Segmented, UnderlineTabs } from "@/components/ds";
@@ -18,7 +18,6 @@ import { GscKpiRow, GscTrendPanel, GscBucketPanel } from "./GscCharts";
 import OwnerTagsEditor from "./OwnerTagsEditor";
 import GscTrackedKeywords, { type TrackerDraft } from "./GscTrackedKeywords";
 import TrackToFolderDialog, { type TrackTarget } from "./TrackToFolderDialog";
-import TrackerGroupTables from "./TrackerGroupTables";
 import { aggregateTrackerPerformance, trackerKey, trackerKeys, type GscTrackerPerformance, type UploadGscTracker, type UploadGscTrackerFolder } from "@/lib/upload-article/gsc-trackers";
 import ArticleOwnerSelect from "@/components/upload-article/ArticleOwnerSelect";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
@@ -216,33 +215,27 @@ export default function UploadGscReportTab({
     return () => { alive = false; };
   }, [clientId, foldersEnabled]);
 
-  // numbers of every tracker for the group tables — same body as the tracked tab, so the server cache is shared
-  const groupedTrackerSig = useMemo(
-    () => (foldersEnabled ? trackers.filter((t) => t.group).map((t) => t.id).join(",") : ""),
-    [foldersEnabled, trackers],
-  );
-  const groupTablesShown = foldersEnabled && (subTab === "queries" || subTab === "pages");
-  const [groupPerf, setGroupPerf] = useState<Map<string, GscTrackerPerformance> | null>(null);
-  const [groupPerfLoading, setGroupPerfLoading] = useState(false);
-  const groupPerfSeq = useRef(0);
-  useEffect(() => {
-    const seq = ++groupPerfSeq.current;
-    if (!groupTablesShown || !groupedTrackerSig || !reportPeriodKey) { setGroupPerfLoading(false); return; }
-    setGroupPerfLoading(true);
-    fetch(`/api/upload-article/clients/${clientId}/report/trackers/performance`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: reportPeriodKey,
-    })
-      .then((r) => r.json().catch(() => ({})))
-      .then((d) => {
-        if (seq !== groupPerfSeq.current) return;
-        setGroupPerf(Array.isArray(d?.trackers) ? new Map((d.trackers as GscTrackerPerformance[]).map((p) => [p.id, p])) : null);
-      })
-      .catch(() => { if (seq === groupPerfSeq.current) setGroupPerf(null); })
-      .finally(() => { if (seq === groupPerfSeq.current) setGroupPerfLoading(false); });
-  }, [clientId, groupTablesShown, groupedTrackerSig, reportPeriodKey]);
-  useEffect(() => { setGroupPerf(null); }, [clientId, reportPeriodKey]);
+  // folder + keyword group of the tracker behind a คำค้นหา / หน้าเว็บ row: the keyword-only (or page-only)
+  // tracker first, else a keyword+page tracker on that keyword (or page) that sits in a folder
+  const groupIndex = useMemo(() => {
+    const exact = new Map<string, UploadGscTracker>();
+    const viaPair = new Map<string, UploadGscTracker>();
+    if (!foldersEnabled) return { exact, viaPair };
+    for (const t of trackers) {
+      for (const k of trackerKeys(t)) if (!exact.has(k)) exact.set(k, t);
+      if (t.keyword && t.url && t.group) {
+        const keys = [trackerKey(t.keyword, ""), trackerKey("", t.url), ...(t.sourceUrl ? [trackerKey("", t.sourceUrl)] : [])];
+        for (const k of keys) if (!viaPair.has(k)) viaPair.set(k, t);
+      }
+    }
+    return { exact, viaPair };
+  }, [foldersEnabled, trackers]);
+  const groupOf = useCallback((keyword: string, url: string): RowGroup | null => {
+    const k = trackerKey(keyword, url);
+    const own = groupIndex.exact.get(k);
+    const t = own?.group ? own : groupIndex.viaPair.get(k);
+    return t?.group ? { group: t.group, subgroup: t.subgroup || "" } : null;
+  }, [groupIndex]);
 
   const [trackTarget, setTrackTarget] = useState<TrackTarget | null>(null);
   const [trackBusy, setTrackBusy] = useState(false);
@@ -556,22 +549,16 @@ export default function UploadGscReportTab({
                   />
                 )}
                 {subTab === "queries" && (foldersEnabled ? (
-                  <>
-                    <TrackerGroupTables mode="queries" trackers={trackers} folders={folders} perf={groupPerf} loading={groupPerfLoading}
-                      ownerTags={ownerTags} onOpenTracked={() => setSubTab("tracked")} />
-                    <QueriesSubTab rows={data.queries} onTrack={(keyword) => setTrackTarget({ keyword, url: "" })}
-                      isTracked={(keyword) => trackedKeys.has(trackerKey(keyword, ""))} />
-                  </>
+                  <QueriesSubTab rows={data.queries} onTrack={(keyword) => setTrackTarget({ keyword, url: "" })}
+                    isTracked={(keyword) => trackedKeys.has(trackerKey(keyword, ""))}
+                    groupOf={(keyword) => groupOf(keyword, "")} />
                 ) : (
                   <QueriesSubTab rows={data.queries} onTrack={(keyword) => { setTrackerDraft({ keyword }); setSubTab("tracked"); }} />
                 ))}
                 {subTab === "pages" && (foldersEnabled ? (
-                  <>
-                    <TrackerGroupTables mode="pages" trackers={trackers} folders={folders} perf={groupPerf} loading={groupPerfLoading}
-                      ownerTags={ownerTags} onOpenTracked={() => setSubTab("tracked")} />
-                    <PagesSubTab rows={data.pages} onTrack={(url) => setTrackTarget({ keyword: "", url })}
-                      isTracked={(url) => trackedKeys.has(trackerKey("", url))} />
-                  </>
+                  <PagesSubTab rows={data.pages} onTrack={(url) => setTrackTarget({ keyword: "", url })}
+                    isTracked={(url) => trackedKeys.has(trackerKey("", url))}
+                    groupOf={(url) => groupOf("", url)} />
                 ) : (
                   <PagesSubTab rows={data.pages} />
                 ))}
@@ -611,7 +598,47 @@ function OverviewSubTab({ data }: { data: GscReportResponse }) {
   return <GscBucketPanel buckets={data.positionBuckets} />;
 }
 
-function QueriesSubTab({ rows, onTrack, isTracked }: { rows: GscQueryRow[]; onTrack?: (keyword: string) => void; isTracked?: (keyword: string) => boolean }) {
+/** Convert Cake only: the folder + keyword group a row is tracked in */
+interface RowGroup { group: string; subgroup: string }
+
+const GROUP_TAG_CLS = "inline-flex max-w-[180px] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap";
+
+/** two tag columns (โฟลเดอร์, กลุ่ม keyword); sortable, and exported in the CSV */
+function groupColumns<T>(groupOf: (row: T) => RowGroup | null): GscTableColumn<T>[] {
+  const none = <span className="text-[11px] text-gray-300">—</span>;
+  return [
+    {
+      key: "folder", label: "โฟลเดอร์",
+      sortValue: (r) => groupOf(r)?.group ?? "",
+      csvValue: (r) => groupOf(r)?.group ?? "",
+      render: (r) => {
+        const g = groupOf(r)?.group;
+        return g ? (
+          <span title={g} className={`${GROUP_TAG_CLS} bg-blue-50 text-blue-700`}>
+            <Folder size={11} className="shrink-0" /><span className="truncate">{g}</span>
+          </span>
+        ) : none;
+      },
+    },
+    {
+      key: "subgroup", label: "กลุ่ม keyword",
+      sortValue: (r) => groupOf(r)?.subgroup ?? "",
+      csvValue: (r) => groupOf(r)?.subgroup ?? "",
+      render: (r) => {
+        const s = groupOf(r)?.subgroup;
+        return s ? (
+          <span title={s} className={`${GROUP_TAG_CLS} bg-violet-50 text-violet-700`}>
+            <Tag size={11} className="shrink-0" /><span className="truncate">{s}</span>
+          </span>
+        ) : none;
+      },
+    },
+  ];
+}
+
+function QueriesSubTab({ rows, onTrack, isTracked, groupOf }: {
+  rows: GscQueryRow[]; onTrack?: (keyword: string) => void; isTracked?: (keyword: string) => boolean; groupOf?: (keyword: string) => RowGroup | null;
+}) {
   const columns: GscTableColumn<GscQueryRow>[] = [
     { key: "query", label: "คำค้นหา", sortValue: (r) => r.query, render: (r) => <span className="font-medium text-brand-navy">{r.query}</span> },
     { key: "clicks", label: "คลิก", align: "right", sortValue: (r) => r.clicks, csvValue: (r) => r.clicks },
@@ -619,6 +646,7 @@ function QueriesSubTab({ rows, onTrack, isTracked }: { rows: GscQueryRow[]; onTr
     { key: "ctr", label: "CTR", align: "right", sortValue: (r) => r.ctr, render: (r) => fmtCtr(r.ctr), csvValue: (r) => fmtCtr(r.ctr) },
     { key: "position", label: "อันดับ", align: "right", sortValue: (r) => r.position, render: (r) => fmtPos(r.position), csvValue: (r) => r.position },
     { key: "change", label: "เปลี่ยนแปลง (คลิก)", align: "right", sortValue: (r) => r.changeClicks, render: (r) => <ChangeCell current={r.clicks} prev={r.prevClicks} isNew={r.isNew} isLost={r.isLost} />, csvValue: (r) => r.changeClicks },
+    ...(groupOf ? groupColumns<GscQueryRow>((r) => groupOf(r.query)) : []),
     ...(onTrack ? [{ key: "track", label: "", render: (r: GscQueryRow) => isTracked?.(r.query) ? (
       <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 whitespace-nowrap"><Bookmark size={11} /> ติดตามแล้ว</span>
     ) : (
@@ -632,7 +660,9 @@ function QueriesSubTab({ rows, onTrack, isTracked }: { rows: GscQueryRow[]; onTr
   );
 }
 
-function PagesSubTab({ rows, onTrack, isTracked }: { rows: GscPageRow[]; onTrack?: (url: string) => void; isTracked?: (url: string) => boolean }) {
+function PagesSubTab({ rows, onTrack, isTracked, groupOf }: {
+  rows: GscPageRow[]; onTrack?: (url: string) => void; isTracked?: (url: string) => boolean; groupOf?: (url: string) => RowGroup | null;
+}) {
   const columns: GscTableColumn<GscPageRow>[] = [
     { key: "page", label: "หน้าเว็บ", sortValue: (r) => r.page, render: (r) => <a href={r.page} target="_blank" rel="noreferrer" className="text-brand-blue font-mono text-[11px] hover:underline break-all">{r.page}</a> },
     { key: "clicks", label: "คลิก", align: "right", sortValue: (r) => r.clicks, csvValue: (r) => r.clicks },
@@ -640,6 +670,7 @@ function PagesSubTab({ rows, onTrack, isTracked }: { rows: GscPageRow[]; onTrack
     { key: "ctr", label: "CTR", align: "right", sortValue: (r) => r.ctr, render: (r) => fmtCtr(r.ctr), csvValue: (r) => fmtCtr(r.ctr) },
     { key: "position", label: "อันดับ", align: "right", sortValue: (r) => r.position, render: (r) => fmtPos(r.position), csvValue: (r) => r.position },
     { key: "change", label: "เปลี่ยนแปลง (คลิก)", align: "right", sortValue: (r) => r.changeClicks, render: (r) => <ChangeCell current={r.clicks} prev={r.prevClicks} isNew={r.isNew} isLost={r.isLost} />, csvValue: (r) => r.changeClicks },
+    ...(groupOf ? groupColumns<GscPageRow>((r) => groupOf(r.page)) : []),
     ...(onTrack ? [{ key: "track", label: "", render: (r: GscPageRow) => isTracked?.(r.page) ? (
       <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 whitespace-nowrap"><Bookmark size={11} /> ติดตามแล้ว</span>
     ) : (
