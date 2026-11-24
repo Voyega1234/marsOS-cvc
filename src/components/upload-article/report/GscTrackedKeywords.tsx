@@ -75,7 +75,70 @@ function writeColSort(clientId: string, v: ColSort) {
     else window.localStorage.removeItem(colSortStorageKey(clientId));
   } catch { /* no storage: this visit only */ }
 }
+/** Sort set on one folder row or keyword-group row: orders only what is inside it. Key = group key / sub key. */
+type ScopeSorts = Record<string, NonNullable<ColSort>>;
+function scopeSortStorageKey(clientId: string): string { return `mars_tracker_scope_sort_${clientId}`; }
+function readScopeSorts(clientId: string): ScopeSorts {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(scopeSortStorageKey(clientId)) || "{}");
+    const out: ScopeSorts = {};
+    if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v as Record<string, { key?: unknown; dir?: unknown }>)) {
+        if (x && COL_KEYS.includes(x.key as ColKey) && (x.dir === "best" || x.dir === "worst")) out[k] = { key: x.key as ColKey, dir: x.dir };
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+function writeScopeSorts(clientId: string, v: ScopeSorts) {
+  try { window.localStorage.setItem(scopeSortStorageKey(clientId), JSON.stringify(v)); } catch { /* no storage: this visit only */ }
+}
+/** best -> worst -> off, the same cycle for the header and for a row */
+function nextColSort(cur: ColSort, key: ColKey): ColSort {
+  return cur?.key !== key ? { key, dir: "best" } : cur.dir === "best" ? { key, dir: "worst" } : null;
+}
+function sortHint(cur: ColSort, key: ColKey): string {
+  const n = nextColSort(cur, key);
+  if (!n) return "เลิกเรียง (กลับไปตามการเรียงด้านบน)";
+  if (key === "position") return n.dir === "best" ? "อันดับดีสุดขึ้นก่อน" : "อันดับแย่สุดขึ้นก่อน";
+  return n.dir === "best" ? "มากสุดขึ้นก่อน" : "น้อยสุดขึ้นก่อน";
+}
+function SortArrow({ sort, k }: { sort: ColSort; k: ColKey }) {
+  if (sort?.key !== k) return null;
+  const Icon = (sort.dir === "best") === (k === "position") ? ArrowUp : ArrowDown;
+  return <Icon size={10} className="ml-0.5 inline -mt-0.5 text-brand-blue" />;
+}
+
 type PerfSum = { clicks: number; impressions: number; ctr: number; position: number };
+
+/**
+ * The 4 number cells of a folder row or keyword-group row. Each is a button: a click sorts
+ * what is inside this row by that column (its own sort, separate from the header and other rows).
+ */
+function SortableSumCells({ sum, sort, onSort, what, bold, py }: {
+  sum: PerfSum | null; sort: ColSort; onSort: (key: ColKey) => void; what: string; bold: string; py: string;
+}) {
+  const cells: [ColKey, string, string, string][] = [
+    ["clicks", sum ? fmtNum(sum.clicks) : "—", "text-right", bold],
+    ["impressions", sum ? fmtNum(sum.impressions) : "—", "text-right", bold],
+    ["ctr", sum && sum.impressions > 0 ? fmtCtr(sum.ctr) : "—", "text-right", ""],
+    ["position", sum && sum.impressions > 0 ? fmtPos(sum.position) : "—", "text-center", ""],
+  ];
+  return (
+    <>
+      {cells.map(([k, text, align, weight]) => (
+        <td key={k} className={`px-2 ${py} ${align} tabular-nums ${weight}`}>
+          <button type="button" onClick={() => onSort(k)} title={`เรียง${what}: ${sortHint(sort, k)}`}
+            className={`rounded px-1 -mx-1 hover:bg-white hover:text-brand-blue ${sort?.key === k ? "text-brand-blue" : ""}`}>
+            {text}<SortArrow sort={sort} k={k} />
+          </button>
+        </td>
+      ))}
+    </>
+  );
+}
 /** value a row sorts by; null (no data, or CTR / position with no impressions) always goes last */
 function colValue(sum: PerfSum | null, key: ColKey): number | null {
   if (!sum) return null;
@@ -402,27 +465,46 @@ export default function GscTrackedKeywords({
   useEffect(() => { setColSortState(readColSort(clientId)); }, [clientId]);
   function clickColumn(key: ColKey) {
     // first click: most (or best position) first, second: the reverse, third: back to name order
-    const next: ColSort = colSort?.key !== key ? { key, dir: "best" } : colSort.dir === "best" ? { key, dir: "worst" } : null;
+    const next = nextColSort(colSort, key);
     setColSortState(next);
     writeColSort(clientId, next);
   }
+  // a folder row or keyword-group row can carry its own sort; it wins over the header for what is inside it
+  const [scopeSorts, setScopeSorts] = useState<ScopeSorts>({});
+  useEffect(() => { setScopeSorts(readScopeSorts(clientId)); }, [clientId]);
+  function clickScope(scope: string, key: ColKey) {
+    setScopeSorts((prev) => {
+      const n = nextColSort(prev[scope] ?? null, key);
+      const next = { ...prev };
+      if (n) next[scope] = n; else delete next[scope];
+      writeScopeSorts(clientId, next);
+      return next;
+    });
+  }
+  /** sort used inside a folder: its own, else the header */
+  const folderSort = useCallback((gKey: string): ColSort => scopeSorts[gKey] ?? colSort, [scopeSorts, colSort]);
+  /** sort used inside a keyword group: its own, else its folder's, else the header */
+  const subSort = useCallback((gKey: string, sKey: string): ColSort => scopeSorts[sKey] ?? scopeSorts[gKey] ?? colSort, [scopeSorts, colSort]);
   const sortedGroups = useMemo(() => {
-    if (!colSort) return groups;
+    if (!colSort && Object.keys(scopeSorts).length === 0) return groups;
     const rowSum = (t: UploadGscTracker) => sumPerf([perfById.get(t.id)], foldersEnabled);
-    const sortRows = (items: UploadGscTracker[]) => {
+    const sortRows = (items: UploadGscTracker[], by: ColSort) => {
+      if (!by) return items;
       const sums = new Map(items.map((t) => [t.id, rowSum(t)]));
-      return [...items].sort((a, b) => compareCol(sums.get(a.id) ?? null, sums.get(b.id) ?? null, colSort));
+      return [...items].sort((a, b) => compareCol(sums.get(a.id) ?? null, sums.get(b.id) ?? null, by));
     };
     const sumOf = (items: UploadGscTracker[]) => sumPerf(items.map((t) => perfById.get(t.id)), foldersEnabled);
     const mapped = groups.map((g) => {
-      const subs = g.subs.map((sub) => ({ ...sub, items: sortRows(sub.items), sum: sumOf(sub.items) }));
-      subs.sort((a, b) => compareCol(a.sum, b.sum, colSort));
-      return { ...g, subs, direct: sortRows(g.direct), sum: sumOf(g.items) };
+      const inFolder = folderSort(g.key);
+      const subs = g.subs.map((sub) => ({ ...sub, items: sortRows(sub.items, subSort(g.key, sub.key)), sum: sumOf(sub.items) }));
+      if (inFolder) subs.sort((a, b) => compareCol(a.sum, b.sum, inFolder));
+      return { ...g, subs, direct: sortRows(g.direct, inFolder), sum: sumOf(g.items) };
     });
-    // named folders sort among themselves; the owner and "ไม่มีกลุ่ม" sections stay after them
+    if (!colSort) return mapped;
+    // named folders sort among themselves by the header; the owner and "ไม่มีกลุ่ม" sections stay after them
     const named = mapped.filter((g) => g.name).sort((a, b) => compareCol(a.sum, b.sum, colSort));
     return [...named, ...mapped.filter((g) => !g.name)];
-  }, [groups, colSort, perfById, foldersEnabled]);
+  }, [groups, colSort, scopeSorts, folderSort, subSort, perfById, foldersEnabled]);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   useEffect(() => { setCollapsedGroups(readCollapsed(clientId)); }, [clientId]);
@@ -1199,10 +1281,8 @@ export default function GscTrackedKeywords({
                             <span className="rounded-full bg-gray-200/80 px-2 py-0.5 text-[10px] font-medium text-gray-600">{g.items.length}</span>
                           </button>
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums font-semibold">{sum ? fmtNum(sum.clicks) : "—"}</td>
-                        <td className="px-2 py-2 text-right tabular-nums font-semibold">{sum ? fmtNum(sum.impressions) : "—"}</td>
-                        <td className="px-2 py-2 text-right tabular-nums">{sum && sum.impressions > 0 ? fmtCtr(sum.ctr) : "—"}</td>
-                        <td className="px-2 py-2 text-center tabular-nums">{sum && sum.impressions > 0 ? fmtPos(sum.position) : "—"}</td>
+                        <SortableSumCells sum={sum} sort={scopeSorts[g.key] ?? null} onSort={(k) => clickScope(g.key, k)}
+                          what={g.subs.length > 0 ? `กลุ่ม keyword ใน "${g.label}"` : ` keyword ใน "${g.label}"`} bold="font-semibold" py="py-2" />
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           {foldersEnabled && g.name && ownerTags.length > 0 && (
                             <select value={folderOwner(g.name)} disabled={busy} aria-label={`ผู้รับผิดชอบโฟลเดอร์ ${g.name}`}
@@ -1290,10 +1370,8 @@ export default function GscTrackedKeywords({
                                   </button>
                                 </div>
                               </td>
-                              <td className="px-2 py-1.5 text-right tabular-nums font-medium">{subSum ? fmtNum(subSum.clicks) : "—"}</td>
-                              <td className="px-2 py-1.5 text-right tabular-nums font-medium">{subSum ? fmtNum(subSum.impressions) : "—"}</td>
-                              <td className="px-2 py-1.5 text-right tabular-nums">{subSum && subSum.impressions > 0 ? fmtCtr(subSum.ctr) : "—"}</td>
-                              <td className="px-2 py-1.5 text-center tabular-nums">{subSum && subSum.impressions > 0 ? fmtPos(subSum.position) : "—"}</td>
+                              <SortableSumCells sum={subSum} sort={scopeSorts[sub.key] ?? null} onSort={(k) => clickScope(sub.key, k)}
+                                what={` keyword ในกลุ่ม "${sub.name}"`} bold="font-medium" py="py-1.5" />
                               <td className="px-3 py-1.5 text-right whitespace-nowrap">
                                 <button type="button" disabled={busy} onClick={() => void renameSubgroup(g.name, sub.name)}
                                   className="mr-2 text-gray-400 hover:text-brand-blue disabled:opacity-50" title="เปลี่ยนชื่อกลุ่ม keyword" aria-label={`เปลี่ยนชื่อกลุ่ม keyword ${sub.name}`}>
