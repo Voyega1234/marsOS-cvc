@@ -46,6 +46,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 /**
  * POST body = {op: 'create'|'createSub'|'rename'|'renameSub'|'owner'|'delete'|'deleteSub', ...} — see applyTrackerFolderOp
+ * (deleteSub with untrack: true also stops tracking the group's keywords)
  * Returns {folders, trackers} after the change.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {

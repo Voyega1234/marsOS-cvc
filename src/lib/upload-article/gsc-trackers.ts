@@ -477,10 +477,12 @@ export function applyTrackerFolderOp(
     const sub = normalizeTrackerGroup(o.subgroup)
     if (!sub) return fail('invalid')
     if (!subExists(folder, sub)) return fail('not_found')
+    const inSub = (t: UploadGscTracker) => inFolder(t, folder) && t.subgroup === sub
     return {
       ok: true,
       folders: folders.map((f) => (f.name === folder ? { ...f, subgroups: f.subgroups.filter((s) => s !== sub) } : f)),
-      trackers: trackers.map((t) => (inFolder(t, folder) && t.subgroup === sub ? withoutSub(t) : t)),
+      // untrack: true = the group's trackers are removed too (stop tracking); otherwise they stay in the folder
+      trackers: o.untrack === true ? trackers.filter((t) => !inSub(t)) : trackers.map((t) => (inSub(t) ? withoutSub(t) : t)),
     }
   }
 

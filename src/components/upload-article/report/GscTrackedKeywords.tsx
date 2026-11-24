@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertCircle, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, FolderPlus, Link2, ListTree, Loader2, Pencil, Plus, RefreshCw, Tag, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import GscKeywordSuggestDialog, { termFromGroupName } from "./GscKeywordSuggestDialog";
 import { AreaChart, EmptyState, Panel, Segmented } from "@/components/ds";
 import {
@@ -542,12 +543,27 @@ export default function GscTrackedKeywords({
     await folderOp({ op: "renameSub", folder, subgroup: oldName, name: next }, "เปลี่ยนชื่อกลุ่ม keyword แล้ว");
   }
 
-  async function deleteSubgroup(folder: string, name: string, count: number) {
-    const msg = count > 0
-      ? `ลบกลุ่ม keyword "${name}"? keyword ${count} รายการข้างในยังติดตามอยู่ในโฟลเดอร์ "${folder}"`
-      : `ลบกลุ่ม keyword "${name}"?`;
-    if (!window.confirm(msg)) return;
+  // keyword group delete: an empty group is just confirmed; a group with keywords asks whether
+  // they stay tracked in the folder or stop being tracked together with the group
+  const [subDelete, setSubDelete] = useState<{ folder: string; name: string; count: number } | null>(null);
+  async function deleteSubgroup(folder: string, name: string) {
+    // every tracker in the group, not only the ones the owner filter shows: the server acts on all of them
+    const count = trackers.filter((t) => t.group === folder && t.subgroup === name).length;
+    if (count > 0) { setSubDelete({ folder, name, count }); return; }
+    if (!window.confirm(`ลบกลุ่ม keyword "${name}"?`)) return;
     await folderOp({ op: "deleteSub", folder, subgroup: name }, "ลบกลุ่ม keyword แล้ว");
+  }
+  async function confirmSubDelete(untrack: boolean) {
+    if (!subDelete) return;
+    const { folder, name, count } = subDelete;
+    const ok = await folderOp(
+      { op: "deleteSub", folder, subgroup: name, ...(untrack ? { untrack: true } : {}) },
+      untrack ? `ลบกลุ่ม keyword "${name}" + เลิกติดตาม ${count} keyword แล้ว` : `ลบกลุ่ม keyword "${name}" แล้ว keyword ยังติดตามอยู่`,
+    );
+    if (ok) {
+      if (untrack) toggleSelect(trackers.filter((t) => t.group === folder && t.subgroup === name).map((t) => t.id), false);
+      setSubDelete(null);
+    }
   }
 
   /** Turn one tracked keyword into a keyword group of the same name, with itself inside */
@@ -784,6 +800,31 @@ export default function GscTrackedKeywords({
       <datalist id="tracker-subgroup-names">
         {subgroupNames.map((g) => <option key={g} value={g} />)}
       </datalist>
+      <Dialog open={!!subDelete} onOpenChange={(o) => { if (!o && !busy) setSubDelete(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ลบกลุ่ม keyword</DialogTitle>
+            <DialogDescription className="break-words">
+              กลุ่ม <span className="font-medium text-brand-navy">&quot;{subDelete?.name}&quot;</span> ในโฟลเดอร์ &quot;{subDelete?.folder}&quot; มี keyword {subDelete?.count} รายการ
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <button type="button" disabled={busy} onClick={() => void confirmSubDelete(false)}
+              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left hover:border-brand-blue disabled:opacity-50">
+              <span className="block text-sm font-medium text-brand-navy">ลบแค่กลุ่ม</span>
+              <span className="block text-xs text-gray-500">keyword ยังติดตามอยู่ ย้ายไปอยู่ในโฟลเดอร์ &quot;{subDelete?.folder}&quot; โดยตรง</span>
+            </button>
+            <button type="button" disabled={busy} onClick={() => void confirmSubDelete(true)}
+              className="w-full rounded-xl border border-red-200 bg-red-50/60 px-4 py-3 text-left hover:border-red-400 disabled:opacity-50">
+              <span className="block text-sm font-medium text-red-600">ลบกลุ่ม + เลิกติดตาม keyword ทั้ง {subDelete?.count} รายการ</span>
+              <span className="block text-xs text-gray-500">keyword ในกลุ่มนี้หายจากแท็บ Keyword ที่ติดตาม ต้องเพิ่มใหม่ถ้าจะติดตามอีก</span>
+            </button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={busy} onClick={() => setSubDelete(null)}>ยกเลิก</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <GscKeywordSuggestDialog
         clientId={clientId}
         open={!!suggest}
@@ -1183,8 +1224,8 @@ export default function GscTrackedKeywords({
                                   className="mr-2 text-gray-400 hover:text-brand-blue disabled:opacity-50" title="เปลี่ยนชื่อกลุ่ม keyword" aria-label={`เปลี่ยนชื่อกลุ่ม keyword ${sub.name}`}>
                                   <Pencil size={12} />
                                 </button>
-                                <button type="button" disabled={busy} onClick={() => void deleteSubgroup(g.name, sub.name, sub.items.length)}
-                                  className="text-gray-400 hover:text-red-500 disabled:opacity-50" title="ลบกลุ่ม keyword (keyword ข้างในยังติดตามอยู่)" aria-label={`ลบกลุ่ม keyword ${sub.name}`}>
+                                <button type="button" disabled={busy} onClick={() => void deleteSubgroup(g.name, sub.name)}
+                                  className="text-gray-400 hover:text-red-500 disabled:opacity-50" title="ลบกลุ่ม keyword (เลือกได้ว่าจะเลิกติดตาม keyword ข้างในด้วยไหม)" aria-label={`ลบกลุ่ม keyword ${sub.name}`}>
                                   <Trash2 size={12} />
                                 </button>
                               </td>

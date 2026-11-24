@@ -520,6 +520,9 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   const e1 = okR(run(F, ST, { op: 'deleteSub', folder: 'G', subgroup: 'a' }));
   assert(e1.folders[0].subgroups.join() === 'b' && !e1.trackers[0].subgroup && e1.trackers[0].group === 'G' && e1.trackers[2].subgroup === 'a', 'deleteSub: removes sub only in that folder');
   assert(errOf(run(F, ST, { op: 'deleteSub', folder: 'G', subgroup: 'nope' })) === 'not_found', 'deleteSub: missing');
+  const e2 = okR(run(F, ST, { op: 'deleteSub', folder: 'G', subgroup: 'a', untrack: true }));
+  assert(e2.folders[0].subgroups.join() === 'b' && e2.trackers.length === ST.length - 1 && !e2.trackers.some((t) => t.id === ST[0].id) && e2.trackers.some((t) => t.group === 'H' && t.subgroup === 'a'), 'deleteSub untrack: removes the group and stops tracking its keywords, other folders untouched');
+  assert(okR(run(F, ST, { op: 'deleteSub', folder: 'G', subgroup: 'a', untrack: 'yes' })).trackers.length === ST.length, 'deleteSub: untrack must be exactly true');
 
   // bulk with subgroup
   const bk = addGscTrackersBulk([], ['kw one', 'kw two'], { group: 'G', subgroup: 'S' }, (() => { let n = 0; return () => 'id' + n++; })(), NOW);
