@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertCircle, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, FolderPlus, Link2, ListTree, Loader2, Pencil, Plus, RefreshCw, Tag, Trash2, Search } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, BookmarkPlus, ChevronDown, ChevronsDownUp, ChevronsUpDown, Folder, FolderInput, FolderOpen, FolderPlus, Link2, ListTree, Loader2, Pencil, Plus, RefreshCw, Tag, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import GscKeywordSuggestDialog, { termFromGroupName } from "./GscKeywordSuggestDialog";
@@ -52,6 +52,43 @@ function writeOpenSubs(clientId: string, ids: Set<string>) {
   try { window.localStorage.setItem(openSubsStorageKey(clientId), JSON.stringify(Array.from(ids))); } catch { /* no storage: this visit only */ }
 }
 const NO_FOLDERS: UploadGscTrackerFolder[] = [];
+
+/**
+ * Column sort of the tracked table. "best" = most clicks / impressions / CTR first, or best (lowest) position first;
+ * "worst" = the reverse. null = the usual name order. Per client, this browser only.
+ */
+type ColKey = "clicks" | "impressions" | "ctr" | "position";
+type ColSort = { key: ColKey; dir: "best" | "worst" } | null;
+const COL_KEYS: readonly ColKey[] = ["clicks", "impressions", "ctr", "position"];
+function colSortStorageKey(clientId: string): string { return `mars_tracker_sort_${clientId}`; }
+function readColSort(clientId: string): ColSort {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(colSortStorageKey(clientId)) || "null");
+    return v && COL_KEYS.includes(v.key) && (v.dir === "best" || v.dir === "worst") ? { key: v.key, dir: v.dir } : null;
+  } catch {
+    return null;
+  }
+}
+function writeColSort(clientId: string, v: ColSort) {
+  try {
+    if (v) window.localStorage.setItem(colSortStorageKey(clientId), JSON.stringify(v));
+    else window.localStorage.removeItem(colSortStorageKey(clientId));
+  } catch { /* no storage: this visit only */ }
+}
+type PerfSum = { clicks: number; impressions: number; ctr: number; position: number };
+/** value a row sorts by; null (no data, or CTR / position with no impressions) always goes last */
+function colValue(sum: PerfSum | null, key: ColKey): number | null {
+  if (!sum) return null;
+  if (key === "clicks" || key === "impressions") return sum[key];
+  return sum.impressions > 0 ? sum[key] : null;
+}
+function compareCol(a: PerfSum | null, b: PerfSum | null, sort: NonNullable<ColSort>): number {
+  const va = colValue(a, sort.key), vb = colValue(b, sort.key);
+  if (va === null || vb === null) return va === null ? (vb === null ? 0 : 1) : -1;
+  // best = high first, except position where lower is better
+  const highFirst = (sort.key === "position") !== (sort.dir === "best");
+  return highFirst ? vb - va : va - vb;
+}
 /** A keyword-group entry that is a page link rather than a keyword */
 export function looksLikeUrl(text: string): boolean { return /^https?:\/\//i.test(text.trim()); }
 
@@ -359,6 +396,33 @@ export default function GscTrackedKeywords({
     if (loose.length) out.push({ key: "", name: "", label: "ไม่มีกลุ่ม", items: loose, subs: [], direct: loose });
     return out;
   }, [visibleTrackers, effectiveOwner, ownerName, foldersEnabled, folders, folderByName, ownerFilter, ownerIds]);
+
+  // ── column sort: folders, keyword groups inside them and rows inside those, each by its own total ──
+  const [colSort, setColSortState] = useState<ColSort>(null);
+  useEffect(() => { setColSortState(readColSort(clientId)); }, [clientId]);
+  function clickColumn(key: ColKey) {
+    // first click: most (or best position) first, second: the reverse, third: back to name order
+    const next: ColSort = colSort?.key !== key ? { key, dir: "best" } : colSort.dir === "best" ? { key, dir: "worst" } : null;
+    setColSortState(next);
+    writeColSort(clientId, next);
+  }
+  const sortedGroups = useMemo(() => {
+    if (!colSort) return groups;
+    const rowSum = (t: UploadGscTracker) => sumPerf([perfById.get(t.id)], foldersEnabled);
+    const sortRows = (items: UploadGscTracker[]) => {
+      const sums = new Map(items.map((t) => [t.id, rowSum(t)]));
+      return [...items].sort((a, b) => compareCol(sums.get(a.id) ?? null, sums.get(b.id) ?? null, colSort));
+    };
+    const sumOf = (items: UploadGscTracker[]) => sumPerf(items.map((t) => perfById.get(t.id)), foldersEnabled);
+    const mapped = groups.map((g) => {
+      const subs = g.subs.map((sub) => ({ ...sub, items: sortRows(sub.items), sum: sumOf(sub.items) }));
+      subs.sort((a, b) => compareCol(a.sum, b.sum, colSort));
+      return { ...g, subs, direct: sortRows(g.direct), sum: sumOf(g.items) };
+    });
+    // named folders sort among themselves; the owner and "ไม่มีกลุ่ม" sections stay after them
+    const named = mapped.filter((g) => g.name).sort((a, b) => compareCol(a.sum, b.sum, colSort));
+    return [...named, ...mapped.filter((g) => !g.name)];
+  }, [groups, colSort, perfById, foldersEnabled]);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   useEffect(() => { setCollapsedGroups(readCollapsed(clientId)); }, [clientId]);
@@ -1096,14 +1160,25 @@ export default function GscTrackedKeywords({
                     </th>
                     <th className="px-2 py-2.5 text-left font-medium">Keyword / หน้า</th>
                     <th className="w-10 px-2 py-2.5" />
-                    <th className="px-2 py-2.5 text-right font-medium">คลิก</th>
-                    <th className="px-2 py-2.5 text-right font-medium">การแสดงผล</th>
-                    <th className="px-2 py-2.5 text-right font-medium">CTR</th>
-                    <th className="px-2 py-2.5 text-center font-medium">อันดับเฉลี่ย</th>
+                    {([["clicks", "คลิก", "right"], ["impressions", "การแสดงผล", "right"], ["ctr", "CTR", "right"], ["position", "อันดับเฉลี่ย", "center"]] as const).map(([key, label, align]) => {
+                      const active = colSort?.key === key;
+                      const Icon = !active ? ArrowUpDown : (colSort.dir === "best") === (key === "position") ? ArrowUp : ArrowDown;
+                      const nextHint = !active
+                        ? key === "position" ? "อันดับดีสุดขึ้นก่อน" : "มากสุดขึ้นก่อน"
+                        : colSort.dir === "best" ? (key === "position" ? "อันดับแย่สุดขึ้นก่อน" : "น้อยสุดขึ้นก่อน") : "เรียงตามชื่อเหมือนเดิม";
+                      return (
+                        <th key={key} className={`px-2 py-2.5 font-medium ${align === "right" ? "text-right" : "text-center"}`} aria-sort={!active ? "none" : (colSort.dir === "best") === (key === "position") ? "ascending" : "descending"}>
+                          <button type="button" onClick={() => clickColumn(key)} title={`กดเพื่อเรียง: ${nextHint}`}
+                            className={`inline-flex items-center gap-1 rounded hover:text-brand-blue ${active ? "text-brand-blue font-semibold" : ""}`}>
+                            {label}<Icon size={11} className={active ? "" : "opacity-40"} />
+                          </button>
+                        </th>
+                      );
+                    })}
                     <th className="w-24 px-3 py-2.5" />
                   </tr>
                 </thead>
-                {groups.map((g) => {
+                {sortedGroups.map((g) => {
                   const ids = g.items.map((t) => t.id);
                   const isCollapsed = collapsedGroups.has(g.key);
                   const sum = sumPerf(g.items.map((t) => perfById.get(t.id)), foldersEnabled);

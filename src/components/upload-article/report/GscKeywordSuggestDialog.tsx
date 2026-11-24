@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check, Folder, Loader2, Plus, Search, Tag } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Folder, Loader2, Plus, Search, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ds";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -310,10 +310,20 @@ export default function GscKeywordSuggestDialog({
                             onChange={(e) => setPicked(e.target.checked ? new Set(pickable.map((r) => r.keyword)) : new Set())} />
                         </th>
                         <th className="px-2 py-2 text-left font-medium">คำค้นหา</th>
-                        <th className="px-2 py-2 text-right font-medium">คลิก</th>
-                        <th className="px-2 py-2 text-right font-medium">การแสดงผล</th>
-                        <th className="px-2 py-2 text-right font-medium">CTR</th>
-                        <th className="px-3 py-2 text-center font-medium">อันดับเฉลี่ย</th>
+                        {([["clicks", "คลิก", "right"], ["impressions", "การแสดงผล", "right"], ["ctr", "CTR", "right"], ["position", "อันดับเฉลี่ย", "center"]] as const).map(([key, label, align]) => {
+                          const active = sort === key;
+                          const Icon = key === "position" ? ArrowUp : ArrowDown;
+                          return (
+                            <th key={key} className={`px-2 py-2 font-medium ${align === "right" ? "text-right" : "text-center"}`}
+                              aria-sort={active ? (key === "position" ? "ascending" : "descending") : "none"}>
+                              <button type="button" onClick={() => changeSort(key)}
+                                title={key === "position" ? "เรียงอันดับดีสุดขึ้นก่อน" : "เรียงจากมากสุดไปน้อยสุด"}
+                                className={`inline-flex items-center gap-0.5 hover:text-brand-blue ${active ? "font-semibold text-brand-blue" : ""}`}>
+                                {label}{active && <Icon size={11} />}
+                              </button>
+                            </th>
+                          );
+                        })}
                         {subgroup && <th className="px-3 py-2 w-10"><span className="sr-only">เพิ่มเข้ากลุ่ม keyword</span></th>}
                       </tr>
                     </thead>
