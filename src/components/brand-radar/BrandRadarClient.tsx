@@ -24,6 +24,7 @@ import AnswersTab from "./AnswersTab";
 import SettingsTab, { TagInput } from "./SettingsTab";
 import PromptsTab from "./PromptsTab";
 import CompetitorsTab from "./CompetitorsTab";
+import UrlMonitorTab from "./UrlMonitorTab";
 import CitationsTab from "./CitationsTab";
 import CitationAnalysisTab from "./CitationAnalysisTab";
 import OpportunitiesTab from "./OpportunitiesTab";
@@ -371,6 +372,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
           picker={select}
           refreshKey={refreshKey}
           pictures={pictures}
+          onLogoChanged={() => void loadProjects()}
         />
         {newDialog}
       </>
@@ -427,6 +429,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
           { id: "responses", label: "AI Responses" },
           { id: "prompts", label: "AI Prompts" },
           { id: "competitors", label: "Competitors" },
+          { id: "url-monitor", label: "URL Monitor" },
           { id: "citations", label: "Citations & Sources" },
           { id: "citation-analysis", label: "Citation Analysis" },
         ].filter((t) => !clientView || CLIENT_TAB_IDS.includes(t.id as TabId)) as Array<{ id: TabId; label: string }>}
@@ -469,6 +472,7 @@ export default function BrandRadarClient({ userRole, initialProjects }: { userRo
       {activeTab === "responses" && <AnswersTab {...tabProps} />}
       {!clientView && activeTab === "prompts" && <PromptsTab {...tabProps} />}
       {activeTab === "competitors" && <CompetitorsTab {...tabProps} />}
+      {!clientView && activeTab === "url-monitor" && <UrlMonitorTab {...tabProps} />}
       {activeTab === "citations" && <CitationsTab {...tabProps} />}
       {activeTab === "citation-analysis" && <CitationAnalysisTab {...tabProps} />}
       {!clientView && activeTab === "citation-analysis" && profile && (

@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, Download, Plus, Radar } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Camera, ChevronRight, Download, Loader2, Plus, Radar, X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Chip, downloadCsv, EmptyState, MeterBar, PageHeader, Panel, SearchPill, Segmented, Sparkline, type ChipTone } from "@/components/ds";
 import { BRAND_STATUSES, BRAND_STATUS_LABEL, type BrandStatus, type BrandsRes, type BrandSummaryDTO } from "@/lib/brand-radar/types";
-import { api, fmtDate, fmtNum, fmtPct } from "./shared";
+import { rasterizeLogo } from "@/components/upload-article/ClientAvatar";
+import { api, fmtDate, fmtNum, fmtPct, postJson } from "./shared";
 import { BrandLogo } from "./BrandLogo";
 
 /** the brand's own picture (uploaded logo, else its site icon); the coloured initials are the fallback */
@@ -60,13 +62,93 @@ function Thumb({ name }: { name: string }) {
   );
 }
 
-function NameBlock({ b, clientView, picture }: { b: BrandSummaryDTO; clientView?: boolean; picture?: BrandPicture }) {
+/** staff-only: upload / change / remove the brand logo straight from the list row */
+function LogoUploader({ b, picture, onLogo, children }: {
+  b: BrandSummaryDTO;
+  picture?: BrandPicture;
+  onLogo: (id: string, logo: string | null) => void;
+  children: ReactNode;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save(logo: string | null): Promise<void> {
+    setBusy(true);
+    try {
+      const res = await api<{ logo: string | null }>("/api/brand-radar/logo", postJson({ projectId: b.id, logo }, "PUT"));
+      if (!res.ok) throw new Error(res.data.error || `HTTP ${res.status}`);
+      onLogo(b.id, res.data.logo ?? null);
+    } catch (e) {
+      toast.error(`${logo === null ? "ลบโลโก้ไม่สำเร็จ" : "อัปโหลดโลโก้ไม่สำเร็จ"}: ${e instanceof Error ? e.message : "ไม่ทราบสาเหตุ"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onFile(file: File | undefined): Promise<void> {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const dataUrl = await rasterizeLogo(file);
+      await save(dataUrl);
+    } catch (e) {
+      toast.error(`อัปโหลดโลโก้ไม่สำเร็จ: ${e instanceof Error ? e.message : "ไม่ทราบสาเหตุ"}`);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="group/logo relative shrink-0" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <div className={busy ? "opacity-50" : undefined}>{children}</div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg"
+        className="hidden"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          void onFile(f);
+        }}
+      />
+      <button
+        type="button"
+        disabled={busy}
+        aria-label={`อัปโหลดโลโก้ ${b.name}`}
+        title="อัปโหลดโลโก้"
+        onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+        onKeyDown={(e) => e.stopPropagation()}
+        className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45 text-white opacity-0 transition focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-navy group-hover/logo:opacity-100 disabled:cursor-not-allowed"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Camera className="h-4 w-4" aria-hidden />}
+      </button>
+      {picture?.logo && (
+        <button
+          type="button"
+          disabled={busy}
+          aria-label={`ลบโลโก้ ${b.name}`}
+          title="ลบโลโก้"
+          onClick={(e) => { e.stopPropagation(); void save(null); }}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-gray-700 text-white opacity-0 shadow transition hover:bg-red-600 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-navy group-hover/logo:opacity-100 disabled:cursor-not-allowed"
+        >
+          <X className="h-3 w-3" aria-hidden />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NameBlock({ b, clientView, picture, onLogo }: { b: BrandSummaryDTO; clientView?: boolean; picture?: BrandPicture; onLogo?: (id: string, logo: string | null) => void }) {
   const showClient = b.clientName && b.clientName !== b.name;
+  const pic = picture?.logo || picture?.favicon
+    ? <BrandLogo name={b.name} logo={picture.logo} favicon={picture.favicon} size={40} rounded="rounded-xl" />
+    : <Thumb name={b.name} />;
   return (
     <div className="flex min-w-0 items-center gap-3">
-      {picture?.logo || picture?.favicon
-        ? <BrandLogo name={b.name} logo={picture.logo} favicon={picture.favicon} size={40} rounded="rounded-xl" />
-        : <Thumb name={b.name} />}
+      {!clientView && onLogo ? <LogoUploader b={b} picture={picture} onLogo={onLogo}>{pic}</LogoUploader> : pic}
       <div className="min-w-0">
         <div className="truncate text-sm font-semibold text-brand-navy">{b.name}</div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
@@ -95,7 +177,7 @@ function Visibility({ b }: { b: BrandSummaryDTO }) {
   );
 }
 
-function Row({ b, onOpen, clientView, picture }: { b: BrandSummaryDTO; onOpen: (id: string) => void; clientView?: boolean; picture?: BrandPicture }) {
+function Row({ b, onOpen, clientView, picture, onLogo }: { b: BrandSummaryDTO; onOpen: (id: string) => void; clientView?: boolean; picture?: BrandPicture; onLogo?: (id: string, logo: string | null) => void }) {
   const sv = sparkValues(b);
   const open = () => onOpen(b.id);
   const topLine = b.topCompetitor ? `คู่แข่งที่ถูกพูดถึงมากสุด: ${b.topCompetitor.name} ${fmtPct(b.topCompetitor.mentionRate)}` : null;
@@ -113,7 +195,7 @@ function Row({ b, onOpen, clientView, picture }: { b: BrandSummaryDTO; onOpen: (
     >
       {/* desktop */}
       <div className="hidden items-center gap-4 md:grid md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,1.5fr)_96px_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_16px]">
-        <NameBlock b={b} clientView={clientView} picture={picture} />
+        <NameBlock b={b} clientView={clientView} picture={picture} onLogo={onLogo} />
         <div className="min-w-0 text-xs text-gray-500">
           <div className="text-sm text-brand-navy">{b.providers.length} platform · {b.competitors} คู่แข่ง</div>
           {topLine && <div className="truncate" title={topLine}>{topLine}</div>}
@@ -139,7 +221,7 @@ function Row({ b, onOpen, clientView, picture }: { b: BrandSummaryDTO; onOpen: (
       {/* mobile */}
       <div className="space-y-3 md:hidden">
         <div className="flex items-start justify-between gap-2">
-          <NameBlock b={b} clientView={clientView} picture={picture} />
+          <NameBlock b={b} clientView={clientView} picture={picture} onLogo={onLogo} />
           <Chip tone={statusTone(b.status, clientView)} dot className="shrink-0">{statusLabel(b.status, clientView)}</Chip>
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs text-gray-500">
@@ -180,7 +262,7 @@ function SkeletonRows() {
   );
 }
 
-export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView, pictures }: {
+export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView, pictures, onLogoChanged }: {
   onOpen: (projectId: string) => void;
   onCreate?: () => void;
   picker?: ReactNode;
@@ -188,6 +270,8 @@ export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView, pi
   clientView?: boolean;
   /** brand pictures by project id */
   pictures?: Record<string, BrandPicture>;
+  /** called after a logo was uploaded or removed from a row (staff view) */
+  onLogoChanged?: () => void;
 }) {
   const [data, setData] = useState<BrandsRes | null>(null);
   const [loading, setLoading] = useState(true);
@@ -195,6 +279,19 @@ export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView, pi
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | BrandStatus>("all");
   const [sort, setSort] = useState<SortKey>("visibility_desc");
+  // project id -> logo path returned by the server (null = removed); wins over `pictures` until the parent reloads
+  const [logoOverride, setLogoOverride] = useState<Record<string, string | null>>({});
+
+  const onLogo = useCallback((id: string, logo: string | null) => {
+    setLogoOverride((prev) => ({ ...prev, [id]: logo }));
+    onLogoChanged?.();
+  }, [onLogoChanged]);
+
+  const pictureOf = (id: string): BrandPicture | undefined => {
+    const base = pictures?.[id];
+    if (!(id in logoOverride)) return base;
+    return { logo: logoOverride[id], favicon: base?.favicon ?? null };
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -329,7 +426,7 @@ export function BrandList({ onOpen, onCreate, picker, refreshKey, clientView, pi
         <Panel><EmptyState title="ไม่พบแบรนด์ที่ตรงกับตัวกรอง" description="ลองเปลี่ยนคำค้นหาหรือสถานะ" /></Panel>
       ) : (
         <div className="space-y-2">
-          {rows.map((b) => <Row key={b.id} b={b} onOpen={onOpen} clientView={clientView} picture={pictures?.[b.id]} />)}
+          {rows.map((b) => <Row key={b.id} b={b} onOpen={onOpen} clientView={clientView} picture={pictureOf(b.id)} onLogo={clientView ? undefined : onLogo} />)}
         </div>
       )}
 

@@ -7,8 +7,8 @@ export const INSUFFICIENT = 'Insufficient Data'
 export const NO_DATA_MESSAGE = 'No monitoring data yet. Connect an AI provider and run your first scan.'
 export const NA = 'N/A'
 
-export type TabId = 'overview' | 'responses' | 'prompts' | 'competitors' | 'citations' | 'citation-analysis' | 'opportunities' | 'settings'
-export const TAB_IDS: readonly TabId[] = ['overview', 'responses', 'prompts', 'competitors', 'citations', 'citation-analysis', 'opportunities', 'settings']
+export type TabId = 'overview' | 'responses' | 'prompts' | 'competitors' | 'url-monitor' | 'citations' | 'citation-analysis' | 'opportunities' | 'settings'
+export const TAB_IDS: readonly TabId[] = ['overview', 'responses', 'prompts', 'competitors', 'url-monitor', 'citations', 'citation-analysis', 'opportunities', 'settings']
 
 /** Props every tab component receives from BrandRadarClient */
 /**

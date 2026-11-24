@@ -17,7 +17,7 @@ export const POSITION_FAIR_GAP = 1.5
 
 interface Candidate { name: string; value: number }
 
-function gradeRate(metric: ScoreMetricKey, ours: number | null, others: Candidate[]): ScoreGrade {
+export function gradeRate(metric: ScoreMetricKey, ours: number | null, others: Candidate[]): ScoreGrade {
   const best = others.reduce<Candidate | null>((b, c) => (b === null || c.value > b.value ? c : b), null)
   const bestCompetitor = best ? { name: best.name, value: best.value } : null
   if (!best || ours === null) return { metric, value: ours, bestCompetitor, grade: null, rank: null, outOf: 0 }
@@ -32,7 +32,7 @@ function gradeRate(metric: ScoreMetricKey, ours: number | null, others: Candidat
   return { metric, value: ours, bestCompetitor, grade, rank, outOf: others.length + 1 }
 }
 
-function gradePosition(ours: number | null, others: Candidate[]): ScoreGrade {
+export function gradePosition(ours: number | null, others: Candidate[]): ScoreGrade {
   const best = others.reduce<Candidate | null>((b, c) => (b === null || c.value < b.value ? c : b), null)
   const bestCompetitor = best ? { name: best.name, value: best.value } : null
   if (!best || ours === null) return { metric: 'position', value: ours, bestCompetitor, grade: null, rank: null, outOf: 0 }

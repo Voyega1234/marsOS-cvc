@@ -13,10 +13,10 @@ import { Pager } from "./PromptDialogs";
 import { pct } from "./ReportCards";
 import { fmtNum } from "./shared";
 
-type Kind = "rate" | "count" | "position";
+export type Kind = "rate" | "count" | "position";
 type Dir = "up" | "down" | "flat";
 
-interface Delta {
+export interface Delta {
   /** signed text such as "+5.0 จุด"; null = nothing to compare */
   text: string | null;
   dir: Dir | null;
@@ -26,12 +26,12 @@ interface Delta {
   phrase: string;
 }
 
-const NO_DELTA: Delta = { text: null, dir: null, good: null, phrase: "ไม่มีรอบก่อนหน้าให้เทียบ" };
+export const NO_DELTA: Delta = { text: null, dir: null, good: null, phrase: "ไม่มีรอบก่อนหน้าให้เทียบ" };
 
 const sign = (n: number) => (n > 0 ? "+" : "");
 
 /** difference between two values of one metric; either side null = no difference */
-function computeDelta(cur: number | null | undefined, prev: number | null | undefined, kind: Kind): Delta {
+export function computeDelta(cur: number | null | undefined, prev: number | null | undefined, kind: Kind): Delta {
   if (cur === null || cur === undefined || prev === null || prev === undefined) return NO_DELTA;
   if (!Number.isFinite(cur) || !Number.isFinite(prev)) return NO_DELTA;
   let diff: number;
@@ -64,7 +64,7 @@ function fmtPos(v: number | null | undefined): string {
   return v === null || v === undefined || !Number.isFinite(v) ? "—" : v.toFixed(1);
 }
 
-function DeltaChip({ d, dim }: { d: Delta; dim?: boolean }) {
+export function DeltaChip({ d, dim }: { d: Delta; dim?: boolean }) {
   if (d.text === null || d.dir === null) {
     return <span className="text-xs text-gray-400" title={d.phrase} aria-label={d.phrase}>—</span>;
   }

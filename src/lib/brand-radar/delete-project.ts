@@ -12,6 +12,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { brandLogoKey } from './brand-logo'
+import { urlMonitorKey } from './url-monitor'
 import { isMissingTable } from './server'
 import { LIMITS, isManualProjectId } from './types'
 
@@ -92,6 +93,8 @@ export async function deleteRadarProject(orgId: string, projectId: string, now: 
         // Only a project created inside Brand Radar keeps its logo here. A regular project's logo is Project.logoUrl,
         // shared with the rest of MarsOS, and stays.
         if (isManualProjectId(projectId)) await tx.appSetting.deleteMany({ where: { key: brandLogoKey(projectId) } })
+        // The monitored URL list belongs to Brand Radar only, whatever kind of project it is.
+        await tx.appSetting.deleteMany({ where: { key: urlMonitorKey(projectId) } })
         counts.profiles = (await tx.brandRadarProfile.deleteMany({ where })).count
       },
       { timeout: 60_000, maxWait: 10_000 },

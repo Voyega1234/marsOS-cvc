@@ -557,7 +557,7 @@ async function loadQueryGroups(base: Base): Promise<Map<string, string>> {
 }
 
 /** Search Query Groups + brand sentiment over every answer inside the filters */
-async function buildInsight(base: Base, ds: Dataset): Promise<AnswerInsightDTO> {
+export async function buildInsight(base: Base, ds: Dataset): Promise<AnswerInsightDTO> {
   if (ds.responses.length === 0) return emptyInsight(true)
   const byId = new Map(ds.responses.map((r) => [r.id, r]))
   const [stored, groups] = await Promise.all([

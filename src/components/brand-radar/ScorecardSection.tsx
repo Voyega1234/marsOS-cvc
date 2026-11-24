@@ -54,7 +54,7 @@ const TILE_HELP: Record<ScoreMetricKey, { label: string; help: HelpText }> = {
 
 const MONTH_WHEN = "คำนวณใหม่ทุกครั้งที่เปิดหน้า และเปลี่ยนเมื่อมีการสแกนรอบใหม่ ไม่ขึ้นกับตัวกรองด้านบน";
 
-type RowKind = "rate" | "position" | "count";
+export type RowKind = "rate" | "position" | "count";
 interface MonthRowDef {
   key: string;
   label: string;
@@ -114,7 +114,7 @@ const MONTH_ROWS: MonthRowDef[] = [
   },
 ];
 
-const GRADE_CHIP: Record<Grade, { tone: "ok" | "warn" | "bad"; text: string }> = {
+export const GRADE_CHIP: Record<Grade, { tone: "ok" | "warn" | "bad"; text: string }> = {
   good: { tone: "ok", text: "ดี" },
   fair: { tone: "warn", text: "พอใช้" },
   poor: { tone: "bad", text: "ต้องแก้" },
@@ -123,7 +123,7 @@ const GRADE_CHIP: Record<Grade, { tone: "ok" | "warn" | "bad"; text: string }> =
 const THAI_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
 /** "2026-11" -> "พ.ย. 69" (Buddhist year, two digits) */
-function monthLabel(month: string): string {
+export function monthLabel(month: string): string {
   const [y, m] = month.split("-").map(Number);
   if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return month;
   return `${THAI_MONTHS[m - 1]} ${String((y + 543) % 100).padStart(2, "0")}`;
@@ -133,7 +133,7 @@ function fmtPos(v: number | null | undefined): string {
   return v === null || v === undefined || !Number.isFinite(v) ? "—" : v.toFixed(1);
 }
 
-function showValue(kind: RowKind, v: number | null): string {
+export function showValue(kind: RowKind, v: number | null): string {
   if (v === null) return "—";
   if (kind === "rate") return pct(v);
   if (kind === "position") return fmtPos(v);
@@ -144,10 +144,10 @@ function tileValue(g: ScoreGrade): string {
   return g.metric === "position" ? fmtPos(g.value) : pct(g.value);
 }
 
-interface Change { text: string; tone: "good" | "bad" | "flat" | "neutral" }
+export interface Change { text: string; tone: "good" | "bad" | "flat" | "neutral" }
 
 /** change of `cur` against `base`; either side null = nothing to compare */
-function change(kind: RowKind, cur: number | null, base: number | null): Change | null {
+export function change(kind: RowKind, cur: number | null, base: number | null): Change | null {
   if (cur === null || base === null) return null;
   const diff = kind === "rate" ? Math.round((cur - base) * 1000) / 10 : kind === "position" ? Math.round((cur - base) * 10) / 10 : Math.round(cur - base);
   const shown = kind === "count" ? fmtNum(Math.abs(diff)) : Math.abs(diff).toFixed(1);
@@ -166,7 +166,7 @@ const CHANGE_CLASS: Record<Change["tone"], string> = {
   neutral: "text-gray-700 dark:text-gray-300",
 };
 
-function ChangeCell({ c }: { c: Change | null }) {
+export function ChangeCell({ c }: { c: Change | null }) {
   if (!c) return <span className="text-gray-400">—</span>;
   return <span className={`tabular-nums ${CHANGE_CLASS[c.tone]}`}>{c.text}</span>;
 }
