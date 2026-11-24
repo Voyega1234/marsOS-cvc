@@ -6,15 +6,22 @@ import { getGSCServiceAuth, getServiceIdentity } from '@/lib/google-auth'
 import { parsePrefs } from '@/lib/upload-article/prefs-store'
 import type { UploadGscReportPrefs } from '@/lib/upload-article/types'
 import { resolveReportPeriod, REPORT_DAY_OPTIONS, type RawGscRow, type ReportCompareMode, type ReportSearchType } from '@/lib/upload-article/gsc-report'
-import { buildKeywordSuggestions, normalizeTrackerKeyword, readGscTrackers, UPLOAD_MAX_GSC_TRACKERS, type GscKeywordSuggestResponse } from '@/lib/upload-article/gsc-trackers'
+import { normalizeTrackerKeyword, rankKeywordSuggestions, readGscTrackers, readSuggestSort, UPLOAD_MAX_GSC_TRACKERS, type GscKeywordSuggestResponse } from '@/lib/upload-article/gsc-trackers'
 import { GSC_BUDGET_BUSY_MESSAGE, gscTrackerBudget } from '@/lib/upload-article/gsc-budget'
 import { hasForbiddenTerm } from '@/lib/wordgod/local/normalize'
 
 // ─── Upload Article > Report > Keyword ที่ติดตาม — "หาคำใกล้เคียง": คำค้นหาใน GSC ของเว็บนี้ที่มีคำหลักอยู่ ───
 // ยิง GSC 2 ครั้ง (ช่วงนี้ + ช่วงเทียบ), cache 10 นาที, ผ่าน budget เดียวกับ performance
+// term ว่าง = keyword ทั้งหมดของเว็บในช่วงนี้ (ไม่กรองคำ): ดึงสูงสุด 25,000 แถวต่อช่วง แล้วส่งกลับ 1,000 อันดับแรกตาม sort
+// เปลี่ยน sort ใช้แถวจาก cache เดิม ไม่ยิง GSC ใหม่
 
 const CACHE_TTL_MS = 10 * 60 * 1000
 const ROW_LIMIT = 500
+const ALL_ROW_LIMIT = 25000
+const TERM_RESULT_LIMIT = 200
+const ALL_RESULT_LIMIT = 1000
+/** small: one all-queries entry can hold 50,000 rows */
+const CACHE_MAX = 60
 const cache = new Map<string, { rows: { cur: RawGscRow[]; prev: RawGscRow[] }; expiresAt: number }>()
 const SEARCH_TYPES: ReportSearchType[] = ['web', 'image', 'video', 'news', 'discover']
 
@@ -23,7 +30,7 @@ function isForbiddenError(e: unknown): boolean {
   return err?.code === 403 || err?.code === '403' || err?.response?.status === 403
 }
 
-/** POST body {term, days?, startDate?, endDate?, compare?, searchType?} */
+/** POST body {term, sort?, days?, startDate?, endDate?, compare?, searchType?} — term '' = every query of the site */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session?.user?.organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -38,7 +45,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = await req.json().catch(() => ({}))
   const term = normalizeTrackerKeyword(body?.term)
-  if (term.length < 2) return NextResponse.json({ error: 'พิมพ์คำหลักอย่างน้อย 2 ตัวอักษร' }, { status: 400 })
+  const all = term.length === 0
+  if (!all && term.length < 2) return NextResponse.json({ error: 'พิมพ์คำหลักอย่างน้อย 2 ตัวอักษร' }, { status: 400 })
+  const sort = readSuggestSort(body?.sort)
   const days = typeof body?.days === 'number' && (REPORT_DAY_OPTIONS as readonly number[]).includes(body.days) ? body.days : 28
   const compare: ReportCompareMode = body?.compare === 'yoy' ? 'yoy' : 'previous'
   const searchType: ReportSearchType = SEARCH_TYPES.includes(body?.searchType) ? body.searchType : 'web'
@@ -61,8 +70,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const res = await sc.searchanalytics.query({
           siteUrl,
           requestBody: {
-            startDate, endDate, type: searchType, dimensions: ['query'], rowLimit: ROW_LIMIT,
-            dimensionFilterGroups: [{ filters: [{ dimension: 'query', operator: 'contains', expression: term }] }],
+            startDate, endDate, type: searchType, dimensions: ['query'], rowLimit: all ? ALL_ROW_LIMIT : ROW_LIMIT,
+            ...(all ? {} : { dimensionFilterGroups: [{ filters: [{ dimension: 'query', operator: 'contains', expression: term }] }] }),
           } as never,
         })
         return (res.data.rows ?? []) as RawGscRow[]
@@ -70,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const [cur, prev] = await Promise.all([run(period.start, period.end), run(period.compareStart, period.compareEnd)])
       rows = { cur, prev }
       cache.set(cacheKey, { rows, expiresAt: Date.now() + CACHE_TTL_MS })
-      if (cache.size > 200) {
+      if (cache.size > CACHE_MAX) {
         const oldest = cache.keys().next().value
         if (oldest) cache.delete(oldest)
       }
@@ -84,10 +93,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const trackers = readGscTrackers(prefs.gscTrackers)
+  // กฎ: ห้ามมีคำต้องห้าม (เช่น pantip) ในผล keyword
+  const ranked = rankKeywordSuggestions(rows.cur, rows.prev, trackers, {
+    exclude: hasForbiddenTerm, sort, limit: all ? ALL_RESULT_LIMIT : TERM_RESULT_LIMIT,
+  })
   const out: GscKeywordSuggestResponse = {
     term,
-    // กฎ: ห้ามมีคำต้องห้าม (เช่น pantip) ในผล keyword
-    suggestions: buildKeywordSuggestions(rows.cur, rows.prev, trackers, { exclude: hasForbiddenTerm, limit: 200 }),
+    suggestions: ranked.suggestions,
+    total: ranked.total,
+    sort,
     remaining: Math.max(0, UPLOAD_MAX_GSC_TRACKERS - trackers.length),
     limit: UPLOAD_MAX_GSC_TRACKERS,
   }

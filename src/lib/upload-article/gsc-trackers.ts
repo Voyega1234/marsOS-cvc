@@ -786,23 +786,55 @@ export interface GscKeywordSuggestion extends GscMetric {
 }
 
 export interface GscKeywordSuggestResponse {
+  /** '' = every query the site has in GSC for the period (no term filter) */
   term: string
   suggestions: GscKeywordSuggestion[]
+  /** how many queries matched before the list was cut to the top ones */
+  total?: number
+  /** the order the list was cut by */
+  sort?: GscSuggestSort
   /** ช่องที่ยังเพิ่มได้ก่อนเต็มเพดาน */
   remaining: number
   limit: number
 }
 
+export type GscSuggestSort = 'clicks' | 'impressions' | 'ctr' | 'position'
+export const GSC_SUGGEST_SORTS: readonly GscSuggestSort[] = ['clicks', 'impressions', 'ctr', 'position']
+
+export function readSuggestSort(v: unknown): GscSuggestSort {
+  return GSC_SUGGEST_SORTS.includes(v as GscSuggestSort) ? (v as GscSuggestSort) : 'clicks'
+}
+
 /**
- * คำค้นหาจาก GSC ที่มีคำหลักอยู่ (แถวมิติ query) → รายการให้ติ๊กเลือก เรียงตามคลิก แล้วการแสดงผล
- * exclude = คำที่ห้ามแสดง (เช่นคำต้องห้าม) — ตัดซ้ำตาม normalizeTrackerKeyword
+ * Order for the suggestion list. clicks / impressions / ctr: highest first.
+ * position: best (lowest) average position first, rows with no position last.
+ * Ties fall back to clicks, then impressions, then the keyword.
  */
-export function buildKeywordSuggestions(
+export function compareSuggestions(sort: GscSuggestSort): (a: GscMetric & { keyword: string }, b: GscMetric & { keyword: string }) => number {
+  const tie = (a: GscMetric & { keyword: string }, b: GscMetric & { keyword: string }) =>
+    b.clicks - a.clicks || b.impressions - a.impressions || a.keyword.localeCompare(b.keyword)
+  if (sort === 'impressions') return (a, b) => b.impressions - a.impressions || tie(a, b)
+  if (sort === 'ctr') return (a, b) => b.ctr - a.ctr || tie(a, b)
+  if (sort === 'position') {
+    return (a, b) => {
+      const pa = a.position > 0 ? a.position : Number.MAX_VALUE
+      const pb = b.position > 0 ? b.position : Number.MAX_VALUE
+      return pa - pb || tie(a, b)
+    }
+  }
+  return tie
+}
+
+/**
+ * GSC query rows -> the pick list. exclude = keywords never shown (forbidden terms); duplicates
+ * by normalizeTrackerKeyword are dropped. total = matches before the cut to `limit`.
+ */
+export function rankKeywordSuggestions(
   curRows: readonly RawGscRow[],
   prevRows: readonly RawGscRow[],
   existing: readonly UploadGscTracker[],
-  opts: { limit?: number; exclude?: (keyword: string) => boolean } = {},
-): GscKeywordSuggestion[] {
+  opts: { limit?: number; exclude?: (keyword: string) => boolean; sort?: GscSuggestSort } = {},
+): { suggestions: GscKeywordSuggestion[]; total: number } {
   const tracked = new Set(existing.filter((t) => trackerKind(t) === 'keyword').map((t) => t.keyword))
   const prev = new Map<string, RawGscRow>()
   for (const r of prevRows) {
@@ -823,8 +855,18 @@ export function buildKeywordSuggestions(
       tracked: tracked.has(keyword),
     })
   }
-  out.sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions || a.keyword.localeCompare(b.keyword))
-  return out.slice(0, opts.limit ?? 200)
+  out.sort(compareSuggestions(opts.sort ?? 'clicks'))
+  return { suggestions: out.slice(0, opts.limit ?? 200), total: out.length }
+}
+
+/** rankKeywordSuggestions without the total, sorted by clicks then impressions */
+export function buildKeywordSuggestions(
+  curRows: readonly RawGscRow[],
+  prevRows: readonly RawGscRow[],
+  existing: readonly UploadGscTracker[],
+  opts: { limit?: number; exclude?: (keyword: string) => boolean } = {},
+): GscKeywordSuggestion[] {
+  return rankKeywordSuggestions(curRows, prevRows, existing, opts).suggestions
 }
 
 /**

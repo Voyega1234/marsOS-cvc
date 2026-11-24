@@ -4,7 +4,7 @@
  */
 import { createQueryBudget, GSC_TRACKER_QUERIES_PER_MINUTE } from './gsc-budget';
 import {
-  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, withSimilarTotals, adoptGroupNamesake, trackerKeywordGroup, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
+  addGscTracker, addGscTrackersBulk, buildKeywordSuggestions, rankKeywordSuggestions, compareSuggestions, readSuggestSort, chunkKeywordRegex, assignSimilarKeywords, chunkSimilarRegex, isSimilarQuery, pickSimilarKeywords, similarScore, similarTokens, splitRowsByQuery, aggregateTrackerPerformance, withSimilarTotals, adoptGroupNamesake, trackerKeywordGroup, buildTrackerPageRegex, buildTrackerSeries, isIdPermalinkUrl, trackerKind, normalizeTrackerKeyword, normalizeTrackerUrl,
   readGscTrackers, removeGscTracker, removeGscTrackers, updateGscTrackers, normalizeTrackerGroup, trackerKey, trackerKeys, trackerUrlKey,
   applyTrackerFolderOp, readTrackerFolders, isTrackerFoldersClient, UPLOAD_MAX_TRACKER_FOLDERS, UPLOAD_MAX_TRACKER_SUBFOLDERS, type UploadGscTrackerFolder,
   GSC_TRACKER_ERROR_MESSAGES, UPLOAD_MAX_GSC_TRACKERS, type GscTrackerPerformance, type UploadGscTracker,
@@ -337,6 +337,22 @@ function near(a: number, b: number, eps = 1e-9): boolean {
   assert(sugg.map((s) => s.keyword).join(',') === 'cpas ads,cpas คือ,cpas', 'suggest: sorted by clicks then impressions, excluded dropped');
   assert(sugg[2].tracked && !sugg[0].tracked, 'suggest: keyword-only tracker marks tracked, pair does not');
   assert(sugg[1].prevClicks === 4 && sugg[1].prevPosition === 5 && sugg[0].prevClicks === 0, 'suggest: previous period joined');
+
+  const allRows = [
+    { keys: ['a'], clicks: 1, impressions: 900, ctr: 0.001, position: 12 },
+    { keys: ['b'], clicks: 20, impressions: 100, ctr: 0.2, position: 4 },
+    { keys: ['c'], clicks: 3, impressions: 10, ctr: 0.3, position: 1.5 },
+    { keys: ['d'], clicks: 0, impressions: 5, ctr: 0, position: 0 },
+    { keys: ['B'], clicks: 99, impressions: 999, ctr: 0.1, position: 1 },
+  ];
+  const order = (sort: Parameters<typeof compareSuggestions>[0]) => rankKeywordSuggestions(allRows, [], [], { sort }).suggestions.map((s) => s.keyword).join(',');
+  assert(order('clicks') === 'b,c,a,d', 'rank: clicks desc, duplicate after normalize dropped');
+  assert(order('impressions') === 'a,b,c,d', 'rank: impressions desc');
+  assert(order('ctr') === 'c,b,a,d', 'rank: ctr desc');
+  assert(order('position') === 'c,b,a,d', 'rank: best position first, no position last');
+  const cut = rankKeywordSuggestions(allRows, [], [], { sort: 'impressions', limit: 2 });
+  assert(cut.total === 4 && cut.suggestions.map((s) => s.keyword).join(',') === 'a,b', 'rank: total counts before the cut, cut follows the sort');
+  assert(readSuggestSort('ctr') === 'ctr' && readSuggestSort('x') === 'clicks' && readSuggestSort(undefined) === 'clicks', 'rank: unknown sort falls back to clicks');
 
   const chunks = chunkKeywordRegex(Array.from({ length: 30 }, (_, i) => `k.${i}`).concat(['k.0']));
   assert(chunks.length === 2 && chunks[0].keywords.length === 25 && chunks[1].keywords.length === 5, 'chunk: 25 per batch, duplicates dropped');

@@ -2,27 +2,39 @@
 
 // Upload Article > Report > Keyword ที่ติดตาม — "หาคำใกล้เคียง"
 // Pulls this site's GSC queries that contain a term (e.g. "cpas" -> "cpas คือ", "cpas ads"),
-// sorted by clicks or impressions; the user ticks the ones to track and adds them to one group.
+// sorted by clicks, impressions, CTR or position; the user ticks the ones to track and adds them to one group.
+// "keyword ทั้งหมด" lists every query the site has in GSC for the period (top 1,000 by the chosen sort),
+// with a quick filter on top, so any keyword can be picked into the group, not only ones containing the term.
 // opened from a keyword group (initialSubgroup), every row also gets a "+" that adds
 // that one keyword into the keyword group right away and keeps the dialog open.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Check, Folder, Loader2, Plus, Search, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ds";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { UPLOAD_MAX_TRACKER_GROUP, type GscKeywordSuggestion, type GscKeywordSuggestResponse, type UploadGscTracker } from "@/lib/upload-article/gsc-trackers";
+import { compareSuggestions, UPLOAD_MAX_TRACKER_GROUP, type GscKeywordSuggestion, type GscKeywordSuggestResponse, type GscSuggestSort, type UploadGscTracker } from "@/lib/upload-article/gsc-trackers";
 import type { UploadOwnerTag } from "@/lib/upload-article/types";
 
-type SortKey = "clicks" | "impressions";
-const SORT_OPTIONS = [
-  { value: "clicks" as const, label: "เรียงตามคลิก" },
-  { value: "impressions" as const, label: "เรียงตามการแสดงผล" },
+type Scope = "term" | "all";
+const SCOPE_OPTIONS = [
+  { value: "term" as const, label: "คำที่มีคำหลัก" },
+  { value: "all" as const, label: "keyword ทั้งหมดของเว็บ" },
 ];
+const SORT_OPTIONS: { value: GscSuggestSort; label: string }[] = [
+  { value: "clicks", label: "คลิก" },
+  { value: "impressions", label: "การแสดงผล" },
+  { value: "ctr", label: "CTR" },
+  { value: "position", label: "อันดับ" },
+];
+const SORT_LABEL: Record<GscSuggestSort, string> = { clicks: "คลิก", impressions: "การแสดงผล", ctr: "CTR", position: "อันดับดีสุด" };
+/** rows drawn at a time; "แสดงเพิ่ม" draws the next batch */
+const PAGE = 200;
 
 function fmtNum(n: number): string { return Math.round(n).toLocaleString(); }
 function fmtPos(n: number): string { return n ? n.toFixed(1) : "—"; }
+function fmtCtr(n: number): string { return `${(n * 100).toFixed(1)}%`; }
 
 /** "Blog 45 - cpas" -> "cpas": the part after the last dash is usually the keyword */
 export function termFromGroupName(name: string): string {
@@ -55,7 +67,12 @@ export default function GscKeywordSuggestDialog({
   const [term, setTerm] = useState(initialTerm);
   const [group, setGroup] = useState(initialGroup);
   const [owner, setOwner] = useState(defaultOwnerTagId);
-  const [sort, setSort] = useState<SortKey>("clicks");
+  const [sort, setSort] = useState<GscSuggestSort>("clicks");
+  const [scope, setScope] = useState<Scope>("term");
+  const [filter, setFilter] = useState("");
+  const [hideTracked, setHideTracked] = useState(false);
+  const [shown, setShown] = useState(PAGE);
+  const reqId = useRef(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -67,25 +84,42 @@ export default function GscKeywordSuggestDialog({
   const targetGroup = subgroup ? initialGroup.trim() : group.trim();
   const target = subgroup ? { group: targetGroup, subgroup } : { group: targetGroup };
 
-  async function search(q = term) {
-    const t = q.trim();
-    if (t.length < 2) { setError("พิมพ์คำหลักอย่างน้อย 2 ตัวอักษร"); return; }
+  /** scope "all" sends an empty term: every query of the site, cut to the top ones by `by` on the server */
+  async function search(q = term, sc: Scope = scope, by: GscSuggestSort = sort, keepPicked = false) {
+    const t = sc === "all" ? "" : q.trim();
+    if (sc === "term" && t.length < 2) { setError("พิมพ์คำหลักอย่างน้อย 2 ตัวอักษร"); return; }
+    const id = ++reqId.current;
     setLoading(true); setError("");
     try {
       const res = await fetch(`/api/upload-article/clients/${clientId}/report/trackers/suggest`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...periodParams, term: t }),
+        body: JSON.stringify({ ...periodParams, term: t, sort: by }),
       });
       const d = await res.json().catch(() => ({}));
+      if (id !== reqId.current) return;
       if (!res.ok) throw new Error(d.error || "หาคำไม่สำเร็จ");
       setResult(d as GscKeywordSuggestResponse);
-      setPicked(new Set());
+      if (!keepPicked) setPicked(new Set());
+      setShown(PAGE);
     } catch (e) {
+      if (id !== reqId.current) return;
       setResult(null);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (id === reqId.current) setLoading(false);
     }
+  }
+
+  function changeScope(next: Scope) {
+    setScope(next); setResult(null); setPicked(new Set()); setFilter(""); setError("");
+    if (next === "all") void search("", "all");
+    else if (term.trim().length >= 2) void search(term, "term");
+  }
+
+  // the server cut the list by the old sort; when it was cut, ask again (rows are cached there, no new GSC call)
+  function changeSort(next: GscSuggestSort) {
+    setSort(next);
+    if (result && (result.total ?? 0) > result.suggestions.length) void search(result.term, scope, next, true);
   }
 
   // Each open starts fresh from the button that opened it; a prefilled term searches right away.
@@ -93,17 +127,23 @@ export default function GscKeywordSuggestDialog({
     if (!open) return;
     setTerm(initialTerm); setGroup(initialGroup); setOwner(defaultOwnerTagId);
     setResult(null); setPicked(new Set()); setAdding(new Set()); setError("");
-    if (initialTerm.trim().length >= 2) void search(initialTerm);
+    setFilter(""); setHideTracked(false); setShown(PAGE); setSort("clicks");
+    // no keyword to start from = open on the whole list
+    const startScope: Scope = initialTerm.trim().length >= 2 ? "term" : "all";
+    setScope(startScope);
+    if (startScope === "all") void search("", "all", "clicks");
+    else void search(initialTerm, "term", "clicks");
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(() => {
-    const list = [...(result?.suggestions ?? [])];
-    list.sort((a, b) => (sort === "clicks"
-      ? b.clicks - a.clicks || b.impressions - a.impressions
-      : b.impressions - a.impressions || b.clicks - a.clicks));
+    const f = scope === "all" ? filter.trim().toLowerCase() : "";
+    const list = (result?.suggestions ?? []).filter((r) => (!hideTracked || r.tracked === false) && (!f || r.keyword.includes(f)));
+    list.sort(compareSuggestions(sort));
     return list;
-  }, [result, sort]);
-  const pickable = rows.filter((r) => !r.tracked);
+  }, [result, sort, scope, filter, hideTracked]);
+  const visible = rows.slice(0, shown);
+  // select-all works on the rows on screen, so a long list does not blow past the limit in one click
+  const pickable = visible.filter((r) => !r.tracked);
   const remaining = result?.remaining ?? 0;
   const overBy = Math.max(0, picked.size - remaining);
   const allPicked = pickable.length > 0 && pickable.every((r) => picked.has(r.keyword));
@@ -176,22 +216,37 @@ export default function GscKeywordSuggestDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!saving) onOpenChange(v); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>หาคำใกล้เคียง</DialogTitle>
+          <DialogTitle>{scope === "all" ? "keyword ทั้งหมดของเว็บ" : "หาคำใกล้เคียง"}</DialogTitle>
           <DialogDescription>
+            {scope === "all"
+              ? "keyword ทุกคำที่เว็บนี้มีใน Search Console ช่วงนี้ เรียงตามที่เลือก พิมพ์เพื่อกรอง แล้ว"
+              : "ดึงคำค้นหาจาก Search Console ของเว็บนี้ที่มีคำหลักอยู่ แล้ว"}
             {subgroup
-              ? "ดึงคำค้นหาจาก Search Console ของเว็บนี้ที่มีคำหลักอยู่ กด + ที่คำที่ต้องการเพื่อเพิ่มเข้ากลุ่ม keyword นี้ หรือติ๊กหลายคำแล้วเพิ่มทีเดียว (ติดตามเป็น keyword ทั้งเว็บ)"
-              : "ดึงคำค้นหาจาก Search Console ของเว็บนี้ที่มีคำหลักอยู่ ติ๊กคำที่ต้องการ แล้วเพิ่มเข้ากลุ่มทีเดียว (ติดตามเป็น keyword ทั้งเว็บ)"}
+              ? "กด + ที่คำที่ต้องการเพื่อเพิ่มเข้ากลุ่ม keyword นี้ หรือติ๊กหลายคำแล้วเพิ่มทีเดียว (ติดตามเป็น keyword ทั้งเว็บ)"
+              : "ติ๊กคำที่ต้องการ แล้วเพิ่มเข้ากลุ่มทีเดียว (ติดตามเป็น keyword ทั้งเว็บ)"}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <form className="flex items-center gap-2 flex-wrap" onSubmit={(e) => { e.preventDefault(); void search(); }}>
-            <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="คำหลัก เช่น cpas" aria-label="คำหลัก"
-              className={`${inputCls} flex-1 min-w-[180px]`} autoFocus />
-            <Button type="submit" size="sm" disabled={loading} className="rounded-full">
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />} ค้นหา
-            </Button>
-          </form>
+          <Segmented size="sm" ariaLabel="ดึงคำจาก" value={scope} onChange={changeScope} options={SCOPE_OPTIONS} />
+          {scope === "term" ? (
+            <form className="flex items-center gap-2 flex-wrap" onSubmit={(e) => { e.preventDefault(); void search(); }}>
+              <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="คำหลัก เช่น cpas" aria-label="คำหลัก"
+                className={`${inputCls} flex-1 min-w-[180px]`} autoFocus />
+              <Button type="submit" size="sm" disabled={loading} className="rounded-full">
+                {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />} ค้นหา
+              </Button>
+            </form>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input value={filter} onChange={(e) => { setFilter(e.target.value); setShown(PAGE); }} placeholder="กรอง keyword เช่น ads"
+                  aria-label="กรอง keyword" className={`${inputCls} w-full pl-8`} />
+              </div>
+              {loading && <Loader2 size={14} className="animate-spin text-gray-400" aria-label="กำลังโหลด" />}
+            </div>
+          )}
 
           <div className="flex items-center gap-2 flex-wrap">
             {subgroup ? (
@@ -221,13 +276,30 @@ export default function GscKeywordSuggestDialog({
           {result && (
             <>
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <Segmented size="sm" ariaLabel="เรียงตาม" value={sort} onChange={setSort} options={SORT_OPTIONS} />
-                <span className="text-[11px] text-gray-500">
-                  เจอ {rows.length} คำที่มี "{result.term}"{rows.length >= 200 ? " (แสดง 200 อันดับแรก)" : ""}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-gray-500">เรียงตาม</span>
+                  <Segmented size="sm" ariaLabel="เรียงตาม" value={sort} onChange={changeSort} options={SORT_OPTIONS} />
+                </div>
+                <label className="inline-flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
+                  <input type="checkbox" checked={hideTracked} onChange={(e) => { setHideTracked(e.target.checked); setShown(PAGE); }} />
+                  ซ่อนคำที่ติดตามแล้ว
+                </label>
               </div>
+              <p className="text-[11px] text-gray-500">
+                {result.term
+                  ? `เจอ ${fmtNum(result.total ?? result.suggestions.length)} คำที่มี "${result.term}"`
+                  : `keyword ทั้งหมด ${fmtNum(result.total ?? result.suggestions.length)} คำ`}
+                {(result.total ?? 0) > result.suggestions.length
+                  ? ` · ดึงมา ${fmtNum(result.suggestions.length)} อันดับแรกตาม${SORT_LABEL[result.sort ?? sort]}`
+                  : ""}
+                {rows.length !== result.suggestions.length ? ` · ตรงเงื่อนไข ${fmtNum(rows.length)} คำ` : ""}
+              </p>
               {rows.length === 0 ? (
-                <p className="py-6 text-center text-sm text-gray-500">ไม่มีคำค้นหาที่มี "{result.term}" ในช่วงเวลานี้</p>
+                <p className="py-6 text-center text-sm text-gray-500">
+                  {result.term
+                    ? `ไม่มีคำค้นหาที่มี "${result.term}" ในช่วงเวลานี้`
+                    : result.suggestions.length ? "ไม่มี keyword ที่ตรงกับตัวกรอง" : "ยังไม่มี keyword ในช่วงเวลานี้"}
+                </p>
               ) : (
                 <div className="max-h-[50vh] overflow-auto rounded-xl border border-gray-100">
                   <table className="w-full text-sm">
@@ -240,12 +312,13 @@ export default function GscKeywordSuggestDialog({
                         <th className="px-2 py-2 text-left font-medium">คำค้นหา</th>
                         <th className="px-2 py-2 text-right font-medium">คลิก</th>
                         <th className="px-2 py-2 text-right font-medium">การแสดงผล</th>
+                        <th className="px-2 py-2 text-right font-medium">CTR</th>
                         <th className="px-3 py-2 text-center font-medium">อันดับเฉลี่ย</th>
                         {subgroup && <th className="px-3 py-2 w-10"><span className="sr-only">เพิ่มเข้ากลุ่ม keyword</span></th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((r) => (
+                      {visible.map((r) => (
                         <tr key={r.keyword} className={`border-t border-gray-100 ${r.tracked ? "opacity-50" : "hover:bg-gray-50/60"}`}>
                           <td className="px-3 py-1.5">
                             <input type="checkbox" aria-label={`เลือก ${r.keyword}`} disabled={r.tracked}
@@ -257,6 +330,7 @@ export default function GscKeywordSuggestDialog({
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums">{fmtNum(r.clicks)}<Delta diff={r.clicks - r.prevClicks} /></td>
                           <td className="px-2 py-1.5 text-right tabular-nums">{fmtNum(r.impressions)}<Delta diff={r.impressions - r.prevImpressions} /></td>
+                          <td className="px-2 py-1.5 text-right tabular-nums">{fmtCtr(r.ctr)}</td>
                           <td className="px-3 py-1.5 text-center tabular-nums">
                             {fmtPos(r.position)}
                             {r.prevPosition > 0 && r.position > 0 && <Delta diff={r.position - r.prevPosition} lowerIsBetter />}
@@ -279,6 +353,13 @@ export default function GscKeywordSuggestDialog({
                       ))}
                     </tbody>
                   </table>
+                  {rows.length > visible.length && (
+                    <div className="border-t border-gray-100 p-2 text-center">
+                      <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => setShown((n) => n + PAGE)}>
+                        แสดงเพิ่ม ({fmtNum(visible.length)} จาก {fmtNum(rows.length)})
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </>
