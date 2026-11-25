@@ -4,12 +4,15 @@
 import { parse, NodeType, TextNode, type HTMLElement } from 'node-html-parser'
 import { cleanSemanticHtml, sanitizeHref, sanitizeImgSrc } from './clean-html'
 import { DriveHttpError, safeGoogleFetch, shrinkImageToDataUrl } from './drive-folder'
+import { extractGoogleDocsComments, extractMammothComments, extractTextComments, type ExtractedComment } from './article-comments'
 
 export interface ImportResult {
   title: string
   html: string
   /** คำเตือนที่ไม่ทำให้ import ล้ม เช่น รูปในเอกสารถูกตัดเพราะข้อมูลรวมเกินเพดาน */
   warnings?: string[]
+  /** Comment ของลูกค้าที่อ่านได้จากต้นฉบับ (Google Docs / Word) — เนื้อหาใน html ถูกตัด comment ออกแล้วเหมือนเดิม */
+  comments?: ExtractedComment[]
 }
 
 function escapeHtml(s: string): string {
@@ -33,7 +36,11 @@ export function extractTitleFromHtml(html: string, fallback = ''): string {
 
 function cleanedResult(rawHtml: string, fallbackTitle = ''): ImportResult {
   const html = cleanSemanticHtml(rawHtml)
-  return { title: extractTitleFromHtml(html, fallbackTitle), html }
+  const out: ImportResult = { title: extractTitleFromHtml(html, fallbackTitle), html }
+  // อ่าน comment จาก HTML ดิบก่อนที่ cleanSemanticHtml จะตัดทิ้ง (รูปแบบของ Google Docs)
+  const comments = extractGoogleDocsComments(rawHtml)
+  if (comments.length > 0) out.comments = comments
+  return out
 }
 
 /** นำเข้า HTML ดิบ (paste / .html / .htm) */
@@ -100,7 +107,10 @@ function stripGoogleDocsCommentMarkers(text: string): string {
 /** นำเข้าข้อความล้วน (.txt) — เดา heading เฉพาะบรรทัดที่ขึ้นด้วย # เท่านั้น */
 export function importFromText(text: string, fallbackTitle = ''): ImportResult {
   const html = plainTextToHtml(stripGoogleDocsCommentMarkers(text))
-  return cleanedResult(html, fallbackTitle)
+  const out = cleanedResult(html, fallbackTitle)
+  const comments = extractTextComments(text)
+  if (comments.length > 0) out.comments = comments
+  return out
 }
 
 function mdInline(s: string): string {
@@ -250,6 +260,19 @@ export async function importFromFile(name: string, buffer: Buffer): Promise<Impo
         ...(out.warnings ?? []),
         `ตัดรูปในเอกสารออก ${droppedCount} รูป (ข้อมูลรูปรวมเกิน ~2.5MB ต่อบทความ)`,
       ]
+    }
+    // Comment ใน Word: mammoth ข้าม comment ถ้าไม่สั่ง — แปลงรอบที่สองเฉพาะไฟล์ที่มี word/comments.xml
+    // (ชื่อไฟล์ใน zip ไม่ถูกบีบอัด จึงหาใน buffer ตรง ๆ ได้) รอบนี้ทิ้งรูปทั้งหมด ใช้แค่อ่าน comment
+    // เนื้อหาบทความยังมาจากรอบแรกเหมือนเดิมทุกตัวอักษร
+    if (buffer.includes('word/comments.xml')) {
+      try {
+        const noImage = mammoth.images.imgElement(async () => droppedAttrs)
+        const withComments = await mammoth.convertToHtml({ buffer }, { convertImage: noImage, styleMap: ['comment-reference => sup'] })
+        const comments = extractMammothComments(withComments.value)
+        if (comments.length > 0) out.comments = comments
+      } catch {
+        out.warnings = [...(out.warnings ?? []), 'อ่าน Comment ในไฟล์ Word ไม่สำเร็จ — นำเข้าเฉพาะเนื้อหา']
+      }
     }
     return out
   }

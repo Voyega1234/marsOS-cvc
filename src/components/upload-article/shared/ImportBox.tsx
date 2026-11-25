@@ -48,6 +48,16 @@ export default function ImportBox({
   const [driveOpen, setDriveOpen] = useState(false);
   const url = `/api/upload-article/clients/${clientId}/${endpoint}`;
 
+  /** แจ้งเมื่อไฟล์ที่นำเข้ามี Comment ของลูกค้า (เฉพาะ endpoint บทความ) */
+  function noticeComments(d: { commentCounts?: Record<string, number> }) {
+    if (endpoint !== "articles" || !d?.commentCounts) return { n: 0, m: 0 };
+    const vals = Object.values(d.commentCounts).map(Number).filter(v => v > 0);
+    return { n: vals.reduce((a, b) => a + b, 0), m: vals.length };
+  }
+  function toastComments(n: number, m: number) {
+    if (n > 0) toast.info(`พบ Comment ของลูกค้า ${n} ข้อ ใน ${m} บทความ — ดูและเลือกปรับได้ที่หน้า Generate`);
+  }
+
   /** อัปโหลดทีละไฟล์ (request ละ 1 ไฟล์) กัน Vercel ตัด body ที่ 4.5MB เมื่อลากมาหลายไฟล์พร้อมกัน */
   async function uploadFiles(files: File[]) {
     const tooBig = files.filter(f => f.size > MAX_UPLOAD_FILE_BYTES);
@@ -58,6 +68,8 @@ export default function ImportBox({
     setBusy(true);
     try {
       let created = 0;
+      let cN = 0;
+      let cM = 0;
       for (const f of okFiles) {
         try {
           const fd = new FormData();
@@ -66,6 +78,8 @@ export default function ImportBox({
           if (!r.ok) { toast.error(await readErrorMessage(r, `${f.name}: อัปโหลดไม่สำเร็จ`)); continue; }
           const d = await r.json().catch(() => ({}));
           created += Array.isArray(d.created) ? d.created.length : 0;
+          const cc = noticeComments(d);
+          cN += cc.n; cM += cc.m;
           const errors = Array.isArray(d.errors) ? d.errors : [];
           for (const e of errors) toast.error(`${e.name}: ${e.error}`);
           const warnings = Array.isArray(d.warnings) ? d.warnings : [];
@@ -75,6 +89,7 @@ export default function ImportBox({
         }
       }
       if (created) toast.success(`นำเข้าสำเร็จ ${created} ${noun}`);
+      toastComments(cN, cM);
       await onImported();
     } finally {
       setBusy(false);
@@ -94,6 +109,7 @@ export default function ImportBox({
       const created = Array.isArray(d.created) ? d.created.length : 0;
       const errors = Array.isArray(d.errors) ? d.errors : [];
       if (created) toast.success(`นำเข้าสำเร็จ ${created} ${noun}`);
+      { const cc = noticeComments(d); toastComments(cc.n, cc.m); }
       for (const e of errors) toast.error(`${e.name}: ${e.error}`);
       const warnings = Array.isArray(d.warnings) ? d.warnings : [];
       for (const w of warnings) toast.warning(`${w.name}: ${w.warning}`);

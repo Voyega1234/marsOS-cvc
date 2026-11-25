@@ -79,6 +79,7 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   ARTICLE_FIX:         "Article Fix (AI)",
   DATA_BRAIN_SUMMARY:  "Data Brain Summary (AI)",
   UPLOAD_ARTICLE_WRITE:        "Upload Article · เขียนบทความ (AI)",
+  UPLOAD_ARTICLE_COMMENT_REVISE: "Upload Article · ปรับตาม Comment ลูกค้า (AI)",
   UPLOAD_ARTICLE_IMAGE_COVER:  "Upload Article · รูปปก (AI)",
   UPLOAD_ARTICLE_IMAGE_INLINE: "Upload Article · รูปประกอบ (AI)",
   UPLOAD_ARTICLE_KEYWORDS_AI:  "Upload Article · Keyword + Title (AI)",

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { extractTitleFromHtml, fetchGoogleDoc, importFromFile, type ImportResult } from '@/lib/upload-article/import-source'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
+import { saveImportedComments } from '@/lib/upload-article/article-comments-store'
 import {
   downloadDriveFile,
   driveFolderUrl,
@@ -103,8 +104,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
+  // comment รายบทความจากเอกสาร — เก็บไม่ได้ = เตือน ไม่ทำให้การนำเข้าล้ม
+  const commentCounts = await saveImportedComments(client.id, orgId, [{ articleId: row.id, comments: result.comments }])
+  if (commentCounts === null) {
+    const commentWarning = 'เก็บ Comment จากเอกสารไม่สำเร็จ — วาง Comment เองได้ในหน้า Generate'
+    warning = warning ? `${warning} · ${commentWarning}` : commentWarning
+  }
+
   return NextResponse.json(
-    { article: toUploadArticleDTO(row, false), coverName: coverImageUrl ? cover?.name : undefined, warning },
+    {
+      article: toUploadArticleDTO(row, false),
+      coverName: coverImageUrl ? cover?.name : undefined,
+      warning,
+      commentCount: commentCounts?.[row.id] ?? 0,
+    },
     { status: 201 },
   )
 }

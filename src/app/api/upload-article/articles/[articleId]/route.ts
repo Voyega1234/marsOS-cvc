@@ -199,7 +199,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { articleI
     const inIndexRequests = Boolean(cur.indexRequests && existing.id in cur.indexRequests)
     // แผนที่อื่นที่คีย์ด้วย articleId (PBN) + keywordPlan ที่ผูก articleId — ตัดทิ้งด้วย
     const raw = cur as unknown as Record<string, unknown>
-    const mapKeys = ['pbnArticleTargets', 'pbnPushes', 'pbnIndexRequests', 'articleWriteStamps', 'articleRewriteResults'].filter((k) => {
+    const mapKeys = ['pbnArticleTargets', 'pbnPushes', 'pbnIndexRequests', 'articleWriteStamps', 'articleRewriteResults', 'articleComments'].filter((k) => {
       const m = raw[k]
       return Boolean(m && typeof m === 'object' && existing.id in (m as Record<string, unknown>))
     })

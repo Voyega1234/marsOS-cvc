@@ -7,9 +7,9 @@ export const REWRITE_SOURCE_TYPE = 'ai-rewrite'
 /** ใส่ใน where ของรายการ/นับ/ลิงก์ภายใน — แถวเงาห้ามโผล่ให้ใครเห็น */
 export const NOT_REWRITE_SHADOW = { sourceType: { not: REWRITE_SOURCE_TYPE } } as const
 
-/** แถวเงาที่ยังสด (กำลังเขียนอยู่จริง) ของบทความนี้ — ไม่มี = null */
-export async function freshRewriteShadow(articleId: string, orgId: string) {
-  return prisma.uploadArticle.findFirst({
+/** แถวเงาที่ยังสด (กำลังเขียนอยู่จริง) ของบทความนี้ — ไม่มี = null (db = transaction client เมื่อต้องเช็คใน transaction) */
+export async function freshRewriteShadow(articleId: string, orgId: string, db: Pick<typeof prisma, 'uploadArticle'> = prisma) {
+  return db.uploadArticle.findFirst({
     where: {
       organizationId: orgId,
       sourceType: REWRITE_SOURCE_TYPE,

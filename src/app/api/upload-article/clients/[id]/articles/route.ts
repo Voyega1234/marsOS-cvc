@@ -13,6 +13,8 @@ import {
   importFromText,
 } from '@/lib/upload-article/import-source'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
+import { saveImportedComments } from '@/lib/upload-article/article-comments-store'
+import type { ExtractedComment } from '@/lib/upload-article/article-comments'
 
 export const maxDuration = 120
 
@@ -44,6 +46,8 @@ interface ImportedSource {
   title: string
   html: string
   warnings?: string[]
+  /** comment ที่ผู้ตรวจใส่ไว้ในไฟล์ต้นฉบับ (อ่านก่อนตัดออกจากเนื้อหา) */
+  comments?: ExtractedComment[]
 }
 
 /** POST /api/upload-article/clients/[id]/articles — นำเข้าบทความจากไฟล์ (multipart) หรือ JSON items */
@@ -76,7 +80,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const buffer = Buffer.from(await file.arrayBuffer())
         const ext = (file.name.split('.').pop() || '').toLowerCase()
         const result = await importFromFile(file.name, buffer)
-        imported.push({ name: file.name, sourceType: ext || 'paste', title: result.title, html: result.html, warnings: result.warnings })
+        imported.push({ name: file.name, sourceType: ext || 'paste', title: result.title, html: result.html, warnings: result.warnings, comments: result.comments })
       } catch (e) {
         errors.push({ name: file.name, error: e instanceof Error ? e.message : String(e) })
       }
@@ -91,13 +95,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       try {
         if (typeof item?.googleDocUrl === 'string' && item.googleDocUrl.trim()) {
           const result = await fetchGoogleDoc(item.googleDocUrl.trim())
-          imported.push({ name: item.googleDocUrl.trim(), sourceType: 'gdoc', title: item?.title?.trim() || result.title, html: result.html })
+          imported.push({ name: item.googleDocUrl.trim(), sourceType: 'gdoc', title: item?.title?.trim() || result.title, html: result.html, comments: result.comments })
         } else if (typeof item?.html === 'string' && item.html.trim()) {
           const result = importFromHtml(item.html)
-          imported.push({ name: label, sourceType: 'html', title: item?.title?.trim() || result.title, html: result.html })
+          imported.push({ name: label, sourceType: 'html', title: item?.title?.trim() || result.title, html: result.html, comments: result.comments })
         } else if (typeof item?.text === 'string' && item.text.trim()) {
           const result = importFromText(item.text)
-          imported.push({ name: label, sourceType: 'paste', title: item?.title?.trim() || result.title, html: result.html })
+          imported.push({ name: label, sourceType: 'paste', title: item?.title?.trim() || result.title, html: result.html, comments: result.comments })
         } else {
           errors.push({ name: label, error: 'ไม่พบเนื้อหา (html/text/googleDocUrl)' })
         }
@@ -109,6 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const created = []
   const warnings: Array<{ name: string; warning: string }> = []
+  const commentEntries: Array<{ articleId: string; comments: ExtractedComment[] | undefined }> = []
   for (const src of imported) {
     const title = src.title.trim() || extractTitleFromHtml(src.html, src.name) || 'บทความไม่มีชื่อ'
     const brief = extractBriefMeta(src.html)
@@ -127,8 +132,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     })
     created.push(toUploadArticleDTO(row, false))
+    commentEntries.push({ articleId: row.id, comments: src.comments })
     for (const w of src.warnings ?? []) warnings.push({ name: src.name, warning: w })
   }
 
-  return NextResponse.json({ created, errors, warnings }, { status: 201 })
+  // comment รายบทความ — เก็บครั้งเดียวหลังสร้างครบ (เก็บไม่ได้ = เตือน ไม่ทำให้การนำเข้าล้ม)
+  const commentCounts = await saveImportedComments(client.id, orgId, commentEntries)
+  if (commentCounts === null) {
+    warnings.push({ name: 'Comment', warning: 'นำเข้าบทความแล้ว แต่เก็บ Comment จากไฟล์ไม่สำเร็จ — วาง Comment เองได้ในหน้า Generate' })
+  }
+
+  return NextResponse.json({ created, errors, warnings, commentCounts: commentCounts ?? {} }, { status: 201 })
 }

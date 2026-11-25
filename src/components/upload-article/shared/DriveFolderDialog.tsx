@@ -105,6 +105,7 @@ export default function DriveFolderDialog({
     setStates(Object.fromEntries(queue.map(a => [a.folderId, { status: "pending" } as ItemState])));
     let ok = 0;
     let failed = 0;
+    let commentTotal = 0;
     try {
       // ทีละโฟลเดอร์ — request เดียวไม่ต้องทำทั้งหมด
       for (const a of queue) {
@@ -123,6 +124,7 @@ export default function DriveFolderDialog({
             continue;
           }
           ok++;
+          commentTotal += Number(d?.commentCount) || 0;
           setStates(prev => ({ ...prev, [a.folderId]: { status: "done", message: d?.warning } }));
           // เอาออกจากที่เลือก กันกดนำเข้าซ้ำตอนลองใหม่เฉพาะอันที่พลาด
           setSelected(prev => { const n = new Set(prev); n.delete(a.folderId); return n; });
@@ -134,6 +136,7 @@ export default function DriveFolderDialog({
       }
       if (ok) {
         toast.success(`นำเข้าสำเร็จ ${ok} ${noun}`);
+        if (commentTotal > 0) toast.info(ok === 1 ? `พบ Comment ของลูกค้า ${commentTotal} ข้อ — ดูและเลือกปรับได้ที่หน้า Generate` : `พบ Comment ของลูกค้า ${commentTotal} ข้อ ใน ${ok} บทความ — ดูและเลือกปรับได้ที่หน้า Generate`);
         await onImported();
       }
       if (failed) toast.error(`นำเข้าไม่สำเร็จ ${failed} ${noun} — ดูเหตุผลในรายการ`);

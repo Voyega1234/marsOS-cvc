@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Sparkles, ImageIcon, Trash2, RefreshCw, Loader2, Download, ExternalLink, FileText } from "lucide-react";
+import { CheckCircle2, Sparkles, ImageIcon, Trash2, RefreshCw, Loader2, Download, ExternalLink, FileText, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,6 +29,7 @@ import ArticleImagesPanel from "@/components/upload-article/shared/ArticleImages
 import DeleteArticleDialog from "@/components/upload-article/shared/DeleteArticleDialog";
 import { WRITER_STALE_MS } from "@/lib/upload-article/writer-timing";
 import RewriteDialog, { type RewriteCheck } from "@/components/upload-article/shared/RewriteDialog";
+import CommentRegenDialog from "@/components/upload-article/shared/CommentRegenDialog";
 import { editBackground, EDIT_READABLE_CSS } from "@/components/shared/editTone";
 
 const MAX_PATCH_BYTES = 4_000_000;
@@ -88,6 +89,8 @@ export default function ReviewTab({
   // บทความที่มีเวอร์ชันก่อนเขียนใหม่ให้ย้อนกลับ
   const [backupIds, setBackupIds] = useState<Record<string, boolean>>({});
   const [undoBusy, setUndoBusy] = useState(false);
+  // กล่อง Re-generate ตาม Comment ของลูกค้า
+  const [commentDialog, setCommentDialog] = useState(false);
 
   // บทความที่เลือกอยู่ตอนนี้ (async ที่จบทีหลังใช้เช็คว่ายังเลือกอยู่ไหม) + บทความที่กำลังรอผลเขียนใหม่ + ออกจากหน้าแล้ว
   const selectedRef = useRef<string | null>(selectedId);
@@ -99,7 +102,7 @@ export default function ReviewTab({
 
   useEffect(() => { if (selectedId) void loadArticleDetail(selectedId); }, [selectedId, loadArticleDetail]);
   // กล่องถามเขียนใหม่เป็นของบทความที่เปิดตอนกด — สลับบทความแล้วปิด
-  useEffect(() => { setRewriteCheck(null); }, [selectedId]);
+  useEffect(() => { setRewriteCheck(null); setCommentDialog(false); }, [selectedId]);
 
   const detail = selectedId ? articleDetails[selectedId] : null;
   const rewriteBusy = !!selectedId && rewriteBusyIds.includes(selectedId);
@@ -459,6 +462,22 @@ export default function ReviewTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeKey]);
 
+  // บทความที่ไม่ใช่ AI: อ่านแค่ hasBackup (ให้ปุ่มย้อนกลับขึ้นหลังปรับตาม Comment) — ไม่เปิดกล่องเขียนใหม่/ไม่รอผล
+  const backupKey = detail && detail.sourceType !== "ai" ? detail.id : null;
+  useEffect(() => {
+    if (!backupKey) return;
+    const id = backupKey;
+    let cancelled = false;
+    void fetch(`/api/upload-article/articles/${id}/rewrite-check`)
+      .then((x) => (x.ok ? x.json() : null))
+      .then((c) => {
+        if (!c || cancelled || unmountedRef.current) return;
+        setBackupIds((cur) => (cur[id] === !!c.hasBackup ? cur : { ...cur, [id]: !!c.hasBackup }));
+      })
+      .catch(() => { /* เช็คไม่ได้ = ไม่แสดงปุ่มย้อนกลับ */ });
+    return () => { cancelled = true; };
+  }, [backupKey]);
+
   /** กด Re-generate: ถามเซิร์ฟเวอร์ก่อนว่าของที่ใช้เขียนเปลี่ยนไหม — ไม่เปลี่ยน/เช็คไม่ได้ = ขั้นตอนเดิมทุกอย่าง */
   async function onRegenerateClick() {
     if (!detail) return;
@@ -498,12 +517,47 @@ export default function ReviewTab({
     }
   }
 
+  /** ปรับเนื้อหาตาม Comment ของลูกค้า (AI แก้เฉพาะจุด) แล้วสร้าง HTML ใหม่ */
+  async function runCommentRegen(opts: { commentIds: string[]; extraText: string }) {
+    if (!detail) return;
+    const id = detail.id;
+    markRewriteBusy(id, true);
+    setReviewedPushedId(null);
+    try {
+      const r = await fetch(`/api/upload-article/articles/${id}/comment-revise`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(opts),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (unmountedRef.current) return;
+      if (!r.ok) { toast.error(`ปรับตาม Comment ไม่สำเร็จ: ${d?.error || r.status}`); return; }
+      applyArticleUpdate(d.article);
+      const changed = Number(d.changed) || 0;
+      // แถวสำรองถูกสร้างเฉพาะเมื่อ AI แก้จริง — ไม่แก้ = ไม่มีอะไรให้ย้อน
+      if (changed > 0) setBackupIds((cur) => ({ ...cur, [id]: true }));
+      setCommentDialog(false);
+      const unresolved: Array<{ text: string; reason: string }> = Array.isArray(d.unresolved) ? d.unresolved : [];
+      if (unresolved.length) {
+        toast.warning(`ทำตาม Comment ไม่ได้ ${unresolved.length} ข้อ: ` + unresolved.slice(0, 3).map((u) => `${String(u.text).slice(0, 60)}: ${u.reason}`).join(" | "));
+      }
+      if (Array.isArray(d.warnings) && d.warnings.length) toast.warning(d.warnings.join(" | "));
+      if (changed === 0) { toast.info("AI ไม่ได้แก้เนื้อหา — ดูเหตุผลที่แจ้ง"); return; }
+      if (selectedRef.current !== id) { toast.success(`ปรับตาม Comment แล้ว ${changed} จุด: ${detail.title} — กด Re-generate ที่บทความนี้เพื่อสร้าง HTML ใหม่`); return; }
+      await regenerate(`ปรับตาม Comment แล้ว ${changed} จุด และสร้าง HTML ใหม่แล้ว`);
+    } catch (e) {
+      if (!unmountedRef.current) toast.error(`ปรับตาม Comment ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      if (!unmountedRef.current) markRewriteBusy(id, false);
+    }
+  }
+
   /** ย้อนเนื้อหากลับไปก่อน AI เขียนใหม่รอบล่าสุด (โพสต์บนเว็บไม่ถูกแตะจนกว่าจะ Re-push) */
   async function undoRewrite() {
     if (!detail || undoBusy) return;
     const id = detail.id;
     const pushed = detail.status === "PUSHED";
-    if (!confirm(["ย้อนกลับไปเป็นเนื้อหาก่อน AI เขียนใหม่รอบล่าสุด?", "เนื้อหาตอนนี้ (รวมที่แก้มือหลังเขียนใหม่) จะถูกแทนที่ และย้อนซ้ำไม่ได้", pushed ? "บทความบนเว็บไม่เปลี่ยนจนกว่าจะ Re-push" : ""].filter(Boolean).join("\n"))) return;
+    if (!confirm(["ย้อนกลับไปเป็นเนื้อหาก่อน AI เขียนใหม่ / ปรับตาม Comment รอบล่าสุด?", "เนื้อหาตอนนี้ (รวมที่แก้มือหลังจากนั้น) จะถูกแทนที่ และย้อนซ้ำไม่ได้", pushed ? "บทความบนเว็บไม่เปลี่ยนจนกว่าจะ Re-push" : ""].filter(Boolean).join("\n"))) return;
     setUndoBusy(true);
     try {
       const r = await fetch(`/api/upload-article/articles/${id}/rewrite-undo`, { method: "POST" });
@@ -732,6 +786,12 @@ export default function ReviewTab({
                   className="px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50 flex items-center gap-1">
                   <RefreshCw size={11} className={regenBusy || rewriteBusy ? "animate-spin" : ""} /> {regenBusy ? "กำลัง Generate..." : rewriteBusy ? "AI กำลังทำงาน..." : "Re-generate"}
                 </button>
+                {!pbn && (
+                  <Button size="sm" variant="outline" onClick={() => setCommentDialog(true)} disabled={regenBusy || editSaving || rewriteBusy}
+                    title="ให้ AI แก้เฉพาะจุดตาม Comment ของลูกค้า แล้วสร้าง HTML ใหม่ (เสียค่าใช้จ่าย AI)">
+                    <MessageSquare size={12} className="mr-1" /> Re-generate ตาม Comment
+                  </Button>
+                )}
                 {detail.sourceType === "ai" && (detail.sourceName || "").startsWith("kw:") && (
                   <button onClick={onForceRewriteClick} disabled={regenBusy || editSaving || rewriteBusy}
                     title="ให้ AI เขียนบทความนี้ใหม่ทั้งบทความ (เสียค่าใช้จ่าย AI) แม้ไม่พบว่าของที่ใช้เขียนเปลี่ยน"
@@ -739,9 +799,9 @@ export default function ReviewTab({
                     ให้ AI เขียนใหม่ทั้งบทความ
                   </button>
                 )}
-                {detail.sourceType === "ai" && backupIds[detail.id] && (
+                {backupIds[detail.id] && (
                   <button onClick={undoRewrite} disabled={undoBusy || regenBusy || editSaving || rewriteBusy}
-                    title="ย้อนเนื้อหากลับไปก่อน AI เขียนใหม่รอบล่าสุด"
+                    title="ย้อนเนื้อหากลับไปก่อน AI เขียนใหม่ / ปรับตาม Comment รอบล่าสุด"
                     className="px-2.5 py-1 text-[11px] font-semibold rounded-full border bg-white text-gray-500 border-gray-200 hover:text-brand-blue disabled:opacity-50">
                     {undoBusy ? "กำลังย้อนกลับ..." : "ย้อนกลับก่อนเขียนใหม่"}
                   </button>
@@ -928,6 +988,17 @@ export default function ReviewTab({
           onRewrite={(o) => { void rewriteWithAi(o); }}
           onHtmlOnly={() => { setRewriteCheck(null); regenerateFromReview(); }}
           onClose={() => setRewriteCheck(null)}
+        />
+      )}
+
+      {commentDialog && detail && !pbn && (
+        <CommentRegenDialog
+          key={detail.id}
+          articleId={detail.id}
+          pushed={detail.status === "PUSHED"}
+          busy={rewriteBusy || regenBusy}
+          onRun={(o) => { void runCommentRegen(o); }}
+          onClose={() => setCommentDialog(false)}
         />
       )}
 

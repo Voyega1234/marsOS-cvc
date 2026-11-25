@@ -7,16 +7,18 @@
  * ที่นี่ generate ใช้ธีมที่บันทึกไว้ของ client (client.theme) เสมอ — ไม่ส่ง draft ไปกับ request
  * ตัวเลือกเพิ่ม: ใส่ Internal Link (ครอบคำที่มีอยู่แล้ว ไม่แก้ถ้อยคำ), สร้างรูปปก, สร้างรูปประกอบ — รูปสร้างก่อนแล้วค่อย generate
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Copy, ArrowRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Copy, ArrowRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import { DEFAULT_UPLOAD_IMAGE_DEFAULTS, UPLOAD_FONT_INHERIT, UPLOAD_MAX_INLINE_IMAGES, type UploadArticleDTO, type UploadClientDTO, type UploadOutputMode } from "@/lib/upload-article/types";
 import type { SettingsSection } from "../settings/SettingsTab";
 import { toReadableHtml, shortenDataUris, copyRichText } from "../shared/readableHtml";
 import { requestArticleImages } from "../shared/AiImagesPanel";
+import { ArticleCommentList, CommentDraftBox, useArticleComments } from "../shared/ArticleComments";
+import type { ArticleComment } from "@/lib/upload-article/article-comments";
 
 const GENERATABLE = new Set(["IMPORTED", "GENERATED", "REVIEWED", "FAILED"]);
 /** สร้างรูปพร้อมกันกี่บทความ (แต่ละบทความใช้ 30-90 วิ) */
@@ -33,9 +35,14 @@ interface GenOptions {
   inlineWithText: boolean;
   /** ข้ามบทความที่มีปก/รูปประกอบจากระบบอยู่แล้ว */
   skipExisting: boolean;
+  /** AI ปรับเนื้อหาตาม Comment ของลูกค้าก่อน generate (ไม่ใช้กับ PBN) */
+  comments: boolean;
 }
 
+type CommentCounts = Record<string, { total: number; pending: number }>;
+
 type RowStatus =
+  | { phase: "revising" }
   | { phase: "images" }
   | { phase: "generating" }
   | { phase: "done"; note?: string }
@@ -90,8 +97,31 @@ export default function GenerateTab({
     inlineCount: Math.max(1, imageDefaults.inlineCount || 1),
     inlineWithText: imageDefaults.inlineWithText,
     skipExisting: true,
+    comments: true,
   }));
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
+
+  // Comment ของลูกค้า (ไม่ใช้กับ PBN)
+  const [commentCounts, setCommentCounts] = useState<CommentCounts>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const panel = useArticleComments(pbn ? null : selectedId);
+  const selectedIdRef = useRef<string | null>(selectedId);
+  selectedIdRef.current = selectedId;
+
+  const refreshCounts = useCallback(async (): Promise<CommentCounts> => {
+    if (pbn) return {};
+    try {
+      const r = await fetch(`/api/upload-article/clients/${client.id}/article-comments`);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.counts) return {};
+      setCommentCounts(d.counts);
+      return d.counts as CommentCounts;
+    } catch {
+      return {};
+    }
+  }, [client.id, pbn]);
+
+  useEffect(() => { void refreshCounts(); }, [refreshCounts, articles.length]);
 
   // จำตัวเลือกไว้ต่อลูกค้า (เฉพาะเครื่องนี้)
   useEffect(() => {
@@ -159,12 +189,79 @@ export default function GenerateTab({
     return { notes, cost };
   }
 
-  async function generateOne(id: string, o: GenOptions): Promise<{ ok: boolean; cost: number }> {
+  /** เก็บข้อความที่ค้างในกล่อง Comment เป็น Comment พิมพ์เอง (GET แล้วต่อท้าย แล้ว PUT) */
+  async function saveDraftAsComment(id: string, text: string): Promise<boolean> {
+    try {
+      const g = await fetch(`/api/upload-article/articles/${id}/comments`);
+      const gd = await g.json().catch(() => ({}));
+      if (!g.ok) throw new Error(gd?.error || "โหลด Comment ไม่สำเร็จ");
+      const existing: ArticleComment[] = Array.isArray(gd.comments) ? gd.comments : [];
+      const next: ArticleComment[] = [...existing, { id: crypto.randomUUID(), source: "manual", text, createdAt: new Date().toISOString(), enabled: true }];
+      const p = await fetch(`/api/upload-article/articles/${id}/comments`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comments: next }),
+      });
+      const pd = await p.json().catch(() => ({}));
+      if (!p.ok) throw new Error(pd?.error || "บันทึก Comment ไม่สำเร็จ");
+      if (selectedIdRef.current === id && Array.isArray(pd.comments)) panel.setComments(pd.comments);
+      setDrafts(prev => { const n = { ...prev }; delete n[id]; return n; });
+      return true;
+    } catch (e) {
+      toast.error(`บันทึก Comment ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }
+
+  async function addPanelComment() {
+    if (!selectedId) return;
+    const text = (drafts[selectedId] || "").trim();
+    if (!text) return;
+    const next: ArticleComment[] = [...panel.comments, { id: crypto.randomUUID(), source: "manual", text, createdAt: new Date().toISOString(), enabled: true }];
+    const stored = await panel.save(next);
+    if (stored) setDrafts(prev => ({ ...prev, [selectedId]: "" }));
+    void refreshCounts();
+  }
+
+  async function savePanelComments(next: ArticleComment[]) {
+    const stored = await panel.save(next);
+    void refreshCounts();
+    return stored;
+  }
+
+  async function generateOne(id: string, o: GenOptions, withComments = false): Promise<{ ok: boolean; cost: number }> {
     let notes: string[] = [];
     let cost = 0;
+    if (withComments) {
+      setRowStatus(prev => ({ ...prev, [id]: { phase: "revising" } }));
+      try {
+        const rr = await fetch(`/api/upload-article/articles/${id}/comment-revise`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const res = await rr.json().catch(() => ({}));
+        if (!rr.ok) throw new Error(res?.error || `HTTP ${rr.status}`);
+        applyArticleUpdate(res.article);
+        if (selectedIdRef.current === id && Array.isArray(res.comments)) panel.setComments(res.comments);
+        void refreshCounts();
+        const changed = Number(res.changed) || 0;
+        const unresolved: Array<{ text: string; reason: string }> = Array.isArray(res.unresolved) ? res.unresolved : [];
+        notes.push(`ปรับตาม Comment ${changed} จุด${unresolved.length > 0 ? ` (ทำไม่ได้ ${unresolved.length} ข้อ)` : ""}`);
+        if (unresolved.length > 0) {
+          toast.warning(`ทำตาม Comment ไม่ได้ (${unresolved.length} ข้อ): ` + unresolved.slice(0, 3).map(u => `${String(u.text).slice(0, 60)}: ${u.reason}`).join(" | "));
+        }
+        if (Array.isArray(res.warnings) && res.warnings.length) toast.warning(res.warnings.join(" | "));
+      } catch (e) {
+        setRowStatus(prev => ({ ...prev, [id]: { phase: "error", message: `ปรับตาม Comment ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}` } }));
+        return { ok: false, cost };
+      }
+    }
     if (o.cover || o.inline) {
       setRowStatus(prev => ({ ...prev, [id]: { phase: "images" } }));
-      ({ notes, cost } = await makeImages(id, o));
+      const made = await makeImages(id, o);
+      notes = [...notes, ...made.notes];
+      cost = made.cost;
     }
     setRowStatus(prev => ({ ...prev, [id]: { phase: "generating" } }));
     try {
@@ -195,10 +292,31 @@ export default function GenerateTab({
     const ids = Array.from(selectedForGen);
     if (!ids.length) return;
     const o = opts;
+    // Comment ของลูกค้า: เก็บข้อความที่ค้างในกล่องเป็น Comment ก่อน แล้วหาบทความที่มี Comment ค้างปรับ
+    const commentsOn = !pbn && o.comments;
+    let pendingSet = new Set<string>();
+    if (commentsOn) {
+      setGenerating(true);
+      try {
+        for (const id of ids) {
+          const text = (drafts[id] || "").trim();
+          if (text) await saveDraftAsComment(id, text);
+        }
+        const counts = await refreshCounts();
+        pendingSet = new Set(ids.filter(id => (counts[id]?.pending ?? 0) > 0));
+      } finally {
+        setGenerating(false);
+      }
+    }
+    const lines: string[] = [];
     if (o.cover || o.inline) {
       const perArticle = (o.cover ? 1 : 0) + (o.inline ? o.inlineCount : 0);
-      if (!confirm(`จะสร้างรูปสูงสุด ${perArticle * ids.length} ภาพ (${perArticle} ภาพ × ${ids.length} บทความ) คิดค่าใช้จ่ายต่อภาพ ดำเนินการต่อ?`)) return;
+      lines.push(`จะสร้างรูปสูงสุด ${perArticle * ids.length} ภาพ (${perArticle} ภาพ × ${ids.length} บทความ) คิดค่าใช้จ่ายต่อภาพ ดำเนินการต่อ?`);
     }
+    if (pendingSet.size > 0) {
+      lines.push(`ปรับตาม Comment ของลูกค้า ${pendingSet.size} บทความ ด้วย AI (มีค่าใช้จ่ายต่อบทความ) แล้วสร้าง HTML — ทำต่อไหม?`);
+    }
+    if (lines.length && !confirm(lines.join("\n"))) return;
     setGenerating(true);
     setProgress({ done: 0, total: ids.length });
     setRowStatus(prev => {
@@ -209,11 +327,11 @@ export default function GenerateTab({
     let okCount = 0;
     let totalCost = 0;
     let idx = 0;
-    const concurrency = o.cover || o.inline ? IMAGE_CONCURRENCY : NO_IMAGE_CONCURRENCY;
+    const concurrency = o.cover || o.inline || pendingSet.size > 0 ? IMAGE_CONCURRENCY : NO_IMAGE_CONCURRENCY;
     const worker = async () => {
       while (idx < ids.length) {
         const id = ids[idx++];
-        const res = await generateOne(id, o);
+        const res = await generateOne(id, o, pendingSet.has(id));
         if (res.ok) okCount++;
         totalCost += res.cost;
         setProgress(p => ({ ...p, done: p.done + 1 }));
@@ -221,6 +339,7 @@ export default function GenerateTab({
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, () => worker()));
     setGenerating(false);
+    if (commentsOn) void refreshCounts();
     const costNote = totalCost > 0 ? ` · ค่ารูป $${totalCost.toFixed(3)}` : "";
     if (okCount === ids.length) toast.success(`Generate สำเร็จ ${okCount}/${ids.length} บทความ${costNote}`);
     else toast.error(`Generate สำเร็จ ${okCount}/${ids.length} บทความ${costNote} — ดูสาเหตุในรายการ`);
@@ -237,7 +356,7 @@ export default function GenerateTab({
   return (
     <div className="space-y-4">
       <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-        ระบบไม่เขียนเนื้อหาเพิ่ม — จัดโครงสร้าง ใส่ Schema, Breadcrumb, FAQ, สารบัญ ให้เท่านั้น
+        ระบบไม่เขียนเนื้อหาเพิ่ม — จัดโครงสร้าง ใส่ Schema, Breadcrumb, FAQ, สารบัญ ให้เท่านั้น{!pbn && " ยกเว้นเมื่อเลือก “ปรับเนื้อหาตาม Comment ของลูกค้า” ซึ่ง AI จะแก้เฉพาะจุดที่ Comment สั่ง"}
       </p>
 
       <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
@@ -334,6 +453,16 @@ export default function GenerateTab({
               )}
             </div>
 
+            {!pbn && <div>
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input type="checkbox" checked={opts.comments} onChange={e => setOpt("comments", e.target.checked)} />
+                ปรับเนื้อหาตาม Comment ของลูกค้า (AI — มีค่าใช้จ่าย)
+              </label>
+              <p className="text-[10px] text-gray-500 mt-1 ml-5">
+                AI แก้เฉพาะจุดที่ Comment สั่ง ส่วนอื่นของบทความคงเดิม แล้วค่อยสร้าง HTML
+              </p>
+            </div>}
+
             {(opts.cover || opts.inline) && (
               <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
                 <input type="checkbox" checked={opts.skipExisting} onChange={e => setOpt("skipExisting", e.target.checked)} />
@@ -356,7 +485,20 @@ export default function GenerateTab({
                 <label key={a.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs ${selectedForGen.has(a.id) ? "bg-brand-mist/40" : "hover:bg-gray-50"}`}>
                   <input type="checkbox" checked={selectedForGen.has(a.id)} onChange={() => toggleGen(a.id)} />
                   <span className="min-w-0 flex-1" onClick={e => { e.preventDefault(); setSelectedId(a.id); }}>
-                    <span className="block truncate">{a.title}</span>
+                    <span className="flex items-center gap-1 min-w-0">
+                      <span className="truncate">{a.title}</span>
+                      {!pbn && (commentCounts[a.id]?.pending ?? 0) > 0 && (
+                        <span title={`Comment ที่ยังไม่ได้ปรับ ${commentCounts[a.id].pending} ข้อ`}
+                          className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
+                          <MessageSquare size={10} /> {commentCounts[a.id].pending}
+                        </span>
+                      )}
+                      {!pbn && (commentCounts[a.id]?.pending ?? 0) === 0 && (commentCounts[a.id]?.total ?? 0) > 0 && (
+                        <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] text-gray-400">
+                          <MessageSquare size={10} /> {commentCounts[a.id].total}
+                        </span>
+                      )}
+                    </span>
                     <RowStatusLine status={rowStatus[a.id]} />
                   </span>
                 </label>
@@ -368,6 +510,27 @@ export default function GenerateTab({
             {generating ? `กำลัง Generate... (${progress.done}/${progress.total})` : `Generate (${selectedForGen.size})`}
           </Button>
         </div>
+
+        <div className="space-y-4 min-w-0">
+        {!pbn && selectedId && (
+          <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-2">
+            <p className="text-xs font-bold text-brand-navy flex items-center gap-1.5"><MessageSquare size={12} /> Comment ของลูกค้า</p>
+            <p className="text-[11px] text-gray-500">ติ๊ก Comment ที่ต้องการให้ AI ปรับตอนกด Generate — Comment ที่อ่านได้จากไฟล์ตอนนำเข้าจะมาอยู่ที่นี่</p>
+            {panel.loading && !panel.comments.length ? (
+              <p className="text-xs text-gray-400 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> กำลังโหลด...</p>
+            ) : panel.error ? (
+              <p className="text-xs text-red-600">{panel.error}</p>
+            ) : (
+              <ArticleCommentList comments={panel.comments} disabled={generating} onChange={next => { void savePanelComments(next); }} />
+            )}
+            <CommentDraftBox
+              value={drafts[selectedId] || ""}
+              onChange={v => setDrafts(prev => ({ ...prev, [selectedId]: v }))}
+              onAdd={() => { void addPanelComment(); }}
+              disabled={generating}
+            />
+          </div>
+        )}
 
         {/* พรีวิว */}
         <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3 min-w-0">
@@ -424,6 +587,7 @@ export default function GenerateTab({
             </>
           )}
         </div>
+        </div>
       </div>
     </div>
   );
@@ -431,6 +595,7 @@ export default function GenerateTab({
 
 function RowStatusLine({ status }: { status?: RowStatus }) {
   if (!status) return null;
+  if (status.phase === "revising") return <span className="flex items-center gap-1 text-[10px] text-brand-blue"><Loader2 size={10} className="animate-spin" /> กำลังปรับตาม Comment…</span>;
   if (status.phase === "images") return <span className="flex items-center gap-1 text-[10px] text-brand-blue"><Loader2 size={10} className="animate-spin" /> กำลังสร้างรูป...</span>;
   if (status.phase === "generating") return <span className="flex items-center gap-1 text-[10px] text-brand-blue"><Loader2 size={10} className="animate-spin" /> กำลัง Generate...</span>;
   if (status.phase === "error") return <span className="flex items-start gap-1 text-[10px] text-red-600"><AlertCircle size={10} className="mt-0.5 shrink-0" /> {status.message}</span>;
