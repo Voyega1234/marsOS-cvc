@@ -4,11 +4,14 @@ import { prisma } from '@/lib/prisma'
 import { readPrefs } from '@/lib/upload-article/prefs-store'
 import {
   COMMENT_REVISE_JOB_TYPE,
+  MAX_CHANGES_PER_COMMENT,
   MAX_COMMENT_CHARS,
   isPendingComment,
   manualComment,
   readArticleComments,
+  setCommentChanges,
   type ArticleComment,
+  type ArticleCommentChange,
 } from '@/lib/upload-article/article-comments'
 import { claimReviseLock, releaseReviseLock, replaceArticleComments } from '@/lib/upload-article/article-comments-store'
 import {
@@ -277,12 +280,34 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     const now = new Date()
     const appliedAt = now.toISOString()
     const warnings = [...result.warnings]
+    // สิ่งที่ AI แก้ แยกตาม Comment (id null = ข้อความที่พิมพ์เพิ่มรอบนี้) — แสดงเป็นการ์ดใต้ Comment แต่ละข้อ
+    const changesById = new Map<string | null, ArticleCommentChange[]>()
+    for (const entry of result.changes) {
+      for (const n of entry.comments) {
+        const target = plan.comments[n - 1]
+        if (!target) continue
+        changesById.set(target.id, [...(changesById.get(target.id) ?? []), entry.change])
+      }
+    }
+    // มีรายการแก้ใหม่ = แทนบันทึกเดิม; ปรับแล้วแต่ไม่มีรายการแก้ที่ระบุได้ = ลบบันทึกเก่า (ไม่ให้การ์ดรอบก่อนค้าง)
+    const noteChanges = (c: ArticleComment, id: string | null, applied: boolean): ArticleComment => {
+      const list = changesById.get(id) ?? []
+      if (list.length > 0) return setCommentChanges(c, list, Math.max(0, list.length - MAX_CHANGES_PER_COMMENT))
+      return applied ? setCommentChanges(c, []) : c
+    }
     let comments: ArticleComment[] = stored
     try {
       const saved = await replaceArticleComments(client.id, orgId, article.id, (current) => {
-        const next = current.map((c) => (chosenIds.has(c.id) && !unresolvedIds.has(c.id) ? { ...c, appliedAt } : c))
+        const next = current.map((c) => {
+          if (!chosenIds.has(c.id)) return c
+          const applied = !unresolvedIds.has(c.id)
+          return noteChanges(applied ? { ...c, appliedAt } : c, c.id, applied)
+        })
         const typed = extraText ? manualComment(extraText, now) : null
-        if (typed) next.push(unresolvedIds.has(null) ? typed : { ...typed, appliedAt })
+        if (typed) {
+          const applied = !unresolvedIds.has(null)
+          next.push(noteChanges(applied ? { ...typed, appliedAt } : typed, null, applied))
+        }
         return next
       })
       if (saved) comments = saved

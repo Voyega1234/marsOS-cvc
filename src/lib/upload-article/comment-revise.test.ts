@@ -275,4 +275,53 @@ throws(() => applyRevision(plan, '{"unresolved":[]}'), ReviseOutputError, 'ไ�
   assert(wide.warnings.some((w) => w.includes('AI แก้ไป 7 จาก 10 บล็อก')), 'แก้กว้างเกิน Comment = เตือนให้ตรวจ/ย้อนกลับ')
 }
 
+// ── บันทึกว่าแก้อะไรไป ตาม Comment ข้อไหน (การ์ดใต้ Comment) ──
+{
+  const html = [
+    '<h2>Benefits</h2>',
+    '<p>Automation handles recurring routines, eliminating the need for human intervention across departments.</p>',
+    '<p>Second paragraph about pricing and plans for every team.</p>',
+    '<ul><li>First item</li><li>Second item in the list</li></ul>',
+    '<p>Closing paragraph of the article.</p>',
+  ].join('\n')
+  const quote = 'eliminating the need for human intervention'
+  const p1 = planRevision({ title: 'BPA guide', sourceHtml: html, comments: [{ id: 'c1', text: 'soften this phrase', quote }] })
+  assert(JSON.stringify(p1.commentBlocks) === '[2]', `plan จำบล็อกที่ Comment ชี้ (${JSON.stringify(p1.commentBlocks)})`)
+  const r1 = applyRevision(p1, JSON.stringify({ edits: [{ op: 'replace', block: 2, html: '<p>Automation handles recurring routines, reducing manual work across departments.</p>' }] }))
+  assert(r1.changes.length === 1 && JSON.stringify(r1.changes[0].comments) === '[1]', 'มี Comment ข้อเดียว: รายการแก้ที่ไม่บอกเลข = ของข้อนั้น')
+  const c = r1.changes[0].change
+  assert(c.kind === 'replace' && c.before === 'eliminating the need for human intervention' && c.after === 'reducing manual work', `เดิม/ใหม่ เฉพาะวลีที่แก้ (${JSON.stringify(c)})`)
+  assert(c.lead === 'Automation handles recurring routines, ' && c.tail === ' across departments.', `มีข้อความรอบ ๆ (${JSON.stringify(c)})`)
+
+  const p2 = planRevision({
+    title: 'BPA guide', sourceHtml: html,
+    comments: [{ id: 'c1', text: 'soften this phrase', quote }, { id: 'c2', text: 'remove pricing' }, { id: null, text: 'add a note at the end' }, { id: 'c4', text: 'fix list', quote: 'Second item in the list' }],
+  })
+  assert(JSON.stringify(p2.commentBlocks) === '[2,0,0,4]', `commentBlocks หลายข้อ (${JSON.stringify(p2.commentBlocks)})`)
+  const r2 = applyRevision(p2, JSON.stringify({
+    edits: [
+      { op: 'insert_after', block: 5, comment: 3, html: '<p>Note: added <strong>later</strong>.</p>' },
+      { op: 'delete', block: 3, comment: '2' },
+      { op: 'replace', block: 4, html: '<ul><li>First item</li><li>Second thing in the list</li></ul>' },
+      { op: 'replace', block: 2, comment: [1, 2], html: '<p>Automation handles recurring routines, reducing manual work across departments.</p>' },
+      { op: 'replace', block: 5, html: '<p>Closing paragraph of the guide.</p>' },
+      { op: 'replace', block: 1, comment: 1, html: '<h3>Benefits</h3>' },
+      { op: 'replace', block: 99, comment: 1, html: '<p>x</p>' },
+    ],
+  }))
+  const kinds = r2.changes.map((x) => `${x.change.kind}:${x.comments.join('+')}`)
+  assert(JSON.stringify(kinds) === JSON.stringify(['format:1', 'replace:1+2', 'delete:2', 'replace:4', 'replace:', 'insert:3']),
+    `เรียงตามตำแหน่งในบทความ + ระบุ Comment (${JSON.stringify(kinds)})`)
+  assert(r2.changes[2].change.before === 'Second paragraph about pricing and plans for every team.', 'delete เก็บข้อความที่ลบ')
+  assert(r2.changes[3].change.before === 'item' && r2.changes[3].change.after === 'thing' && r2.changes[3].change.lead === 'First item Second ',
+    `รายการ: คำไม่ติดกันข้าม <li> (${JSON.stringify(r2.changes[3].change)})`)
+  assert(r2.changes[5].change.after === 'Note: added later.', 'insert เก็บข้อความล้วนของท่อนใหม่ (ไม่มี tag)')
+  assert(r2.changed === 6 && r2.changes.length === 6, 'รายการที่ถูกข้ามไม่ถูกบันทึกว่าแก้')
+
+  const none = applyRevision(p1, JSON.stringify({ edits: [], unresolved: [{ comment: 1, reason: 'ไม่พบ' }] }))
+  assert(none.changes.length === 0, 'ไม่มีรายการแก้ = ไม่มีบันทึก')
+  // HTML ที่ได้ต้องเหมือนเดิมทุกตัวอักษร (บันทึกการแก้ไม่แตะผลลัพธ์)
+  assert(r1.html === html.replace('eliminating the need for human intervention', 'reducing manual work'), 'ผลลัพธ์ HTML ไม่เปลี่ยนจากเดิม')
+}
+
 console.log(`comment-revise: ${passed} passed`)

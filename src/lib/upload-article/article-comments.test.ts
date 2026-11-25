@@ -4,6 +4,8 @@ import {
   ARTICLE_COMMENTS_KEY, MAX_COMMENT_CHARS, MAX_COMMENTS_PER_ARTICLE, MAX_COMMENT_TOTAL_CHARS, MAX_QUOTE_CHARS,
   articleCommentCounts, extractGoogleDocsComments, extractMammothComments, extractTextComments, isPendingComment,
   manualComment, readArticleComments, sanitizeArticleComments, toImportedComments, withArticleComments,
+  MAX_CHANGE_CHARS, MAX_CHANGE_CONTEXT_CHARS, MAX_CHANGE_TOTAL_CHARS, MAX_CHANGES_PER_COMMENT,
+  describeChange, keepStoredChanges, setCommentChanges,
   type ArticleComment,
 } from './article-comments'
 import { importFromFile, importFromText } from './import-source'
@@ -177,6 +179,75 @@ async function main() {
     eq(articleCommentCounts(prefs), { a: { total: 3, pending: 1 } }, 'counts: total 3 pending 1')
     assert(isPendingComment(mk({ text: 'x' })) && !isPendingComment(mk({ text: 'x', enabled: false })) && !isPendingComment(mk({ text: 'x', appliedAt: NOW })), 'isPending: เงื่อนไข')
     eq(articleCommentCounts({}), {}, 'counts: ไม่มี comment = {}')
+  }
+
+  // ── บันทึกว่า AI แก้อะไรไป (การ์ดใต้ Comment) ──
+  {
+    const before = 'Automation handles recurring routines, eliminating the need for human intervention across departments.'
+    const after = 'Automation handles recurring routines, reducing manual work and human intervention in recurring routines while preserving human approval or review where needed across departments.'
+    const ch = describeChange('replace', before, after)
+    eq(ch.kind, 'replace', 'แก้วลี = replace')
+    assert(!!ch.before && ch.before.includes('eliminating the need for') && !ch.before.includes('Automation'), `เดิม = เฉพาะท่อนที่ถูกแก้ (${ch.before})`)
+    assert(!!ch.after && ch.after.startsWith('reducing manual work') && !ch.after.includes('Automation'), `ใหม่ = เฉพาะท่อนที่ถูกแก้ (${ch.after})`)
+    assert(!!ch.lead && ch.lead.endsWith('routines, '), `lead = ข้อความก่อนหน้าที่ไม่ได้แก้ (${JSON.stringify(ch.lead)})`)
+    assert(!!ch.tail && ch.tail.trim().endsWith('departments.'), `tail = ข้อความต่อท้ายที่ไม่ได้แก้ (${JSON.stringify(ch.tail)})`)
+    const longLead = describeChange('replace', `${'word '.repeat(60)}old end`, `${'word '.repeat(60)}new end`)
+    assert((longLead.lead ?? '').length <= MAX_CHANGE_CONTEXT_CHARS && (longLead.lead ?? '').startsWith('…'), 'lead ยาว = ตัดด้านหน้า เติม …')
+    eq([longLead.before, longLead.after], ['old', 'new'], 'ข้อความรอบ ๆ ยาว ยังได้ท่อนที่แก้ถูก')
+
+    const thai = describeChange('replace', 'ราคาเริ่มต้น 5,000 บาท ต่อครั้ง', 'ราคาเริ่มต้น 4,500 บาท ต่อครั้ง')
+    eq([thai.before, thai.after], ['5,000', '4,500'], 'ภาษาไทย: ได้เฉพาะคำที่เปลี่ยน')
+
+    const whole = describeChange('replace', 'ข้อความเก่าทั้งย่อหน้า', 'Completely different text')
+    assert(!whole.lead && !whole.tail && whole.before === 'ข้อความเก่าทั้งย่อหน้า', 'เขียนใหม่ทั้งบล็อก = ไม่มี lead/tail')
+    const long = describeChange('replace', 'ก'.repeat(50), 'x '.repeat(600))
+    assert((long.after ?? '').length <= MAX_CHANGE_CHARS && (long.after ?? '').endsWith('…'), 'ข้อความใหม่ยาว = ตัดที่เพดาน เติม …')
+
+    eq(describeChange('replace', 'same  text', 'same text'), { kind: 'format', after: 'same text' }, 'ข้อความเท่าเดิม = format')
+    eq(describeChange('insert', '', 'ย่อหน้าใหม่'), { kind: 'insert', after: 'ย่อหน้าใหม่' }, 'insert มีแต่ข้อความใหม่')
+    eq(describeChange('delete', 'ย่อหน้าที่ลบ', ''), { kind: 'delete', before: 'ย่อหน้าที่ลบ' }, 'delete มีแต่ข้อความเดิม')
+    eq(describeChange('delete', '', ''), { kind: 'delete' }, 'ลบบล็อกที่ไม่มีข้อความ (รูป)')
+    const added = describeChange('replace', 'ประโยคเดิม', 'ประโยคเดิม และเพิ่มท่อนใหม่')
+    assert(!added.before && !!added.after && added.lead === 'ประโยคเดิม ', `เพิ่มต่อท้ายในบล็อกเดิม = ไม่มี "เดิม" (${JSON.stringify(added)})`)
+
+    // sanitiser เก็บ changes ที่ถูกรูป ทิ้งของแปลก
+    const withChanges = sanitizeArticleComments([{
+      ...mk({ text: 'แก้คำ', appliedAt: NOW }),
+      changes: [ch, { kind: 'hack', before: 'x' }, 'bad', { kind: 'delete', before: 'ลบ', extra: 1 }],
+      moreChanges: 2,
+    }])
+    eq(withChanges[0].changes?.length, 2, 'changes ที่ kind ไม่รู้จัก/ไม่ใช่ object ถูกทิ้ง')
+    eq(withChanges[0].changes?.[0], ch, 'change ที่ถูกรูปผ่าน sanitiser ได้ค่าเดิม (รวมช่องว่างที่ขอบ lead/tail)')
+    eq(withChanges[0].changes?.[1], { kind: 'delete', before: 'ลบ' }, 'field แปลกใน change ถูกตัด')
+    eq(withChanges[0].moreChanges, 2, 'moreChanges คงไว้')
+    eq(sanitizeArticleComments(sanitizeArticleComments(withChanges)), withChanges, 'sanitise ซ้ำได้ค่าเดิม')
+    const noChanges = sanitizeArticleComments([{ ...mk({ text: 'ไม่มี' }), changes: [], moreChanges: 5 }])
+    assert(!('changes' in noChanges[0]) && !('moreChanges' in noChanges[0]), 'ไม่มี change = ไม่มี field (comment เก่าได้รูปเดิม)')
+    const many = sanitizeArticleComments([{ ...mk({ text: 'เยอะ' }), changes: Array.from({ length: 12 }, () => ({ kind: 'insert', after: 'a' })) }])
+    eq(many[0].changes?.length, MAX_CHANGES_PER_COMMENT, 'changes ต่อ comment ไม่เกินเพดาน')
+    const heavy = sanitizeArticleComments(Array.from({ length: 30 }, (_v, i) => ({
+      ...mk({ text: `c${i}` }), id: `h${i}`,
+      changes: Array.from({ length: 5 }, () => ({ kind: 'replace', before: 'ก'.repeat(400), after: 'ข'.repeat(400) })),
+    })))
+    const heavyChars = heavy.reduce((n, c) => n + (c.changes ?? []).reduce((m, x) => m + (x.before ?? '').length + (x.after ?? '').length, 0), 0)
+    assert(heavyChars <= MAX_CHANGE_TOTAL_CHARS && heavy.length === 30, `บันทึกรวมไม่เกินเพดาน แต่ comment อยู่ครบ (${heavyChars})`)
+
+    // PUT จากหน้าจอ: changes ใช้ของที่เก็บไว้เสมอ
+    const storedList = [setCommentChanges(mk({ text: 'หนึ่ง', appliedAt: NOW }), [ch], 0), mk({ text: 'สอง' })]
+    storedList[0].id = 's1'; storedList[1].id = 's2'
+    const fromScreen: ArticleComment[] = [
+      { ...mk({ text: 'หนึ่ง' }), id: 's1', enabled: true },
+      { ...mk({ text: 'สอง' }), id: 's2', changes: [{ kind: 'insert', after: 'แต่งเอง' }] },
+      { ...mk({ text: 'ใหม่' }), id: 's3' },
+    ]
+    const kept = keepStoredChanges(fromScreen, storedList)
+    eq(kept[0].changes, [ch], 'หน้าจอเก่าไม่ส่ง changes มา = ของที่เก็บไว้ยังอยู่ (กด "ใช้อีกครั้ง" แล้วการ์ดไม่หาย)')
+    assert(!kept[0].appliedAt, 'ค่าอื่นใช้ของที่หน้าจอส่งมา')
+    assert(!('changes' in kept[1]), 'changes ที่หน้าจอแต่งมาเองถูกทิ้ง')
+    assert(!('changes' in kept[2]), 'comment ใหม่ไม่มี changes')
+    eq(keepStoredChanges([], storedList), [], 'ลบ comment = หายไปพร้อมบันทึก')
+    assert(!('changes' in setCommentChanges(storedList[0], [])), 'setCommentChanges รายการว่าง = ลบบันทึก')
+    eq(setCommentChanges(mk({ text: 'x' }), Array.from({ length: 8 }, () => ch), 3).moreChanges, 3, 'setCommentChanges เก็บจำนวนที่เกิน')
   }
 
   console.log(`article-comments: ${passed} passed`)

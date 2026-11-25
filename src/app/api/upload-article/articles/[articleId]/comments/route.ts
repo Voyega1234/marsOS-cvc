@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { readPrefs } from '@/lib/upload-article/prefs-store'
-import { COMMENT_REVISE_JOB_TYPE, readArticleComments, sanitizeArticleComments } from '@/lib/upload-article/article-comments'
+import { COMMENT_REVISE_JOB_TYPE, keepStoredChanges, readArticleComments, sanitizeArticleComments } from '@/lib/upload-article/article-comments'
 import { replaceArticleComments } from '@/lib/upload-article/article-comments-store'
 import { REWRITE_SOURCE_TYPE } from '@/lib/upload-article/rewrite-lock'
 import { averageCost } from '@/lib/upload-article/write-stamp'
@@ -67,7 +67,8 @@ export async function PUT(req: NextRequest, { params }: { params: { articleId: s
   if (!article) return NextResponse.json({ error: 'ไม่พบบทความ' }, { status: 404 })
 
   const next = sanitizeArticleComments(body.comments)
-  const stored = await replaceArticleComments(article.clientId, orgId, article.id, () => next)
+  // บันทึกว่า AI แก้อะไรไป (changes) เขียนได้จาก comment-revise เท่านั้น — ที่นี่คงของที่เก็บไว้ตาม id ไม่รับจากหน้าจอ
+  const stored = await replaceArticleComments(article.clientId, orgId, article.id, (current) => keepStoredChanges(next, current))
   if (!stored) return NextResponse.json({ error: 'ไม่พบลูกค้า' }, { status: 404 })
   return NextResponse.json({ comments: stored })
 }

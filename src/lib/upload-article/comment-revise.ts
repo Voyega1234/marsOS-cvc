@@ -8,6 +8,7 @@ import { parse, NodeType, type HTMLElement, type Node } from 'node-html-parser'
 import { cleanSemanticHtml } from './clean-html'
 import { stripEditorialNotes, humanBodyRulesBlock, type HumanVoiceLanguage } from '@/lib/article-human-voice-skill'
 import { applyBannedReplacements, findBannedTerms, type BannedTerm } from '@/lib/ce-restrictions'
+import { describeChange, type ArticleCommentChange } from './article-comments'
 
 /** บทความยาวเกินนี้ไม่ส่งให้โมเดล (ตัวอักษรของ HTML หลังแทนรูปด้วยโทเคน) */
 export const MAX_REVISE_ARTICLE_CHARS = 150_000
@@ -49,6 +50,8 @@ export interface RevisePlan {
   /** <img> เดิมทุกตัว — โทเคน [[IMG_n]] ชี้ตำแหน่ง n-1 */
   images: string[]
   comments: ReviseComment[]
+  /** บล็อก (1..n) ที่ข้อความอ้างอิงของ comment แต่ละข้อชี้ — 0 = ไม่มีข้อความอ้างอิง หรือหาไม่เจอ */
+  commentBlocks: number[]
   /** ข้อความ user ที่ส่งให้โมเดล */
   user: string
   /** ภาษาของเนื้อบทความ (ดูจากตัวอักษรจริง) — null = ตัดสินไม่ได้ ให้ตัวเรียกใช้ค่าจากโปรเจกต์ */
@@ -76,12 +79,21 @@ export interface ReviseUnresolved {
   reason: string
 }
 
+/** รายการแก้ที่ใช้จริง 1 รายการ — เอาไว้บอกทีมว่า AI แก้อะไรไปตาม Comment ข้อไหน */
+export interface ReviseChange {
+  /** เลข Comment (1..n ตาม plan.comments) ที่รายการแก้นี้ทำตาม — ว่าง = ระบุไม่ได้ว่าเป็นของข้อไหน */
+  comments: number[]
+  change: ArticleCommentChange
+}
+
 export interface ReviseResult {
   html: string
   /** จำนวนรายการแก้ที่ใช้จริง */
   changed: number
   unresolved: ReviseUnresolved[]
   warnings: string[]
+  /** รายการแก้ที่ใช้จริง เรียงตามลำดับในบทความ */
+  changes: ReviseChange[]
 }
 
 /** ข้อมูลเข้าใช้ไม่ได้ (บทความว่าง/ยาวเกิน/ไม่มี comment) — ยังไม่ได้เรียก AI */
@@ -193,8 +205,9 @@ export function planRevision(input: { title: string; sourceHtml: string; comment
   }
 
   const blockTexts = blockAt.map((at) => segments[at].text)
+  const commentBlocks = comments.map((c) => locateQuote(blockTexts, c.quote))
   const commentLines = comments.map((c, i) => {
-    const at = locateQuote(blockTexts, c.quote)
+    const at = commentBlocks[i]
     const where = at
       ? `ตำแหน่ง: บล็อก [${at}]${c.quote ? ` — ข้อความที่ถูก Comment: "${c.quote}"` : ''}`
       : c.quote
@@ -212,7 +225,7 @@ export function planRevision(input: { title: string; sourceHtml: string; comment
   ].join('\n')
 
   const language = detectArticleLanguage(`${input.title} ${blockTexts.join(' ')}`)
-  return { segments, blockAt, images, comments, user, language }
+  return { segments, blockAt, images, comments, commentBlocks, user, language }
 }
 
 /** กฎภาษา: เนื้อที่เขียนใหม่ใช้ภาษาของบทความเสมอ ไม่ว่า Comment จะเขียนภาษาอะไร */
@@ -323,6 +336,12 @@ function commentRefs(raw: unknown, commentCount: number): number[] {
   return out
 }
 
+const BLOCK_END_RE = /<\/(?:p|li|td|th|tr|h[1-6]|div|blockquote|dt|dd|figcaption)>|<br\s*\/?>/gi
+/** ข้อความล้วนของ HTML 1 ท่อน — คั่นช่องว่างระหว่างรายการ/ย่อหน้าย่อย ไม่ให้คำติดกัน */
+function plainText(html: string): string {
+  return collapse(parse(html.replace(BLOCK_END_RE, ' $&')).text)
+}
+
 const tokensIn = (text: string): number[] => Array.from(text.matchAll(IMG_TOKEN_RE), (m) => Number(m[1]))
 const countOf = (haystack: string, needle: string): number => (needle ? haystack.split(needle).length - 1 : 0)
 
@@ -363,6 +382,28 @@ export function applyRevision(plan: RevisePlan, modelText: string, bannedTerms: 
     for (const n of refs) skippedComments.add(n)
   }
 
+  // รายการแก้ที่โมเดลไม่ได้บอกเลข Comment: มี Comment ข้อเดียว = ของข้อนั้น, ไม่งั้นดูว่าข้อไหนชี้บล็อกเดียวกัน
+  const ownersOf = (raw: unknown, block: number): number[] => {
+    const refs = commentRefs(raw, plan.comments.length)
+    if (refs.length > 0) return refs
+    if (plan.comments.length === 1) return [1]
+    const near: number[] = []
+    plan.commentBlocks.forEach((at, i) => {
+      if (at > 0 && at === block) near.push(i + 1)
+    })
+    return near
+  }
+  const recorded: { block: number; insert: boolean; seq: number; entry: ReviseChange }[] = []
+  const record = (raw: unknown, block: number, kind: 'replace' | 'insert' | 'delete', before: string, after: string) => {
+    // The summary only feeds the card under the comment — it must never fail a revise the AI already did.
+    try {
+      const entry: ReviseChange = { comments: ownersOf(raw, block), change: describeChange(kind, plainText(before), plainText(after)) }
+      recorded.push({ block, insert: kind === 'insert', seq: recorded.length, entry })
+    } catch {
+      /* no card for this edit */
+    }
+  }
+
   const replaced = new Map<number, string>()
   const inserts = new Map<number, string[]>()
   let changed = 0
@@ -379,6 +420,7 @@ export function applyRevision(plan: RevisePlan, modelText: string, bannedTerms: 
         continue
       }
       inserts.set(edit.block, [...(inserts.get(edit.block) ?? []), html])
+      record(raw, edit.block, 'insert', '', html)
       changed++
       continue
     }
@@ -399,6 +441,7 @@ export function applyRevision(plan: RevisePlan, modelText: string, bannedTerms: 
     const originalImages = original.match(IMG_TAG_RE) ?? []
     lostImages += originalImages.filter((tag) => !next.includes(tag)).length
     replaced.set(edit.block, next)
+    record(raw, edit.block, edit.op === 'delete' ? 'delete' : 'replace', original, next)
     changed++
   }
 
@@ -465,7 +508,11 @@ export function applyRevision(plan: RevisePlan, modelText: string, bannedTerms: 
   const original = plan.segments.map((s) => s.raw).join('')
   const duplicated = Array.from(new Set(plan.images)).filter((tag) => countOf(html, tag) > countOf(original, tag)).length
   if (duplicated > 0) warnings.push(`รูป ${duplicated} รูปถูกใส่ซ้ำในท่อนที่แก้ — ตรวจรูปในบทความอีกครั้ง`)
-  return { html, changed, unresolved, warnings }
+  // เรียงตามตำแหน่งในบทความ (บล็อกเดียวกัน: แก้ก่อน แล้วค่อยท่อนที่เพิ่มต่อท้าย)
+  const changes = recorded
+    .sort((a, b) => a.block - b.block || Number(a.insert) - Number(b.insert) || a.seq - b.seq)
+    .map((r) => r.entry)
+  return { html, changed, unresolved, warnings, changes }
 }
 
 /** เลขโทเคนรูปใน prompt (ใช้ในเทสต์) */
