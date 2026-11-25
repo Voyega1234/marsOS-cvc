@@ -485,7 +485,23 @@ async function wixUploadCover(cfg: NonNullable<SiteConnectionConfig['wix']>, p: 
     method: 'PUT', headers: { 'Content-Type': mime }, body: new Uint8Array(bytes), signal: AbortSignal.timeout(60_000),
   })
   if (!upRes.ok) throw new Error(await readError(upRes))
-  const file = (await upRes.json()).file
+  let file = (await upRes.json()).file
+  // Wix ตอบ 200 ได้ทั้งที่ไฟล์ยังประมวลผลไม่เสร็จ (operationStatus PENDING = ยังไม่มี URL) — รอสั้น ๆ ให้พร้อมก่อนตั้งเป็นปก
+  // รอไม่ได้/ไม่มีสิทธิ์อ่าน = ใช้ข้อมูลจากคำตอบแรกตามเดิม ไม่ทำให้ push ล้ม
+  if (file?.id && file.operationStatus === 'PENDING') {
+    for (let i = 0; i < 5 && file.operationStatus === 'PENDING'; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      try {
+        const r = await fetch(`https://www.wixapis.com/site-media/v1/files/get-file-by-id?fileId=${encodeURIComponent(file.id)}`, {
+          headers: await wixHeaders(cfg), signal: AbortSignal.timeout(TIMEOUT),
+        })
+        if (!r.ok) break
+        const next = (await r.json()).file
+        if (!next?.id) break
+        file = next
+      } catch { break }
+    }
+  }
   const img = file?.media?.image?.image
   if (img?.id || img?.url) return img
   if (file?.id && file?.url) return { id: file.id, url: file.url }
@@ -506,7 +522,9 @@ async function wixPublish(cfg: NonNullable<SiteConnectionConfig['wix']>, p: Publ
   if (p.coverBase64) {
     try {
       const image = await wixUploadCover(cfg, p)
-      media = { wixMedia: { image }, displayed: true, custom: true }
+      // custom: true = ใช้รูปนี้เป็นปกของโพสต์ (false = Wix หยิบรูปแรกในเนื้อหาแทน) · altText = คำบรรยายรูปปก
+      const altText = (p.coverAlt ?? '').trim().slice(0, 1000)
+      media = { wixMedia: { image }, displayed: true, custom: true, ...(altText ? { altText } : {}) }
     } catch (e) {
       warning = `อัปโหลดรูปปกเข้า Wix ไม่สำเร็จ — ลงบทความโดยไม่มีรูปปก (${e instanceof Error ? e.message.slice(0, 120) : String(e)})`
     }

@@ -22,6 +22,7 @@ import { stripGoogleDocsCommentsHtml } from '@/lib/upload-article/clean-html'
 import { faqQuestionsToSpan } from '@/lib/article-structure'
 import { applyFaqDisplay } from '@/lib/upload-article/theme-css'
 import { removeCoverFromHtml } from '@/lib/upload-article/article-images'
+import { wixFontPrelude } from '@/lib/upload-article/wix-article'
 import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
 import { pushArticleToWebflow, type WebflowUploadConfig } from '@/lib/upload-article/webflow-push'
 import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
@@ -264,9 +265,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
 
   // ปกในเนื้อหาเป็นรูปเดียวกับ featured image (WordPress) / ช่องรูปของ Webflow — ธีมแสดงรูปนั้นเองอยู่แล้ว
   // ส่งทั้งสองที่ = ปกซ้อน 2 รูป (ทีมแจ้ง 2026-10-26) จึงตัดปกในเนื้อหาออก เว้นแต่ติ๊ก "ใส่ปกในเนื้อหาด้วย"
+  // Wix: ปกถูกอัปโหลดแล้วตั้งเป็นรูปปกของโพสต์ (draftPost.media) Wix แสดงเองเหนือเนื้อหา — ปล่อยปกในเนื้อหาไว้ด้วย = ปกซ้อน 2 รูปเหมือนกัน
   const coverAsFeatured = !!article.coverImageUrl && (
     platform === 'wordpress' ||
-    (platform === 'webflow' && !pbnSite && !!((conn.webflow ?? {}) as WebflowUploadConfig).imageField)
+    (platform === 'webflow' && !pbnSite && !!((conn.webflow ?? {}) as WebflowUploadConfig).imageField) ||
+    // เฉพาะปกที่อัปโหลดเข้า Wix ได้จริง (data URI) — ปกที่ส่งไม่ได้ต้องคงไว้ในเนื้อหา ไม่งั้นบทความไม่มีปกเลย
+    (platform === 'wix' && !pbnSite && !!coverToBase64(article.coverImageUrl).base64)
   )
   // โหมด text ไม่มีกล่องปก (figure.content-cover) — จับรูปที่ src เดียวกับปกแทน
   if (coverAsFeatured && !bodyCover) processedHtml = removeCoverFromHtml(processedHtml, article.coverImageUrl)
@@ -372,9 +376,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       error = result.error
       livePublished = result.ok && result.status === 'publish'
     } else if (platform !== 'wordpress') {
+      // Wix เท่านั้น: บทความลงเป็น HTML embed บล็อกเดียว ฟอนต์ของเว็บเข้าไม่ถึง — แนบ @font-face ของฟอนต์ที่บทความใช้ไปด้วย
+      // (โหมด clean ไม่ส่ง CSS เลย จึงไม่แนบ · แพลตฟอร์มอื่นได้ HTML เดิมทุกตัวอักษร)
+      const wixFonts = platform === 'wix' && !pbnSite && theme.styleMode !== 'clean' ? wixFontPrelude(theme.detail?.article) : null
       const result = await publishToSite(platform as SitePlatform, conn, {
         title: article.title,
-        html: processedHtml,
+        html: wixFonts?.style ? wixFonts.style + processedHtml : processedHtml,
         slug: article.slug || undefined,
         excerpt: article.metaDescription || undefined,
         coverBase64: base64,
@@ -389,7 +396,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       postUrl = result.postUrl
       postId = result.postId
       error = result.error
-      warning = result.warning
+      // แพลตฟอร์มอื่น (และ Wix ที่ฟอนต์ครบ) ได้ค่า warning เดิมจาก publishToSite ตรง ๆ
+      warning = result.ok && wixFonts?.warning ? [result.warning, wixFonts.warning].filter(Boolean).join(' · ') : result.warning
       livePublished = result.ok && publishMode === 'publish'
     } else {
       // PBN: แก้โพสต์เดิมเฉพาะเว็บเดียวกับที่เคย push บทความนี้ไป — เว็บอื่นสร้างโพสต์ใหม่

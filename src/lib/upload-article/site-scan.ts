@@ -17,6 +17,7 @@ import { attrGatedOut, contrast, CssCascade, inlineVars, luminance, mediaApplies
 import { absolutizeFontUrls, scanArticleStructure, scanArticleStyle, scanFaqStyle } from './article-style-scan'
 import { findMissingFontFaces } from './font-lookup'
 import { articleFontStacks, primaryFontFamilies } from './font-faces'
+import { adaptWixArticleStyle } from './wix-article'
 import { SITE_TOC_ID_TOKEN, UPLOAD_LAYOUT_LABEL } from './types'
 import { TOC_POSITION_MAX, describeTocPosition, detectTocPosition, majorityTocPosition } from './toc-position'
 import type {
@@ -1752,7 +1753,11 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
     }
     // หน้าตาละเอียดและโครงบทความวัดจากของจริง ไม่ใช้ AI — AI ล้มก็ยังได้ค่าชุดนี้
     const canReadArticle = region && (sampleEntry || looksLikeArticle(cssPage))
-    const article = canReadArticle ? scanArticleStyle({ page: cssPage, region, rules: themeRules, rawCss, sourceUrl: cssEntry?.link, pageBackground: computed?.outerBackdrop || computed?.backdrop, precise: options.precise === true || isWixPage(cssPage) }) : null
+    const measured = canReadArticle ? scanArticleStyle({ page: cssPage, region, rules: themeRules, rawCss, sourceUrl: cssEntry?.link, pageBackground: computed?.outerBackdrop || computed?.backdrop, precise: options.precise === true || isWixPage(cssPage) }) : null
+    // เว็บ Wix เท่านั้น: ระยะห่างมาจากบรรทัดว่าง จุดนำหน้ารายการอยู่ใน style ของ <li> — ปรับผลวัดให้ตรงกับที่เห็นจริง (เว็บอื่นได้ผลวัดเดิม)
+    const article = measured && region && isWixPage(cssPage)
+      ? adaptWixArticleStyle({ article: measured, html: cssPage.slice(region.start, region.end), page: cssPage, linkColor: computed?.link })
+      : measured
     if (!article) warnings.push('ยังอ่านหน้าตาบทความไม่ได้ เพราะหน้าที่เปิดได้ไม่ใช่หน้าบทความ — ใส่ลิงก์บทความตัวอย่างแล้วสแกนใหม่ เพื่อให้ได้ฟอนต์ ขนาด และกรอบตรงกับเว็บ')
     // ฟอนต์ที่เว็บไม่ได้ประกาศไฟล์ใน CSS ที่อ่านได้ (Google Fonts, @import) — หาไฟล์ให้พรีวิว ไม่ใช้ AI
     if (article) {

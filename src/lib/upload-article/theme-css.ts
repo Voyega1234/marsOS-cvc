@@ -226,6 +226,9 @@ function sanitizeArticleStyle(raw: unknown): UploadArticleStyle | undefined {
     img: compact({ radius: safeFluid(img.radius) }),
     pageBackground: safeColor(r.pageBackground),
     fontFaces: sanitizeFontFaces(r.fontFaces),
+    // ธงจากการสแกนเว็บ Wix (wix-article.ts) — รับเฉพาะ true ค่าอื่นไม่เก็บ
+    headingStrongInherit: r.headingStrongInherit === true ? true : undefined,
+    listTight: r.listTight === true ? true : undefined,
   })
   if (!style) return undefined
   const source = typeof r.source === 'string' ? r.source.replace(/[<>{}]/g, '').trim().slice(0, 300) : undefined
@@ -506,6 +509,13 @@ function articleStyleCss(d: UploadThemeDetail): string[] {
       `.content-article strong${SKIP},.content-article b${SKIP}`,
       textDecls(a.strong && { fontFamily: a.strong.fontFamily, fontWeight: a.strong.fontWeight, color: a.strong.color }),
     )
+    // เว็บ Wix เท่านั้น (ธงมาจาก wix-article.ts) — โปรเจกต์ที่ไม่มีธงได้ CSS เท่าเดิมทุกไบต์
+    // ตัวหนาในหัวข้อ (Word ครอบหัวข้อด้วย <strong>) ต้องไม่โดนฟอนต์ตัวหนาของย่อหน้าทับฟอนต์หัวข้อ
+    if (a.headingStrongInherit) {
+      out.push(`.content-article :is(h1,h2,h3,h4,.content-faq__heading) :is(strong,b)${SKIP}{font-family:inherit;font-weight:inherit;color:inherit;}`)
+    }
+    // ประโยคนำติดกับรายการ: ย่อหน้าที่อยู่ก่อนรายการไม่เว้นระยะ
+    if (a.listTight) out.push(`.content-article p${SKIP}:has(+ul),.content-article p${SKIP}:has(+ol){margin-bottom:0;}`)
     if (a.img?.radius) out.push(`.content-article img${SKIP},.content-article .content-figure img{border-radius:${a.img.radius};}`)
     // กล่องเนื้อหาและพื้นหน้า: ตรงเฉพาะบทความที่อยู่ติด <body> ของกรอบพรีวิว/ไฟล์ดาวน์โหลด บนเว็บจริงธีมของเว็บทำให้เอง
     const c = a.container
