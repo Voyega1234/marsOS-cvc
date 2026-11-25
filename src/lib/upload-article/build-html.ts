@@ -12,6 +12,7 @@ import { stripGoogleDocsCommentsHtml, applyAltCaptionsHtml } from './clean-html'
 import { TOC_HEADING_RE, GEN_FIGURE_ATTR, SOURCE_COVER_ATTR } from './article-images'
 import { TAKEAWAYS_HEADING_RE, applyFaqDisplayMarkup, boxKeyTakeaways, spaceLatinThai } from '@/lib/article-structure'
 import { boxReferencesSection } from './references'
+import { findBriefListBlocks } from './doc-meta'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import type { UploadCtaSettings } from './cta'
 import { buildAuthorCardHtml, type AuthorCardStyle } from '@/lib/articleAuthorCard'
@@ -199,7 +200,7 @@ function hasQuestionSignal(el: HTMLElement): boolean {
 }
 
 // ตาราง brief ของผู้เขียน (Keyword / Search Volume / Title Count / Slug ...) — ไม่ใช่เนื้อหาบทความ
-const BRIEF_LABEL_RE = /^(main( keyword)?|long ?tail|keywords?|search volume|focus keyword|title( count)?|meta title|(meta )?description( count)?|slug|url)\b/i
+const BRIEF_LABEL_RE = /^(main( keyword)?|primary keyword|long ?tail|keywords?|search volume|focus keyword|title( count)?|(meta|seo) title|((meta|seo) )?description( count)?|slug|url)\b/i
 // หัวข้อที่ผู้เขียนบอกเองว่าไม่ต้องขึ้นเว็บ เช่น "แหล่งอ้างอิง (ไม่ใส่ลงเว็บไซต์)"
 const NOT_FOR_WEB_RE = /ไม่(ต้อง)?\s*(ใส่|ลง|เอา|นำ)(ลง|ขึ้น|ไป)?\s*(ใน)?\s*เว็บ|not for (the )?(web|website|publish)|do not publish/i
 
@@ -221,8 +222,11 @@ function headingLevel(el: HTMLElement): number {
 /** ตัดส่วนที่ไม่ใช่เนื้อหาบทความออก (ตาราง brief SEO + หัวข้อที่ระบุว่าไม่ใส่ลงเว็บพร้อมเนื้อหาใต้หัวข้อนั้น) */
 function stripAuthorNotes(blocks: HTMLElement[]): HTMLElement[] {
   const out: HTMLElement[] = []
+  // brief แบบรายการ ("SEO Metadata" + SEO Title / Meta Description / Primary Keyword / H1) — ค่าไปลง seoTitle/metaDescription ผ่าน extractBriefMeta
+  const briefList = findBriefListBlocks(blocks).drop
   for (let i = 0; i < blocks.length; i++) {
     const el = blocks[i]
+    if (briefList.has(i)) continue
     if (isBriefTable(el)) continue
     const level = headingLevel(el)
     const isMarker = (level > 0 || isBoldOnlyParagraph(el)) && NOT_FOR_WEB_RE.test(el.text)

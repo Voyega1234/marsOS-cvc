@@ -211,8 +211,30 @@ interface ContentRegion {
   html: string
 }
 
+/** หน้านี้สร้างด้วย Wix หรือไม่ — Wix ใส่สี/ฟอนต์บทความเป็นตัวแปร --ricos-* ใน style="" ของกล่องเนื้อหา */
+export function isWixPage(html: string): boolean {
+  if (!html) return false
+  if (/<meta\b[^>]*name=["']generator["'][^>]*content=["']Wix\.com/i.test(html)) return true
+  if (/<meta\b[^>]*content=["']Wix\.com[^>]*name=["']generator["']/i.test(html)) return true
+  return /data-hook=["']post-description["']/i.test(html) && /(?:static\.wixstatic\.com|parastorage\.com)/i.test(html)
+}
+
+/** Wix: กล่องเนื้อหาบทความ = [data-hook="post-description"] (ไม่รวมหัวเรื่อง/วันที่อัปเดต) */
+function wixContentRegion(page: string): ContentRegion | null {
+  const re = /<([a-z][\w-]*)\b[^>]*\sdata-hook=["']post-description["'][^>]*>/i
+  const m = re.exec(page)
+  if (!m) return null
+  const end = balancedEnd(page, m.index, m[1].toLowerCase())
+  if (end === -1) return null
+  return { start: m.index, end, openTag: m[0], html: page.slice(m.index, end) }
+}
+
 /** กล่องเนื้อหาบทความ (ส่วนที่ผู้เขียนเขียน) ในหน้าโพสต์ที่ render จริง — ไม่เจอคืน null */
 function postContentRegion(page: string): ContentRegion | null {
+  if (isWixPage(page)) {
+    const wix = wixContentRegion(page)
+    if (wix) return wix
+  }
   const b = Math.max(0, page.search(/<body\b/i))
   for (const cls of CONTENT_CLASSES) {
     const re = new RegExp(`<([a-z][\\w-]*)\\b[^>]*\\sclass=["'][^"']*(?<![\\w-])${cls}(?![\\w-])[^"']*["'][^>]*>`, 'gi')
@@ -855,7 +877,8 @@ const describe = (el: CssEl) => `${el.tag}${el.id ? `#${el.id}` : ''}${Array.fro
 function computeArticleStyle(page: string, rules: CssRule[], precise = false): ComputedArticleStyle | null {
   const region = postContentRegion(page)
   if (!region) return null
-  const cascade = new CssCascade(rules, { attrs: precise })
+  const wix = isWixPage(page)
+  const cascade = new CssCascade(rules, { attrs: precise || wix })
   const contentChain = chainFor(page, region.start, region.openTag)
   const virtual = (tag: string): CssEl => ({ tag, id: '', classes: new Set() })
 
@@ -876,7 +899,14 @@ function computeArticleStyle(page: string, rules: CssRule[], precise = false): C
   // ลิงก์ไม่สืบทอดสีจากพ่อ (เบราว์เซอร์ตั้ง a:link เป็นสีน้ำเงิน) เว้นแต่ CSS สั่ง inherit/currentColor
   const linkColor = () => {
     const raw = cascade.declared(aChain, 'color')
-    if (raw === null) return '#0000ee'
+    if (raw === null) {
+      if (wix) {
+        const wv = cascade.variable(aChain, '--ricos-custom-link-color') ?? cascade.variable(aChain, '--ricos-action-color')
+        const wh = wv ? toHex(wv) : null
+        if (wh && wh !== 'transparent') return wh
+      }
+      return '#0000ee'
+    }
     const v = cascade.resolve(raw, aChain)
     if (/^(?:inherit|currentcolor|unset)$/i.test(v)) return color(aChain.slice(0, -1))
     const hex = toHex(v)
@@ -1722,7 +1752,7 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
     }
     // หน้าตาละเอียดและโครงบทความวัดจากของจริง ไม่ใช้ AI — AI ล้มก็ยังได้ค่าชุดนี้
     const canReadArticle = region && (sampleEntry || looksLikeArticle(cssPage))
-    const article = canReadArticle ? scanArticleStyle({ page: cssPage, region, rules: themeRules, rawCss, sourceUrl: cssEntry?.link, pageBackground: computed?.outerBackdrop || computed?.backdrop, precise: options.precise === true }) : null
+    const article = canReadArticle ? scanArticleStyle({ page: cssPage, region, rules: themeRules, rawCss, sourceUrl: cssEntry?.link, pageBackground: computed?.outerBackdrop || computed?.backdrop, precise: options.precise === true || isWixPage(cssPage) }) : null
     if (!article) warnings.push('ยังอ่านหน้าตาบทความไม่ได้ เพราะหน้าที่เปิดได้ไม่ใช่หน้าบทความ — ใส่ลิงก์บทความตัวอย่างแล้วสแกนใหม่ เพื่อให้ได้ฟอนต์ ขนาด และกรอบตรงกับเว็บ')
     // ฟอนต์ที่เว็บไม่ได้ประกาศไฟล์ใน CSS ที่อ่านได้ (Google Fonts, @import) — หาไฟล์ให้พรีวิว ไม่ใช้ AI
     if (article) {
@@ -1780,3 +1810,6 @@ export async function scanUploadSite(siteUrl: string, sampleUrl?: string, option
     usage,
   }
 }
+
+/** ใช้ในเทสเท่านั้น */
+export const __t = { computeArticleStyle, postContentRegion, parseRules }

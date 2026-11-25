@@ -15,6 +15,7 @@ import { pbnArticleEffective } from '@/lib/upload-article/pbn-context'
 import { isPbnPrefs } from '@/lib/upload-article/pbn'
 import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
 import { freshRewriteShadow } from '@/lib/upload-article/rewrite-lock'
+import { detectArticleLanguage } from '@/lib/upload-article/comment-revise'
 
 /** POST /api/upload-article/articles/[articleId]/generate — ประกอบ HTML/Text พร้อมใช้จาก sourceHtml */
 export async function POST(req: NextRequest, { params }: { params: { articleId: string } }) {
@@ -83,12 +84,16 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       sourceHtml = r.html
       linksAdded = r.inserted.length
     }
+    // ภาษาของกล่องที่ระบบใส่ (สารบัญ "Contents"/"สารบัญ", กล่องสรุป, ผู้เขียน) ตามตัวอักษรในเนื้อบทความจริง —
+    // บทความอังกฤษในโปรเจกต์ภาษาไทยต้องได้หัวภาษาอังกฤษ · เนื้อหาสั้นเกินตัดสินไม่ได้ = ตามค่าตั้งโปรเจกต์เหมือนเดิม
+    const articleLanguage = detectArticleLanguage(`${article.title} ${sourceHtml.replace(/<[^>]+>/g, ' ')}`)
+      ?? uploadArticleLanguage(client.language, article.title)
     const result = buildUploadArticleHtml({
       sourceHtml,
       mode,
       theme,
       aiSource: article.sourceType === 'ai',
-      site: { name: client.name, url: client.website, language: uploadArticleLanguage(client.language, article.title) },
+      site: { name: client.name, url: client.website, language: articleLanguage },
       meta: {
         title: article.title,
         seoTitle: seoTitle || undefined,

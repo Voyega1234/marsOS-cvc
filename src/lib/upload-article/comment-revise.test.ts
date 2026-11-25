@@ -258,4 +258,21 @@ throws(() => applyRevision(plan, '{"unresolved":[]}'), ReviseOutputError, 'ไ�
   assert(thaiPlan.language === 'th' && !thai.warnings.some((w) => w.includes('ภาษาไทย')), 'บทความไทยไม่โดนเตือนเรื่องภาษา')
 }
 
+// ── บทความ import: ลูกค้าอนุมัติโครงแล้ว แก้แค่ตาม Comment ──
+{
+  const sys = buildReviseSystemPrompt({})
+  assert(sys.includes('ลูกค้าอนุมัติบทความและโครงบทความนี้แล้ว'), 'prompt บอกว่าโครงเดิมลูกค้าอนุมัติแล้ว')
+  assert(sys.includes('ห้ามเพิ่ม ลบ ย้าย หรือเปลี่ยนชื่อหัวข้อ'), 'prompt ห้ามเปลี่ยนหัวข้อ')
+  assert(sys.includes('ประโยคอื่นในบล็อกเดียวกันต้องคงไว้ทุกตัวอักษร'), 'prompt ให้แก้เฉพาะประโยคที่ชี้')
+
+  const many = Array.from({ length: 10 }, (_v, i) => `<p>ย่อหน้าที่ ${i + 1} ของบทความที่ลูกค้าอนุมัติแล้ว</p>`).join('')
+  const p = planRevision({ title: 'ทดสอบ', sourceHtml: many, comments: [{ id: 'c1', text: 'แก้คำในย่อหน้า 2' }] })
+  const one = applyRevision(p, JSON.stringify({ edits: [{ op: 'replace', block: 2, comment: 1, html: '<p>ย่อหน้าที่ 2 แก้แล้ว</p>' }] }))
+  assert(!one.warnings.some((w) => w.includes('มากกว่าที่ Comment')), 'แก้ 1 บล็อกตาม Comment = ไม่เตือน')
+  const wide = applyRevision(p, JSON.stringify({
+    edits: [1, 2, 3, 4, 5, 6, 7].map((b) => ({ op: 'replace', block: b, comment: 1, html: `<p>เขียนใหม่ ${b}</p>` })),
+  }))
+  assert(wide.warnings.some((w) => w.includes('AI แก้ไป 7 จาก 10 บล็อก')), 'แก้กว้างเกิน Comment = เตือนให้ตรวจ/ย้อนกลับ')
+}
+
 console.log(`comment-revise: ${passed} passed`)
