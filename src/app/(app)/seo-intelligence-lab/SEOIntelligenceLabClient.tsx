@@ -11,7 +11,7 @@ import {
 import { DEMO_BRIEF } from "@/data/seoIntelligenceMockData"
 import { AreaChart } from "@/components/ds"
 import { useUrlState } from "@/hooks/use-url-state"
-import { fmtThb } from "@/lib/ai-cost-format"
+import { fmtCost } from "@/lib/ai-cost-format"
 
 type Tab = "overview" | "keywords" | "competitors" | "rankings" | "backlinks" | "audit" | "ai-visibility"
 const TAB_VALUES: readonly Tab[] = ["overview", "keywords", "competitors", "rankings", "backlinks", "audit", "ai-visibility"]
@@ -59,7 +59,7 @@ function CompBadge({ v }: { v: string }) {
 function Spinner() { return <RefreshCw size={13} className="animate-spin inline-block" /> }
 function CostBadge({ cost }: { cost: number | null }) {
   if (cost === null) return null
-  return <span className="flex items-center gap-0.5 text-[10px] text-gray-400 font-mono">{fmtThb(cost)}</span>
+  return <span className="flex items-center gap-0.5 text-[10px] text-gray-400 font-mono">{fmtCost(cost)}</span>
 }
 function Toast({ msg, onClose }: { msg: string; onClose: () => void }) {
   return (
@@ -180,8 +180,8 @@ function CostPanel({ data }: { data: CostSummary | null }) {
         <p className="text-xs font-bold text-gray-700">DataForSEO Cost Tracker</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
-        <div><p className="text-lg font-bold text-brand-navy">{fmtThb(data.totalCost)}</p><p className="text-[10px] text-gray-400">Total spent</p></div>
-        <div><p className="text-lg font-bold text-brand-navy">{fmtThb(data.todayCost)}</p><p className="text-[10px] text-gray-400">Today</p></div>
+        <div><p className="text-lg font-bold text-brand-navy">{fmtCost(data.totalCost)}</p><p className="text-[10px] text-gray-400">Total spent</p></div>
+        <div><p className="text-lg font-bold text-brand-navy">{fmtCost(data.todayCost)}</p><p className="text-[10px] text-gray-400">Today</p></div>
         <div><p className="text-lg font-bold text-brand-navy">{data.totalCalls}</p><p className="text-[10px] text-gray-400">API calls</p></div>
       </div>
       {Object.keys(data.byType).length > 0 && (
@@ -189,7 +189,7 @@ function CostPanel({ data }: { data: CostSummary | null }) {
           {Object.entries(data.byType).map(([t, v]) => (
             <div key={t} className="flex items-center justify-between text-xs text-gray-600">
               <span>{TYPE_LABEL[t] ?? t}</span>
-              <span className="font-mono text-brand-navy">{fmtThb(v.cost)} <span className="text-gray-400">({v.calls})</span></span>
+              <span className="font-mono text-brand-navy">{fmtCost(v.cost)} <span className="text-gray-400">({v.calls})</span></span>
             </div>
           ))}
         </div>

@@ -23,7 +23,7 @@ function getAuthHeader(): string {
   return "Basic " + Buffer.from(creds).toString("base64");
 }
 
-async function dfsPost(path: string, body: unknown): Promise<unknown> {
+async function dfsPost(path: string, body: unknown, onCost?: (usd: number) => void): Promise<unknown> {
   if (!isDataForSeoConfigured()) {
     throw new Error("DATAFORSEO_NOT_CONFIGURED: ใส่ DATAFORSEO_LOGIN/DATAFORSEO_PASSWORD ใน .env ก่อน");
   }
@@ -34,7 +34,17 @@ async function dfsPost(path: string, body: unknown): Promise<unknown> {
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`DataForSEO ${res.status}: ${await res.text()}`);
-  return res.json();
+  const json = await res.json();
+  if (onCost) {
+    // DataForSEO returns the USD cost of the call as a top-level `cost`; bookkeeping must never throw
+    try {
+      const c = Number((json as { cost?: unknown } | null)?.cost);
+      onCost(Number.isFinite(c) ? c : 0);
+    } catch {
+      /* ignore */
+    }
+  }
+  return json;
 }
 
 export interface SerpResult {
@@ -83,6 +93,8 @@ export async function fetchKeywordIdeas(params: {
   seeds: string[];
   location?: string;
   language?: string;
+  /** Called with the USD cost DataForSEO reports for the call */
+  onCost?: (usd: number) => void;
 }): Promise<KeywordIdea[]> {
   const data = await dfsPost("/keywords_data/google_ads/keywords_for_keywords/live", [
     {
@@ -90,7 +102,7 @@ export async function fetchKeywordIdeas(params: {
       location_name: params.location ?? DFS_DEFAULT_LOCATION,
       language_name: params.language ?? DFS_DEFAULT_LANGUAGE,
     },
-  ]) as { tasks?: { result?: { keyword: string; search_volume: number; cpc: number; competition: unknown; competition_index?: number }[] }[] };
+  ], params.onCost) as { tasks?: { result?: { keyword: string; search_volume: number; cpc: number; competition: unknown; competition_index?: number }[] }[] };
 
   return (data.tasks?.[0]?.result ?? []).map((r) => ({
     keyword: r.keyword,
@@ -105,6 +117,8 @@ export async function fetchSearchVolume(params: {
   keywords: string[];
   location?: string;
   language?: string;
+  /** Called with the USD cost DataForSEO reports for the call */
+  onCost?: (usd: number) => void;
 }): Promise<KeywordIdea[]> {
   const data = await dfsPost("/keywords_data/google_ads/search_volume/live", [
     {
@@ -112,7 +126,7 @@ export async function fetchSearchVolume(params: {
       location_name: params.location ?? DFS_DEFAULT_LOCATION,
       language_name: params.language ?? DFS_DEFAULT_LANGUAGE,
     },
-  ]) as { tasks?: { result?: { keyword: string; search_volume: number; cpc: number; competition: unknown; competition_index?: number }[] }[] };
+  ], params.onCost) as { tasks?: { result?: { keyword: string; search_volume: number; cpc: number; competition: unknown; competition_index?: number }[] }[] };
 
   return (data.tasks?.[0]?.result ?? []).map((r) => ({
     keyword: r.keyword,

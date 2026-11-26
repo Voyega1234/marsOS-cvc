@@ -12,7 +12,7 @@ import {
   ChevronLeft, FlaskConical, Play, Loader2, CheckCircle2, AlertTriangle,
   RotateCcw, Copy, Eye, EyeOff, DollarSign, Cpu, Clock,
 } from "lucide-react";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -334,7 +334,7 @@ export function TestPromptClient({ prompt }: Props) {
                 </span>
                 <span className="flex items-center gap-1.5 text-xs font-medium text-teal-700">
                   <DollarSign className="h-3.5 w-3.5" />
-                  ~{fmtThb(result.costEstimate)}
+                  ~{fmtCost(result.costEstimate)}
                 </span>
                 {result.missingVariables.length > 0 && (
                   <span className="flex items-center gap-1.5 text-xs font-medium text-amber-600">

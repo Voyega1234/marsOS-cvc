@@ -10,10 +10,13 @@ const WRITE_TIMEOUT = 60_000
 const ID_RE = /^[a-f0-9]{24}$/i
 
 export interface WebflowUploadConfig { apiToken?: string; siteId?: string; collectionId?: string; collectionSlug?: string; siteUrl?: string; bodyField?: string; imageField?: string; descriptionField?: string; seoTitleField?: string }
-export interface WebflowPushInput { title: string; html: string; slug?: string; metaTitle?: string; metaDescription?: string; coverBase64?: string; coverMimeType?: string; coverAlt?: string; publishMode: 'draft' | 'publish'; existingItemId?: string | null }
-export interface WebflowPushResult { ok: boolean; itemId?: string; postUrl?: string; error?: string; status?: 'draft' | 'publish' }
+export interface WebflowPushInput { title: string; html: string; slug?: string; metaTitle?: string; metaDescription?: string; coverBase64?: string; coverMimeType?: string; coverAlt?: string; publishMode: 'draft' | 'publish'; existingItemId?: string | null; lang?: string }
+export interface WebflowPushResult { ok: boolean; itemId?: string; postUrl?: string; error?: string; status?: 'draft' | 'publish'; warning?: string; /** language mode: item confirmed in the right locale by read-back */ verified?: boolean }
 
 class WfError extends Error {}
+
+interface WfLocale { cmsLocaleId?: string; enabled?: boolean; subdirectory?: string; tag?: string }
+const sameLang = (a: string | undefined, lang: string) => !!a && a.split('-')[0].toLowerCase() === lang.split('-')[0].toLowerCase()
 
 async function readError(res: Response): Promise<string> {
   const text = await res.text().catch(() => '')
@@ -149,11 +152,35 @@ export async function pushArticleToWebflow(cfg: WebflowUploadConfig, input: Webf
       if (!assets.has(coverMd5)) assets.set(coverMd5, { b64: input.coverBase64, mime: input.coverMimeType || 'image/png' })
     }
 
-    const hosted = new Map<string, string>()
-    if (assets.size) {
+    const lang = input.lang
+    const resolveSiteId = async (): Promise<string | undefined> => {
       let siteId = cfg.siteId
       if (!siteId) siteId = (await getCollection()).siteId
       if (!siteId) siteId = (await findWebflowSiteIdForCollection(token, cid)) ?? undefined
+      return siteId
+    }
+
+    // language mode: prove the locale exists (read-only) BEFORE any asset upload or write
+    let locale: { id: string; subdirectory: string; enabled: boolean } | null = null
+    if (lang) {
+      const siteId = await resolveSiteId()
+      if (!siteId) return { ok: false, error: 'หา Webflow site ของ Collection ไม่เจอ — กดทดสอบการเชื่อมต่อใหม่' }
+      const sRes = await fetch(`${WF}/sites/${siteId}`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT) })
+      if (!sRes.ok) return { ok: false, error: `ตรวจภาษาของเว็บ Webflow ไม่ได้ (HTTP ${sRes.status}) — token ต้องมีสิทธิ์ sites:read` }
+      const sj = await sRes.json().catch(() => null) as { locales?: { primary?: WfLocale; secondary?: WfLocale[] } } | null
+      if (!sj || typeof sj !== 'object' || !sj.locales) return { ok: false, error: 'ตรวจภาษาของเว็บ Webflow ไม่ได้ (ข้อมูลไม่ครบ) — เว็บนี้อาจยังไม่เปิด Localization' }
+      const match = (l?: WfLocale) => !!l && (l.subdirectory === lang || sameLang(l.tag, lang))
+      if (match(sj.locales.primary)) return { ok: false, error: `ภาษา ${lang} เป็นภาษาหลักของเว็บ Webflow นี้ — เลือกปลายทาง «ปกติ»` }
+      const sec = (Array.isArray(sj.locales.secondary) ? sj.locales.secondary : []).find(match)
+      if (!sec) return { ok: false, error: `เว็บ Webflow นี้ยังไม่มีภาษา /${lang} — เปิด Localization และเพิ่ม locale นี้ก่อน หรือเลือกปลายทาง «ปกติ»` }
+      if (sec.enabled === false) return { ok: false, error: `ภาษา /${lang} ของเว็บ Webflow ยังปิดอยู่ — เปิดใน Localization ก่อน` }
+      if (!sec.cmsLocaleId) return { ok: false, error: `ตรวจภาษา /${lang} ของเว็บ Webflow ไม่ได้ (ไม่มี cmsLocaleId) — ไม่ push` }
+      locale = { id: sec.cmsLocaleId, subdirectory: sec.subdirectory || lang, enabled: true }
+    }
+
+    const hosted = new Map<string, string>()
+    if (assets.size) {
+      const siteId = await resolveSiteId()
       if (!siteId) return { ok: false, error: 'หา Webflow site ของ Collection ไม่เจอ — กดทดสอบการเชื่อมต่อใหม่' }
       const sid = siteId
       await mapLimit(Array.from(assets.entries()), 3, async ([md5, a]) => {
@@ -188,6 +215,60 @@ export async function pushArticleToWebflow(cfg: WebflowUploadConfig, input: Webf
         signal: AbortSignal.timeout(WRITE_TIMEOUT),
       })
 
+    // customDomains[].url ของ Webflow ไม่มี protocol (เช่น www.example.com) — เติม https:// ให้
+    const rawSite = (cfg.siteUrl || '').trim().replace(/\/+$/, '')
+    const site = rawSite && !/^https?:\/\//i.test(rawSite) ? `https://${rawSite}` : rawSite
+
+    if (lang && locale) {
+      const X = locale.id
+      const itemsBase = `${WF}/collections/${cid}/items`
+      let itemId = ''
+      let res: Response | null = null
+      if (input.existingItemId && ID_RE.test(input.existingItemId)) {
+        const id = input.existingItemId
+        const g = await fetch(`${itemsBase}/${id}?cmsLocaleId=${encodeURIComponent(X)}`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT) })
+        if (g.status !== 404) {
+          if (!g.ok) return { ok: false, error: `อ่าน item ID ${id} ใน Webflow ไม่สำเร็จ (${await readError(g)}) — ไม่ push ทับ` }
+          const gi = await g.json().catch(() => ({}))
+          if (gi?.cmsLocaleId && gi.cmsLocaleId !== X) return { ok: false, error: `item ID ${id} ใน Webflow ไม่ใช่ภาษา /${lang} — ไม่ push ทับ` }
+          res = await send('PATCH', `${itemsBase}/${id}`, { cmsLocaleId: X, isDraft: !live, fieldData })
+          if (res.status === 404) return { ok: false, error: `ไม่พบ item ID ${id} ใน Webflow แล้ว (404) — ไม่สร้าง item ใหม่แทนในส่วนภาษา` }
+        }
+      }
+      // Note: Webflow items exist in every locale, so the cmsLocaleId checks above and below rarely refuse
+      // anything. The real guard against moving an article between primary and /lang is the push route's lock.
+      // A create needs a slug even when the stored id turned out to be gone (isUpdate skipped it above).
+      if (!res) res = await send('POST', itemsBase, { cmsLocaleId: X, isArchived: false, isDraft: !live, fieldData: fieldData.slug ? fieldData : { ...fieldData, slug: webflowSlug(input.slug || input.title) } })
+      if (!res.ok) {
+        const err = await readError(res)
+        if (res.status === 409 || /unique|duplicate|already (exists|in use)/i.test(err)) {
+          return { ok: false, error: `Slug ซ้ำกับบทความอื่นใน Webflow — เปลี่ยน slug แล้วลองใหม่ (${err})` }
+        }
+        return { ok: false, error: `Webflow push ไม่สำเร็จ — ${err}` }
+      }
+      const item = await res.json().catch(() => ({}))
+      itemId = String(item?.id ?? '')
+      const notConfirmed = `Webflow ไม่ยืนยันว่า item ID ${itemId} อยู่ในภาษา /${lang} — ระบบไม่เผยแพร่ (item ค้างเป็น staged ตรวจในหน้า Webflow)`
+      if (!itemId) return { ok: false, error: notConfirmed }
+      const rb = await fetch(`${itemsBase}/${itemId}?cmsLocaleId=${encodeURIComponent(X)}`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT) })
+      const rbj = rb.ok ? await rb.json().catch(() => null) : null
+      if (!rbj || (rbj.cmsLocaleId && rbj.cmsLocaleId !== X)) return { ok: false, error: notConfirmed }
+      const itemSlug: string = rbj?.fieldData?.slug || item?.fieldData?.slug || slug || ''
+      if (live) {
+        const pr = await send('POST', `${itemsBase}/publish`, { items: [{ id: itemId, cmsLocaleIds: [X] }] })
+        const prj = pr.ok ? await pr.json().catch(() => ({})) : null
+        const published = pr.ok && (Array.isArray(prj?.publishedItemIds)
+          ? prj.publishedItemIds.includes(itemId)
+          : !(Array.isArray(prj?.errors) && prj.errors.length))
+        if (!published) {
+          const why = pr.ok ? 'Webflow ไม่ยืนยันการเผยแพร่' : await readError(pr)
+          return { ok: false, itemId, status: 'draft', verified: true, error: `วาง item ภาษา /${lang} ใน Webflow แล้ว (ID ${itemId}) แต่เผยแพร่ไม่สำเร็จ — ${why}` }
+        }
+      }
+      const postUrl = site && cfg.collectionSlug && itemSlug ? `${site}/${locale.subdirectory}/${cfg.collectionSlug}/${itemSlug}` : ''
+      return { ok: true, itemId, postUrl, status: live ? 'publish' : 'draft', verified: true }
+    }
+
     let res: Response | null = null
     if (input.existingItemId && ID_RE.test(input.existingItemId)) {
       const base = `${WF}/collections/${cid}/items/${input.existingItemId}`
@@ -208,9 +289,6 @@ export async function pushArticleToWebflow(cfg: WebflowUploadConfig, input: Webf
     }
     const item = await res.json()
     const itemSlug: string = item?.fieldData?.slug || slug || ''
-    // customDomains[].url ของ Webflow ไม่มี protocol (เช่น www.example.com) — เติม https:// ให้
-    const rawSite = (cfg.siteUrl || '').trim().replace(/\/+$/, '')
-    const site = rawSite && !/^https?:\/\//i.test(rawSite) ? `https://${rawSite}` : rawSite
     // URL ของ item = /{collection slug}/{item slug} — ไม่รู้ collection slug ก็ไม่เดา URL
     const postUrl = site && cfg.collectionSlug && itemSlug ? `${site}/${cfg.collectionSlug}/${itemSlug}` : ''
     return { ok: true, itemId: item?.id, postUrl, status: live ? 'publish' : 'draft' }

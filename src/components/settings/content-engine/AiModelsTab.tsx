@@ -12,7 +12,7 @@ import type { OrModelOption } from "@/lib/openrouter-models";
 import { cn } from "@/lib/utils";
 import { ErrorBanner, SectionCard } from "./shared";
 import type { CEScope } from "./types";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 interface ModelOptions {
   text: OrModelOption[];
@@ -35,7 +35,7 @@ function fmtPrice(o: OrModelOption): string | null {
   const { promptPerM: a, completionPerM: b } = o;
   if (a === undefined && b === undefined) return null;
   if (a === 0 && b === 0) return "ฟรี";
-  const f = (v: number | undefined) => (v === undefined || v === null ? "—" : fmtThb(v));
+  const f = (v: number | undefined) => (v === undefined || v === null ? "—" : fmtCost(v));
   return `เข้า ${f(a)} / ออก ${f(b)} ต่อ 1M`;
 }
 

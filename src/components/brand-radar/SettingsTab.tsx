@@ -20,7 +20,7 @@ import { UsageDailyPanel } from "./UsageDailyPanel";
 import ClientAvatar from "@/components/upload-article/ClientAvatar";
 import { ColumnHelp } from "./ColumnHelp";
 import { brandTermsOf } from "@/lib/brand-radar/highlight";
-import { thbToUsd, usdToThb } from "@/lib/ai-cost-format";
+import { fmtUsd as fmtUsdOnly, thbToUsd, usdToThb, USD_TO_THB } from "@/lib/ai-cost-format";
 import { api, fmtDateTime, fmtNum, fmtUsd, fmtUsdPerCall, methodLabel, monthLabelTh, postJson, scheduleLabel, WEEKDAYS_TH, type TabProps } from "./shared";
 
 const inputCls =
@@ -802,6 +802,9 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
                 <Field label="งบประมาณต่อเดือน (บาท)" help="เว้นว่าง = ไม่จำกัด">
                   <input type="number" min={0} step="0.01" className={inputCls} placeholder="เว้นว่าง = ไม่จำกัด" value={form.budget}
                     onChange={(e) => patch({ budget: e.target.value })} />
+                  {form.budget.trim() !== "" && Number.isFinite(Number(form.budget)) && Number(form.budget) >= 0 && (
+                    <p className="mt-1 text-xs text-gray-500">≈ {fmtUsdOnly(thbToUsd(Number(form.budget)))} ที่อัตรา 1 USD = {USD_TO_THB} บาท</p>
+                  )}
                 </Field>
                 <Field label="จำนวนรอบถามต่อ prompt" help="AI ตอบไม่เหมือนกันทุกครั้ง ถามซ้ำหลายรอบแล้วนับเป็น % ยิ่งมากยิ่งแม่น: 10 รอบ คลาด ±31%, 20 รอบ ±22%, 30 รอบ ±18% · ค่าใช้จ่ายและเวลาเพิ่มตามจำนวนรอบ · Google AI Mode / AI Overview ถาม 1 รอบเสมอ (ผลหน้าเดียวกัน)">
                   <SamplesInput value={form.samplesPerPrompt ?? DEFAULT_SAMPLES} onChange={(n) => patch({ samplesPerPrompt: n })} />
@@ -919,8 +922,8 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
                         <td className="py-1.5 pr-1 text-gray-700"><ProviderLogo provider={r.provider} title={r.label} /></td>
                         <td className="py-1.5 pr-1 text-right tabular-nums">{fmtNum(r.calls)}</td>
                         <td className={`py-1.5 pr-1 text-right tabular-nums ${r.failed > 0 ? "text-red-600" : "text-gray-400"}`}>{fmtNum(r.failed)}</td>
-                        <td className="py-1.5 pr-1 text-right tabular-nums">{fmtUsd(r.costUsd)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{fmtUsdPerCall(costPerCall(r.costUsd, r.calls, r.failed))}</td>
+                        <td className="py-1.5 pr-1 text-right tabular-nums whitespace-nowrap">{fmtUsd(r.costUsd)}</td>
+                        <td className="py-1.5 text-right tabular-nums whitespace-nowrap">{fmtUsdPerCall(costPerCall(r.costUsd, r.calls, r.failed))}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -929,7 +932,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
             )}
             {usage && usage.history.length > 0 && (
               <div className="mt-4">
-                <div className="mb-1 text-xs font-medium text-gray-600">รายเดือน 6 เดือนล่าสุด (บาท)</div>
+                <div className="mb-1 text-xs font-medium text-gray-600">รายเดือน 6 เดือนล่าสุด (USD / บาท)</div>
                 <table className="w-full text-left text-xs">
                   <thead className="text-gray-500">
                     <tr>
@@ -944,8 +947,8 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
                       <tr key={h.month} className={`border-t border-gray-100 ${h.month === usage.month ? "font-medium text-brand-navy" : ""}`}>
                         <td className="py-1.5 pr-1">{monthLabelTh(h.month)}</td>
                         <td className="py-1.5 pr-1 text-right tabular-nums">{fmtNum(h.calls)}</td>
-                        <td className="py-1.5 pr-1 text-right tabular-nums">{fmtUsd(h.costUsd)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{fmtUsdPerCall(costPerCall(h.costUsd, h.calls, h.failed))}</td>
+                        <td className="py-1.5 pr-1 text-right tabular-nums whitespace-nowrap">{fmtUsd(h.costUsd)}</td>
+                        <td className="py-1.5 text-right tabular-nums whitespace-nowrap">{fmtUsdPerCall(costPerCall(h.costUsd, h.calls, h.failed))}</td>
                       </tr>
                     ))}
                   </tbody>

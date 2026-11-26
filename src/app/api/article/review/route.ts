@@ -69,9 +69,13 @@ export async function POST(req: NextRequest) {
     // ข้อจำกัดอยู่ก่อน Validator Pack — จับคู่สินค้าจากต้นบทความ (หัวข้อ/ย่อหน้าแรก)
     const restrictionsTopic = { outline: articleOutlineText(String(content)) }
     const orClient = await clientSlugForProject(projectId)
+    // cost of the product-judge call, booked into the review row below
+    let judgeCostUsd = 0
+    let judgeTokens = 0
     const relatedProductIds = await judgeRelatedProducts(restrictions, restrictionsTopic, {
       trace: 'article_review_restrictions_match',
       client: orClient,
+      onUsage: (u) => { judgeCostUsd += u.costUsd; judgeTokens += u.totalTokens },
     })
     const restrictionsBlock = joinPromptBlocks(
       buildRestrictionsBlock(restrictions, { ...restrictionsTopic, relatedProductIds }),
@@ -109,8 +113,8 @@ ${OUTPUT_CONTRACT}`
 
     // Log cost
     if (orgId && userId) {
-      const totalTokens  = message.usage.totalTokens
-      const cost = message.usage.costUsd
+      const totalTokens  = message.usage.totalTokens + judgeTokens
+      const cost = message.usage.costUsd + judgeCostUsd
       logAIJob({
         organizationId: orgId, createdById: userId,
         projectId: projectId ?? null, articleId: articleId ?? null,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { markTranslateSources } from '@/lib/upload-article/translate-sources-store'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import {
@@ -27,7 +28,7 @@ import { loadRestrictions } from '@/lib/ce-restrictions-server'
 import { orChat, type ORUsage } from '@/lib/openrouter'
 import { resolveCeModel } from '@/lib/ce-ai-models-server'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
-import { logAIJob } from '@/lib/logAIJob'
+import { logAIJob, startAIJob, updateAIJob, createAIJobUpdateQueue } from '@/lib/logAIJob'
 
 // Next.js อ่านค่า maxDuration ได้เฉพาะตัวเลข literal
 export const maxDuration = 800
@@ -122,30 +123,53 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
 
   // ค่าใช้จ่ายของทุกรอบ (แปล + ตรวจ + รอบที่ล้มเหลว) รวมเป็นงานเดียวใน AI Cost
   const usage: ORUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 }
+  const jobBase = {
+    organizationId: orgId,
+    projectId: null,
+    inputSummary: uaJobInput(client.id),
+    jobType: TRANSLATE_JOB_TYPE,
+    modelProvider: 'OPENROUTER',
+    modelName: model,
+    createdById: userId,
+  }
+  // The cost row is created before the run and updated after every AI call, so a run killed by the
+  // platform (timeout/crash) still leaves a row with what was spent. Updates are chained, never awaited in the call path.
+  let jobId: string | null = null
+  const jobUpdates = createAIJobUpdateQueue(async (patch) => {
+    if (jobId) await updateAIJob(jobId, patch)
+  })
   const addUsage = (u: ORUsage | undefined) => {
     if (!u) return
     usage.inputTokens += u.inputTokens || 0
     usage.outputTokens += u.outputTokens || 0
     usage.totalTokens += u.totalTokens || 0
     usage.costUsd += u.costUsd || 0
+    if (jobId) jobUpdates.push({ tokenUsed: usage.totalTokens, estimatedCost: usage.costUsd })
   }
-  const logJob = (status: 'SUCCESS' | 'FAILED', errorMessage?: string) =>
-    logAIJob({
-      organizationId: orgId,
-      projectId: null,
-      inputSummary: uaJobInput(client.id),
-      jobType: TRANSLATE_JOB_TYPE,
-      modelProvider: 'OPENROUTER',
-      modelName: model,
+  const logJob = async (status: 'SUCCESS' | 'FAILED', errorMessage?: string) => {
+    if (jobId) {
+      await jobUpdates.flush()
+      await updateAIJob(jobId, {
+        status,
+        tokenUsed: usage.totalTokens || undefined,
+        estimatedCost: usage.costUsd || undefined,
+        errorMessage,
+      })
+      return
+    }
+    // startAIJob failed: fall back to creating the row at the end, as before
+    await logAIJob({
+      ...jobBase,
       status,
       tokenUsed: usage.totalTokens || undefined,
       estimatedCost: usage.costUsd || undefined,
       errorMessage,
-      createdById: userId,
     }).catch(() => {})
+  }
 
   const orClient = `upload-${slugifyClient(client.name)}`
   let result: TranslationResult
+  jobId = await startAIJob(jobBase)
   try {
     const outcome = await runTranslation(plan, {
       translateSystem: buildTranslateSystemPrompt(promptInput),
@@ -221,8 +245,20 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   }
   await logJob('SUCCESS')
 
+  // A source that was never generated exists only to be translated: Review and Push stop listing it.
+  // Best effort: a failure here only leaves the source visible in Review.
+  let translateSources: string[] | undefined
+  if (article.status === 'IMPORTED' && !article.htmlContent) {
+    try {
+      translateSources = (await markTranslateSources(client.id, orgId, [article.id])) ?? undefined
+    } catch (e) {
+      console.warn('[upload-article] translate: mark source failed:', e instanceof Error ? e.message : e)
+    }
+  }
+
   return NextResponse.json({
     article: toUploadArticleDTO(row, true),
+    ...(translateSources ? { translateSources } : {}),
     warnings,
     sourceLanguage: plan.source,
     targetLanguage: plan.target,

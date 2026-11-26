@@ -449,7 +449,10 @@ export async function orChatStream(params: {
   }
   if (!full.trim()) {
     // สตรีมจบแบบไม่มีเนื้อหาเลย — ถือว่าล้มเหลว ไม่ปล่อยค่าว่างไปให้ pipeline ทำต่อ
-    throw new Error(`OpenRouter คืนคำตอบว่าง (model: ${String(body.model)}, output tokens: ${usage.outputTokens})`)
+    const err = new Error(`OpenRouter คืนคำตอบว่าง (model: ${String(body.model)}, output tokens: ${usage.outputTokens})`)
+    // same as orChat: attach the usage collected so far so callers can book the cost
+    ;(err as Error & { usage?: ORUsage }).usage = usage
+    throw err
   }
   return { text: full, usage, finishReason }
 }

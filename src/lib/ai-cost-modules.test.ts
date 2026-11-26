@@ -17,7 +17,7 @@ const EXPECT: Record<string, string> = {
   BUSINESS_SKILL_SCAN: 'content_engine', CONTEXT_FILES_ANALYZE: 'content_engine', PROMPT_TEST: 'content_engine',
   // Keyword Research
   KEYWORD_RESEARCH: 'keyword_research', KEYWORD_CLASSIFY: 'keyword_research', KP_VOLUME_LOOKUP: 'keyword_research',
-  DFS_VOLUME_LOOKUP: 'keyword_research', DFS_INTEL_LOOKUP: 'keyword_research', RESEARCH_LLM: 'keyword_research',
+  DFS_VOLUME_LOOKUP: 'keyword_research', KEYWORD_DFS_IDEAS: 'keyword_research', DFS_INTEL_LOOKUP: 'keyword_research', RESEARCH_LLM: 'keyword_research',
   // Brand Radar
   BRAND_RADAR_PROMPT_GEN: 'brand_radar', BRAND_RADAR_QUERY_GROUPS: 'brand_radar', BRAND_RADAR_SCAN: 'brand_radar', BRAND_RADAR_SENTIMENT: 'brand_radar',
   // Compliance

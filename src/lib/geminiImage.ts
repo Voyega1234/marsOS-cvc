@@ -7,6 +7,7 @@ import sharp from 'sharp'
 import { createHash } from 'crypto'
 import { orChat, orImage, orImageWithRefs, OR_MODELS } from '@/lib/openrouter'
 import { composeCoverOverlay } from '@/lib/coverOverlay'
+import { attachUsage } from '@/lib/ai-usage'
 
 // ปกโหมดใหม่ (คำสั่งเจ้าของ 2026-09-07): แบนเนอร์อินโฟกราฟิกที่โมเดลวาดตัวอักษรเอง
 // ตามตัวอย่างที่เจ้าของส่งมา — headline บนแผงสีทึบ + ตรามุมขวาบน + การ์ดแถบล่าง
@@ -66,7 +67,8 @@ async function compileImagePrompt(brief: string, client?: string, images: string
   })
   const text = result.text.trim()
   if (text.length < 40) {
-    throw new Error('Art Director คืน prompt สั้นผิดปกติ — ตรวจ Image Prompt ใน Content Engine')
+    // the call was billed even though its answer is unusable: hand the usage to the caller
+    throw attachUsage(new Error('Art Director คืน prompt สั้นผิดปกติ — ตรวจ Image Prompt ใน Content Engine'), result.usage)
   }
   return { text, totalTokens: result.usage.totalTokens, costUsd: result.usage.costUsd }
 }
@@ -502,7 +504,10 @@ export async function callGeminiImage(params: {
     ].filter(Boolean) : []),
   ].join('\n')
   // Art Director ดูภาพอ้างอิงจริงเฉพาะปก — ภาพประกอบคงขั้นตอนเดิม (บรีฟข้อความล้วน)
+  const refBrandUsage = { inputTokens: 0, outputTokens: 0, totalTokens: refBrand.totalTokens, costUsd: refBrand.costUsd }
+  // a failure here still carries what the reference-text call already cost (message unchanged)
   const artDirector = await compileImagePrompt(`${rendered}\n\n${briefFacts}`, client, refLed ? refImages : [])
+    .catch((e) => { throw attachUsage(e, refBrandUsage) })
   const compiled = artDirector.text
 
   // รูปปกต้องมีตัวหนังสือประกอบเสมอ (คำสั่งเจ้าของระบบ 2026-08-19, ปรับ 2026-08-21:
@@ -570,9 +575,12 @@ ${brandStrings.length ? `- BRAND TEMPLATE (hard requirement): the references sha
   const trace = type === 'cover' ? 'image_cover' : 'image_inline'
   // มีภาพอ้างอิงจาก Content Engine → ยิงผ่าน orImageWithRefs (แนบภาพอ้างอิง + โลโก้เป็น input_references)
   // ไม่มี → พฤติกรรมเดิมทุกประการผ่าน orImage
-  const result = refImages.length
-    ? await orImageWithRefs({ trace, client, prompt, images: refImages, aspectRatio, model: params.model })
-    : await orImage({ trace, client, prompt, aspectRatio, model: params.model })
+  // if the image call throws, the Art Director + reference-text cost is already spent: put it on the error
+  const spentBefore = { inputTokens: 0, outputTokens: 0, totalTokens: artDirector.totalTokens + refBrand.totalTokens, costUsd: artDirector.costUsd + refBrand.costUsd }
+  const result = await (refImages.length
+    ? orImageWithRefs({ trace, client, prompt, images: refImages, aspectRatio, model: params.model })
+    : orImage({ trace, client, prompt, aspectRatio, model: params.model })
+  ).catch((e) => { throw attachUsage(e, spentBefore) })
 
   const promptTokens = result.usage.inputTokens
   // รวม token/cost ของ Art Director call (compileImagePrompt) เข้ากับของโมเดลวาดภาพ —

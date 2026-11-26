@@ -15,7 +15,7 @@ import {
   RESTRICTION_FILE_ACCEPT, extractRestrictionFileText, isImageFile, readImageFileWithAI, readImagePagesWithAI,
 } from "@/lib/restriction-file-client";
 import { api, fmtDateTime, type IndustryOpt } from "./shared";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 interface VersionRow { id: string; version: number; changeNote: string; changedBy: string; createdAt: string }
 
@@ -300,7 +300,7 @@ export default function RuleDialog({ rule, industries, defaultIndustry, onClose,
                     {aiInfo.count
                       ? `อ่าน ${aiInfo.label} แล้ว — พบ ${aiInfo.count} ข้อ ตรวจทุกช่องก่อนบันทึก AI อาจสรุปคลาดเคลื่อนได้`
                       : `อ่าน ${aiInfo.label} แล้ว — ไม่พบข้อกำหนดที่ทำเป็นกฎได้`}
-                    {aiInfo.costUsd !== null ? ` · ค่า AI รอบนี้ ≈ ${fmtThb(aiInfo.costUsd)}` : ""}
+                    {aiInfo.costUsd !== null ? ` · ค่า AI รอบนี้ ≈ ${fmtCost(aiInfo.costUsd)}` : ""}
                   </p>
                   {aiInfo.note && <p className="text-gray-600">หมายเหตุจาก AI: {aiInfo.note}</p>}
                   {aiInfo.truncated && <p className="text-amber-700">เอกสารยาวเกิน AI อ่านเฉพาะช่วงต้น — กฎในช่วงท้ายอาจไม่ถูกเสนอ</p>}

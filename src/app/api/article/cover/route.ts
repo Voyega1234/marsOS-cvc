@@ -12,6 +12,7 @@ import { resolveImagePalette } from '@/lib/articleTheme'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
+import { usageOfError } from '@/lib/ai-usage'
 import { clientSlugForProject } from '@/lib/orClient'
 import { resolveCeModel } from '@/lib/ce-ai-models-server'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
@@ -148,6 +149,28 @@ export async function POST(req: NextRequest) {
     })
   } catch (e: unknown) {
     console.error('[cover] error:', e)
+    // failed run: record whatever the Art Director / image calls already cost (bookkeeping only)
+    try {
+      const fOrg = session?.user?.organizationId
+      const fUser = session?.user?.id
+      if (fOrg && fUser) {
+        const fu = usageOfError(e)
+        await (prisma.aIJob as any).create({
+          data: {
+            organizationId: fOrg,
+            createdById: fUser,
+            ...(projectId && { projectId }),
+            jobType: type === 'mid' ? 'IMAGE_MID' : 'IMAGE_COVER',
+            status: 'FAILED',
+            modelProvider: 'OPENROUTER',
+            modelName: imageModel,
+            tokenUsed: fu?.totalTokens ?? 0,
+            estimatedCost: fu?.costUsd ?? 0,
+            errorMessage: String(e instanceof Error ? e.message : e).slice(0, 500),
+          },
+        })
+      }
+    } catch { /* non-fatal */ }
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
 }

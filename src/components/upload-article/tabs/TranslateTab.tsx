@@ -9,7 +9,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Copy, ArrowRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Download } from "lucide-react";
+import { Copy, ArrowRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Download, Languages, FileText } from "lucide-react";
+import { googleDocsResultNotice, isDriveExportConfigured, preloadGoogleDocsExport, sendToGoogleDocs } from "@/lib/google-docs-export";
 import { Button } from "@/components/ui/button";
 import ArticleFrame from "@/components/shared/ArticleFrame";
 import ImportBox from "@/components/upload-article/shared/ImportBox";
@@ -89,6 +90,9 @@ export default function TranslateTab({
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<"preview" | "html" | "text">("preview");
   const [exportBusy, setExportBusy] = useState(false);
+  const [docsBusy, setDocsBusy] = useState(false);
+  // The article being worked on right now: its source row, and the new row once the translation exists.
+  const [job, setJob] = useState<{ sourceId: string; createdId: string | null; startedAt: number } | null>(null);
 
   // Read the same stored defaults GenerateTab uses (Internal Link only)
   useEffect(() => {
@@ -111,10 +115,28 @@ export default function TranslateTab({
   useEffect(() => {
     if (!imported) return;
     const fresh = list.filter(a => !imported.before.has(a.id)).map(a => a.id);
-    if (fresh.length) setPicked(prev => new Set([...Array.from(prev), ...fresh]));
+    if (fresh.length) {
+      setPicked(prev => new Set([...Array.from(prev), ...fresh]));
+      void markAsTranslateSources(fresh);
+    }
     // only an import triggers this; a later list change (a new translation row) must not tick anything
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imported]);
+
+  // Rows imported here are sources for translation only: Review and Push list just their translations.
+  async function markAsTranslateSources(ids: string[]) {
+    try {
+      const r = await fetch(`/api/upload-article/clients/${client.id}/translate-sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await refreshClient();
+    } catch {
+      toast.warning("นำเข้าแล้ว แต่ซ่อนต้นฉบับจากหน้า Review ไม่สำเร็จ — ต้นฉบับจะยังโผล่ในหน้า Review");
+    }
+  }
 
   async function afterImport() {
     const before = new Set(idsNow.current);
@@ -123,6 +145,20 @@ export default function TranslateTab({
     setImported({ before });
   }
   const previewArticle = previewId ? articleDetails[previewId] ?? null : null;
+
+  // Motion in the preview while a translation is running (display only).
+  const jobPhase = job ? rowStatus[job.sourceId]?.phase : undefined;
+  const working = job && (jobPhase === "translating" || jobPhase === "styling")
+    ? {
+        phase: jobPhase,
+        title: articles.find(a => a.id === job.sourceId)?.title ?? "",
+        startedAt: job.startedAt,
+        directionLabel: DIRECTIONS.find(d => d.value === direction)?.label ?? "",
+        position: progress.total > 1 ? `บทความที่ ${Math.min(progress.done + 1, progress.total)} จาก ${progress.total}` : "",
+      }
+    : null;
+  // The previewed row belongs to the running job: its source, or the new row waiting for its style.
+  const previewIsWorking = !!working && !!job && (!previewArticle || previewArticle.id === job.sourceId || previewArticle.id === job.createdId);
 
   function openSettings(section: SettingsSection) {
     if (onOpenSettings) { onOpenSettings(section); return; }
@@ -147,6 +183,7 @@ export default function TranslateTab({
 
   async function translateOne(id: string): Promise<boolean> {
     setStatus(id, { phase: "translating" });
+    setJob({ sourceId: id, createdId: null, startedAt: Date.now() });
     let created: UploadArticleDTO;
     let warnings: string[] = [];
     let validation: Validation | null = null;
@@ -170,6 +207,7 @@ export default function TranslateTab({
     }
 
     onArticleCreated(created);
+    setJob(prev => (prev && prev.sourceId === id ? { ...prev, createdId: created.id } : prev));
     setPreviewId(created.id);
     setStatus(id, { phase: "styling", warnings, validation });
 
@@ -213,6 +251,9 @@ export default function TranslateTab({
       setProgress(p => ({ ...p, done: p.done + 1 }));
     }
     setRunning(false);
+    setJob(null);
+    // the translate route marks never-generated sources; reload so Review and Push stop listing them
+    if (ok > 0) void refreshClient().catch(() => {});
     setSummary(`แปลเสร็จ ${ok} จาก ${ids.length} บทความ`);
     if (ok === ids.length) toast.success(`แปลสำเร็จ ${ok}/${ids.length} บทความ`);
     else toast.error(`แปลสำเร็จ ${ok}/${ids.length} บทความ — ดูสาเหตุในรายการ`);
@@ -243,6 +284,38 @@ export default function TranslateTab({
       toast.error("สร้างไฟล์ Word ไม่สำเร็จ: " + (e instanceof Error ? e.message : String(e)));
     } finally {
       setExportBusy(false);
+    }
+  }
+
+  /** Hover/focus: warm up the Google Docs code and make sure the row's source is loaded before the click. */
+  function prepareGoogleDocs(id: string) {
+    preloadGoogleDocsExport();
+    if (!articleDetails[id]?.sourceHtml) void loadArticleDetail(id, true);
+  }
+
+  /**
+   * Same original layout as the Word button, sent to Google Docs the way Review does it (copy + docs.new, or a Doc in
+   * Drive when that is set up). The source is normally loaded already; when it has to be fetched first the browser may
+   * block the new tab, and the notice then offers a button to open it.
+   */
+  async function sendOriginalToGoogleDocs(id: string) {
+    const cached = articleDetails[id];
+    setDocsBusy(true);
+    try {
+      const detail = cached?.sourceHtml ? cached : await loadArticleDetail(id, true);
+      if (!detail?.sourceHtml) { toast.error("ไม่พบเนื้อหาต้นฉบับของบทความนี้"); return; }
+      const o = { html: detail.sourceHtml, title: detail.title };
+      const r = await sendToGoogleDocs(o, async () => {
+        const m = await import("@/lib/article-export");
+        return m.buildArticleDocx(o);
+      });
+      const n = googleDocsResultNotice(r);
+      const action = n.action;
+      toast.success(n.message, action ? { duration: 15000, action: { label: action.label, onClick: () => window.open(action.url, "_blank", "noopener") } } : undefined);
+    } catch (e) {
+      toast.error("ส่งไป Google Docs ไม่สำเร็จ: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setDocsBusy(false);
     }
   }
 
@@ -356,7 +429,7 @@ export default function TranslateTab({
         <div className="space-y-4 min-w-0">
           <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-3 min-w-0">
             {!previewArticle ? (
-              <p className="text-sm text-gray-400 text-center py-10">เลือกบทความแล้วกด Translate</p>
+              working ? <TranslatingPanel {...working} /> : <p className="text-sm text-gray-400 text-center py-10">เลือกบทความแล้วกด Translate</p>
             ) : (
               <>
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -372,9 +445,12 @@ export default function TranslateTab({
                 </div>
 
                 {!previewArticle.htmlContent ? (
-                  <p className="text-sm text-gray-400 text-center py-10">บทความนี้ยังไม่ได้ generate</p>
+                  previewIsWorking && working
+                    ? <TranslatingPanel {...working} />
+                    : <p className="text-sm text-gray-400 text-center py-10">บทความนี้ยังไม่ได้ generate</p>
                 ) : (
                   <div className="border border-gray-200 rounded-xl overflow-hidden max-h-[60vh] overflow-y-auto">
+                    {previewIsWorking && working && <TranslatingStrip {...working} />}
                     {previewMode === "preview" && <ArticleFrame html={previewArticle.htmlContent} pageBackground={client.theme.pageBackground} fontFaces={client.theme.detail?.article?.fontFaces} />}
                     {previewMode === "html" && (
                       <div className="p-3 space-y-2">
@@ -406,12 +482,97 @@ export default function TranslateTab({
                     {exportBusy ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Download size={12} className="mr-1.5" />}
                     ดาวน์โหลด Word แบบต้นฉบับ
                   </Button>
+                  <Button variant="outline" size="sm" disabled={docsBusy} onClick={() => sendOriginalToGoogleDocs(previewArticle.id)}
+                    onPointerEnter={() => prepareGoogleDocs(previewArticle.id)} onFocus={() => prepareGoogleDocs(previewArticle.id)}
+                    title={isDriveExportConfigured()
+                      ? "สร้างเป็น Google Doc แบบต้นฉบับใน Drive ของคุณ แล้วเปิดให้ทันที"
+                      : "คัดลอกบทความแบบต้นฉบับ แล้วเปิด Google Docs ใหม่ให้กดวาง (⌘V / Ctrl+V)"}>
+                    {docsBusy ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <FileText size={12} className="mr-1.5" />}
+                    Google Docs
+                  </Button>
                 </div>
               </>
             )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+type Working = { phase: "translating" | "styling"; title: string; startedAt: number; directionLabel: string; position: string };
+
+const WORKING_STEP: Record<Working["phase"], string> = {
+  translating: "ขั้น 1/2 · กำลังแปลและตรวจทานกับต้นฉบับ",
+  styling: "ขั้น 2/2 · กำลังใส่ style ของเว็บ",
+};
+
+/** Minutes:seconds since the job started, ticking once a second. */
+function useElapsed(startedAt: number): string {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [startedAt]);
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** Moving bar: the work has no measurable percentage, so it only shows that it is running. */
+function SweepBar() {
+  return (
+    <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-brand-blue/10">
+      <div className="animate-sweep-bar absolute inset-y-0 left-0 w-1/3 rounded-full bg-brand-blue/70" />
+    </div>
+  );
+}
+
+/** Takes the place of the empty preview while this article is being translated or styled. */
+function TranslatingPanel({ phase, title, startedAt, directionLabel, position }: Working) {
+  const elapsed = useElapsed(startedAt);
+  const lines = ["w-11/12", "w-full", "w-10/12", "w-full", "w-9/12", "w-11/12", "w-7/12"];
+  return (
+    <div className="py-6 px-2 space-y-5" role="status" aria-live="polite">
+      <div className="flex flex-col items-center text-center gap-2">
+        <span className="relative flex h-12 w-12 items-center justify-center">
+          <span className="absolute inset-0 rounded-full bg-brand-blue/20 animate-ping" />
+          <span className="relative flex h-12 w-12 items-center justify-center rounded-full bg-brand-blue/10 text-brand-blue">
+            <Languages size={22} />
+          </span>
+        </span>
+        <p className="text-sm font-semibold text-brand-navy">
+          {phase === "translating" ? "กำลังแปล" : "กำลังใส่ style"}
+          {directionLabel && phase === "translating" ? ` ${directionLabel}` : ""}
+        </p>
+        {title && <p className="max-w-full truncate text-xs text-gray-500">{title}</p>}
+        <p className="flex items-center gap-1.5 text-[11px] text-brand-blue">
+          <Loader2 size={11} className="animate-spin" /> {WORKING_STEP[phase]}
+        </p>
+      </div>
+      <div className="mx-auto max-w-md"><SweepBar /></div>
+      <div className="mx-auto max-w-2xl space-y-2.5" aria-hidden="true">
+        <div className="h-4 w-2/3 rounded-md bg-gray-200/80 animate-pulse" />
+        {lines.map((width, i) => (
+          <div key={i} className={`h-2.5 rounded-full bg-gray-200/70 animate-pulse ${width}`} style={{ animationDelay: `${i * 140}ms` }} />
+        ))}
+      </div>
+      <p className="text-center text-[11px] text-gray-400">
+        ผ่านไป {elapsed}{position ? ` · ${position}` : ""} · บทความยาวใช้เวลาหลายนาที เปิดหน้านี้ค้างไว้ได้เลย
+      </p>
+    </div>
+  );
+}
+
+/** Slim version, shown above a preview that already has content (a generated article being translated). */
+function TranslatingStrip({ phase, startedAt, position }: Working) {
+  const elapsed = useElapsed(startedAt);
+  return (
+    <div className="border-b border-gray-200 bg-brand-blue/5 px-3 py-2 space-y-1.5" role="status" aria-live="polite">
+      <p className="flex items-center gap-1.5 text-[11px] text-brand-blue">
+        <Loader2 size={11} className="animate-spin" /> {WORKING_STEP[phase]} · ผ่านไป {elapsed}{position ? ` · ${position}` : ""}
+      </p>
+      <SweepBar />
     </div>
   );
 }

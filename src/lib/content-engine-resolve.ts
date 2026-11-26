@@ -233,6 +233,8 @@ interface CERow {
   version: number;
   isActive: boolean;
   promptText: string;
+  /** Settings kept beside the prompt text (a free-text Validator Pack's Brief Match switch). */
+  variables?: string | null;
 }
 
 function toLayer(row: CERow | undefined | null): ResolvedLayer | null {
@@ -269,7 +271,7 @@ export async function resolveContentEngine(orgId: string, scope: CEScope): Promi
 
   const rows = (await prisma.promptTemplate.findMany({
     where: { organizationId: orgId, projectId: scopeProjectId, type: { in: CE_TYPES } },
-    select: { id: true, name: true, type: true, version: true, isActive: true, promptText: true },
+    select: { id: true, name: true, type: true, version: true, isActive: true, promptText: true, variables: true },
   })) as CERow[];
 
   const activeOf = (type: string) => rows.find((r) => r.type === type && r.isActive) ?? null;
@@ -312,6 +314,6 @@ export async function resolveContentEngine(orgId: string, scope: CEScope): Promi
     imageAssets,
     missing,
     scope: isStudio ? "studio" : "project",
-    briefMatch: readBriefMatchConfig(validatorRow?.promptText),
+    briefMatch: readBriefMatchConfig(validatorRow?.promptText, validatorRow?.variables),
   };
 }

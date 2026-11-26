@@ -293,6 +293,9 @@ export interface UploadPushPrefs {
   cardSel?: Record<string, UploadCardSelection>
   /** วัน-เวลาเผยแพร่ที่ตั้งไว้ต่อบทความ (ISO UTC) — push ขึ้น WordPress เป็น date_gmt, อนาคต + publish = ตั้งเวลา (future) */
   publishAt?: Record<string, string>
+  /** Source articles used only for translation (imported in the Translate tab, or translated before any Generate).
+   *  Hidden from Review and Push while still IMPORTED (translate-sources.ts). */
+  translateSources?: string[]
   /** ค่าเริ่มต้นตอนสร้างรูปบทความ (Project Setting > รูปภาพ) */
   imageDefaults?: UploadImageDefaults
   /** เว็บ GSC ที่เลือกไว้สำหรับแท็บ Report (service account เท่านั้น — ไม่ผูกกับ internalLinks.gscSiteUrl) */
@@ -307,6 +310,13 @@ export interface UploadPushPrefs {
   ownerTags?: UploadOwnerTag[]
   /** articleId → ownerTag.id ที่ดูแลบทความนั้น (ไม่มี entry = ยังไม่ระบุผู้ดูแล) */
   articleOwners?: Record<string, string>
+  /** WordPress: ปลายทางที่เลือกต่อบทความ ('th' | 'en') — ไม่มี entry = ปกติ (ราก) */
+  pushLangPath?: Record<string, string>
+  /** WordPress/Wix/Webflow/custom: บทความที่ push ขึ้น /lang แล้ว (mode platform = ผ่าน API ของแพลตฟอร์ม)
+   * WordPress: เว็บยืนยันตำแหน่งแล้ว และเว็บยืนยันตำแหน่งแล้ว (mode = ยิงผ่าน /lang/wp-json หรือ ?lang=) */
+  pushedLang?: Record<string, { lang: string; mode: 'base' | 'query' | 'platform'; postId?: number | string }>
+  /** WordPress: Draft ที่ค้างบนเว็บจากการ push ที่ตรวจตำแหน่งไม่ผ่าน — push ซ้ำใช้ตัวเดิม */
+  pushLangDraft?: Record<string, { postId: number; lang: string; mode: 'base' | 'query' }>
 }
 
 /** แท็กผู้ดูแลบทความ (ชื่อคนในทีม) — เก็บใน pushPrefs.ownerTags */

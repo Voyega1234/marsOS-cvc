@@ -270,15 +270,19 @@ export function stripGoogleDocsCommentsHtml(html: string): string {
 
 // คำบรรยายที่ผู้เขียนใส่ใต้รูปเพื่อบอก alt เช่น "(Alt: ระบบ Sentricon กำจัดปลวก)" / "Alt text: ..."
 const ALT_CAPTION_RE = /^\(?\s*alt(?:\s*text)?\s*[:：]\s*([\s\S]*?)\s*\)?\s*$/i
+// Same caption typed in square brackets: "[Alt : …]". Read only at Generate — at import the line stays in the
+// source, because the Translate tab hands the writer's file back with its labels.
+const ALT_CAPTION_BRACKET_RE = /^\[\s*alt(?:\s*text)?\s*[:：]\s*([\s\S]*?)\s*\]?\s*$/i
 
 /**
  * ย้ายคำบรรยาย "(Alt: ...)" ใต้รูปไปเป็น alt ของรูปนั้น แล้วลบข้อความออกจากบทความ
  * - <p> ที่มีแต่คำบรรยาย: ใช้รูปสุดท้ายในบล็อกก่อนหน้า (ข้าม <p> ว่าง) — ไม่มีรูปก่อนหน้า = ไม่แตะ
  * - <p> ที่มีรูป + คำบรรยายในก้อนเดียวกัน: เหลือแค่รูป
  */
-function applyAltCaptions(root: HTMLElement): void {
+function applyAltCaptions(root: HTMLElement, brackets = false): void {
   for (const p of root.querySelectorAll('p')) {
-    const m = ALT_CAPTION_RE.exec(p.text.replace(/\u00a0/g, ' ').trim())
+    const text = p.text.replace(/\u00a0/g, ' ').trim()
+    const m = ALT_CAPTION_RE.exec(text) ?? (brackets ? ALT_CAPTION_BRACKET_RE.exec(text) : null)
     const alt = m?.[1]?.replace(/\s+/g, ' ').trim()
     if (!alt) continue
     const own = p.querySelectorAll('img')
@@ -301,10 +305,10 @@ function applyAltCaptions(root: HTMLElement): void {
 }
 
 /** ใช้กับต้นฉบับที่นำเข้าไปแล้ว (ตอน Generate) — ต้นฉบับเก่ายังมีคำบรรยาย Alt ค้างอยู่ */
-export function applyAltCaptionsHtml(html: string): string {
+export function applyAltCaptionsHtml(html: string, opts: { brackets?: boolean } = {}): string {
   if (!html || !/alt(?:\s*text)?\s*[:：]/i.test(html)) return html
   const root = parse(html, { comment: true })
-  applyAltCaptions(root)
+  applyAltCaptions(root, !!opts.brackets)
   return root.toString()
 }
 

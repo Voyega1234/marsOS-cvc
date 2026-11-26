@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { decrypt } from '@/lib/crypto'
-import { getWordPressPostStatus } from '@/lib/upload-article/wp-push'
+import { getWordPressPostStatus, normalizeWpUrl } from '@/lib/upload-article/wp-push'
 import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
 import { isPbnPrefs, readPbnPushes, readPbnSites } from '@/lib/upload-article/pbn'
@@ -71,7 +71,9 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     } catch {
       return NextResponse.json({ error: 'ถอดรหัส Application Password ไม่สำเร็จ' }, { status: 500 })
     }
-    const st = await getWordPressPostStatus(client.wpUrl, client.wpUser, wpPass, article.wordpressPostId, prefs.wpPostType ?? 'post')
+    const st = await getWordPressPostStatus(client.wpUrl, client.wpUser, wpPass, article.wordpressPostId, prefs.wpPostType ?? 'post',
+      // push ไปส่วนภาษาแบบ /lang/wp-json — อ่านโพสต์จากฐานของส่วนภาษานั้น
+      prefs.pushedLang?.[article.id]?.mode === 'base' ? `${normalizeWpUrl(client.wpUrl)}/${prefs.pushedLang[article.id].lang}` : undefined)
     if (!st.ok) return NextResponse.json({ error: `เช็คสถานะโพสต์ใน WordPress ไม่สำเร็จ: ${st.error}` }, { status: 502 })
     if (st.status !== 'publish') {
       const label = st.status === 'future' ? 'ตั้งเวลาเผยแพร่ไว้ (ยังไม่ถึงเวลา)' : `ยังเป็น ${st.status || 'Draft'}`

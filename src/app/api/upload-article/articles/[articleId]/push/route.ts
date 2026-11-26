@@ -4,8 +4,9 @@ import { prisma } from '@/lib/prisma'
 import { freshRewriteShadow, NOT_REWRITE_SHADOW, PUSH_LOCK_MS } from '@/lib/upload-article/rewrite-lock'
 import { decrypt } from '@/lib/crypto'
 import { stripStyleTags, stripLeadingH1 } from '@/lib/articleComponents'
-import { publishToSite, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
+import { publishToSite, type PublishResult, type SiteConnectionConfig, type SitePlatform } from '@/lib/sitePublishers'
 import { pushArticleToWordPress } from '@/lib/upload-article/wp-push'
+import { pushArticleToWordPressLang, readPushLangPath, type PushLangResult } from '@/lib/upload-article/wp-push-lang'
 import { checkCredentialUrl } from '@/lib/upload-article/safe-fetch'
 import { refreshUploadSchema, uploadArticleLanguage, uploadSchemaOptions } from '@/lib/upload-article/build-html'
 import { parseUploadCards, assembleUploadHtml, uploadHtmlVersion } from '@/lib/upload-article/cards'
@@ -25,6 +26,7 @@ import { removeCoverFromHtml } from '@/lib/upload-article/article-images'
 import { wixFontPrelude } from '@/lib/upload-article/wix-article'
 import { effectiveTocPosition } from '@/lib/upload-article/toc-position'
 import { pushArticleToWebflow, type WebflowUploadConfig } from '@/lib/upload-article/webflow-push'
+import { pushWixLang, pushWebflowLang, customLangPublish, type PlatformLangRecord } from '@/lib/upload-article/platform-push-lang'
 import { isIndexableUrl, requestIndexForArticle, requestIndexForPbn } from '@/lib/upload-article/request-index'
 import type { UploadIndexRequest } from '@/lib/upload-article/types'
 
@@ -100,6 +102,38 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   const bodyCover = boolPref(body.bodyCover, effectiveBodyCover(prevPrefs))
   const autoRequestIndex = boolPref(body.autoRequestIndex, prevPrefs.autoRequestIndex ?? true)
 
+  // ปลายทางภาษา (/th, /en) — เว็บลูกค้า (ไม่ใช่ PBN) บน WordPress / Wix / Webflow / custom · ไม่ส่ง/ค่าอื่น = ปกติ
+  const langPath = readPushLangPath(body.langPath)
+  const customerSite = !isPbnPrefs(prevPrefs as Record<string, unknown>)
+  const sitePlatform = client.websitePlatform || 'wordpress'
+  const wpPlain = customerSite && sitePlatform === 'wordpress'
+  const langCapable = customerSite && ['wordpress', 'wix', 'webflow', 'custom'].includes(sitePlatform)
+  if (langPath && !customerSite) {
+    return NextResponse.json({ error: 'ปลายทางภาษา (/th, /en) ยังไม่รองรับ PBN' }, { status: 400 })
+  }
+  if (langPath && sitePlatform === 'shopify') {
+    return NextResponse.json({ error: `Shopify ยังวางบทความภาษาเดียวใต้ /${langPath} ไม่ได้ — Shopify เก็บภาษาที่สองเป็น «คำแปล» ของบทความภาษาหลักเท่านั้น (Translate & Adapt) ให้ push แบบปกติ` }, { status: 400 })
+  }
+  if (langPath && !langCapable) {
+    return NextResponse.json({ error: 'ปลายทางภาษา (/th, /en) ยังไม่รองรับแพลตฟอร์มของเว็บนี้ — เลือกปลายทาง «ปกติ»' }, { status: 400 })
+  }
+  // The language record alone also locks the destination: it can exist without a stored post id (the article
+  // row failed to save after a push), and a normal push from there would later hand a root-site id to the sub-site.
+  // Only a record made on the current platform counts: WordPress records are base/query, Wix/Webflow/custom
+  // records are 'platform'. A record left from before a platform switch must not lock normal pushes.
+  const rawLangRec = prevPrefs.pushedLang?.[article.id]
+  const prevLangRec = rawLangRec && (sitePlatform === 'wordpress' ? rawLangRec.mode !== 'platform' : rawLangRec.mode === 'platform')
+    ? rawLangRec
+    : undefined
+  if (customerSite && (article.wordpressPostId || prevLangRec)) {
+    const prevLang = prevLangRec?.lang ?? ''
+    if (prevLang !== langPath) {
+      return NextResponse.json({
+        error: `บทความนี้ push ไว้ที่ «${prevLang ? `/${prevLang}` : 'ปกติ'}» แล้ว (โพสต์ ID ${article.wordpressPostId || prevLangRec?.postId || '?'}) — เปลี่ยนปลายทางของบทความที่อยู่บนเว็บแล้วไม่ได้`,
+      }, { status: 409 })
+    }
+  }
+
   // วัน-เวลาเผยแพร่ที่ตั้งไว้ในหน้า Review (pushPrefs.publishAt) — ส่งเฉพาะ WordPress
   const rawPublishAt = prevPrefs.publishAt?.[article.id]
   const publishAt = typeof rawPublishAt === 'string' && !Number.isNaN(Date.parse(rawPublishAt)) ? rawPublishAt : undefined
@@ -125,7 +159,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // บทความที่ generate ช่วง 2026-10-21 มี <h3> ใน <summary> FAQ — บางเว็บตัด summary ทิ้ง แปลงกลับเป็น <span> ก่อนขึ้นเว็บ
   // (ทำหลังประกอบ card — id ของ card ต้องตรงกับที่หน้าเว็บแยกจาก htmlContent เดิม)
   // FAQ เป็นแบบที่ธีมตั้งไว้ (กดเปิด-ปิด / เปิดตลอด ตามที่สแกนเจอ) — บทความเก่าที่ Generate ก่อนตั้งค่าก็ได้แบบเดียวกัน
-  let processedHtml = stripDocumentWrapper(refreshUploadSchema(applyFaqDisplay(faqQuestionsToSpan(rawHtml), theme.detail?.faq), uploadSchemaOptions(article, eff.client)))
+  let processedHtml = stripDocumentWrapper(refreshUploadSchema(applyFaqDisplay(faqQuestionsToSpan(rawHtml), theme.detail?.faq), uploadSchemaOptions(article, eff.client, langPath ? { pathPrefix: langPath } : undefined)))
   if (theme.styleMode === 'clean') processedHtml = stripStyleTags(processedHtml)
   if (stripH1) processedHtml = stripLeadingH1(processedHtml)
   // บทความที่ generate ก่อนเลิกแสดง breadcrumb ในเนื้อหา — ตัดทิ้งตอน push (schema ยังมี BreadcrumbList)
@@ -137,9 +171,19 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   // เขียนผ่าน updatePrefs (ล็อกแถว อ่านค่าล่าสุดก่อนแก้) กัน prefs ที่เพิ่งถูกแก้จากที่อื่นระหว่างที่ request นี้กำลังทำงานหาย (lost update)
   const prefsResult = await updatePrefs(client.id, orgId, (current) => {
     const next: UploadPushPrefs = { ...(current as UploadPushPrefs), useElementor, wpPostType, publishMode, stripH1, bodyCover, autoRequestIndex }
+    if (langCapable) {
+      const chosen = (current as UploadPushPrefs).pushLangPath
+      if (langPath) next.pushLangPath = { ...chosen, [article.id]: langPath }
+      else if (chosen && article.id in chosen) {
+        const rest = { ...chosen }
+        delete rest[article.id]
+        if (Object.keys(rest).length > 0) next.pushLangPath = rest
+        else delete next.pushLangPath
+      }
+    }
     return { prefs: next as PrefsObject, result: next }
   })
-  const updatedClientRow = prefsResult ? { ...client, pushPrefs: JSON.stringify(prefsResult.result) } : client
+  let updatedClientRow = prefsResult ? { ...client, pushPrefs: JSON.stringify(prefsResult.result) } : client
 
   // PBN Backlinks: เว็บปลายทางเลือกต่อการ push (body.siteId) จากรายการเว็บ PBN ที่ connect ไว้
   const isPbn = isPbnPrefs(prevPrefs as Record<string, unknown>)
@@ -262,6 +306,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   let warning: string | undefined
   /** บทความเผยแพร่จริงบนเว็บแล้วหรือยัง (WordPress ตั้งเวลา/ปลั๊กอินบังคับ draft = ยัง) — ใช้ตัดสิน Request Index */
   let livePublished = false
+  /** ผลฝั่งส่วนภาษา (/th, /en) — ใช้จดลง pushPrefs หลัง push */
+  let langResult: { langRecord?: { lang: string; mode: 'base' | 'query' | 'platform'; postId?: number | string }; strandedDraft?: { postId: number; lang: string; mode: 'base' | 'query' } } | null = null
+  // Wix/Webflow language push: reuse the stored id, or the id recorded by an earlier language push
+  const prevPlatformId = article.wordpressPostId
+    || (prevLangRec?.mode === 'platform' ? String(prevLangRec.postId ?? '') : '')
+    || undefined
 
   // ปกในเนื้อหาเป็นรูปเดียวกับ featured image (WordPress) / ช่องรูปของ Webflow — ธีมแสดงรูปนั้นเองอยู่แล้ว
   // ส่งทั้งสองที่ = ปกซ้อน 2 รูป (ทีมแจ้ง 2026-10-26) จึงตัดปกในเนื้อหาออก เว้นแต่ติ๊ก "ใส่ปกในเนื้อหาด้วย"
@@ -355,31 +405,43 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     } else if (platform === 'webflow' && !pbnSite) {
       // Webflow ของ Upload Article: อัปโหลดรูปเข้า Assets + แก้ item เดิมเมื่อ push ซ้ำ (เทียบเท่า WordPress)
       const wfCfg = (conn.webflow ?? {}) as WebflowUploadConfig
-      const result = await pushArticleToWebflow(
-        { ...wfCfg, siteUrl: wfCfg.siteUrl || client.website || undefined },
-        {
-          title: article.title,
-          html: processedHtml,
-          slug: article.slug || undefined,
-          metaTitle: article.seoTitle || article.title,
-          metaDescription: article.metaDescription || undefined,
-          coverBase64: base64,
-          coverMimeType: mime,
-          coverAlt: article.coverAlt || article.title,
-          publishMode,
-          existingItemId: article.wordpressPostId,
-        },
-      )
-      ok = result.ok
-      postUrl = result.postUrl || undefined
-      postId = result.itemId
-      error = result.error
-      livePublished = result.ok && result.status === 'publish'
+      const wfCfgFull = { ...wfCfg, siteUrl: wfCfg.siteUrl || client.website || undefined }
+      const wfInput = {
+        title: article.title,
+        html: processedHtml,
+        slug: article.slug || undefined,
+        metaTitle: article.seoTitle || article.title,
+        metaDescription: article.metaDescription || undefined,
+        coverBase64: base64,
+        coverMimeType: mime,
+        coverAlt: article.coverAlt || article.title,
+        publishMode,
+        existingItemId: article.wordpressPostId,
+      }
+      if (langPath) {
+        const result = await pushWebflowLang(wfCfgFull, { ...wfInput, existingItemId: prevPlatformId || null }, { lang: langPath })
+        ok = result.ok
+        postUrl = result.postUrl || undefined
+        postId = result.postId
+        error = result.error
+        warning = result.warning
+        livePublished = result.ok && result.status === 'publish'
+        // A record comes back only once Webflow confirmed the item is in this locale. It is kept even when the
+        // publish step failed, so the retry updates that staged item instead of hitting a duplicate slug.
+        langResult = result.langRecord ? { langRecord: result.langRecord } : null
+      } else {
+        const result = await pushArticleToWebflow(wfCfgFull, wfInput)
+        ok = result.ok
+        postUrl = result.postUrl || undefined
+        postId = result.itemId
+        error = result.error
+        livePublished = result.ok && result.status === 'publish'
+      }
     } else if (platform !== 'wordpress') {
       // Wix เท่านั้น: บทความลงเป็น HTML embed บล็อกเดียว ฟอนต์ของเว็บเข้าไม่ถึง — แนบ @font-face ของฟอนต์ที่บทความใช้ไปด้วย
       // (โหมด clean ไม่ส่ง CSS เลย จึงไม่แนบ · แพลตฟอร์มอื่นได้ HTML เดิมทุกตัวอักษร)
       const wixFonts = platform === 'wix' && !pbnSite && theme.styleMode !== 'clean' ? wixFontPrelude(theme.detail?.article) : null
-      const result = await publishToSite(platform as SitePlatform, conn, {
+      const sitePayload = {
         title: article.title,
         html: wixFonts?.style ? wixFonts.style + processedHtml : processedHtml,
         slug: article.slug || undefined,
@@ -391,20 +453,29 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         metaTitle: article.seoTitle || article.title,
         metaDescription: article.metaDescription || undefined,
         coverAlt: article.coverAlt || article.title,
-      })
+      }
+      const result: PublishResult & { langRecord?: PlatformLangRecord; status?: 'draft' | 'publish' } = langPath && platform === 'wix'
+        ? await pushWixLang(conn.wix ?? {}, sitePayload, { lang: langPath, existingId: prevPlatformId })
+        : langPath && platform === 'custom'
+          ? await customLangPublish(conn, sitePayload, { lang: langPath })
+          : await publishToSite(platform as SitePlatform, conn, sitePayload)
+      const langStatus = langPath ? result.status : undefined
+      // Wix returns a record on failure only for a draft whose language it confirmed (publish step failed): keep
+      // it so the retry publishes that draft instead of adding another one. Custom returns one only on success.
+      langResult = langPath && result.langRecord ? { langRecord: result.langRecord } : null
       ok = result.ok
       postUrl = result.postUrl
       postId = result.postId
       error = result.error
       // แพลตฟอร์มอื่น (และ Wix ที่ฟอนต์ครบ) ได้ค่า warning เดิมจาก publishToSite ตรง ๆ
       warning = result.ok && wixFonts?.warning ? [result.warning, wixFonts.warning].filter(Boolean).join(' · ') : result.warning
-      livePublished = result.ok && publishMode === 'publish'
+      livePublished = result.ok && (langStatus ?? publishMode) === 'publish'
     } else {
       // PBN: แก้โพสต์เดิมเฉพาะเว็บเดียวกับที่เคย push บทความนี้ไป — เว็บอื่นสร้างโพสต์ใหม่
       const existingPostId = pbnSite
         ? (prevPbnPush?.postId && /^\d+$/.test(prevPbnPush.postId) ? Number(prevPbnPush.postId) : undefined)
         : article.wordpressPostId ? Number(article.wordpressPostId) : undefined
-      const result = await pushArticleToWordPress({
+      const wpInput = {
         wpUrl,
         wpUser,
         wpPass,
@@ -427,7 +498,15 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
         siteToc: pbnSite || tocDeselected ? undefined : prevPrefs.siteScan?.components?.toc?.native,
         // บทความยังไม่มีสารบัญของเรา (โหมด text ที่ Generate ก่อนมีตำแหน่ง) — วางตามตำแหน่งที่ตั้ง/สแกนไว้
         tocPosition: pbnSite ? undefined : effectiveTocPosition(prevPrefs),
-      })
+      }
+      const result: PushLangResult = langPath
+        ? await pushArticleToWordPressLang(wpInput, {
+            lang: langPath,
+            pushed: prevLangRec && prevLangRec.mode !== 'platform' ? (prevLangRec as { lang: string; mode: 'base' | 'query'; postId?: number }) : null,
+            strandedDraft: prevPrefs.pushLangDraft?.[article.id] ?? null,
+          })
+        : await pushArticleToWordPress(wpInput)
+      langResult = langPath ? result : null
       ok = result.ok
       postUrl = result.postUrl
       postId = result.postId ? String(result.postId) : undefined
@@ -439,6 +518,75 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   } catch (e) {
     ok = false
     error = e instanceof Error ? e.message : String(e)
+  }
+
+  // ส่วนภาษา: จดว่าบทความอยู่ที่ /lang แล้ว (หลังเว็บยืนยัน) หรือมี Draft ค้างบนเว็บ
+  // ต้องจดก่อนเก็บ ID โพสต์ลงบทความ — ID ที่ไม่มีบันทึกว่าอยู่ส่วนภาษาไหน จะถูก push ครั้งถัดไปยิงไปที่เว็บหลัก
+  // ซึ่งบน multisite เป็นโพสต์คนละชิ้น (ทับโพสต์ผิด) จึงถือว่าจดไม่ได้ = ไม่ผูกโพสต์กับบทความ
+  if (langPath && langResult && (langResult.langRecord || langResult.strandedDraft)) {
+    const rec = langResult.langRecord
+    const draft = langResult.strandedDraft
+    const pushOk = ok
+    let written: Awaited<ReturnType<typeof updatePrefs<UploadPushPrefs>>> = null
+    let writeError = 'ไม่พบข้อมูลลูกค้า'
+    for (let attempt = 0; attempt < 2 && !written; attempt++) {
+      try {
+        written = await updatePrefs(client.id, orgId, (current) => {
+          const cur = current as UploadPushPrefs
+          const next: UploadPushPrefs = { ...cur }
+          // Wix/Webflow: a 'platform' record on a failed push is a confirmed-language draft left on the site
+          if (rec && (pushOk || rec.mode === 'platform')) {
+            next.pushedLang = { ...cur.pushedLang, [article.id]: rec }
+            if (cur.pushLangDraft && article.id in cur.pushLangDraft) {
+              const rest = { ...cur.pushLangDraft }
+              delete rest[article.id]
+              if (Object.keys(rest).length > 0) next.pushLangDraft = rest
+              else delete next.pushLangDraft
+            }
+          } else if (!pushOk && draft) {
+            next.pushLangDraft = { ...cur.pushLangDraft, [article.id]: draft }
+          }
+          return { prefs: next as PrefsObject, result: next }
+        })
+      } catch (e) {
+        writeError = e instanceof Error ? e.message : String(e)
+      }
+    }
+    if (written) {
+      updatedClientRow = { ...updatedClientRow, pushPrefs: JSON.stringify(written.result) }
+    } else if (pushOk && rec && !prevPrefs.pushedLang?.[article.id]) {
+      ok = false
+      livePublished = false
+      error = `บทความขึ้นเว็บแล้ว (โพสต์ ID ${postId ?? '?'} ใต้ /${langPath}${postUrl ? ` · ${postUrl}` : ''}) แต่ระบบจดปลายทางภาษาไม่สำเร็จ (${writeError}) — จึงไม่ผูกโพสต์นี้กับบทความ เพื่อไม่ให้ push ครั้งถัดไปไปทับโพสต์ผิดชิ้น จัดการโพสต์นั้นในหน้า${wpPlain ? ' WordPress' : 'เว็บ'} แล้ว push ใหม่`
+    } else {
+      const msg = `จดปลายทางภาษาไม่สำเร็จ: ${writeError}`
+      if (pushOk) warning = warning ? `${warning} · ${msg}` : msg
+      else error = error ? `${error} · ${msg}` : msg
+    }
+  }
+
+  // A normal push went through while a Draft from an earlier language push is still noted: the note is stale now.
+  // The same site may have handed that Draft to this push (same slug); when it did not, say where the Draft is.
+  const staleLangDraft = !langPath && wpPlain && ok ? prevPrefs.pushLangDraft?.[article.id] : undefined
+  if (staleLangDraft) {
+    if (String(staleLangDraft.postId) !== String(postId ?? '')) {
+      const msg = `Draft ID ${staleLangDraft.postId} จากการ push ไป /${staleLangDraft.lang} ครั้งก่อนอาจยังค้างบนเว็บ — ลบในหน้า WordPress ถ้าไม่ใช้`
+      warning = warning ? `${warning} · ${msg}` : msg
+    }
+    try {
+      const cleared = await updatePrefs(client.id, orgId, (current) => {
+        const cur = current as UploadPushPrefs
+        const next: UploadPushPrefs = { ...cur }
+        if (cur.pushLangDraft && article.id in cur.pushLangDraft) {
+          const rest = { ...cur.pushLangDraft }
+          delete rest[article.id]
+          if (Object.keys(rest).length > 0) next.pushLangDraft = rest
+          else delete next.pushLangDraft
+        }
+        return { prefs: next as PrefsObject, result: next }
+      })
+      if (cleared) updatedClientRow = { ...updatedClientRow, pushPrefs: JSON.stringify(cleared.result) }
+    } catch { /* the note stays; the next language push reads the site before using it */ }
   }
 
   // re-push ที่เคย push สำเร็จมาก่อนแล้วพังรอบนี้ ห้ามทับสถานะเดิมด้วย FAILED — คืน PUSHED แล้วเก็บแค่ pushError ไว้เตือน

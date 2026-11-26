@@ -440,6 +440,9 @@ async function generateGeminiImage(params: {
   /** เส้นตายของ request (epoch ms) — ไม่ส่ง = ใช้ IMAGE_TIMEOUT_MS เต็มทุกรอบ */
   deadlineAt?: number
 }): Promise<{ imageBase64: string; mimeType: string; costUsd: number; totalTokens: number }> {
+  // cost of every attempt that came back with usage (an empty-image attempt is still billed)
+  let spentCostUsd = 0
+  let spentTokens = 0
   for (let attempt = 0; attempt < 2; attempt++) {
     const left = params.deadlineAt ? params.deadlineAt - IMAGE_TAIL_MS - Date.now() : IMAGE_TIMEOUT_MS
     if (left < IMAGE_MIN_ATTEMPT_MS) {
@@ -462,17 +465,19 @@ async function generateGeminiImage(params: {
         model: params.model,
         language: params.language ?? 'th',
       }), Math.min(IMAGE_TIMEOUT_MS, left), `gemini-image-${params.type}`)
+      spentCostUsd += result.costUsd ?? 0
+      spentTokens += result.totalTokens ?? 0
       if (!result.imageBase64) {
         console.error(`[write] generateGeminiImage ${params.type} returned no image`)
         if (attempt === 0) { await new Promise(r => setTimeout(r, 3000)); continue }
       }
-      return { imageBase64: result.imageBase64, mimeType: result.mimeType, costUsd: result.costUsd ?? 0, totalTokens: result.totalTokens ?? 0 }
+      return { imageBase64: result.imageBase64, mimeType: result.mimeType, costUsd: spentCostUsd, totalTokens: spentTokens }
     } catch (e) {
       console.error(`[write] generateGeminiImage ${params.type} attempt ${attempt + 1} error:`, e)
       if (attempt === 0) await new Promise(r => setTimeout(r, 3000))
     }
   }
-  return { imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }
+  return { imageBase64: '', mimeType: 'image/webp', costUsd: spentCostUsd, totalTokens: spentTokens }
 }
 
 // AI ทั้งระบบวิ่งผ่าน OpenRouter — ตัวเขียนบทความใช้ OPENROUTER_MODEL_WRITER (gpt-5.6-sol)
@@ -1104,8 +1109,14 @@ export async function POST(req: NextRequest) {
     : undefined
   // สินค้าไหนเกี่ยวกับบทความนี้ + ค้นแหล่งอ้างอิงจากโดเมนที่เว็บเคยอ้างอิง และเปิดอ่านแหล่งในคลัง (อ้างได้เฉพาะที่อ่านแล้ว) — ไม่เข้าเงื่อนไข = ไม่เรียก AI
   const restrictionsTopic = { keyword, title, outline: typeof adjustNote === 'string' ? adjustNote : '' }
+  // cost of the product-judge call — folded into extraCostUsd below so it lands in the write row
+  let judgeCostUsd = 0
   const [relatedProductIds, found] = await Promise.all([
-    judgeRelatedProducts(restrictions, restrictionsTopic, { trace: 'article_write_restrictions_match', client: orClient }),
+    judgeRelatedProducts(restrictions, restrictionsTopic, {
+      trace: 'article_write_restrictions_match',
+      client: orClient,
+      onUsage: (u) => { judgeCostUsd += u.costUsd },
+    }),
     prepareReferences({
       detail: themeDetail,
       title,
@@ -1240,7 +1251,7 @@ export async function POST(req: NextRequest) {
   // คำต้องห้ามของลูกค้าในบทความที่เขียนเสร็จ — แทนคำ/เขียนท่อนใหม่ (เวลาเหลือน้อย = แทนคำอย่างเดียว)
   // ไม่ทำให้งานล้ม: ที่เหลือคืนเป็นรายการให้ UI แจ้งทีม
   // ค่าใช้จ่ายนอกตัวเขียน (ค้นแหล่งอ้างอิง + ตรวจ Comment) รวมเข้า job เดียวกับการเขียน
-  let extraCostUsd = found.costUsd
+  let extraCostUsd = found.costUsd + judgeCostUsd
   const hasPostWriteChecks = () => hasRestrictions(writeRestrictions) || hasClientComments(clientComments) || !!found.warning
   const enforceBanned = async (html: string): Promise<{ html: string; warnings: string[] }> => {
     if (!hasPostWriteChecks()) return { html, warnings: [] }
@@ -1254,6 +1265,7 @@ export async function POST(req: NextRequest) {
           trace: 'article_write_restrictions',
           rewrite: msLeft() > 150_000,
           timeoutMs: 45_000,
+          onUsage: (u) => { extraCostUsd += u.costUsd },
         }),
       )
       // บล็อก META (meta_title / meta_description / en_slug) เป็น comment — enforce ของ body ไม่แตะ แต่ถูกอ่านไป push เป็น SEO title/description/URL จริง
@@ -1388,12 +1400,26 @@ export async function POST(req: NextRequest) {
   }
 
   if (!doStream) {
-    const msg = await orChat({
-      trace: 'article_write',
-      client: orClient,
-      model, maxTokens: 20000, timeoutMs: 600_000,
-      messages: [{ role: 'user', content: articlePrompt }],
-    })
+    let msg: Awaited<ReturnType<typeof orChat>>
+    try {
+      msg = await orChat({
+        trace: 'article_write',
+        client: orClient,
+        model, maxTokens: 20000, timeoutMs: 600_000,
+        messages: [{ role: 'user', content: articlePrompt }],
+      })
+    } catch (e) {
+      // writer failed: still book what was already spent (reference search, product judge, billed empty answer)
+      if (orgId && userId) {
+        const spent = (e as Error & { usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number } }).usage
+        await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
+          jobType: 'ARTICLE_WRITE', modelName: model,
+          inputTokens: spent?.inputTokens ?? 0, outputTokens: spent?.outputTokens ?? 0, status: 'FAILED',
+          errorMessage: (e instanceof Error ? e.message : String(e)).slice(0, 500),
+          realCostUsd: (spent?.costUsd ?? 0) + extraCostUsd })
+      }
+      throw e
+    }
     let html = sanitizeArticleHtml(msg.text)
     const brief = await matchBrief({ html, raw: msg.text, writeMs: Date.now() - requestStartedAt })
     html = brief.html
@@ -1511,6 +1537,11 @@ export async function POST(req: NextRequest) {
   ;(async () => {
     let fullHtml = ''
     let restrictionWarnings: string[] = [] // ส่งใน event 'done' ให้ UI ค้างเตือนถาวร
+    // spent so far — used for the FAILED cost row if a later step throws
+    let spentInput = 0
+    let spentOutput = 0
+    let spentWriterCostUsd = 0
+    let writeRowLogged = false // the COMPLETED row already carries every cost — no FAILED row on top
     try {
       // Step 1: Write article (streaming)
       const ceInfo = [
@@ -1529,6 +1560,9 @@ export async function POST(req: NextRequest) {
         messages: [{ role: 'user', content: articlePrompt }],
         onDelta: (text) => { fullHtml += text; send({ type: 'chunk', content: text }) },
       })
+      spentInput = streamed.usage.inputTokens
+      spentOutput = streamed.usage.outputTokens
+      spentWriterCostUsd = streamed.usage.costUsd
       fullHtml = sanitizeArticleHtml(streamed.text)
       // Guard: writer ต้องคืนเนื้อหาจริง — เนื้อว่าง/สั้นผิดปกติ = ล้มเหลว
       // ห้ามเดินหน้าทำรูป/บันทึกบทความเปล่า (เคยเกิด: OpenRouter ล้มเงียบ แล้วระบบประกาศสำเร็จ)
@@ -1541,6 +1575,8 @@ export async function POST(req: NextRequest) {
         writeMs: Date.now() - requestStartedAt,
         onStatus: (message) => { send({ type: 'status', step: 'writing', message }) },
       })
+      spentInput += brief.inputTokens
+      spentOutput += brief.outputTokens
       fullHtml = brief.html
       restrictionWarnings = brief.warnings
       if (brief.warnings.length) {
@@ -1562,6 +1598,7 @@ export async function POST(req: NextRequest) {
           jobType: 'ARTICLE_WRITE', modelName: model,
           inputTokens: streamed.usage.inputTokens + brief.inputTokens, outputTokens: streamed.usage.outputTokens + brief.outputTokens, status: 'COMPLETED',
           realCostUsd: streamed.usage.costUsd + extraCostUsd })
+        writeRowLogged = true
         // Activity log for tracking
         try {
           await prisma.activityLog.create({
@@ -1643,6 +1680,15 @@ export async function POST(req: NextRequest) {
 
     } catch (e: unknown) {
       send({ type: 'error', error: String(e) })
+      // FAILED cost row: whatever was already billed (writer, brief checks, references, judge, enforce)
+      if (orgId && userId && !writeRowLogged) {
+        const thrown = (e as Error & { usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number } } | null)?.usage
+        await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
+          jobType: 'ARTICLE_WRITE', modelName: model,
+          inputTokens: spentInput + (thrown?.inputTokens ?? 0), outputTokens: spentOutput + (thrown?.outputTokens ?? 0), status: 'FAILED',
+          errorMessage: (e instanceof Error ? e.message : String(e)).slice(0, 500),
+          realCostUsd: spentWriterCostUsd + (thrown?.costUsd ?? 0) + extraCostUsd }).catch(() => {})
+      }
       // สำคัญ: อย่าปล่อยบทความค้างสถานะ WRITING ใน DB — client จะได้รู้ว่าพังและสั่งเขียนใหม่ได้
       if (orgId && projectId) {
         await markPromise.catch(() => {})

@@ -13,6 +13,7 @@
 import { parse, NodeType, type HTMLElement, type Node, type TextNode } from 'node-html-parser'
 import { applyBannedReplacements, cleanPlainText, findBannedTerms, type BannedTerm } from '@/lib/ce-restrictions'
 import { detectArticleLanguage } from './comment-revise'
+import { HEADING_LABEL, HEADING_LABEL_RE, LABEL_SPACE } from './writer-labels'
 import {
   briefHelperNotes, briefTableField, briefValueText, isBriefMarkerText, normalizeBriefSlug, parseBriefLine,
   type BriefListField, type BriefTableField,
@@ -109,9 +110,6 @@ const MARKER_RE = /<(\/?)t(\d+)>|<x(\d+)\s*\/?>/g
 // The writer's own labels at the start of a line — "H2: …", "[H2] …", "[Alt : … ]", "Alt text: …".
 // They say what the line is; they are not content, so they are copied as written and only the
 // words after them are translated. Matched against raw text, so a space may be an entity.
-const LABEL_SPACE = '(?:\\s|&nbsp;|&#160;)*'
-const HEADING_LABEL = `[\\[(]${LABEL_SPACE}H[1-6]${LABEL_SPACE}[\\])]${LABEL_SPACE}[:：–—-]?|H[1-6]${LABEL_SPACE}[:：]`
-const HEADING_LABEL_RE = new RegExp(`^${LABEL_SPACE}(?:${HEADING_LABEL})${LABEL_SPACE}`, 'i')
 const LABEL_RE = new RegExp(`^${LABEL_SPACE}(?:${HEADING_LABEL}|([\\[(]?)${LABEL_SPACE}alt(?:${LABEL_SPACE}text)?${LABEL_SPACE}[:：])${LABEL_SPACE}`, 'i')
 const LABEL_CLOSE_RE: Record<string, RegExp> = {
   '[': new RegExp(`${LABEL_SPACE}\\]${LABEL_SPACE}$`),

@@ -48,6 +48,8 @@ export interface PromptRow {
   name: string;
   description: string | null;
   promptText: string;
+  /** JSON kept beside the prompt text; a free-text Validator Pack stores its Brief Match switch here. */
+  variables?: string | null;
   type: string;
   isActive: boolean;
   version: number;

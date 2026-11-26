@@ -18,7 +18,7 @@ import {
 import type { WorkspaceProject, WorkspaceLiveStats } from "./types";
 import { canSeeInternalCost } from "./types";
 import { useSeoTaskSync } from "./useSeoTaskSync";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 interface Props {
   project: WorkspaceProject;
@@ -464,9 +464,9 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
             <Wallet className="h-4 w-4 text-brand-blue" /> ค่าใช้จ่าย AI เดือนนี้
           </h2>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-brand-navy">{fmtThb(data.aiCost.totalThisMonth)}</span>
+            <span className="text-2xl font-bold text-brand-navy">{fmtCost(data.aiCost.totalThisMonth)}</span>
             {aiCostLimit ? (
-              <span className="text-sm text-gray-500">/ งบ {fmtThb(aiCostLimit)}</span>
+              <span className="text-sm text-gray-500">/ งบ {fmtCost(aiCostLimit)}</span>
             ) : null}
           </div>
           {aiCostLimit ? (
@@ -482,7 +482,7 @@ export function ClientOverview({ project, stats, userRole, onNavigate }: Props) 
               {data.aiCost.byType.map((item) => (
                 <div key={item.jobType} className="flex items-center justify-between text-sm text-gray-700">
                   <span>{item.jobType}</span>
-                  <span className="font-medium text-gray-800">{fmtThb(item.cost)}</span>
+                  <span className="font-medium text-gray-800">{fmtCost(item.cost)}</span>
                 </div>
               ))}
             </div>

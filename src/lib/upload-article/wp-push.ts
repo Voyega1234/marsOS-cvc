@@ -34,6 +34,10 @@ export interface WpPushInput {
   siteToc?: SiteTocWidget | null
   /** ตำแหน่งสารบัญ (toc-position.ts) — ใช้เมื่อบทความไม่มีสารบัญของเรา ไม่ส่ง = จุดเดิม */
   tocPosition?: number
+  /** query ที่ต่อท้ายเฉพาะคำขอสร้าง/แก้โพสต์และเช็ค slug (เช่น lang=th) — ไม่ส่ง = ไม่ต่อ */
+  postsQuery?: string
+  /** เขียนแบบเข้ม: ไม่ตาม redirect และต้องได้ object โพสต์กลับมาจริง ไม่งั้นถือว่าไม่ได้เขียน */
+  strictWrite?: boolean
 }
 
 export interface WpPushResult {
@@ -588,10 +592,11 @@ export async function applyElementorMode(
 
 async function uploadMedia(
   wpUrl: string, creds: string, imageBase64: string, mimeType: string, title: string, altText: string,
+  fetchOpts: { requireHttps: boolean; sameHostOnly: boolean; noRedirect?: boolean } = { requireHttps: true, sameHostOnly: true },
 ): Promise<{ id: number; url: string } | null> {
   const r = await findOrUploadWpMedia({
     wpUrl, creds, base64: imageBase64, mime: mimeType, title, alt: altText,
-    fetchFn: (u, i) => safeFetch(u, i, { requireHttps: true, sameHostOnly: true }),
+    fetchFn: (u, i) => safeFetch(u, i, fetchOpts),
   })
   return r ? { id: r.id, url: r.url } : null
 }
@@ -621,18 +626,26 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
     `<img alt="${finalMetaTitle.replace(/"/g, '&quot;')}"$1$2`,
   )
 
+  // strictWrite (language sub-site push): no request may be carried to another path by a redirect —
+  // a same-host 307/308 keeps the POST and would land it on the root site's post with the same id.
+  const readOpts = { requireHttps: true, sameHostOnly: true }
+  const writeOpts = input.strictWrite ? { ...readOpts, noRedirect: true } : readOpts
+  // follow-up calls of the helpers below: reads behave as before, writes are never redirected in strict mode
+  const followUp = (url: string, init?: RequestInit) =>
+    safeFetch(url, init, (init?.method || 'GET').toUpperCase() === 'GET' ? readOpts : writeOpts)
+
   let featuredMediaId: number | null = null
   const uploaded = new Map<string, string>()
   if (input.coverBase64) {
     const mime = input.coverMimeType || 'image/webp'
-    const cover = await uploadMedia(wpUrl, creds, input.coverBase64, mime, finalMetaTitle, coverAltText)
+    const cover = await uploadMedia(wpUrl, creds, input.coverBase64, mime, finalMetaTitle, coverAltText, writeOpts)
     featuredMediaId = cover?.id ?? null
     // ปกในเนื้อหาเป็นรูปเดียวกับ featured image — ใช้ลิงก์ที่อัปแล้ว ไม่อัปซ้ำ
     if (cover?.url) uploaded.set(`data:${mime};base64,${input.coverBase64}`, cover.url)
   }
   const htmlLinked = await replaceInlineDataImages({
     wpUrl, creds, html: htmlWithAlt, title: finalMetaTitle, known: uploaded,
-    fetchFn: (u, i) => safeFetch(u, i, { requireHttps: true, sameHostOnly: true }),
+    fetchFn: (u, i) => safeFetch(u, i, writeOpts),
   })
 
   // ใส่เนื้อหาเสมอแม้ใช้ Elementor — เขียน Elementor ไม่สำเร็จ หน้าเว็บก็ยังแสดงเนื้อหาจริง ไม่ใช่หน้าว่าง
@@ -656,18 +669,21 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
   if (finalMetaDesc) wpMeta['_yoast_wpseo_metadesc'] = finalMetaDesc.slice(0, 160)
   if (input.focusKeyword) wpMeta['_yoast_wpseo_focuskw'] = input.focusKeyword
 
-  const wpEndpoint = isPage ? `${wpUrl}/wp-json/wp/v2/pages` : `${wpUrl}/wp-json/wp/v2/posts`
+  const withQuery = (u: string): string =>
+    input.postsQuery ? `${u}${u.includes('?') ? '&' : '?'}${input.postsQuery}` : u
+  const wpEndpoint = withQuery(isPage ? `${wpUrl}/wp-json/wp/v2/pages` : `${wpUrl}/wp-json/wp/v2/posts`)
   // โหมด Elementor ตั้งใน syncElementorDocument หลังสร้างโพสต์ — ไม่ปนในคำขอแรก (ล้ม = retry ทิ้ง Yoast meta ไปด้วย)
   if (Object.keys(wpMeta).length > 0) payload.meta = wpMeta
 
   // หา post ที่มีอยู่แล้ว: re-push ใช้ existingPostId ตรง ๆ ก่อน ถ้าไม่มีค่อยตรวจ slug ชนกัน
   const findBySlug = async (): Promise<number | null> => {
-    if (!finalSlug) return null
-    const checkUrl = `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&status=any&context=edit&_fields=id,content&per_page=1`
+    // strictWrite: the caller names the post itself and has already checked the slug — never adopt a post by slug
+    if (!finalSlug || input.strictWrite) return null
+    const checkUrl = withQuery(`${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}?slug=${encodeURIComponent(finalSlug)}&status=any&context=edit&_fields=id,content&per_page=1`)
     const checkRes = await safeFetch(checkUrl, {
       headers: { Authorization: `Basic ${creds}` },
       signal: AbortSignal.timeout(10000),
-    }, { requireHttps: true, sameHostOnly: true }).catch(() => null)
+    }, readOpts).catch(() => null)
     if (checkRes?.ok) {
       const found = await checkRes.json().catch(() => [])
       if (Array.isArray(found) && found.length > 0) {
@@ -685,7 +701,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
 
   try {
     let endpoint = existingPostId
-      ? `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${existingPostId}`
+      ? withQuery(`${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${existingPostId}`)
       : wpEndpoint
 
     let res = await safeFetch(endpoint, {
@@ -693,23 +709,27 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
       headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(30000),
-    }, { requireHttps: true, sameHostOnly: true })
+    }, writeOpts)
 
     // post ที่เคย push ไว้ถูกลบไปแล้วบน WP → หา slug ใหม่ / สร้างใหม่แทน
     if (res.status === 404 && input.existingPostId && existingPostId === input.existingPostId) {
+      if (input.strictWrite) {
+        // creating a replacement here would put a post on the site that nobody checked
+        return { ok: false, error: `WordPress ไม่พบโพสต์ ID ${input.existingPostId} ตอนเขียน (404) — ไม่ได้สร้างโพสต์ใหม่แทน ลอง push อีกครั้ง` }
+      }
       existingPostId = await findBySlug()
       endpoint = existingPostId
-        ? `${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${existingPostId}`
+        ? withQuery(`${wpUrl}/wp-json/wp/v2/${isPage ? 'pages' : 'posts'}/${existingPostId}`)
         : wpEndpoint
       res = await safeFetch(endpoint, {
         method: 'POST',
         headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(30000),
-      }, { requireHttps: true, sameHostOnly: true })
+      }, writeOpts)
     }
 
-    if (!res.ok && payload.meta) {
+    if (!res.ok && payload.meta && (!input.strictWrite || (res.status >= 400 && res.status < 500))) {
       const retryPayload = { ...payload }
       delete retryPayload.meta
       res = await safeFetch(endpoint, {
@@ -717,7 +737,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
         headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(retryPayload),
         signal: AbortSignal.timeout(30000),
-      }, { requireHttps: true, sameHostOnly: true })
+      }, writeOpts)
     }
 
     if (!res.ok) {
@@ -726,6 +746,12 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
     }
 
     const data = await res.json()
+    if (input.strictWrite && (Array.isArray(data) || typeof data?.id !== 'number')) {
+      return { ok: false, error: 'WordPress ไม่ได้ตอบกลับเป็นโพสต์ที่สร้าง/แก้ไข — ไม่ได้เขียนอะไรขึ้นเว็บ' }
+    }
+    if (input.strictWrite && input.existingPostId && data.id !== input.existingPostId) {
+      return { ok: false, error: `WordPress ตอบกลับเป็นโพสต์ ID ${data.id} ไม่ใช่ ID ${input.existingPostId} ที่สั่งแก้ — ตรวจในหน้า WordPress` }
+    }
     const postId: number = data.id
     const postUrl: string = data.link ?? ''
 
@@ -741,7 +767,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
         yoastMeta: wpMeta,
         siteToc: input.siteToc,
         tocPosition: input.tocPosition,
-        fetcher: (url, init) => safeFetch(url, init, { requireHttps: true, sameHostOnly: true }),
+        fetcher: followUp,
       })
       if (Object.keys(wpMeta).length > 0) {
         // ส่ง Yoast meta ซ้ำทุกโหมด (รวม Elementor) — คำขอแรกอาจ retry แบบตัด meta ทิ้งไปแล้ว
@@ -751,7 +777,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
           headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ meta: wpMeta }),
           signal: AbortSignal.timeout(20000),
-        }, { requireHttps: true, sameHostOnly: true }).catch(() => {})
+        }, writeOpts).catch(() => {})
       }
 
       if (isPage && Object.keys(wpMeta).length) {
@@ -775,7 +801,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
           headers: { 'Content-Type': 'text/xml; charset=UTF-8' },
           body: xmlBody,
           signal: AbortSignal.timeout(15000),
-        }, { requireHttps: true, sameHostOnly: true }).catch(() => null)
+        }, writeOpts).catch(() => null)
       }
 
       // ปลั๊กอิน SEO ตัวอื่น (AIOSEO / Rank Math / SEOPress / Slim SEO) — ไม่เจอ = ไม่ยิงเพิ่ม
@@ -785,7 +811,7 @@ export async function pushArticleToWordPress(input: WpPushInput): Promise<WpPush
         description: finalMetaDesc,
         post: data,
         hint: input.seoPlugins,
-        fetcher: (url, init) => safeFetch(url, init, { requireHttps: true, sameHostOnly: true }),
+        fetcher: followUp,
       })
       if (seo.warning) warning = warning ? `${warning} · ${seo.warning}` : seo.warning
     }
@@ -868,9 +894,9 @@ export async function testWordPressConnection(
  * ใช้ก่อน Request Index — บทความที่ตั้งวันเผยแพร่ขึ้นไปเป็น Draft ทีมจะกด Publish ใน WordPress เอง
  */
 export async function getWordPressPostStatus(
-  wpUrl: string, wpUser: string, wpPass: string, postId: string, postType: 'post' | 'page' = 'post',
+  wpUrl: string, wpUser: string, wpPass: string, postId: string, postType: 'post' | 'page' = 'post', baseUrlOverride?: string,
 ): Promise<{ ok: boolean; status?: string; link?: string; error?: string }> {
-  const url = normalizeWpUrl(wpUrl)
+  const url = normalizeWpUrl(baseUrlOverride || wpUrl)
   if (!url || !wpUser || !wpPass) return { ok: false, error: 'ไม่พบ WordPress credentials' }
   if (!/^\d+$/.test(postId)) return { ok: false, error: 'ไม่พบ ID โพสต์บน WordPress' }
   const creds = Buffer.from(`${wpUser}:${wpPass.replace(/\s+/g, '')}`).toString('base64')

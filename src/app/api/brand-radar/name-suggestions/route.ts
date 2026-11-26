@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { bad, errMsg, isCtx, loadOwnedProject, requireStaff } from '@/lib/brand-radar/server'
 import { buildNameSuggestPrompt, cleanNames, mergeSuggestions, parseNameSuggestions } from '@/lib/brand-radar/name-suggest'
 import { aiJobProjectId } from '@/lib/brand-radar/types'
+import { usageOfError } from '@/lib/ai-usage'
 import { logAIJob } from '@/lib/logAIJob'
 import { OR_MODELS, orChat } from '@/lib/openrouter'
 
@@ -52,7 +53,8 @@ export async function POST(req: NextRequest) {
     await logAIJob({ ...job, status: 'SUCCESS', tokenUsed: res.usage.totalTokens, estimatedCost: res.usage.costUsd })
     return NextResponse.json({ names: mergeSuggestions(names, [parseNameSuggestions(res.text)]) })
   } catch (e) {
-    await logAIJob({ ...job, status: 'FAILED', errorMessage: errMsg(e) })
+    const fu = usageOfError(e)
+    await logAIJob({ ...job, status: 'FAILED', errorMessage: errMsg(e), ...(fu ? { tokenUsed: fu.totalTokens, estimatedCost: fu.costUsd } : {}) })
     return NextResponse.json({ names: [], aiError: errMsg(e) })
   }
 }

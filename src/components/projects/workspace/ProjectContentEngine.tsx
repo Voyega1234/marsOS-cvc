@@ -62,6 +62,7 @@ function toPromptRow(p: any): PromptRow {
     name: p.name,
     description: p.description ?? null,
     promptText: p.promptText,
+    variables: typeof p.variables === "string" ? p.variables : null,
     type: p.type,
     isActive: p.isActive,
     version: p.version,
@@ -136,6 +137,8 @@ export function ProjectContentEngine({ projectId, userRole }: { projectId?: stri
             description: layer.description ?? "",
             type: layer.type,
             promptText: layer.promptText,
+            // settings kept beside the text (a free-text Validator Pack's Brief Match switch) travel with the copy
+            ...(typeof layer.variables === "string" ? { variables: layer.variables } : {}),
             projectId: resolvedProjectId,
           }),
         });

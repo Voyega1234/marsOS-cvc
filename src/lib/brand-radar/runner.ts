@@ -27,7 +27,7 @@ import {
   type AnswerSentiment, type OtherEntity, type ProviderKey, type RunDTO, type RunDetailRes, type RunDueRes, type RunEstimateDTO, type RunListRes,
   type RunStatus, type RunStepRes, type RunTrigger, type TaskStatus, type UsageDTO,
 } from './types'
-import { fmtThb } from '@/lib/ai-cost-format'
+import { fmtCost } from '@/lib/ai-cost-format'
 
 const SCHEMA = 'plans_seo_pipeline'
 const COST_WINDOW_DAYS = 90
@@ -244,10 +244,10 @@ function estimateFrom(plan: Plan): RunEstimateDTO {
   if (!plan.providers.length) return block('No usable provider: select a provider whose credentials are connected on the server')
   if (budget !== null) {
     if (plan.monthSpend >= budget) {
-      return block(`Monthly budget reached (${fmtThb(plan.monthSpend)} of ${fmtThb(budget)})`)
+      return block(`Monthly budget reached (${fmtCost(plan.monthSpend)} of ${fmtCost(budget)})`)
     }
     if (estimatedCostUsd !== null && plan.monthSpend + estimatedCostUsd > budget) {
-      return block(`This scan is estimated at ${fmtThb(estimatedCostUsd)} and would pass the monthly budget (${fmtThb(plan.monthSpend)} spent of ${fmtThb(budget)})`)
+      return block(`This scan is estimated at ${fmtCost(estimatedCostUsd)} and would pass the monthly budget (${fmtCost(plan.monthSpend)} spent of ${fmtCost(budget)})`)
     }
   }
   return out

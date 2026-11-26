@@ -24,7 +24,7 @@ function fakeChat(reply: string | Error) {
   const chat = (async (params: Parameters<typeof orChat>[0]) => {
     calls.push(params);
     if (reply instanceof Error) throw reply;
-    return { text: reply };
+    return { text: reply, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, costUsd: 0.0005 } };
   }) as unknown as typeof orChat;
   return { chat, calls };
 }
@@ -44,6 +44,14 @@ async function main() {
   assert(ok.calls.length === 1 && ok.calls[0].jsonMode === true && ok.calls[0].client === 'c', 'one JSON call labelled for the client');
   assert(String(ok.calls[0].model).includes('gemini') || Boolean(process.env.OPENROUTER_DEFAULT_MODEL), 'uses the default gemini model');
   assert(buildRestrictionsBlock(ctxWith([product]), { ...topic, relatedProductIds: ids }).includes('อัตราสำเร็จ 97%'), 'result feeds product data into the block');
+
+  const got: number[] = [];
+  await judgeRelatedProducts(ctxWith([product]), topic, { ...opts, chat: ok.chat, onUsage: (u) => got.push(u.costUsd) });
+  assert(got.length === 1 && got[0] === 0.0005, 'onUsage receives the judge usage');
+  const errChat = (async () => { throw Object.assign(new Error('x'), { usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0.003 } }); }) as unknown as typeof orChat;
+  const gotErr: number[] = [];
+  await judgeRelatedProducts(ctxWith([product]), topic, { ...opts, chat: errChat, onUsage: (u) => gotErr.push(u.costUsd) });
+  assert(gotErr.length === 1 && gotErr[0] === 0.003, 'onUsage receives err.usage on a thrown error');
 
   for (const [label, reply] of [['AI error', new Error('timeout')], ['bad JSON', 'ขอโทษครับ'], ['wrong shape', '{"x":1}']] as const) {
     const bad = fakeChat(reply);

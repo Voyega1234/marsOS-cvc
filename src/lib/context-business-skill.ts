@@ -10,6 +10,7 @@
 import { BUSINESS_SKILL_CARDS, RISK_OPTIONS } from '@/components/settings/content-engine/constants'
 import type { BusinessSkillData, CardConfig, FieldValues, RiskLevel } from '@/components/settings/content-engine/types'
 import { askJson } from '@/lib/competitor-gap/ai'
+import { attachUsage } from '@/lib/ai-usage'
 
 export type BusinessSkillDraft = Omit<BusinessSkillData, 'status'>
 
@@ -149,7 +150,8 @@ export async function analyzeContextFiles(fileNames: string[], combinedText: str
     temperature: 0.2,
     timeoutMs: 240_000,
   })
-  if (!res.data) throw new Error(res.error ?? 'AI สรุปไฟล์ไม่สำเร็จ')
+  // the call may have been billed even without usable data: carry the usage on the error for the caller's FAILED row
+  if (!res.data) throw attachUsage(new Error(res.error ?? 'AI สรุปไฟล์ไม่สำเร็จ'), res.usage)
 
   const warnings: string[] = []
   if (res.error) warnings.push(res.error)

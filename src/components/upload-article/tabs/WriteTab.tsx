@@ -17,7 +17,7 @@ import UploadLanguageSelect from "@/components/upload-article/shared/UploadLangu
 import { usePbnSites } from "@/components/upload-article/pbn/usePbnSites";
 import { useMagazineClusters } from "@/components/upload-article/pbn/useMagazineClusters";
 import { usePbnProfiles } from "@/components/upload-article/pbn/usePbnProfiles";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 const MAX_CONCURRENCY = 10;
 const IDLE_TIMEOUT_MS = 90_000;
@@ -380,7 +380,7 @@ export default function WriteTab({
     };
     await Promise.all(Array.from({ length: Math.min(IMAGE_CONCURRENCY, jobs.length) }, () => worker()));
     if (!jobs.length) return;
-    const cost = `ต้นทุนรวม ${fmtThb(totalCost)}`;
+    const cost = `ต้นทุนรวม ${fmtCost(totalCost)}`;
     if (failedJobs) toast.error(`สร้างรูปไม่ครบ ${failedJobs} จาก ${jobs.length} บทความ (${cost}) — กด "สร้างรูปใหม่" ที่แถวนั้น`);
     else toast.success(`สร้างรูปให้ ${jobs.length} บทความแล้ว (${cost})`);
   }

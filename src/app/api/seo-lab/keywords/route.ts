@@ -6,7 +6,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { dfsPost, hasDfsCreds, DFS_COST } from '@/lib/dfsClient'
+import { dfsPost, hasDfsCreds, DFS_COST, dfsBilledCost, dfsCostOfError } from '@/lib/dfsClient'
 import { logAIJob } from '@/lib/logAIJob'
 
 interface DFSKeywordIdeasResponse {
@@ -98,6 +98,8 @@ export async function POST(req: NextRequest) {
     keywords.sort((a, b) => b.volume - a.volume)
 
     const cost = limitedSeeds.length * DFS_COST.keyword_ideas
+    // billed cost reported by DataForSEO; the price table is only the fallback
+    const billedCost = dfsBilledCost(data, cost)
     const elapsed = Date.now() - start
 
     await logAIJob({
@@ -107,7 +109,7 @@ export async function POST(req: NextRequest) {
       modelProvider:  'DataForSEO',
       modelName:      'dataforseo_labs/keyword_ideas',
       status:         'SUCCESS',
-      externalCost:   cost,
+      externalCost:   billedCost,
       externalCalls:  limitedSeeds.length,
       externalApi:    'DataForSEO',
       inputSummary:   `seeds: ${limitedSeeds.join(', ')} | loc: ${locationCode} | lang: ${languageCode} | ${elapsed}ms`,
@@ -123,7 +125,7 @@ export async function POST(req: NextRequest) {
       modelProvider:  'DataForSEO',
       modelName:      'dataforseo_labs/keyword_ideas',
       status:         'FAILED',
-      externalCost:   0,
+      externalCost:   dfsCostOfError(err),
       externalCalls:  limitedSeeds.length,
       externalApi:    'DataForSEO',
       errorMessage:   msg,

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 import {
   Sparkles, Zap, PenLine, ArrowRight, ChevronDown,
@@ -335,8 +335,8 @@ export function QuickCreateClient({ projects, userId, userRole }: Props) {
           <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-400" />
           <span>
             Demo Mode — ขณะนี้เป็น mock ไม่มีค่าใช้จ่าย · ถ้าเชื่อม AI จริงจะเสีย{" "}
-            <strong className="text-gray-700">~{fmtThb(0.06)} ต่อบทความ</strong>{" "}
-            (Outline {fmtThb(0.01)} + Article {fmtThb(0.04)} + SEO {fmtThb(0.01)})
+            <strong className="text-gray-700">~{fmtCost(0.06)} ต่อบทความ</strong>{" "}
+            (Outline {fmtCost(0.01)} + Article {fmtCost(0.04)} + SEO {fmtCost(0.01)})
           </span>
         </div>
       )}

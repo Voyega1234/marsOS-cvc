@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Upload, Zap, Plus, X, ChevronDown, Loader2, CheckCircle2, AlertCircle, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 import { formatDate } from "@/lib/utils";
 import { LEGACY_AI_WRITER_ENABLED } from "@/lib/legacy-writer";
 
@@ -260,7 +260,7 @@ export function BatchCreateClient({ projects, recentJobs }: Props) {
             {LEGACY_AI_WRITER_ENABLED && keywords.length > 0 && (
               <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 text-xs text-amber-700">
                 <p className="font-semibold">ประมาณการ (จริง)</p>
-                <p>~{fmtThb(keywords.length * 0.06)} เมื่อต่อ AI จริง</p>
+                <p>~{fmtCost(keywords.length * 0.06)} เมื่อต่อ AI จริง</p>
                 <p className="text-amber-500 mt-0.5">ตอนนี้ Demo Mode — ฟรี</p>
               </div>
             )}

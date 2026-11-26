@@ -56,6 +56,12 @@ export interface PublishPayload {
   metaTitle?: string
   metaDescription?: string
   coverAlt?: string
+  /** Wix only: BCP 47 code put on the draft post at create (language push) */
+  language?: string
+  /** Wix only: with existingId, a 404 on update is an error instead of falling back to create */
+  strictExisting?: boolean
+  /** custom webhook only, e.g. '/th' (language push) */
+  pathPrefix?: string
 }
 
 export interface PublishResult {
@@ -65,6 +71,8 @@ export interface PublishResult {
   error?: string
   /** push สำเร็จแต่มีบางส่วนไม่ครบ (เช่น รูปอัปโหลดไม่ได้) */
   warning?: string
+  /** custom webhook only: the `language` the receiver echoed back (language push confirmation) */
+  language?: string
 }
 
 const TIMEOUT = 20_000
@@ -331,7 +339,7 @@ async function webflowPublish(cfg: NonNullable<SiteConnectionConfig['webflow']>,
 
 // ── Wix ───────────────────────────────────────────────────────────────────────
 
-async function wixHeaders(cfg: NonNullable<SiteConnectionConfig['wix']>) {
+export async function wixHeaders(cfg: NonNullable<SiteConnectionConfig['wix']>) {
   return {
     Authorization: cfg.apiKey ?? '',
     'wix-site-id': cfg.siteId ?? '',
@@ -564,13 +572,19 @@ async function wixPublish(cfg: NonNullable<SiteConnectionConfig['wix']>, p: Publ
         signal: AbortSignal.timeout(60_000),
       })
       if (r.status !== 404) return r
+      if (p.strictExisting) return r // language mode: never silently create a new post
     }
+    // language is set only when creating (a PATCH never changes the language)
+    const created = p.language ? { ...post, language: p.language } : post
     return fetch('https://www.wixapis.com/blog/v3/draft-posts', {
-      method: 'POST', headers, body: JSON.stringify({ draftPost: post, publish: live, fieldsets: ['URL'] }), signal: AbortSignal.timeout(60_000),
+      method: 'POST', headers, body: JSON.stringify({ draftPost: created, publish: live, fieldsets: ['URL'] }), signal: AbortSignal.timeout(60_000),
     })
   }
 
   let res = await send(draftPost)
+  if (res.status === 404 && p.strictExisting && p.existingId) {
+    return { ok: false, error: `ไม่พบโพสต์ ID ${p.existingId} บน Wix แล้ว (404) — ไม่สร้างโพสต์ใหม่แทนในส่วนภาษา` }
+  }
   if (!res.ok) {
     let err = await readError(res)
     // ผู้เขียนที่บันทึกไว้ไม่ใช่สมาชิกของเว็บนี้ (เช่น เปลี่ยน Site ID) → ลองผู้เขียนที่เลือกให้ใหม่ 1 ครั้ง
@@ -636,12 +650,16 @@ async function customPublish(cfg: NonNullable<SiteConnectionConfig['custom']>, p
       coverImageBase64: p.coverBase64 ?? '', coverMimeType: p.coverMimeType ?? '',
       publishMode: p.publishMode,
       ...(p.existingId ? { existingId: p.existingId } : {}),
+      ...(p.language ? { language: p.language, pathPrefix: p.pathPrefix ?? '' } : {}),
     }),
     signal: AbortSignal.timeout(60_000),
   })
   if (!res.ok) return { ok: false, error: `Webhook ตอบ ${await readError(res)}` }
   const data = await res.json().catch(() => ({}))
-  return { ok: true, postUrl: data.url ?? data.postUrl ?? '', postId: String(data.id ?? data.postId ?? '') }
+  return {
+    ok: true, postUrl: data.url ?? data.postUrl ?? '', postId: String(data.id ?? data.postId ?? ''),
+    ...(p.language && typeof data.language === 'string' ? { language: data.language } : {}),
+  }
 }
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────

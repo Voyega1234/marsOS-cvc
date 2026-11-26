@@ -9,6 +9,7 @@ import { type UploadOutputMode, type UploadTheme } from './types'
 import { buildUploadCss } from './theme-css'
 import { decodeTextEntities } from './entities'
 import { stripGoogleDocsCommentsHtml, applyAltCaptionsHtml } from './clean-html'
+import { applyHeadingLabelsHtml, stripHeadingLabelText } from './writer-labels'
 import { TOC_HEADING_RE, GEN_FIGURE_ATTR, SOURCE_COVER_ATTR } from './article-images'
 import { TAKEAWAYS_HEADING_RE, applyFaqDisplayMarkup, boxKeyTakeaways, spaceLatinThai } from '@/lib/article-structure'
 import { boxReferencesSection } from './references'
@@ -628,7 +629,11 @@ function tocInsertIndex(blocks: HTMLElement[], legacyCursor: number, position: n
   return blocks.length
 }
 
-export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult {
+export function buildUploadArticleHtml(input: BuildUploadOptions): BuildUploadResult {
+  // The writer's "H1:" in front of the title is a label, not part of the title. AI-written articles carry none.
+  const o: BuildUploadOptions = input.aiSource
+    ? input
+    : { ...input, meta: { ...input.meta, title: stripHeadingLabelText(input.meta.title) } }
   const htmlMode = o.mode !== 'text'
   // บทความที่นำเข้าก่อนมีการถอด entity (Google Doc เก็บไทยเป็น &#NNNN;) — ถอดตอน Generate ด้วย ไม่ต้องนำเข้าใหม่
   // เช่นเดียวกับคอมเมนต์ Google Docs ([a]/[b] + ข้อความคอมเมนต์) และคำบรรยาย (Alt: ...) ใต้รูปที่ค้างในต้นฉบับเก่า
@@ -645,7 +650,10 @@ export function buildUploadArticleHtml(o: BuildUploadOptions): BuildUploadResult
   const decoded = decodeTextEntities(source)
   // เฉพาะบทความ AI ของเว็บที่สแกนแล้วพบว่าเว้นวรรคสม่ำเสมอ — ต้นฉบับจากคนและโปรเจกต์เดิมไม่เข้าทางนี้
   const spaced = o.aiSource && structure?.latinThaiSpacing ? spaceLatinThai(decoded) : decoded
-  let blocks = stripAuthorToc(stripAuthorNotes(parseTopLevelBlocks(applyAltCaptionsHtml(stripGoogleDocsCommentsHtml(spaced)))))
+  // "[Alt : …]" under a picture is the writer's label for that picture's alt text (documents from people only).
+  const cleaned = applyAltCaptionsHtml(stripGoogleDocsCommentsHtml(spaced), { brackets: !o.aiSource })
+  // Labels typed by the writer ("H2: …") become real headings here, so nothing labelled reaches Review or the site.
+  let blocks = stripAuthorToc(stripAuthorNotes(parseTopLevelBlocks(o.aiSource ? cleaned : applyHeadingLabelsHtml(cleaned))))
 
   let h1Index = normalizeH1(blocks, o.meta.title)
   if (htmlMode) {
@@ -730,14 +738,18 @@ export function uploadArticleLanguage(clientLanguage: string, title: string, key
 export function uploadSchemaOptions(
   article: { title: string; seoTitle: string; metaDescription: string; slug: string; coverImageUrl: string | null; coverAlt: string },
   client: { name: string; website: string; language: string },
+  opts: { pathPrefix?: string } = {},
 ): UploadSchemaOptions {
+  // pathPrefix (เช่น 'th') = URL ของบทความเองอยู่ใต้ /th/ — ใส่หน้า slug เพื่อให้ url/mainEntityOfPage/breadcrumb ตรงกับหน้าจริง
+  const prefix = (opts.pathPrefix ?? '').replace(/^\/+|\/+$/g, '')
+  const slug = article.slug ? (prefix ? `${prefix}/${article.slug.replace(/^\//, '')}` : article.slug) : ''
   return {
     site: { name: client.name, url: client.website, language: uploadArticleLanguage(client.language, article.title) },
     meta: {
       title: article.title,
       seoTitle: article.seoTitle || undefined,
       metaDescription: article.metaDescription || undefined,
-      slug: article.slug || undefined,
+      slug: slug || undefined,
     },
     cover: article.coverImageUrl ? { url: article.coverImageUrl, alt: article.coverAlt || article.title } : null,
   }

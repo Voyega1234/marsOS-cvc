@@ -19,6 +19,7 @@ import type { SettingsSection } from "@/components/upload-article/settings/Setti
 import { useUploadSetupChecklist } from "@/components/upload-article/settings/useUploadSetupChecklist";
 import ClientAvatar from "@/components/upload-article/ClientAvatar";
 import { isTrackerFoldersClient } from "@/lib/upload-article/gsc-trackers";
+import { hiddenTranslateSourceIds } from "@/lib/upload-article/translate-sources";
 
 // แต่ละแท็บโหลดโค้ดของตัวเองตอนถูกเปิดครั้งแรก (Radix แสดงเฉพาะแท็บที่เลือกอยู่แล้ว) — หน้าแรกไม่ต้องแบกโค้ดครบทุกแท็บ
 // ระหว่างรอแสดงตัวหมุนแบบเดียวกับตอนโหลดข้อมูลลูกค้า
@@ -206,6 +207,14 @@ export default function UploadClientWorkspace({
   const visibleArticles = useMemo(() => articles.filter(a => a.status !== "WRITING"), [articles]);
   // ชุดที่ใช้หาแถวซ้ำ (ชิป "ซ้ำ" + รายการในหน้าต่างยืนยันลบ) — PBN ส่งว่าง: variant ชื่อซ้ำกันโดยตั้งใจ
   const dupPool = useMemo(() => (isPbn ? [] : articles), [isPbn, articles]);
+  // Sources imported in the Translate tab (or translated before any Generate) are not reviewed or pushed: only their
+  // translations are. Review and Push get the list without them (translate-sources.ts).
+  const translateSources = client?.pushPrefs.translateSources;
+  const hiddenSources = useMemo(() => hiddenTranslateSourceIds(visibleArticles, translateSources), [visibleArticles, translateSources]);
+  const reviewArticles = useMemo(
+    () => (hiddenSources.size ? visibleArticles.filter(a => !hiddenSources.has(a.id)) : visibleArticles),
+    [visibleArticles, hiddenSources],
+  );
 
   if (notFoundFlag) {
     return (
@@ -408,9 +417,9 @@ export default function UploadClientWorkspace({
           <ReviewTab
             client={client}
             setClient={setClient}
-            articles={visibleArticles}
+            articles={reviewArticles}
             allArticles={dupPool}
-            selectedId={selectedId}
+            selectedId={selectedId && hiddenSources.has(selectedId) ? null : selectedId}
             setSelectedId={setSelectedId}
             loadArticleDetail={loadArticleDetail}
             articleDetails={articleDetails}
@@ -425,12 +434,12 @@ export default function UploadClientWorkspace({
           <PushTab
             client={client}
             setClient={setClient}
-            articles={visibleArticles}
+            articles={reviewArticles}
             allArticles={dupPool}
             loadArticleDetail={loadArticleDetail}
             articleDetails={articleDetails}
             applyArticleUpdate={applyArticleUpdate}
-            selectedId={selectedId}
+            selectedId={selectedId && hiddenSources.has(selectedId) ? null : selectedId}
             setSelectedId={setSelectedId}
             onOpenSettings={openSettings}
             pbn={isPbn}

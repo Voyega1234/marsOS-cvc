@@ -1,6 +1,6 @@
 "use client";
 
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -309,10 +309,10 @@ export function AIConnectClient({ initialKeys }: { initialKeys: AIProviderKeyRow
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 sm:divide-x divide-gray-100">
           {[
-            { label: "Outline",    cost: fmtThb(0.01) },
-            { label: "บทความ",    cost: fmtThb(0.04) },
-            { label: "SEO Check", cost: fmtThb(0.02) },
-            { label: "100 บทความ/เดือน", cost: `~${fmtThb(7)}`, highlight: true },
+            { label: "Outline",    cost: fmtCost(0.01) },
+            { label: "บทความ",    cost: fmtCost(0.04) },
+            { label: "SEO Check", cost: fmtCost(0.02) },
+            { label: "100 บทความ/เดือน", cost: `~${fmtCost(7)}`, highlight: true },
           ].map((item) => (
             <div key={item.label} className={`px-3 py-3 ${item.highlight ? "bg-brand-blue/10" : ""}`}>
               <p className="text-[11px] text-gray-500">{item.label}</p>

@@ -1,4 +1,4 @@
-/** จัดรูปตัวเลขต้นทุน AI — แสดงเป็นบาท (ข้อมูลจริงเก็บเป็น USD) */
+/** จัดรูปตัวเลขต้นทุน AI — แสดงทั้งสองสกุล: USD ต้นฉบับ (ที่ DB เก็บและ provider คิด) และบาทที่แปลงแล้ว */
 
 /** อัตราแลกเปลี่ยนคงที่ใช้เพื่อแสดงผลเท่านั้น — ต้องการเปลี่ยนให้แก้ที่นี่ที่เดียว */
 export const USD_TO_THB = 33;
@@ -28,6 +28,21 @@ export function fmtThb(usd: number | null | undefined): string {
   if (baht < 0.01) return "<฿0.01";
   if (baht < 100) return `฿${usd2.format(baht)}`;
   return `฿${int.format(Math.round(baht))}`;
+}
+
+/** รับค่า USD คืนสตริง USD: 0 → $0, <0.0001 → <$0.0001, <1 → 4 ตำแหน่ง, <100 → 2 ตำแหน่ง, อื่นๆ → ดอลลาร์เต็มมีตัวคั่นหลักพัน */
+export function fmtUsd(usd: number | null | undefined): string {
+  const v = num(usd);
+  if (v === 0) return "$0";
+  if (v < 0.0001) return "<$0.0001";
+  if (v < 1) return `$${v.toFixed(4)}`;
+  if (v < 100) return `$${usd2.format(v)}`;
+  return `$${int.format(Math.round(v))}`;
+}
+
+/** ทั้งสองสกุลในสตริงเดียว ต้นฉบับ USD ก่อน เช่น $0.0038 (฿0.13) */
+export function fmtCost(usd: number | null | undefined): string {
+  return `${fmtUsd(usd)} (${fmtThb(usd)})`;
 }
 
 export function fmtPct(part: number, total: number): string {

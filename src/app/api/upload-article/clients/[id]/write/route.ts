@@ -386,10 +386,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const restrictionsTopic = { keyword: keyword.keyword, title, outline: importedOutline ? outlineAsText(importedOutline) : keyword.note }
     // แหล่งอ้างอิง: ค้นเฉพาะโดเมนที่เว็บนี้เคยอ้างอิง + เปิดอ่านแหล่งในคลังที่ตรงหัวข้อ — อ้างได้เฉพาะที่อ่านแล้ว
     // ปิดส่วนอ้างอิงหรือไม่มีคลัง = ไม่เรียก AI ไม่โหลดเว็บ
+    // cost of the product-judge call, folded into the write row's usage below
+    const judgeUsage = { totalTokens: 0, costUsd: 0 }
     const [relatedProductIds, found] = await Promise.all([
       judgeRelatedProducts(restrictions, restrictionsTopic, {
         trace: 'upload_article_restrictions_match',
         client: clientSlug,
+        onUsage: (u) => { judgeUsage.totalTokens += u.totalTokens; judgeUsage.costUsd += u.costUsd },
       }),
       prepareReferences({
         detail: theme.detail,
@@ -430,7 +433,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
 
     const writeStamp = computeWriteStamp(buildWriteStampInput({ ce, restrictions, clientComments, keyword, detail: theme.detail, topic: `${title} ${keyword.keyword}`, language }))
-    return { constraints, system, user, language, writeStamp, clientSlug, found, writeRestrictions }
+    return { constraints, system, user, language, writeStamp, clientSlug, found, writeRestrictions, judgeUsage }
   })().catch(async (e) => {
     const message = e instanceof Error ? e.message.slice(0, 300) : String(e)
     await prisma.uploadArticle.delete({ where: { id: article.id } }).catch(() => {})
@@ -438,7 +441,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return { failed: message } as const
   })
   if ('failed' in prep) return NextResponse.json({ error: prep.failed }, { status: 500 })
-  const { constraints, system, user, language, writeStamp, clientSlug, found, writeRestrictions } = prep
+  const { constraints, system, user, language, writeStamp, clientSlug, found, writeRestrictions, judgeUsage } = prep
 
   const encoder = new TextEncoder()
 
@@ -462,13 +465,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         safeEnqueue({ type: 'heartbeat', elapsed: Math.round((Date.now() - startedAt) / 1000), chars: charCount })
       }, 5000)
 
+      // spent so far — declared outside the try so the FAILED row can carry it
+      const usage = { totalTokens: found.tokens + judgeUsage.totalTokens, costUsd: found.costUsd + judgeUsage.costUsd }
       try {
         const baseMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
           { role: 'system', content: system },
           { role: 'user', content: user },
         ]
         const remainingMs = () => WRITE_BUDGET_MS - (Date.now() - requestStartedAt)
-        const usage = { totalTokens: found.tokens, costUsd: found.costUsd }
         const runWriter = async (messages: typeof baseMessages, timeoutMs: number) => {
           const r = await withOrClient(clientSlug, () =>
             orChatStream({
@@ -481,7 +485,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
                 charCount += delta.length
               },
             }),
-          )
+          ).catch((err) => {
+            // a billed-but-empty stream carries its usage — book it, then rethrow unchanged
+            const spent = (err as { usage?: { totalTokens?: number; costUsd?: number } } | null)?.usage
+            if (spent) {
+              usage.totalTokens += spent.totalTokens ?? 0
+              usage.costUsd += spent.costUsd ?? 0
+            }
+            throw err
+          })
           usage.totalTokens += r.usage.totalTokens
           usage.costUsd += r.usage.costUsd
           return r
@@ -674,6 +686,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               trace: 'upload_article_restrictions',
               rewrite: remainingMs() >= EXTRA_ROUND_MIN_MS,
               timeoutMs: Math.max(30_000, Math.min(120_000, remainingMs() - 20_000)),
+              onUsage: (u) => { usage.totalTokens += u.totalTokens; usage.costUsd += u.costUsd },
             }),
           )
           cleaned = enforced.html
@@ -893,6 +906,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           modelProvider: 'OPENROUTER',
           modelName: writerModel,
           status: 'FAILED',
+          tokenUsed: usage.totalTokens,
+          estimatedCost: usage.costUsd,
           errorMessage: message,
           createdById: userId,
         }).catch(() => {})

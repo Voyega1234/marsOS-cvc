@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { chartColor } from "@/components/ds";
 import { AI_COST_MODULES, aiCostModuleByKey } from "@/lib/ai-cost-modules";
-import { fmtInt, fmtThb } from "@/lib/ai-cost-format";
+import { fmtInt, fmtCost } from "@/lib/ai-cost-format";
 import type { DailyPoint } from "@/lib/ai-cost-data";
 
 const colorOf = (key: string) => chartColor(Math.max(0, AI_COST_MODULES.findIndex((m) => m.key === key)));
@@ -22,7 +22,7 @@ export function AiCostChart({ daily }: { daily: DailyPoint[] }) {
       <div className="mb-2 min-h-[20px] text-xs text-gray-600" aria-live="polite">
         {shown ? (
           <>
-            <span className="font-semibold text-brand-navy">{dmy(shown.date)}</span> · {fmtThb(shown.cost)} · {fmtInt(shown.calls)} ครั้ง
+            <span className="font-semibold text-brand-navy">{dmy(shown.date)}</span> · {fmtCost(shown.cost)} · {fmtInt(shown.calls)} ครั้ง
           </>
         ) : (
           <span className="text-gray-400">เอาเมาส์ชี้ (หรือแตะ) แท่งเพื่อดูรายวัน</span>
@@ -36,7 +36,7 @@ export function AiCostChart({ daily }: { daily: DailyPoint[] }) {
             <button
               type="button"
               key={d.date}
-              title={`${dmy(d.date)} · ${fmtThb(d.cost)} · ${fmtInt(d.calls)} ครั้ง`}
+              title={`${dmy(d.date)} · ${fmtCost(d.cost)} · ${fmtInt(d.calls)} ครั้ง`}
               onMouseEnter={() => setHover(d)}
               onFocus={() => setHover(d)}
               onClick={() => setHover(d)}

@@ -3,7 +3,7 @@
 /** กล่องถาม Re-generate เมื่อของที่ใช้เขียนบทความเปลี่ยนไป — เลือก AI เขียนใหม่ทั้งบทความ หรือสร้าง HTML ใหม่อย่างเดียว */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 export interface RewriteCheck {
   canRewrite: boolean;
@@ -29,7 +29,7 @@ export default function RewriteDialog({ check, pushed, hasInlineImages, onRewrit
 }) {
   const [regenImages, setRegenImages] = useState(false);
   const cost = check.avgCostUsd != null
-    ? `ประมาณ ${fmtThb(check.avgCostUsd)} ต่อบทความ (เฉลี่ยจาก ${check.costSamples} งานล่าสุด)`
+    ? `ประมาณ ${fmtCost(check.avgCostUsd)} ต่อบทความ (เฉลี่ยจาก ${check.costSamples} งานล่าสุด)`
     : "ไม่ทราบค่าใช้จ่าย";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">

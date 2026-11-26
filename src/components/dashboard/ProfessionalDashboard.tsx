@@ -11,7 +11,7 @@ import {
   CheckCircle, Globe, CheckSquare, AlertCircle, DollarSign,
   TrendingUp, ArrowUpRight, Zap, Clock,
 } from "lucide-react";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost, fmtThb, fmtUsd } from "@/lib/ai-cost-format";
 
 interface StatCard {
   label: string;
@@ -20,6 +20,7 @@ interface StatCard {
   tone: "plain" | "blue" | "sky" | "mist" | "navy" | "warm";
   href?: string;
   suffix?: string;
+  hint?: string;
 }
 
 interface Props {
@@ -106,7 +107,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
     { label: "WP Drafted",      value: stats.wpDrafted,      icon: Globe,         tone: "sky",  href: "/articles?status=WORDPRESS_DRAFTED" },
     { label: "Posted",          value: stats.posted,         icon: CheckSquare,   tone: "mist",  href: "/articles?status=POSTED" },
     { label: "Errors",          value: stats.errors,         icon: AlertCircle,   tone: "warm",  href: "/articles?status=ERROR" },
-    { label: "AI Cost / Month", value: fmtThb(stats.aiCostMonth), icon: DollarSign, tone: "navy", href: "/ai-jobs" },
+    { label: "AI Cost / Month", value: fmtUsd(stats.aiCostMonth), hint: `≈ ${fmtThb(stats.aiCostMonth)}`, icon: DollarSign, tone: "navy", href: "/ai-jobs" },
   ];
 
   const JOB_TYPE_LABELS: Record<string, string> = {
@@ -159,7 +160,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
               <span>{pct}% of target</span>
               {costPct !== null && (
                 <span className={costPct >= 90 ? "text-red-500 font-semibold" : ""}>
-                  AI cost: {fmtThb(stats.aiCostMonth)}{typeof stats.aiCostLimit === "number" && ` / ${fmtThb(stats.aiCostLimit)}`} {costPct >= 90 && "⚠"}
+                  AI cost: {fmtCost(stats.aiCostMonth)}{typeof stats.aiCostLimit === "number" && ` / ${fmtCost(stats.aiCostLimit)}`} {costPct >= 90 && "⚠"}
                 </span>
               )}
             </div>
@@ -259,6 +260,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
             <KpiTile
               label={card.label}
               value={`${card.value}${card.suffix ? ` ${card.suffix}` : ""}`}
+              hint={card.hint}
               tone={card.tone}
               icon={<card.icon className="h-4 w-4" />}
               className="h-full"
@@ -384,7 +386,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
                     "chip-info"
                   }`}>{job.status}</span>
                   <span className="text-gray-600 flex-1 truncate">{JOB_TYPE_LABELS[job.jobType] ?? job.jobType}</span>
-                  <span className="text-amber-600 font-mono">{job.estimatedCost != null ? fmtThb(job.estimatedCost) : "—"}</span>
+                  <span className="text-amber-600 font-mono">{job.estimatedCost != null ? fmtCost(job.estimatedCost) : "—"}</span>
                 </div>
               ))}
             </div>

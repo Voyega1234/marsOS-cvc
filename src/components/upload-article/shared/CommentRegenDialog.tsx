@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArticleCommentList, CommentDraftBox, useArticleComments } from "./ArticleComments";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 export default function CommentRegenDialog({ articleId, pushed, busy, onRun, onClose }: {
   articleId: string;
@@ -57,7 +57,7 @@ export default function CommentRegenDialog({ articleId, pushed, busy, onRun, onC
         <div className="text-xs text-gray-600 space-y-1 bg-gray-50 rounded-lg p-3">
           <p>
             {avgCostUsd != null
-              ? `เสียค่าใช้จ่าย AI ประมาณ ${fmtThb(avgCostUsd)} ต่อครั้ง (เฉลี่ยจาก ${costSamples} งานล่าสุด)`
+              ? `เสียค่าใช้จ่าย AI ประมาณ ${fmtCost(avgCostUsd)} ต่อครั้ง (เฉลี่ยจาก ${costSamples} งานล่าสุด)`
               : "เสียค่าใช้จ่าย AI (ยังไม่มีสถิติค่าใช้จ่าย)"}
           </p>
           <p>แก้เฉพาะเนื้อหา — ชื่อเรื่อง SEO title meta description และ slug ไม่เปลี่ยน</p>

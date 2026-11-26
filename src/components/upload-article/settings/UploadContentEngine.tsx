@@ -67,7 +67,7 @@ const LAYER_LABELS: Record<string, string> = {
 };
 
 function toPromptRow(p: {
-  id: string; name: string; description?: string | null; promptText: string; type: string;
+  id: string; name: string; description?: string | null; promptText: string; variables?: string | null; type: string;
   isActive: boolean; version: number; updatedAt?: unknown;
   updatedBy?: { name?: string | null } | null; createdBy?: { name?: string | null } | null;
 }): PromptRow {
@@ -76,6 +76,7 @@ function toPromptRow(p: {
     name: p.name,
     description: p.description ?? null,
     promptText: p.promptText,
+    variables: p.variables ?? null,
     type: p.type,
     isActive: p.isActive,
     version: p.version,

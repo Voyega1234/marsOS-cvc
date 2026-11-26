@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { dfsPost, hasDfsCreds, DFS_COST } from '@/lib/dfsClient'
+import { dfsPost, hasDfsCreds, DFS_COST, dfsBilledCost, dfsCostOfError } from '@/lib/dfsClient'
 import { logAIJob } from '@/lib/logAIJob'
 
 interface TrendsResponse {
@@ -62,6 +62,8 @@ export async function POST(req: NextRequest) {
     }
 
     const cost = DFS_COST.search_trends
+    // billed cost reported by DataForSEO; the price table is only the fallback
+    const billedCost = dfsBilledCost(data, cost)
     const elapsed = Date.now() - start
 
     await logAIJob({
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest) {
       modelProvider:  'DataForSEO',
       modelName:      'keywords_data/google_trends/explore',
       status:         'SUCCESS',
-      externalCost:   cost,
+      externalCost:   billedCost,
       externalCalls:  1,
       externalApi:    'DataForSEO',
       inputSummary:   `keyword: ${keyword} | ${timeline.length} points | ${elapsed}ms`,
@@ -87,7 +89,7 @@ export async function POST(req: NextRequest) {
       modelProvider:  'DataForSEO',
       modelName:      'keywords_data/google_trends/explore',
       status:         'FAILED',
-      externalCost:   0,
+      externalCost:   dfsCostOfError(err),
       externalCalls:  1,
       externalApi:    'DataForSEO',
       errorMessage:   msg,

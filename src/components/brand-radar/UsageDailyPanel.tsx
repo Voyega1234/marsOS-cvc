@@ -104,7 +104,7 @@ export function UsageDailyPanel({ projectId, initial }: { projectId: string; ini
   return (
     <div className="mt-4">
       <div className="mb-1 flex items-center gap-2 text-xs font-medium text-gray-600">
-        <span className="min-w-0 flex-1">รายวัน {title} (บาท)</span>
+        <span className="min-w-0 flex-1">รายวัน {title} (USD / บาท)</span>
         {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" aria-label="กำลังโหลด" />}
       </div>
       <Segmented<Preset> size="sm" ariaLabel="ช่วงเวลาค่าใช้จ่ายรายวัน" value={preset} onChange={choosePreset} options={PRESETS} />
@@ -155,8 +155,8 @@ export function UsageDailyPanel({ projectId, initial }: { projectId: string; ini
                 <tr key={d.day} className="border-t border-gray-100">
                   <td className="py-1.5 pr-1">{dayLabel(d.day)}</td>
                   <td className="py-1.5 pr-1 text-right tabular-nums">{fmtNum(d.calls)}</td>
-                  <td className="py-1.5 pr-1 text-right tabular-nums">{fmtUsd(d.costUsd)}</td>
-                  <td className="py-1.5 text-right tabular-nums">{fmtUsdPerCall(costPerCall(d.costUsd, d.calls, d.failed))}</td>
+                  <td className="py-1.5 pr-1 text-right tabular-nums whitespace-nowrap">{fmtUsd(d.costUsd)}</td>
+                  <td className="py-1.5 text-right tabular-nums whitespace-nowrap">{fmtUsdPerCall(costPerCall(d.costUsd, d.calls, d.failed))}</td>
                 </tr>
               ))}
             </tbody>

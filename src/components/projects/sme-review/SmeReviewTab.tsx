@@ -21,7 +21,7 @@ import { exportFontCssDetailed } from '@/lib/upload-article/font-faces'
 import { useProjectArticleLook } from '@/components/projects/useProjectArticleLook'
 import ClientProposalPanel from '@/components/client-portal/ClientProposalPanel'
 import type { ProjectData, TimelineEntry, ArticleJob } from '@/components/projects/sme-types'
-import { fmtThb } from '@/lib/ai-cost-format'
+import { fmtCost } from '@/lib/ai-cost-format'
 
 // ─── Review Tab ───────────────────────────────────────────────────────────────
 
@@ -615,7 +615,7 @@ export function SmeReviewTab({ project, timeline, setTimeline, jobs, setJobs, on
         } }
       })
       if (d.warning) toast.warning(d.warning)
-      toast.success(`Mars เขียน Meta แล้ว — ตรวจแล้วกด "บันทึก SEO"${typeof d.costUsd === 'number' ? ` (ต้นทุน ${fmtThb(d.costUsd)})` : ''}`)
+      toast.success(`Mars เขียน Meta แล้ว — ตรวจแล้วกด "บันทึก SEO"${typeof d.costUsd === 'number' ? ` (ต้นทุน ${fmtCost(d.costUsd)})` : ''}`)
     } catch (e) {
       toast.error(`Mars เขียน Meta ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`)
     } finally {

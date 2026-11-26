@@ -1,4 +1,4 @@
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 export interface MarsAgent {
   id: string;
@@ -201,7 +201,7 @@ export function buildResponse(input: string, agent: MarsAgent): string {
 2. ใส่ title และ keyword
 3. เลือก **Full Auto** → ระบบจะสร้าง Outline + บทความ + SEO Check ให้ทันที
 
-→ ค่าใช้จ่ายประมาณ **${fmtThb(0.06)} ต่อบทความ** เมื่อ connect Claude API`;
+→ ค่าใช้จ่ายประมาณ **${fmtCost(0.06)} ต่อบทความ** เมื่อ connect Claude API`;
   }
 
   if (agent.id === "backlink") {

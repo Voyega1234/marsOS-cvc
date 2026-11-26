@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
       isActive: true,
       type: { in: ["CE_BUSINESS_SKILL", "CE_MASTER_PROMPT", "CE_ARTICLE_BRIEF", "CE_VALIDATOR_PACK", "CE_IMAGE_PROMPT"] },
     },
-    select: { name: true, description: true, promptText: true, type: true },
+    select: { name: true, description: true, promptText: true, variables: true, type: true },
   });
   if (studioDefaults.length) {
     await prisma.promptTemplate.createMany({
@@ -115,6 +115,7 @@ export async function POST(req: NextRequest) {
         name: d.name,
         description: d.description,
         promptText: d.promptText,
+        variables: d.variables,
         type: d.type,
         isActive: true,
         createdById: session!.user.id,

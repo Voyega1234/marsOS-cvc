@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
+import { logAIJob } from "@/lib/logAIJob";
 import {
   isDataForSeoConfigured,
   fetchKeywordIdeas,
@@ -39,13 +40,44 @@ export async function POST(req: NextRequest) {
 
   if (!keywords.length) return NextResponse.json({ error: "keywords is required" }, { status: 400 });
 
+  const orgId = session.user.organizationId ?? null;
+  const userId = session.user.id ?? null;
+  const modelName =
+    mode === "volume"
+      ? "/keywords_data/google_ads/search_volume/live"
+      : "/keywords_data/google_ads/keywords_for_keywords/live";
+  // Cost DataForSEO reports for the call (USD); logged on success and failure
+  let reportedCost = 0;
+  const onCost = (usd: number) => {
+    reportedCost += usd;
+  };
+  const logCost = (status: "SUCCESS" | "FAILED", errorMessage?: string) => {
+    if (!orgId || !userId) return;
+    logAIJob({
+      organizationId: orgId,
+      createdById: userId,
+      projectId: null,
+      jobType: mode === "volume" ? "DFS_VOLUME_LOOKUP" : "KEYWORD_DFS_IDEAS",
+      modelProvider: "DATAFORSEO",
+      modelName,
+      status,
+      externalCost: reportedCost,
+      externalCalls: 1,
+      externalApi: "DataForSEO",
+      inputSummary: `${keywords.length} keywords`,
+      errorMessage,
+    }).catch(() => {});
+  };
+
   try {
     const results =
       mode === "volume"
-        ? await fetchSearchVolume({ keywords, location: body.location, language: body.language })
-        : await fetchKeywordIdeas({ seeds: keywords, location: body.location, language: body.language });
+        ? await fetchSearchVolume({ keywords, location: body.location, language: body.language, onCost })
+        : await fetchKeywordIdeas({ seeds: keywords, location: body.location, language: body.language, onCost });
+    logCost("SUCCESS");
     return NextResponse.json({ mode, count: results.length, results });
   } catch (err) {
+    logCost("FAILED", (err as Error).message);
     return NextResponse.json({ error: (err as Error).message }, { status: 502 });
   }
 }

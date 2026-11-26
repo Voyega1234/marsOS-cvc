@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { dfsPost, hasDfsCreds, DFS_COST } from '@/lib/dfsClient'
+import { dfsPost, hasDfsCreds, DFS_COST, dfsBilledCost, dfsCostOfError } from '@/lib/dfsClient'
 import { logAIJob } from '@/lib/logAIJob'
 
 interface SERPResponse {
@@ -63,6 +63,8 @@ export async function POST(req: NextRequest) {
     })
 
     const cost = limited.length * DFS_COST.serp
+    // billed cost reported by DataForSEO; the price table is only the fallback
+    const billedCost = dfsBilledCost(data, cost)
     const elapsed = Date.now() - start
 
     await logAIJob({
@@ -72,7 +74,7 @@ export async function POST(req: NextRequest) {
       modelProvider:  'DataForSEO',
       modelName:      'serp/google/organic/live',
       status:         'SUCCESS',
-      externalCost:   cost,
+      externalCost:   billedCost,
       externalCalls:  limited.length,
       externalApi:    'DataForSEO',
       inputSummary:   `kws: ${limited.join(', ')} | domain: ${domain} | ${elapsed}ms`,
@@ -88,7 +90,7 @@ export async function POST(req: NextRequest) {
       modelProvider:  'DataForSEO',
       modelName:      'serp/google/organic/live',
       status:         'FAILED',
-      externalCost:   0,
+      externalCost:   dfsCostOfError(err),
       externalCalls:  limited.length,
       externalApi:    'DataForSEO',
       errorMessage:   msg,

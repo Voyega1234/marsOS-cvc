@@ -9,7 +9,7 @@ import {
   Zap, DollarSign, Cpu, AlertCircle, CheckCircle2,
   XCircle, Clock, ChevronDown, ChevronUp, Filter, CalendarDays, Loader2,
 } from "lucide-react";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost, fmtThb, fmtUsd } from "@/lib/ai-cost-format";
 import {
   AI_COST_PRESETS, AI_COST_PRESET_LABEL, aiCostRangeQuery, isDateKey,
   type AiCostPreset, type AiCostRange,
@@ -218,10 +218,10 @@ export function AIJobsClient({
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiTile tone="blue" icon={<DollarSign size={16} />} label={`ค่าใช้จ่าย · ${range.label}`} value={fmtThb(totalCostRange)}
-          hint="AI + API รวมกัน" />
-        <KpiTile tone="sky" icon={<DollarSign size={16} />} label="ค่าใช้จ่ายทั้งหมด" value={fmtThb(totalCostAll)}
-          hint="ตั้งแต่เริ่มใช้ระบบ" />
+        <KpiTile tone="blue" icon={<DollarSign size={16} />} label={`ค่าใช้จ่าย · ${range.label}`} value={fmtUsd(totalCostRange)}
+          hint={`≈ ${fmtThb(totalCostRange)} · AI + API รวมกัน`} />
+        <KpiTile tone="sky" icon={<DollarSign size={16} />} label="ค่าใช้จ่ายทั้งหมด" value={fmtUsd(totalCostAll)}
+          hint={`≈ ${fmtThb(totalCostAll)} · ตั้งแต่เริ่มใช้ระบบ`} />
         <KpiTile tone="mist" icon={<Cpu size={16} />} label={`Tokens · ${range.label}`} value={totalTokensRange.toLocaleString()}
           hint={`${totalJobsRange.toLocaleString()} jobs`} />
         <KpiTile tone={totalFailedRange > 0 ? "warm" : "plain"} icon={<AlertCircle size={16} />} label={`ล้มเหลว · ${range.label}`} value={totalFailedRange}
@@ -246,8 +246,8 @@ export function AIJobsClient({
                     <div className="flex-1 min-w-0">
                       <MeterBar value={(p.cost / maxCost) * 100} max={100} tone="blue" />
                     </div>
-                    <div className="text-right shrink-0 w-20 sm:w-28">
-                      <div className="text-xs font-mono text-brand-navy">{fmtThb(p.cost)}</div>
+                    <div className="text-right shrink-0 w-28 sm:w-40">
+                      <div className="text-xs font-mono text-brand-navy whitespace-nowrap">{fmtCost(p.cost)}</div>
                     </div>
                     <span className="text-[10px] text-gray-400 w-12 sm:w-14 text-right shrink-0">{p.jobs} jobs</span>
                   </div>
@@ -262,14 +262,14 @@ export function AIJobsClient({
           <Panel title={`ค่าใช้จ่ายตามประเภท (${range.label})`}>
             {typeSegments.some(t => t.value > 0) && (
               <div className="mb-4 flex justify-center">
-                <DonutChart segments={typeSegments} size={160} showLegend={false} formatValue={(v) => fmtThb(v)} />
+                <DonutChart segments={typeSegments} size={160} showLegend={false} formatValue={(v) => fmtCost(v)} />
               </div>
             )}
             <div className="flex flex-wrap gap-2">
               {[...jobCountByType].sort((a, b) => b.cost - a.cost).map(t => (
                 <div key={t.jobType} className="flex flex-wrap max-w-full items-center gap-2 px-3 py-1.5 bg-white/70 rounded-xl border border-white/80">
                   <span className="text-xs text-gray-600">{JOB_TYPE_LABEL[t.jobType] ?? t.jobType}</span>
-                  <span className="text-xs font-semibold text-brand-navy">{fmtThb(t.cost)}</span>
+                  <span className="text-xs font-semibold text-brand-navy">{fmtCost(t.cost)}</span>
                   <span className="text-[10px] text-gray-400">{t.count}x</span>
                 </div>
               ))}
@@ -299,7 +299,7 @@ export function AIJobsClient({
         <span className="text-xs text-gray-400">
           {filtered.length} jobs{totalJobsRange > jobs.length ? ` (ล่าสุดจาก ${totalJobsRange.toLocaleString()})` : ""}
         </span>
-        <span className="text-xs font-mono text-brand-navy">{fmtThb(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
+        <span className="text-xs font-mono text-brand-navy">{fmtCost(filtered.reduce((s, j) => s + jobTotalCost(j), 0))}</span>
         <span className="text-xs text-purple-500">{filtered.reduce((s, j) => s + (j.tokenUsed ?? 0), 0).toLocaleString()} tokens</span>
       </div>
 
@@ -364,12 +364,12 @@ export function AIJobsClient({
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="text-xs font-mono text-brand-navy">
-                            {jobTotalCost(j) > 0 ? fmtThb(jobTotalCost(j)) : "—"}
+                          <div className="text-xs font-mono text-brand-navy whitespace-nowrap">
+                            {jobTotalCost(j) > 0 ? fmtCost(jobTotalCost(j)) : "—"}
                           </div>
                           {j.externalCost != null && j.externalCost > 0 && (
                             <div className="text-[10px] text-violet-500 mt-0.5">
-                              incl. {j.externalApi ?? "API"} {fmtThb(j.externalCost)}
+                              incl. {j.externalApi ?? "API"} {fmtCost(j.externalCost)}
                             </div>
                           )}
                         </td>

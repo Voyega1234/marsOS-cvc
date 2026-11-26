@@ -10,6 +10,7 @@ import { uploadAuthorSummary } from './author'
 import { connectionFingerprint, readConnectionTest } from './connection-status'
 import { sanitizeDraftFont, sanitizeThemeDetail } from './theme-css'
 import { effectiveArticleStatus } from './duplicates'
+import { readTranslateSources } from './translate-sources'
 import { readArticleOwners, readOwnerTags } from './owner-tags'
 import { CLIENT_LOGO_KEY, readClientLogo } from './client-logo'
 
@@ -109,6 +110,9 @@ export function toUploadClientDTO(row: UploadClientRow, counts: UploadClientCoun
   const publishAt = sanitizePublishAt((rawPrefs as Record<string, unknown>).publishAt)
   if (publishAt) pushPrefs.publishAt = publishAt
   else delete pushPrefs.publishAt
+  const translateSources = readTranslateSources((rawPrefs as Record<string, unknown>).translateSources)
+  if (translateSources.length > 0) pushPrefs.translateSources = translateSources
+  else delete pushPrefs.translateSources
   // ownerTags/articleOwners: sanitize กัน JSON เพี้ยน + ตัด articleOwners ที่ชี้ไป tag ที่ไม่มีแล้ว
   const ownerTags = readOwnerTags((rawPrefs as Record<string, unknown>).ownerTags)
   if (ownerTags.length > 0) pushPrefs.ownerTags = ownerTags

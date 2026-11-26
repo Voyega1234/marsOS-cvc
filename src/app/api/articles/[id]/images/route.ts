@@ -10,6 +10,7 @@ import { resolveImagePalette } from '@/lib/articleTheme'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
 import { readArticleImageSettings } from '@/lib/article-settings'
 import { shrinkInline } from '@/lib/image-shrink'
+import { sumUsage, usageOfError } from '@/lib/ai-usage'
 import {
   coverBulletsFromHtml, generatedFigureHtml, insertFiguresAfterH2Text, pickInlineSlots,
   removeCoverFromHtml, replaceCoverInHtml,
@@ -125,6 +126,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // มีตัวหนังสือ = type cover (ระบบวางหัวเรื่องด้วยฟอนต์จริงทับภาพ), ภาพล้วน = type mid (บังคับไม่มีตัวอักษร)
   async function draw(imgTitle: string, bullets: string[], subtitle: string) {
     let last: Awaited<ReturnType<typeof callGeminiImage>> | null = null
+    // cost of every attempt (successful or not) — each one was billed
+    let spent = sumUsage()
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         last = await withTimeout(withOrClient(orClient, () => callGeminiImage({
@@ -138,12 +141,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           coverSubtitle: withText ? subtitle : '',
           coverBullets: withText ? bullets : [],
         })), IMAGE_TIMEOUT_MS, 'sme-image')
-        if (last.imageBase64) return last
+        spent = sumUsage(spent, { totalTokens: last.totalTokens ?? 0, costUsd: last.costUsd ?? 0 })
+        if (last.imageBase64) return { ...last, totalTokens: spent.totalTokens, costUsd: spent.costUsd }
       } catch (e) {
-        if (attempt === 1) throw e
+        spent = sumUsage(spent, usageOfError(e))
+        if (attempt === 1) {
+          // hand the summed cost of all attempts to the caller (same error object, message unchanged)
+          try { (e as { usage?: unknown }).usage = spent } catch { /* ignore */ }
+          throw e
+        }
       }
     }
-    return last as Awaited<ReturnType<typeof callGeminiImage>>
+    return last ? { ...last, totalTokens: spent.totalTokens, costUsd: spent.costUsd } : (last as unknown as Awaited<ReturnType<typeof callGeminiImage>>)
   }
 
   const jobType = kind === 'cover' ? 'IMAGE_COVER' : 'IMAGE_MID'
@@ -185,7 +194,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ article: dto(updated), costUsd: r.costUsd ?? 0, generated: 1, failed: 0 })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      log('FAILED', 0, 0, msg)
+      const eu = usageOfError(e)
+      log('FAILED', eu?.costUsd ?? 0, eu?.totalTokens ?? 0, msg)
       return NextResponse.json({ error: `สร้างรูปปกไม่สำเร็จ: ${msg}` }, { status: 502 })
     }
   }
@@ -202,12 +212,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const small = await shrinkInline(r.imageBase64, r.mimeType)
       return { slot, r: { ...r, imageBase64: small.base64, mimeType: small.mimeType }, error: '' }
     } catch (e) {
-      return { slot, r: null, error: e instanceof Error ? e.message : String(e) }
+      return { slot, r: null, error: e instanceof Error ? e.message : String(e), failedUsage: usageOfError(e) }
     }
   }))
   const ok = results.filter(x => x.r?.imageBase64)
-  const costUsd = results.reduce((s, x) => s + (x.r?.costUsd ?? 0), 0)
-  const tokens = results.reduce((s, x) => s + (x.r?.totalTokens ?? 0), 0)
+  const costUsd = results.reduce((s, x) => s + (x.r?.costUsd ?? 0) + (('failedUsage' in x && x.failedUsage?.costUsd) || 0), 0)
+  const tokens = results.reduce((s, x) => s + (x.r?.totalTokens ?? 0) + (('failedUsage' in x && x.failedUsage?.totalTokens) || 0), 0)
   const failed = results.length - ok.length
   log(ok.length ? 'SUCCESS' : 'FAILED', costUsd, tokens, failed ? `${failed}/${results.length} ภาพไม่สำเร็จ: ${results.find(x => x.error)?.error}` : undefined)
   if (ok.length === 0) {

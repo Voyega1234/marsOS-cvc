@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { dfsPost, hasDfsCreds, DFS_COST } from '@/lib/dfsClient'
+import { dfsPost, hasDfsCreds, DFS_COST, dfsBilledCost } from '@/lib/dfsClient'
 import { logAIJob } from '@/lib/logAIJob'
 
 interface RankedKeywordsResponse {
@@ -28,7 +28,7 @@ interface RankedKeywordsResponse {
   }>
 }
 
-async function getDomainMetrics(domain: string, auth_header: string) {
+async function getDomainMetrics(domain: string, auth_header: string, billed: number[]) {
   try {
     const res = await fetch('https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live', {
       method: 'POST',
@@ -37,6 +37,7 @@ async function getDomainMetrics(domain: string, auth_header: string) {
       signal: AbortSignal.timeout(20000),
     })
     const data: RankedKeywordsResponse = await res.json()
+    billed.push(dfsBilledCost(data, res.ok ? DFS_COST.ranked_keywords : 0))
     const result = data.tasks?.[0]?.result?.[0]
     const organic = result?.metrics?.organic
     return {
@@ -66,10 +67,13 @@ export async function POST(req: NextRequest) {
   const password = process.env.DATAFORSEO_PASSWORD ?? ''
   const authHeader = 'Basic ' + Buffer.from(`${login}:${password}`).toString('base64')
 
+  // billed cost per answered DataForSEO response (price table is only the fallback)
+  const billedCosts: number[] = []
   try {
-    const results = await Promise.all(allDomains.map(d => getDomainMetrics(d, authHeader)))
+    const results = await Promise.all(allDomains.map(d => getDomainMetrics(d, authHeader, billedCosts)))
     const [target, ...comps] = results
     const cost = allDomains.length * DFS_COST.ranked_keywords
+    const billedCost = billedCosts.reduce((a, b) => a + b, 0)
     const elapsed = Date.now() - start
 
     await logAIJob({
@@ -79,7 +83,7 @@ export async function POST(req: NextRequest) {
       modelProvider:  'DataForSEO',
       modelName:      'dataforseo_labs/ranked_keywords',
       status:         'SUCCESS',
-      externalCost:   cost,
+      externalCost:   billedCost,
       externalCalls:  allDomains.length,
       externalApi:    'DataForSEO',
       inputSummary:   `domains: ${allDomains.join(', ')} | ${elapsed}ms`,

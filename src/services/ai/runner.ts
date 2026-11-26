@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { NOT_PROPOSAL_WHERE } from "@/lib/client-proposal/store";
 import { compilePrompt } from "./compiler";
 import { callAIProvider } from "./provider";
+import { usageOfError } from '@/lib/ai-usage';
 import { clientSlugForProject } from '@/lib/orClient';
 import { AINoPromptError, AIProviderError } from "./errors";
 import { autoAssignArticle, checkCostAlert, notifyAIJobDone } from "@/services/notify";
@@ -147,6 +148,8 @@ export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJo
   // 4. Mark RUNNING
   await prisma.aIJob.update({ where: { id: job.id }, data: { status: "RUNNING" } });
 
+  // cost of the provider call, kept outside try so a later failure (e.g. JSON parse) still records it
+  let spent: { tokensUsed: number; estimatedCost: number } | null = null
   try {
     // 5. Call AI provider (mock or real)
     const aiResult = await callAIProvider({
@@ -158,6 +161,8 @@ export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJo
       temperature: prompt.temperature,
       maxTokens:   prompt.maxTokens,
     });
+
+    spent = { tokensUsed: aiResult.tokensUsed, estimatedCost: aiResult.estimatedCost }
 
     const isMock = aiResult.content === "__MOCK__";
 
@@ -196,9 +201,18 @@ export async function runAIJob<T = unknown>(opts: RunAIJobOptions): Promise<AIJo
   } catch (err) {
     // 8. Update job to FAILED
     const errorMessage = err instanceof Error ? err.message : String(err);
+    // a failed attempt is still billed: take cost from the completed call, or from the error's usage
+    const failUsage = usageOfError(err)
+    const failTokens = spent?.tokensUsed ?? failUsage?.totalTokens
+    const failCost = spent?.estimatedCost ?? failUsage?.costUsd
     await prisma.aIJob.update({
       where: { id: job.id },
-      data: { status: "FAILED", errorMessage: errorMessage.slice(0, 500) },
+      data: {
+        status: "FAILED",
+        errorMessage: errorMessage.slice(0, 500),
+        ...(failTokens ? { tokenUsed: failTokens } : {}),
+        ...(failCost ? { estimatedCost: failCost } : {}),
+      },
     }).catch(() => { /* don't mask original error */ });
 
     // Notify requester of failure (non-blocking)

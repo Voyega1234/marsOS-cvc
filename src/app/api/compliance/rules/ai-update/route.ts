@@ -4,6 +4,7 @@ import { orChat, OR_MODELS } from '@/lib/openrouter'
 import { extractJson } from '@/lib/compliance/ai'
 import { audit, errMsg, requireStaff, toRuleLite } from '@/lib/compliance/server'
 import { logAIJob } from '@/lib/logAIJob'
+import { sumUsage, usageOfError } from '@/lib/ai-usage'
 import {
   UPDATE_SYSTEM_PROMPT, buildUpdateUserPrompt, groupRulesBySource, mapLimit, validateProposals,
   type RuleForUpdate,
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest) {
     })
     const takenCodes = new Set(allCodes.map((r) => r.code.toLowerCase()))
 
+    // cost of calls that threw (billed but returned no usable answer) — added to the job row below
+    let lostUsage = sumUsage()
     const results = await mapLimit(groups, CONCURRENCY, async (group) => {
       const ask = async (exa: boolean) => {
         const res = await orChat({
@@ -76,10 +79,12 @@ export async function POST(req: NextRequest) {
       }
       try {
         return { ok: true as const, group, fallback: false, ...(await ask(true)) }
-      } catch {
+      } catch (e1) {
+        lostUsage = sumUsage(lostUsage, usageOfError(e1))
         try {
           return { ok: true as const, group, fallback: true, ...(await ask(false)) }
         } catch (e) {
+          lostUsage = sumUsage(lostUsage, usageOfError(e))
           return { ok: false as const, group, error: errMsg(e).slice(0, 300) }
         }
       }
@@ -92,6 +97,7 @@ export async function POST(req: NextRequest) {
       await logAIJob({
         organizationId: ctx.orgId, jobType: 'COMPLIANCE_RULE_UPDATE', modelProvider: 'openrouter', modelName: model,
         status: 'FAILED', errorMessage: first && !first.ok ? first.error : 'unknown', createdById: ctx.userId,
+        ...(lostUsage.costUsd || lostUsage.totalTokens ? { tokenUsed: lostUsage.totalTokens, estimatedCost: lostUsage.costUsd } : {}),
         inputSummary: `อัปเดตกฎ: ${label}`,
       })
       return NextResponse.json({ error: `AI ตรวจไม่สำเร็จ: ${first && !first.ok ? first.error : 'unknown'}` }, { status: 502 })
@@ -134,7 +140,7 @@ export async function POST(req: NextRequest) {
     // 1 รอบ = 1 แถวใน AI Cost (รวมทุกแหล่งที่ตรวจสำเร็จ) — logAIJob ไม่ throw จึงไม่ทำให้ผลตรวจหาย
     await logAIJob({
       organizationId: ctx.orgId, jobType: 'COMPLIANCE_RULE_UPDATE', modelProvider: 'openrouter', modelName: model,
-      status: 'SUCCESS', tokenUsed: tokens, estimatedCost: costUsd, externalCalls: results.length - failed.length,
+      status: 'SUCCESS', tokenUsed: tokens + lostUsage.totalTokens, estimatedCost: costUsd + lostUsage.costUsd, externalCalls: results.length - failed.length,
       errorMessage: failed.length ? `ตรวจไม่สำเร็จ ${failed.length} จาก ${results.length} แหล่ง` : undefined,
       createdById: ctx.userId, inputSummary: `อัปเดตกฎ: ${label}`,
     })

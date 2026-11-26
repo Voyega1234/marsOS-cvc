@@ -1,13 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
+  BRIEF_JUDGE_INPUTS,
+  BRIEF_JUDGE_SYSTEM_PROMPT,
   BRIEF_MATCH_DEFAULT_PROMPT,
   BRIEF_MATCH_ID,
+  BRIEF_SYSTEM_HANDLED,
   briefViolationWarnings,
   buildBriefRevisePrompt,
+  packHasBriefMatchEntry,
   parseBriefVerdict,
   readBriefMatchConfig,
   verifyBriefViolations,
+  writeBriefMatchVariables,
   type BriefLayers,
 } from "./ce-brief-match";
 import { buildBriefCheckUserMessage, checkAgainstBrief } from "./ce-brief-check";
@@ -39,6 +45,79 @@ test("config: only an explicit enabled:false turns it off", () => {
 test("config: the team's edited instruction is used", () => {
   const raw = JSON.stringify({ validators: [{ id: BRIEF_MATCH_ID, enabled: true, prompt: " ตรวจเฉพาะโครงสร้าง " }] });
   assert.deepEqual(readBriefMatchConfig(raw), { enabled: true, criteria: "ตรวจเฉพาะโครงสร้าง" });
+});
+
+// ── free-text pack: the switch lives beside the text ─────────────────────────
+
+const FREE_TEXT = "VALIDATOR — ตรวจก่อนส่งทุกครั้ง\nชั้น 1 CRITICAL FAIL";
+
+test("free-text pack: the stored setting switches it off and carries the team's criteria", () => {
+  assert.deepEqual(readBriefMatchConfig(FREE_TEXT, JSON.stringify({ briefMatch: { enabled: false } })), {
+    enabled: false,
+    criteria: BRIEF_MATCH_DEFAULT_PROMPT,
+  });
+  assert.deepEqual(readBriefMatchConfig(FREE_TEXT, JSON.stringify({ briefMatch: { enabled: true, criteria: " ตรวจเฉพาะโครงสร้าง " } })), {
+    enabled: true,
+    criteria: "ตรวจเฉพาะโครงสร้าง",
+  });
+});
+
+test("free-text pack: the column's default and anything unreadable keep it on", () => {
+  for (const variables of [undefined, null, "", "[]", "{}", "not json", "42", '["a"]', '{"briefMatch":[]}', '{"briefMatch":"off"}', '{"briefMatch":{"enabled":"false"}}', '{"briefMatch":{"enabled":0}}']) {
+    assert.deepEqual(readBriefMatchConfig(FREE_TEXT, variables), { enabled: true, criteria: BRIEF_MATCH_DEFAULT_PROMPT }, String(variables));
+  }
+});
+
+test("form pack: its own entry wins over a setting left beside it; a form pack without the entry falls back to it", () => {
+  const formOn = JSON.stringify({ validators: [{ id: BRIEF_MATCH_ID, enabled: true, prompt: "เกณฑ์ในฟอร์ม" }] });
+  const storedOff = JSON.stringify({ briefMatch: { enabled: false, criteria: "เกณฑ์ข้างนอก" } });
+  assert.deepEqual(readBriefMatchConfig(formOn, storedOff), { enabled: true, criteria: "เกณฑ์ในฟอร์ม" });
+  assert.equal(packHasBriefMatchEntry(formOn), true);
+  const oldForm = JSON.stringify({ validators: [{ id: "business", enabled: true }] });
+  assert.equal(packHasBriefMatchEntry(oldForm), false);
+  assert.deepEqual(readBriefMatchConfig(oldForm, storedOff), { enabled: false, criteria: "เกณฑ์ข้างนอก" });
+  for (const raw of [null, "", FREE_TEXT, "[]", "42"]) assert.equal(packHasBriefMatchEntry(raw), false);
+});
+
+test("write: round-trips, keeps other keys, stores the criteria only when it is not the default", () => {
+  const off = writeBriefMatchVariables("[]", { enabled: false, criteria: BRIEF_MATCH_DEFAULT_PROMPT });
+  assert.equal(off, '{"briefMatch":{"enabled":false}}');
+  assert.equal(readBriefMatchConfig(FREE_TEXT, off).enabled, false);
+
+  const edited = writeBriefMatchVariables('{"other":1,"briefMatch":{"enabled":false}}', { enabled: true, criteria: " ตรวจเฉพาะโครงสร้าง " });
+  assert.deepEqual(JSON.parse(edited), { other: 1, briefMatch: { enabled: true, criteria: "ตรวจเฉพาะโครงสร้าง" } });
+  assert.deepEqual(readBriefMatchConfig(FREE_TEXT, edited), { enabled: true, criteria: "ตรวจเฉพาะโครงสร้าง" });
+
+  // an emptied criteria box means "use the default", and an unreadable old value is replaced
+  for (const existing of [null, undefined, "", "not json", "42"]) {
+    assert.equal(writeBriefMatchVariables(existing, { enabled: true, criteria: "  " }), '{"briefMatch":{"enabled":true}}');
+  }
+});
+
+// ── what the settings page shows must be what the judge receives ─────────────
+
+test("judge instruction: the text shown in settings is the text sent, and it did not change by accident", async () => {
+  // Pinned on purpose: editing the instruction changes how every article is judged. Update the hash only with that intent.
+  assert.equal(createHash("sha256").update(BRIEF_JUDGE_SYSTEM_PROMPT, "utf8").digest("hex"), "fb98660c9da8e35d17fd95165658fe8a5b9789705506dfaa2ca516ab9c116db7");
+  let system = "";
+  await checkAgainstBrief({
+    criteria: "c",
+    layers,
+    html,
+    trace: "t",
+    chat: (async (request: { messages: { role: string; content: string }[] }) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return { text: '{"violations":[]}', usage: { costUsd: 0, totalTokens: 0 } };
+    }) as never,
+  });
+  assert.equal(system, BRIEF_JUDGE_SYSTEM_PROMPT);
+});
+
+test("judge inputs: the list shown in settings matches the message, heading for heading and in order", () => {
+  const message = buildBriefCheckUserMessage({ criteria: "c", layers, html, systemHandled: [...BRIEF_SYSTEM_HANDLED] });
+  const headings = message.split("\n").filter((line) => line.startsWith("# ")).map((line) => line.slice(2));
+  assert.deepEqual(headings, BRIEF_JUDGE_INPUTS.map((input) => input.heading));
+  for (const line of BRIEF_SYSTEM_HANDLED) assert.ok(message.includes(`- ${line}`));
 });
 
 test("defaults: the Validator Pack ships with Brief Match switched on, last in order", () => {

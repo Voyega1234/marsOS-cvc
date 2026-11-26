@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Loader2, Plus, Save } from "lucide-react";
+import { Check, Copy, Loader2, Plus, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { DEFAULT_VALIDATORS, RISK_OPTIONS, STATUS_OPTIONS, VALIDATOR_OUTPUT_SCHEMA } from "./constants";
-import { BRIEF_MATCH_NAME, readBriefMatchConfig } from "@/lib/ce-brief-match";
+import {
+  BRIEF_JUDGE_INPUTS,
+  BRIEF_JUDGE_SYSTEM_PROMPT,
+  BRIEF_MATCH_DEFAULT_PROMPT,
+  BRIEF_MATCH_ID,
+  BRIEF_MATCH_NAME,
+  BRIEF_SYSTEM_HANDLED,
+  packHasBriefMatchEntry,
+  readBriefMatchConfig,
+  writeBriefMatchVariables,
+  type BriefMatchConfig,
+} from "@/lib/ce-brief-match";
 import { LayerScanCard } from "./LayerScanCard";
 import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge, useCERefresh } from "./shared";
 import type { CEMode, CEScope, PromptRow, RiskLevel, ValidatorPackData } from "./types";
@@ -39,6 +50,16 @@ interface Draft {
   mode: CEMode;
   data: ValidatorPackData;
   rawText: string;
+  /** Brief Match setting of a free-text pack — saved beside the text, never inside it. */
+  briefMatch: BriefMatchConfig;
+}
+
+/** Carry a free-text pack's Brief Match setting into the form's own entry (item 12). */
+function withBriefMatch(data: ValidatorPackData, config: BriefMatchConfig): ValidatorPackData {
+  return {
+    ...data,
+    validators: data.validators.map((v) => (v.id === BRIEF_MATCH_ID ? { ...v, enabled: config.enabled, prompt: config.criteria } : v)),
+  };
 }
 
 function emptyValidatorPack(): ValidatorPackData {
@@ -51,13 +72,27 @@ function parseItem(item: PromptRow): Draft {
     // เติม validator ที่ขาดจาก default (เผื่อ pack เก่าไม่ครบ 11 ตัว)
     const byId = new Map(parsed.validators?.map((v) => [v.id, v]) ?? []);
     const validators = DEFAULT_VALIDATORS.map((d) => ({ ...d, ...(byId.get(d.id) ?? {}) }));
-    return { name: item.name, description: item.description ?? "", mode: "form", data: { ...emptyValidatorPack(), ...parsed, validators }, rawText: item.promptText };
+    return {
+      name: item.name,
+      description: item.description ?? "",
+      mode: "form",
+      data: { ...emptyValidatorPack(), ...parsed, validators },
+      rawText: item.promptText,
+      briefMatch: readBriefMatchConfig(item.promptText, item.variables),
+    };
   }
-  return { name: item.name, description: item.description ?? "", mode: "raw", data: emptyValidatorPack(), rawText: item.promptText };
+  return {
+    name: item.name,
+    description: item.description ?? "",
+    mode: "raw",
+    data: emptyValidatorPack(),
+    rawText: item.promptText,
+    briefMatch: readBriefMatchConfig(item.promptText, item.variables),
+  };
 }
 
 function newDraft(): Draft {
-  return { name: "Validator Pack ใหม่", description: "", mode: "form", data: emptyValidatorPack(), rawText: "" };
+  return { name: "Validator Pack ใหม่", description: "", mode: "form", data: emptyValidatorPack(), rawText: "", briefMatch: readBriefMatchConfig(null) };
 }
 
 export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
@@ -116,7 +151,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
   }
 
   function startFreshForm() {
-    setDraft({ ...draft, mode: "form", data: emptyValidatorPack() });
+    setDraft({ ...draft, mode: "form", data: withBriefMatch(emptyValidatorPack(), draft.briefMatch) });
     setRawToFormNotice(false);
   }
 
@@ -142,6 +177,15 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
     return draft.mode === "raw" ? draft.rawText : JSON.stringify(draft.data);
   }
 
+  // A free-text pack keeps its Brief Match setting beside the text (the row's `variables`), so the text the
+  // writer receives is never touched. A pack whose text lists the validator itself (form / JSON) needs nothing here.
+  const briefMatchInText = draft.mode === "raw" && packHasBriefMatchEntry(draft.rawText);
+  const briefMatchShown = briefMatchInText ? readBriefMatchConfig(draft.rawText) : draft.briefMatch;
+  function briefMatchVariables(): { variables?: string } {
+    if (draft.mode !== "raw" || briefMatchInText) return {};
+    return { variables: writeBriefMatchVariables(selected?.variables, draft.briefMatch) };
+  }
+
   async function save() {
     if (!draft.name.trim()) {
       setError("ต้องกรอกชื่อ Validator Pack");
@@ -153,6 +197,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
       type: CE_TYPES.VALIDATOR_PACK,
       promptText: buildPromptText(),
       projectId: scopeProjectId(scope),
+      ...briefMatchVariables(),
     };
     if (selectedId) {
       const updated = await call(`/api/prompts/${selectedId}`, { method: "PUT", body: JSON.stringify(payload) }, "save");
@@ -184,6 +229,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
       type: CE_TYPES.VALIDATOR_PACK,
       promptText: draft.mode === "raw" ? draft.rawText : JSON.stringify(clonedData),
       projectId: scopeProjectId(scope),
+      ...briefMatchVariables(),
     };
     const created = await call("/api/prompts", { method: "POST", body: JSON.stringify(payload) }, "clone");
     if (created?.id) {
@@ -223,7 +269,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
           const validators = DEFAULT_VALIDATORS.map((dv) => ({ ...dv, ...(byId.get(dv.id) ?? {}) }));
           base = { ...emptyValidatorPack(), ...parsed, validators };
         } else {
-          base = emptyValidatorPack();
+          base = withBriefMatch(emptyValidatorPack(), d.briefMatch);
         }
         return { ...d, mode: "form", data: applyValidatorPackFields(base, fields) };
       }
@@ -265,7 +311,11 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                     <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">ACTIVE</span>
                   )}
                 </div>
-                <p className="mt-0.5 truncate text-xs text-gray-400">{parsed ? `${enabledCount}/${DEFAULT_VALIDATORS.length} validators เปิดใช้งาน` : "—"}</p>
+                <p className="mt-0.5 truncate text-xs text-gray-400">
+                  {parsed
+                    ? `${enabledCount}/${DEFAULT_VALIDATORS.length} validators เปิดใช้งาน`
+                    : `ข้อความอิสระ · Brief Match ${readBriefMatchConfig(item.promptText, item.variables).enabled ? "เปิด" : "ปิด"}`}
+                </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {parsed && <StatusBadge status={parsed.status} />}
                   {parsed && <RiskBadge risk={parsed.riskScope} />}
@@ -386,22 +436,27 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
           )}
 
           {draft.mode === "raw" ? (
-            <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
-              {rawToFormNotice && <RawToFormNotice onStartFresh={startFreshForm} />}
-              <Textarea
-                value={draft.rawText}
+            <>
+              <BriefMatchCard
+                config={briefMatchShown}
+                lockedByText={briefMatchInText}
                 disabled={disabled}
-                onChange={(e) => setDraft({ ...draft, rawText: e.target.value })}
-                className="min-h-[300px] font-mono text-xs"
+                onChange={(next) => setDraft({ ...draft, briefMatch: next })}
               />
-              <p className="mt-2 text-xs text-gray-400">
-                วางเป็นข้อความ prompt ตรงๆ ได้เลย — ระบบใช้ข้อความนี้ตามลำดับ layer ตอน compile
-              </p>
-              {/* A free-text pack has no per-validator switches, so say what runs after writing. */}
-              <p className="mt-1 text-xs text-gray-500">
-                {BRIEF_MATCH_NAME}: {readBriefMatchConfig(draft.rawText).enabled ? "เปิดอยู่" : "ปิดอยู่"} — หลังเขียนเสร็จ ระบบตรวจว่าบทความตรง Master Prompt, Article Brief, Template, ข้อจำกัด และ Comment ไม่ตรงจะส่งกลับไปเขียนใหม่ (จะปิดหรือแก้เกณฑ์ ให้ใช้โหมดกรอกฟอร์ม)
-              </p>
-            </div>
+              <div className="rounded-3xl border border-white/80 bg-white/70 p-4 shadow-sm backdrop-blur md:p-5">
+                {rawToFormNotice && <RawToFormNotice onStartFresh={startFreshForm} />}
+                <Label className="text-xs text-gray-600">ข้อความ Validator Pack (ส่งให้ตัวเขียนตามนี้ทุกตัวอักษร)</Label>
+                <Textarea
+                  value={draft.rawText}
+                  disabled={disabled}
+                  onChange={(e) => setDraft({ ...draft, rawText: e.target.value })}
+                  className="mt-1 min-h-[300px] font-mono text-xs"
+                />
+                <p className="mt-2 text-xs text-gray-400">
+                  วางเป็นข้อความ prompt ตรงๆ ได้เลย — ระบบใช้ข้อความนี้ตามลำดับ layer ตอน compile
+                </p>
+              </div>
+            </>
           ) : (
             <>
               <div className="space-y-3">
@@ -478,6 +533,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                           className="min-h-[80px] text-xs"
                         />
                       </div>
+                      {v.id === BRIEF_MATCH_ID && <BriefMatchJudgeDetails />}
                     </SectionCard>
                   ))}
               </div>
@@ -491,6 +547,139 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
           {!canEdit && <p className="text-xs text-gray-400">ดูได้อย่างเดียว — เฉพาะ Admin เท่านั้นที่แก้ไขได้</p>}
         </section>
       </div>
+    </div>
+  );
+}
+
+/** What the judge model is told, shown read-only so the team can see everything behind the switch. */
+function BriefMatchJudgeDetails() {
+  return (
+    <details className="mt-3 rounded-2xl border border-gray-200 bg-white/60 px-3 py-2 text-xs text-gray-600">
+      <summary className="cursor-pointer select-none font-medium text-brand-navy">ดูคำสั่งเต็มที่ส่งให้ AI ตรวจ</summary>
+      <div className="mt-3 space-y-3">
+        <div>
+          <p className="font-medium text-gray-700">1. คำสั่งของผู้ตรวจ (ระบบกำหนด แก้ในหน้านี้ไม่ได้)</p>
+          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-brand-mist p-3 font-mono text-[11px] leading-relaxed text-gray-700">{BRIEF_JUDGE_SYSTEM_PROMPT}</pre>
+        </div>
+        <div>
+          <p className="font-medium text-gray-700">2. ข้อมูลที่ส่งไปให้ตรวจ เรียงตามลำดับ</p>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-5">
+            {BRIEF_JUDGE_INPUTS.map((input) => (
+              <li key={input.heading}>
+                <span className="font-medium text-gray-700">{input.heading}</span> — {input.note}
+              </li>
+            ))}
+          </ol>
+        </div>
+        <div>
+          <p className="font-medium text-gray-700">3. สิ่งที่ระบบเติมเองหลังเขียน (ไม่นับว่าบทความขาด)</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {BRIEF_SYSTEM_HANDLED.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+        <p className="text-gray-500">
+          ทุกจุดที่ AI รายงานถูกตรวจซ้ำกับข้อความจริงก่อนส่งกลับไปเขียนใหม่: กฎต้องมีอยู่ในคำสั่งคำต่อคำ และท่อนที่ยกมาต้องมีอยู่ในบทความ จุดที่ AI แต่งขึ้นเองจะถูกตัดทิ้ง
+        </p>
+      </div>
+    </details>
+  );
+}
+
+/** Brief Match for a free-text pack: a separate check after writing, so it gets its own card above the text. */
+function BriefMatchCard({
+  config,
+  lockedByText,
+  disabled,
+  onChange,
+}: {
+  config: BriefMatchConfig;
+  /** The pack text is a form (JSON) that lists this validator itself — edit it in form mode. */
+  lockedByText: boolean;
+  disabled: boolean;
+  onChange: (next: BriefMatchConfig) => void;
+}) {
+  const locked = disabled || lockedByText;
+  const isDefault = config.criteria.trim() === BRIEF_MATCH_DEFAULT_PROMPT;
+  return (
+    <div
+      className={cn(
+        "rounded-3xl border p-4 shadow-sm backdrop-blur md:p-5",
+        config.enabled ? "border-brand-blue/30 bg-brand-blue/5" : "border-gray-200 bg-white/70"
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span
+            className={cn(
+              "flex size-9 shrink-0 items-center justify-center rounded-2xl",
+              config.enabled ? "bg-brand-blue/15 text-brand-blue" : "bg-gray-100 text-gray-400"
+            )}
+          >
+            <ShieldCheck className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-brand-navy">{BRIEF_MATCH_NAME}</h3>
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                  config.enabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+                )}
+              >
+                {config.enabled ? "เปิดอยู่" : "ปิดอยู่"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-gray-600">
+              ขั้นตรวจแยก ทำงานหลัง AI เขียนบทความเสร็จ — ไม่ได้อยู่ในข้อความ Validator Pack ด้านล่าง และไม่เปลี่ยน prompt ของตัวเขียน
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-xs text-gray-500">เปิดใช้งาน</span>
+          <Switch checked={config.enabled} disabled={locked} onCheckedChange={(checked) => onChange({ ...config, enabled: checked })} />
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 text-xs text-gray-600 sm:grid-cols-2">
+        <div className="rounded-2xl border border-white/80 bg-white/60 px-3 py-2">
+          <p className="font-medium text-gray-700">ตรวจบทความเทียบกับ</p>
+          <p className="mt-0.5">Master Prompt · Article Brief · Template / โครงสร้าง · ข้อจำกัด · Comment ลูกค้า</p>
+        </div>
+        <div className="rounded-2xl border border-white/80 bg-white/60 px-3 py-2">
+          <p className="font-medium text-gray-700">ถ้าไม่ตรง</p>
+          <p className="mt-0.5">ส่งกลับไปเขียนใหม่ สูงสุด 2 รอบ ยังไม่ผ่านจะบันทึกพร้อมคำเตือน “ยังไม่ตรง …” ให้ทีมเห็น</p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <Label className="text-xs text-gray-600">Prompt เกณฑ์ตรวจ (แก้ได้)</Label>
+          {!locked && !isDefault && (
+            <button
+              type="button"
+              onClick={() => onChange({ ...config, criteria: BRIEF_MATCH_DEFAULT_PROMPT })}
+              className="flex items-center gap-1 text-[11px] text-brand-blue hover:underline"
+            >
+              <RotateCcw className="size-3" /> คืนค่าเริ่มต้น
+            </button>
+          )}
+        </div>
+        <Textarea
+          value={config.criteria}
+          disabled={locked}
+          onChange={(e) => onChange({ ...config, criteria: e.target.value })}
+          className="min-h-[72px] text-xs"
+        />
+        <p className="text-[11px] text-gray-400">
+          {lockedByText
+            ? "ข้อความ pack นี้เป็นแบบฟอร์ม (JSON) ที่มีรายการนี้อยู่แล้ว — เปิด/ปิดหรือแก้เกณฑ์ที่โหมดกรอกฟอร์ม ข้อ 12"
+            : "เปลี่ยนสวิตช์หรือเกณฑ์แล้วกด “บันทึก” ถึงจะมีผล ปล่อยว่าง = ใช้เกณฑ์เริ่มต้น"}
+        </p>
+      </div>
+
+      <BriefMatchJudgeDetails />
     </div>
   );
 }

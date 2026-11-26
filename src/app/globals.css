@@ -414,6 +414,16 @@
 }
 .animate-ping-once { animation: ping-once 0.5s ease-out 2; }
 
+/* Indeterminate progress: a short bar sweeping across its track (Translate tab) */
+@keyframes sweep-bar {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}
+.animate-sweep-bar { animation: sweep-bar 1.5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-sweep-bar { animation: none; transform: none; width: 100%; opacity: 0.5; }
+}
+
 /* ── Jarvis Chat prose output ──────────────────────────────────────────────── */
 .jarvis-prose { font-size: 14px; line-height: 1.75; color: oklch(0.25 0 0); }
 .jarvis-prose strong { font-weight: 600; }

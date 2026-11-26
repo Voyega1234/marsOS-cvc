@@ -99,6 +99,8 @@ export default function PushTab({
   const [autoRequestIndex, setAutoRequestIndex] = useState(client.pushPrefs.autoRequestIndex !== false);
   const [tocBusy, setTocBusy] = useState<Record<string, boolean>>({});
   const [indexBusy, setIndexBusy] = useState<Record<string, boolean>>({});
+  /** WordPress: ปลายทางต่อบทความ (ปกติ / /th / /en) — ค่าที่เลือกในหน้านี้ ชนะค่าที่เคยจดไว้ */
+  const [langSel, setLangSel] = useState<Record<string, string>>({});
 
   // เก็บเวอร์ชัน HTML ของบทความไว้คู่กับ selection — ถ้า HTML บทความเปลี่ยน (เวอร์ชันไม่ตรง) ต้องเมิน selection เก่า
   // (ไม่ใช้ updatedAt เพราะเปลี่ยนทุกครั้งที่ push แม้ HTML เดิม — กด push ซ้ำหลัง fail แล้ว card ที่ตัดออกจะกลับมา)
@@ -110,6 +112,18 @@ export default function PushTab({
   // รายการ card ของแต่ละบทความหุบไว้ก่อน (ยาว) — กดขยายเอง
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const platform = uploadPlatformOf(client);
+  const showLangPath = !pbn && (platform === "wordpress" || platform === "wix" || platform === "webflow" || platform === "custom");
+  /** Language record made on this platform (WordPress = base/query, others = 'platform'), same rule as the push API */
+  const langRecOf = (articleId: string) => {
+    const r = client.pushPrefs.pushedLang?.[articleId];
+    return r && (platform === "wordpress" ? r.mode !== "platform" : r.mode === "platform") ? r : undefined;
+  };
+  /** Destination is fixed once the article has a post id, or a confirmed-language draft left on Wix/Webflow */
+  const langLocked = (articleId: string, wordpressPostId?: string | null) => !!wordpressPostId || !!langRecOf(articleId);
+  const effectiveLang = (articleId: string, wordpressPostId?: string | null): string =>
+    langLocked(articleId, wordpressPostId)
+      ? (langRecOf(articleId)?.lang ?? "")
+      : (langSel[articleId] ?? client.pushPrefs.pushLangPath?.[articleId] ?? "");
   const platformLabel = UPLOAD_PLATFORM_LABEL[platform];
   const caps = pushCapabilities(platform);
   // ตัวเลือก Post/Page, Elementor มีผลกับ WordPress เท่านั้น (PBN มีหลายแพลตฟอร์มปนกัน แสดงไว้)
@@ -373,7 +387,7 @@ export default function PushTab({
       const r = await fetch(`/api/upload-article/articles/${articleId}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, bodyCover, autoRequestIndex, ...(siteId ? { siteId } : {}), ...(cluster ? { cluster } : {}) }),
+        body: JSON.stringify({ cardIds, htmlVersion: versionMap.get(articleId) ?? uploadHtmlVersion(detail.htmlContent), publishMode, useElementor, wpPostType, stripH1, bodyCover, autoRequestIndex, ...(siteId ? { siteId } : {}), ...(cluster ? { cluster } : {}), ...(showLangPath ? { langPath: effectiveLang(articleId, articles.find(x => x.id === articleId)?.wordpressPostId ?? allArticles.find(x => x.id === articleId)?.wordpressPostId) } : {}) }),
       });
       const d = await r.json().catch(() => ({}));
       // PBN GitHub: push สำเร็จแต่ Deploy Hook พัง = ok + error → นับเป็นสำเร็จแล้วเตือน
@@ -668,6 +682,16 @@ export default function PushTab({
                       </select>
                     );
                   })()}
+                  {showLangPath && (
+                    <select value={effectiveLang(a.id, a.wordpressPostId)} disabled={busy || batchBusy || langLocked(a.id, a.wordpressPostId)}
+                      title={langLocked(a.id, a.wordpressPostId) ?"เปลี่ยนปลายทางไม่ได้หลัง push ครั้งแรก — บทความนี้อยู่บนเว็บแล้ว" : "เลือกส่วนภาษาของเว็บที่จะ push ไป"}
+                      onChange={e => setLangSel(prev => ({ ...prev, [a.id]: e.target.value }))}
+                      className="h-8 max-w-[200px] rounded-xl border border-gray-200 px-2 text-xs bg-white">
+                      <option value="">ปลายทาง: ปกติ</option>
+                      <option value="th">/th</option>
+                      <option value="en">/en</option>
+                    </select>
+                  )}
                   {/* เคย push แล้ว (มี post id บนเว็บ) = server อัปเดตโพสต์เดิมตาม wordpressPostId ไม่สร้างใหม่ — ป้ายต้องบอกให้ชัด */}
                   <Button size="sm" variant="outline" disabled={busy || batchBusy || (pbn && (!targetSite[a.id] || !pbnSites.some(s => s.id === targetSite[a.id]))) || (isMagazineSite(targetSite[a.id]) && !effectiveCluster(a.id, targetSite[a.id]))} onClick={() => pushOne(a.id)}
                     title={isMagazineSite(targetSite[a.id]) && !effectiveCluster(a.id, targetSite[a.id]) ? "เลือกหมวดก่อน push" : !pbn && a.wordpressPostId ? `อัปเดตทับโพสต์เดิมบนเว็บ (ID ${a.wordpressPostId}) ไม่สร้างโพสต์ใหม่` : undefined}>
@@ -691,6 +715,18 @@ export default function PushTab({
               {pbn && targetSite[a.id] && siblingOnSite(a.id, targetSite[a.id]) && (
                 <p className="text-[11px] text-amber-700 flex items-center gap-1">
                   <AlertTriangle size={11} /> {siblingOnSite(a.id, targetSite[a.id])} ของ keyword เดียวกันขึ้นเว็บ {siteName(targetSite[a.id])} ไปแล้ว — ควรเลือกเว็บอื่น
+                </p>
+              )}
+
+              {showLangPath && effectiveLang(a.id, a.wordpressPostId) && (
+                <p className="text-[11px] text-gray-400">
+                  {platform === "wix"
+                    ? `ระบบตรวจก่อนว่าเว็บ Wix มีภาษา /${effectiveLang(a.id, a.wordpressPostId)} (Wix Multilingual) แล้ววางเป็น Draft ภาษานั้น ยืนยันภาษาแล้วจึงเผยแพร่ — ถ้าเว็บไม่มีภาษานี้ จะไม่ลงอะไรเลย`
+                    : platform === "webflow"
+                      ? `ระบบตรวจก่อนว่าเว็บ Webflow เปิด Localization ภาษา /${effectiveLang(a.id, a.wordpressPostId)} แล้ววาง item ในภาษานั้น ยืนยันแล้วจึงเผยแพร่ — ถ้าเว็บไม่มีภาษานี้ จะไม่ลงอะไรเลย`
+                      : platform === "custom"
+                        ? `ระบบส่ง language: "${effectiveLang(a.id, a.wordpressPostId)}" และ pathPrefix: "/${effectiveLang(a.id, a.wordpressPostId)}" ไปกับ webhook — ระบบปลายทางต้องวางบทความใต้ /${effectiveLang(a.id, a.wordpressPostId)} เอง และตอบ language หรือ url ใต้ /${effectiveLang(a.id, a.wordpressPostId)} กลับมา ไม่งั้นระบบถือว่าไม่สำเร็จ`
+                        : `ระบบจะวางเป็น Draft ก่อน แล้วตรวจบนเว็บว่าโพสต์อยู่ใต้ /${effectiveLang(a.id, a.wordpressPostId)} จริง จึงค่อยเผยแพร่ — ถ้าเว็บทำไม่ได้ จะไม่เผยแพร่อะไรเลย`}
                 </p>
               )}
 

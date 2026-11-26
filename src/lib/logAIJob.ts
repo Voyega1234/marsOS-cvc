@@ -60,3 +60,78 @@ export async function logAIJob(input: LogAIJobInput): Promise<void> {
     console.error('[logAIJob] failed to write AIJob:', err)
   }
 }
+
+/**
+ * startAIJob — create the cost row up front with status RUNNING and return its id (null on error, never throws).
+ * Pair with updateAIJob so a run killed by the platform still leaves a row with the cost spent so far.
+ */
+export async function startAIJob(input: Omit<LogAIJobInput, 'status'>): Promise<string | null> {
+  try {
+    const row = await prisma.aIJob.create({
+      data: {
+        organizationId: input.organizationId,
+        projectId:      input.projectId ?? null,
+        articleId:      input.articleId ?? null,
+        jobType:        input.jobType,
+        status:         'RUNNING',
+        modelProvider:  input.modelProvider,
+        modelName:      input.modelName,
+        tokenUsed:      input.tokenUsed ?? null,
+        estimatedCost:  input.estimatedCost ?? null,
+        externalCost:   input.externalCost ?? 0,
+        externalCalls:  input.externalCalls ?? 0,
+        externalApi:    input.externalApi ?? null,
+        errorMessage:   input.errorMessage?.slice(0, 500) ?? null,
+        createdById:    input.createdById,
+        input:          input.inputSummary?.slice(0, 3000) ?? null,
+      },
+      select: { id: true },
+    })
+    return row.id
+  } catch (err) {
+    console.error('[startAIJob] failed to write AIJob:', err)
+    return null
+  }
+}
+
+export interface AIJobPatch {
+  status?: 'RUNNING' | 'SUCCESS' | 'FAILED'
+  tokenUsed?: number
+  estimatedCost?: number
+  externalCost?: number
+  errorMessage?: string
+}
+
+/** updateAIJob — patch a row created by startAIJob. Never throws. */
+export async function updateAIJob(id: string, patch: AIJobPatch): Promise<void> {
+  try {
+    await prisma.aIJob.update({
+      where: { id },
+      data: {
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        ...(patch.tokenUsed !== undefined ? { tokenUsed: patch.tokenUsed } : {}),
+        ...(patch.estimatedCost !== undefined ? { estimatedCost: patch.estimatedCost } : {}),
+        ...(patch.externalCost !== undefined ? { externalCost: patch.externalCost } : {}),
+        ...(patch.errorMessage !== undefined ? { errorMessage: patch.errorMessage.slice(0, 500) } : {}),
+      },
+    })
+  } catch (err) {
+    console.error('[updateAIJob] failed to update AIJob:', err)
+  }
+}
+
+/**
+ * Ordered update queue: patches are written one at a time, in the order queued, without the caller awaiting
+ * them on the hot path. `flush()` resolves once everything queued so far has been written. Never rejects.
+ */
+export function createAIJobUpdateQueue(write: (patch: AIJobPatch) => Promise<void>) {
+  let chain: Promise<void> = Promise.resolve()
+  return {
+    push(patch: AIJobPatch): void {
+      chain = chain.then(() => write(patch)).catch(() => {})
+    },
+    flush(): Promise<void> {
+      return chain
+    },
+  }
+}

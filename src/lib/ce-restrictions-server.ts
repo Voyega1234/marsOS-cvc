@@ -1,7 +1,7 @@
 // Content Engine ข้อจำกัด — ส่วนที่อ่าน/เช็ค DB (ใช้ฝั่งเซิร์ฟเวอร์เท่านั้น) ดู src/lib/ce-restrictions.ts
 
 import { prisma } from "@/lib/prisma";
-import { orChat, OR_MODELS } from "@/lib/openrouter";
+import { orChat, OR_MODELS, type ORUsage } from "@/lib/openrouter";
 import type { CEScope } from "@/lib/content-engine-resolve";
 import {
   CE_CLIENT_COMMENTS,
@@ -157,6 +157,16 @@ export async function loadTitleRestrictions(orgId: string, scope: CEScope): Prom
   }
 }
 
+/** Report usage to an optional cost callback; bookkeeping must never throw into the main flow. */
+function reportUsage(cb: ((u: ORUsage) => void) | undefined, u: ORUsage | undefined): void {
+  if (!cb || !u) return;
+  try {
+    cb(u);
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * ให้ AI (gemini) ตัดสินว่าสินค้าไหนเกี่ยวกับบทความ — ส่งผลให้ buildRestrictionsBlock ผ่าน relatedProductIds
  * ไม่มีสินค้า/เจอคำตรงครบแล้ว = ไม่เรียก AI · AI ล้ม = [] (เหลือการจับคำตรงเดิม) ไม่ทำให้งานเขียนล้ม
@@ -164,7 +174,7 @@ export async function loadTitleRestrictions(orgId: string, scope: CEScope): Prom
 export async function judgeRelatedProducts(
   ctx: RestrictionsContext | null | undefined,
   topic: RestrictionsTopic,
-  opts: { trace: string; client?: string; timeoutMs?: number; chat?: typeof orChat },
+  opts: { trace: string; client?: string; timeoutMs?: number; chat?: typeof orChat; onUsage?: (u: ORUsage) => void },
 ): Promise<string[]> {
   if (!ctx) return [];
   const topicText = restrictionsTopicText(topic);
@@ -172,19 +182,26 @@ export async function judgeRelatedProducts(
   if (!candidates.length) return [];
   try {
     const { system, user } = buildProductJudgeMessages(candidates, topicText);
-    const res = await (opts.chat ?? orChat)({
-      trace: opts.trace,
-      client: opts.client,
-      model: OR_MODELS.default(),
-      jsonMode: true,
-      temperature: 0,
-      maxTokens: 2_000,
-      timeoutMs: opts.timeoutMs ?? 12_000,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    });
+    let res: Awaited<ReturnType<typeof orChat>>;
+    try {
+      res = await (opts.chat ?? orChat)({
+        trace: opts.trace,
+        client: opts.client,
+        model: OR_MODELS.default(),
+        jsonMode: true,
+        temperature: 0,
+        maxTokens: 2_000,
+        timeoutMs: opts.timeoutMs ?? 12_000,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      });
+    } catch (err) {
+      reportUsage(opts.onUsage, (err as { usage?: ORUsage } | null)?.usage);
+      throw err;
+    }
+    reportUsage(opts.onUsage, res.usage);
     return parseProductJudge(res.text, candidates);
   } catch (e) {
     console.warn(`[restrictions] product judge failed (${opts.trace}):`, e instanceof Error ? e.message : e);
@@ -227,7 +244,7 @@ function mergeHits(a: BannedHit[], b: BannedHit[]): BannedHit[] {
 async function rewriteSegments(
   items: { id: number; text: string }[],
   terms: BannedTerm[],
-  opts: { trace: string; model?: string; timeoutMs?: number; approved?: string[]; chat?: typeof orChat },
+  opts: { trace: string; model?: string; timeoutMs?: number; approved?: string[]; chat?: typeof orChat; onUsage?: (u: ORUsage) => void },
 ): Promise<Map<number, string>> {
   const termList = terms.map((t) => (t.replacement ? `- "${t.term}" (ใช้ "${t.replacement}" แทนได้)` : `- "${t.term}"`)).join("\n");
   const system = [
@@ -240,18 +257,25 @@ async function rewriteSegments(
     'ตอบเป็น JSON เท่านั้น: {"segments":[{"id":<id เดิม>,"text":"<ข้อความใหม่>"}]}',
   ].join("\n");
   const user = `คำต้องห้าม:\n${termList}\n\nท่อนที่ต้องแก้:\n${JSON.stringify({ segments: items })}`;
-  const res = await (opts.chat ?? orChat)({
-    trace: opts.trace,
-    model: opts.model || OR_MODELS.writer(),
-    jsonMode: true,
-    temperature: 0.3,
-    maxTokens: 12_000,
-    timeoutMs: opts.timeoutMs,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  });
+  let res: Awaited<ReturnType<typeof orChat>>;
+  try {
+    res = await (opts.chat ?? orChat)({
+      trace: opts.trace,
+      model: opts.model || OR_MODELS.writer(),
+      jsonMode: true,
+      temperature: 0.3,
+      maxTokens: 12_000,
+      timeoutMs: opts.timeoutMs,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    });
+  } catch (err) {
+    reportUsage(opts.onUsage, (err as { usage?: ORUsage } | null)?.usage);
+    throw err;
+  }
+  reportUsage(opts.onUsage, res.usage);
   const raw = res.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
   const parsed = JSON.parse(raw) as { segments?: Array<{ id?: unknown; text?: unknown }> };
   const allowed = new Set(items.map((i) => i.id));
@@ -282,6 +306,8 @@ export async function enforceRestrictions(params: {
   rewrite?: boolean;
   /** เทสต์ส่งตัวปลอม */
   chat?: typeof orChat;
+  /** Called with the usage of every rewrite call (cost bookkeeping only) */
+  onUsage?: (u: ORUsage) => void;
 }): Promise<RestrictionEnforcement> {
   const meta0 = params.metaDescription ?? "";
   const terms = params.ctx ? bannedTermsOf(params.ctx.data) : [];

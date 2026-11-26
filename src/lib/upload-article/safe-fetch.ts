@@ -76,7 +76,7 @@ export async function checkCredentialUrl(url: string): Promise<string | null> {
 export async function safeFetch(
   url: string,
   init: RequestInit = {},
-  opts: { requireHttps?: boolean; sameHostOnly?: boolean; strictPorts?: boolean } = {},
+  opts: { requireHttps?: boolean; sameHostOnly?: boolean; strictPorts?: boolean; noRedirect?: boolean } = {},
 ): Promise<Response> {
   let current = url
   const firstHost = new URL(url).host
@@ -92,6 +92,8 @@ export async function safeFetch(
     if (!guard.ok) throw new Error(`ยิงไปปลายทางนี้ไม่ได้ (${guard.reason})`)
     const res = await fetch(current, { cache: 'no-store', ...init, method, body, redirect: 'manual' })
     if (res.status >= 300 && res.status < 400) {
+      // noRedirect = คืนคำตอบ 3xx ตามที่ได้ ไม่ตาม (ใช้กับการเขียนที่ห้ามถูกพาไปที่อื่น)
+      if (opts.noRedirect) return res
       const loc = res.headers.get('location')
       if (!loc) return res
       current = new URL(loc, current).toString()

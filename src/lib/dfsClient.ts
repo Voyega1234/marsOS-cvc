@@ -24,7 +24,7 @@ export async function dfsPost<T = unknown>(path: string, body: unknown, timeoutM
   })
   if (!res.ok) throw new Error(`DFS HTTP ${res.status}`)
   const json = await res.json()
-  if (json.status_code !== 20000) throw new Error(json.status_message ?? `DFS error ${json.status_code}`)
+  if (json.status_code !== 20000) throw dfsError(json)
   return json as T
 }
 
@@ -35,8 +35,28 @@ export async function dfsGet<T = unknown>(path: string): Promise<T> {
   })
   if (!res.ok) throw new Error(`DFS HTTP ${res.status}`)
   const json = await res.json()
-  if (json.status_code !== 20000) throw new Error(json.status_message ?? `DFS error ${json.status_code}`)
+  if (json.status_code !== 20000) throw dfsError(json)
   return json as T
+}
+
+/** Error for a non-20000 response; carries the billed `cost` (if any) so a FAILED row can log it. */
+function dfsError(json: { status_code?: number; status_message?: string; cost?: unknown }): Error {
+  const err = new Error(json.status_message ?? `DFS error ${json.status_code}`)
+  const c = Number(json.cost)
+  if (Number.isFinite(c) && c > 0) (err as Error & { billedCost?: number }).billedCost = c
+  return err
+}
+
+/** Billed cost (USD) DataForSEO reports at the top level of a response; `fallback` when it has none. */
+export function dfsBilledCost(resp: unknown, fallback: number): number {
+  const c = (resp as { cost?: unknown } | null | undefined)?.cost
+  return typeof c === 'number' && Number.isFinite(c) && c >= 0 ? c : fallback
+}
+
+/** Billed cost carried on an error thrown by dfsPost/dfsGet (0 when none). */
+export function dfsCostOfError(err: unknown): number {
+  const c = (err as { billedCost?: unknown } | null | undefined)?.billedCost
+  return typeof c === 'number' && Number.isFinite(c) ? c : 0
 }
 
 // ── Cost estimates (USD) ─────────────────────────────────────────────────────

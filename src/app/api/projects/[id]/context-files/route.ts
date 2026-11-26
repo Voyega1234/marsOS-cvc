@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { stripCompiledKeys } from "@/lib/ce-compiled-fields";
 import { analyzeContextFiles, businessSkillDraftToText, mergeBusinessSkill } from "@/lib/context-business-skill";
 import { extractText, type ContextTextInput } from "@/lib/context-files";
+import { usageOfError } from "@/lib/ai-usage";
 import { logAIJob } from "@/lib/logAIJob";
 import { OR_MODELS } from "@/lib/openrouter";
 import { prisma } from "@/lib/prisma";
@@ -120,6 +121,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       createdById: session.user.id,
     }).catch(() => {});
   } catch (err) {
+    // failed run: record the cost the AI call may already have incurred (bookkeeping only)
+    const fu = usageOfError(err);
+    logAIJob({
+      organizationId: session.user.organizationId!,
+      projectId: project.id,
+      jobType: "CONTEXT_FILES_ANALYZE",
+      modelProvider: "OPENROUTER",
+      modelName: OR_MODELS.default(),
+      status: "FAILED",
+      errorMessage: (err as Error).message?.slice(0, 500),
+      ...(fu ? { tokenUsed: fu.totalTokens, estimatedCost: fu.costUsd } : {}),
+      createdById: session.user.id,
+    }).catch(() => {});
     return NextResponse.json({ error: `สรุปข้อมูลจากไฟล์ไม่สำเร็จ: ${(err as Error).message}` }, { status: 502 });
   }
 

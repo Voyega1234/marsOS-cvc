@@ -54,6 +54,16 @@ async function main() {
   assert(r2.title === 'การดูแลสุขภาพตามวัยคืออะไร', 'title rewritten');
   assert(r2.remaining.length === 0, 'nothing remaining after title fix');
 
+  // onUsage receives the usage of the rewrite call (thrown or returned)
+  const seen: number[] = [];
+  const ai2 = fakeChat(() => '{"segments":[]}');
+  await enforceRestrictions({ ctx, html: HTML, title: 'เวชศาสตร์ชะลอวัยคืออะไร', trace: 't', chat: ai2.chat, onUsage: (u) => seen.push(u.costUsd) });
+  assert(seen.length === 1 && seen[0] === 0.001, 'onUsage called with the rewrite usage');
+  const seenErr: number[] = [];
+  const failWithUsage = (async () => { throw Object.assign(new Error('boom'), { usage: { inputTokens: 1, outputTokens: 0, totalTokens: 1, costUsd: 0.002 } }); }) as unknown as typeof orChat;
+  await enforceRestrictions({ ctx, html: HTML, title: 'เวชศาสตร์ชะลอวัย', trace: 't', chat: failWithUsage, onUsage: (u) => seenErr.push(u.costUsd) });
+  assert(seenErr.length === 1 && seenErr[0] === 0.002, 'onUsage called with err.usage on a thrown error');
+
   // AI ล้ม = ชื่อเดิม เตือนคำที่เหลือ
   const fail = (async () => { throw new Error('boom'); }) as unknown as typeof orChat;
   const r3 = await enforceRestrictions({ ctx, html: HTML, title: 'เวชศาสตร์ชะลอวัย', trace: 't', chat: fail });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { buildUploadArticleHtml, uploadArticleLanguage } from '@/lib/upload-article/build-html'
+import { stripHeadingLabelText } from '@/lib/upload-article/writer-labels'
 import { readUploadAuthor, pickAuthorForArticle } from '@/lib/upload-article/author'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
 import { extractBriefMeta } from '@/lib/upload-article/doc-meta'
@@ -88,6 +89,8 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     // บทความอังกฤษในโปรเจกต์ภาษาไทยต้องได้หัวภาษาอังกฤษ · เนื้อหาสั้นเกินตัดสินไม่ได้ = ตามค่าตั้งโปรเจกต์เหมือนเดิม
     const articleLanguage = detectArticleLanguage(`${article.title} ${sourceHtml.replace(/<[^>]+>/g, ' ')}`)
       ?? uploadArticleLanguage(client.language, article.title)
+    // "H1: …" typed by the writer is a label: the row's title loses it here, so Review and push get the clean title.
+    const title = article.sourceType === 'ai' ? article.title : stripHeadingLabelText(article.title)
     const result = buildUploadArticleHtml({
       sourceHtml,
       mode,
@@ -95,12 +98,12 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       aiSource: article.sourceType === 'ai',
       site: { name: client.name, url: client.website, language: articleLanguage },
       meta: {
-        title: article.title,
+        title,
         seoTitle: seoTitle || undefined,
         metaDescription: metaDescription || undefined,
         slug: slug || undefined,
       },
-      cover: article.coverImageUrl ? { url: article.coverImageUrl, alt: article.coverAlt || article.title } : null,
+      cover: article.coverImageUrl ? { url: article.coverImageUrl, alt: article.coverAlt || title } : null,
       breadcrumb,
       cta,
       author: authorProfile ? { profile: authorProfile, style: authorSettings.style } : null,
@@ -112,7 +115,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     // เขียนเฉพาะเมื่อแถวไม่ถูกแก้ระหว่างที่ build (optimistic lock ด้วย updatedAt) — กันทับ sourceHtml/meta ที่ทีมเพิ่งแก้
     const written = await prisma.uploadArticle.updateMany({
       where: { id: article.id, updatedAt: article.updatedAt },
-      data: { htmlContent: result.html, outputMode: mode, status: nextStatus, seoTitle, metaDescription, slug, ...(cleanedSource !== null ? { sourceHtml: cleanedSource } : {}) },
+      data: { htmlContent: result.html, outputMode: mode, status: nextStatus, seoTitle, metaDescription, slug, ...(title !== article.title ? { title } : {}), ...(cleanedSource !== null ? { sourceHtml: cleanedSource } : {}) },
     })
     if (written.count === 0) {
       return NextResponse.json({ error: 'บทความถูกแก้ไประหว่างสร้าง HTML — โหลดใหม่แล้วกด Generate อีกครั้ง' }, { status: 409 })

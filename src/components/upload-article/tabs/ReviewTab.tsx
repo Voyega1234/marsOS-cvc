@@ -31,7 +31,7 @@ import { WRITER_STALE_MS } from "@/lib/upload-article/writer-timing";
 import RewriteDialog, { type RewriteCheck } from "@/components/upload-article/shared/RewriteDialog";
 import CommentRegenDialog from "@/components/upload-article/shared/CommentRegenDialog";
 import { editBackground, EDIT_READABLE_CSS } from "@/components/shared/editTone";
-import { fmtThb } from "@/lib/ai-cost-format";
+import { fmtCost } from "@/lib/ai-cost-format";
 
 const MAX_PATCH_BYTES = 4_000_000;
 
@@ -192,7 +192,7 @@ export default function ReviewTab({
         ...(typeof d.htmlContent === "string" ? { htmlContent: d.htmlContent } : {}),
       });
       if (d.warning) toast.warning(d.warning);
-      else toast.success(`Mars เขียน Meta แล้ว${typeof d.costUsd === "number" ? ` (ต้นทุน ${fmtThb(d.costUsd)})` : ""}`);
+      else toast.success(`Mars เขียน Meta แล้ว${typeof d.costUsd === "number" ? ` (ต้นทุน ${fmtCost(d.costUsd)})` : ""}`);
     } catch (e) {
       toast.error(`Mars เขียน Meta ไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
