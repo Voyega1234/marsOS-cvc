@@ -6,6 +6,7 @@ import {
   RULE_SCHEMA_VERSION,
   STATUS_ENABLED_DEFAULT,
   defaultPlatformsForStatus,
+  fillMissingPlatforms,
   healLegacyEventName,
 } from "@/lib/line-tracking/platforms";
 import { stringifyJson } from "@/lib/line-tracking/json";
@@ -54,13 +55,10 @@ export async function syncRulePlatforms(projectId: string) {
     >;
     const status = rule.leadStatus as LeadStatus;
     const defaults = defaultPlatformsForStatus(status);
-    let changed = false;
-    for (const [pid, def] of Object.entries(defaults)) {
-      if (!current[pid]) {
-        current[pid] = def;
-        changed = true;
-      }
-    }
+    // A platform added to the registry after this rule was stored comes in OFF —
+    // existing projects never start sending to it until someone turns it on.
+    const added = fillMissingPlatforms(current, defaults);
+    let changed = added.length > 0;
     for (const [pid, cfg] of Object.entries(current)) {
       if (pid === RULE_SCHEMA_KEY) continue;
       const healed = healLegacyEventName(pid, status, cfg.eventName);
@@ -78,6 +76,7 @@ export async function syncRulePlatforms(projectId: string) {
     let enableRule: boolean | undefined;
     if (version < RULE_SCHEMA_VERSION) {
       for (const [pid, def] of Object.entries(defaults)) {
+        if (added.includes(pid)) continue; // just filled in OFF — keep it that way
         const cfg = current[pid];
         if (def.enabled && cfg && !cfg.enabled && cfg.eventName === def.eventName) {
           current[pid] = { ...cfg, enabled: true };

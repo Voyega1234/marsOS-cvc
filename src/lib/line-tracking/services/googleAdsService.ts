@@ -1,7 +1,10 @@
 import type { GoogleAdsConfig } from "@/lib/line-tracking/connectors";
 import type { SendContext, SendResult } from "./senderTypes";
 
-const GOOGLE_ADS_API_VERSION = "v17";
+// Google Ads sunsets each API version about a year after release, and a call to
+// a sunset version fails outright. Override via env when Google moves on, so a
+// version bump never needs a code deploy.
+export const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v25";
 
 /** Format a Date as Google Ads expects: "yyyy-MM-dd HH:mm:ss+00:00" (UTC). */
 function adsDateTime(d: Date): string {
@@ -10,8 +13,19 @@ function adsDateTime(d: Date): string {
 }
 
 /**
+ * The click id the conversion is keyed on. Google rejects a conversion that carries more
+ * than one of gclid / gbraid / wbraid, so exactly one is returned (gclid first).
+ */
+function googleClickId(ctx: SendContext): { gclid: string } | { gbraid: string } | { wbraid: string } | null {
+  if (ctx.lead.gclid) return { gclid: ctx.lead.gclid };
+  if (ctx.click?.gbraid) return { gbraid: ctx.click.gbraid };
+  if (ctx.click?.wbraid) return { wbraid: ctx.click.wbraid };
+  return null;
+}
+
+/**
  * Build a Google Ads Offline Conversion Import payload (Click Conversions).
- * Uses gclid captured on the tracking page.
+ * Uses gclid (else gbraid, else wbraid) captured on the tracking page.
  */
 export function buildGoogleAdsPayload(config: GoogleAdsConfig, ctx: SendContext) {
   const { lead, eventName, value, currency } = ctx;
@@ -23,7 +37,7 @@ export function buildGoogleAdsPayload(config: GoogleAdsConfig, ctx: SendContext)
     customerId: config.customerId ?? "MOCK_CUSTOMER",
     conversions: [
       {
-        gclid: lead.gclid ?? null,
+        ...(googleClickId(ctx) ?? { gclid: null }),
         conversionAction,
         conversionActionName: eventName,
         conversionDateTime: adsDateTime(new Date()),
@@ -66,8 +80,73 @@ function hasFullOAuth(config: GoogleAdsConfig): boolean {
 }
 
 /**
+ * Read-only credential check. Asks Google Ads to look up the configured
+ * conversion action — that single call exercises every credential a real
+ * upload needs (OAuth refresh, developer token, customer id, conversion
+ * action id, MCC header) without spending a conversion.
+ */
+export async function testGoogleAds(
+  config: GoogleAdsConfig
+): Promise<{ ok: boolean; message: string }> {
+  if (!hasFullOAuth(config)) {
+    return { ok: false, message: "ยังกรอก credentials ไม่ครบ ต้องมี Customer ID, Conversion Action ID, Developer Token และ OAuth ทั้ง 3 ค่า" };
+  }
+  let accessToken: string;
+  try {
+    accessToken = await refreshAccessToken(config);
+  } catch (err) {
+    // Google's OAuth error body can carry client detail — log it, don't show it.
+    console.error("[googleAdsService] testGoogleAds refresh failed", err);
+    return { ok: false, message: "OAuth ใช้ไม่ได้ ตรวจ Client ID / Client Secret / Refresh Token (refresh token หมดอายุถ้าไม่ได้ใช้นาน)" };
+  }
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    authorization: `Bearer ${accessToken}`,
+    "developer-token": config.developerToken!,
+  };
+  if (config.loginCustomerId) headers["login-customer-id"] = config.loginCustomerId;
+
+  try {
+    const url =
+      `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}` +
+      `/customers/${encodeURIComponent(config.customerId!)}/googleAds:searchStream`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query:
+          "SELECT conversion_action.id, conversion_action.name, conversion_action.status " +
+          `FROM conversion_action WHERE conversion_action.id = ${Number(config.conversionActionId)}`,
+      }),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      console.error("[googleAdsService] testGoogleAds search failed", { status: res.status, body: text.slice(0, 500) });
+      if (res.status === 404) {
+        return { ok: false, message: `Google Ads ไม่รู้จัก API version ${GOOGLE_ADS_API_VERSION} · ตั้ง env GOOGLE_ADS_API_VERSION เป็นเวอร์ชันที่ยังรองรับ` };
+      }
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, message: "Google Ads ปฏิเสธสิทธิ์ ตรวจ Developer Token, Customer ID และถ้าเข้าผ่าน MCC ต้องใส่ Login Customer ID" };
+      }
+      return { ok: false, message: `Google Ads ตอบกลับ ${res.status} ตรวจ Customer ID และ Conversion Action ID` };
+    }
+    // searchStream returns an array of chunks; an empty result means the
+    // conversion action id does not exist in this account.
+    const name = /"name"\s*:\s*"([^"]+)"/.exec(text)?.[1];
+    if (!name) {
+      return { ok: false, message: `เชื่อมบัญชีได้ แต่ไม่พบ Conversion Action ID ${config.conversionActionId} ในบัญชีนี้` };
+    }
+    return { ok: true, message: `เชื่อม Google Ads สำเร็จ Conversion Action: ${name}` };
+  } catch (err) {
+    console.error("[googleAdsService] testGoogleAds threw", err);
+    return { ok: false, message: "เชื่อม Google Ads ไม่สำเร็จ ตรวจ Customer ID, Developer Token และการเชื่อมต่อเครือข่าย" };
+  }
+}
+
+/**
  * Send to Google Ads. REAL upload when full OAuth2 credentials are present,
- * otherwise mock. Requires a gclid on the lead for click-conversion upload.
+ * otherwise mock. Requires a gclid / gbraid / wbraid on the lead for click-conversion upload.
  */
 export async function sendGoogleAds(
   config: GoogleAdsConfig,
@@ -90,13 +169,14 @@ export async function sendGoogleAds(
     };
   }
 
-  if (!ctx.lead.gclid) {
+  const clickId = googleClickId(ctx);
+  if (!clickId) {
     return {
       ok: false,
       mock: false,
       request,
       response: null,
-      error: "ไม่มี gclid สำหรับ Lead นี้ ส่ง Google Ads ไม่ได้",
+      error: "ไม่มี gclid / gbraid / wbraid สำหรับ Lead นี้ ส่ง Google Ads ไม่ได้",
     };
   }
 
@@ -104,7 +184,7 @@ export async function sendGoogleAds(
     const accessToken = await refreshAccessToken(config);
     const url =
       `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}` +
-      `/customers/${config.customerId}:uploadClickConversions`;
+      `/customers/${encodeURIComponent(config.customerId!)}:uploadClickConversions`;
 
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -116,7 +196,7 @@ export async function sendGoogleAds(
     const body = {
       conversions: [
         {
-          gclid: ctx.lead.gclid,
+          ...clickId,
           conversionAction: `customers/${config.customerId}/conversionActions/${config.conversionActionId}`,
           conversionDateTime: adsDateTime(new Date()),
           conversionValue: ctx.value,

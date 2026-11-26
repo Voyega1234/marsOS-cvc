@@ -1,5 +1,6 @@
 import type { Ga4Config } from "@/lib/line-tracking/connectors";
 import type { SendContext, SendResult } from "./senderTypes";
+import { gaSessionFor } from "@/lib/line-tracking/browserIds";
 
 // Statuses that represent a monetary purchase and need a transaction_id.
 const PURCHASE_EVENTS = new Set(["purchase", "deal_won"]);
@@ -7,11 +8,22 @@ const PURCHASE_EVENTS = new Set(["purchase", "deal_won"]);
 /**
  * Build the GA4 Measurement Protocol payload.
  * Rule: never send raw personal data (no phone/email/name). We use IDs only.
+ *
+ * GA4 has no parameter that sets source / medium / campaign on a Measurement Protocol event.
+ * The only way an event gets them is by joining the visitor's web session: the client_id
+ * must be the one GA itself gave the browser, and session_id must be that session's id.
+ * Without both, GA4 files the event under "Unassigned" / "(not set)". `source`, `campaign`
+ * and `keyword` below are plain event parameters for custom dimensions, nothing more.
+ *
+ * `measurementId` picks the session of that stream; an id from another stream is never sent.
  */
-export function buildGa4Payload(ctx: SendContext) {
-  const { lead, eventName, value, currency, projectId } = ctx;
+export function buildGa4Payload(ctx: SendContext, measurementId?: string, now: Date = new Date()) {
+  const { lead, eventName, value, currency, projectId, click } = ctx;
 
-  const clientId = lead.gaClientId || `lead.${lead.id}`;
+  // The click row is refreshed when the visitor presses the LINE button, by which time the
+  // GA cookie exists; the copy on the lead was taken at page load and is often empty.
+  const clientId = click?.gaClientId || lead.gaClientId || `lead.${lead.id}`;
+  const sessionId = gaSessionFor(click?.gaSessions, measurementId, now);
   const params: Record<string, unknown> = {
     currency,
     value,
@@ -21,6 +33,11 @@ export function buildGa4Payload(ctx: SendContext) {
     campaign: lead.campaign ?? undefined,
     keyword: lead.keyword ?? undefined,
   };
+  if (sessionId) {
+    params.session_id = sessionId;
+    // GA4 asks for both before it shows the event in Realtime and counts it in the session.
+    params.engagement_time_msec = 1;
+  }
   if (PURCHASE_EVENTS.has(eventName) || eventName === "purchase") {
     params.transaction_id = lead.purchaseId || `txn.${lead.id}`;
   }
@@ -43,7 +60,7 @@ export async function sendGa4(
   config: Ga4Config,
   ctx: SendContext
 ): Promise<SendResult> {
-  const payload = buildGa4Payload(ctx);
+  const payload = buildGa4Payload(ctx, config.measurementId);
   const real = !!(config.measurementId && config.apiSecret);
 
   if (!real) {

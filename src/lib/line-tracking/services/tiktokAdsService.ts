@@ -7,10 +7,13 @@ import type { SendContext, SendResult } from "./senderTypes";
  * No raw PII: external_id is the hashed pseudonymous LINE user id.
  */
 export function buildTiktokPayload(config: TiktokAdsConfig, ctx: SendContext) {
-  const { lead, eventName, value, currency } = ctx;
+  const { lead, eventName, value, currency, click } = ctx;
   const externalId = lead.lineUserId
     ? createHash("sha256").update(lead.lineUserId).digest("hex")
     : undefined;
+  // http(s) only, and capped: these values came from the visitor's browser.
+  const web = (url?: string) => (url && /^https?:\/\//i.test(url) ? url.slice(0, 2000) : undefined);
+  const pageUrl = web(click?.landingUrl);
 
   return {
     event_source: "web",
@@ -22,8 +25,14 @@ export function buildTiktokPayload(config: TiktokAdsConfig, ctx: SendContext) {
         event_id: `lead.${lead.id}.${eventName}`,
         user: {
           ttclid: lead.ttclid ?? undefined,
+          // _ttp = the browser id TikTok's pixel set on the customer's website. It is what
+          // TikTok matches on when the visit has no ttclid.
+          ttp: click?.ttp,
+          user_agent: click?.userAgent ? click.userAgent.slice(0, 500) : undefined,
           external_id: externalId ? [externalId] : undefined,
         },
+        // A "web" event is expected to say which page it belongs to.
+        page: pageUrl ? { url: pageUrl, referrer: web(click?.referrer) } : undefined,
         properties: {
           currency,
           value,

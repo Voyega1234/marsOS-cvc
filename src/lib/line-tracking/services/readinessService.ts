@@ -6,6 +6,7 @@ import type { ConnectionType } from "@/lib/line-tracking/enums";
 
 // Which per-lead click id each ad platform needs to attribute a conversion.
 const CLICK_ID_FIELD: Partial<Record<ConnectionType, keyof PrismaLeadClickIds>> = {
+  GOOGLE_ADS: "gclid",
   MICROSOFT_ADS: "msclkid",
   META_ADS: "fbclid",
   TIKTOK_ADS: "ttclid",

@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import type { MetaAdsConfig } from "@/lib/line-tracking/connectors";
 import type { SendContext, SendResult } from "./senderTypes";
+import { fbcFor } from "@/lib/line-tracking/browserIds";
 
 const sha256 = (v: string) => createHash("sha256").update(v).digest("hex");
 
@@ -24,12 +25,16 @@ export function normalizePhoneForMeta(raw: string, defaultCountry = "66"): strin
  * สวิตช์ sendHashedPhone ของโปรเจกต์นั้น) จะถูก normalize + SHA-256 ก่อนส่งเสมอ
  */
 export function buildMetaPayload(config: MetaAdsConfig, ctx: SendContext) {
-  const { lead, eventName, value, currency } = ctx;
+  const { lead, eventName, value, currency, click } = ctx;
   const eventTime = Math.floor(Date.now() / 1000);
-  // fbc ต้องใส่ "เวลาที่คลิกโฆษณา" ไม่ใช่เวลาที่ยิง event เข้ามา — ใช้เวลาที่ lead ถูกสร้าง
-  // (จังหวะที่ระบบเก็บ fbclid ได้) ถ้าใส่เวลาส่ง Meta จะอ่าน recency ของคลิกผิดและ match แย่ลง
-  const clickTime = Math.floor(new Date(lead.createdAt).getTime() / 1000);
-  const fbc = lead.fbclid ? `fb.1.${clickTime}.${lead.fbclid}` : undefined;
+  // fbc ต้องใส่ "เวลาที่คลิกโฆษณา" ไม่ใช่เวลาที่ยิง event เข้ามา — ใช้เวลาที่คลิกถูกบันทึก
+  // (ไม่มีคลิกก็ใช้เวลาที่ lead ถูกสร้าง) ถ้าใส่เวลาส่ง Meta จะอ่าน recency ของคลิกผิดและ match แย่ลง
+  // หน่วยต้องเป็น "มิลลิวินาที" ตามเอกสาร Meta — ของเดิมส่งเป็นวินาที Meta อ่านเป็นปี 1970
+  // ถ้าเว็บลูกค้ามี cookie _fbc ของคลิกเดียวกันอยู่แล้ว ใช้ค่านั้นตรง ๆ (เวลาที่ Pixel จดไว้เอง)
+  const fbc = fbcFor(lead.fbclid, click?.fbc, new Date(click?.clickedAt ?? lead.createdAt));
+  // http(s) เท่านั้น และตัดความยาว: ค่านี้มาจากเบราว์เซอร์ของผู้เข้าชม
+  const sourceUrl =
+    click?.landingUrl && /^https?:\/\//i.test(click.landingUrl) ? click.landingUrl.slice(0, 2000) : undefined;
   const externalId = lead.lineUserId ? sha256(lead.lineUserId) : undefined;
   // ปิดไว้เป็นค่าเริ่มต้น — ต้องเลือก "ส่ง" ในการ์ด Meta Ads ของโปรเจกต์นั้นก่อน
   // lead ที่ไม่มีเบอร์ (คนทักเฉย ๆ) ก็ไม่มีอะไรถูกส่งเพิ่ม payload เท่าเดิมทุกอย่าง
@@ -47,8 +52,12 @@ export function buildMetaPayload(config: MetaAdsConfig, ctx: SendContext) {
         event_time: eventTime,
         action_source: "chat",
         event_id: `lead.${lead.id}.${eventName}`,
+        event_source_url: sourceUrl,
         user_data: {
           fbc,
+          // _fbp = รหัสเบราว์เซอร์ที่ Pixel ของเว็บลูกค้าตั้งไว้ — ตัวจับคู่หลักเมื่อไม่มี fbclid
+          fbp: click?.fbp,
+          client_user_agent: click?.userAgent ? click.userAgent.slice(0, 500) : undefined,
           external_id: externalId ? [externalId] : undefined,
           ph,
         },

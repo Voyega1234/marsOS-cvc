@@ -8,7 +8,7 @@ import { LEAD_STATUS_LABEL } from "@/lib/line-tracking/enums";
 
 export const dynamic = "force-dynamic";
 
-// ภาพรวมทุกโปรเจกต์ (dashboard เหมือน Linli) — ทุกคนที่ล้อกอินเห็นเหมือนกัน
+// ภาพรวมทุกโปรเจกต์ — ทุกคนที่ล้อกอินเห็นเหมือนกัน
 export default async function LineTrackingDashboard() {
   const [stats, leadsByProject, statusDist] = await Promise.all([
     getAgencyDashboardStats(),

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import type { TrackingPlatform } from "@/lib/line-tracking/enums";
 import type { AdClick } from "@prisma/client";
 import { classifyChannel } from "./channelService";
+import { saveBrowserIds } from "./clickSignalService";
+import { cleanGoogleBraid, cleanLineClickId, hasBrowserIds, isPlausibleClickId, type BrowserIds } from "@/lib/line-tracking/browserIds";
 
 export function getTrackingBaseUrl(): string {
   // Tracking links / embed must point at the PUBLIC production domain (where the embed
@@ -131,6 +133,8 @@ export interface CapturedParams {
   twclid?: string;
   scclid?: string;
   gaClientId?: string;
+  /** Ids read from a redirect link (gbraid, wbraid, ldtag_cl); stored with the click as browser ids. */
+  browserIds?: BrowserIds;
   landingUrl?: string;
   referrer?: string;
   userAgent?: string;
@@ -159,7 +163,7 @@ export async function recordAdClick(
     scclid: params.scclid,
     referrer: params.referrer,
   });
-  return prisma.adClick.create({
+  const click = await prisma.adClick.create({
     data: {
       projectId,
       clickId,
@@ -185,6 +189,11 @@ export async function recordAdClick(
       lineClickedAt: params.lineClickedAt,
     },
   });
+  // The click was created in this request, so no ownership lookup is needed. Never throws.
+  if (params.browserIds && hasBrowserIds(params.browserIds)) {
+    await saveBrowserIds(projectId, click.clickId, params.browserIds, { trusted: true });
+  }
+  return click;
 }
 
 /**
@@ -209,9 +218,29 @@ function pickParam(sp: URLSearchParams, key: string): string | undefined {
   return undefined;
 }
 
+/** Like pickParam, for click ids: the last value that is not a macro and has the shape of an id. */
+function pickClickId(sp: URLSearchParams, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const all = sp.getAll(key);
+    for (let i = all.length - 1; i >= 0; i--) {
+      const v = all[i].trim();
+      if (v && !MACRO_PLACEHOLDER.test(v) && isPlausibleClickId(v)) return v;
+    }
+  }
+  return undefined;
+}
+
 /** Extract captured params from a URLSearchParams (tracking page query). */
 export function extractParams(sp: URLSearchParams): CapturedParams {
   const g = (k: string) => pickParam(sp, k);
+  const c = (...keys: string[]) => pickClickId(sp, ...keys);
+  const browserIds: BrowserIds = {};
+  const gbraid = cleanGoogleBraid(c("gbraid"));
+  if (gbraid) browserIds.gbraid = gbraid;
+  const wbraid = cleanGoogleBraid(c("wbraid"));
+  if (wbraid) browserIds.wbraid = wbraid;
+  const lineClickId = cleanLineClickId(c("ldtag_cl"));
+  if (lineClickId) browserIds.lineClickId = lineClickId;
   return {
     source: g("utm_source"),
     medium: g("utm_medium"),
@@ -219,13 +248,14 @@ export function extractParams(sp: URLSearchParams): CapturedParams {
     adset: g("utm_adset"),
     content: g("utm_content"),
     keyword: g("utm_term") ?? g("keyword"),
-    gclid: g("gclid"),
-    fbclid: g("fbclid"),
-    ttclid: g("ttclid"),
-    msclkid: g("msclkid"),
-    twclid: g("twclid"),
+    gclid: c("gclid"),
+    fbclid: c("fbclid"),
+    ttclid: c("ttclid"),
+    msclkid: c("msclkid"),
+    twclid: c("twclid"),
     // ScCid = ชื่อพารามิเตอร์ที่เทมเพลต Snapchat ด้านบนใช้จริง เดิมไม่มีในนี้ เลยหล่นทุกครั้ง
-    scclid: g("scclid") ?? g("sc_click_id") ?? g("ScCid"),
-    gaClientId: g("ga_client_id") ?? g("_ga"),
+    scclid: c("scclid", "sc_click_id", "ScCid"),
+    gaClientId: c("ga_client_id", "_ga"),
+    browserIds,
   };
 }

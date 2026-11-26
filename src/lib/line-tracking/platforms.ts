@@ -5,12 +5,14 @@
 import type { ConnectionType, LeadStatus } from "./enums";
 import type { SendContext, SendResult } from "./services/senderTypes";
 import { sendGa4 } from "./services/ga4Service";
+import { sendGoogleAds } from "./services/googleAdsService";
 import { sendMeta } from "./services/metaAdsService";
 import { sendTiktok } from "./services/tiktokAdsService";
 import { sendLineAds } from "./services/lineAdsService";
 import { sendMicrosoft } from "./services/microsoftAdsService";
 import { sendX } from "./services/xAdsService";
 import { sendSnapchat } from "./services/snapchatAdsService";
+import { sendCustomWebhook } from "./services/customWebhookSender";
 
 export type PlatformId =
   | "ga4"
@@ -19,7 +21,9 @@ export type PlatformId =
   | "line_ads"
   | "microsoft"
   | "x"
-  | "snapchat";
+  | "snapchat"
+  | "google_ads"
+  | "custom";
 
 export interface PlatformDef {
   id: PlatformId;
@@ -49,6 +53,11 @@ export interface PlatformDef {
 const ALL_FUNNEL_STATUSES: LeadStatus[] = ["NEW", "CONTACTED", "QUALIFIED", "QUOTED", "BOOKED", "WON", "PAID"];
 const ADS_DEFAULT_ON: LeadStatus[] = ALL_FUNNEL_STATUSES;
 const GA4_DEFAULT_ON: LeadStatus[] = ALL_FUNNEL_STATUSES;
+// Google Ads imports offline conversions that the campaign then optimises on, so it
+// starts with the qualified/closed steps only (same default the sister product ships).
+const GOOGLE_ADS_DEFAULT_ON: LeadStatus[] = ["QUALIFIED", "WON", "PAID"];
+// Custom webhook feeds the customer's own system, so every funnel step is on by default.
+const CUSTOM_DEFAULT_ON: LeadStatus[] = ALL_FUNNEL_STATUSES;
 
 // Cast helpers: senders take their own config types; registry stores generic.
 type AnySend = (config: never, ctx: SendContext) => Promise<SendResult>;
@@ -125,6 +134,26 @@ export const PLATFORMS: PlatformDef[] = [
     blockEvent: "line_block",
     defaultOn: ADS_DEFAULT_ON,
   },
+  {
+    id: "google_ads",
+    label: "Google Ads",
+    connectionType: "GOOGLE_ADS",
+    realImplemented: true,
+    send: s(sendGoogleAds as AnySend),
+    // Offline conversion import keys off the conversionAction resource, so the
+    // event name here is only a human label carried alongside the upload.
+    events: { NEW: "line_lead", CONTACTED: "line_contact", QUALIFIED: "qualified_lead", QUOTED: "quote_sent", BOOKED: "line_booked", WON: "deal_won", PAID: "purchase" },
+    defaultOn: GOOGLE_ADS_DEFAULT_ON,
+  },
+  {
+    id: "custom",
+    label: "Custom Webhook",
+    connectionType: "CUSTOM_WEBHOOK",
+    realImplemented: true,
+    send: s(sendCustomWebhook as AnySend),
+    events: { NEW: "lead_new", CONTACTED: "lead_contacted", QUALIFIED: "lead_qualified", QUOTED: "lead_quoted", BOOKED: "lead_booked", WON: "deal_won", PAID: "purchase" },
+    defaultOn: CUSTOM_DEFAULT_ON,
+  },
 ];
 
 /**
@@ -138,10 +167,12 @@ export const PLATFORM_STANDARD_EVENTS: Record<PlatformId, string[]> = {
   ga4: ["generate_lead", "contact", "qualified_lead", "working_lead", "quote_sent", "close_convert_lead", "purchase", "sign_up", "begin_checkout", "add_to_cart", "add_payment_info", "refund", "booked", "line_block"],
   meta: ["Lead", "Contact", "Purchase", "CompleteRegistration", "SubmitApplication", "Schedule", "StartTrial", "Subscribe", "InitiateCheckout", "AddToCart", "AddPaymentInfo", "ViewContent", "Search", "Booked", "line_block"],
   tiktok: ["SubmitForm", "Contact", "CompleteRegistration", "CompletePayment", "PlaceAnOrder", "InitiateCheckout", "AddToCart", "AddPaymentInfo", "ViewContent", "ClickButton", "Subscribe", "Download", "Search", "line_block"],
-  line_ads: ["add_friend", "message", "qualified", "quote", "conversion", "purchase", "booked", "line_block"],
-  microsoft: ["Lead", "Contact", "QualifiedLead", "QuoteSent", "DealWon", "Purchase", "SignUp", "Booked", "line_block"],
-  x: ["Lead", "Contact", "QualifiedLead", "Quote", "DealWon", "Purchase", "SignUp", "Booked", "line_block"],
-  snapchat: ["SIGN_UP", "CONTACT", "SUBMIT_APPLICATION", "START_CHECKOUT", "RESERVE", "PURCHASE", "ADD_CART", "VIEW_CONTENT", "SUBSCRIBE", "LOGIN", "SEARCH", "START_TRIAL", "ADD_BILLING", "line_block"],
+  line_ads: ["line_uid (LINE User ID — เฉพาะเมื่อใส่ Channel ID)", "external_id (lead id)", "click_id (ldtag_cl จาก URL โฆษณา)", "browser_id (cookie __lt__cid ของ LINE Tag บนเว็บ)", "value + currency", "deduplication_key"],
+  microsoft: ["msclkid (Microsoft click id)", "externalId (LINE id เข้ารหัส SHA-256)", "value + currency", "transactionId", "event time"],
+  x: ["twclid (ต้องมีคลิกจากโฆษณา X)", "value + currency", "conversion id", "event time"],
+  snapchat: ["sc_click_id (scclid)", "sc_cookie1 (cookie _scid ของเว็บ)", "client_user_agent + event_source_url (หน้าเว็บที่เข้ามา)", "external_id (LINE id เข้ารหัส SHA-256)", "value + currency", "order_id"],
+  google_ads: ["line_lead", "line_contact", "qualified_lead", "quote_sent", "line_booked", "deal_won", "purchase"],
+  custom: ["lead_new", "lead_contacted", "lead_qualified", "lead_quoted", "lead_booked", "deal_won", "purchase"],
 };
 
 /**
@@ -198,13 +229,15 @@ export function platformLabel(id: string): string {
  * is ever sent; only click ids, hashed pseudonymous ids, and conversion values.
  */
 export const PLATFORM_DATA_SENT: Record<PlatformId, string[]> = {
-  ga4: ["client_id (GA client id / lead id)", "user_id (LINE id)", "value + currency", "transaction_id (ตอน purchase/paid)", "source, campaign, keyword", "project_id, lead_id"],
-  meta: ["fbc (จาก fbclid)", "external_id (LINE id เข้ารหัส SHA-256)", "ph (เบอร์เข้ารหัส SHA-256 — เฉพาะโปรเจกต์ที่เปิดสวิตช์ในการ์ด Meta Ads)", "value + currency (เฉพาะ event ปิดการขาย)", "order_id"],
-  tiktok: ["ttclid", "external_id (เข้ารหัส SHA-256)", "value + currency", "order_id"],
-  line_ads: ["line_user_id", "value + currency", "order_id"],
+  ga4: ["client_id (GA client id / lead id)", "session_id (GA session ของเว็บ — เฉพาะภายใน 24 ชม. หลังเริ่ม session)", "user_id (LINE id)", "value + currency", "transaction_id (ตอน purchase/paid)", "source, campaign, keyword", "project_id, lead_id"],
+  meta: ["fbc (จาก fbclid หรือ cookie _fbc)", "fbp (cookie _fbp ของเว็บ)", "client_user_agent + event_source_url (หน้าเว็บที่เข้ามา)", "external_id (LINE id เข้ารหัส SHA-256)", "ph (เบอร์เข้ารหัส SHA-256 — เฉพาะโปรเจกต์ที่เปิดสวิตช์ในการ์ด Meta Ads)", "value + currency (เฉพาะ event ปิดการขาย)", "order_id"],
+  tiktok: ["ttclid", "ttp (cookie _ttp ของเว็บ)", "user_agent + page url (หน้าเว็บที่เข้ามา)", "external_id (เข้ารหัส SHA-256)", "value + currency", "order_id"],
+  line_ads: ["line_user_id", "click_id (ldtag_cl จาก URL โฆษณา)", "browser_id (cookie __lt__cid ของ LINE Tag บนเว็บ)", "value + currency", "order_id"],
   microsoft: ["msclkid", "conversion value + currency", "conversion time"],
   x: ["twclid", "external_id (เข้ารหัส SHA-256)", "value + currency", "conversion id"],
-  snapchat: ["sc_click_id (scclid)", "external_id (เข้ารหัส SHA-256)", "value + currency", "order_id"],
+  snapchat: ["sc_click_id (scclid)", "sc_cookie1 (cookie _scid ของเว็บ)", "client_user_agent + event_source_url (หน้าเว็บที่เข้ามา)", "external_id (เข้ารหัส SHA-256)", "value + currency", "order_id"],
+  google_ads: ["conversion action (ชื่อ event ที่ตั้งไว้ใน Google Ads — event ที่ส่งเป็นแค่ป้ายกำกับ)", "gclid (หรือ gbraid / wbraid) จากลิงก์โฆษณา", "value + currency", "order_id", "เวลาที่เกิด conversion"],
+  custom: ["event + sent_at", "project (id, name)", "lead (id, status, LINE id, click id, source/campaign/keyword)", "click ids + cookie ของเว็บ (gclid, fbclid, ttclid, msclkid, twclid, scclid, fbp, fbc, ttp, scid, GA client/session id)", "landing url, referrer, user agent, เวลาคลิก", "value + currency", "order_id"],
 };
 
 // ---- Rule shape (stored as JSON on ConversionRule.platformsJson) -----------
@@ -255,4 +288,21 @@ export function defaultPlatformsForStatus(status: LeadStatus): PlatformsConfig {
     cfg[p.id] = { enabled: p.defaultOn.includes(status), eventName };
   }
   return cfg;
+}
+
+/**
+ * Add the platforms a stored rule has no entry for (a platform shipped after the
+ * rule was written), copying the registry event name but switched OFF. Default-on
+ * only applies to rules created for a new project (seedDefaultRules); a stored rule
+ * never starts sending to a destination nobody turned on. Returns the ids it added.
+ */
+export function fillMissingPlatforms(current: PlatformsConfig, defaults: PlatformsConfig): string[] {
+  const added: string[] = [];
+  for (const [pid, def] of Object.entries(defaults)) {
+    if (!current[pid]) {
+      current[pid] = { ...def, enabled: false };
+      added.push(pid);
+    }
+  }
+  return added;
 }

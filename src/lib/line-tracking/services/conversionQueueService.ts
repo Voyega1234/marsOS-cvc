@@ -11,7 +11,8 @@ import { isConvertCakeProject } from "./convertCakeSheetPlan";
 import { ccPlatformsForStatus } from "./convertCakeConversions";
 import type { ConnectionType } from "@/lib/line-tracking/enums";
 import type { PlatformsConfig } from "@/lib/line-tracking/platforms";
-import type { SendContext, SendResult } from "./senderTypes";
+import type { ClickSignals, SendContext, SendResult } from "./senderTypes";
+import { loadClickSignals } from "./clickSignalService";
 import type { ConversionEvent, Lead } from "@prisma/client";
 
 /**
@@ -165,7 +166,8 @@ const SEND_CLAIM_SECONDS = 300;
 async function dispatch(
   event: ConversionEvent & { lead: Lead },
   projectName: string,
-  configs: ConfigCache
+  configs: ConfigCache,
+  clicks: Map<string, ClickSignals>
 ): Promise<SendResult> {
   const ctx: SendContext = {
     lead: event.lead,
@@ -174,6 +176,7 @@ async function dispatch(
     currency: event.currency,
     projectId: event.projectId,
     projectName,
+    click: event.lead.clickId ? clicks.get(event.lead.clickId) : undefined,
   };
 
   const def = getPlatform(event.platform);
@@ -221,6 +224,9 @@ export async function processQueue(opts: {
 
   const summary: ProcessSummary = { processed: 0, sent: 0, failed: 0, skipped: 0 };
   const configs: ConfigCache = new Map();
+  // What the platforms match on beyond the click id (GA session, browser ids, user agent)
+  // lives with the click, not the lead. One read for the whole run; never throws.
+  const clicks = await loadClickSignals(events.map((e) => e.lead.clickId));
 
   for (const event of events) {
     // The queue runs from the LINE webhook, the LINE Login callback, the staff buttons and
@@ -239,7 +245,7 @@ export async function processQueue(opts: {
     summary.processed++;
     let result: SendResult;
     try {
-      result = await dispatch(event, event.project.name, configs);
+      result = await dispatch(event, event.project.name, configs, clicks);
     } catch (err) {
       result = {
         ok: false,

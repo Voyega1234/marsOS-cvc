@@ -4,6 +4,12 @@
 // see the fallback chain below.)
 // It captures UTM + gclid/fbclid/ttclid + GA client id, records a click via the
 // ingest API, then points every element with [data-line-add] to /line/start.
+// It also reads the browser ids the ad platforms match on (GA4 session, _fbp, _fbc, _ttp, LINE Tag
+// and Snapchat cookies),
+// at page load and again when the visitor presses the LINE button.
+//
+// The snippet is a template literal: write no backtick and no dollar-brace inside it, and
+// double every backslash.
 
 const SNIPPET = `(function(){
   // Locate OUR script tag. document.currentScript is null when a tag manager injects
@@ -44,16 +50,42 @@ const SNIPPET = `(function(){
     var m = document.cookie.match(/_ga=GA\\d\\.\\d\\.(\\d+\\.\\d+)/);
     return m ? m[1] : '';
   }
+  // Browser ids the ad platforms match a later conversion on: the GA client id, the GA4
+  // session cookie of every stream on the page (_ga_<STREAM>), Meta's _fbp / _fbc and
+  // TikTok's _ttp. Read fresh on every call: at page load the analytics tags have often
+  // not set their cookies yet, so the read that counts is the one taken when the visitor
+  // presses the LINE button. The server checks every value before it keeps it.
+  function browserIds(){
+    var o = {}, gs = [], parts = (document.cookie || '').split(';');
+    for (var i = 0; i < parts.length; i++){
+      var p = parts[i], eq = p.indexOf('=');
+      if (eq < 0) continue;
+      var k = p.slice(0, eq).replace(/^ +/, ''), v = p.slice(eq + 1);
+      if (k.indexOf('_ga_') === 0){ if (gs.length < 3) gs.push(k.slice(4) + ':' + v); }
+      else if (k === '_fbp') o.fbp = v;
+      else if (k === '_fbc') o.fbc = v;
+      else if (k === '_ttp') o.ttp = v;
+      else if (k === '__lt__cid') o.line_browser_id = v;
+      else if (k === '_scid') o.scid = v;
+    }
+    var ga = gaClientId();
+    if (ga) o.ga_client_id = ga;
+    if (gs.length) o.ga_sessions = gs.join('~');
+    return o;
+  }
 
   var payload = {
     utm_source: qp('utm_source'), utm_medium: qp('utm_medium'),
     utm_campaign: qp('utm_campaign'), utm_adset: qp('utm_adset'),
     utm_content: qp('utm_content'), utm_term: qp('utm_term'),
     gclid: qp('gclid'), fbclid: qp('fbclid'), ttclid: qp('ttclid'),
-    msclkid: qp('msclkid'), twclid: qp('twclid'), scclid: qp('scclid') || qp('sc_click_id'),
+    msclkid: qp('msclkid'), twclid: qp('twclid'), scclid: qp('scclid') || qp('sc_click_id') || qp('ScCid'),
+    gbraid: qp('gbraid'), wbraid: qp('wbraid'), line_click_id: qp('ldtag_cl'),
     ga_client_id: gaClientId(),
     landing_url: location.href, referrer: document.referrer
   };
+  var firstIds = browserIds();
+  for (var idKey in firstIds){ payload[idKey] = firstIds[idKey]; }
 
   var LS = 'linehub_click_' + project;
   // Recognise every common "go to our LINE OA" URL shape. Besides LINE's own hosts
@@ -75,6 +107,10 @@ const SNIPPET = `(function(){
         // would need a CORS preflight that beacons can't do → silently dropped).
         var u = hub + '/api/track/' + encodeURIComponent(project) +
           '?event=lineclick&click_id=' + encodeURIComponent(clickId);
+        // The browser ids as they are right now. This is also the only read a returning
+        // visitor gets: their stored click is reused and no new page-load record is sent.
+        var ids = browserIds();
+        for (var idKey in ids){ u += '&' + idKey + '=' + encodeURIComponent(ids[idKey]); }
         if (navigator.sendBeacon) navigator.sendBeacon(u);
         else fetch(u, { method: 'POST', keepalive: true, mode: 'no-cors' });
       } catch (e) {}
@@ -107,7 +143,8 @@ const SNIPPET = `(function(){
   }
 
   var existing = null; try { existing = localStorage.getItem(LS); } catch(e){}
-  var hasAd = payload.gclid || payload.fbclid || payload.ttclid || payload.msclkid || payload.twclid || payload.scclid || payload.utm_source;
+  var hasAd = payload.gclid || payload.fbclid || payload.ttclid || payload.msclkid || payload.twclid || payload.scclid ||
+    payload.gbraid || payload.wbraid || payload.line_click_id || payload.utm_source;
   if (existing && !hasAd){ wire(existing); return; }
 
   fetch(hub + '/api/track/' + encodeURIComponent(project), {

@@ -65,6 +65,8 @@ export async function upsertLeadFromClick(params: {
   let click = params.clickId
     ? await prisma.adClick.findUnique({ where: { clickId: params.clickId } })
     : null;
+  // An explicit click id must belong to this project.
+  if (click && click.projectId !== params.projectId) click = null;
 
   // LIFF / LINE-Login entry points stamp the user's click on the LineUser row
   // BEFORE the follow event arrives — prefer that exact click (1:1 per person)

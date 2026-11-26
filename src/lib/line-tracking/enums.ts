@@ -8,23 +8,27 @@ export const CONNECTION_TYPES = [
   "LINE",
   "GOOGLE_SHEET",
   "GA4",
+  "GOOGLE_ADS",
   "META_ADS",
   "TIKTOK_ADS",
   "LINE_ADS",
   "MICROSOFT_ADS",
   "X_ADS",
   "SNAPCHAT_ADS",
+  "CUSTOM_WEBHOOK",
 ] as const;
 export type ConnectionType = (typeof CONNECTION_TYPES)[number];
 
 /** Ad connectors used for setup grouping (everything except LINE/Sheet/GA4). */
 export const AD_CONNECTION_TYPES: ConnectionType[] = [
+  "GOOGLE_ADS",
   "META_ADS",
   "TIKTOK_ADS",
   "LINE_ADS",
   "MICROSOFT_ADS",
   "X_ADS",
   "SNAPCHAT_ADS",
+  "CUSTOM_WEBHOOK",
 ];
 
 export const CONNECTION_STATUS = ["NOT_CONNECTED", "CONNECTED", "ERROR"] as const;
@@ -90,10 +94,12 @@ export const CONNECTION_LABEL: Record<ConnectionType, string> = {
   LINE: "LINE OA",
   GOOGLE_SHEET: "Google Sheet",
   GA4: "GA4",
+  GOOGLE_ADS: "Google Ads",
   META_ADS: "Meta Ads",
   TIKTOK_ADS: "TikTok Ads",
   LINE_ADS: "LINE Ads",
   MICROSOFT_ADS: "Microsoft Ads",
   X_ADS: "X Ads",
   SNAPCHAT_ADS: "Snapchat Ads",
+  CUSTOM_WEBHOOK: "Custom Webhook",
 };

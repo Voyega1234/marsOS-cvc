@@ -3,10 +3,12 @@ import { isRealMode } from "@/lib/line-tracking/connectors";
 import type { ConnectionType } from "@/lib/line-tracking/enums";
 import { getEffectiveConfig } from "./connectionStore";
 import { testGa4 } from "./ga4Service";
+import { testGoogleAds } from "./googleAdsService";
+import { validateDestination } from "./customWebhookSender";
 import { META_API_VERSION, sendMetaTestEvent } from "./metaAdsService";
 import { getGoogleAccessToken, SHEETS_SCOPE } from "./googleAuth";
 import { getTrackingBaseUrl } from "./trackingService";
-import type { SheetConfig, Ga4Config, MetaAdsConfig, LineConfig } from "@/lib/line-tracking/connectors";
+import type { SheetConfig, Ga4Config, MetaAdsConfig, LineConfig, LineAdsConfig, MicrosoftAdsConfig, GoogleAdsConfig, CustomWebhookConfig } from "@/lib/line-tracking/connectors";
 
 export interface TestResult {
   ok: boolean;
@@ -19,6 +21,12 @@ export interface TestResult {
    */
   warnOnly?: boolean;
 }
+
+const UNVERIFIED_NOTE =
+  "แต่ยังไม่ได้ยืนยันกับแพลตฟอร์ม (ไม่มี endpoint ให้ตรวจสอบ) โปรดดูผลจริงที่หน้า Conversions หลังยิงครั้งแรก";
+
+const MICROSOFT_LEGACY_MESSAGE =
+  "Microsoft Ads เปลี่ยนวิธีเชื่อมต่อแล้ว ใส่ UET Tag ID และ Conversions API Token ใหม่ในหน้าเชื่อมต่อ";
 
 /**
  * Test a connector. GA4 and Google Sheet run REAL checks when credentials are
@@ -67,11 +75,47 @@ export async function testConnection(
       }
       break;
     }
-    case "TIKTOK_ADS":
-    case "LINE_ADS":
-    case "MICROSOFT_ADS":
+    case "LINE_ADS": {
+      const c = config as LineAdsConfig;
+      if (!real) {
+        result = { ok: false, mock: true, message: "ยังไม่ได้ใส่ LINE Tag ID / Tag Access Token — เช็คช่องที่ต้องกรอกให้ครบ" };
+      } else if (c.channelId && !/^\d{6,}$/.test(c.channelId.trim())) {
+        // A Channel ID is all digits. The commonest mistake is pasting the OA id (@abc)
+        // or the channel secret, which makes LINE reject every event that carries a line_uid.
+        result = { ok: false, mock: false, message: "Channel ID ต้องเป็นตัวเลขล้วน (จาก LINE Developers Console) · ที่กรอกมาไม่ใช่รูปแบบนั้น" };
+      } else {
+        const uid = c.channelId
+          ? "จะส่ง LINE User ID ไปจับคู่ด้วย"
+          : "ยังไม่ได้ใส่ Channel ID จะจับคู่ด้วย external_id อย่างเดียว (แม่นน้อยกว่า)";
+        result = { ok: true, mock: false, message: `กรอก LINE Ads ครบแล้ว (${uid}) ${UNVERIFIED_NOTE}` };
+      }
+      break;
+    }
+    case "MICROSOFT_ADS": {
+      const c = config as MicrosoftAdsConfig;
+      if (!real) {
+        result = c.customerId || c.developerToken || c.accessToken
+          ? { ok: false, mock: false, message: MICROSOFT_LEGACY_MESSAGE }
+          : { ok: false, mock: true, message: "ยังไม่ได้ใส่ UET Tag ID / Conversions API Token — เช็คช่องที่ต้องกรอกให้ครบ" };
+      } else if (!/^\d{5,}$/.test((c.tagId ?? "").trim())) {
+        // UET Tag ID is numeric. Pasting the tag NAME here is the usual slip.
+        result = { ok: false, mock: false, message: "UET Tag ID ต้องเป็นตัวเลขล้วน คัดลอกจาก Microsoft Advertising → Tools → UET tag" };
+      } else {
+        result = { ok: true, mock: false, message: `กรอก Microsoft Ads ครบแล้ว ${UNVERIFIED_NOTE}` };
+      }
+      break;
+    }
     case "X_ADS":
     case "SNAPCHAT_ADS": {
+      // These platforms have no credential-validation endpoint we can call without
+      // spending a real conversion, so this only confirms the fields are filled in —
+      // and says so, instead of implying a pass it did not check.
+      result = real
+        ? { ok: true, mock: false, message: `ใส่ Credentials ครบแล้ว ${UNVERIFIED_NOTE}` }
+        : { ok: false, mock: true, message: "ยังใส่ Credentials ไม่ครบ — เช็คช่องที่ต้องกรอกให้ครบ" };
+      break;
+    }
+    case "TIKTOK_ADS": {
       // Field-presence check (real API test-event pending). Reports pass only when the
       // required credentials are filled, so the team sees exactly what's still missing.
       result = real
@@ -79,13 +123,36 @@ export async function testConnection(
         : { ok: false, mock: true, message: "ยังใส่ Credentials ไม่ครบ — เช็คช่องที่ต้องกรอกให้ครบ" };
       break;
     }
+    case "GOOGLE_ADS": {
+      if (!real) {
+        result = { ok: false, mock: true, message: "ยังกรอก credentials ไม่ครบ Google Ads ต้องครบทั้ง 6 ค่าถึงจะอัปโหลด conversion จริงได้" };
+      } else {
+        const r = await testGoogleAds(config as GoogleAdsConfig);
+        result = { ok: r.ok, mock: false, message: r.message };
+      }
+      break;
+    }
+    case "CUSTOM_WEBHOOK": {
+      const c = config as CustomWebhookConfig;
+      if (!c.destinationUrl) {
+        result = { ok: true, mock: true, message: "โหมด Mock ยังไม่ได้ใส่ Destination URL" };
+      } else {
+        const dest = validateDestination(c.destinationUrl);
+        result = dest.ok
+          ? {
+              ok: true,
+              mock: false,
+              message: `URL ปลายทางใช้ได้: ${dest.url.host} · ยังไม่ได้ส่ง request ทดสอบ จะรู้ผลจริงเมื่อมี conversion แรก`,
+            }
+          : { ok: false, mock: false, message: dest.error };
+      }
+      break;
+    }
     default:
       result = { ok: false, mock: true, message: "Unknown connector" };
   }
 
-  await prisma.projectConnection.update({
-    where: { projectId_type: { projectId, type } },
-    data: {
+  const testRecord = {
       lastTestStatus: result.ok ? "PASS" : "FAIL",
       lastTestAt: new Date(),
       lastError: result.ok ? null : result.message,
@@ -99,7 +166,12 @@ export async function testConnection(
         : result.warnOnly
           ? "NOT_CONNECTED"
           : "ERROR",
-    },
+  };
+  // Upsert: a connector type added after the project was created has no row yet.
+  await prisma.projectConnection.upsert({
+    where: { projectId_type: { projectId, type } },
+    create: { projectId, type, configJson: "{}", ...testRecord },
+    update: testRecord,
   });
 
   return result;

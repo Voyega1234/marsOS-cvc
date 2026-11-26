@@ -37,6 +37,29 @@ export const CONNECTOR_GUIDE: Partial<Record<ConnectionType, ConnectorGuide>> = 
     ],
     link: { label: "เปิด Google Analytics", url: "https://analytics.google.com/" },
   },
+  GOOGLE_ADS: {
+    intro: "ส่ง Offline Conversion (ยอดขายจริงจาก LINE) กลับเข้า Google Ads ด้วย gclid — จับคู่ได้เฉพาะ lead ที่มาจากคลิกโฆษณา Google (มี gclid / gbraid / wbraid)",
+    steps: [
+      "เข้า Google Ads → Goals → Conversions → New conversion action → Import → CRM, file uploads → Track conversions from clicks → สร้าง conversion action แล้วก็อป “Conversion Action ID” (เลขท้าย URL ctId=...) มาวางช่อง Conversion Action ID",
+      "ก็อป Customer ID (เลข 10 หลักมุมขวาบนของ Google Ads ใส่เฉพาะตัวเลข ไม่ต้องมีขีด) มาวางช่อง Customer ID",
+      "เข้าบัญชี MCC → Admin → API Center → ก็อป Developer Token มาวางช่อง Developer Token (ต้องขออนุมัติก่อนใช้กับบัญชีจริง)",
+      "เข้า Google Cloud Console → APIs & Services → Credentials → สร้าง OAuth Client ID → ก็อป Client ID และ Client Secret มาวางช่อง OAuth Client ID / OAuth Client Secret",
+      "เข้า OAuth Playground (developers.google.com/oauthplayground) → ตั้งค่าใช้ Client ID/Secret ของตัวเอง → เลือก scope https://www.googleapis.com/auth/adwords → ขอ Refresh Token → วางช่อง OAuth Refresh Token",
+      "ถ้าเข้าผ่านบัญชีศูนย์กลาง (MCC) ใส่ Login Customer ID (ตัวเลขล้วน) ด้วย — ไม่เข้าผ่าน MCC ปล่อยว่าง",
+      "กด Save → Test Connection (ระบบเช็คของจริงว่า Conversion Action ID นี้มีอยู่ในบัญชี โดยไม่ส่ง conversion) แล้วไปตรวจสวิตช์ Google Ads ที่หน้า Conversion Mapping ว่าเปิดในสถานะที่ต้องการ (โปรเจกต์เก่าจะปิดอยู่จนกว่าจะเปิดเอง)",
+    ],
+    link: { label: "เปิด Google Ads", url: "https://ads.google.com/aw/conversions" },
+  },
+  CUSTOM_WEBHOOK: {
+    intro: "ส่ง Conversion เป็น JSON เข้าระบบของคุณเอง (CRM / Data Warehouse / Make / n8n) ผ่านการยิง POST — ใช้เมื่ออยากได้ event เดียวกับที่ส่งเข้าแพลตฟอร์มโฆษณา",
+    steps: [
+      "ที่ระบบปลายทาง สร้าง endpoint ที่รับ POST แบบ JSON และเข้าถึงได้จากอินเทอร์เน็ต (ต้องเป็น https:// เท่านั้น ที่อยู่ภายในเครือข่าย/localhost ใช้ไม่ได้) แล้ววาง URL ในช่อง Destination URL",
+      "(ไม่บังคับ) ถ้าปลายทางต้องมี token ใส่ Custom Headers เป็น JSON เช่น {\"Authorization\":\"Bearer xxxxx\"} — host / content-type / content-length / x-marsos-signature ตั้งทับไม่ได้",
+      "(ไม่บังคับ) ใส่ Signing Secret แล้วระบบจะเซ็นเนื้อ request ด้วย HMAC-SHA256 ส่งใน header x-marsos-signature (ค่า hex) — ฝั่งปลายทางคำนวณจาก body ดิบด้วย secret เดียวกันแล้วเทียบ เพื่อยืนยันว่ามาจาก MarsOS จริง",
+      "กด Save → Test Connection (ตรวจแค่ว่า URL ใช้ได้ ยังไม่ส่ง request ทดสอบ ผลจริงดูที่หน้า Conversions หลังยิงครั้งแรก)",
+      "ไปตรวจสวิตช์ Custom Webhook ที่หน้า Conversion Mapping ว่าเปิดในสถานะที่ต้องการ (โปรเจกต์เก่าจะปิดอยู่จนกว่าจะเปิดเอง)",
+    ],
+  },
   META_ADS: {
     intro: "ส่ง Conversion กลับเข้า Meta (Facebook/Instagram Ads) ผ่าน Conversions API",
     steps: [
@@ -58,6 +81,50 @@ export const CONNECTOR_GUIDE: Partial<Record<ConnectionType, ConnectorGuide>> = 
       "กด Save → Test Connection",
     ],
     link: { label: "เปิด TikTok Ads Manager", url: "https://ads.tiktok.com/" },
+  },
+  LINE_ADS: {
+    intro: "ส่ง Conversion กลับเข้า LINE Ads ผ่าน LINE Conversion API (ฝั่งเซิร์ฟเวอร์ ใช้คู่กับ LINE Tag บนเว็บ)",
+    steps: [
+      "เข้า LINE Business Manager → LINE Tag → เลือก Tag ของลูกค้า",
+      "ก็อป “LINE Tag ID” มาวางช่อง LINE Tag ID",
+      "เปิดหน้า Conversion API ของ Tag → ออก “Tag Access Token” → ก็อปมาวางช่อง Tag Access Token",
+      "(ไม่บังคับ แต่แนะนำ) ใส่ Channel ID (ตัวเลขล้วน จาก LINE Developers) — ใส่แล้วระบบจะส่ง LINE User ID ไปจับคู่ด้วยทำให้แม่นกว่ามาก LINE บังคับให้มี Channel ID คู่กันเสมอ",
+      "กด Save → Test Connection (ตรวจแค่ว่ากรอกครบและรูปแบบถูก ผลจริงดูที่หน้า Conversions หลังยิงครั้งแรก)",
+    ],
+    link: { label: "เปิด LINE Business Manager", url: "https://tag.line.me/" },
+  },
+  MICROSOFT_ADS: {
+    intro: "ส่ง Conversion กลับเข้า Microsoft Ads ผ่าน Conversions API (ผูกกับ UET Tag) — ถ้าเคยตั้งแบบเดิม (Customer ID / Developer Token) ต้องใส่ UET Tag ID และ Token ใหม่",
+    steps: [
+      "เข้า Microsoft Advertising → Tools → UET tag → เลือก tag ของลูกค้า",
+      "ก็อป “UET Tag ID” (ตัวเลขล้วน) มาวางช่อง UET Tag ID",
+      "กด แก้ไข tag → เปิด “Use Conversions API” → กด Copy Token → วางช่อง Conversions API Token",
+      "(ไม่บังคับ) ใส่ชื่อ Conversion Goal ในช่อง Conversion Goal Name ถ้าอยากให้ตรงกับเป้าหมายที่ตั้งไว้",
+      "ต้องมี Conversion Goal แบบ Event ที่ใช้ UET tag นี้ใน Microsoft Advertising ไว้ก่อน",
+      "กด Save → Test Connection (ตรวจแค่ว่ากรอกครบและรูปแบบถูก ผลจริงดูที่หน้า Conversions หลังยิงครั้งแรก)",
+    ],
+    link: { label: "เปิด Microsoft Advertising", url: "https://ads.microsoft.com/" },
+  },
+  X_ADS: {
+    intro: "ส่ง Conversion กลับเข้า X Ads ผ่าน Conversion API — จับคู่ได้เฉพาะ lead ที่มี twclid (มาจากคลิกโฆษณา X)",
+    steps: [
+      "เข้า X Ads Manager → Tools → Events Manager → เลือก Pixel ของลูกค้า",
+      "ก็อป “Pixel ID” มาวางช่อง Pixel ID",
+      "ออก Access Token แบบ OAuth 1.0a user context ของผู้ใช้ที่มีสิทธิ์ AD_MANAGER ขึ้นไป → วางช่อง Access Token",
+      "(ไม่บังคับ) ใส่ Default Event ID ถ้าต้องการกำหนด event ที่ตั้งไว้ใน Events Manager",
+      "กด Save → Test Connection (ตรวจแค่ว่ากรอกครบ ผลจริงดูที่หน้า Conversions หลังยิงครั้งแรก)",
+    ],
+    link: { label: "เปิด X Ads Manager", url: "https://ads.x.com/" },
+  },
+  SNAPCHAT_ADS: {
+    intro: "ส่ง Conversion กลับเข้า Snapchat Ads ผ่าน Conversions API",
+    steps: [
+      "เข้า Snapchat Ads Manager → Events Manager → เลือก Pixel ของลูกค้า",
+      "ก็อป “Pixel ID” มาวางช่อง Pixel ID",
+      "ไปที่ Conversions API → สร้าง/ก็อป Access Token → วางช่อง Access Token",
+      "กด Save → Test Connection (ตรวจแค่ว่ากรอกครบ ผลจริงดูที่หน้า Conversions หลังยิงครั้งแรก)",
+    ],
+    link: { label: "เปิด Snapchat Ads Manager", url: "https://ads.snapchat.com/" },
   },
   GOOGLE_SHEET: {
     intro: "ซิงก์ Lead ไป-กลับกับ Google Sheet ให้ทีมเซลส์อัปเดตสถานะได้",

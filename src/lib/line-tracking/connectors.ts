@@ -31,6 +31,14 @@ export interface LineConfig {
   requireVerified?: "off" | "on";
 }
 
+export interface CustomWebhookConfig {
+  destinationUrl?: string;
+  /** Extra request headers as a JSON object string, e.g. {"Authorization":"Bearer x"}. */
+  headersJson?: string;
+  /** When set, each request carries an x-marsos-signature HMAC-SHA256 of the body. */
+  signingSecret?: string;
+}
+
 export interface SheetConfig {
   sheetUrl?: string;
   sheetId?: string;
@@ -77,15 +85,24 @@ export interface TiktokAdsConfig {
 }
 
 export interface LineAdsConfig {
+  /** LINE Tag ID — the path segment of the Conversion API endpoint. */
   tagId?: string;
+  /** Tag Access Token issued for that tag in LINE Business Manager. */
   accessToken?: string;
+  /** LINE channel id. Required before line_uid may be sent. */
+  channelId?: string;
 }
 
 export interface MicrosoftAdsConfig {
+  /** UET Tag ID — the path segment of the Conversions API endpoint. */
+  tagId?: string;
+  /** Conversions API token for that UET tag. */
+  apiToken?: string;
+  conversionName?: string;
+  /** Legacy keys of the old offline-conversion connector; kept only to detect old setups. */
   customerId?: string;
   developerToken?: string;
   accessToken?: string;
-  conversionName?: string;
 }
 
 export interface XAdsConfig {
@@ -109,7 +126,8 @@ export type ConnectorConfig =
   | LineAdsConfig
   | MicrosoftAdsConfig
   | XAdsConfig
-  | SnapchatAdsConfig;
+  | SnapchatAdsConfig
+  | CustomWebhookConfig;
 
 export interface ConnectorField {
   key: string;
@@ -213,6 +231,50 @@ export const CONNECTOR_META: Record<ConnectionType, ConnectorMeta> = {
       { key: "apiSecret", label: "API Secret", secret: true },
     ],
   },
+  GOOGLE_ADS: {
+    type: "GOOGLE_ADS",
+    title: "Connect Google Ads",
+    description: "อัปโหลด Offline Conversion (ยอดขายจริงจาก LINE) กลับเข้า Google Ads ด้วย gclid",
+    // Mirrors exactly what googleAdsService.hasFullOAuth() requires for a real
+    // upload — anything less and the sender stays in mock mode.
+    realKeys: [
+      "developerToken",
+      "customerId",
+      "conversionActionId",
+      "oauthClientId",
+      "oauthClientSecret",
+      "refreshToken",
+    ],
+    realImplemented: true,
+    fields: [
+      { key: "customerId", label: "Customer ID (เลข 10 หลักมุมขวาบนของ Google Ads ใส่เฉพาะตัวเลข ไม่ต้องมีขีด)", placeholder: "1234567890" },
+      {
+        key: "conversionActionId",
+        label: "Conversion Action ID (สร้าง Conversion แบบ Import → Offline conversions ก่อน แล้วดูเลขท้าย URL ตอนเปิดดู conversion นั้น ctId=...)",
+        placeholder: "987654321",
+      },
+      {
+        key: "developerToken",
+        label: "Developer Token (จากบัญชี MCC → API Center ต้องขออนุมัติก่อนใช้กับบัญชีจริง)",
+        secret: true,
+        placeholder: "AbCdEfGhIjKlMnOp",
+      },
+      { key: "oauthClientId", label: "OAuth Client ID", secret: true, placeholder: "1234-abcd.apps.googleusercontent.com" },
+      { key: "oauthClientSecret", label: "OAuth Client Secret", secret: true, placeholder: "GOCSPX-xxxxxxxxxxxx" },
+      {
+        key: "refreshToken",
+        label: "OAuth Refresh Token (สร้างครั้งเดียวด้วย OAuth Playground scope https://www.googleapis.com/auth/adwords)",
+        secret: true,
+        placeholder: "1//0gxxxxxxxxxxxxxxxx",
+      },
+      {
+        key: "loginCustomerId",
+        label: "Login Customer ID (MCC) — ใส่เฉพาะกรณีเข้าผ่านบัญชีศูนย์กลาง ตัวเลขล้วน",
+        optional: true,
+        placeholder: "1234567890",
+      },
+    ],
+  },
   META_ADS: {
     type: "META_ADS",
     title: "Connect Meta Ads",
@@ -253,24 +315,34 @@ export const CONNECTOR_META: Record<ConnectionType, ConnectorMeta> = {
   LINE_ADS: {
     type: "LINE_ADS",
     title: "Connect LINE Ads (LAP)",
-    description: "ส่ง Conversion เข้า LINE Ads Platform (real เมื่อใส่ credentials)",
+    description: "ส่ง Conversion เข้า LINE Ads Platform ผ่าน LINE Conversion API (real เมื่อใส่ credentials)",
     realKeys: ["tagId", "accessToken"],
     realImplemented: true,
     fields: [
-      { key: "tagId", label: "LINE Tag ID", placeholder: "xxxxxxxx" },
-      { key: "accessToken", label: "Access Token", secret: true },
+      { key: "tagId", label: "LINE Tag ID", placeholder: "12345678-90ab-cdef-1234-567890abcdef" },
+      { key: "accessToken", label: "Tag Access Token (ออกจาก LINE Business Manager → LINE Tag → Conversion API)", secret: true },
+      {
+        key: "channelId",
+        label: "Channel ID (ไม่บังคับ — ใส่แล้วระบบจะส่ง LINE User ID ไปจับคู่ด้วย แม่นกว่ามาก)",
+        optional: true,
+        placeholder: "2001234567",
+      },
     ],
   },
   MICROSOFT_ADS: {
     type: "MICROSOFT_ADS",
     title: "Connect Microsoft / Bing Ads",
-    description: "อัปโหลด Offline Conversion เข้า Microsoft Ads (real เมื่อใส่ credentials)",
-    realKeys: ["developerToken", "customerId", "accessToken"],
+    description: "ส่ง Conversion เข้า Microsoft Ads ผ่าน Conversions API (real เมื่อใส่ credentials)",
+    realKeys: ["tagId", "apiToken"],
     realImplemented: true,
     fields: [
-      { key: "customerId", label: "Customer ID", placeholder: "1234567" },
-      { key: "developerToken", label: "Developer Token", secret: true },
-      { key: "accessToken", label: "Access Token", secret: true },
+      { key: "tagId", label: "UET Tag ID", placeholder: "123456789" },
+      {
+        key: "apiToken",
+        label: "Conversions API Token (Microsoft Advertising → UET → แก้ไข tag → Use Conversions API → Copy Token)",
+        secret: true,
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      },
       { key: "conversionName", label: "Conversion Goal Name", optional: true, placeholder: "Lead" },
     ],
   },
@@ -282,8 +354,8 @@ export const CONNECTOR_META: Record<ConnectionType, ConnectorMeta> = {
     realImplemented: true,
     fields: [
       { key: "pixelId", label: "Pixel ID", placeholder: "o1abc" },
-      { key: "accessToken", label: "Access Token", secret: true },
-      { key: "eventId", label: "Default Event ID", optional: true },
+      { key: "accessToken", label: "Access Token (ต้องเป็น token แบบ OAuth 1.0a user context ของผู้ใช้ที่มีสิทธิ์ AD_MANAGER ขึ้นไป)", secret: true },
+      { key: "eventId", label: "Default Event ID", optional: true, placeholder: "tw-o1abc-o2def" },
     ],
   },
   SNAPCHAT_ADS: {
@@ -295,6 +367,25 @@ export const CONNECTOR_META: Record<ConnectionType, ConnectorMeta> = {
     fields: [
       { key: "pixelId", label: "Pixel ID", placeholder: "xxxx-xxxx" },
       { key: "accessToken", label: "Access Token", secret: true },
+    ],
+  },
+  CUSTOM_WEBHOOK: {
+    type: "CUSTOM_WEBHOOK",
+    title: "Connect Custom Webhook",
+    description: "ส่ง Conversion เข้าระบบของคุณเอง (CRM / Data Warehouse / Make / n8n) เป็น JSON",
+    realKeys: ["destinationUrl"],
+    realImplemented: true,
+    fields: [
+      { key: "destinationUrl", label: "Destination URL (https เท่านั้น)", placeholder: "https://api.example.com/marsos/conversions" },
+      {
+        key: "headersJson",
+        label: "Custom Headers (JSON — ไม่บังคับ ใช้ใส่ Authorization ของระบบปลายทาง)",
+        secret: true,
+        textarea: true,
+        optional: true,
+        placeholder: '{"Authorization":"Bearer xxxxx"}',
+      },
+      { key: "signingSecret", label: "Signing Secret (HMAC-SHA256 — ไม่บังคับ ใส่เพื่อให้ระบบเซ็น x-marsos-signature)", secret: true, optional: true, placeholder: "สุ่มข้อความยาว ๆ ไว้ตรวจลายเซ็นฝั่งปลายทาง" },
     ],
   },
 };

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { getProjectBySlug } from "@/lib/line-tracking/services/projectService";
 import { markLineClicked, recordAdClick } from "@/lib/line-tracking/services/trackingService";
+import { saveBrowserIds } from "@/lib/line-tracking/services/clickSignalService";
+import { asBodyObject, cleanGaClientId, coerceTrackBody, hasBrowserIds, readBrowserIds } from "@/lib/line-tracking/browserIds";
 
 // This endpoint is called from the project's tracked website by the
 // embed snippet, so it must allow cross-origin requests.
@@ -35,22 +37,41 @@ export async function POST(
   if (qs.get("event") === "lineclick" && qs.get("click_id")) {
     // Sent by sendBeacon: the browser does not wait for, or read, the answer. Answer now
     // and let the stamp finish after the response (waitUntil keeps the function alive).
-    waitUntil(markLineClicked(project.id, qs.get("click_id")));
+    // The beacon also carries the browser ids as they are at this moment (GA session,
+    // _fbp, _ttp): the page-load read usually comes before the tags have set them.
+    const clickId = qs.get("click_id");
+    waitUntil(
+      Promise.all([
+        markLineClicked(project.id, clickId),
+        saveBrowserIds(project.id, clickId, readBrowserIds((name) => qs.get(name))),
+      ])
+    );
     return NextResponse.json({ ok: true }, { headers: CORS });
   }
 
-  let body: Record<string, string> = {};
+  let raw: unknown = {};
   try {
-    body = (await req.json()) as Record<string, string>;
+    raw = await req.json();
   } catch {
-    body = {};
+    raw = {};
   }
+  // Text fields are length-capped and type-checked; the browser ids are shape-checked one by one.
+  const rawBody = asBodyObject(raw);
+  const body = coerceTrackBody(rawBody);
 
   // …or via JSON body.
   if (body.event === "lineclick" && body.click_id) {
-    waitUntil(markLineClicked(project.id, body.click_id));
+    const clickId = body.click_id;
+    waitUntil(
+      Promise.all([
+        markLineClicked(project.id, clickId),
+        saveBrowserIds(project.id, clickId, readBrowserIds((name) => rawBody[name])),
+      ])
+    );
     return NextResponse.json({ ok: true }, { headers: CORS });
   }
+
+  const browserIds = readBrowserIds((name) => rawBody[name]);
 
   const click = await recordAdClick(project.id, {
     source: body.utm_source,
@@ -65,12 +86,16 @@ export async function POST(
     msclkid: body.msclkid,
     twclid: body.twclid,
     scclid: body.scclid,
-    gaClientId: body.ga_client_id,
+    gaClientId: cleanGaClientId(body.ga_client_id),
     landingUrl: body.landing_url,
     referrer: body.referrer,
     userAgent: req.headers.get("user-agent") ?? undefined,
     ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined,
   });
+  // After the answer: the visitor's page is waiting for the click id, not for this.
+  if (hasBrowserIds(browserIds)) {
+    waitUntil(saveBrowserIds(project.id, click.clickId, browserIds, { trusted: true }));
+  }
 
   return NextResponse.json(
     { ok: true, clickId: click.clickId, project: project.slug },
