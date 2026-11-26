@@ -26,6 +26,48 @@ function cellText(el: HTMLElement | undefined): string {
   return (el?.text || '').replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * A line the writer left for the team inside a value cell, not the value itself — the whole
+ * line sits in brackets, e.g. "(ใช้ https://…/meta-length-checker/ ในการนับคำ)".
+ */
+export function isBriefHelperNote(text: string): boolean {
+  const t = text.replace(/\s+/g, ' ').trim()
+  return t.length > 2 && (/^\([^()]*\)$/.test(t) || /^\[[^[\]]*\]$/.test(t))
+}
+
+/** The paragraphs of a brief value cell. A cell with no <p>/<div>/<li> inside is one paragraph: the cell itself. */
+export function briefValueParagraphs(cell: HTMLElement): HTMLElement[] {
+  const blocks = cell.childNodes.filter(
+    (n): n is HTMLElement => n.nodeType === NodeType.ELEMENT_NODE && /^(p|div|li|ul|ol|h[1-6]|blockquote)$/i.test((n as HTMLElement).rawTagName || ''),
+  )
+  return blocks.length ? blocks : [cell]
+}
+
+/**
+ * The paragraphs of a value cell that are the writer's helper notes — skipped when the value
+ * is read, kept as written when the article is translated. A note only counts when the cell
+ * still has a real value next to it.
+ */
+export function briefHelperNotes(cell: HTMLElement): HTMLElement[] {
+  const filled = briefValueParagraphs(cell).filter((p) => cellText(p))
+  if (filled.length < 2) return []
+  const notes = filled.filter((p) => isBriefHelperNote(cellText(p)))
+  return notes.length < filled.length ? notes : []
+}
+
+// "(ใช้ https://… ในการนับคำ) the real value" typed in one paragraph
+const LEADING_LINK_NOTE_RE = /^\((?=[^()]*https?:\/\/)[^()]*\)\s*(?=\S)/
+
+/** The value of a brief cell without the writer's helper notes. */
+export function briefValueText(cell: HTMLElement | undefined): string {
+  if (!cell) return ''
+  const notes = new Set(briefHelperNotes(cell))
+  const text = notes.size
+    ? briefValueParagraphs(cell).filter((p) => !notes.has(p)).map((p) => cellText(p)).filter(Boolean).join(' ')
+    : cellText(cell)
+  return text.replace(LEADING_LINK_NOTE_RE, '').trim()
+}
+
 /** slug ในตารางบางทีเป็น URL เต็มหรือมี / นำหน้า — เหลือเฉพาะส่วนท้าย ตัวพิมพ์เล็ก a-z0-9- */
 export function normalizeBriefSlug(raw: string): string {
   let s = raw.trim()
@@ -84,7 +126,7 @@ export function extractBriefMeta(html: string): DocBriefMeta {
       const cells = row.querySelectorAll('td, th')
       if (cells.length < 2) continue
       const label = cellText(cells[0]).toLowerCase()
-      const value = cells.slice(1).map((c) => cellText(c)).find(Boolean) || ''
+      const value = cells.slice(1).map((c) => briefValueText(c)).find(Boolean) || ''
       if (!label || !value) continue
       const field = briefTableField(label)
       if (field === 'seoTitle' && !out.seoTitle) {

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { extractBriefMeta } from "./doc-meta";
 import {
   TranslateInputError,
   TranslateOutputError,
@@ -370,4 +371,134 @@ test("assembleTranslation: warnings mention kept and flagged units", () => {
   // untranslated units fall back to the original text
   assert.ok(r.html.includes("Benefits of regular exercise"));
   assert.equal(r.title, "Benefits of exercise");
+});
+
+// ─── writer's labels and the brief table ───────────────────────────────────
+
+/** every opening / closing tag in order — a translation must not move, add or drop any */
+function tagSequence(html: string): string[] {
+  return (html.match(/<\/?[a-z][a-z0-9]*/gi) || []).map((t) => t.toLowerCase());
+}
+
+const LABELLED_HTML =
+  '<h1><a></a>H1: What is API Development? A Complete Guide</h1>' +
+  "<h2>H2: How an API Works</h2>" +
+  "<h3><a></a><strong>H2: Understanding API Development and Why It Matters</strong></h3>" +
+  "<h3><a></a>H2: How an API Works in practice<br><br>H3: The Request and Response Cycle, Explained Simply</h3>" +
+  "<h2><a></a><br>H2: Best Practices for Product Teams</h2>" +
+  "<p>[Alt :The API Development Process ]</p>" +
+  "<p>(Alt: A developer testing an endpoint)</p>" +
+  "<p>H2O is the formula of water and alternatives: none are known.</p>" +
+  "<p>Teams build interfaces every day and ship them to customers.</p>";
+
+const LABEL_START_RE = /^(?:<\/?[tx]\d+\s*\/?>|\s)*[\[(]?\s*(?:H[1-6]\s*[:：\])]|alt(?:\s*text)?\s*[:：])/i;
+
+test("labels: 'H1:' / 'H2:' / 'Alt:' never reach the model", () => {
+  const plan = planTranslation({ title: "H1: What is API Development? A Complete Guide", sourceHtml: LABELLED_HTML, direction: "en-th", tone: "semi" });
+  for (const u of plan.units) assert.ok(!LABEL_START_RE.test(u.text), `unit starts with a label: ${u.text}`);
+  // ordinary text that only looks like a label is left alone
+  assert.ok(plan.units.some((u) => u.text.startsWith("H2O is the formula")));
+  // two headings typed into one block are two units
+  assert.ok(plan.units.some((u) => u.text === "How an API Works in practice"));
+  assert.ok(plan.units.some((u) => u.text === "The Request and Response Cycle, Explained Simply"));
+  const title = plan.units[plan.fields.title!];
+  assert.equal(title.text, "What is API Development? A Complete Guide");
+});
+
+test("labels: the translated article keeps every label and the original's tags", async () => {
+  const plan = planTranslation({ title: "H1: What is API Development? A Complete Guide", sourceHtml: LABELLED_HTML, direction: "en-th", tone: "semi" });
+  const r = assembleTranslation(plan, await runTranslation(plan, fakeDeps({})), []);
+  assert.deepEqual(tagSequence(r.html), tagSequence(LABELLED_HTML));
+  assert.ok(r.html.includes("<h1><a></a>H1: คำแปล"));
+  assert.ok(r.html.includes("<h2>H2: คำแปล"));
+  assert.ok(r.html.includes("<h3><a></a><strong>H2: คำแปล"));
+  assert.match(r.html, /<h3><a><\/a>H2: คำแปล[^<]*<br><br>H3: คำแปล[^<]*<\/h3>/);
+  assert.ok(r.html.includes("<h2><a></a><br>H2: คำแปล"));
+  assert.match(r.html, /<p>\[Alt :คำแปล[^<\]]* \]<\/p>/);
+  assert.match(r.html, /<p>\(Alt: คำแปล[^<)]*\)<\/p>/);
+  assert.ok(!/[A-Za-z]{4,}/.test(r.html.replace(/<[^>]+>/g, " ").replace(/\b(?:Alt|H2O)\b/g, "")), "no source sentence left behind");
+  assert.ok(r.title.startsWith("H1: คำแปล"));
+  assert.deepEqual(r.warnings, []);
+});
+
+test("labels: a title without a label is translated whole", async () => {
+  const plan = enPlan();
+  const r = assembleTranslation(plan, await runTranslation(plan, fakeDeps({})), []);
+  assert.ok(r.title.startsWith("คำแปล"));
+});
+
+const HELPER_NOTE = '<p>(ใช้ <a href="https://mrs.digital/tools/meta-length-checker/">https://mrs.digital/tools/meta-length-checker/</a> ในการนับคำ)</p>';
+const BRIEF_TABLE =
+  "<table><thead>" +
+  "<tr><th></th><th><p>Keyword</p></th><th><p>Search Volume</p></th></tr>" +
+  "<tr><th><p>Main</p></th><th><p>API development</p></th><th><p>30</p></th></tr>" +
+  "<tr><th><p>Secondary</p></th><th><p>API developer, REST API development</p></th></tr>" +
+  "<tr><th><p>Title Count:</p><p>(Max 70)</p></th><th><p><strong>What is API Development? A Complete Guide</strong> </p></th></tr>" +
+  `<tr><th><p>Description Count :</p><p>(Max 160)</p></th><th>${HELPER_NOTE}<p>Learn how API development works and why it matters for modern software teams.</p></th></tr>` +
+  "<tr><th><p>Slug</p></th><th><p>api-development-guide</p></th></tr>" +
+  "<tr><th><p>Interlink require</p></th><th><p>5 Links (Internal link option)</p></th></tr>" +
+  "<tr><th><p>Note:</p></th><th><p>Long tail keyword add require<br>Alt text for the image</p><p>Reference link</p></th></tr>" +
+  "</thead></table>";
+const BRIEF_BODY = "<h2>H2: Overview of the work</h2><p>Teams build interfaces every day and ship them to customers.</p>";
+
+function briefPlan(extra: Record<string, unknown> = {}): TranslatePlan {
+  return planTranslation({
+    title: "H1: What is API Development?",
+    sourceHtml: BRIEF_TABLE + BRIEF_BODY,
+    direction: "en-th",
+    tone: "semi",
+    briefSlug: "api-development-guide-th",
+    ...extra,
+  });
+}
+
+test("brief table: only the title and description values are translated", () => {
+  const plan = briefPlan();
+  const meta = plan.units.filter((u) => u.metaField);
+  assert.deepEqual(meta.map((u) => u.metaField).sort(), ["metaDescription", "seoTitle"]);
+  assert.ok(meta.find((u) => u.metaField === "seoTitle")!.text.includes("What is API Development? A Complete Guide"));
+  assert.ok(meta.find((u) => u.metaField === "metaDescription")!.text.startsWith("Learn how API development works"));
+  assert.ok(meta.find((u) => u.metaField === "seoTitle")!.note!.includes("70"));
+  assert.ok(meta.find((u) => u.metaField === "metaDescription")!.note!.includes("160"));
+  for (const fixed of ["Keyword", "Search Volume", "Secondary", "REST API", "Max 70", "Max 160", "meta-length-checker", "Interlink", "5 Links", "Long tail", "Reference link", "api-development-guide"]) {
+    assert.ok(!plan.units.some((u) => u.text.includes(fixed)), `"${fixed}" must stay out of the units`);
+  }
+});
+
+test("brief table: comes back as written, with the new slug, and feeds the meta fields", async () => {
+  const plan = briefPlan({ seoTitle: "Stored title that is stale", metaDescription: "(ใช้ https://mrs.digital/tools/meta-length-checker/ ในการนับคำ) Learn how" });
+  // the table supplies both values, so the stored (possibly polluted) ones are not translated at all
+  assert.equal(plan.fields.seoTitle, undefined);
+  assert.equal(plan.fields.metaDescription, undefined);
+  const r = assembleTranslation(plan, await runTranslation(plan, fakeDeps({})), []);
+  assert.deepEqual(tagSequence(r.html), tagSequence(BRIEF_TABLE + BRIEF_BODY));
+  for (const kept of [
+    "<p>Keyword</p>", "<p>Search Volume</p>", "<p>Main</p>", "<p>API development</p>", "<p>30</p>",
+    "<p>API developer, REST API development</p>", "<p>Title Count:</p><p>(Max 70)</p>", "<p>Description Count :</p><p>(Max 160)</p>",
+    HELPER_NOTE, "<p>api-development-guide-th</p>", "<p>5 Links (Internal link option)</p>",
+    "<p>Long tail keyword add require<br>Alt text for the image</p><p>Reference link</p>",
+  ]) assert.ok(r.html.includes(kept), `kept as written: ${kept}`);
+  assert.ok(!r.html.includes("What is API Development? A Complete Guide"));
+  assert.ok(!r.html.includes("Learn how API development works"));
+  assert.ok(r.seoTitle.includes("คำแปล") && !r.seoTitle.includes("Stored"));
+  assert.ok(r.metaDescription.includes("คำแปล") && !r.metaDescription.includes("mrs.digital"));
+  // what Generate reads back from the translated source is what the row stores
+  const back = extractBriefMeta(r.html);
+  assert.equal(back.seoTitle, r.seoTitle);
+  assert.equal(back.metaDescription, r.metaDescription);
+  assert.equal(back.slug, "api-development-guide-th");
+  assert.ok(r.html.includes("<h2>H2: คำแปล"));
+});
+
+test("brief table: without a table the stored SEO fields are still translated", () => {
+  const plan = planTranslation({ title: "Overview", sourceHtml: BRIEF_BODY, seoTitle: "Exercise benefits", metaDescription: "Why exercise matters.", direction: "en-th", tone: "semi" });
+  assert.notEqual(plan.fields.seoTitle, undefined);
+  assert.notEqual(plan.fields.metaDescription, undefined);
+});
+
+test("brief table: an ordinary table with one labelled row is translated like before", () => {
+  const html = "<table><tr><td>Slug</td><td>monthly-plan</td></tr><tr><td>Package name</td><td>Monthly price for small teams</td></tr></table>" + BRIEF_BODY;
+  const plan = planTranslation({ title: "Overview", sourceHtml: html, direction: "en-th", tone: "semi" });
+  assert.ok(plan.units.some((u) => u.text === "Monthly price for small teams"));
+  assert.ok(!plan.units.some((u) => u.metaField));
 });

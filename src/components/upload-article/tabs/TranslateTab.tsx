@@ -4,13 +4,15 @@
  * แท็บ Translate — แปลบทความอย่างเดียว (ไม่เขียนใหม่) ได้แถวใหม่ 1 แถว ต้นฉบับไม่ถูกแก้
  * แล้วเรียก generate ของแถวใหม่ให้ใส่ style ของเว็บเหมือนกดแท็บ Generate
  * ประมวลผลทีละบทความ (ไม่ขนาน) — ไม่เขียนค่าใหม่ลง pushPrefs
+ * นำเข้าต้นฉบับได้ในแท็บนี้เลย (กล่องเดียวกับ Import Article) — แถวที่เพิ่งนำเข้าถูกติ๊กให้พร้อมแปล
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Copy, ArrowRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Copy, ArrowRight, CheckSquare, Square, Loader2, CheckCircle2, AlertCircle, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ArticleFrame from "@/components/shared/ArticleFrame";
+import ImportBox from "@/components/upload-article/shared/ImportBox";
 import type { UploadArticleDTO, UploadClientDTO, UploadOutputMode } from "@/lib/upload-article/types";
 import type { SettingsSection } from "../settings/SettingsTab";
 import { toReadableHtml, shortenDataUris, copyRichText } from "../shared/readableHtml";
@@ -52,7 +54,7 @@ function optionsKey(clientId: string) {
 
 export default function TranslateTab({
   client, articles, selectedId, setSelectedId,
-  loadArticleDetail, articleDetails, applyArticleUpdate, goToReview, onOpenSettings, onArticleCreated, pbn = false,
+  loadArticleDetail, articleDetails, applyArticleUpdate, goToReview, onOpenSettings, onArticleCreated, refreshArticles, refreshClient, pbn = false,
 }: {
   client: UploadClientDTO;
   setClient: (c: UploadClientDTO) => void;
@@ -66,6 +68,9 @@ export default function TranslateTab({
   goToReview: (id: string) => void;
   onOpenSettings?: (section: SettingsSection) => void;
   onArticleCreated: (article: UploadArticleDTO) => void;
+  /** Reload the list / the client counts after an import made from this tab */
+  refreshArticles: () => Promise<void>;
+  refreshClient: () => Promise<void>;
   pbn?: boolean;
 }) {
   const router = useRouter();
@@ -83,6 +88,7 @@ export default function TranslateTab({
   const [summary, setSummary] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<"preview" | "html" | "text">("preview");
+  const [exportBusy, setExportBusy] = useState(false);
 
   // Read the same stored defaults GenerateTab uses (Internal Link only)
   useEffect(() => {
@@ -96,6 +102,26 @@ export default function TranslateTab({
   }, [client.id]);
 
   const list = useMemo(() => articles.filter(a => a.status !== "WRITING" && a.status !== "PUSHING"), [articles]);
+
+  // Rows imported from this tab are ticked, ready to translate. `imported` is set after the list has been
+  // refreshed, so the render that runs this effect already holds the new rows.
+  const idsNow = useRef<Set<string>>(new Set());
+  idsNow.current = new Set(articles.map(a => a.id));
+  const [imported, setImported] = useState<{ before: Set<string> } | null>(null);
+  useEffect(() => {
+    if (!imported) return;
+    const fresh = list.filter(a => !imported.before.has(a.id)).map(a => a.id);
+    if (fresh.length) setPicked(prev => new Set([...Array.from(prev), ...fresh]));
+    // only an import triggers this; a later list change (a new translation row) must not tick anything
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imported]);
+
+  async function afterImport() {
+    const before = new Set(idsNow.current);
+    await refreshArticles();
+    await refreshClient();
+    setImported({ before });
+  }
   const previewArticle = previewId ? articleDetails[previewId] ?? null : null;
 
   function openSettings(section: SettingsSection) {
@@ -200,6 +226,26 @@ export default function TranslateTab({
     copyRichText(toReadableHtml(html)).then(() => toast.success("คัดลอกข้อความแล้ว")).catch(() => toast.error("คัดลอกไม่สำเร็จ"));
   }
 
+  /**
+   * Word file laid out like the writer's original document: the row's source (brief table, "H1:"/"H2:" labels,
+   * images) — not the styled article Review exports. The list DTO has no source, so it is fetched when missing.
+   */
+  async function downloadOriginalLayout(id: string) {
+    setExportBusy(true);
+    try {
+      const cached = articleDetails[id];
+      const detail = cached?.sourceHtml ? cached : await loadArticleDetail(id, true);
+      if (!detail?.sourceHtml) { toast.error("ไม่พบเนื้อหาต้นฉบับของบทความนี้"); return; }
+      const m = await import("@/lib/article-export");
+      const blob = await m.buildArticleDocx({ html: detail.sourceHtml, title: detail.title });
+      m.downloadBlob(blob, `${m.articleFileName(detail.slug || detail.title)}.docx`);
+    } catch (e) {
+      toast.error("สร้างไฟล์ Word ไม่สำเร็จ: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 space-y-0.5">
@@ -209,6 +255,8 @@ export default function TranslateTab({
         <p className="text-[11px]">แปลเสร็จแล้วระบบตรวจทานกับต้นฉบับให้ทันที (ความหมาย ตัวเลข ไวยากรณ์) จุดที่ผิดจะถูกแก้ จุดที่แก้ไม่ได้จะแจ้งไว้ใต้ชื่อบทความ</p>
         <p className="text-[11px]">ใช้ AI แปล มีค่าใช้จ่ายตามความยาวบทความ • ข้อความบนภาพปกไม่ถูกแปล</p>
       </div>
+
+      <ImportBox clientId={client.id} endpoint="articles" onImported={afterImport} />
 
       <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-4 items-start">
         <div className="bg-white/75 backdrop-blur border border-white/80 shadow-sm rounded-2xl p-4 space-y-4">
@@ -347,11 +395,18 @@ export default function TranslateTab({
                   </div>
                 )}
 
-                {previewArticle.htmlContent && (
-                  <Button variant="outline" size="sm" onClick={() => goToReview(previewArticle.id)}>
-                    ส่งไป Review <ArrowRight size={12} className="ml-1.5" />
+                <div className="flex items-center gap-2 flex-wrap">
+                  {previewArticle.htmlContent && (
+                    <Button variant="outline" size="sm" onClick={() => goToReview(previewArticle.id)}>
+                      ส่งไป Review <ArrowRight size={12} className="ml-1.5" />
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" disabled={exportBusy} onClick={() => downloadOriginalLayout(previewArticle.id)}
+                    title="ไฟล์ Word หน้าตาเหมือนต้นฉบับ: มีตาราง brief และป้าย H1/H2 ครบ">
+                    {exportBusy ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Download size={12} className="mr-1.5" />}
+                    ดาวน์โหลด Word แบบต้นฉบับ
                   </Button>
-                )}
+                </div>
               </>
             )}
           </div>

@@ -2,7 +2,7 @@
  * Regression: บทความซ้ำ (ชื่อ/slug เดียวกัน push ไปโพสต์เดียวกัน) ต้องลบได้ทั้งที่ push แล้ว โดยเก็บไว้อย่างน้อย 1 แถว
  * Run: npx tsx src/lib/upload-article/duplicates.test.ts
  */
-import { normalizeArticleTitle, duplicatesOf, duplicateMap, canDeleteArticle, isArticlePushed, effectiveArticleStatus, PUSHED_ARTICLE_WHERE } from './duplicates';
+import { normalizeArticleTitle, duplicatesOf, duplicateMap, isOtherLanguageVersion, canDeleteArticle, isArticlePushed, effectiveArticleStatus, PUSHED_ARTICLE_WHERE } from './duplicates';
 import { articleLinkRows } from './internal-links';
 
 let passed = 0;
@@ -125,6 +125,30 @@ assert(normalizeArticleTitle('   ') === '', 'normalize: whitespace only = empty'
   const base = { id: 'a', title: 'บทความ', sourceName: 'manual', pushMode: 'publish', wordpressUrl: 'https://x.com/a', createdAt: '2026-10-01T00:00:00Z' };
   assert(articleLinkRows([{ ...base, status: 'REVIEWED', wordpressPostId: '9' }], [])[0].url === 'https://x.com/a', 'link rows: REVIEWED + pushed keeps its URL');
   assert(articleLinkRows([{ ...base, status: 'REVIEWED' }], [])[0].url === null, 'link rows: REVIEWED never pushed has no URL');
+}
+
+// ฉบับแปล (คนละภาษา) ไม่นับเป็นบทความซ้ำของต้นฉบับ
+{
+  assert(isOtherLanguageVersion('api-guide', 'api-guide-th'), 'language: original and its Thai translation');
+  assert(isOtherLanguageVersion('api-guide-th', 'api-guide'), 'language: order does not matter');
+  assert(isOtherLanguageVersion('api-guide-en', 'api-guide-th'), 'language: English and Thai translations of one article');
+  assert(isOtherLanguageVersion('api-guide', 'api-guide-th-2'), 'language: original and a second Thai translation');
+  assert(!isOtherLanguageVersion('api-guide-th', 'api-guide-th-2'), 'language: two Thai translations are the same language');
+  assert(!isOtherLanguageVersion('api-guide', 'api-guide'), 'language: identical slug is not a language version');
+  assert(!isOtherLanguageVersion('api-guide', 'other-guide-th'), 'language: different article');
+  assert(!isOtherLanguageVersion('', 'api-guide-th') && !isOtherLanguageVersion(null, null), 'language: missing slug');
+
+  const en = row('en', { title: 'MarsOS API', slug: 'marsos-api' });
+  const th = row('th', { title: 'MarsOS API', slug: 'marsos-api-th' });
+  const th2 = row('th2', { title: 'MarsOS API', slug: 'marsos-api-th-2' });
+  assert(ids(duplicatesOf(en, [en, th])) === '', 'translation with an unchanged title is not a duplicate of its source');
+  assert(duplicateMap([en, th]).size === 0, 'no "ซ้ำ" chip for a source + translation pair');
+  assert(ids(duplicatesOf(th, [en, th, th2])) === 'th2', 'two translations into the same language are still duplicates');
+  assert(ids(duplicatesOf(en, [en, row('x', { title: 'MarsOS API', slug: 'marsos-api' })])) === 'x', 'same slug is still a duplicate');
+  assert(ids(duplicatesOf(en, [en, row('y', { title: 'marsos api', slug: null })])) === 'y', 'same title without a language slug is still a duplicate');
+  const p1 = row('p1', { title: 'MarsOS API', slug: 'marsos-api', wordpressPostId: '7' });
+  const p2 = row('p2', { title: 'MarsOS API', slug: 'marsos-api-th', wordpressPostId: '7' });
+  assert(ids(duplicatesOf(p1, [p1, p2])) === 'p2', 'two rows on one post are duplicates whatever the language');
 }
 
 console.log(`\n${passed} passed`);

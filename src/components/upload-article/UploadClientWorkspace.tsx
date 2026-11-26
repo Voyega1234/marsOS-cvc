@@ -381,6 +381,8 @@ export default function UploadClientWorkspace({
               goToReview={id => goTab("review", id)}
               onOpenSettings={openSettings}
               onArticleCreated={addCreatedArticle}
+              refreshArticles={refreshArticles}
+              refreshClient={refreshClient}
             />
           </TabsContent>
         )}

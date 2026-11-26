@@ -10,10 +10,13 @@
 //
 // Pure: no prisma, no fetch. The model call is injected, so the whole flow runs in a unit test.
 
-import { parse, NodeType, type HTMLElement, type Node } from 'node-html-parser'
+import { parse, NodeType, type HTMLElement, type Node, type TextNode } from 'node-html-parser'
 import { applyBannedReplacements, cleanPlainText, findBannedTerms, type BannedTerm } from '@/lib/ce-restrictions'
 import { detectArticleLanguage } from './comment-revise'
-import { briefTableField, isBriefMarkerText, normalizeBriefSlug, parseBriefLine, type BriefListField } from './doc-meta'
+import {
+  briefHelperNotes, briefTableField, briefValueText, isBriefMarkerText, normalizeBriefSlug, parseBriefLine,
+  type BriefListField, type BriefTableField,
+} from './doc-meta'
 
 export type TranslateLang = 'th' | 'en'
 export type TranslateDirection = 'th-en' | 'en-th'
@@ -49,6 +52,8 @@ const UNIT_TOKEN = '@@MARSTU_'
 const ALT_TOKEN = '@@MARSALT_'
 
 type PlainField = 'title' | 'seoTitle' | 'metaDescription' | 'coverAlt' | 'alt'
+/** the two rows of the writer's brief table that become the page's meta title / description */
+type BriefMetaField = 'seoTitle' | 'metaDescription'
 
 export interface TranslateUnit {
   id: number
@@ -65,6 +70,8 @@ export interface TranslateUnit {
   field: PlainField | null
   /** a brief line ("SEO Title (55 characters): …") — its label must survive the translation */
   briefField: BriefListField | null
+  /** text of the brief table's title / description row — the translated row's meta is read from it */
+  metaField?: BriefMetaField | null
   note: string | null
 }
 
@@ -98,6 +105,18 @@ const VERBATIM_TAGS = new Set([
 const HAS_LETTER = /[A-Za-zÀ-ɏ฀-๏]/
 const URL_OR_EMAIL_ONLY = /^(https?:\/\/\S+|www\.\S+|[^\s@]+@[^\s@]+\.[^\s@]+)$/i
 const MARKER_RE = /<(\/?)t(\d+)>|<x(\d+)\s*\/?>/g
+
+// The writer's own labels at the start of a line — "H2: …", "[H2] …", "[Alt : … ]", "Alt text: …".
+// They say what the line is; they are not content, so they are copied as written and only the
+// words after them are translated. Matched against raw text, so a space may be an entity.
+const LABEL_SPACE = '(?:\\s|&nbsp;|&#160;)*'
+const HEADING_LABEL = `[\\[(]${LABEL_SPACE}H[1-6]${LABEL_SPACE}[\\])]${LABEL_SPACE}[:：–—-]?|H[1-6]${LABEL_SPACE}[:：]`
+const HEADING_LABEL_RE = new RegExp(`^${LABEL_SPACE}(?:${HEADING_LABEL})${LABEL_SPACE}`, 'i')
+const LABEL_RE = new RegExp(`^${LABEL_SPACE}(?:${HEADING_LABEL}|([\\[(]?)${LABEL_SPACE}alt(?:${LABEL_SPACE}text)?${LABEL_SPACE}[:：])${LABEL_SPACE}`, 'i')
+const LABEL_CLOSE_RE: Record<string, RegExp> = {
+  '[': new RegExp(`${LABEL_SPACE}\\]${LABEL_SPACE}$`),
+  '(': new RegExp(`${LABEL_SPACE}\\)${LABEL_SPACE}$`),
+}
 
 function tagOf(node: Node): string {
   return ((node as HTMLElement).rawTagName || '').toLowerCase()
@@ -222,17 +241,79 @@ export function planTranslation(input: PlanTranslationInput): TranslatePlan {
     })
   }
 
-  const title = addPlain(input.title || '', 'title', 'The article title.')
-  if (title) fields.title = title.id
-  const seoTitle = addPlain(input.seoTitle || '', 'seoTitle', `The SEO title. Keep it within ${SEO_TITLE_MAX} characters.`)
+  const root = parse(html, { comment: true })
+  const briefSlug = (input.briefSlug || '').trim()
+
+  // The writer's brief table (two or more labelled rows) is the team's working sheet, not the
+  // article: it stays as written — labels, keywords, search volume, notes — so the translated
+  // document still exports like the original. Only the meta title and the meta description are
+  // words for the reader: those two cells are translated, and the translated row's meta is read
+  // back from them. A slug row is never translated; its value is swapped for the translated
+  // article's own slug when one is given.
+  const verbatim = new Set<Node>()
+  const metaCells = new Map<Node, BriefMetaField>()
+  const briefMeta = new Set<BriefMetaField>()
+  for (const table of root.querySelectorAll('table')) {
+    const rows: Array<{ row: HTMLElement; cells: HTMLElement[]; field: BriefTableField | null }> = []
+    for (const row of table.querySelectorAll('tr')) {
+      const cells = row.childNodes.filter((n): n is HTMLElement => isElement(n) && /^(td|th)$/.test(tagOf(n)))
+      const field = cells.length >= 2 ? briefTableField(cells[0].text || '') : null
+      rows.push({ row, cells, field })
+      if (field === 'slug' && briefSlug) {
+        const valueCell = cells.slice(1).find((c) => (c.text || '').trim())
+        if (valueCell) {
+          // keep the paragraph the slug was typed in, so the table exports like the original
+          let holder: HTMLElement = valueCell
+          for (;;) {
+            const kids = holder.childNodes.filter((n) => isElement(n) || (n.rawText || '').trim())
+            if (kids.length !== 1 || !isElement(kids[0]) || ATOM_TAGS.has(tagOf(kids[0]))) break
+            holder = kids[0]
+          }
+          holder.set_content(escapeText(briefSlug))
+        }
+      }
+    }
+    if (rows.filter((r) => r.field).length < 2) {
+      for (const r of rows) if (r.field === 'slug') verbatim.add(r.row)
+      continue
+    }
+    for (const r of rows) {
+      const field = r.field === 'seoTitle' || r.field === 'metaDescription' ? r.field : null
+      const taken = field ? briefMeta.has(field) : true
+      const valueCell = field && !taken
+        ? r.cells.slice(1).find((c) => {
+            const value = briefValueText(c)
+            return HAS_LETTER.test(value) && !URL_OR_EMAIL_ONLY.test(value)
+          })
+        : undefined
+      for (const cell of r.cells) if (cell !== valueCell) verbatim.add(cell)
+      if (!valueCell || !field) continue
+      metaCells.set(valueCell, field)
+      briefMeta.add(field)
+      // "(ใช้ https://… ในการนับคำ)" above the description is a note to the team, not the description
+      for (const note of briefHelperNotes(valueCell)) verbatim.add(note)
+    }
+  }
+
+  // A title imported from a labelled heading ("H1: What is …") keeps its label untranslated.
+  const titleLabel = HEADING_LABEL_RE.exec(input.title || '')?.[0] ?? ''
+  const title = addPlain((input.title || '').slice(titleLabel.length), 'title', 'The article title.')
+  if (title) {
+    title.lead = titleLabel
+    title.raw = input.title || ''
+    fields.title = title.id
+  }
+  // The brief table wins over the stored meta: its cells are translated in place, once.
+  const seoTitle = briefMeta.has('seoTitle')
+    ? null
+    : addPlain(input.seoTitle || '', 'seoTitle', `The SEO title. Keep it within ${SEO_TITLE_MAX} characters.`)
   if (seoTitle) fields.seoTitle = seoTitle.id
-  const meta = addPlain(input.metaDescription || '', 'metaDescription', `The meta description. Keep it within ${META_DESCRIPTION_MAX} characters.`)
+  const meta = briefMeta.has('metaDescription')
+    ? null
+    : addPlain(input.metaDescription || '', 'metaDescription', `The meta description. Keep it within ${META_DESCRIPTION_MAX} characters.`)
   if (meta) fields.metaDescription = meta.id
   const coverAlt = addPlain(input.coverAlt || '', 'coverAlt', 'Alt text of the cover image. Keep it short.')
   if (coverAlt) fields.coverAlt = coverAlt.id
-
-  const root = parse(html, { comment: true })
-  const briefSlug = (input.briefSlug || '').trim()
 
   // Image alt text is words too. The attribute gets a token now and its translation later.
   for (const img of root.querySelectorAll('img')) {
@@ -241,29 +322,13 @@ export function planTranslation(input: PlanTranslationInput): TranslatePlan {
     if (unit) img.setAttribute('alt', `${ALT_TOKEN}${unit.id}@@`)
   }
 
-  // The writer's brief: labels stay as written (the system reads them). A slug row is never
-  // translated; its value is swapped for the translated article's own slug when one is given.
-  const verbatim = new Set<Node>()
-  for (const table of root.querySelectorAll('table')) {
-    const labelled: Array<{ row: HTMLElement; first: HTMLElement; slug: boolean }> = []
-    for (const row of table.querySelectorAll('tr')) {
-      const cells = row.childNodes.filter((n): n is HTMLElement => isElement(n) && /^(td|th)$/.test(tagOf(n)))
-      if (cells.length < 2) continue
-      const field = briefTableField(cells[0].text || '')
-      if (!field) continue
-      labelled.push({ row, first: cells[0], slug: field === 'slug' })
-      if (field === 'slug' && briefSlug) {
-        const valueCell = cells.slice(1).find((c) => (c.text || '').trim())
-        if (valueCell) valueCell.set_content(escapeText(briefSlug))
-      }
-    }
-    for (const entry of labelled) {
-      if (entry.slug) verbatim.add(entry.row)
-      else if (labelled.length >= 2) verbatim.add(entry.first)
-    }
+  let metaField: BriefMetaField | null = null
+  const META_NOTE: Record<BriefMetaField, string> = {
+    seoTitle: `The page's SEO title. Keep it within ${SEO_TITLE_MAX} characters.`,
+    metaDescription: `The page's meta description. Keep it within ${META_DESCRIPTION_MAX} characters.`,
   }
 
-  const emitRun = (nodes: Node[], parentTag: string): string => {
+  const emitUnit = (nodes: Node[], parentTag: string): string => {
     const raw = nodes.map((n) => n.toString()).join('')
     const tags = new Map<number, { open: string; close: string }>()
     const atoms = new Map<number, string>()
@@ -299,10 +364,103 @@ export function planTranslation(input: PlanTranslationInput): TranslatePlan {
       atoms,
       field: null,
       briefField: brief?.field ?? null,
-      note: brief ? 'A brief line. Keep the label before the colon exactly as written; translate only the value after it.' : null,
+      metaField,
+      note: brief
+        ? 'A brief line. Keep the label before the colon exactly as written; translate only the value after it.'
+        : metaField ? META_NOTE[metaField] : null,
     })
     return `${UNIT_TOKEN}${unit.id}@@`
   }
+
+  const rawOf = (nodes: Node[]): string => nodes.map((n) => n.toString()).join('')
+  const isTextNode = (node: Node | undefined): node is TextNode => !!node && node.nodeType === NodeType.TEXT_NODE
+  /** carries no words of its own: whitespace, an empty anchor, a line break, an image */
+  const isFixedNode = (node: Node): boolean => {
+    if (isTextNode(node)) return !node.rawText.replace(/&nbsp;|&#160;/g, ' ').trim()
+    return !isElement(node) || ATOM_TAGS.has(tagOf(node)) || !HAS_LETTER.test(node.text || '')
+  }
+  /** one line per <br>: "H2: …<br><br>H3: …" typed into one heading is two labelled lines */
+  const splitLines = (nodes: Node[]): { lines: Node[][]; breaks: Node[] } => {
+    const lines: Node[][] = [[]]
+    const breaks: Node[] = []
+    for (const node of nodes) {
+      if (isElement(node) && tagOf(node) === 'br') {
+        breaks.push(node)
+        lines.push([])
+      } else lines[lines.length - 1].push(node)
+    }
+    return { lines, breaks }
+  }
+  /** a line without the fixed nodes around its words (the empty anchor a heading starts with) */
+  const lineShape = (line: Node[]): { head: Node[]; body: Node[]; tail: Node[] } => {
+    let start = 0
+    let end = line.length
+    while (start < end && isFixedNode(line[start])) start++
+    while (end > start && isFixedNode(line[end - 1])) end--
+    return { head: line.slice(0, start), body: line.slice(start, end), tail: line.slice(end) }
+  }
+  type LineLabel = { kind: 'wrap'; el: HTMLElement } | { kind: 'text'; match: RegExpExecArray } | { kind: 'node' }
+  const labelOf = (body: Node[]): LineLabel | null => {
+    const first = body[0]
+    if (!first) return null
+    // a bold span around the whole line: the label is inside it
+    if (body.length === 1 && isElement(first) && INLINE_TAGS.has(tagOf(first))) return { kind: 'wrap', el: first }
+    if (isTextNode(first)) {
+      const match = LABEL_RE.exec(first.rawText)
+      return match ? { kind: 'text', match } : null
+    }
+    // <strong>H2:</strong> the heading
+    const text = first.text || ''
+    const match = LABEL_RE.exec(text)
+    return match && match[0].length === text.length ? { kind: 'node' } : null
+  }
+  const hasLabel = (nodes: Node[]): boolean =>
+    splitLines(nodes).lines.some((line) => {
+      const label = labelOf(lineShape(line).body)
+      return label?.kind === 'wrap' ? hasLabel(label.el.childNodes) : !!label
+    })
+  /** A run that starts a line with a label: the label is copied, the words after it become the unit. */
+  const emitLabelled = (nodes: Node[], parentTag: string): string => {
+    const { lines, breaks } = splitLines(nodes)
+    let out = ''
+    lines.forEach((line, i) => {
+      const { head, body, tail } = lineShape(line)
+      const label = labelOf(body)
+      if (label?.kind === 'wrap' && hasLabel(label.el.childNodes)) {
+        out += `${rawOf(head)}${openTag(label.el)}${emitLabelled(label.el.childNodes, parentTag)}</${label.el.rawTagName}>${rawOf(tail)}`
+      } else if (label?.kind === 'text' || label?.kind === 'node') {
+        let labelRaw: string
+        let rest = body
+        let opened = ''
+        if (label.kind === 'text') {
+          const first = body[0] as TextNode
+          labelRaw = label.match[0]
+          opened = label.match[1] || ''
+          first.rawText = first.rawText.slice(labelRaw.length)
+        } else {
+          labelRaw = body[0].toString()
+          rest = body.slice(1)
+        }
+        // "[Alt : the words ]" — the closing bracket belongs to the label
+        let close = ''
+        const last: Node | undefined = rest[rest.length - 1]
+        if (opened && isTextNode(last)) {
+          const found = LABEL_CLOSE_RE[opened].exec(last.rawText)
+          if (found) {
+            close = found[0]
+            last.rawText = last.rawText.slice(0, found.index)
+          }
+        }
+        out += `${rawOf(head)}${labelRaw}${emitUnit(rest, parentTag)}${close}${rawOf(tail)}`
+      } else {
+        out += `${rawOf(head)}${emitUnit(body, parentTag)}${rawOf(tail)}`
+      }
+      if (i < breaks.length) out += breaks[i].toString()
+    })
+    return out
+  }
+  const emitRun = (nodes: Node[], parentTag: string): string =>
+    hasLabel(nodes) ? emitLabelled(nodes, parentTag) : emitUnit(nodes, parentTag)
 
   const walk = (nodes: Node[], parentTag: string): string => {
     let out = ''
@@ -321,7 +479,10 @@ export function planTranslation(input: PlanTranslationInput): TranslatePlan {
         flush()
         const el = node as HTMLElement
         const tag = tagOf(el)
+        const outer = metaField
+        metaField = metaCells.get(el) ?? outer
         out += VERBATIM_TAGS.has(tag) ? el.toString() : `${openTag(el)}${walk(el.childNodes, tag)}</${el.rawTagName}>`
+        metaField = outer
       }
     }
     flush()
@@ -405,7 +566,7 @@ export function buildTranslateSystemPrompt(p: TranslatePromptInput): string {
 This is translation only, never rewriting:
 1. Translate every item completely and faithfully. Do not add, remove, summarise, merge, split, reorder or "improve" any idea. One item in, one item out.
 2. Markers: <t1>…</t1> wraps a formatted span (a link, bold text). <x1/> stands for a fixed element (a line break, an image). Every marker of an item must appear in its translation exactly once, with the same number, pairs properly nested, wrapped around the words that correspond to the original span. Never invent, renumber or drop a marker.
-3. Keep exactly as written: brand, product, company and person names, URLs, emails, phone numbers, codes, numbers, units, currencies and years. Do not convert units, currencies or calendar years.
+3. Keep exactly as written: brand, product, company and person names, URLs, emails, phone numbers, codes, numbers, units, currencies and years. Do not convert units, currencies or calendar years. A writer's label at the very start of an item, such as "H2:" or "Alt:", also stays exactly as written.
 4. When an item has a "note", follow it.
 5. Register — ${TONE_RULE[p.target][p.tone]} Use the same register in every item.
 6. ${GRAMMAR_RULE[p.target]}
@@ -805,9 +966,20 @@ export function assembleTranslation(plan: TranslatePlan, outcome: TranslateOutco
     const id = plan.fields[field]
     return id === undefined ? '' : (byId.get(id)?.text ?? '')
   }
-  const title = translatedPlain(plan.fields.title, original('title')).slice(0, TITLE_MAX)
-  const seoTitle = translatedPlain(plan.fields.seoTitle, original('seoTitle'))
-  const metaDescription = translatedPlain(plan.fields.metaDescription, original('metaDescription'))
+  // a label the title was imported with ("H1: ") goes back in front, untranslated
+  const titleLabel = plan.fields.title === undefined ? '' : (byId.get(plan.fields.title)?.lead ?? '')
+  const title = `${titleLabel}${translatedPlain(plan.fields.title, original('title'))}`.slice(0, TITLE_MAX)
+  // The brief table's title / description cells are the page's meta: read the translated cells,
+  // so the row's meta and the table in the document never disagree.
+  const fromBrief = (field: BriefMetaField): string =>
+    plan.units
+      .filter((u) => u.metaField === field)
+      .map((u) => parse(translatedHtml(u)).text)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  const seoTitle = fromBrief('seoTitle') || translatedPlain(plan.fields.seoTitle, original('seoTitle'))
+  const metaDescription = fromBrief('metaDescription') || translatedPlain(plan.fields.metaDescription, original('metaDescription'))
   const coverAlt = translatedPlain(plan.fields.coverAlt, original('coverAlt'))
 
   const warnings: string[] = []

@@ -16,7 +16,26 @@ export function normalizeArticleTitle(s: string): string {
   return (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-/** แถวอื่นที่ซ้ำกับ article: โพสต์ WP เดียวกัน หรือ slug ตรงกัน หรือชื่อเดียวกัน */
+/** หางของ slug ฉบับแปล: "-en" / "-th" แล้วตามด้วย "-2", "-3"… ได้ (ดู translatedSlug ใน translate.ts) */
+const LANGUAGE_SLUG_TAIL_RE = /-(en|th)(?:-\d+)?$/
+
+/**
+ * สอง slug เป็นบทความเดียวกันคนละภาษา: ตัดหางภาษาแล้วตรงกัน และหางภาษาไม่เหมือนกัน
+ * ("guide" กับ "guide-th", "guide-en" กับ "guide-th") — ฉบับแปลภาษาเดียวกันสองรอบ ("guide-th" กับ "guide-th-2") ไม่นับ
+ */
+export function isOtherLanguageVersion(slugA: string | null | undefined, slugB: string | null | undefined): boolean {
+  const a = (slugA ?? '').trim()
+  const b = (slugB ?? '').trim()
+  if (!a || !b || a === b) return false
+  const langA = a.match(LANGUAGE_SLUG_TAIL_RE)?.[1] ?? ''
+  const langB = b.match(LANGUAGE_SLUG_TAIL_RE)?.[1] ?? ''
+  return langA !== langB && a.replace(LANGUAGE_SLUG_TAIL_RE, '') === b.replace(LANGUAGE_SLUG_TAIL_RE, '')
+}
+
+/**
+ * แถวอื่นที่ซ้ำกับ article: โพสต์ WP เดียวกัน หรือ slug ตรงกัน หรือชื่อเดียวกัน
+ * ชื่อเดียวกันไม่นับเมื่อเป็นคนละภาษาของบทความเดียวกัน (ฉบับแปลที่ชื่อไม่เปลี่ยน เช่น ชื่อแบรนด์)
+ */
 export function duplicatesOf<T extends ArticleDupKey>(article: ArticleDupKey, others: T[]): T[] {
   const title = normalizeArticleTitle(article.title)
   const slug = (article.slug ?? '').trim()
@@ -25,7 +44,7 @@ export function duplicatesOf<T extends ArticleDupKey>(article: ArticleDupKey, ot
     if (o.id === article.id) return false
     if (postId && o.wordpressPostId && o.wordpressPostId === postId) return true
     if (slug && (o.slug ?? '').trim() === slug) return true
-    if (title && normalizeArticleTitle(o.title) === title) return true
+    if (title && normalizeArticleTitle(o.title) === title) return !isOtherLanguageVersion(slug, o.slug)
     return false
   })
 }

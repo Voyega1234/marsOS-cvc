@@ -2,7 +2,8 @@
  * Brief ของผู้เขียนในต้นฉบับ: แบบตาราง (เดิม) + แบบรายการ "SEO Metadata" (เพิ่ม 2026-11-25)
  * Run: npx tsx src/lib/upload-article/doc-meta.test.ts
  */
-import { extractBriefMeta, parseBriefLine } from './doc-meta';
+import { parse } from 'node-html-parser';
+import { briefHelperNotes, briefValueText, extractBriefMeta, isBriefHelperNote, parseBriefLine } from './doc-meta';
 import { buildUploadArticleHtml } from './build-html';
 import { DEFAULT_UPLOAD_THEME } from './types';
 
@@ -89,5 +90,29 @@ assert(!pHtml.includes('Para Title') && !pHtml.includes('SEO Metadata'), 'paragr
 console.log('\nTOC label follows site.language');
 assert(build(BODY, 'en').includes('>Contents</p>'), 'en article = "Contents"');
 assert(build(BODY, 'th').includes('>สารบัญ</p>'), 'th article = "สารบัญ"');
+
+console.log('\nbrief table — helper note in a value cell');
+const NOTE = '<p>(ใช้ <a href="https://mrs.digital/tools/meta-length-checker/">https://mrs.digital/tools/meta-length-checker/</a> ในการนับคำ)</p>';
+const NOTED_TABLE =
+  '<table><tr><td><p>Main</p></td><td><p>API development</p></td></tr>' +
+  '<tr><td><p>Title Count:</p><p>(Max 70)</p></td><td><p><strong>What is API Development? A Complete Guide</strong> </p></td></tr>' +
+  `<tr><td><p>Description Count :</p><p>(Max 160)</p></td><td>${NOTE}<p>Learn how API development works and why it matters.</p></td></tr>` +
+  '<tr><td><p>Slug</p></td><td><p>api-development-guide</p></td></tr></table>';
+const noted = extractBriefMeta(NOTED_TABLE + BODY);
+assert(noted.seoTitle === 'What is API Development? A Complete Guide', 'title read');
+assert(noted.metaDescription === 'Learn how API development works and why it matters.', 'description = the real sentence, not the helper note');
+assert(noted.slug === 'api-development-guide', 'slug read');
+assert(isBriefHelperNote('(Max 160)') && isBriefHelperNote('[note for the writer]'), 'whole-line brackets = helper note');
+assert(!isBriefHelperNote('Learn (quickly) how it works') && !isBriefHelperNote('()'), 'a sentence with brackets inside is not a note');
+const cellOf = (inner: string) => parse(`<table><tr><td>${inner}</td></tr></table>`).querySelector('td')!;
+assert(briefHelperNotes(cellOf(`${NOTE}<p>Real value</p>`)).length === 1, 'note beside a real value is skipped');
+assert(briefHelperNotes(cellOf('<p>(only a bracketed value)</p>')).length === 0, 'a cell that is only a bracketed line keeps it');
+assert(briefHelperNotes(cellOf('<p>(one)</p><p>(two)</p>')).length === 0, 'all-bracketed cell keeps everything');
+assert(briefValueText(cellOf('<p>(only a bracketed value)</p>')) === '(only a bracketed value)', 'bracketed-only value read as written');
+assert(
+  briefValueText(cellOf('(use https://example.com/counter to count) Real description here')) === 'Real description here',
+  'link note typed on the same line as the value is dropped',
+);
+assert(briefValueText(cellOf('(Optional) Real description here') ) === '(Optional) Real description here', 'leading brackets without a link stay');
 
 console.log(`\n${passed} passed`);
