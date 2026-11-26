@@ -2,6 +2,7 @@
 
 import { ImageIcon, Loader2, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
+import { fmtThb } from "@/lib/ai-cost-format";
 
 /** ผลจาก POST /api/article/cover (ส่วน meta เพิ่มมาเพื่อหน้านี้โดยเฉพาะ) */
 interface CoverResponse {
@@ -175,7 +176,7 @@ export function LabTestImageCard({ projectId, defaultKeyword = '' }: { projectId
                   <dt className="text-gray-400">ภาษาบนภาพ</dt>
                   <dd>{r.meta.language === 'en' ? 'อังกฤษ' : 'ไทย'}</dd>
                   <dt className="text-gray-400">ค่าใช้จ่าย</dt>
-                  <dd>${r.meta.costUsd.toFixed(4)}</dd>
+                  <dd>{fmtThb(r.meta.costUsd)}</dd>
                 </dl>
               ) : (
                 <div className="text-gray-400">ไม่มีข้อมูล meta จากเซิร์ฟเวอร์</div>

@@ -14,6 +14,7 @@ import {
   type UploadArticleDTO, type UploadClientDTO,
 } from "@/lib/upload-article/types";
 import { countGeneratedFigures } from "@/lib/upload-article/article-images";
+import { fmtThb } from "@/lib/ai-cost-format";
 
 type Busy = "" | "cover" | "inline" | "remove";
 
@@ -75,7 +76,7 @@ export default function AiImagesPanel({ client, detail, applyArticleUpdate }: {
         : { kind, withText: inlineWithText, count: inlineCount });
       if (!res.ok) { toast.error(res.error); return; }
       applyArticleUpdate(res.article);
-      const cost = `ต้นทุน $${res.costUsd.toFixed(3)}`;
+      const cost = `ต้นทุน ${fmtThb(res.costUsd)}`;
       if (kind === "cover") toast.success(`สร้างรูปปกแล้ว (${cost})`);
       else if (res.failed) toast.warning(`สร้างรูปประกอบได้ ${res.generated} รูป ไม่สำเร็จ ${res.failed} รูป (${cost})`);
       else toast.success(`สร้างรูปประกอบ ${res.generated} รูปแล้ว (${cost})`);

@@ -42,11 +42,11 @@ const LAYER_TAB: Record<string, TabKey> = {
   CE_IMAGE_PROMPT: "image-prompts",
 };
 /** โหมดปกติเห็นแค่แท็บงานประจำ — ที่เหลืออยู่หลังโหมดขั้นสูง (เหมือน Upload Article) */
-const SIMPLE_TABS: TabKey[] = ["client-comments", "restrictions"];
+const SIMPLE_TABS: TabKey[] = ["client-comments", "restrictions", "ai-models"];
 const ADVANCED_KEY = "mars_ce_advanced";
 const CE_TABS: readonly TabKey[] = [
   "overview", "business-skills", "master-prompts", "article-briefs", "restrictions",
-  "client-comments", "validator-packs", "image-prompts", "prompt-composer", "versions-audit",
+  "client-comments", "validator-packs", "image-prompts", "prompt-composer", "versions-audit", "ai-models",
 ];
 
 function resolveProjectId(explicit?: string): string | null {

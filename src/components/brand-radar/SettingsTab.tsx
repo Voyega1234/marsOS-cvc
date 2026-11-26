@@ -20,6 +20,7 @@ import { UsageDailyPanel } from "./UsageDailyPanel";
 import ClientAvatar from "@/components/upload-article/ClientAvatar";
 import { ColumnHelp } from "./ColumnHelp";
 import { brandTermsOf } from "@/lib/brand-radar/highlight";
+import { thbToUsd, usdToThb } from "@/lib/ai-cost-format";
 import { api, fmtDateTime, fmtNum, fmtUsd, fmtUsdPerCall, methodLabel, monthLabelTh, postJson, scheduleLabel, WEEKDAYS_TH, type TabProps } from "./shared";
 
 const inputCls =
@@ -311,6 +312,8 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
   const [hasProfile, setHasProfile] = useState(false);
   const [form, setForm] = useState<FormState>({ budget: "" });
   const [baseline, setBaseline] = useState<FormState>({ budget: "" });
+  // the USD budget as stored on the server; the baht text in baseline.budget was derived from it
+  const [loadedBudgetUsd, setLoadedBudgetUsd] = useState<number | null>(null);
   const [nextRunAt, setNextRunAt] = useState<string | null>(null);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   // state of the scheduled server job, as last reported by the server (not part of the form)
@@ -392,7 +395,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
         providers: profile.providers, promptSources: profile.promptSources, schedule: profile.schedule,
         maxPromptsPerRun: profile.maxPromptsPerRun,
         samplesPerPrompt: profile.samplesPerPrompt,
-        budget: profile.monthlyBudgetUsd === null ? "" : String(profile.monthlyBudgetUsd),
+        budget: profile.monthlyBudgetUsd === null ? "" : String(Math.round(usdToThb(profile.monthlyBudgetUsd) * 100) / 100),
         autoScan,
       };
       setNextRunAt(profile.nextRunAt);
@@ -411,6 +414,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
     }
     setForm(loaded);
     setBaseline(loaded);
+    setLoadedBudgetUsd(profile ? profile.monthlyBudgetUsd : null);
     if (pv.ok) { setProviders(pv.data.providers ?? []); setUnsupported(pv.data.unsupported ?? []); }
     else { setProviders([]); setUnsupported([]); }
     setUsage(us.ok ? (us.data as UsageDTO) : null);
@@ -433,8 +437,12 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
     if (!form.brandName?.trim()) { setSaveError("กรุณากรอกชื่อแบรนด์"); return; }
     if (!form.primaryDomain?.trim()) { setSaveError("กรุณากรอกโดเมนหลักของแบรนด์"); return; }
     const budgetTxt = form.budget.trim();
-    const budget = budgetTxt === "" ? null : Number(budgetTxt);
-    if (budget !== null && (!Number.isFinite(budget) || budget < 0)) { setSaveError("งบประมาณต่อเดือนต้องเป็นตัวเลขที่ไม่ติดลบ"); return; }
+    const budgetThb = budgetTxt === "" ? null : Number(budgetTxt);
+    if (budgetThb !== null && (!Number.isFinite(budgetThb) || budgetThb < 0)) { setSaveError("งบประมาณต่อเดือนต้องเป็นตัวเลขที่ไม่ติดลบ"); return; }
+    // untouched field -> send the stored USD value as is; edited -> convert from baht
+    const budget = budgetThb === null ? null
+      : budgetTxt === baseline.budget.trim() && loadedBudgetUsd !== null ? loadedBudgetUsd
+      : Math.round(thbToUsd(budgetThb) * 10000) / 10000;
     const { budget: _b, autoScan: wantAuto, ...rest } = form;
     void _b;
     // the switch is sent only when it was changed here, so saving other fields never undoes a change made by a colleague
@@ -449,6 +457,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
     const saved: FormState = res.data.auto ? { ...form, autoScan: res.data.auto.on } : form;
     if (res.data.auto) { setAuto(res.data.auto); setForm(saved); }
     setBaseline(saved);
+    setLoadedBudgetUsd(budget);
     setHasProfile(true);
     // the server recalculates the next scan when the schedule changes
     if (res.data.profile) { setNextRunAt(res.data.profile.nextRunAt); setLastRunAt(res.data.profile.lastRunAt); }
@@ -790,7 +799,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
                 )}
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="งบประมาณต่อเดือน (USD)" help="เว้นว่าง = ไม่จำกัด">
+                <Field label="งบประมาณต่อเดือน (บาท)" help="เว้นว่าง = ไม่จำกัด">
                   <input type="number" min={0} step="0.01" className={inputCls} placeholder="เว้นว่าง = ไม่จำกัด" value={form.budget}
                     onChange={(e) => patch({ budget: e.target.value })} />
                 </Field>
@@ -920,7 +929,7 @@ export default function SettingsTab({ projectId, refreshKey, onChanged, clientVi
             )}
             {usage && usage.history.length > 0 && (
               <div className="mt-4">
-                <div className="mb-1 text-xs font-medium text-gray-600">รายเดือน 6 เดือนล่าสุด (USD)</div>
+                <div className="mb-1 text-xs font-medium text-gray-600">รายเดือน 6 เดือนล่าสุด (บาท)</div>
                 <table className="w-full text-left text-xs">
                   <thead className="text-gray-500">
                     <tr>

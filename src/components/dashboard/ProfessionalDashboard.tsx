@@ -11,6 +11,7 @@ import {
   CheckCircle, Globe, CheckSquare, AlertCircle, DollarSign,
   TrendingUp, ArrowUpRight, Zap, Clock,
 } from "lucide-react";
+import { fmtThb } from "@/lib/ai-cost-format";
 
 interface StatCard {
   label: string;
@@ -105,7 +106,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
     { label: "WP Drafted",      value: stats.wpDrafted,      icon: Globe,         tone: "sky",  href: "/articles?status=WORDPRESS_DRAFTED" },
     { label: "Posted",          value: stats.posted,         icon: CheckSquare,   tone: "mist",  href: "/articles?status=POSTED" },
     { label: "Errors",          value: stats.errors,         icon: AlertCircle,   tone: "warm",  href: "/articles?status=ERROR" },
-    { label: "AI Cost / Month", value: `$${stats.aiCostMonth.toFixed(2)}`, icon: DollarSign, tone: "navy", href: "/ai-jobs" },
+    { label: "AI Cost / Month", value: fmtThb(stats.aiCostMonth), icon: DollarSign, tone: "navy", href: "/ai-jobs" },
   ];
 
   const JOB_TYPE_LABELS: Record<string, string> = {
@@ -158,7 +159,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
               <span>{pct}% of target</span>
               {costPct !== null && (
                 <span className={costPct >= 90 ? "text-red-500 font-semibold" : ""}>
-                  AI cost: ${stats.aiCostMonth.toFixed(2)} / ${stats.aiCostLimit?.toFixed(0)} {costPct >= 90 && "⚠"}
+                  AI cost: {fmtThb(stats.aiCostMonth)}{typeof stats.aiCostLimit === "number" && ` / ${fmtThb(stats.aiCostLimit)}`} {costPct >= 90 && "⚠"}
                 </span>
               )}
             </div>
@@ -383,7 +384,7 @@ export function ProfessionalDashboard({ userName, stats, stepCounts, allArticles
                     "chip-info"
                   }`}>{job.status}</span>
                   <span className="text-gray-600 flex-1 truncate">{JOB_TYPE_LABELS[job.jobType] ?? job.jobType}</span>
-                  <span className="text-amber-600 font-mono">${job.estimatedCost?.toFixed(4) ?? "—"}</span>
+                  <span className="text-amber-600 font-mono">{job.estimatedCost != null ? fmtThb(job.estimatedCost) : "—"}</span>
                 </div>
               ))}
             </div>

@@ -9,7 +9,7 @@ import {
   buildAiCostQuery, hasActiveAiCostFilters, type AiCostFilterKey, type AiCostFilters, type AiCostSort,
 } from "@/lib/ai-cost-filters";
 import type { AiCostPreset, AiCostRange } from "@/lib/ai-cost-range";
-import { fmtInt, fmtThb, fmtUsd, pctChange } from "@/lib/ai-cost-format";
+import { fmtInt, fmtThb, pctChange } from "@/lib/ai-cost-format";
 import type { AiCostView } from "@/lib/ai-cost-data";
 import { AiCostFilterBar } from "./AiCostFilterBar";
 import { AiCostChart } from "./AiCostChart";
@@ -68,16 +68,16 @@ export function AiCostClient({ view, range, filters, sort }: {
         ) : (
           <>
             <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 xl:grid-cols-5">
-              <KpiTile tone="blue" icon={<DollarSign size={16} />} label="ค่าใช้จ่ายรวม" value={fmtUsd(s.cost)}
+              <KpiTile tone="blue" icon={<DollarSign size={16} />} label="ค่าใช้จ่ายรวม" value={fmtThb(s.cost)}
                 delta={prev ? pctChange(s.cost, prev.cost) : null} invertDelta
-                hint={`${fmtThb(s.cost)} · เทียบช่วงก่อนหน้าที่ยาวเท่ากัน${prev ? ` (${fmtUsd(prev.cost)})` : ""}`} />
+                hint={`เทียบช่วงก่อนหน้าที่ยาวเท่ากัน${prev ? ` (${fmtThb(prev.cost)})` : ""}`} />
               <KpiTile tone="sky" icon={<Zap size={16} />} label="จำนวนครั้งที่เรียก AI" value={fmtInt(s.calls)}
                 delta={prev ? pctChange(s.calls, prev.calls) : null}
                 hint={prev ? `ช่วงก่อนหน้า ${fmtInt(prev.calls)} ครั้ง` : "ทุกครั้งที่ระบบเรียก AI/API"} />
               <KpiTile tone="mist" icon={<Cpu size={16} />} label="Tokens รวม" value={fmtInt(s.tokens)} hint="เฉพาะงานที่บันทึก tokens" />
-              <KpiTile tone="plain" icon={<DollarSign size={16} />} label="ค่าเฉลี่ยต่อครั้ง" value={fmtUsd(avg)} hint={fmtThb(avg)} />
+              <KpiTile tone="plain" icon={<DollarSign size={16} />} label="ค่าเฉลี่ยต่อครั้ง" value={fmtThb(avg)} hint="เฉลี่ยจากทุกครั้งที่เรียก" />
               <KpiTile tone={s.failed > 0 ? "warm" : "plain"} icon={<AlertCircle size={16} />} label="งานที่ล้มเหลว" value={fmtInt(s.failed)}
-                hint={s.failed > 0 ? `เสียค่าใช้จ่ายไป ${fmtUsd(s.failedCost)}` : "ไม่มีงานล้มเหลว"} />
+                hint={s.failed > 0 ? `เสียค่าใช้จ่ายไป ${fmtThb(s.failedCost)}` : "ไม่มีงานล้มเหลว"} />
             </div>
 
             <Panel title="ค่าใช้จ่ายรายวัน" subtitle="แท่งแบ่งสีตามระบบ · วันที่ตามเวลาไทย">

@@ -26,7 +26,8 @@ import { cleanSemanticHtml } from '@/lib/upload-article/clean-html'
 import { buildUploadArticleHtml, countFaqItems, replaceFaqSection, uploadArticleLanguage } from '@/lib/upload-article/build-html'
 import { readUploadAuthor, pickAuthorForArticle } from '@/lib/upload-article/author'
 import { toUploadArticleDTO } from '@/lib/upload-article/serialize'
-import { orChatStream, OR_MODELS } from '@/lib/openrouter'
+import { orChatStream } from '@/lib/openrouter'
+import { resolveCeModel } from '@/lib/ce-ai-models-server'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import {
   bannedTermsOf, cleanPlainText, cleanSlug, hasRestrictions, hitWarnings, keywordWarnings,
@@ -34,6 +35,8 @@ import {
 import { enforceRestrictions, judgeRelatedProducts, loadClientComments, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { hasClientComments } from '@/lib/ce-client-comments'
 import { checkAgainstComments, type CommentFix } from '@/lib/ce-comment-check'
+import { checkAgainstBrief } from '@/lib/ce-brief-check'
+import { BRIEF_MATCH_DEFAULT, briefViolationWarnings, buildBriefRevisePrompt } from '@/lib/ce-brief-match'
 import { stripEditorialNotes } from '@/lib/article-human-voice-skill'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
@@ -69,6 +72,10 @@ export const maxDuration = 800
 const WRITE_BUDGET_MS = 770_000
 /** รอบเสริมต้องมีเวลาเหลืออย่างน้อยเท่านี้ถึงจะเริ่ม */
 const EXTRA_ROUND_MIN_MS = 60_000
+/** Validator Pack > Brief Match: เขียนใหม่ได้สูงสุดกี่รอบเมื่อบทความไม่ตรง Brief */
+const BRIEF_MAX_REWRITES = 2
+/** เวลาที่ต้องเหลือไว้ให้ขั้นหลังเขียน (เติม FAQ / ข้อจำกัด / Comment / บันทึก) ก่อนยอมเริ่มเขียนใหม่ตาม Brief */
+const BRIEF_RESERVE_MS = 150_000
 
 function readPlan(prefs: Record<string, unknown> | null): UploadKeyword[] {
   const raw = prefs?.keywordPlan
@@ -257,6 +264,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   ])
   // Comment ไม่บังคับ — โหลดพังก็เขียนต่อได้
   const clientComments = await loadClientComments(orgId, { projectId: effective.ceScopeId }).catch(() => null)
+  // Content Engine > AI Model ของ scope เดียวกับ CE — เขียนใหม่ (rewrite) ใช้โมเดล regenerate
+  const writerModel = await resolveCeModel(orgId, effective.ceScopeId, rewriteArticleId ? 'regenerate' : 'write')
   const staleIds: string[] = []
   for (const a of existingWriting) {
     if (isWritingStale(a.updatedAt)) staleIds.push(a.id)
@@ -465,7 +474,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             orChatStream({
               trace: 'upload_article_write',
               messages,
-              model: OR_MODELS.writer(),
+              model: writerModel,
               maxTokens: 20000,
               timeoutMs,
               onDelta: (delta) => {
@@ -481,6 +490,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const touchWriting = () =>
           prisma.uploadArticle.update({ where: { id: article.id }, data: { status: 'WRITING' } }).catch(() => {})
 
+        const writeStartedAt = Date.now()
         const first = await runWriter(baseMessages, 700_000)
         let rawText = first.text
         let lastFinish = first.finishReason
@@ -506,15 +516,95 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           throw new Error(`โมเดลหยุดเขียนผิดปกติ (${lastFinish || 'ไม่ระบุสาเหตุ'}) — เก็บบทความเดิมไว้ ลองเขียนใหม่อีกครั้ง`)
         }
 
-        const parsed = parseWriterOutput(rawText)
+        let parsed = parseWriterOutput(rawText)
         let cleaned = stripEditorialNotes(cleanSemanticHtml(parsed.html))
         if (cleaned.trim().length < MIN_CLEANED_HTML_LENGTH) {
           throw new Error('เนื้อหาที่ได้สั้นเกินไป (โมเดลอาจตอบว่างหรือถูกตัดกลางทาง) ลองเขียนใหม่อีกครั้ง')
         }
 
+        // Validator Pack > Brief Match: ตรวจบทความเทียบกับ Master Prompt / Article Brief / โครงสร้าง / ข้อจำกัด / Comment
+        // ไม่ตรง = ส่งกลับให้ตัวเขียนเขียนใหม่ทั้งบทความ แล้วตรวจซ้ำ จนผ่านหรือครบรอบ/หมดเวลา
+        // ตรวจไม่สำเร็จหรือเขียนใหม่ล้ม = เก็บฉบับล่าสุดที่ใช้ได้ไว้พร้อมคำเตือน ไม่ทิ้งบทความที่จ่ายเงินแล้ว
+        const outlineOwnsFaq = !!importedOutline && outlineHasFaq(importedOutline.items)
+        const briefMatch = ce.briefMatch ?? BRIEF_MATCH_DEFAULT
+        let briefWarnings: string[] = []
+        if (briefMatch.enabled) {
+          const briefLayers = { masterPrompt, articleBrief, restrictions: constraints.restrictions || '', task: user }
+          const systemHandled = [
+            ...(outlineOwnsFaq ? [] : ['ส่วน FAQ ที่ขาดหรือมีจำนวนข้อน้อย']),
+            ...(importedOutline ? ['หัวข้อของ outline ที่ขาด หรือสะกด/ระดับหัวข้อต่างจาก outline'] : []),
+          ]
+          // เวลาที่การเขียนรอบล่าสุดใช้ — รอบเขียนใหม่ใช้เวลาใกล้เคียงกัน ใช้ตัดสินว่าเวลาที่เหลือพอไหม
+          let writeMs = Date.now() - writeStartedAt
+          for (let rewrites = 0; ; ) {
+            if (remainingMs() < EXTRA_ROUND_MIN_MS) {
+              if (!briefWarnings.length) briefWarnings = ['ไม่ได้ตรวจตาม Brief เพราะเวลาไม่พอ กรุณาตรวจเอง']
+              break
+            }
+            await touchWriting()
+            const verdict = await checkAgainstBrief({
+              criteria: briefMatch.criteria,
+              layers: briefLayers,
+              html: cleaned,
+              systemHandled,
+              trace: 'upload_article_brief_check',
+              client: clientSlug,
+              timeoutMs: Math.max(30_000, Math.min(90_000, remainingMs() - 20_000)),
+            })
+            usage.totalTokens += verdict.tokens
+            usage.costUsd += verdict.costUsd
+            if (verdict.status === 'error') {
+              briefWarnings = [rewrites ? 'เขียนใหม่ตาม Brief แล้ว แต่ตรวจซ้ำไม่สำเร็จ กรุณาตรวจเอง' : 'ตรวจตาม Brief ไม่สำเร็จ กรุณาตรวจเอง']
+              break
+            }
+            if (verdict.status === 'pass') {
+              briefWarnings = []
+              break
+            }
+            const failed = briefViolationWarnings(verdict.violations)
+            if (rewrites >= BRIEF_MAX_REWRITES) {
+              briefWarnings = [`เขียนใหม่ตาม Brief ครบ ${BRIEF_MAX_REWRITES} รอบแล้วยังไม่ผ่าน กรุณาตรวจเอง`, ...failed]
+              break
+            }
+            if (remainingMs() - BRIEF_RESERVE_MS < writeMs * 1.2) {
+              briefWarnings = ['เวลาไม่พอเขียนใหม่ตาม Brief กรุณาตรวจเองหรือกด Re-generate', ...failed]
+              break
+            }
+            rewrites++
+            safeEnqueue({ type: 'status', stage: 'brief_rewrite', round: rewrites, issues: verdict.violations.length })
+            try {
+              const redoStartedAt = Date.now()
+              const redo = await runWriter(
+                [...baseMessages, { role: 'assistant', content: rawText }, { role: 'user', content: buildBriefRevisePrompt(verdict.violations) }],
+                Math.max(60_000, remainingMs() - BRIEF_RESERVE_MS),
+              )
+              const redoParsed = parseWriterOutput(redo.text)
+              const redoCleaned = stripEditorialNotes(cleanSemanticHtml(redoParsed.html))
+              // ฉบับใหม่ต้องจบปกติและไม่สั้นผิดปกติ ไม่งั้นเก็บฉบับเดิมไว้ (ห้ามเอาบทความครึ่งเดียวมาทับ)
+              const usable = isNormalStopFinish(redo.finishReason)
+                && redoCleaned.trim().length >= MIN_CLEANED_HTML_LENGTH
+                && redoCleaned.length >= cleaned.length * 0.6
+              if (!usable) {
+                briefWarnings = ['เขียนใหม่ตาม Brief ไม่สำเร็จ ใช้ฉบับก่อนหน้า กรุณาตรวจเอง', ...failed]
+                break
+              }
+              rawText = redo.text
+              lastFinish = redo.finishReason
+              parsed = redoParsed
+              cleaned = redoCleaned
+              writeMs = Date.now() - redoStartedAt
+              // ฉบับใหม่ยังไม่ได้ตรวจ — ถ้าหลุดลูปเพราะเวลาหมด ต้องบอกว่าฉบับนี้ยังไม่ผ่านการตรวจซ้ำ
+              briefWarnings = ['เขียนใหม่ตาม Brief แล้ว แต่เวลาไม่พอตรวจซ้ำ กรุณาตรวจเอง']
+            } catch (e) {
+              console.warn('[upload-article/write] เขียนใหม่ตาม Brief ไม่สำเร็จ', e instanceof Error ? e.message : e)
+              briefWarnings = ['เขียนใหม่ตาม Brief ไม่สำเร็จ ใช้ฉบับก่อนหน้า กรุณาตรวจเอง', ...failed]
+              break
+            }
+          }
+        }
+
         // FAQ ไม่มีหรือมีแค่ข้อเดียว → เขียนส่วน FAQ ใหม่ทั้งส่วน (ไม่สำเร็จ = เก็บบทความเดิมไว้ ไม่ทิ้งค่าเขียนทั้งบทความ)
         // outline มี FAQ ของตัวเอง = คำถามตาม outline ห้ามถูกเขียนทับ — ข้ามรอบเติม FAQ
-        const outlineOwnsFaq = !!importedOutline && outlineHasFaq(importedOutline.items)
         let faqItems = countFaqItems(cleaned)
         for (let attempt = 0; !outlineOwnsFaq && faqItems < WRITER_MIN_FAQ_ITEMS && attempt < 2; attempt++) {
           if (remainingMs() < EXTRA_ROUND_MIN_MS) break
@@ -622,6 +712,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             restrictionWarnings = [...(restrictionWarnings ?? []), 'ไม่ได้ตรวจกับ Comment เพราะเวลาไม่พอ กรุณาตรวจเอง']
           }
         }
+        if (briefWarnings.length) restrictionWarnings = [...(restrictionWarnings ?? []), ...briefWarnings]
         if (found.warning) restrictionWarnings = [...(restrictionWarnings ?? []), found.warning]
         // ตรวจ outline รอบสุดท้ายหลังแก้คำต้องห้าม/Comment — ไม่แก้ทับ (ข้อจำกัดลูกค้าชนะ) แค่เตือน
         if (importedOutline) {
@@ -756,7 +847,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           inputSummary: uaJobInput(client.id),
           jobType: 'UPLOAD_ARTICLE_WRITE',
           modelProvider: 'OPENROUTER',
-          modelName: OR_MODELS.writer(),
+          modelName: writerModel,
           status: 'SUCCESS',
           tokenUsed: usage.totalTokens,
           estimatedCost: usage.costUsd,
@@ -800,7 +891,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           inputSummary: uaJobInput(client.id),
           jobType: 'UPLOAD_ARTICLE_WRITE',
           modelProvider: 'OPENROUTER',
-          modelName: OR_MODELS.writer(),
+          modelName: writerModel,
           status: 'FAILED',
           errorMessage: message,
           createdById: userId,

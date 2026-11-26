@@ -1,6 +1,7 @@
 // Run Test ของ Content Engine — ประกอบ prompt ด้วยฟังก์ชันเดียวกับตอนเขียนจริง แล้วรายงานว่าอะไรถูกส่งบ้าง
 // ฟังก์ชันล้วน: ไม่เรียก AI ไม่แตะ DB (ตัวโหลดข้อมูลอยู่ที่ ce-writer-dry-run-server.ts)
 
+import { BRIEF_MATCH_DEFAULT } from "@/lib/ce-brief-match";
 import { articleIntentSkillBlock } from "@/lib/article-intent-skill";
 import { humanVoiceSkillBlock } from "@/lib/article-human-voice-skill";
 import { articleStructureSkillBlock, type ArticleStructureOptions } from "@/lib/article-structure";
@@ -87,7 +88,7 @@ export interface WriterDryRun {
 
 export interface WriterDryRunInput {
   target: DryRunTarget;
-  ce: Pick<ResolvedCE, "businessSkill" | "masterPrompt" | "articleBrief" | "validatorPack" | "imagePrompt" | "missing">;
+  ce: Pick<ResolvedCE, "businessSkill" | "masterPrompt" | "articleBrief" | "validatorPack" | "imagePrompt" | "missing" | "briefMatch">;
   restrictions: RestrictionsContext | null;
   clientComments: ClientCommentsContext | null;
   keyword: UploadKeyword;
@@ -274,6 +275,7 @@ function uploadSteps(model: string | null): DryRunStep[] {
     { title: "AI เขียนบทความ", detail: `เรียก ${model ?? "โมเดลเขียน"} ครั้งเดียวจาก prompt ด้านบน สูงสุด 20,000 tokens`, ai: "yes", inTest: false },
     { title: "เขียนต่อถ้าถูกตัด", detail: "สูงสุด 2 รอบ ยังไม่จบ = ล้มเหลว ไม่บันทึกบทความครึ่งเดียว", ai: "maybe", inTest: false },
     { title: "ล้าง HTML", detail: "ตัด markup แปลกปลอมและข้อความตรวจทานภายในที่หลุดเข้าบทความ เหลือสั้นเกิน = ล้มเหลว", ai: "no", inTest: false },
+    { title: "ตรวจตาม Brief หลังเขียน (Validator Pack)", detail: "ให้ AI อีกตัวอ่านบทความเทียบกับ Master Prompt, Article Brief, โครงสร้าง / outline, ข้อจำกัด และ Comment ไม่ตรง = ส่งกลับให้ตัวเขียนเขียนใหม่ทั้งบทความแล้วตรวจซ้ำ สูงสุด 2 รอบและต้องเหลือเวลา ยังไม่ผ่าน = บันทึกพร้อมคำเตือนว่าไม่ตรงข้อไหน ปิดได้ที่ Brief Match Validator ใน Validator Pack", ai: "yes", inTest: false },
     { title: "เติม FAQ", detail: "มีน้อยกว่า 2 ข้อ เรียก AI เติม สูงสุด 2 ครั้ง", ai: "maybe", inTest: false },
     { title: "ตรวจคำต้องห้ามหลังเขียน", detail: "เช็คทุกคำในรายการ แทนคำที่มีคำแทน ให้ AI แก้ประโยคที่เหลือ (สูงสุด 40 จุด และต้องเหลือเวลา) แก้ไม่หมด = เตือน ไม่ทำให้งานล้ม", ai: "maybe", inTest: false },
     { title: "ตรวจกับ Comment หลังเขียน", detail: "ให้ AI อ่านบทความเทียบกับ Comment ลูกค้า แก้เฉพาะท่อนที่ขัด ถ้าขัดกับข้อจำกัดให้ยึดข้อจำกัด แก้ไม่ได้ = เตือน ไม่มี Comment = ไม่เรียก AI", ai: "maybe", inTest: false },
@@ -292,6 +294,7 @@ function seoSteps(model: string | null): DryRunStep[] {
     { title: "ค้นแหล่งอ้างอิงจากเว็บ", detail: "ก่อนเขียน ค้นเฉพาะโดเมนที่เว็บนี้เคยอ้างอิง แล้วส่งชื่อเรื่องกับข้อความจริงให้ตัวเขียน ทำเฉพาะเว็บที่สแกนแล้วเปิดส่วนอ้างอิงและมีรายการแหล่ง ค้นไม่เจอใช้เฉพาะแหล่งที่สแกนไว้ Run Test ไม่ค้นจริง", ai: "maybe", inTest: false },
     { title: "AI เขียนบทความ", detail: `เรียก ${model ?? "โมเดลเขียน"} ครั้งเดียว สูงสุด 20,000 tokens`, ai: "yes", inTest: false },
     { title: "ล้าง HTML", detail: "ตัด markup และข้อความตรวจทานภายใน จัด FAQ กับกล่องสรุป เนื้อหาสั้นผิดปกติ = ล้มเหลว", ai: "no", inTest: false },
+    { title: "ตรวจตาม Brief หลังเขียน (Validator Pack)", detail: "ให้ AI อีกตัวอ่านบทความเทียบกับ Master Prompt, Article Brief, โครงสร้าง, ข้อจำกัด และ Comment ไม่ตรง = ส่งกลับให้ตัวเขียนเขียนใหม่ทั้งบทความแล้วตรวจซ้ำ สูงสุด 2 รอบและต้องเหลือเวลา ยังไม่ผ่าน = บันทึกพร้อมคำเตือนว่าไม่ตรงข้อไหน ปิดได้ที่ Brief Match Validator ใน Validator Pack", ai: "yes", inTest: false },
     { title: "ตรวจคำต้องห้ามหลังเขียน", detail: "เช็คทุกคำในรายการ แทนคำ ให้ AI แก้ประโยคที่เหลือ แก้ไม่หมด = เตือน", ai: "maybe", inTest: false },
     { title: "ตรวจกับ Comment หลังเขียน", detail: "ให้ AI อ่านบทความเทียบกับ Comment ลูกค้า แก้เฉพาะท่อนที่ขัด ถ้าขัดกับข้อจำกัดให้ยึดข้อจำกัด แก้ไม่ได้ = เตือน ไม่มี Comment = ไม่เรียก AI", ai: "maybe", inTest: false },
     { title: "สร้างรูปและบันทึก", detail: "ใช้ Image Prompt สร้างปกและรูปประกอบใน request เดียวกัน แล้วบันทึกบทความ", ai: "yes", inTest: false },
@@ -391,7 +394,13 @@ export function buildWriterDryRun(input: WriterDryRunInput): WriterDryRun {
   const validator = layerFromCe("validator", "Validator Pack", ce.validatorPack, inPrompt);
   validator.text = ce.validatorPack ? validatorText : "";
   validator.chars = validator.text.length;
-  validator.details = ["AI ตรวจตัวเองจากข้อความนี้ ไม่มีรอบตรวจแยก"];
+  const briefMatch = ce.briefMatch ?? BRIEF_MATCH_DEFAULT;
+  validator.details = [
+    "ตัวเขียนตรวจตัวเองจากข้อความนี้ก่อนส่ง",
+    briefMatch.enabled
+      ? "Brief Match Validator เปิดอยู่: หลังเขียนเสร็จมี AI อีกตัวตรวจเทียบ Master Prompt / Article Brief / โครงสร้าง / ข้อจำกัด / Comment ไม่ตรงให้เขียนใหม่"
+      : "Brief Match Validator ปิดอยู่: ไม่มีรอบตรวจแยกหลังเขียน",
+  ];
   if (constraints.restrictionsNote) validator.details.push("ต่อท้ายด้วยบรรทัดตรวจข้อจำกัด / Comment");
 
   const restrictionsLayer: DryRunLayer = {

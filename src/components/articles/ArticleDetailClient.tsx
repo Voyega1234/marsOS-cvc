@@ -24,6 +24,7 @@ import type { ArticleStatus } from "@/types";
 import { ArticleEditor } from "@/components/articles/ArticleEditor";
 import { ReviewChecklist } from "@/components/articles/ReviewChecklist";
 import { ArticleAuditPanel } from "@/components/articles/ArticleAuditPanel";
+import { fmtThb } from "@/lib/ai-cost-format";
 
 interface OutlineSection {
   heading: string;
@@ -79,10 +80,10 @@ interface Props {
 }
 
 const AI_ACTIONS = [
-  { key: "outline",      labelTh: "สร้าง Outline",      requiredStatus: [],                                   lockedReason: "",                                    endpoint: "/api/ai/outline",       icon: LayoutList, color: "bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200", cost: "~$0.01" },
-  { key: "article",      labelTh: "เขียนบทความ",        requiredStatus: ["OUTLINE_APPROVED"],                 lockedReason: "ต้อง Approve Outline ก่อน",           endpoint: "/api/ai/article",       icon: PenLine,    color: "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200", cost: "~$0.04" },
-  { key: "image-prompt", labelTh: "สร้าง Image Prompt", requiredStatus: ["ARTICLE_DONE","IMAGE_PROMPT_DONE"], lockedReason: "ต้องเขียนบทความเสร็จก่อน",           endpoint: "/api/ai/image-prompt",  icon: Image,      color: "bg-brand-mist hover:bg-brand-blue/10 text-brand-navy border border-gray-200", cost: "~$0.01" },
-  { key: "seo-check",    labelTh: "ตรวจ SEO",           requiredStatus: ["ARTICLE_DONE","IMAGE_PROMPT_DONE","SEO_REVIEW","REVISION_REQUIRED","APPROVED","WORDPRESS_DRAFTED","POSTED"], lockedReason: "ต้องเขียนบทความเสร็จก่อน", endpoint: "/api/ai/seo-check", icon: Search, color: "bg-brand-blue/10 hover:bg-brand-blue/20 text-brand-blue border border-brand-blue/20", cost: "~$0.02" },
+  { key: "outline",      labelTh: "สร้าง Outline",      requiredStatus: [],                                   lockedReason: "",                                    endpoint: "/api/ai/outline",       icon: LayoutList, color: "bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200", cost: `~${fmtThb(0.01)}` },
+  { key: "article",      labelTh: "เขียนบทความ",        requiredStatus: ["OUTLINE_APPROVED"],                 lockedReason: "ต้อง Approve Outline ก่อน",           endpoint: "/api/ai/article",       icon: PenLine,    color: "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200", cost: `~${fmtThb(0.04)}` },
+  { key: "image-prompt", labelTh: "สร้าง Image Prompt", requiredStatus: ["ARTICLE_DONE","IMAGE_PROMPT_DONE"], lockedReason: "ต้องเขียนบทความเสร็จก่อน",           endpoint: "/api/ai/image-prompt",  icon: Image,      color: "bg-brand-mist hover:bg-brand-blue/10 text-brand-navy border border-gray-200", cost: `~${fmtThb(0.01)}` },
+  { key: "seo-check",    labelTh: "ตรวจ SEO",           requiredStatus: ["ARTICLE_DONE","IMAGE_PROMPT_DONE","SEO_REVIEW","REVISION_REQUIRED","APPROVED","WORDPRESS_DRAFTED","POSTED"], lockedReason: "ต้องเขียนบทความเสร็จก่อน", endpoint: "/api/ai/seo-check", icon: Search, color: "bg-brand-blue/10 hover:bg-brand-blue/20 text-brand-blue border border-brand-blue/20", cost: `~${fmtThb(0.02)}` },
   { key: "wordpress",    labelTh: "ส่ง WordPress Draft", requiredStatus: ["APPROVED"],                        lockedReason: "ต้อง Approve บทความก่อน",             endpoint: "/api/wordpress/draft",  icon: Globe,      color: "bg-white/70 hover:bg-white text-gray-600 border border-gray-200", cost: "free" },
 ];
 
@@ -1186,7 +1187,7 @@ export function ArticleDetailClient({ article, users, currentUser, projectArticl
                     </span>
                     <span className="font-medium text-brand-navy">{job.jobType}</span>
                     <span className="text-gray-400 ml-auto">{job.tokenUsed?.toLocaleString()} tokens</span>
-                    <span className="text-gray-400">${job.estimatedCost?.toFixed(4)}</span>
+                    <span className="text-gray-400">{fmtThb(job.estimatedCost)}</span>
                     <span className="text-gray-400">{formatDate(job.createdAt)}</span>
                   </div>
                 ))}

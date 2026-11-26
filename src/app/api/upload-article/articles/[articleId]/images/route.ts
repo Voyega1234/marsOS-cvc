@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
+import { resolveCeModel } from '@/lib/ce-ai-models-server'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
@@ -21,8 +22,6 @@ import { freshRewriteShadow } from '@/lib/upload-article/rewrite-lock'
 // สร้างรูปหลายภาพขนานกัน ภาพละ ~30-90 วิ — เผื่อเวลาให้พอ ไม่ให้ Vercel ตัดกลางทาง
 export const maxDuration = 800
 
-/** โมเดลรูปล็อกไว้ใน callGeminiImage (ตัวเดียวกับหน้า Clients) — ใช้แค่ลงบันทึก */
-const IMAGE_MODEL_LABEL = 'openai/gpt-image-2.5-flare'
 /** ปก/รูปประกอบแบบภาพล้วน ใช้สัดส่วน 3:2 เท่ากับปกแบบมีตัวหนังสือ */
 const WIDE_W = 1536
 const WIDE_H = 1024
@@ -94,6 +93,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
     resolveContentEngine(orgId, { projectId: ctx.ceScopeId }),
     readPrefs(client.id, orgId),
   ])
+  const imageModel = await resolveCeModel(orgId, ctx.ceScopeId, 'image')
   if (!ce.imagePrompt?.text?.trim()) {
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing: ['Image Prompt'] }, { status: 422 })
   }
@@ -127,6 +127,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
   async function draw(title: string, bullets: string[], subtitle: string) {
     return withOrClient(clientSlug, () => callGeminiImage({
       ...base,
+      model: imageModel,
       title,
       type: withText ? 'cover' : 'mid',
       slot: kind === 'inline' ? 'inline' : 'cover',
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       inputSummary: uaJobInput(client.id),
       jobType,
       modelProvider: 'OPENROUTER',
-      modelName: IMAGE_MODEL_LABEL,
+      modelName: imageModel,
       status,
       tokenUsed: tokens,
       estimatedCost: costUsd,

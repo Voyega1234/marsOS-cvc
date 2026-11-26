@@ -48,6 +48,25 @@ export function normalizeBriefSlug(raw: string): string {
     .slice(0, 80)
 }
 
+export type BriefTableField = 'seoTitle' | 'metaDescription' | 'slug' | 'mainKeyword' | 'longtail'
+
+// ป้ายแถวของตาราง brief — ลำดับคือลำดับที่ extractBriefMeta ใช้ตัดสิน (ตัวแรกที่ตรงชนะ)
+const TABLE_LABELS: Array<[RegExp, BriefTableField]> = [
+  [/^(seo\s*|meta\s*)?title\b/, 'seoTitle'],
+  [/^(meta\s*)?description\b/, 'metaDescription'],
+  [/^(slug|url)\b/, 'slug'],
+  [/^(main(\s*keyword)?|focus\s*keyword)\b/, 'mainKeyword'],
+  [/^long\s*tail/, 'longtail'],
+]
+
+/** ช่องแรกของแถวในตาราง brief เป็นป้ายของช่องไหน (null = ไม่ใช่ป้าย brief) */
+export function briefTableField(label: string): BriefTableField | null {
+  const text = label.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!text) return null
+  for (const [re, field] of TABLE_LABELS) if (re.test(text)) return field
+  return null
+}
+
 /**
  * หาค่าในตาราง brief ทุกตารางของเอกสาร (ป้ายอยู่ช่องแรกของแถว ค่าอยู่ช่องที่ไม่ว่างช่องถัดไป)
  * ป้ายที่รองรับ: Title / Meta Title / Title Count : (Max 70), Description / Meta Description / Description Count,
@@ -67,16 +86,17 @@ export function extractBriefMeta(html: string): DocBriefMeta {
       const label = cellText(cells[0]).toLowerCase()
       const value = cells.slice(1).map((c) => cellText(c)).find(Boolean) || ''
       if (!label || !value) continue
-      if (!out.seoTitle && /^(seo\s*|meta\s*)?title\b/.test(label)) {
+      const field = briefTableField(label)
+      if (field === 'seoTitle' && !out.seoTitle) {
         out.seoTitle = value.slice(0, TITLE_MAX)
-      } else if (!out.metaDescription && /^(meta\s*)?description\b/.test(label)) {
+      } else if (field === 'metaDescription' && !out.metaDescription) {
         out.metaDescription = value.slice(0, DESCRIPTION_MAX)
-      } else if (!out.slug && /^(slug|url)\b/.test(label)) {
+      } else if (field === 'slug' && !out.slug) {
         const slug = normalizeBriefSlug(value)
         if (slug) out.slug = slug
-      } else if (!out.mainKeyword && /^(main(\s*keyword)?|focus\s*keyword)\b/.test(label)) {
+      } else if (field === 'mainKeyword' && !out.mainKeyword) {
         out.mainKeyword = value.slice(0, 200)
-      } else if (!out.longtail && /^long\s*tail/.test(label)) {
+      } else if (field === 'longtail' && !out.longtail) {
         out.longtail = value.slice(0, 500)
       }
     }
@@ -137,6 +157,11 @@ export function parseBriefLine(text: string): { field: BriefListField; value: st
   if (!label || !value) return null
   for (const [re, field] of LIST_LABELS) if (re.test(label)) return { field, value }
   return null
+}
+
+/** ข้อความเป็นหัวก้อน brief ("SEO Metadata", "SEO Brief:") หรือไม่ */
+export function isBriefMarkerText(text: string): boolean {
+  return BRIEF_MARKER_RE.test(text.replace(/\s+/g, ' ').trim())
 }
 
 function isMarkerBlock(el: HTMLElement): boolean {

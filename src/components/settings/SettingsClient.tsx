@@ -19,6 +19,7 @@ import { PageHeader } from "@/components/ds";
 import { useSession } from "@/components/layout/SessionProvider";
 import { ThemeModeSegmented } from "@/components/layout/theme";
 import type { UIMode, Role } from "@/types";
+import { fmtThb } from "@/lib/ai-cost-format";
 
 interface Props {
   org: { id: string; name: string; slug: string; plan: string } | null;
@@ -514,7 +515,7 @@ export function SettingsClient({ org, users, wpConnections, aiStats, currentUser
                       <p className="text-sm text-gray-500">{stat.modelProvider}</p>
                       <p className="text-2xl font-bold text-brand-navy mt-1">{stat._count.id} jobs</p>
                       <p className="text-sm text-gray-600 mt-1">{(stat._sum.tokenUsed ?? 0).toLocaleString()} tokens</p>
-                      <p className="text-lg font-semibold text-green-600">${(stat._sum.estimatedCost ?? 0).toFixed(4)}</p>
+                      <p className="text-lg font-semibold text-green-600">{fmtThb(stat._sum.estimatedCost ?? 0)}</p>
                     </div>
                   ))}
                 </div>

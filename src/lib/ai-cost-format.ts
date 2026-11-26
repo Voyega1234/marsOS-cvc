@@ -1,10 +1,10 @@
-/** จัดรูปตัวเลขของหน้า AI Cost — USD 2 ตำแหน่ง (4 ตำแหน่งเมื่อต่ำกว่า $0.01) มีตัวคั่นหลักพัน */
+/** จัดรูปตัวเลขต้นทุน AI — แสดงเป็นบาท (ข้อมูลจริงเก็บเป็น USD) */
 
+/** อัตราแลกเปลี่ยนคงที่ใช้เพื่อแสดงผลเท่านั้น — ต้องการเปลี่ยนให้แก้ที่นี่ที่เดียว */
 export const USD_TO_THB = 33;
 
 const int = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const usd2 = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const usd4 = new Intl.NumberFormat("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
 const num = (n: number | null | undefined): number => (typeof n === "number" && Number.isFinite(n) ? n : 0);
 
@@ -12,15 +12,22 @@ export function fmtInt(n: number | null | undefined): string {
   return int.format(num(n));
 }
 
-export function fmtUsd(n: number | null | undefined): string {
-  const v = num(n);
-  if (v === 0) return "$0.00";
-  return v < 0.01 ? `$${usd4.format(v)}` : `$${usd2.format(v)}`;
+/** USD → THB (ตัวเลขใน DB/API เป็น USD เสมอ) */
+export function usdToThb(usd: number | null | undefined): number {
+  return num(usd) * USD_TO_THB;
 }
 
+export function thbToUsd(thb: number | null | undefined): number {
+  return num(thb) / USD_TO_THB;
+}
+
+/** รับค่า USD คืนสตริงบาท: 0 → ฿0, <0.01 → <฿0.01, <100 → 2 ตำแหน่ง, อื่นๆ → บาทเต็มมีตัวคั่นหลักพัน */
 export function fmtThb(usd: number | null | undefined): string {
-  const baht = num(usd) * USD_TO_THB;
-  return `฿${baht > 0 && baht < 1 ? usd2.format(baht) : int.format(Math.round(baht))}`;
+  const baht = usdToThb(usd);
+  if (baht === 0) return "฿0";
+  if (baht < 0.01) return "<฿0.01";
+  if (baht < 100) return `฿${usd2.format(baht)}`;
+  return `฿${int.format(Math.round(baht))}`;
 }
 
 export function fmtPct(part: number, total: number): string {

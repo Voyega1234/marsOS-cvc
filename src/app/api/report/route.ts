@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { fmtThb } from "@/lib/ai-cost-format";
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
     <div class="kpi green"><div class="value">${posted}</div><div class="label">บทความ Published</div></div>
     <div class="kpi blue"><div class="value">${articles.length}</div><div class="label">บทความทั้งหมด</div></div>
     <div class="kpi amber"><div class="value">${Math.round(avgAudit) || "—"}</div><div class="label">Avg Audit Score</div></div>
-    <div class="kpi"><div class="value">$${aiCost.toFixed(2)}</div><div class="label">AI Cost</div></div>
+    <div class="kpi"><div class="value">${fmtThb(aiCost)}</div><div class="label">AI Cost</div></div>
   </div>
 
   <div class="section">
@@ -142,7 +143,7 @@ export async function POST(req: NextRequest) {
         <tr><td>Approved (รอ publish)</td><td><strong>${approved}</strong> บทความ</td></tr>
         <tr><td>WordPress Draft</td><td><strong>${drafted}</strong> บทความ</td></tr>
         <tr><td>AI Jobs รันเดือนนี้</td><td><strong>${aiJobs._count.id}</strong> jobs</td></tr>
-        <tr><td>AI Cost เดือนนี้</td><td><strong>$${aiCost.toFixed(4)}</strong></td></tr>
+        <tr><td>AI Cost เดือนนี้</td><td><strong>${fmtThb(aiCost)}</strong></td></tr>
       </tbody>
     </table>
   </div>

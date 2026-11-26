@@ -4,6 +4,7 @@ import { clientCanAccessProject } from '@/lib/client-access'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
+import { resolveCeModel } from '@/lib/ce-ai-models-server'
 import { withOrClient, clientSlugFromProject } from '@/lib/orClient'
 import { resolveImagePalette } from '@/lib/articleTheme'
 import { resolveArticleLanguage } from '@/lib/keyword-language'
@@ -19,8 +20,6 @@ import { UPLOAD_MAX_INLINE_IMAGES } from '@/lib/upload-article/types'
 // สร้างรูปหลายภาพขนานกัน ภาพละ ~30-90 วิ — เผื่อเวลาให้พอ ไม่ให้ Vercel ตัดกลางทาง
 export const maxDuration = 800
 
-/** โมเดลรูปล็อกไว้ใน callGeminiImage (ตัวเดียวกับหน้า Clients) — ใช้แค่ลงบันทึก */
-const IMAGE_MODEL_LABEL = 'openai/gpt-image-2.5-flare'
 /** ปก/รูปประกอบแบบภาพล้วน ใช้สัดส่วน 3:2 เท่ากับปกแบบมีตัวหนังสือ */
 const WIDE_W = 1536
 const WIDE_H = 1024
@@ -96,6 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // Content Engine ของโปรเจกต์นี้เท่านั้น — ไม่มี Image Prompt = หยุด ไม่ใช้ prompt สำรอง
   const ce = await resolveContentEngine(orgId, { projectId: project.id })
+  const imageModel = await resolveCeModel(orgId, project.id, 'image')
   if (!ce.imagePrompt?.text?.trim()) {
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing: ['Image Prompt'] }, { status: 422 })
   }
@@ -129,6 +129,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       try {
         last = await withTimeout(withOrClient(orClient, () => callGeminiImage({
           ...base,
+          model: imageModel,
           title: imgTitle,
           type: withText ? 'cover' : 'mid',
           slot: kind === 'inline' ? 'inline' : 'cover',
@@ -151,7 +152,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       organizationId: orgId, createdById: userId,
       projectId: project.id, articleId: article.id,
       jobType, status,
-      modelProvider: 'OPENROUTER', modelName: IMAGE_MODEL_LABEL,
+      modelProvider: 'OPENROUTER', modelName: imageModel,
       tokenUsed: tokens, estimatedCost: costUsd,
       ...(errorMessage && { errorMessage }),
     } }).catch(() => {})

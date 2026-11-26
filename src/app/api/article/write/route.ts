@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { orChat, orChatStream, OR_MODELS } from '@/lib/openrouter'
+import { orChat, orChatStream } from '@/lib/openrouter'
 import { clientSlugFromProject, withOrClient } from '@/lib/orClient'
 import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
+import { resolveCeModel } from '@/lib/ce-ai-models-server'
+import { STUDIO_SCOPE_KEY } from '@/lib/ce-ai-models'
 import { extractCoverExtras } from '@/lib/cover-extras'
 import { resolveContentEngine, type CEScope } from '@/lib/content-engine-resolve'
 import {
@@ -18,6 +20,9 @@ import {
   type ClientCommentsContext,
 } from '@/lib/ce-client-comments'
 import { checkAgainstComments } from '@/lib/ce-comment-check'
+import { checkAgainstBrief } from '@/lib/ce-brief-check'
+import { BRIEF_MATCH_DEFAULT, briefViolationWarnings, buildBriefRevisePrompt } from '@/lib/ce-brief-match'
+import { isTruncatedFinish } from '@/lib/upload-article/writer'
 import { enforceRestrictions, judgeRelatedProducts, loadClientComments, loadRestrictions } from '@/lib/ce-restrictions-server'
 import { type ArticleElementStyles, buildBrandIdentityBlock, resolveImagePalette } from '@/lib/articleTheme'
 import { MARS_COMPONENT_SPEC, buildArticleCss, wrapArticleHtml, normalizeCtaItems, type ArticleStyleMode, type CtaMode, type CtaCustomDesign, type CtaBanner, type CtaItem } from '@/lib/articleComponents'
@@ -37,7 +42,13 @@ import { boxReferencesSection, structureOptionsFromDetail } from '@/lib/upload-a
 import { citableLibrary, mergeEvidence, prepareReferences, withReadReferences } from '@/lib/upload-article/reference-search'
 
 // Allow up to 5 minutes for article generation (large prompt + long output)
-export const maxDuration = 300
+// 800 (เดิม 300): Validator Pack > Brief Match ต้องมีเวลาให้ตัวเขียนเขียนใหม่เมื่อบทความไม่ตรง Brief
+// ทุกจุดที่เช็คเวลาในไฟล์นี้คิดจากเวลาที่เหลือก่อนเส้นตาย (msLeft) ไม่ใช่เวลาที่ผ่านไป
+export const maxDuration = 800
+/** Validator Pack > Brief Match: เขียนใหม่ได้สูงสุดกี่รอบเมื่อบทความไม่ตรง Brief */
+const BRIEF_MAX_REWRITES = 2
+/** เวลาที่ต้องเหลือไว้ให้ขั้นหลังตรวจ Brief: คำต้องห้าม + Comment + สร้างรูป + บันทึก */
+const BRIEF_RESERVE_MS = 240_000
 
 // Fallback pricing (per 1M tokens) — ใช้เฉพาะตอนที่ OpenRouter ไม่คืน usage.costUsd จริงมาให้
 // (เดิมตั้งราคาแบบ Claude Opus ทั้งที่โมเดลจริงคือ gpt-5.6-sol — ใช้ costUsd จริงจาก orChat/orChatStream ก่อนเสมอ)
@@ -402,7 +413,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 }
 
 // ปกต้องเรียก vision เพิ่ม (Art Director + อ่านข้อความแบรนด์จากภาพอ้างอิง) — 75s เดิมสั้นไป ปกจึงหลุดบ่อย
-// แต่ต้องไม่ล้น maxDuration 300s: แต่ละรอบใช้เวลาเท่าที่เหลือก่อนเส้นตาย (ดู imageDeadlineAt)
+// แต่ต้องไม่ล้น maxDuration: แต่ละรอบใช้เวลาเท่าที่เหลือก่อนเส้นตาย (ดู imageDeadlineAt)
 const IMAGE_TIMEOUT_MS = 120_000
 /** เวลาที่ต้องเหลือไว้หลังสร้างรูป (ฝังรูป + บันทึก DB + ส่ง stream) */
 const IMAGE_TAIL_MS = 25_000
@@ -422,6 +433,8 @@ async function generateGeminiImage(params: {
   coverBullets?: string[]
   /** Reference & Brand assets จาก Content Engine Image Prompt — ให้ภาพในบทความใช้ CI เดียวกับปกที่สั่งจากหน้า UI */
   imageAssets?: Parameters<typeof callGeminiImage>[0]['imageAssets']
+  /** โมเดลรูปที่เลือกใน Content Engine > AI Model */
+  model?: string
   /** ภาษาของข้อความบนปก — ตามภาษาบทความที่ resolve แล้ว */
   language?: 'th' | 'en'
   /** เส้นตายของ request (epoch ms) — ไม่ส่ง = ใช้ IMAGE_TIMEOUT_MS เต็มทุกรอบ */
@@ -446,6 +459,7 @@ async function generateGeminiImage(params: {
         coverSubtitle: params.coverSubtitle ?? '',
         coverBullets: params.coverBullets ?? [],
         imageAssets: params.imageAssets,
+        model: params.model,
         language: params.language ?? 'th',
       }), Math.min(IMAGE_TIMEOUT_MS, left), `gemini-image-${params.type}`)
       if (!result.imageBase64) {
@@ -1001,8 +1015,10 @@ export async function POST(req: NextRequest) {
   }
   const ceScope: CEScope = projectId ? { projectId } : 'studio'
   const requestStartedAt = Date.now()
-  // เส้นตายของการสร้างรูป = maxDuration (300s) ลบกันชน 10s
+  // เส้นตายของการสร้างรูป = maxDuration ลบกันชน 10s
   const imageDeadlineAt = requestStartedAt + (maxDuration - 10) * 1000
+  /** เวลาที่เหลือก่อนชน maxDuration */
+  const msLeft = () => requestStartedAt + maxDuration * 1000 - Date.now()
   // Content Engine > ข้อจำกัด ของ scope เดียวกัน (ไม่มี/Draft = null) — โหลดพร้อม CE
   const [ce, restrictions, clientComments] = await Promise.all([
     resolveContentEngine(orgId, ceScope),
@@ -1153,7 +1169,9 @@ export async function POST(req: NextRequest) {
     articlePrompt += `\n\n==================================================\nADJUST INSTRUCTION (บทความถูกส่ง Adjust — เขียนใหม่ตาม instruction นี้)\n==================================================\n${adjustNote.trim()}\n\nให้เขียนบทความใหม่ทั้งหมด โดยแก้ไขตาม Adjust instruction ด้านบนอย่างเคร่งครัด\n`
   }
 
-  const model = OR_MODELS.writer()
+  const scopeKey = projectId || STUDIO_SCOPE_KEY
+  const model = await resolveCeModel(orgId, scopeKey, body.regenerate === true ? 'regenerate' : 'write')
+  const imageModel = await resolveCeModel(orgId, scopeKey, 'image')
 
   // CSS กลางของบทความ — compile จากค่า Article Lab แบบ deterministic (AI ไม่ทาสีเอง)
   // CTA หลายชุด: class หลัก .content-cta ใช้ค่าของ item แรก (เดิม) + override แบบ scope ต่อ item
@@ -1234,7 +1252,7 @@ export async function POST(req: NextRequest) {
           ctx: writeRestrictions,
           html,
           trace: 'article_write_restrictions',
-          rewrite: Date.now() - requestStartedAt < 150_000,
+          rewrite: msLeft() > 150_000,
           timeoutMs: 45_000,
         }),
       )
@@ -1245,7 +1263,7 @@ export async function POST(req: NextRequest) {
     }
     // ตรวจกับ Comment ลูกค้า แล้วแก้เฉพาะท่อนที่ขัด — เหลือเวลาน้อยให้เตือนแทน
     if (hasClientComments(clientComments)) {
-      if (Date.now() - requestStartedAt < 180_000) {
+      if (msLeft() > 120_000) {
         const checked = await checkAgainstComments({
           comments: clientComments,
           rulesText: constraintBlocks,
@@ -1265,6 +1283,110 @@ export async function POST(req: NextRequest) {
     return { html: next, warnings }
   }
 
+  // Validator Pack > Brief Match: ตรวจบทความเทียบกับ Master Prompt / Article Brief / โครงสร้าง / ข้อจำกัด / Comment
+  // ไม่ตรง = ส่งกลับให้ตัวเขียนเขียนใหม่ทั้งบทความ แล้วตรวจซ้ำ จนผ่านหรือครบรอบ/หมดเวลา
+  // ไม่ทำให้งานล้ม: ตรวจไม่สำเร็จหรือเขียนใหม่ล้ม = ใช้ฉบับล่าสุดที่ใช้ได้ พร้อมคำเตือน
+  const briefMatch = ce.briefMatch ?? BRIEF_MATCH_DEFAULT
+  const matchBrief = async (opts: {
+    /** บทความหลัง sanitize */
+    html: string
+    /** คำตอบดิบของตัวเขียน (ส่งกลับเป็นข้อความ assistant ตอนสั่งเขียนใหม่) */
+    raw: string
+    /** เวลาที่การเขียนรอบแรกใช้ */
+    writeMs: number
+    onStatus?: (message: string) => void
+  }): Promise<{ html: string; warnings: string[]; inputTokens: number; outputTokens: number }> => {
+    let { html, raw, writeMs } = opts
+    let warnings: string[] = []
+    let inputTokens = 0
+    let outputTokens = 0
+    if (!briefMatch.enabled) return { html, warnings, inputTokens, outputTokens }
+    const layers = {
+      masterPrompt: ce.masterPrompt!.text,
+      articleBrief: ce.articleBrief?.text ?? '',
+      restrictions: constraintBlocks || '',
+      task: articlePrompt,
+    }
+    for (let rewrites = 0; ; ) {
+      if (msLeft() < BRIEF_RESERVE_MS + 30_000) {
+        if (!warnings.length) warnings = ['ไม่ได้ตรวจตาม Brief เพราะเวลาไม่พอ กรุณาตรวจเอง']
+        break
+      }
+      opts.onStatus?.(rewrites ? `🔎 ตรวจบทความฉบับเขียนใหม่ตาม Brief (รอบ ${rewrites + 1})...` : '🔎 ตรวจบทความตาม Brief (Validator Pack)...')
+      const verdict = await checkAgainstBrief({
+        criteria: briefMatch.criteria,
+        layers,
+        html,
+        trace: 'article_write_brief_check',
+        client: orClient,
+        timeoutMs: 90_000,
+      })
+      extraCostUsd += verdict.costUsd
+      if (verdict.status === 'error') {
+        warnings = [rewrites ? 'เขียนใหม่ตาม Brief แล้ว แต่ตรวจซ้ำไม่สำเร็จ กรุณาตรวจเอง' : 'ตรวจตาม Brief ไม่สำเร็จ กรุณาตรวจเอง']
+        break
+      }
+      if (verdict.status === 'pass') {
+        warnings = []
+        break
+      }
+      const failed = briefViolationWarnings(verdict.violations)
+      if (rewrites >= BRIEF_MAX_REWRITES) {
+        warnings = [`เขียนใหม่ตาม Brief ครบ ${BRIEF_MAX_REWRITES} รอบแล้วยังไม่ผ่าน กรุณาตรวจเอง`, ...failed]
+        break
+      }
+      if (msLeft() - BRIEF_RESERVE_MS < writeMs * 1.2) {
+        warnings = ['เวลาไม่พอเขียนใหม่ตาม Brief กรุณาตรวจเองหรือกด Re-generate', ...failed]
+        break
+      }
+      rewrites++
+      opts.onStatus?.(`🔁 บทความยังไม่ตรง Brief ${verdict.violations.length} จุด กำลังเขียนใหม่ (รอบ ${rewrites}/${BRIEF_MAX_REWRITES})...`)
+      try {
+        const redoStartedAt = Date.now()
+        const redo = await orChatStream({
+          trace: 'article_write_brief_rewrite',
+          client: orClient,
+          model, maxTokens: 20000,
+          timeoutMs: Math.max(60_000, msLeft() - BRIEF_RESERVE_MS),
+          messages: [
+            { role: 'user', content: articlePrompt },
+            { role: 'assistant', content: raw },
+            { role: 'user', content: buildBriefRevisePrompt(verdict.violations) },
+          ],
+          onDelta: () => {},
+        })
+        inputTokens += redo.usage.inputTokens
+        outputTokens += redo.usage.outputTokens
+        extraCostUsd += redo.usage.costUsd
+        const redoHtml = sanitizeArticleHtml(redo.text)
+        // ฉบับใหม่ต้องไม่ถูกตัดกลางทางและไม่สั้นผิดปกติ ไม่งั้นใช้ฉบับเดิม (ห้ามเอาบทความครึ่งเดียวมาทับ)
+        const usable = !isTruncatedFinish(redo.finishReason)
+          && redoHtml.replace(/<[^>]+>/g, '').trim().length >= 500
+          && redoHtml.length >= html.length * 0.6
+        if (!usable) {
+          warnings = ['เขียนใหม่ตาม Brief ไม่สำเร็จ ใช้ฉบับก่อนหน้า กรุณาตรวจเอง', ...failed]
+          break
+        }
+        html = redoHtml
+        raw = redo.text
+        writeMs = Date.now() - redoStartedAt
+        // ฉบับใหม่ยังไม่ได้ตรวจ — ถ้าหลุดลูปเพราะเวลาหมด ต้องบอกว่าฉบับนี้ยังไม่ผ่านการตรวจซ้ำ
+        warnings = ['เขียนใหม่ตาม Brief แล้ว แต่เวลาไม่พอตรวจซ้ำ กรุณาตรวจเอง']
+      } catch (e) {
+        console.warn('[article/write] เขียนใหม่ตาม Brief ไม่สำเร็จ', e instanceof Error ? e.message : e)
+        const spent = (e as Error & { usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number } }).usage
+        if (spent) {
+          inputTokens += spent.inputTokens ?? 0
+          outputTokens += spent.outputTokens ?? 0
+          extraCostUsd += spent.costUsd ?? 0
+        }
+        warnings = ['เขียนใหม่ตาม Brief ไม่สำเร็จ ใช้ฉบับก่อนหน้า กรุณาตรวจเอง', ...failed]
+        break
+      }
+    }
+    return { html, warnings, inputTokens, outputTokens }
+  }
+
   if (!doStream) {
     const msg = await orChat({
       trace: 'article_write',
@@ -1273,13 +1395,16 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'user', content: articlePrompt }],
     })
     let html = sanitizeArticleHtml(msg.text)
+    const brief = await matchBrief({ html, raw: msg.text, writeMs: Date.now() - requestStartedAt })
+    html = brief.html
     const banned = await enforceBanned(html)
     html = banned.html
+    banned.warnings = [...brief.warnings, ...banned.warnings]
 
     if (orgId && userId) {
       await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
         jobType: 'ARTICLE_WRITE', modelName: model,
-        inputTokens: msg.usage.inputTokens, outputTokens: msg.usage.outputTokens, status: 'COMPLETED',
+        inputTokens: msg.usage.inputTokens + brief.inputTokens, outputTokens: msg.usage.outputTokens + brief.outputTokens, status: 'COMPLETED',
         realCostUsd: msg.usage.costUsd + extraCostUsd })
     }
 
@@ -1289,16 +1414,15 @@ export async function POST(req: NextRequest) {
     const coverExtras = extractCoverExtras(html)
     const [coverResult, ...midResults] = await Promise.all([
       imageSettings.cover
-        ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })
+        ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, model: imageModel, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })
         : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
       ...Array.from({ length: midCount }, () =>
-        generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })),
+        generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, model: imageModel, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })),
     ])
     const midResult = midResults[0]
 
     // Log image generation costs
     if (orgId && userId) {
-      const imageModel = OR_MODELS.image()
       if (coverResult.totalTokens || coverResult.costUsd) {
         await prisma.aIJob.create({ data: {
           organizationId: orgId, createdById: userId,
@@ -1411,12 +1535,23 @@ export async function POST(req: NextRequest) {
       if (fullHtml.replace(/<[^>]+>/g, '').trim().length < 500) {
         throw new Error(`Writer คืนเนื้อหาสั้นผิดปกติ (${fullHtml.length} ตัวอักษรหลัง sanitize) — ตรวจ OpenRouter key/เครดิต แล้วลองใหม่`)
       }
+      const brief = await matchBrief({
+        html: fullHtml,
+        raw: streamed.text,
+        writeMs: Date.now() - requestStartedAt,
+        onStatus: (message) => { send({ type: 'status', step: 'writing', message }) },
+      })
+      fullHtml = brief.html
+      restrictionWarnings = brief.warnings
+      if (brief.warnings.length) {
+        send({ type: 'status', step: 'writing', message: `⚠️ ตรวจตาม Brief: ${brief.warnings[0]}` })
+      }
       if (hasPostWriteChecks()) {
         send({ type: 'status', step: 'writing', message: '🛡️ ตรวจคำต้องห้ามและ Comment ตาม Content Engine...' })
         const banned = await enforceBanned(fullHtml)
         fullHtml = banned.html
         if (banned.warnings.length) {
-          restrictionWarnings = banned.warnings
+          restrictionWarnings = [...brief.warnings, ...banned.warnings]
           send({ type: 'status', step: 'writing', message: `⚠️ ยังมีจุดที่ต้องตรวจ: ${banned.warnings.join(', ')} — แก้เองก่อนเผยแพร่` })
         }
       }
@@ -1425,7 +1560,7 @@ export async function POST(req: NextRequest) {
       if (orgId && userId) {
         await logAIJob({ orgId, userId, projectId: projectId || undefined, articleId: articleId || undefined,
           jobType: 'ARTICLE_WRITE', modelName: model,
-          inputTokens: streamed.usage.inputTokens, outputTokens: streamed.usage.outputTokens, status: 'COMPLETED',
+          inputTokens: streamed.usage.inputTokens + brief.inputTokens, outputTokens: streamed.usage.outputTokens + brief.outputTokens, status: 'COMPLETED',
           realCostUsd: streamed.usage.costUsd + extraCostUsd })
         // Activity log for tracking
         try {
@@ -1449,10 +1584,10 @@ export async function POST(req: NextRequest) {
       send({ type: 'status', step: 'cover', message: `🖼️ กำลังสร้างรูปปกและรูปประกอบ ${midCount} รูป${midCount < midCountRaw && imageSettings.inlineCount === null ? ` (ขอ ${midCountRaw} แต่โครงบทความมีที่ลงรูป ${midCount} จุด)` : ''}...` })
       const [coverResult, ...midResults] = await Promise.all([
         imageSettings.cover
-          ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })
+          ? generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.coverWithText ? 'cover' : 'mid', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.coverWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.coverWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, model: imageModel, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })
           : Promise.resolve({ imageBase64: '', mimeType: 'image/webp', costUsd: 0, totalTokens: 0 }),
         ...Array.from({ length: midCount }, () =>
-          generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })),
+          generateGeminiImage({ client: orClient, keyword, title: safeTitle, type: imageSettings.inlineWithText ? 'cover' : 'mid', slot: 'inline', siteName: resolvedSiteName, brandTone: resolvedBrandTone, accentColor: resolvedColorAccent || resolvedAccentColor, themeColor: resolvedColorTheme, backgroundColor: resolvedColorBackground, textColor: resolvedColorText, imagePromptTemplate: midTemplate, imageStyleGuide: resolvedImageStyleGuide, coverSubtitle: imageSettings.inlineWithText ? coverExtras.subtitle : '', coverBullets: imageSettings.inlineWithText ? coverExtras.bullets : [], imageAssets: ce.imageAssets, model: imageModel, language: effectiveLanguage === 'en' ? 'en' : 'th', deadlineAt: imageDeadlineAt })),
       ])
       const midResult = midResults[0]
       const midOk = midResults.filter(r => r.imageBase64).length
@@ -1461,7 +1596,6 @@ export async function POST(req: NextRequest) {
 
       // Log image generation costs (streaming path)
       if (orgId && userId) {
-        const imageModel = OR_MODELS.image()
         if (coverResult.totalTokens || coverResult.costUsd) {
           prisma.aIJob.create({ data: {
             organizationId: orgId, createdById: userId,

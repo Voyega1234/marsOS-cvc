@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import type { UploadClientDTO } from "@/lib/upload-article/types";
+import { fmtThb } from "@/lib/ai-cost-format";
 
 interface TestImageResponse {
   imageBase64: string;
@@ -165,7 +166,7 @@ export default function TestImageSection({ client }: { client: UploadClientDTO }
                   <dt className="text-gray-400">ภาษาบนภาพ</dt>
                   <dd>{r.meta.language === "en" ? "อังกฤษ" : "ไทย"}</dd>
                   <dt className="text-gray-400">ค่าใช้จ่าย</dt>
-                  <dd>${r.meta.costUsd.toFixed(4)}</dd>
+                  <dd>{fmtThb(r.meta.costUsd)}</dd>
                 </dl>
               ) : (
                 <div className="text-gray-400">ไม่มีข้อมูล meta จากเซิร์ฟเวอร์</div>

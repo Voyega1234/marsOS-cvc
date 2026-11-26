@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { DEFAULT_UPLOAD_IMAGE_DEFAULTS, UPLOAD_MAX_INLINE_IMAGES } from '@/lib/upload-article/types'
 import { readArticleImageSettings } from '@/lib/article-settings'
 import { countSmeGeneratedFigures } from '@/lib/sme-articles/article-images'
+import { fmtThb } from '@/lib/ai-cost-format'
 
 export type SmeArticleUpdate = { id: string; htmlContent: string; coverImageUrl: string | null; coverAlt?: string | null; status?: string }
 
@@ -95,7 +96,7 @@ export default function SmeAiImagesPanel({ articleId, themeColors, html, hasCove
         return
       }
       onUpdated(d.article)
-      const cost = `ต้นทุน $${(Number(d.costUsd) || 0).toFixed(3)}`
+      const cost = `ต้นทุน ${fmtThb(Number(d.costUsd) || 0)}`
       const generated = Number(d.generated) || 0
       const failed = Number(d.failed) || 0
       if (kind === 'cover') toast.success(`สร้างรูปปกแล้ว (${cost})`)

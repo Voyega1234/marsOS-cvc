@@ -23,6 +23,7 @@ import {
 
 import type { SeoCheckCategory, SeoTaskArea, SeoTaskPriority } from "@/lib/seo-check-templates";
 import { notifySeoTaskChange } from "./useSeoTaskSync";
+import { fmtThb } from "@/lib/ai-cost-format";
 
 interface AffectedPage {
   url: string;
@@ -198,7 +199,7 @@ export function SeoScanPanel({ projectId, area, categories, readOnly }: Props) {
       const aiCostUsd = body.aiCostUsd ?? 0;
       const aiErrors: string[] = body.aiErrors ?? [];
       const skippedNote = skipped ? ` · ข้าม ${skipped} งานที่มีอยู่แล้ว` : "";
-      const costNote = aiCostUsd ? ` · ค่า AI $${aiCostUsd.toFixed(4)}` : "";
+      const costNote = aiCostUsd ? ` · ค่า AI ${fmtThb(aiCostUsd)}` : "";
       toast.success(`สร้างงานแล้ว ${count} งาน${skippedNote}${costNote}`);
       if (aiErrors.length > 0) toast.warning(aiErrors[0]);
     } catch (err) {

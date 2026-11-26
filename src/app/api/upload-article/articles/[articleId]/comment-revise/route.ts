@@ -35,7 +35,8 @@ import { isPbnPrefsRaw } from '@/lib/upload-article/pbn'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
 import { bannedTermsOf, buildRestrictionsBlock } from '@/lib/ce-restrictions'
 import { loadRestrictions } from '@/lib/ce-restrictions-server'
-import { orChat, OR_MODELS, type ORUsage } from '@/lib/openrouter'
+import { orChat, type ORUsage } from '@/lib/openrouter'
+import { resolveCeModel } from '@/lib/ce-ai-models-server'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { logAIJob } from '@/lib/logAIJob'
 
@@ -158,7 +159,7 @@ export async function POST(req: NextRequest, { params }: { params: { articleId: 
       articleLanguage: plan.language ?? uploadArticleLanguage(client.language, article.title),
     })
 
-    const model = OR_MODELS.writer()
+    const model = await resolveCeModel(orgId, client.id, 'regenerate')
     const logJob = (status: 'SUCCESS' | 'FAILED', usage: ORUsage | undefined, errorMessage?: string) =>
       logAIJob({
         organizationId: orgId,

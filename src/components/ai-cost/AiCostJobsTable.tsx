@@ -3,7 +3,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Segmented } from "@/components/ds";
-import { fmtInt, fmtUsd } from "@/lib/ai-cost-format";
+import { fmtInt, fmtThb } from "@/lib/ai-cost-format";
 import type { AiCostSort } from "@/lib/ai-cost-filters";
 import type { JobRow } from "@/lib/ai-cost-data";
 
@@ -71,7 +71,7 @@ export function AiCostJobsTable({ jobs, total, page, pageSize, totalPages, sort,
                     <div className="max-w-[120px] truncate" title={j.userName ?? undefined}>{j.userName ?? "—"}</div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs tabular-nums text-gray-600 md:px-4">{j.tokens == null ? "—" : fmtInt(j.tokens)}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-xs text-brand-navy md:px-4">{j.cost > 0 ? fmtUsd(j.cost) : "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-xs text-brand-navy md:px-4">{j.cost > 0 ? fmtThb(j.cost) : "—"}</td>
                   <td className="px-3 py-2.5 md:px-4">
                     <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${st.cls}`} title={j.rawStatus}>{st.label}</span>
                   </td>

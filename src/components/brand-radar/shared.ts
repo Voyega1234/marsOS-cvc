@@ -1,6 +1,7 @@
 /** Brand Radar — client-side helpers shared by every tab (fetch, filters, formatting) */
 import { PROVIDERS, SMALL_SAMPLE_N, answerZone, isProviderKey, parseSchedule, type AnswerMentionFilter, type ProfileDTO, type ProviderKey, type RadarFilters } from '@/lib/brand-radar/types'
 import { wilsonInterval } from '@/lib/brand-radar/metrics'
+import { fmtThb } from '@/lib/ai-cost-format'
 
 /** Printed wherever a metric is null. A null metric is never shown as 0. */
 export const INSUFFICIENT = 'Insufficient Data'
@@ -224,16 +225,16 @@ export function fmtNum(v: number | null | undefined): string {
   return v.toLocaleString('en-US')
 }
 
+/** Input is USD (as stored); output is Thai baht. Name kept so callers stay unchanged. */
 export function fmtUsd(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return NA
-  if (v > 0 && v < 0.01) return `$${v.toFixed(4)}`
-  return `$${v.toFixed(2)}`
+  return fmtThb(v)
 }
 
-/** Cost of a single call: small amounts keep four decimals ($0.0040), where fmtUsd would round them away. */
+/** Input is USD, output is baht per call. Never prints ฿0.00 for a non-zero cost: fmtThb shows "<฿0.01" below one satang. */
 export function fmtUsdPerCall(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return NA
-  return v < 1 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`
+  return fmtThb(v)
 }
 
 const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']

@@ -19,6 +19,7 @@ import { toReadableHtml, shortenDataUris, copyRichText } from "../shared/readabl
 import { requestArticleImages } from "../shared/AiImagesPanel";
 import { ArticleCommentList, CommentDraftBox, useArticleComments } from "../shared/ArticleComments";
 import type { ArticleComment } from "@/lib/upload-article/article-comments";
+import { fmtThb } from "@/lib/ai-cost-format";
 
 const GENERATABLE = new Set(["IMPORTED", "GENERATED", "REVIEWED", "FAILED"]);
 /** สร้างรูปพร้อมกันกี่บทความ (แต่ละบทความใช้ 30-90 วิ) */
@@ -340,7 +341,7 @@ export default function GenerateTab({
     await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, () => worker()));
     setGenerating(false);
     if (commentsOn) void refreshCounts();
-    const costNote = totalCost > 0 ? ` · ค่ารูป $${totalCost.toFixed(3)}` : "";
+    const costNote = totalCost > 0 ? ` · ค่ารูป ${fmtThb(totalCost)}` : "";
     if (okCount === ids.length) toast.success(`Generate สำเร็จ ${okCount}/${ids.length} บทความ${costNote}`);
     else toast.error(`Generate สำเร็จ ${okCount}/${ids.length} บทความ${costNote} — ดูสาเหตุในรายการ`);
   }

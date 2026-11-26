@@ -9,6 +9,7 @@ import {
   BookOpen,
   CheckCircle2,
   ClipboardList,
+  Cpu,
   FileCog,
   FlaskConical,
   History,
@@ -25,6 +26,7 @@ import { CE_RESTRICTION_FILE, parseRestrictionFileMeta } from "@/lib/ce-restrict
 import { SETUP_FLOW, WRITING_FLOW } from "@/lib/ce-run-flow";
 import { cn } from "@/lib/utils";
 import { CONTENT_TYPES } from "./constants";
+import { AiModelsTab } from "./AiModelsTab";
 import { ArticleBriefsTab } from "./ArticleBriefsTab";
 import { BusinessSkillsTab } from "./BusinessSkillsTab";
 import { ImagePromptsTab } from "./ImagePromptsTab";
@@ -52,6 +54,8 @@ interface Props {
   visibleTabs?: TabKey[];
   /** ซ่อนหัวข้อ + แถบสถานะ layer (ผู้เรียกมีการ์ดสถานะของตัวเอง) */
   hideHeader?: boolean;
+  /** แท็บ AI Model: แสดงการ์ดโมเดลของ Translate — เฉพาะ Upload Article ซึ่งมีแท็บ Translate */
+  showTranslateModel?: boolean;
 }
 
 export type TabKey =
@@ -64,7 +68,8 @@ export type TabKey =
   | "validator-packs"
   | "image-prompts"
   | "prompt-composer"
-  | "versions-audit";
+  | "versions-audit"
+  | "ai-models";
 
 /** hint = คำอธิบายภาษาไทยใต้ชื่อแท็บ ให้คนที่ไม่คุ้นศัพท์รู้ว่าแต่ละแท็บคืออะไร */
 const TABS: { key: TabKey; label: string; hint: string; icon: typeof LayoutGrid }[] = [
@@ -78,6 +83,7 @@ const TABS: { key: TabKey; label: string; hint: string; icon: typeof LayoutGrid 
   { key: "image-prompts", label: "Image Prompts", hint: "แม่แบบรูปภาพ", icon: ImageIcon },
   { key: "prompt-composer", label: "Run Test (ทดสอบการเขียน)", hint: "ดูคำสั่งจริงก่อนเขียน", icon: FlaskConical },
   { key: "versions-audit", label: "Versions & Audit", hint: "ประวัติการแก้", icon: History },
+  { key: "ai-models", label: "AI Model", hint: "เลือกโมเดล AI", icon: Cpu },
 ];
 
 /** ชื่อไทยของ layer บนแถบสถานะ */
@@ -101,6 +107,7 @@ const TAB_GROUPS: { label: string; keys: TabKey[] }[] = [
   { label: "คุณภาพและรูป", keys: ["validator-packs", "image-prompts"] },
   { label: "ทดสอบ", keys: ["prompt-composer"] },
   { label: "ประวัติ", keys: ["versions-audit"] },
+  { label: "AI Model", keys: ["ai-models"] },
 ];
 
 /** on = ใช้งาน · inactive = มีแถวแต่ไม่ Active · blocked = อัปไฟล์แต่ layer ปิด · missing = บังคับแต่ไม่มี · off = ไม่ได้ใช้ */
@@ -159,7 +166,7 @@ function countFiles(rows: LayerStatusRow[]): { restrictions: number; comments: n
   return { restrictions, comments };
 }
 
-export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh, tab: tabProp, onTabChange, visibleTabs, hideHeader }: Props) {
+export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh, tab: tabProp, onTabChange, visibleTabs, hideHeader, showTranslateModel }: Props) {
   const router = useRouter();
   const ceTabValues = useMemo<readonly TabKey[]>(() => visibleTabs?.length ? visibleTabs : TABS.map((t) => t.key), [visibleTabs]);
   // ผู้เรียกคุมแท็บเอง (tabProp) = ผู้เรียกเป็นคนจำแท็บใน URL — ตัวนี้ไม่แตะ URL กันเขียนทับกัน
@@ -360,6 +367,7 @@ export function ContentEngineSettingsClient({ items, scope, userRole, onRefresh,
               imagePrompts={imagePrompts}
             />
           )}
+          {tab === "ai-models" && <AiModelsTab scope={scope} canEdit={canEdit} showTranslate={!!showTranslateModel} />}
           {tab === "versions-audit" && <VersionsAuditTab items={items} />}
         </div>
       </div>

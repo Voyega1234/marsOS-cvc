@@ -4,7 +4,8 @@ import { CE_RESTRICTION_FILE, parseRestrictionFileMeta, type RestrictionsContext
 import type { ClientCommentsContext } from "@/lib/ce-client-comments";
 import { loadClientComments, loadRestrictions } from "@/lib/ce-restrictions-server";
 import { resolveContentEngine, type CEScope } from "@/lib/content-engine-resolve";
-import { OR_MODELS } from "@/lib/openrouter";
+import { resolveCeModel } from "@/lib/ce-ai-models-server";
+import { STUDIO_SCOPE_KEY } from "@/lib/ce-ai-models";
 import { buildWriterDryRun, type WriterDryRun, type WriterDryRunInput } from "@/lib/ce-writer-dry-run";
 
 function errorText(e: unknown): string {
@@ -44,5 +45,5 @@ export async function runWriterDryRun(
     }),
     countUploadedFiles(orgId, scope),
   ]);
-  return buildWriterDryRun({ ...task, ce, restrictions, clientComments, uploadedFiles, loadErrors, model: OR_MODELS.writer() });
+  return buildWriterDryRun({ ...task, ce, restrictions, clientComments, uploadedFiles, loadErrors, model: await resolveCeModel(orgId, scope === "studio" ? STUDIO_SCOPE_KEY : scope.projectId, "write") });
 }

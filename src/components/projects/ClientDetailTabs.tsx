@@ -2948,7 +2948,7 @@ function ArticlesTab({
   setJobs: React.Dispatch<React.SetStateAction<ArticleJob[]>>
   autoSchedule: boolean
   onAutoScheduleToggle: (enabled: boolean) => void
-  writeArticleRef: React.MutableRefObject<((idx: number, adjustNote?: string) => void) | null>
+  writeArticleRef: React.MutableRefObject<((idx: number, adjustNote?: string, regenerate?: boolean) => void) | null>
   scheduleDays: Set<number>
   setScheduleDays: (s: Set<number>) => void
   scheduleSelectedEntries: Set<number> | null
@@ -3108,7 +3108,7 @@ function ArticlesTab({
     return () => { cancelled = true; clearInterval(interval) }
   }, [project.id, timeline, writing, jobs])
 
-  async function writeArticle(entryIdx: number, adjustNote?: string) {
+  async function writeArticle(entryIdx: number, adjustNote?: string, regenerate?: boolean) {
     const entry = timeline[entryIdx]
     if (!entry) return
     // กันกดซ้ำ/เรียกซ้อนระหว่างเขียน idx เดิมอยู่
@@ -3162,6 +3162,7 @@ function ArticlesTab({
           // ค่าอื่น (สี/สไตล์/CTA/ลิงก์/ชื่อเว็บ) ไม่ส่งจาก body — route อ่านจาก
           // Project Settings (Article Lab + CE) ใน DB เป็นแหล่งเดียว กันค่า stale จากหน้าจอ
           ...(adjustNote?.trim() && { adjustNote: adjustNote.trim() }),
+          ...(regenerate && { regenerate: true }),
         }),
       })
       if (!res.ok) {
@@ -4757,21 +4758,21 @@ export default function ClientDetailTabs({ project: initialProject, userRole = '
   const [timelineLoaded, setTimelineLoaded] = useState(false)
 
   // Ref to ArticlesTab's writeArticle function so poller can call it
-  const writeArticleRef = useRef<((idx: number, adjustNote?: string) => void) | null>(null)
+  const writeArticleRef = useRef<((idx: number, adjustNote?: string, regenerate?: boolean) => void) | null>(null)
 
   // Review สั่งเขียนใหม่ (Re-generate / เขียนใหม่ตาม Comment) แต่ writeArticle อยู่ในแท็บ Article ที่ mount เฉพาะตอนเปิด
   // → สลับไปแท็บ Article ให้เห็นความคืบหน้า แล้วเริ่มเขียนหลังแท็บพร้อม (effect ลูกตั้ง ref ก่อน effect แม่เสมอ)
-  const pendingRewriteRef = useRef<{ idx: number; note?: string } | null>(null)
+  const pendingRewriteRef = useRef<{ idx: number; note?: string; regenerate?: boolean } | null>(null)
   function requestRewrite(idx: number, note?: string) {
-    if (writeArticleRef.current) { writeArticleRef.current(idx, note); return }
-    pendingRewriteRef.current = { idx, note }
+    if (writeArticleRef.current) { writeArticleRef.current(idx, note, true); return }
+    pendingRewriteRef.current = { idx, note, regenerate: true }
     setTab('articles')
   }
   useEffect(() => {
     const pending = pendingRewriteRef.current
     if (tab !== 'articles' || !pending || !writeArticleRef.current) return
     pendingRewriteRef.current = null
-    writeArticleRef.current(pending.idx, pending.note)
+    writeArticleRef.current(pending.idx, pending.note, pending.regenerate)
     toast.info('กำลังเขียนบทความใหม่ — เสร็จแล้วกลับไปตรวจที่แท็บ Review')
   }, [tab])
 

@@ -13,7 +13,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { clientSlugForProject } from '@/lib/orClient'
-import { OR_MODELS } from '@/lib/openrouter'
+import { resolveCeModel } from '@/lib/ce-ai-models-server'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
 import { loadTitleRestrictions } from '@/lib/ce-restrictions-server'
 import { cleanPlainText } from '@/lib/ce-restrictions'
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
   const orgId = session?.user?.organizationId
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const ce = await resolveContentEngine(orgId, projectId ? { projectId } : 'studio')
+  const imageModel = await resolveCeModel(orgId, projectId || 'studio', 'image')
   if (!ce.imagePrompt) {
     return NextResponse.json({
       error: 'CONTENT_ENGINE_NOT_CONFIGURED',
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest) {
     const withText = effectiveType === 'cover'
     const coverSubtitle = withText ? clean(typeof subtitle === 'string' ? subtitle : '') : ''
     const coverBullets = withText ? (Array.isArray(bullets) ? bullets.filter((b: unknown): b is string => typeof b === 'string').slice(0, 3) : []).map(clean) : []
-    const result = await callGeminiImage({ client: await clientSlugForProject(projectId), keyword, title: coverTitle, type: effectiveType, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets, imageAssets: ce.imageAssets, language: coverLanguage })
+    const result = await callGeminiImage({ client: await clientSlugForProject(projectId), keyword, title: coverTitle, type: effectiveType, siteName, brandTone, accentColor: effectiveAccent, themeColor, backgroundColor, textColor, width, height, promptTemplate: ce.imagePrompt.text, imageStyleGuide, coverSubtitle, coverBullets, imageAssets: ce.imageAssets, language: coverLanguage, model: imageModel })
 
     // Log AI job for cost tracking
     try {
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
             jobType: type === 'mid' ? 'IMAGE_MID' : 'IMAGE_COVER',
             status: 'COMPLETED',
             modelProvider: 'OPENROUTER',
-            modelName: OR_MODELS.image(),
+            modelName: imageModel,
             tokenUsed: result.totalTokens,
             estimatedCost: result.costUsd,
           },

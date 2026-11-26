@@ -53,7 +53,7 @@ const LAYER_THAI: Record<string, string> = {
 };
 
 /** โหมดปกติเห็นแค่แท็บงานประจำ — ที่เหลือ (Master Prompt, Brief, Run Test ฯลฯ) อยู่หลังโหมดขั้นสูง */
-const SIMPLE_TABS: TabKey[] = ["client-comments", "restrictions"];
+const SIMPLE_TABS: TabKey[] = ["client-comments", "restrictions", "ai-models"];
 const ADVANCED_KEY = "mars_ce_advanced";
 
 const LAYER_LABELS: Record<string, string> = {
@@ -565,6 +565,7 @@ export default function UploadContentEngine({ client, userRole, setId }: {
             onTabChange={openCeTab}
             visibleTabs={advanced ? undefined : SIMPLE_TABS}
             hideHeader={!advanced}
+            showTranslateModel={!ceSet}
           />
         </div>
       )}

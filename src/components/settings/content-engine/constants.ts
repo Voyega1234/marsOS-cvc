@@ -1,4 +1,5 @@
 import type { CardConfig, CEStatus, MasterPromptData, RiskLevel, ValidatorConfig } from "./types";
+import { BRIEF_MATCH_DEFAULT_PROMPT, BRIEF_MATCH_ID, BRIEF_MATCH_NAME } from "@/lib/ce-brief-match";
 
 export const STATUS_OPTIONS: CEStatus[] = ["Draft", "In Review", "Active", "Deprecated", "Archived"];
 
@@ -499,6 +500,10 @@ export const DEFAULT_VALIDATORS: ValidatorConfig[] = [
     true,
     true
   ),
+  // Runs as a real check after the article is written (src/lib/ce-brief-check.ts): a draft that
+  // does not match is sent back to the writer for a rewrite. Every pack gets it switched on,
+  // including packs saved before it existed (see readBriefMatchConfig).
+  { ...V(BRIEF_MATCH_ID, BRIEF_MATCH_NAME, 12, BRIEF_MATCH_DEFAULT_PROMPT, true, true), autoFixAllowed: true },
 ];
 
 export const VALIDATOR_OUTPUT_SCHEMA = `{

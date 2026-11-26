@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callGeminiImage } from '@/lib/geminiImage'
 import { resolveContentEngine } from '@/lib/content-engine-resolve'
+import { resolveCeModel } from '@/lib/ce-ai-models-server'
 import { withOrClient, slugifyClient } from '@/lib/orClient'
 import { logAIJob } from '@/lib/logAIJob'
 import { uaJobInput } from '@/lib/upload-article/ai-job-source'
@@ -12,8 +13,6 @@ import { resolveArticleLanguage } from '@/lib/keyword-language'
 // สร้างรูป 1 ภาพ ~30-90 วิ — เผื่อเวลาให้พอ ไม่ให้ Vercel ตัดกลางทาง (เท่ากับ images route)
 export const maxDuration = 300
 
-/** โมเดลรูปล็อกไว้ใน callGeminiImage (ตัวเดียวกับหน้า Clients) — ใช้แค่ลงบันทึก */
-const IMAGE_MODEL_LABEL = 'openai/gpt-image-2.5-flare'
 const WIDE_W = 1536
 const WIDE_H = 1024
 
@@ -40,6 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // Content Engine ของลูกค้านี้เท่านั้น (scope = UploadClient.id) — ไม่มี Image Prompt = หยุด ไม่ใช้ prompt สำรอง
   const ce = await resolveContentEngine(orgId, { projectId: client.id })
+  const imageModel = await resolveCeModel(orgId, client.id, 'image')
   if (!ce.imagePrompt?.text?.trim()) {
     return NextResponse.json({ error: 'CONTENT_ENGINE_NOT_CONFIGURED', missing: ['Image Prompt'] }, { status: 422 })
   }
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       inputSummary: uaJobInput(client!.id),
       jobType: 'UPLOAD_ARTICLE_TEST_IMAGE',
       modelProvider: 'OPENROUTER',
-      modelName: IMAGE_MODEL_LABEL,
+      modelName: imageModel,
       status,
       tokenUsed: tokens,
       estimatedCost: costUsd,
@@ -73,6 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const r = await withOrClient(clientSlug, () => callGeminiImage({
       client: clientSlug,
+      model: imageModel,
       keyword,
       title,
       siteName: client.name,

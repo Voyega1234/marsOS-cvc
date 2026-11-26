@@ -246,6 +246,8 @@ const COVER_SHOTS = [
 let coverShotCursor = Math.floor(Math.random() * COVER_SHOTS.length)
 
 export async function callGeminiImage(params: {
+  /** โมเดลรูปที่เลือกใน Content Engine > AI Model — ไม่ส่ง = OR_MODELS.image() */
+  model?: string
   keyword: string
   title: string
   type: 'cover' | 'mid'
@@ -569,8 +571,8 @@ ${brandStrings.length ? `- BRAND TEMPLATE (hard requirement): the references sha
   // มีภาพอ้างอิงจาก Content Engine → ยิงผ่าน orImageWithRefs (แนบภาพอ้างอิง + โลโก้เป็น input_references)
   // ไม่มี → พฤติกรรมเดิมทุกประการผ่าน orImage
   const result = refImages.length
-    ? await orImageWithRefs({ trace, client, prompt, images: refImages, aspectRatio })
-    : await orImage({ trace, client, prompt, aspectRatio })
+    ? await orImageWithRefs({ trace, client, prompt, images: refImages, aspectRatio, model: params.model })
+    : await orImage({ trace, client, prompt, aspectRatio, model: params.model })
 
   const promptTokens = result.usage.inputTokens
   // รวม token/cost ของ Art Director call (compileImagePrompt) เข้ากับของโมเดลวาดภาพ —
@@ -603,11 +605,11 @@ ${brandStrings.length ? `- BRAND TEMPLATE (hard requirement): the references sha
   const { base64, mimeType, originalKB, compressedKB } =
     await compressToWebP(plateBase64, plateMime, type, width, height)
 
-  console.log(`[image] ${type} via ${OR_MODELS.image()} ${originalKB}KB → ${compressedKB}KB (${Math.round((1 - compressedKB / originalKB) * 100)}% saved)`)
+  console.log(`[image] ${type} via ${params.model || OR_MODELS.image()} ${originalKB}KB → ${compressedKB}KB (${Math.round((1 - compressedKB / originalKB) * 100)}% saved)`)
 
   return {
     imageBase64: base64, mimeType, promptTokens, totalTokens, costUsd,
-    model: OR_MODELS.image(),
+    model: params.model || OR_MODELS.image(),
     referenceImageCount: imageAssets?.referenceImages.length ?? 0,
     logoAttached: Boolean(imageAssets?.logoImage),
   }

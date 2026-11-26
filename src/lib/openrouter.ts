@@ -28,6 +28,12 @@ export const OR_MODELS = {
   keyword: () => process.env.OPENROUTER_MODEL_KEYWORD || 'openai/gpt-5.6-sol',
   image: () => IMAGE_MODEL_LOCKED,
   default: () => process.env.OPENROUTER_MODEL_DEFAULT || 'google/gemini-3.7-flash',
+  /**
+   * Upload Article > Translate (แปล + ตรวจคำแปล) — คำสั่งเจ้าของ 2026-11-26: ใช้ Gemini รุ่นล่าสุดเป็นค่าเริ่มต้น
+   * gemini-4-neon คือ Gemini ตัวใหม่สุดในรายการของ OpenRouter ณ วันนั้น ($3 / $15 ต่อ 1M tokens)
+   * เปลี่ยนรายโปรเจกต์ได้ที่ Content Engine > AI Model
+   */
+  translate: () => process.env.OPENROUTER_MODEL_TRANSLATE || 'google/gemini-4-neon',
 }
 
 /**

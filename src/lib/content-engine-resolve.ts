@@ -11,6 +11,7 @@
 //    Content Engine ก่อน (ดู resolveContentEngine.missing)
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { readBriefMatchConfig, type BriefMatchConfig } from "@/lib/ce-brief-match";
 import { CE_COMPILED_KEY } from "@/lib/ce-compiled-fields";
 import { prisma } from "@/lib/prisma";
 
@@ -45,6 +46,11 @@ export interface ResolvedCE {
   /** Thai labels ของ required layer ที่ขาดไป (scope นี้ใช้งานไม่ได้ถ้ามีรายการ) */
   missing: string[];
   scope: "project" | "studio";
+  /**
+   * Validator Pack > Brief Match (ตรวจบทความหลังเขียนเทียบกับ Brief แล้วให้เขียนใหม่ถ้าไม่ตรง)
+   * อ่านจาก JSON ดิบของ pack ที่ Active — ไม่มีรายการนี้ใน pack = เปิดใช้ด้วยค่า default
+   */
+  briefMatch?: BriefMatchConfig;
 }
 
 // ── render promptText (JSON structured หรือ legacy free text) เป็นข้อความ ──────
@@ -306,5 +312,6 @@ export async function resolveContentEngine(orgId: string, scope: CEScope): Promi
     imageAssets,
     missing,
     scope: isStudio ? "studio" : "project",
+    briefMatch: readBriefMatchConfig(validatorRow?.promptText),
   };
 }

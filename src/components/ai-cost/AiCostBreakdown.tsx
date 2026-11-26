@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { Segmented } from "@/components/ds";
-import { fmtInt, fmtPct, fmtUsd } from "@/lib/ai-cost-format";
+import { fmtInt, fmtPct, fmtThb } from "@/lib/ai-cost-format";
 import type { AiCostFilterKey, AiCostFilters } from "@/lib/ai-cost-filters";
 import type { AiCostView, BreakdownRow } from "@/lib/ai-cost-data";
 
@@ -52,7 +52,7 @@ export function AiCostBreakdown({ breakdown, total, filters, onDrill }: {
               </button>
             </div>
           </td>
-          <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-xs text-brand-navy md:px-4">{fmtUsd(r.cost)}</td>
+          <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-xs text-brand-navy md:px-4">{fmtThb(r.cost)}</td>
           <td className="px-3 py-2.5 md:px-4">
             <div className="flex min-w-[110px] items-center gap-2">
               <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: "var(--chart-track)" }}>
@@ -63,7 +63,7 @@ export function AiCostBreakdown({ breakdown, total, filters, onDrill }: {
           </td>
           <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs tabular-nums text-gray-600 md:px-4">{fmtInt(r.calls)}</td>
           <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs tabular-nums text-gray-600 md:px-4">{fmtInt(r.tokens)}</td>
-          <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-xs text-gray-600 md:px-4">{fmtUsd(r.calls > 0 ? r.cost / r.calls : 0)}</td>
+          <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-xs text-gray-600 md:px-4">{fmtThb(r.calls > 0 ? r.cost / r.calls : 0)}</td>
           <td className={`whitespace-nowrap px-3 py-2.5 text-right text-xs tabular-nums md:px-4 ${r.failed > 0 ? "font-semibold text-red-500" : "text-gray-400"}`}>
             {r.failed > 0 ? `${fmtInt(r.failed)}` : "0"}
           </td>

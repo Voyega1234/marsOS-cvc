@@ -33,6 +33,7 @@ const KeywordTab = dynamic(() => import("@/components/upload-article/tabs/Keywor
 const WriteTab = dynamic(() => import("@/components/upload-article/tabs/WriteTab"), { loading: TabLoading });
 const ImportOutlineTab = dynamic(() => import("@/components/upload-article/tabs/ImportOutlineTab"), { loading: TabLoading });
 const ImportTab = dynamic(() => import("@/components/upload-article/tabs/ImportTab"), { loading: TabLoading });
+const TranslateTab = dynamic(() => import("@/components/upload-article/tabs/TranslateTab"), { loading: TabLoading });
 const GenerateTab = dynamic(() => import("@/components/upload-article/tabs/GenerateTab"), { loading: TabLoading });
 const ReviewTab = dynamic(() => import("@/components/upload-article/tabs/ReviewTab"), { loading: TabLoading });
 const PushTab = dynamic(() => import("@/components/upload-article/tabs/PushTab"), { loading: TabLoading });
@@ -43,18 +44,19 @@ const PbnReportTab = dynamic(() => import("@/components/upload-article/pbn/PbnRe
 const PbnMonitorTab = dynamic(() => import("@/components/upload-article/pbn/PbnMonitorTab").then(m => m.PbnMonitorTab), { loading: TabLoading });
 const UploadGscReportTab = dynamic(() => import("@/components/upload-article/report/UploadGscReportTab"), { loading: TabLoading });
 
-export type TabId = "keyword" | "write" | "import" | "outline" | "generate" | "review" | "push" | "publish" | "index" | "report" | "monitor" | "settings";
+export type TabId = "keyword" | "write" | "import" | "outline" | "translate" | "generate" | "review" | "push" | "publish" | "index" | "report" | "monitor" | "settings";
 
 // Report = GSC ของเว็บลูกค้า (upload ปกติ) หรือ GSC/GA4 แยกตามเว็บ PBN (mode="pbn") — คนละ component กัน
-const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "outline", "generate", "review", "push", "publish", "index", "report"];
+const TAB_ORDER: Exclude<TabId, "settings">[] = ["keyword", "write", "import", "outline", "translate", "generate", "review", "push", "publish", "index", "report"];
 // Monitor = GSC ของเว็บ PBN (เฉพาะหน้า PBN Backlinks ต่อจาก Report)
-const PBN_TAB_ORDER: Exclude<TabId, "settings">[] = [...TAB_ORDER, "monitor"];
+const PBN_TAB_ORDER: Exclude<TabId, "settings">[] = [...TAB_ORDER.filter(t => t !== "translate"), "monitor"];
 
 const TAB_LABELS: Record<Exclude<TabId, "settings">, string> = {
   keyword: "Keyword",
   write: "Write Article",
   import: "Import Article",
   outline: "Import Outline",
+  translate: "Translate",
   generate: "Generate",
   review: "Review",
   push: "Push",
@@ -171,6 +173,12 @@ export default function UploadClientWorkspace({
   const applyArticleUpdate = useCallback((updated: UploadArticleDTO) => {
     setArticleDetails(prev => ({ ...prev, [updated.id]: { ...prev[updated.id], ...updated } }));
     setArticles(prev => prev.map(a => a.id === updated.id ? { ...a, ...updated } : a));
+  }, []);
+
+  /** แถวใหม่จาก Translate — ใส่หัวรายการ (list เรียง updatedAt ใหม่สุดก่อน) + detail cache ไม่ซ้ำ id */
+  const addCreatedArticle = useCallback((created: UploadArticleDTO) => {
+    setArticleDetails(prev => ({ ...prev, [created.id]: { ...prev[created.id], ...created } }));
+    setArticles(prev => prev.some(a => a.id === created.id) ? prev.map(a => a.id === created.id ? { ...a, ...created } : a) : [created, ...prev]);
   }, []);
 
   const removeArticle = useCallback((id: string) => {
@@ -356,6 +364,26 @@ export default function UploadClientWorkspace({
             pbn={isPbn}
           />
         </TabsContent>
+
+        {!isPbn && (
+          <TabsContent value="translate" className="mt-5">
+            <TranslateTab
+              pbn={isPbn}
+              client={client}
+              setClient={setClient}
+              articles={visibleArticles}
+              selected={selected}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
+              loadArticleDetail={loadArticleDetail}
+              articleDetails={articleDetails}
+              applyArticleUpdate={applyArticleUpdate}
+              goToReview={id => goTab("review", id)}
+              onOpenSettings={openSettings}
+              onArticleCreated={addCreatedArticle}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="generate" className="mt-5">
           <GenerateTab

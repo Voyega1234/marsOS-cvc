@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { DEFAULT_VALIDATORS, RISK_OPTIONS, STATUS_OPTIONS, VALIDATOR_OUTPUT_SCHEMA } from "./constants";
+import { BRIEF_MATCH_NAME, readBriefMatchConfig } from "@/lib/ce-brief-match";
 import { LayerScanCard } from "./LayerScanCard";
 import { CompiledPromptPanel, EmptyRow, ErrorBanner, ModeToggle, RawToFormNotice, RiskBadge, SectionCard, StatusBadge, useCERefresh } from "./shared";
 import type { CEMode, CEScope, PromptRow, RiskLevel, ValidatorPackData } from "./types";
@@ -245,7 +246,9 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
           {items.length === 0 && <EmptyRow>ยังไม่มี Validator Pack</EmptyRow>}
           {items.map((item) => {
             const parsed = tryParse<ValidatorPackData>(item.promptText);
-            const enabledCount = parsed?.validators?.filter((v) => v.enabled).length ?? 0;
+            // นับจากรายการ default รวมกับค่าที่บันทึกไว้ — validator ที่เพิ่มทีหลัง (เช่น Brief Match) เปิดใช้เป็นค่าเริ่มต้นแม้ pack เก่ายังไม่มี
+            const storedById = new Map((parsed?.validators ?? []).map((v) => [v.id, v]));
+            const enabledCount = DEFAULT_VALIDATORS.filter((d) => (storedById.get(d.id) ?? d).enabled).length;
             return (
               <button
                 key={item.id}
@@ -262,7 +265,7 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
                     <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">ACTIVE</span>
                   )}
                 </div>
-                <p className="mt-0.5 truncate text-xs text-gray-400">{parsed ? `${enabledCount}/11 validators เปิดใช้งาน` : "—"}</p>
+                <p className="mt-0.5 truncate text-xs text-gray-400">{parsed ? `${enabledCount}/${DEFAULT_VALIDATORS.length} validators เปิดใช้งาน` : "—"}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {parsed && <StatusBadge status={parsed.status} />}
                   {parsed && <RiskBadge risk={parsed.riskScope} />}
@@ -393,6 +396,10 @@ export function ValidatorPacksTab({ items, scope, canEdit }: Props) {
               />
               <p className="mt-2 text-xs text-gray-400">
                 วางเป็นข้อความ prompt ตรงๆ ได้เลย — ระบบใช้ข้อความนี้ตามลำดับ layer ตอน compile
+              </p>
+              {/* A free-text pack has no per-validator switches, so say what runs after writing. */}
+              <p className="mt-1 text-xs text-gray-500">
+                {BRIEF_MATCH_NAME}: {readBriefMatchConfig(draft.rawText).enabled ? "เปิดอยู่" : "ปิดอยู่"} — หลังเขียนเสร็จ ระบบตรวจว่าบทความตรง Master Prompt, Article Brief, Template, ข้อจำกัด และ Comment ไม่ตรงจะส่งกลับไปเขียนใหม่ (จะปิดหรือแก้เกณฑ์ ให้ใช้โหมดกรอกฟอร์ม)
               </p>
             </div>
           ) : (
