@@ -36,8 +36,8 @@ const WHEN_MONTH = "คำนวณใหม่ทุกครั้งที่
 
 const HELP = {
   visibility: {
-    what: "สัดส่วนคำถาม (prompt) ที่ AI ดึง URL นี้ไปตอบอย่างน้อย 1 คำตอบ",
-    how: "คำถามที่มีคำตอบอ้างอิง URL นี้ ÷ คำถามทั้งหมดที่มีคำตอบในช่วงที่เลือก",
+    what: "สัดส่วนคำตอบ AI ทั้งหมดที่ดึง URL นี้ไปใช้",
+    how: "คำตอบที่ดึง URL นี้ ÷ คำตอบทั้งหมดในช่วงที่เลือก",
     when: WHEN_FILTER,
   },
   citation: {
@@ -222,7 +222,7 @@ function UrlGradeTile({ g }: { g: ScoreGrade }) {
 const MONTH_ROWS: Array<{ key: string; label: string; kind: RowKind; get: (m: UrlMonthStat) => number | null; help: HelpText }> = [
   {
     key: "visibility", label: "Visibility", kind: "rate", get: (m) => m.visibility,
-    help: { what: HELP.visibility.what, how: "คำถามที่มีคำตอบอ้างอิง URL นี้ ÷ คำถามทั้งหมดที่มีคำตอบของเดือนนั้น (ทุกแพลตฟอร์ม)", when: WHEN_MONTH },
+    help: { what: HELP.visibility.what, how: "คำตอบที่ดึง URL นี้ ÷ คำตอบทั้งหมดของเดือนนั้น (ทุกแพลตฟอร์ม)", when: WHEN_MONTH },
   },
   {
     key: "citation", label: "AI Citation", kind: "rate", get: (m) => m.citationRate,
@@ -582,7 +582,7 @@ function UrlReportView({ report, onOpenAnswer }: { report: UrlReport; onOpenAnsw
           {neverCited && <p className={NOTE}>ยังไม่มีคำตอบ AI ที่ดึง URL นี้ไปตอบในช่วงที่เลือก</p>}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiTile tone="blue" label={<ColumnHelp help={HELP.visibility} align="start">Visibility</ColumnHelp>}
-              value={pct(totals.visibility)} hint={`${fmtNum(totals.citingPrompts)} จาก ${fmtNum(totals.prompts)} คำถาม`} />
+              value={pct(totals.visibility)} hint={`${fmtNum(totals.citingAnswers)} จาก ${fmtNum(totals.answers)} คำตอบ`} />
             <KpiTile tone="sky" label={<ColumnHelp help={HELP.citation} align="start">AI Citation</ColumnHelp>}
               value={pct(totals.citationRate)} hint={`${fmtNum(totals.citingAnswers)} จาก ${fmtNum(totals.answers)} คำตอบ`} />
             <KpiTile tone="mist" label={<ColumnHelp help={HELP.mention} align="start">Brand Mention</ColumnHelp>}

@@ -128,7 +128,7 @@ function totalsOf(responses: RespRow[], matched: Matched): UrlTotals {
     brandMentionRate: rate(brandMentioned, citingRows.length),
     prompts: prompts.size,
     citingPrompts: citingPrompts.size,
-    visibility: rate(citingPrompts.size, prompts.size),
+    visibility: rate(citingRows.length, responses.length),
     avgPlace: mean(placesOf(matched.citations)),
     lastCitedAt: iso(last),
   }
@@ -319,7 +319,7 @@ export function buildUrlMonthStats(rows: UrlMonthRow[]): UrlMonthStat[] {
       asked: a.asked,
       cited: a.cited,
       citationRate: rate(a.cited, a.asked),
-      visibility: rate(a.citingPrompts.size, a.prompts.size),
+      visibility: rate(a.cited, a.asked),
       brandMentionRate: rate(a.brandMentioned, a.cited),
       avgPlace: a.placeCount > 0 ? a.placeSum / a.placeCount : null,
     }))

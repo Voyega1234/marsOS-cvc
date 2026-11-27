@@ -152,7 +152,7 @@ const url = mon('u1', 'example.com/page')
   const t = report.totals
   eq([t.answers, t.citingAnswers, t.citationRate], [6, 3, 0.5], 'N, C, AI Citation')
   eq([t.brandMentioned, t.brandMentionRate], [3, 1], 'B, Brand Mention')
-  eq([t.prompts, t.citingPrompts, t.visibility], [2, 2, 1], 'P, K, Visibility')
+  eq([t.prompts, t.citingPrompts, t.visibility], [2, 2, 0.5], 'P, K, Visibility = C / N')
   eq(t.avgPlace, 2, 'avgPlace = mean of (position + 1)')
   eq(t.lastCitedAt, '2026-11-10T04:00:00.000Z', 'lastCitedAt = newest citing answer')
 
@@ -173,7 +173,7 @@ const url = mon('u1', 'example.com/page')
 
   eq(report.scans.length, 2, 'one scan per run')
   const pick = (s: (typeof report.scans)[number]) => [s.runId, s.date, s.asked, s.cited, s.citationRate, s.prompts, s.citingPrompts, s.visibility, s.brandMentioned, s.brandMentionRate, s.avgPlace]
-  eq(pick(report.scans[0]), ['r1', '2026-10-10T03:00:00.000Z', 4, 2, 0.5, 2, 2, 1, 2, 1, 2], 'scan r1')
+  eq(pick(report.scans[0]), ['r1', '2026-10-10T03:00:00.000Z', 4, 2, 0.5, 2, 2, 0.5, 2, 1, 2], 'scan r1')
   eq(pick(report.scans[1]), ['r2', '2026-11-10T03:00:00.000Z', 2, 1, 0.5, 2, 1, 0.5, 1, 1, 2], 'scan r2')
 
   eq(report.pages, [{ url: 'https://example.com/page', title: 'Page title', answers: 3 }], 'pages: exact mode, title taken from any citation')
@@ -269,8 +269,8 @@ function mrow(startedAt: string, asked: number, cited: number, bm: number, place
     mrow('2026-09-15T05:00:00Z', 4, 0, 0, 0, 0, ['p1'], []),
   ])
   eq(stats.map((s) => s.month), ['2026-09', '2026-10', '2026-11'], 'months ascending, two Bangkok months aggregate separately')
-  eq(stats[1], { month: '2026-10', scans: 2, asked: 20, cited: 6, citationRate: 0.3, visibility: 2 / 3, brandMentionRate: 0.5, avgPlace: 2 }, 'October aggregates both rounds; a prompt in two rounds counts once')
-  eq(stats[2], { month: '2026-11', scans: 1, asked: 5, cited: 1, citationRate: 0.2, visibility: 1, brandMentionRate: 1, avgPlace: 3 }, 'round with asked 0 is skipped')
+  eq(stats[1], { month: '2026-10', scans: 2, asked: 20, cited: 6, citationRate: 0.3, visibility: 0.3, brandMentionRate: 0.5, avgPlace: 2 }, 'October aggregates both rounds; visibility = cited / asked')
+  eq(stats[2], { month: '2026-11', scans: 1, asked: 5, cited: 1, citationRate: 0.2, visibility: 0.2, brandMentionRate: 1, avgPlace: 3 }, 'round with asked 0 is skipped')
   eq([stats[0].citationRate, stats[0].visibility, stats[0].brandMentionRate, stats[0].avgPlace], [0, 0, null, null], 'September: 0 only where computable')
   eq(buildUrlMonthStats([]), [], 'no rows')
   eq(buildUrlMonthStats([mrow('2026-10-15T05:00:00Z', 0, 0, 0, 0, 0, [], [])]), [], 'only empty rounds')

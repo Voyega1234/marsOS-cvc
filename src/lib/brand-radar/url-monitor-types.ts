@@ -6,7 +6,7 @@
  * Counting rule for one monitored URL, inside the page filters:
  *   N = collected answers, C = answers that cite the URL, B = answers in C that also name the brand,
  *   P = prompts with at least one answer, K = prompts with at least one answer in C.
- *   AI Citation = C / N · Brand Mention = B / C · Visibility = K / P.
+ *   AI Citation = C / N · Brand Mention = B / C · Visibility = C / N (answers that pull the URL out of all answers).
  * A number that cannot be computed is null, never 0.
  */
 import type { ScoreGrade } from './scorecard-types'
