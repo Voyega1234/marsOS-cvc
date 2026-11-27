@@ -35,11 +35,6 @@ const WHEN_FILTER = "คำนวณใหม่ทุกครั้งที�
 const WHEN_MONTH = "คำนวณใหม่ทุกครั้งที่เปิดหน้า และเปลี่ยนเมื่อมีการสแกนรอบใหม่ ไม่ขึ้นกับตัวกรองด้านบน";
 
 const HELP = {
-  visibility: {
-    what: "สัดส่วนคำตอบ AI ทั้งหมดที่ดึง URL นี้ไปใช้",
-    how: "คำตอบที่ดึง URL นี้ ÷ คำตอบทั้งหมดในช่วงที่เลือก",
-    when: WHEN_FILTER,
-  },
   citation: {
     what: "สัดส่วนคำตอบ AI ที่ใช้ URL นี้เป็นแหล่งอ้างอิง",
     how: "คำตอบที่อ้างอิง URL นี้ ÷ คำตอบทั้งหมดในช่วงที่เลือก",
@@ -221,10 +216,6 @@ function UrlGradeTile({ g }: { g: ScoreGrade }) {
 
 const MONTH_ROWS: Array<{ key: string; label: string; kind: RowKind; get: (m: UrlMonthStat) => number | null; help: HelpText }> = [
   {
-    key: "visibility", label: "Visibility", kind: "rate", get: (m) => m.visibility,
-    help: { what: HELP.visibility.what, how: "คำตอบที่ดึง URL นี้ ÷ คำตอบทั้งหมดของเดือนนั้น (ทุกแพลตฟอร์ม)", when: WHEN_MONTH },
-  },
-  {
     key: "citation", label: "AI Citation", kind: "rate", get: (m) => m.citationRate,
     help: { what: HELP.citation.what, how: "คำตอบที่อ้างอิง URL นี้ ÷ คำตอบทั้งหมดของเดือนนั้น ส่วนต่างแสดงเป็นจุดเปอร์เซ็นต์", when: WHEN_MONTH },
   },
@@ -353,7 +344,6 @@ interface ScanMetric {
 }
 
 const SCAN_METRICS: ScanMetric[] = [
-  { key: "visibility", label: "Visibility", kind: "rate", get: (s) => s.visibility, show: (s) => pct(s.visibility), help: HELP.visibility },
   { key: "citation", label: "AI Citation", kind: "rate", get: (s) => s.citationRate, show: (s) => pct(s.citationRate), help: HELP.citation },
   {
     key: "cited", label: "คำตอบที่ดึง", kind: "count", get: (s) => s.cited, show: (s) => `${fmtNum(s.cited)} คำตอบ`,
@@ -385,7 +375,7 @@ function UrlScanPanel({ scans }: { scans: UrlScanPoint[] }) {
   return (
     <Panel title="Scan Progress" subtitle="AI ดึง URL นี้ไปตอบมากขึ้นหรือน้อยลงในแต่ละรอบสแกน เทียบกับรอบก่อนหน้า">
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           {SCAN_METRICS.map((m) => (
             <div key={m.key} className={TILE}>
               <div className="truncate text-xs text-gray-500">{m.label}</div>
@@ -404,9 +394,8 @@ function UrlScanPanel({ scans }: { scans: UrlScanPoint[] }) {
             height={240}
             showLegend
             formatValue={(n) => `${Math.round(n)}%`}
-            ariaLabel="กราฟ Visibility, AI Citation และ Brand Mention ของ URL นี้ในแต่ละรอบสแกน"
+            ariaLabel="กราฟ AI Citation และ Brand Mention ของ URL นี้ในแต่ละรอบสแกน"
             series={[
-              { name: "Visibility", points: scans.map((s) => ({ label: s.label, value: toPct(s.visibility) })) },
               { name: "AI Citation", points: scans.map((s) => ({ label: s.label, value: toPct(s.citationRate) })) },
               { name: "Brand Mention", points: scans.map((s) => ({ label: s.label, value: toPct(s.brandMentionRate) })) },
             ]}
@@ -580,9 +569,7 @@ function UrlReportView({ report, onOpenAnswer }: { report: UrlReport; onOpenAnsw
             {totals.lastCitedAt && <span className="text-xs text-gray-500">ดึงล่าสุด {fmtDate(totals.lastCitedAt)}</span>}
           </div>
           {neverCited && <p className={NOTE}>ยังไม่มีคำตอบ AI ที่ดึง URL นี้ไปตอบในช่วงที่เลือก</p>}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <KpiTile tone="blue" label={<ColumnHelp help={HELP.visibility} align="start">Visibility</ColumnHelp>}
-              value={pct(totals.visibility)} hint={`${fmtNum(totals.citingAnswers)} จาก ${fmtNum(totals.answers)} คำตอบ`} />
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
             <KpiTile tone="sky" label={<ColumnHelp help={HELP.citation} align="start">AI Citation</ColumnHelp>}
               value={pct(totals.citationRate)} hint={`${fmtNum(totals.citingAnswers)} จาก ${fmtNum(totals.answers)} คำตอบ`} />
             <KpiTile tone="mist" label={<ColumnHelp help={HELP.mention} align="start">Brand Mention</ColumnHelp>}
